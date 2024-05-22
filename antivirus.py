@@ -20,6 +20,8 @@ import tarfile
 import yara
 import psutil
 from concurrent.futures import ThreadPoolExecutor
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
 script_dir = os.getcwd()
@@ -31,6 +33,14 @@ if not os.path.exists(config_folder_path):
 
 user_preference_file = os.path.join(config_folder_path, "user_preference.json")
 quarantine_file_path = os.path.join(config_folder_path, "quarantine.json")
+
+# Get the root directory of the system drive based on the platform
+if platform.system() == "Windows":
+    folder_to_watch = "C:\\"  # Example: C:\ on Windows but hardcoded
+elif platform.system() in ["Linux", "FreeBSD", "Darwin"]:
+    folder_to_watch = "/"     # Root directory on Linux, FreeBSD, and macOS
+else:
+    folder_to_watch = "/"     # Default to root directory on other platforms
 
 def load_quarantine_data():
     if os.path.exists(quarantine_file_path):
@@ -133,7 +143,8 @@ def load_preferences():
         default_preferences = {
             "use_machine_learning": True,
             "use_clamav": True,
-            "use_yara": True
+            "use_yara": True,
+            "real_time_protection": False
         }
         save_preferences(default_preferences)
         return default_preferences
@@ -267,6 +278,160 @@ def scan_file_with_clamd(file_path):
     else:
         print(f"Unexpected clamdscan output: {clamd_output}")
         return "Clean"
+
+def kill_malicious_process(file_path):
+    try:
+        process_list = psutil.process_iter()
+        for process in process_list:
+            try:
+                process_exe = process.exe()
+                if process_exe and file_path == process_exe:
+                    process.kill()
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+    except Exception as e:
+        print(f"Error while terminating malicious process: {e}")
+
+def monitor_preferences():
+    while True:
+        if preferences["real_time_protection"] and not real_time_observer.is_started:
+            real_time_observer.start()
+            print("Real-time protection is now enabled.")
+        elif not preferences["real_time_protection"] and real_time_observer.is_started:
+            real_time_observer.stop()
+            print("Real-time protection is now disabled.")
+
+def scan_file_real_time(file_path):
+    """Scan file in real-time using multiple engines."""
+    result = ""
+    virus_name = ""
+
+    if preferences["use_clamav"]:
+        result = scan_file_with_clamd(file_path)
+        if result == "Clean":
+            return False, ""
+        virus_name = result if result != "Clean" else ""
+
+    if preferences["use_yara"]:
+        yara_result = AntivirusUI().yara_scanner.static_analysis(file_path)
+        if yara_result == "Clean":
+            return False, ""
+        if yara_result and isinstance(yara_result, list):
+            result = ', '.join(yara_result)
+            virus_name = result
+        elif isinstance(yara_result, str):
+            result = yara_result
+            virus_name = yara_result
+
+    if preferences["use_machine_learning"]:
+        is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path, malicious_file_names_data, malicious_numeric_features_data, benign_numeric_features_data)
+        if is_malicious:
+            result = malware_definition
+            virus_name = malware_definition
+
+    if result:
+        return True, virus_name
+    else:
+        return False, ""
+
+class RealTimeProtectionHandler(FileSystemEventHandler):
+    def __init__(self):
+        super().__init__()
+
+    def on_any_event(self, event):
+        if event.is_directory:
+            print(f"Folder changed: {event.src_path}")
+            self.scan_folder(event.src_path)
+        else:
+            file_path = event.src_path
+            if event.event_type == 'created':
+                print(f"File created: {file_path}")
+                if self.is_file_in_use(file_path):
+                    self.scan_and_quarantine(file_path)
+                else:
+                    pass
+            elif event.event_type == 'modified':
+                print(f"File modified: {file_path}")
+                if self.is_file_in_use(file_path):
+                    self.scan_and_quarantine(file_path)
+                else:
+                    pass
+            elif event.event_type == 'moved':
+                src_path = event.src_path
+                dest_path = event.dest_path
+                print(f"File moved from {src_path} to {dest_path}")
+                if self.is_file_in_use(src_path) or self.is_file_in_use(dest_path):
+                    self.scan_and_quarantine(src_path)  # Scan the source path
+                    self.scan_and_quarantine(dest_path) # Scan the destination path
+                else:
+                    pass
+
+    def is_file_in_use(self, file_path):
+        # Check if the file is being used by any process
+        for proc in psutil.process_iter(['pid', 'name', 'exe']):
+            try:
+                if file_path == proc.exe():
+                    return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+        return False
+
+    def is_folder_in_use(self, folder_path):
+        # Check if the folder is being used by any process
+        for proc in psutil.process_iter(['pid', 'name', 'cwd']):
+            try:
+                if folder_path == proc.cwd():
+                    return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+        return False
+
+    def scan_folder(self, folder_path):
+        # Check if the folder is in use by any process
+        if not self.is_folder_in_use(folder_path):
+            print(f"Folder {folder_path} is not in use by any process, skipped scanning.")
+            return
+        
+        # Scan files that are not in use by any process
+        files = [f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))]
+        for file in files:
+            file_path = os.path.join(folder_path, file)
+            if not self.is_file_in_use(file_path):
+                self.scan_and_quarantine(file_path)
+
+    def scan_and_quarantine(self, file_path):
+        print(f"Scanning file: {file_path}")
+        is_malicious, virus_name = scan_file_real_time(file_path)
+        if is_malicious:
+            print(f"File {file_path} is malicious. Virus: {virus_name}")
+            kill_malicious_process(file_path)
+            quarantine_file(file_path, virus_name)
+
+class RealTimeProtectionObserver:
+    def __init__(self, folder_to_watch):
+        self.event_handler = RealTimeProtectionHandler()
+        self.observer = Observer()
+        self.is_started = False  # Initialize is_started attribute
+        self.is_initialized = False
+
+    def start(self):
+        if not self.is_initialized:
+            self.observer.schedule(self.event_handler, path=folder_to_watch, recursive=True)
+            self.is_initialized = True
+        if not self.is_started:
+            self.observer.start()
+            self.is_started = True
+            print("Observer started")
+
+    def stop(self):
+        if self.is_started:
+            self.observer.stop()
+            self.observer.join()
+            self.is_started = False
+            print("Observer stopped")
+
+# Create the real-time observer with the system drive as the monitored directory
+real_time_observer = RealTimeProtectionObserver(folder_to_watch)
 
 class YaraScanner:
     def scan_data(self, data):
@@ -547,6 +712,7 @@ class AntivirusUI(QWidget):
             preferences["use_machine_learning"] = preferences_dialog.use_machine_learning_checkbox.isChecked()
             preferences["use_clamav"] = preferences_dialog.use_clamav_checkbox.isChecked()
             preferences["use_yara"] = preferences_dialog.use_yara_checkbox.isChecked()
+            preferences["real_time_protection"] = preferences_dialog.real_time_protection_checkbox.isChecked()
             save_preferences(preferences)
 
     def manage_quarantine(self):
@@ -578,12 +744,33 @@ class PreferencesDialog(QDialog):
         self.use_machine_learning_checkbox.setChecked(preferences["use_machine_learning"])
         layout.addWidget(self.use_machine_learning_checkbox)
         
+        self.real_time_protection_checkbox = QCheckBox("Limited Real-Time Protection")
+        self.real_time_protection_checkbox.setChecked(preferences["real_time_protection"])
+        self.real_time_protection_checkbox.stateChanged.connect(self.toggle_real_time_protection)
+        layout.addWidget(self.real_time_protection_checkbox)
+
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
 
         self.setLayout(layout)
+
+    def toggle_real_time_protection(self, state):
+        if state == Qt.Checked:
+            self.start_real_time_protection()
+        else:
+            self.stop_real_time_protection()
+
+    def start_real_time_protection(self):
+        global real_time_observer
+        real_time_observer = RealTimeProtectionObserver(folder_to_watch)
+        real_time_observer.start()
+
+    def stop_real_time_protection(self):
+        global real_time_observer
+        if real_time_observer and real_time_observer.is_started:
+            real_time_observer.stop()
 
 class QuarantineManager(QDialog):
     def __init__(self, parent=None):
@@ -658,9 +845,13 @@ class QuarantineManager(QDialog):
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to restore file: {str(e)}")
         save_quarantine_data(quarantine_data)
-
+        
 if __name__ == "__main__":
     try:
+        # Create a thread for monitoring preferences
+        preferences_thread = threading.Thread(target=monitor_preferences)
+        preferences_thread.daemon = True  # Daemonize the thread so it exits when the main thread exits
+        preferences_thread.start()
         app = QApplication(sys.argv)
         main_gui = AntivirusUI()
         main_gui.folder_scan_finished.connect(main_gui.show_scan_finished_message)
