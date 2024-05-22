@@ -171,6 +171,7 @@ print("Machine Learning AI Signatures loaded!")
 try:
     # Load the precompiled rules from the .yrc file
     compiled_rule = yara.load(os.path.join(yara_folder_path, "compiled_rule.yrc"))
+    pyas_rule_path = yara.load(os.path.join(yara_folder_path, "PYAS.yrc"))
     print("YARA Rules Definitions loaded!")
 except yara.Error as e:
     print(f"Error loading precompiled YARA rule: {e}")
@@ -270,12 +271,23 @@ def scan_file_with_clamd(file_path):
 class YaraScanner:
     def scan_data(self, data):
         matched_rules = []
-        if compiled_rule:
-            matches = compiled_rule.match(data=data)
+        
+        # Check matches for compiled_rule
+        if self.compiled_rule:
+            matches = self.compiled_rule.match(data=data)
             if matches:
                 for match in matches:
-                    if match.rule not in excluded_rules:
+                    if match.rule not in self.excluded_rules:
                         matched_rules.append(match.rule)
+
+        # Check matches for pyas_rule
+        if self.pyas_rule:
+            matches = self.pyas_rule.match(data=data)
+            if matches:
+                for match in matches:
+                    if match.rule not in self.excluded_rules:
+                        matched_rules.append(match.rule)
+
         return matched_rules
 
     def static_analysis(self, file_path):
