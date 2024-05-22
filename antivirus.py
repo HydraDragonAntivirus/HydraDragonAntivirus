@@ -273,19 +273,19 @@ class YaraScanner:
         matched_rules = []
         
         # Check matches for compiled_rule
-        if self.compiled_rule:
-            matches = self.compiled_rule.match(data=data)
+        if compiled_rule:
+            matches = compiled_rule.match(data=data)
             if matches:
                 for match in matches:
-                    if match.rule not in self.excluded_rules:
+                    if match.rule not in excluded_rules:
                         matched_rules.append(match.rule)
 
         # Check matches for pyas_rule
-        if self.pyas_rule:
-            matches = self.pyas_rule.match(data=data)
+        if  pyas_rule:
+            matches = pyas_rule.match(data=data)
             if matches:
                 for match in matches:
-                    if match.rule not in self.excluded_rules:
+                    if match.rule not in excluded_rules:
                         matched_rules.append(match.rule)
 
         return matched_rules
