@@ -1,0 +1,6 @@
+yara-python
+joblib
+scikit-learn
+pefile
+psutil
+PySide6

@@ -1,0 +1,5 @@
+{
+    "use_machine_learning": true,
+    "use_clamav": true,
+    "use_yara": true
+}
