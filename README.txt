@@ -7,7 +7,7 @@ Also do the update definitions yourself, it's just a cross-platform interface fo
 Don't forget to install the modules via pip with requriements.txt and don't forget to compile the python script yourself.
 Please don't use hash signatures as they are easily bypassed and take up too much space.
 Also, don't forget to add ClamAV's clamdscan to the console so that the program can be run with just the clamdscan command on Windows, Linux, MacOS, FreeBSD, etc.
-compiled_rule.yrc source code: https://sourceforge.net/p/xylent/git/ci/master/tree/backend/rules/yara I have just compiled the largest file.
+compiled_rule.yrc source code: https://sourceforge.net/p/xylent/git/ci/master/tree/backend/rules/yara I have just compiled the largest file or you can look compiled_rule.yar.
 I recommend killing malicious processes first, then using quarantine, delete or something. For Windows, first install clamav from clamav.net/downloads
 Then add C:\Program Files\ClamAV to the terminal, as this script uses ClamAV directly from the terminal, then run the script to use it. Don't quarantine any files during the scan.
 Also install Python from python.org Note: If you can't add ClamAV to the console on Windows etc, then copy it to the ClamAV folder
