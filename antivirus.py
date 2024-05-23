@@ -495,7 +495,11 @@ class RealTimeWebProtectionHandler:
             print("Destination IP:", ip_packet.dst)
 
             try:
-                domain = sr1(IP(dst=ip_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ip_address)), verbose=False)[DNS].an.rdata.decode()
+                response = sr1(IP(dst=ip_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ip_address)), verbose=False)
+                if response and DNS in response and response[DNS].an:
+                    domain = response[DNS].an.rdata.decode()
+                else:
+                    domain = "No rdata available"
                 scan_domain_and_subdomains(domain)
                 print("Associated Domain:", domain)
             except Exception as e:
@@ -515,7 +519,11 @@ class RealTimeWebProtectionHandler:
             print("Destination IPv6:", ipv6_packet.dst)
 
             try:
-                domain = sr1(IPv6(dst=ipv6_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ipv6_address)), verbose=False)[DNS].an.rdata.decode()
+                response = sr1(IPv6(dst=ipv6_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ipv6_address)), verbose=False)
+                if response and DNS in response and response[DNS].an:
+                    domain = response[DNS].an.rdata.decode()
+                else:
+                    domain = "No rdata available"
                 scan_domain_and_subdomains(domain)
                 print("Associated Domain:", domain)
             except Exception as e:
