@@ -19,9 +19,11 @@ import zipfile
 import tarfile
 import yara
 import psutil
+from notifypy import Notify
 from concurrent.futures import ThreadPoolExecutor
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from scapy.all import *
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
 script_dir = os.getcwd()
@@ -33,7 +35,37 @@ if not os.path.exists(config_folder_path):
 
 user_preference_file = os.path.join(config_folder_path, "user_preference.json")
 quarantine_file_path = os.path.join(config_folder_path, "quarantine.json")
+IP_ADDRESSES_PATH = os.path.join(script_dir, "website", "IP_Addresses.txt")
+IPV6_ADDRESSES_PATH = os.path.join(script_dir, "website", "ipv6.txt")
+DOMAINS_PATH = os.path.join(script_dir, "website", "Domains.txt")
+ip_addresses_signatures_data = {}
+ipv6_addresses_signatures_data = {}
+domains_signatures_data = {}
+# Load IP addresses from IP_Addresses.txt and ipv6.txt
+try:
+    # Load IPv4 addresses
+    with open(IP_ADDRESSES_PATH, 'r') as ip_file:
+        ip_addresses = ip_file.read().splitlines()
+        ip_addresses_signatures_data = {ip: "" for ip in ip_addresses}
 
+    # Load IPv6 addresses
+    with open(IPV6_ADDRESSES_PATH, 'r') as ipv6_file:
+        ipv6_addresses = ipv6_file.read().splitlines()
+        for ipv6 in ipv6_addresses:
+            ipv6_addresses_signatures_data[ipv6] = ""
+
+    print("IP Addresses (ipv4, ipv6) loaded successfully!")
+except Exception as e:
+    print(f"Error loading IP Addresses: {e}")
+# Load domains from Domains.txt
+try:
+    with open(DOMAINS_PATH, 'r') as domains_file:
+        domains = domains_file.read().splitlines()
+        domains_signatures_data = {domain: "" for domain in domains}
+    print("Domains loaded successfully!")
+except Exception as e:
+    print(f"Error loading Domains from {DOMAINS_PATH}: {e}")
+print ("Domain and IPv4 IPv6 signatures loaded succesfully")
 # Get the root directory of the system drive based on the platform
 if platform.system() == "Windows":
     folder_to_watch = "C:\\"  # Example: C:\ on Windows but hardcoded
@@ -145,6 +177,7 @@ def load_preferences():
             "use_clamav": True,
             "use_yara": True,
             "real_time_protection": False
+            "real_time_web_protection": False
         }
         save_preferences(default_preferences)
         return default_preferences
@@ -297,9 +330,19 @@ def monitor_preferences():
         if preferences["real_time_protection"] and not real_time_observer.is_started:
             real_time_observer.start()
             print("Real-time protection is now enabled.")
+        
         elif not preferences["real_time_protection"] and real_time_observer.is_started:
             real_time_observer.stop()
             print("Real-time protection is now disabled.")
+        
+        if preferences["real_time_web_protection"]:
+            # Start sniffing packets and pass them to packet_callback
+            sniff(filter="tcp or udp", prn=packet_callback, store=0)
+            print("Real-time web protection is enabled.")
+        else:
+            # Stop sniffing packets
+            sniff(filter="", prn=None, store=0)
+            print("Real-time web protection is disabled.")
 
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
@@ -333,6 +376,37 @@ def scan_file_real_time(file_path):
         return True, virus_name
     else:
         return False, ""
+
+def packet_callback(packet):
+    if IP in packet:
+        ip_address = packet[IP].dst
+        scan_ip(ip_address)
+        try:
+            domain = sr1(IP(dst=ip_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ip_address)), verbose=False)[DNS].an.rdata.decode()
+            scan_domain_and_subdomains(domain)
+
+        except Exception as e:
+            print(f"Error processing IPv4 packet: {e}")
+
+        # Disconnect the connection if a match is found
+        if ip_address in ip_addresses_signatures_data or domain in domains_signatures_data:
+            print(f"Disconnecting connection to {ip_address}")
+            packet.drop()
+
+    elif IPv6 in packet:
+        ipv6_address = packet[IPv6].dst
+        scan_ipv6(ipv6_address)
+        try:
+            domain = sr1(IPv6(dst=ipv6_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ipv6_address)), verbose=False)[DNS].an.rdata.decode()
+            scan_domain_and_subdomains(domain)
+
+        except Exception as e:
+            print(f"Error processing IPv6 packet: {e}")
+
+        # Disconnect the connection if a match is found
+        if ipv6_address in ipv6_addresses_signatures_data or domain in domains_signatures_data:
+            print(f"Disconnecting connection to {ipv6_address}")
+            packet.drop()
 
 class RealTimeProtectionHandler(FileSystemEventHandler):
     def __init__(self):
@@ -404,8 +478,15 @@ class RealTimeProtectionHandler(FileSystemEventHandler):
         is_malicious, virus_name = scan_file_real_time(file_path)
         if is_malicious:
             print(f"File {file_path} is malicious. Virus: {virus_name}")
+            self.notify_user(file_path, virus_name)
             kill_malicious_process(file_path)
             quarantine_file(file_path, virus_name)
+
+    def notify_user(self, file_path, virus_name):
+        notification = Notify()
+        notification.title = "Malware Alert"
+        notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
+        notification.send()
 
 class RealTimeProtectionObserver:
     def __init__(self, folder_to_watch):
@@ -713,6 +794,7 @@ class AntivirusUI(QWidget):
             preferences["use_clamav"] = preferences_dialog.use_clamav_checkbox.isChecked()
             preferences["use_yara"] = preferences_dialog.use_yara_checkbox.isChecked()
             preferences["real_time_protection"] = preferences_dialog.real_time_protection_checkbox.isChecked()
+            preferences["real_time_web_protection"] = preferences_dialog.real_time_web_protection_checkbox.isChecked()
             save_preferences(preferences)
 
     def manage_quarantine(self):
@@ -748,6 +830,11 @@ class PreferencesDialog(QDialog):
         self.real_time_protection_checkbox.setChecked(preferences["real_time_protection"])
         self.real_time_protection_checkbox.stateChanged.connect(self.toggle_real_time_protection)
         layout.addWidget(self.real_time_protection_checkbox)
+
+        self.real_time_web_protection_checkbox = QCheckBox("Limited Real-Time Web Protection")
+        self.real_time_web_protection_checkbox.setChecked(preferences["real_time_web_protection"])
+        self.real_time_web_protection_checkbox.stateChanged.connect(self.toggle_real_time_web_protection)
+        layout.addWidget(self.real_time_web_protection_checkbox)
 
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
