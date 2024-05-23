@@ -628,7 +628,6 @@ class RealTimeProtectionHandler(FileSystemEventHandler):
     def scan_folder(self, folder_path):
         # Check if the folder is in use by any process
         if not self.is_folder_in_use(folder_path):
-            print(f"Folder {folder_path} is not in use by any process, skipped scanning.")
             return
         
         # Scan files that are not in use by any process
