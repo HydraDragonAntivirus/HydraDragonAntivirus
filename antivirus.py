@@ -476,15 +476,18 @@ def scan_tar_file(file_path):
         print(f"Error scanning tar file: {e}")
     return False, ""
 
-def notify_user(ip_address, domain):
-    notification = Notify()
-    notification.title = "Malware or Phishing Alert"
-    notification.message = f"Phishing or Malicious activity detected:\nIP: {ip_address}\nDomain: {domain}"
-    notification.send()
-
 class RealTimeWebProtectionHandler:
     def __init__(self):
         pass
+
+    def scan_domain(self, domain):
+        # Put your scanning logic here
+        print("Scanning domain:", domain)
+        for parent_domain in domains_signatures_data:
+            if domain == parent_domain or domain.endswith(f".{parent_domain}"):
+                print(f"Domain {domain} or its parent domain {parent_domain} matches the signatures.")
+                notify_user_for_web(domain=domain)
+                return
 
     def on_packet_received(self, packet):
         if IP in packet:
@@ -494,68 +497,36 @@ class RealTimeWebProtectionHandler:
             print("Source IP:", ip_packet.src)
             print("Destination IP:", ip_packet.dst)
 
+            if ip_address in ip_addresses_signatures_data:
+                print(f"Destination IP address {ip_address} matches the signatures.")
+                print(f"Dropping packet associated with IP: {ip_address}")
+                packet.drop()
+                notify_user_for_web(ip_address=ip_address)
+                return
+
             try:
                 response = sr1(IP(dst=ip_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ip_address)), verbose=False)
                 if response and DNS in response and response[DNS].an:
                     domain = response[DNS].an.rdata.decode()
+                    self.scan_domain(domain)
+                    print("Associated Domain:", domain)
                 else:
-                    domain = "No rdata available"
-                scan_domain_and_subdomains(domain)
-                print("Associated Domain:", domain)
+                    notify_user_for_web(ip_address=ip_address)
             except Exception as e:
                 print(f"Error processing IPv4 packet: {e}")
 
-            if ip_address in ip_addresses_signatures_data:
-                print(f"IP address {ip_address} matches the signatures.")
-                print(f"Disconnecting connection to {ip_address}")
-                packet.drop()
-                notify_user(ip_address, domain)
-
-        elif IPv6 in packet:
-            ipv6_packet = packet[IPv6]
-            ipv6_address = ipv6_packet.dst
-            print("IPv6 Packet Received:")
-            print("Source IPv6:", ipv6_packet.src)
-            print("Destination IPv6:", ipv6_packet.dst)
-
-            try:
-                response = sr1(IPv6(dst=ipv6_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ipv6_address)), verbose=False)
-                if response and DNS in response and response[DNS].an:
-                    domain = response[DNS].an.rdata.decode()
-                else:
-                    domain = "No rdata available"
-                scan_domain_and_subdomains(domain)
-                print("Associated Domain:", domain)
-            except Exception as e:
-                print(f"Error processing IPv6 packet: {e}")
-
-            if ipv6_address in ipv6_addresses_signatures_data:
-                print(f"IPv6 address {ipv6_address} matches the signatures.")
-                print(f"Disconnecting connection to {ipv6_address}")
-                packet.drop()
-                notify_user(ipv6_address, domain)
-
-class RealTimeWebProtectionObserver:
-    def __init__(self):
-        self.handler = RealTimeWebProtectionHandler()
-        self.is_started = False
-        self.thread = None
-
-    def start(self):
-        if not self.is_started:
-            self.thread = threading.Thread(target=self._start_sniffing)
-            self.thread.start()
-            self.is_started = True
-            print("Real-time web protection observer started")
-
-    def stop(self):
-        if self.is_started:
-            self.thread.join()  # Wait for the thread to finish
-            self.is_started = False
-            print("Real-time web protection observer stopped")
-
-    def _start_sniffing(self):
-        sniff(filter="tcp or udp", prn=self.handler.on_packet_received, store=0)
+def notify_user_for_web(domain=None, ip_address=None):
+    notification = Notify()
+    notification.title = "Malware or Phishing Alert"
+    if domain and ip_address:
+        notification.message = f"Phishing or Malicious activity detected:\nDomain: {domain}\nIP Address: {ip_address}"
+    elif domain:
+        notification.message = f"Phishing or Malicious activity detected:\nDomain: {domain}"
+    elif ip_address:
+        notification.message = f"Phishing or Malicious activity detected:\nIP Address: {ip_address}"
+    else:
+        notification.message = "Phishing or Malicious activity detected"
+    notification.send()
 
 class RealTimeProtectionHandler(FileSystemEventHandler):
     def __init__(self):
