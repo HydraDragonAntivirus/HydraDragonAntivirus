@@ -483,10 +483,21 @@ class RealTimeWebProtectionHandler:
     def scan_domain(self, domain):
         # Put your scanning logic here
         print("Scanning domain:", domain)
+
+        # Split the domain name by dots
+        parts = domain.split(".")
+        if len(parts) < 3:
+            # If the domain has less than 3 parts, it's already the main domain
+            main_domain = domain
+        else:
+            # Otherwise, construct the main domain by joining the last two parts
+            main_domain = ".".join(parts[-2:])
+
+        # Check if the main domain or its parent domain matches the signatures
         for parent_domain in domains_signatures_data:
-            if domain == parent_domain or domain.endswith(f".{parent_domain}"):
-                print(f"Domain {domain} or its parent domain {parent_domain} matches the signatures.")
-                notify_user_for_web(domain=domain)
+            if main_domain == parent_domain or main_domain.endswith(f".{parent_domain}"):
+                print(f"Main domain {main_domain} or its parent domain {parent_domain} matches the signatures.")
+                notify_user_for_web(domain=main_domain)
                 return
 
     def on_packet_received(self, packet):
@@ -699,7 +710,7 @@ class AntivirusUI(QWidget):
         layout.addWidget(self.scan_memory_button)
 
         self.preferences_button = QPushButton("Preferences")
-        self.preferences_button.clicked.connect(self.start_preferences_thread)
+        self.preferences_button.clicked.connect(self.show_preferences)
         layout.addWidget(self.preferences_button)
 
         self.quarantine_button = QPushButton("Quarantine")
@@ -743,11 +754,6 @@ class AntivirusUI(QWidget):
         layout.addLayout(self.action_button_layout)
 
         self.setLayout(layout)
-
-    def start_preferences_thread(self):
-        # Create a new thread to execute the show_preferences function
-        preferences_thread = threading.Thread(target=self.show_preferences)
-        preferences_thread.start()
 
     def scan_memory(self):
         def scan():
