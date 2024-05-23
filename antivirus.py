@@ -334,6 +334,16 @@ def monitor_preferences():
             real_time_observer.stop()
             print("Real-time protection is now disabled.")
 
+def monitor_preferences_web():
+    while True:
+        if preferences["real_time_web_protection"] and not real_time_web_observer.is_started:
+            real_time_observe_webr.start()
+            print("Real-time protection is now enabled.")
+        
+        elif not preferences["real_time_protection"] and real_time_web_observer.is_started:
+            real_time_observer_web.stop()
+            print("Real-time protection is now disabled.")
+
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
     result = ""
@@ -505,6 +515,64 @@ def notify_user(ip_address, domain):
     notification.message = f"Phishing or Malicious activity detected:\nIP: {ip_address}\nDomain: {domain}"
     notification.send()
 
+class RealTimeWebProtectionHandler:
+    def __init__(self):
+        pass
+
+    def on_packet_received(self, packet):
+        if IP in packet:
+            ip_address = packet[IP].dst
+            scan_ip(ip_address)
+            try:
+                domain = sr1(IP(dst=ip_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ip_address)), verbose=False)[DNS].an.rdata.decode()
+                scan_domain_and_subdomains(domain)
+            except Exception as e:
+                print(f"Error processing IPv4 packet: {e}")
+
+            # Disconnect the connection if a match is found
+            if ip_address in ip_addresses_signatures_data or domain in domains_signatures_data:
+                print(f"Disconnecting connection to {ip_address}")
+                packet.drop()
+                notify_user(ip_address, domain)
+
+        elif IPv6 in packet:
+            ipv6_address = packet[IPv6].dst
+            scan_ipv6(ipv6_address)
+            try:
+                domain = sr1(IPv6(dst=ipv6_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ipv6_address)), verbose=False)[DNS].an.rdata.decode()
+                scan_domain_and_subdomains(domain)
+            except Exception as e:
+                print(f"Error processing IPv6 packet: {e}")
+
+            # Disconnect the connection if a match is found
+            if ipv6_address in ipv6_addresses_signatures_data or domain in domains_signatures_data:
+                print(f"Disconnecting connection to {ipv6_address}")
+                packet.drop()
+                notify_user(ipv6_address, domain)
+
+
+class RealTimeWebProtectionObserver:
+    def __init__(self):
+        self.handler = RealTimeWebProtectionHandler()
+        self.is_started = False
+        self.thread = None
+
+    def start(self):
+        if not self.is_started:
+            self.thread = threading.Thread(target=self._start_sniffing)
+            self.thread.start()
+            self.is_started = True
+            print("Real-time web protection observer started")
+
+    def stop(self):
+        if self.is_started:
+            self.thread.join()  # Wait for the thread to finish
+            self.is_started = False
+            print("Real-time web protection observer stopped")
+
+    def _start_sniffing(self):
+        sniff(filter="tcp or udp", prn=self.handler.on_packet_received, store=0)
+
 class RealTimeProtectionHandler(FileSystemEventHandler):
     def __init__(self):
         super().__init__()
@@ -610,6 +678,7 @@ class RealTimeProtectionObserver:
 
 # Create the real-time observer with the system drive as the monitored directory
 real_time_observer = RealTimeProtectionObserver(folder_to_watch)
+real_time_web_observer = RealTimeWebProtectionObserver()
 
 class YaraScanner:
     def scan_data(self, data):
@@ -881,9 +950,12 @@ class AntivirusUI(QWidget):
         else:
             QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
 
+
 class PreferencesDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.stop_sniffing = threading.Event()
+        self.sniffing_thread = None
         self.setWindowTitle("Preferences")
         layout = QVBoxLayout()
 
@@ -939,14 +1011,14 @@ class PreferencesDialog(QDialog):
             real_time_observer.stop()
 
     def start_real_time_web_protection(self):
-        # Start sniffing packets and pass them to packet_callback
-        sniff(filter="tcp or udp", prn=packet_callback, store=0)
-        print("Real-time web protection is enabled.")
+        global real_time_web_observer
+        real_time_web_observer = RealTimeWebProtectionObserver()
+        real_time_web_observer.start()
 
     def stop_real_time_web_protection(self):
-        # Stop sniffing packets
-        sniff(filter="", prn=None, store=0)
-        print("Real-time web protection is disabled.")
+        global real_time_web_observer
+        if real_time_web_observer and real_time_web_observer.is_started:
+            real_time_web_observer.stop()
 
 class QuarantineManager(QDialog):
     def __init__(self, parent=None):
@@ -1028,6 +1100,10 @@ if __name__ == "__main__":
         preferences_thread = threading.Thread(target=monitor_preferences)
         preferences_thread.daemon = True  # Daemonize the thread so it exits when the main thread exits
         preferences_thread.start()
+        # Create a thread for monitoring preferences
+        preferences_thread_web = threading.Thread(target=monitor_preferences_web)
+        preferences_thread_web.daemon = True  # Daemonize the thread so it exits when the main thread exits
+        preferences_thread_web.start()
         app = QApplication(sys.argv)
         main_gui = AntivirusUI()
         main_gui.folder_scan_finished.connect(main_gui.show_scan_finished_message)
