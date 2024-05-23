@@ -45,7 +45,7 @@ domains_signatures_data = {}
 if system_platform() == "Windows":
     system_drives = [drive.mountpoint for drive in psutil.disk_partitions()]
     if system_drives:
-        system_drives = folder_to_watch
+        folder_to_watch = system_drives
     else:
         folder_to_watch = os.path.expandvars("%systemdrive%")  # Default to %systemdrive% if no drives are detected
 elif system_platform() in ["Linux", "FreeBSD", "Darwin"]:
