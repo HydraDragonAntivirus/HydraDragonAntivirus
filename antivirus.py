@@ -337,7 +337,7 @@ def monitor_preferences():
 def monitor_preferences_web():
     while True:
         if preferences["real_time_web_protection"] and not real_time_web_observer.is_started:
-            real_time_observe_webr.start()
+            real_time_observe_web.start()
             print("Real-time protection is now enabled.")
         
         elif not preferences["real_time_protection"] and real_time_web_observer.is_started:
