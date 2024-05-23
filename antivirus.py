@@ -699,6 +699,10 @@ class RealTimeProtectionObserver:
                 self.folder_to_watch = os.path.expandvars("%systemdrive%")
                 print(f"No accessible drives found. Setting folder_to_watch to default: {self.folder_to_watch}")
 
+# Create the real-time observer with the system drive as the monitored directory
+real_time_observer = RealTimeProtectionObserver(folder_to_watch)
+real_time_web_observer = RealTimeWebProtectionObserver()
+
 class YaraScanner:
     def scan_data(self, data):
         matched_rules = []
