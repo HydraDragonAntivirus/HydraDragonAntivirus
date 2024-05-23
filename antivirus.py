@@ -392,6 +392,7 @@ def packet_callback(packet):
         if ip_address in ip_addresses_signatures_data or domain in domains_signatures_data:
             print(f"Disconnecting connection to {ip_address}")
             packet.drop()
+            notify_user(ip_address, domain)
 
     elif IPv6 in packet:
         ipv6_address = packet[IPv6].dst
@@ -407,6 +408,13 @@ def packet_callback(packet):
         if ipv6_address in ipv6_addresses_signatures_data or domain in domains_signatures_data:
             print(f"Disconnecting connection to {ipv6_address}")
             packet.drop()
+            notify_user(ipv6_address, domain)
+
+def notify_user(ip_address, domain):
+    notification = Notify()
+    notification.title = "Malware or Phishing Alert"
+    notification.message = f"Phishing or Malicious activity detected:\nIP: {ip_address}\nDomain: {domain}"
+    notification.send()
 
 class RealTimeProtectionHandler(FileSystemEventHandler):
     def __init__(self):
