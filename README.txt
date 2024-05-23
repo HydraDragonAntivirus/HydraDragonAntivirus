@@ -11,3 +11,4 @@ compiled_rule.yrc source code: https://sourceforge.net/p/xylent/git/ci/master/tr
 I recommend killing malicious processes first, then using quarantine, delete or something. For Windows, first install clamav from clamav.net/downloads.
 Then add C:\Program Files\ClamAV to the terminal, as this script uses ClamAV directly from the terminal, then run the script to use it. Don't quarantine any files during the scan.
 Also install Python from python.org Note: If you can't add ClamAV to the console on Windows etc, then copy it to the ClamAV folder
+For Windows you also need download https://npcap.com/#download for scapy and netsh advfirewall reset for reset firewall settings
