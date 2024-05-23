@@ -41,31 +41,6 @@ DOMAINS_PATH = os.path.join(script_dir, "website", "Domains.txt")
 ip_addresses_signatures_data = {}
 ipv6_addresses_signatures_data = {}
 domains_signatures_data = {}
-# Load IP addresses from IP_Addresses.txt and ipv6.txt
-try:
-    # Load IPv4 addresses
-    with open(IP_ADDRESSES_PATH, 'r') as ip_file:
-        ip_addresses = ip_file.read().splitlines()
-        ip_addresses_signatures_data = {ip: "" for ip in ip_addresses}
-
-    # Load IPv6 addresses
-    with open(IPV6_ADDRESSES_PATH, 'r') as ipv6_file:
-        ipv6_addresses = ipv6_file.read().splitlines()
-        for ipv6 in ipv6_addresses:
-            ipv6_addresses_signatures_data[ipv6] = ""
-
-    print("IP Addresses (ipv4, ipv6) loaded successfully!")
-except Exception as e:
-    print(f"Error loading IP Addresses: {e}")
-# Load domains from Domains.txt
-try:
-    with open(DOMAINS_PATH, 'r') as domains_file:
-        domains = domains_file.read().splitlines()
-        domains_signatures_data = {domain: "" for domain in domains}
-    print("Domains loaded successfully!")
-except Exception as e:
-    print(f"Error loading Domains from {DOMAINS_PATH}: {e}")
-print ("Domain and IPv4 IPv6 signatures loaded succesfully")
 # Get the root directory of the system drive based on the platform
 if system_platform() == "Windows":
     folder_to_watch = "C:\\"  # Example: C:\ on Windows but hardcoded
@@ -220,6 +195,32 @@ try:
 except yara.Error as e:
     print(f"Error loading precompiled YARA rule: {e}")
 
+# Load IP addresses from IP_Addresses.txt and ipv6.txt
+try:
+    # Load IPv4 addresses
+    with open(IP_ADDRESSES_PATH, 'r') as ip_file:
+        ip_addresses = ip_file.read().splitlines()
+        ip_addresses_signatures_data = {ip: "" for ip in ip_addresses}
+
+    # Load IPv6 addresses
+    with open(IPV6_ADDRESSES_PATH, 'r') as ipv6_file:
+        ipv6_addresses = ipv6_file.read().splitlines()
+        for ipv6 in ipv6_addresses:
+            ipv6_addresses_signatures_data[ipv6] = ""
+
+    print("IP Addresses (ipv4, ipv6) loaded successfully!")
+except Exception as e:
+    print(f"Error loading IP Addresses: {e}")
+# Load domains from Domains.txt
+try:
+    with open(DOMAINS_PATH, 'r') as domains_file:
+        domains = domains_file.read().splitlines()
+        domains_signatures_data = {domain: "" for domain in domains}
+    print("Domains loaded successfully!")
+except Exception as e:
+    print(f"Error loading Domains from {DOMAINS_PATH}: {e}")
+print ("Domain and IPv4 IPv6 signatures loaded succesfully")
+
 def scan_file_with_machine_learning_ai(file_path, malicious_file_names, malicious_numeric_features, benign_numeric_features, threshold=0.86):
     """Scan a file for malicious activity"""
     try:
@@ -334,13 +335,16 @@ def monitor_preferences():
             real_time_observer.stop()
             print("Real-time protection is now disabled.")
 
+stop_monitoring = False
+
 def monitor_web_preferences():
-    while True:
+    global stop_monitoring
+    while not stop_monitoring:
         if preferences["real_time_web_protection"] and not real_time_web_observer.is_started:
             real_time_web_observer.start()
             print("Real-time web protection is now enabled.")
-        
-        elif not preferences["real_time_protection"] and real_time_web_observer.is_started:
+
+        elif not preferences["real_time_web_protection"] and real_time_web_observer.is_started:
             real_time_web_observer.stop()
             print("Real-time web protection is now disabled.")
 
@@ -956,12 +960,16 @@ class PreferencesDialog(QDialog):
         self.setLayout(layout)
 
     def toggle_real_time_protection(self, state):
+        preferences["real_time_protection"] = (state == Qt.Checked)
+        save_preferences(preferences)  # Save updated preferences
         if state == Qt.Checked:
             self.start_real_time_protection()
         else:
             self.stop_real_time_protection()
 
     def toggle_real_time_web_protection(self, state):
+        preferences["real_time_web_protection"] = (state == Qt.Checked)
+        save_preferences(preferences)  # Save updated preferences
         if state == Qt.Checked:
             self.start_real_time_web_protection()
         else:
