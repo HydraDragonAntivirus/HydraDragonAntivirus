@@ -176,7 +176,7 @@ def load_preferences():
             "use_machine_learning": True,
             "use_clamav": True,
             "use_yara": True,
-            "real_time_protection": False
+            "real_time_protection": False,
             "real_time_web_protection": False
         }
         save_preferences(default_preferences)
