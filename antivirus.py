@@ -347,35 +347,134 @@ def monitor_preferences():
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
     result = ""
-    virus_name = ""
 
     if preferences["use_clamav"]:
         result = scan_file_with_clamd(file_path)
         if result == "Clean":
             return False, ""
-        virus_name = result if result != "Clean" else ""
 
     if preferences["use_yara"]:
         yara_result = AntivirusUI().yara_scanner.static_analysis(file_path)
         if yara_result == "Clean":
             return False, ""
-        if yara_result and isinstance(yara_result, list):
-            result = ', '.join(yara_result)
-            virus_name = result
-        elif isinstance(yara_result, str):
-            result = yara_result
-            virus_name = yara_result
 
     if preferences["use_machine_learning"]:
         is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path, malicious_file_names_data, malicious_numeric_features_data, benign_numeric_features_data)
         if is_malicious:
-            result = malware_definition
-            virus_name = malware_definition
+            return True, malware_definition
 
     if result:
-        return True, virus_name
+        return True, result
+
+    # Check if the file is a PE file (executable)
+    if is_pe_file(file_path):
+        scan_result, virus_name = scan_exe_file(file_path)
+        if scan_result:
+            return True, virus_name
+
+    # Check if the file is a tar or zip archive and scan its content if it is
+    if tarfile.is_tarfile(file_path):
+        scan_result, virus_name = scan_tar_file(file_path)
+        if scan_result:
+            return True, virus_name
+
+    elif zipfile.is_zipfile(file_path):
+        scan_result, virus_name = scan_zip_file(file_path)
+        if scan_result:
+            return True, virus_name
+
+    return False, ""
+
+def is_pe_file(file_path):
+    """Check if the file is a PE file (executable)."""
+    try:
+        pe = pefile.PE(file_path)
+        return True
+    except pefile.PEFormatError:
+        return False
+
+def scan_exe_file(file_path):
+    """Scan files within an exe file."""
+    virus_name = []
+    try:
+        # Load the PE file
+        pe = pefile.PE(file_path)
+        
+        # Extract resources
+        for entry in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+            if hasattr(entry, 'directory'):
+                for resource in entry.directory.entries:
+                    if hasattr(resource, 'directory'):
+                        for res in resource.directory.entries:
+                            if hasattr(res, 'directory'):
+                                for r in res.directory.entries:
+                                    if hasattr(r, 'directory'):
+                                        for rsrc in r.directory.entries:
+                                            if hasattr(rsrc, 'data'):
+                                                # Extract resource data
+                                                data = pe.get_data(rsrc.data.struct.OffsetToData, rsrc.data.struct.Size)
+                                                # Scan the extracted data
+                                                scan_result, virus_name = scan_file_real_time(data)
+                                                if scan_result:
+                                                    virus_name.append(virus_name)
+                                                    break  # Stop scanning if malware is detected
+                                        if virus_name:
+                                            break
+                                    if virus_name:
+                                        break
+                                if virus_name:
+                                    break
+                            if virus_name:
+                                break
+                        if virus_name:
+                            break
+                    if virus_name:
+                        break
+                if virus_name:
+                    break
+            if virus_name:
+                break
+    except Exception as e:
+        print(f"Error scanning exe file: {e}")
+    
+    if virus_name:
+        return True, virus_nams[0]  # Return the first virus name
     else:
         return False, ""
+
+def scan_zip_file(file_path):
+    """Scan files within a zip archive."""
+    try:
+        with zipfile.ZipFile(file_path, 'r') as zfile:
+            virus_name = []
+            for file_info in zfile.infolist():
+                if not file_info.is_dir():
+                    scan_result, virus_name = scan_file_real_time(zfile.read(file_info.filename))
+                    if scan_result:
+                        virus_name.append(virus_name)
+                        break  # Stop scanning if malware is detected
+            if virus_name:
+                return True, virus_name[0]  # Return the first virus name
+    except Exception as e:
+        print(f"Error scanning zip file: {e}")
+    return False, ""
+
+def scan_tar_file(file_path):
+    """Scan files within a tar archive."""
+    try:
+        with tarfile.open(file_path, 'r') as tar:
+            virus_name = []
+            for member in tar.getmembers():
+                if member.isfile():
+                    scan_result, virus_name = scan_file_real_time(tar.extractfile(member).read())
+                    if scan_result:
+                        virus_name.append(virus_name)
+                        break  # Stop scanning if malware is detected
+            if virus_name:
+                return True, virus_name[0]  # Return the first virus name
+    except Exception as e:
+        print(f"Error scanning tar file: {e}")
+    return False, ""
 
 def packet_callback(packet):
     if IP in packet:
@@ -533,6 +632,8 @@ class YaraScanner:
                 for match in matches:
                     if match.rule not in excluded_rules:
                         matched_rules.append(match.rule)
+                # Break the loop if a match is found
+                break
 
         # Check matches for pyas_rule
         if  pyas_rule:
@@ -541,6 +642,8 @@ class YaraScanner:
                 for match in matches:
                     if match.rule not in excluded_rules:
                         matched_rules.append(match.rule)
+                # Break the loop if a match is found
+                break
 
         return matched_rules
 
@@ -707,37 +810,13 @@ class AntivirusUI(QWidget):
         QMessageBox.information(self, "Scan Finished", "Memory scan has finished.")
 
     def scan_file_path(self, file_path):
-        result = ""
-        virus_name = ""
-        
-        if preferences["use_clamav"]:
-            result = scan_file_with_clamd(file_path)
-            if result == "Clean":
-                return
-            virus_name = result if result != "Clean" else ""
-        
-        if preferences["use_yara"]:
-            yara_result = self.yara_scanner.static_analysis(file_path)
-            if yara_result == "Clean":
-                return
-            if yara_result and isinstance(yara_result, list):
-                result = ', '.join(yara_result)
-                virus_name = result
-            elif isinstance(yara_result, str):
-                result = yara_result
-                virus_name = yara_result
-        
-        if preferences["use_machine_learning"]:
-            is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path, malicious_file_names_data, malicious_numeric_features_data, benign_numeric_features_data)
-            if is_malicious:
-                result = malware_definition
-                virus_name = malware_definition
+        is_malicious, virus_name = scan_file_real_time(file_path)
 
-        if result:
-            item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {result}")
+        if is_malicious:
+            item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
             item.setData(Qt.UserRole, file_path)
             self.detected_list.addItem(item)
-    
+
     def apply_action(self):
         action = self.action_combobox.currentText()
         if action == "Quarantine All":
