@@ -52,12 +52,17 @@ else:
 def load_quarantine_data():
     if os.path.exists(quarantine_file_path):
         with open(quarantine_file_path, 'r') as f:
-            return json.load(f)
+            data = json.load(f)
+            # Ensure the data is a list
+            if isinstance(data, list):
+                return data
+            else:
+                return []
     else:
-        # If the file doesn't exist, create it with an empty dictionary
+        # If the file doesn't exist, create it with an empty list
         with open(quarantine_file_path, 'w') as f:
-            json.dump({}, f)
-        return {}
+            json.dump([], f)
+        return []
 
 quarantine_data = load_quarantine_data()
 def save_quarantine_data(quarantine_data):
