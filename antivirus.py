@@ -325,8 +325,12 @@ def kill_malicious_process(file_path):
     except Exception as e:
         print(f"Error while terminating malicious process: {e}")
 
+# Initialize the stop monitoring flag and preferences
+stop_monitoring = False
+
 def monitor_preferences():
-    while True:
+    global stop_monitoring
+    while not stop_monitoring:
         if preferences["real_time_protection"] and not real_time_observer.is_started:
             real_time_observer.start()
             print("Real-time protection is now enabled.")
@@ -335,11 +339,11 @@ def monitor_preferences():
             real_time_observer.stop()
             print("Real-time protection is now disabled.")
 
-stop_monitoring = False
+stop_monitoring_for_web = False
 
 def monitor_web_preferences():
-    global stop_monitoring
-    while not stop_monitoring:
+    global stop_monitoring_for_web
+    while not stop_monitoring_for_web:
         if preferences["real_time_web_protection"] and not real_time_web_observer.is_started:
             real_time_web_observer.start()
             print("Real-time web protection is now enabled.")
