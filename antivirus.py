@@ -515,6 +515,28 @@ class RealTimeWebProtectionHandler:
             except Exception as e:
                 print(f"Error processing IPv4 packet: {e}")
 
+class RealTimeWebProtectionObserver:
+    def __init__(self):
+        self.handler = RealTimeWebProtectionHandler()
+        self.is_started = False
+        self.thread = None
+
+    def start(self):
+        if not self.is_started:
+            self.thread = threading.Thread(target=self._start_sniffing)
+            self.thread.start()
+            self.is_started = True
+            print("Real-time web protection observer started")
+
+    def stop(self):
+        if self.is_started:
+            self.thread.join()  # Wait for the thread to finish
+            self.is_started = False
+            print("Real-time web protection observer stopped")
+
+    def _start_sniffing(self):
+        sniff(filter="tcp or udp", prn=self.handler.on_packet_received, store=0)
+        
 def notify_user_for_web(domain=None, ip_address=None):
     notification = Notify()
     notification.title = "Malware or Phishing Alert"
