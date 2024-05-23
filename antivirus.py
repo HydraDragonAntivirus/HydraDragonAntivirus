@@ -620,8 +620,9 @@ class RealTimeProtectionHandler(FileSystemEventHandler):
             print(f"File {file_path} is malicious. Virus: {virus_name}")
             self.notify_user(file_path, virus_name)
             kill_malicious_process(file_path)
-            quarantine_file(file_path, virus_name)
-
+            # Quarantine the file in a separate thread
+            quarantine_thread = threading.Thread(target=quarantine_file, args=(file_path, virus_name))
+            quarantine_thread.start()
     def notify_user(self, file_path, virus_name):
         notification = Notify()
         notification.title = "Malware Alert"
