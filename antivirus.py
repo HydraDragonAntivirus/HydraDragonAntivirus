@@ -244,7 +244,7 @@ try:
     print("Domains loaded successfully!")
 except Exception as e:
     print(f"Error loading Domains from {DOMAINS_PATH}: {e}")
-print ("Domain and IPv4 IPv6 signatures loaded succesfully")
+print ("Domain and IPv4 IPv6 signatures loaded succesfully!")
 
 def scan_file_with_machine_learning_ai(file_path, malicious_file_names, malicious_numeric_features, benign_numeric_features, threshold=0.86):
     """Scan a file for malicious activity"""
