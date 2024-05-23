@@ -24,7 +24,6 @@ from concurrent.futures import ThreadPoolExecutor
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from scapy.all import *
-from firewall import Firewall, Rule, Direction, Action
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
 script_dir = os.getcwd()
@@ -510,7 +509,29 @@ def scan_tar_file(file_path):
         print(f"Error scanning tar file: {e}")
     return False, ""
  
- 
+class Firewall:
+    @staticmethod
+    def add_rule(rule):
+        try:
+            system_platform = platform.system()
+            if system_platform == "Windows":
+                subprocess.run(["netsh", "advfirewall", "firewall", "add", "rule", "name", f"Block {rule.remote_address}", "dir", "in", "action", "block", "remoteip", rule.remote_address], check=True)
+                print(f"Blocking traffic from {rule.remote_address} using Windows Firewall")
+            elif system_platform == "Darwin":
+                subprocess.run(["pfctl", "-e"], check=True)
+                subprocess.run(["pfctl", "-t", "blocklist", "-T", "add", rule.remote_address], check=True)
+                print(f"Blocking traffic from {rule.remote_address} using pfctl on macOS")
+            elif system_platform == "Linux":
+                subprocess.run(["nft", "add", "rule", "ip", "filter", "input", "ip", "saddr", rule.remote_address, "drop"], check=True)
+                print(f"Blocking traffic from {rule.remote_address} using nftables")
+            elif system_platform == "FreeBSD":
+                subprocess.run(["ipfw", "add", "deny", "ip", "from", rule.remote_address], check=True)
+                print(f"Blocking traffic from {rule.remote_address} using ipfw on FreeBSD")
+            else:
+                print(f"Firewall is not supported on {system_platform}.")
+        except subprocess.CalledProcessError as e:
+            print(f"Error adding firewall rule: {e}")
+
 class RealTimeWebProtectionHandler:
     def __init__(self):
         self.firewall = Firewall()
@@ -532,13 +553,7 @@ class RealTimeWebProtectionHandler:
 
     def mark_packet_for_drop(self, identifier):
         try:
-            rule = Rule(
-                direction=Direction.OUT,
-                action=Action.BLOCK,
-                name=f"Block {identifier}",
-                remote_address=identifier
-            )
-            self.firewall.add_rule(rule)
+            self.firewall.add_rule(identifier)
             print(f"Blocking traffic for {identifier}")
         except Exception as e:
             print(f"Error setting firewall rule: {e}")
