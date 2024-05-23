@@ -3,7 +3,7 @@ import os
 import shutil
 import subprocess
 import threading
-import platform
+from platform import system as system_platform
 import re
 import json
 from PySide6.QtWidgets import (
@@ -67,9 +67,9 @@ except Exception as e:
     print(f"Error loading Domains from {DOMAINS_PATH}: {e}")
 print ("Domain and IPv4 IPv6 signatures loaded succesfully")
 # Get the root directory of the system drive based on the platform
-if platform.system() == "Windows":
+if system_platform() == "Windows":
     folder_to_watch = "C:\\"  # Example: C:\ on Windows but hardcoded
-elif platform.system() in ["Linux", "FreeBSD", "Darwin"]:
+elif system_platform() in ["Linux", "FreeBSD", "Darwin"]:
     folder_to_watch = "/"     # Root directory on Linux, FreeBSD, and macOS
 else:
     folder_to_watch = "/"     # Default to root directory on other platforms
@@ -268,17 +268,16 @@ def scan_file_with_machine_learning_ai(file_path, malicious_file_names, maliciou
 
 def is_clamd_running():
     """Check if clamd is running."""
-    if platform.system() in ['Linux', 'Darwin', 'FreeBSD']:
+    if system_platform() in ['Linux', 'Darwin', 'FreeBSD']:
         result = subprocess.run(['pgrep', 'clamd'], capture_output=True, text=True)
         return result.returncode == 0
-    elif platform.system() == 'Windows':
+    elif system_platform() == 'Windows':
         result = subprocess.run(['sc', 'query', 'clamd'], capture_output=True, text=True)
         return "RUNNING" in result.stdout
     return False  # Unsupported platform
 
 def start_clamd():
     """Start clamd service based on the platform."""
-    system_platform = platform.system()
     if system_platform == "Windows":
         subprocess.run(["net", "start", "clamd"], shell=True)
     elif system_platform in ["Linux", "Darwin"]:
@@ -334,15 +333,6 @@ def monitor_preferences():
         elif not preferences["real_time_protection"] and real_time_observer.is_started:
             real_time_observer.stop()
             print("Real-time protection is now disabled.")
-        
-        if preferences["real_time_web_protection"]:
-            # Start sniffing packets and pass them to packet_callback
-            sniff(filter="tcp or udp", prn=packet_callback, store=0)
-            print("Real-time web protection is enabled.")
-        else:
-            # Stop sniffing packets
-            sniff(filter="", prn=None, store=0)
-            print("Real-time web protection is disabled.")
 
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
@@ -932,6 +922,12 @@ class PreferencesDialog(QDialog):
         else:
             self.stop_real_time_protection()
 
+    def toggle_real_time_web_protection(self, state):
+        if state == Qt.Checked:
+            self.start_real_time_web_protection()
+        else:
+            self.stop_real_time_web_protection()
+
     def start_real_time_protection(self):
         global real_time_observer
         real_time_observer = RealTimeProtectionObserver(folder_to_watch)
@@ -941,6 +937,16 @@ class PreferencesDialog(QDialog):
         global real_time_observer
         if real_time_observer and real_time_observer.is_started:
             real_time_observer.stop()
+
+    def start_real_time_web_protection(self):
+        # Start sniffing packets and pass them to packet_callback
+        sniff(filter="tcp or udp", prn=packet_callback, store=0)
+        print("Real-time web protection is enabled.")
+
+    def stop_real_time_web_protection(self):
+        # Stop sniffing packets
+        sniff(filter="", prn=None, store=0)
+        print("Real-time web protection is disabled.")
 
 class QuarantineManager(QDialog):
     def __init__(self, parent=None):
