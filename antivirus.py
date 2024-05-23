@@ -513,7 +513,6 @@ class Firewall:
     @staticmethod
     def add_rule(rule):
         try:
-            system_platform = platform.system()
             if system_platform == "Windows":
                 subprocess.run(["netsh", "advfirewall", "firewall", "add", "rule", "name", f"Block {rule.remote_address}", "dir", "in", "action", "block", "remoteip", rule.remote_address], check=True)
                 print(f"Blocking traffic from {rule.remote_address} using Windows Firewall")
