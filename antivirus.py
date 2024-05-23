@@ -488,33 +488,41 @@ class RealTimeWebProtectionHandler:
 
     def on_packet_received(self, packet):
         if IP in packet:
-            ip_address = packet[IP].dst
+            ip_packet = packet[IP]
+            ip_address = ip_packet.dst
+            print("IPv4 Packet Received:")
+            print("Source IP:", ip_packet.src)
+            print("Destination IP:", ip_packet.dst)
+
             try:
                 domain = sr1(IP(dst=ip_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ip_address)), verbose=False)[DNS].an.rdata.decode()
                 scan_domain_and_subdomains(domain)
+                print("Associated Domain:", domain)
             except Exception as e:
                 print(f"Error processing IPv4 packet: {e}")
 
-            # Scan the IP address
             if ip_address in ip_addresses_signatures_data:
                 print(f"IP address {ip_address} matches the signatures.")
-                # Disconnect the connection
                 print(f"Disconnecting connection to {ip_address}")
                 packet.drop()
                 notify_user(ip_address, domain)
 
         elif IPv6 in packet:
-            ipv6_address = packet[IPv6].dst
+            ipv6_packet = packet[IPv6]
+            ipv6_address = ipv6_packet.dst
+            print("IPv6 Packet Received:")
+            print("Source IPv6:", ipv6_packet.src)
+            print("Destination IPv6:", ipv6_packet.dst)
+
             try:
                 domain = sr1(IPv6(dst=ipv6_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ipv6_address)), verbose=False)[DNS].an.rdata.decode()
                 scan_domain_and_subdomains(domain)
+                print("Associated Domain:", domain)
             except Exception as e:
                 print(f"Error processing IPv6 packet: {e}")
 
-            # Scan the IPv6 address
             if ipv6_address in ipv6_addresses_signatures_data:
                 print(f"IPv6 address {ipv6_address} matches the signatures.")
-                # Disconnect the connection
                 print(f"Disconnecting connection to {ipv6_address}")
                 packet.drop()
                 notify_user(ipv6_address, domain)
