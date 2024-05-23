@@ -334,7 +334,7 @@ def monitor_preferences():
             real_time_observer.stop()
             print("Real-time protection is now disabled.")
 
-def monitor_preferences_web():
+def monitor_web_preferences():
     while True:
         if preferences["real_time_web_protection"] and not real_time_web_observer.is_started:
             real_time_web_observer.start()
@@ -1100,9 +1100,9 @@ if __name__ == "__main__":
         preferences_thread.daemon = True  # Daemonize the thread so it exits when the main thread exits
         preferences_thread.start()
         # Create a thread for monitoring preferences
-        preferences_thread_web = threading.Thread(target=monitor_preferences_web)
-        preferences_thread_web.daemon = True  # Daemonize the thread so it exits when the main thread exits
-        preferences_thread_web.start()
+        web_preferences_thread = threading.Thread(target=monitor_web_preferences)
+        web_preferences_thread.daemon = True  # Daemonize the thread so it exits when the main thread exits
+        web_preferences_thread.start()
         app = QApplication(sys.argv)
         main_gui = AntivirusUI()
         main_gui.folder_scan_finished.connect(main_gui.show_scan_finished_message)
