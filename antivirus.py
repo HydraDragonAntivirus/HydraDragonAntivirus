@@ -536,7 +536,7 @@ class RealTimeWebProtectionObserver:
 
     def _start_sniffing(self):
         sniff(filter="tcp or udp", prn=self.handler.on_packet_received, store=0)
-        
+
 def notify_user_for_web(domain=None, ip_address=None):
     notification = Notify()
     notification.title = "Malware or Phishing Alert"
@@ -699,7 +699,7 @@ class AntivirusUI(QWidget):
         layout.addWidget(self.scan_memory_button)
 
         self.preferences_button = QPushButton("Preferences")
-        self.preferences_button.clicked.connect(self.show_preferences)
+        self.preferences_button.clicked.connect(self.start_preferences_thread)
         layout.addWidget(self.preferences_button)
 
         self.quarantine_button = QPushButton("Quarantine")
@@ -743,6 +743,11 @@ class AntivirusUI(QWidget):
         layout.addLayout(self.action_button_layout)
 
         self.setLayout(layout)
+
+    def start_preferences_thread(self):
+        # Create a new thread to execute the show_preferences function
+        preferences_thread = threading.Thread(target=self.show_preferences)
+        preferences_thread.start()
 
     def scan_memory(self):
         def scan():
