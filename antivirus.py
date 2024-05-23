@@ -24,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from scapy.all import *
+from firewall import Firewall, Rule, Direction, Action
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
 script_dir = os.getcwd()
@@ -508,48 +509,61 @@ def scan_tar_file(file_path):
     except Exception as e:
         print(f"Error scanning tar file: {e}")
     return False, ""
-
+ 
+ 
 class RealTimeWebProtectionHandler:
     def __init__(self):
-        pass
+        self.firewall = Firewall()
 
     def scan_domain(self, domain):
-        # Put your scanning logic here
         print("Scanning domain:", domain)
-
-        # Split the domain name by dots
         parts = domain.split(".")
         if len(parts) < 3:
-            # If the domain has less than 3 parts, it's already the main domain
             main_domain = domain
         else:
-            # Otherwise, construct the main domain by joining the last two parts
             main_domain = ".".join(parts[-2:])
 
-        # Check if the main domain or its parent domain matches the signatures
         for parent_domain in domains_signatures_data:
             if main_domain == parent_domain or main_domain.endswith(f".{parent_domain}"):
                 print(f"Main domain {main_domain} or its parent domain {parent_domain} matches the signatures.")
                 notify_user_for_web(domain=main_domain)
+                self.mark_packet_for_drop(main_domain)
                 return
 
+    def mark_packet_for_drop(self, identifier):
+        try:
+            rule = Rule(
+                direction=Direction.OUT,
+                action=Action.BLOCK,
+                name=f"Block {identifier}",
+                remote_address=identifier
+            )
+            self.firewall.add_rule(rule)
+            print(f"Blocking traffic for {identifier}")
+        except Exception as e:
+            print(f"Error setting firewall rule: {e}")
+
     def on_packet_received(self, packet):
-        if IP in packet:
-            ip_packet = packet[IP]
+        if IP in packet or IPv6 in packet:
+            ip_packet = packet[IP] if IP in packet else packet[IPv6]
             ip_address = ip_packet.dst
-            print("IPv4 Packet Received:")
+            print("IP Packet Received:")
             print("Source IP:", ip_packet.src)
             print("Destination IP:", ip_packet.dst)
 
             if ip_address in ip_addresses_signatures_data:
                 print(f"Destination IP address {ip_address} matches the signatures.")
                 print(f"Dropping packet associated with IP: {ip_address}")
-                packet.drop()
                 notify_user_for_web(ip_address=ip_address)
+                self.mark_packet_for_drop(ip_address)
                 return
 
             try:
-                response = sr1(IP(dst=ip_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ip_address)), verbose=False)
+                if IP in packet:
+                    response = sr1(IP(dst=ip_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ip_address)), timeout=2, verbose=False)
+                else:
+                    response = sr1(IPv6(dst=ip_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ip_address)), timeout=2, verbose=False)
+                
                 if response and DNS in response and response[DNS].an:
                     domain = response[DNS].an.rdata.decode()
                     self.scan_domain(domain)
@@ -557,8 +571,8 @@ class RealTimeWebProtectionHandler:
                 else:
                     notify_user_for_web(ip_address=ip_address)
             except Exception as e:
-                print(f"Error processing IPv4 packet: {e}")
-
+                print(f"Error processing IP packet: {e}")
+                
 class RealTimeWebProtectionObserver:
     def __init__(self):
         self.handler = RealTimeWebProtectionHandler()
