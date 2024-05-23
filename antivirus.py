@@ -338,11 +338,11 @@ def monitor_web_preferences():
     while True:
         if preferences["real_time_web_protection"] and not real_time_web_observer.is_started:
             real_time_web_observer.start()
-            print("Real-time protection is now enabled.")
+            print("Real-time web protection is now enabled.")
         
         elif not preferences["real_time_protection"] and real_time_web_observer.is_started:
             real_time_web_observer.stop()
-            print("Real-time protection is now disabled.")
+            print("Real-time web protection is now disabled.")
 
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
@@ -475,7 +475,7 @@ def scan_tar_file(file_path):
     except Exception as e:
         print(f"Error scanning tar file: {e}")
     return False, ""
-    
+
 def notify_user(ip_address, domain):
     notification = Notify()
     notification.title = "Malware or Phishing Alert"
