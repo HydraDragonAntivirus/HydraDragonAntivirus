@@ -925,7 +925,6 @@ class AntivirusUI(QWidget):
         else:
             QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
 
-
 class PreferencesDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
