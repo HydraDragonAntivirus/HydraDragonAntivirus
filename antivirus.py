@@ -337,11 +337,11 @@ def monitor_preferences():
 def monitor_preferences_web():
     while True:
         if preferences["real_time_web_protection"] and not real_time_web_observer.is_started:
-            real_time_observer_web.start()
+            real_time_web_observer.start()
             print("Real-time protection is now enabled.")
         
         elif not preferences["real_time_protection"] and real_time_web_observer.is_started:
-            real_time_observer_web.stop()
+            real_time_web_observer.stop()
             print("Real-time protection is now disabled.")
 
 def scan_file_real_time(file_path):
