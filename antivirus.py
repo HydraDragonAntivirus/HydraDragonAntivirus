@@ -43,7 +43,7 @@ ipv6_addresses_signatures_data = {}
 domains_signatures_data = {}
 # Get the root directory of the system drive based on the platform
 if system_platform() == "Windows":
-    folder_to_watch = "C:\\"  # Example: C:\ on Windows but hardcoded
+    folder_to_watch = os.path.expandvars("%systemdrive%")
 elif system_platform() in ["Linux", "FreeBSD", "Darwin"]:
     folder_to_watch = "/"     # Root directory on Linux, FreeBSD, and macOS
 else:
@@ -581,7 +581,7 @@ class RealTimeProtectionHandler(FileSystemEventHandler):
     def on_any_event(self, event):
         if event.is_directory:
             print(f"Folder changed: {event.src_path}")
-            self.scan_folder(event.src_path)
+            self.scan_folder_rtp(event.src_path)
         else:
             file_path = event.src_path
             if event.event_type == 'created':
@@ -607,7 +607,7 @@ class RealTimeProtectionHandler(FileSystemEventHandler):
                 pass
         return False
 
-    def scan_folder(self, folder_path):
+    def scan_folder_rtp(self, folder_path):
         # Check if the folder is in use by any process
         if not self.is_folder_in_use(folder_path):
             return
@@ -710,6 +710,16 @@ class AntivirusUI(QWidget):
     def setup_main_ui(self):
         layout = QVBoxLayout()
 
+        # Quick Scan button
+        self.quick_scan_button = QPushButton("Quick Scan")
+        self.quick_scan_button.clicked.connect(self.quick_scan)
+        layout.addWidget(self.quick_scan_button)
+        
+        # Full Scan button
+        self.full_scan_button = QPushButton("Full Scan")
+        self.full_scan_button.clicked.connect(self.full_scan)
+        layout.addWidget(self.full_scan_button)
+
         self.scan_button = QPushButton("Scan Folder")
         self.scan_button.clicked.connect(self.scan_folder)
         layout.addWidget(self.scan_button)
@@ -768,6 +778,13 @@ class AntivirusUI(QWidget):
 
         self.setLayout(layout)
 
+    def full_scan(self):
+        threading.Thread(target=self.scan_folder, args=(folder_to_watch,)).start()
+
+    def quick_scan(self):
+        user_folder = os.path.expanduser("~")  # Get user's home directory
+        threading.Thread(target=self.scan_folder, args=(user_folder,)).start()
+        
     def scan_memory(self):
         def scan():
             scanned_files = set()  # Set to store scanned file paths
@@ -810,7 +827,6 @@ class AntivirusUI(QWidget):
         for item in selected_items:
             item_index = self.detected_list.row(item)
             self.detected_list.takeItem(item_index)
-
 
     def delete_selected(self):
         selected_items = self.detected_list.selectedItems()
