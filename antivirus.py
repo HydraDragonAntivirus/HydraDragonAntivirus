@@ -42,20 +42,20 @@ ip_addresses_signatures_data = {}
 ipv6_addresses_signatures_data = {}
 domains_signatures_data = {}
 # Get the root directory of the system drive based on the platform
-if platform.system() == "Windows":
+if system_platform() == "Windows":
     system_drives = [drive.mountpoint for drive in psutil.disk_partitions()]
     if system_drives:
         system_drives = folder_to_watch
     else:
         folder_to_watch = os.path.expandvars("%systemdrive%")  # Default to %systemdrive% if no drives are detected
-elif platform.system() in ["Linux", "FreeBSD", "Darwin"]:
+elif system_platform() in ["Linux", "FreeBSD", "Darwin"]:
     folder_to_watch = "/"     # Root directory on Linux, FreeBSD, and macOS
 else:
     folder_to_watch = "/"     # Default to root directory on other platforms
 
 def activate_uefi_drive():
     # Check if the platform is Windows
-    if platform.system() == 'Windows':
+    if system_platform() == 'Windows':
         mount_command = 'mountvol X: /S'  # Command to mount UEFI drive
         try:
             # Execute the mountvol command
@@ -685,7 +685,7 @@ class RealTimeProtectionObserver:
             print("Observer stopped")
 
     def check_folder_to_watch(self):
-        if platform.system() == "Windows":
+        if system_platform() == "Windows":
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
             if self.folder_to_watch not in disk_partitions:
                 print(f"Warning: {self.folder_to_watch} does not exist or is not accessible.")
@@ -822,7 +822,7 @@ class AntivirusUI(QWidget):
         self.setLayout(layout)
 
     def full_scan(self):
-        if platform.system() == "Windows":
+        if system_platform() == "Windows":
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
             if len(disk_partitions) > 1:
                 # Initiate a full scan for each drive
@@ -842,10 +842,10 @@ class AntivirusUI(QWidget):
         threading.Thread(target=self.scan_folder, args=(folder_path,)).start()
 
     def get_uefi_folder(self):
-        if platform.system() == "Windows":
+        if system_platform() == "Windows":
             return "X:\\"
         else:
-            return "/boot/efi" if platform.system() in ["Linux", "FreeBSD", "Darwin"] else "/boot/efi"
+            return "/boot/efi" if system_platform() in ["Linux", "FreeBSD", "Darwin"] else "/boot/efi"
     
     def scan_memory(self):
         def scan():
