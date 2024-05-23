@@ -475,40 +475,7 @@ def scan_tar_file(file_path):
     except Exception as e:
         print(f"Error scanning tar file: {e}")
     return False, ""
-
-def packet_callback(packet):
-    if IP in packet:
-        ip_address = packet[IP].dst
-        scan_ip(ip_address)
-        try:
-            domain = sr1(IP(dst=ip_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ip_address)), verbose=False)[DNS].an.rdata.decode()
-            scan_domain_and_subdomains(domain)
-
-        except Exception as e:
-            print(f"Error processing IPv4 packet: {e}")
-
-        # Disconnect the connection if a match is found
-        if ip_address in ip_addresses_signatures_data or domain in domains_signatures_data:
-            print(f"Disconnecting connection to {ip_address}")
-            packet.drop()
-            notify_user(ip_address, domain)
-
-    elif IPv6 in packet:
-        ipv6_address = packet[IPv6].dst
-        scan_ipv6(ipv6_address)
-        try:
-            domain = sr1(IPv6(dst=ipv6_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ipv6_address)), verbose=False)[DNS].an.rdata.decode()
-            scan_domain_and_subdomains(domain)
-
-        except Exception as e:
-            print(f"Error processing IPv6 packet: {e}")
-
-        # Disconnect the connection if a match is found
-        if ipv6_address in ipv6_addresses_signatures_data or domain in domains_signatures_data:
-            print(f"Disconnecting connection to {ipv6_address}")
-            packet.drop()
-            notify_user(ipv6_address, domain)
-
+    
 def notify_user(ip_address, domain):
     notification = Notify()
     notification.title = "Malware or Phishing Alert"
@@ -522,34 +489,35 @@ class RealTimeWebProtectionHandler:
     def on_packet_received(self, packet):
         if IP in packet:
             ip_address = packet[IP].dst
-            scan_ip(ip_address)
             try:
                 domain = sr1(IP(dst=ip_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ip_address)), verbose=False)[DNS].an.rdata.decode()
                 scan_domain_and_subdomains(domain)
             except Exception as e:
                 print(f"Error processing IPv4 packet: {e}")
 
-            # Disconnect the connection if a match is found
-            if ip_address in ip_addresses_signatures_data or domain in domains_signatures_data:
+            # Scan the IP address
+            if ip_address in ip_addresses_signatures_data:
+                print(f"IP address {ip_address} matches the signatures.")
+                # Disconnect the connection
                 print(f"Disconnecting connection to {ip_address}")
                 packet.drop()
                 notify_user(ip_address, domain)
 
         elif IPv6 in packet:
             ipv6_address = packet[IPv6].dst
-            scan_ipv6(ipv6_address)
             try:
                 domain = sr1(IPv6(dst=ipv6_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ipv6_address)), verbose=False)[DNS].an.rdata.decode()
                 scan_domain_and_subdomains(domain)
             except Exception as e:
                 print(f"Error processing IPv6 packet: {e}")
 
-            # Disconnect the connection if a match is found
-            if ipv6_address in ipv6_addresses_signatures_data or domain in domains_signatures_data:
+            # Scan the IPv6 address
+            if ipv6_address in ipv6_addresses_signatures_data:
+                print(f"IPv6 address {ipv6_address} matches the signatures.")
+                # Disconnect the connection
                 print(f"Disconnecting connection to {ipv6_address}")
                 packet.drop()
                 notify_user(ipv6_address, domain)
-
 
 class RealTimeWebProtectionObserver:
     def __init__(self):
