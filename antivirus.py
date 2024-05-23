@@ -42,12 +42,32 @@ ip_addresses_signatures_data = {}
 ipv6_addresses_signatures_data = {}
 domains_signatures_data = {}
 # Get the root directory of the system drive based on the platform
-if system_platform() == "Windows":
-    folder_to_watch = os.path.expandvars("%systemdrive%")
-elif system_platform() in ["Linux", "FreeBSD", "Darwin"]:
+if platform.system() == "Windows":
+    system_drives = [drive.mountpoint for drive in psutil.disk_partitions()]
+    if system_drives:
+        system_drives = folder_to_watch
+    else:
+        folder_to_watch = os.path.expandvars("%systemdrive%")  # Default to %systemdrive% if no drives are detected
+elif platform.system() in ["Linux", "FreeBSD", "Darwin"]:
     folder_to_watch = "/"     # Root directory on Linux, FreeBSD, and macOS
 else:
     folder_to_watch = "/"     # Default to root directory on other platforms
+
+def activate_uefi_drive():
+    # Check if the platform is Windows
+    if platform.system() == 'Windows':
+        mount_command = 'mountvol X: /S'  # Command to mount UEFI drive
+        try:
+            # Execute the mountvol command
+            subprocess.run(mount_command, shell=True, check=True)
+            print("UEFI drive activated!")
+        except subprocess.CalledProcessError as e:
+            print(f"Error mounting UEFI drive: {e}")
+    else:
+        print("You are not in the Windows. No need to mountvol X: /S")
+
+# Call the UEFI function
+activate_uefi_drive()
 
 def load_quarantine_data():
     if os.path.exists(quarantine_file_path):
@@ -636,15 +656,22 @@ class RealTimeProtectionHandler(FileSystemEventHandler):
 
 class RealTimeProtectionObserver:
     def __init__(self, folder_to_watch):
+        self.folder_to_watch = folder_to_watch
         self.event_handler = RealTimeProtectionHandler()
         self.observer = Observer()
         self.is_started = False  # Initialize is_started attribute
         self.is_initialized = False
 
     def start(self):
+        self.check_folder_to_watch()  # Check and update folder_to_watch if necessary
+        
         if not self.is_initialized:
-            self.observer.schedule(self.event_handler, path=folder_to_watch, recursive=True)
+            # Schedule the event handler for each drive
+            for drive in psutil.disk_partitions():
+                if os.path.isdir(drive.mountpoint):
+                    self.observer.schedule(self.event_handler, path=drive.mountpoint, recursive=True)
             self.is_initialized = True
+        
         if not self.is_started:
             self.observer.start()
             self.is_started = True
@@ -657,9 +684,20 @@ class RealTimeProtectionObserver:
             self.is_started = False
             print("Observer stopped")
 
-# Create the real-time observer with the system drive as the monitored directory
-real_time_observer = RealTimeProtectionObserver(folder_to_watch)
-real_time_web_observer = RealTimeWebProtectionObserver()
+    def check_folder_to_watch(self):
+        if platform.system() == "Windows":
+            disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
+            if self.folder_to_watch not in disk_partitions:
+                print(f"Warning: {self.folder_to_watch} does not exist or is not accessible.")
+                # Update folder_to_watch to the first available drive
+                for partition in disk_partitions:
+                    if os.path.isdir(partition):
+                        self.folder_to_watch = partition
+                        print(f"Updated folder_to_watch to: {self.folder_to_watch}")
+                        return  # Exit the loop after updating
+                # If no accessible drives are found, set to %systemdrive%
+                self.folder_to_watch = os.path.expandvars("%systemdrive%")
+                print(f"No accessible drives found. Setting folder_to_watch to default: {self.folder_to_watch}")
 
 class YaraScanner:
     def scan_data(self, data):
@@ -720,6 +758,11 @@ class AntivirusUI(QWidget):
         self.full_scan_button.clicked.connect(self.full_scan)
         layout.addWidget(self.full_scan_button)
 
+        # UEFI Scan button
+        self.uefi_scan_button = QPushButton("UEFI Scan")
+        self.uefi_scan_button.clicked.connect(self.uefi_scan)
+        layout.addWidget(self.uefi_scan_button)
+
         self.scan_button = QPushButton("Scan Folder")
         self.scan_button.clicked.connect(self.scan_folder)
         layout.addWidget(self.scan_button)
@@ -779,12 +822,31 @@ class AntivirusUI(QWidget):
         self.setLayout(layout)
 
     def full_scan(self):
-        threading.Thread(target=self.scan_folder, args=(folder_to_watch,)).start()
+        if platform.system() == "Windows":
+            disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
+            if len(disk_partitions) > 1:
+                # Initiate a full scan for each drive
+                for drive in disk_partitions:
+                    threading.Thread(target=self.scan_folder, args=(drive,)).start()
+            else:
+                threading.Thread(target=self.scan_folder, args=(self.folder_to_watch,)).start()
+        else:
+            threading.Thread(target=self.scan_folder, args=(self.folder_to_watch,)).start()
 
     def quick_scan(self):
         user_folder = os.path.expanduser("~")  # Get user's home directory
         threading.Thread(target=self.scan_folder, args=(user_folder,)).start()
-        
+
+    def uefi_scan(self):
+        folder_path = self.get_uefi_folder()
+        threading.Thread(target=self.scan_folder, args=(folder_path,)).start()
+
+    def get_uefi_folder(self):
+        if platform.system() == "Windows":
+            return "X:\\"
+        else:
+            return "/boot/efi" if platform.system() in ["Linux", "FreeBSD", "Darwin"] else "/boot/efi"
+    
     def scan_memory(self):
         def scan():
             scanned_files = set()  # Set to store scanned file paths
