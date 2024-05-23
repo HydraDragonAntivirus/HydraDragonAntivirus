@@ -632,8 +632,6 @@ class YaraScanner:
                 for match in matches:
                     if match.rule not in excluded_rules:
                         matched_rules.append(match.rule)
-                # Break the loop if a match is found
-                break
 
         # Check matches for pyas_rule
         if  pyas_rule:
@@ -642,8 +640,6 @@ class YaraScanner:
                 for match in matches:
                     if match.rule not in excluded_rules:
                         matched_rules.append(match.rule)
-                # Break the loop if a match is found
-                break
 
         return matched_rules
 
