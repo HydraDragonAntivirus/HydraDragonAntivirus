@@ -569,8 +569,7 @@ class RealTimeProtectionHandler(FileSystemEventHandler):
             file_path = event.src_path
             if event.event_type == 'created':
                 print(f"File created: {file_path}")
-                if self.is_file_in_use(file_path):
-                    self.scan_and_quarantine(file_path)
+                self.scan_and_quarantine(file_path)
             elif event.event_type == 'modified':
                 print(f"File modified: {file_path}")
                 self.scan_and_quarantine(file_path)
@@ -600,8 +599,7 @@ class RealTimeProtectionHandler(FileSystemEventHandler):
         files = [f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))]
         for file in files:
             file_path = os.path.join(folder_path, file)
-            if not self.is_file_in_use(file_path):
-                self.scan_and_quarantine(file_path)
+            self.scan_and_quarantine(file_path)
 
     def scan_and_quarantine(self, file_path):
         print(f"Scanning file: {file_path}")
