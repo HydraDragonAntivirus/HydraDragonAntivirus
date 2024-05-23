@@ -563,33 +563,15 @@ class RealTimeProtectionHandler(FileSystemEventHandler):
                 print(f"File created: {file_path}")
                 if self.is_file_in_use(file_path):
                     self.scan_and_quarantine(file_path)
-                else:
-                    pass
             elif event.event_type == 'modified':
                 print(f"File modified: {file_path}")
-                if self.is_file_in_use(file_path):
-                    self.scan_and_quarantine(file_path)
-                else:
-                    pass
+                self.scan_and_quarantine(file_path)
             elif event.event_type == 'moved':
                 src_path = event.src_path
                 dest_path = event.dest_path
                 print(f"File moved from {src_path} to {dest_path}")
-                if self.is_file_in_use(src_path) or self.is_file_in_use(dest_path):
-                    self.scan_and_quarantine(src_path)  # Scan the source path
-                    self.scan_and_quarantine(dest_path) # Scan the destination path
-                else:
-                    pass
-
-    def is_file_in_use(self, file_path):
-        # Check if the file is being used by any process
-        for proc in psutil.process_iter(['pid', 'name', 'exe']):
-            try:
-                if file_path == proc.exe():
-                    return True
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                pass
-        return False
+                self.scan_and_quarantine(src_path)  # Scan the source path
+                self.scan_and_quarantine(dest_path) # Scan the destination path
 
     def is_folder_in_use(self, folder_path):
         # Check if the folder is being used by any process
