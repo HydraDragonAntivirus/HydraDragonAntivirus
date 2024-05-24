@@ -29,6 +29,43 @@ sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
 script_dir = os.getcwd()
 
+def load_hips_rules():
+    # Determine the directory where the script is located
+    script_dir = os.getcwd()  # or use os.path.dirname(os.path.abspath(__file__)) if script may be run from other locations
+    rules_file = os.path.join(script_dir, "hips", "HIPS.rules")
+    
+    rules = {
+        "dns_queries": [],
+        "http_requests": [],
+        "suspicious_processes": []
+    }
+
+    if not os.path.exists(rules_file):
+        print(f"Rules file {rules_file} not found.")
+        return rules
+
+    with open(rules_file, 'r') as file:
+        for line in file:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split(",")
+            if len(parts) != 3:
+                continue
+            rule_type, pattern, msg = parts
+            pattern = bytes.fromhex(pattern) if rule_type == "dns" else pattern.encode()
+            if rule_type == "dns":
+                rules["dns_queries"].append({"pattern": pattern, "msg": msg})
+            elif rule_type == "http":
+                rules["http_requests"].append({"pattern": pattern, "msg": msg})
+            elif rule_type == "process":
+                rules["suspicious_processes"].append(pattern.decode())
+
+    return rules
+
+# Load rules from hips/HIPS.rules
+IDS_RULES = load_hips_rules()
+
 # Configure logging
 log_directory = os.path.join(script_dir, "log")  # Replace with the path to your log directory
 log_file = os.path.join(log_directory, "scan_directory.log")
@@ -193,7 +230,8 @@ def load_preferences():
             "use_clamav": True,
             "use_yara": True,
             "real_time_protection": True,
-            "real_time_web_protection": True
+            "real_time_web_protection": True,
+            "enable_hips": True
         }
         save_preferences(default_preferences)
         return default_preferences
@@ -1168,6 +1206,11 @@ class PreferencesDialog(QDialog):
         self.real_time_web_protection_checkbox.setChecked(preferences["real_time_web_protection"])
         self.real_time_web_protection_checkbox.stateChanged.connect(self.toggle_real_time_web_protection)
         layout.addWidget(self.real_time_web_protection_checkbox)
+        
+        self.enable_hips_checkbox = QCheckBox("Enable HIPS")
+        self.enable_hips_checkbox.setChecked(preferences.get("enable_hips", False))
+        self.enable_hips_checkbox.stateChanged.connect(self.toggle_hips)
+        layout.addWidget(self.enable_hips_checkbox)
 
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
@@ -1176,6 +1219,63 @@ class PreferencesDialog(QDialog):
 
         self.setLayout(layout)
 
+    def toggle_hips(self, state):
+        preferences["enable_hips"] = (state == Qt.Checked)
+        save_preferences(preferences)
+        if state == Qt.Checked:
+            self.start_hips()
+        else:
+            self.stop_hips()
+
+    def start_hips(self):
+        if not self.sniffing_thread or not self.sniffing_thread.is_alive():
+            self.stop_sniffing.clear()
+            self.sniffing_thread = threading.Thread(target=self.monitor_traffic)
+            self.sniffing_thread.start()
+            print("HIPS started.")
+
+    def stop_hips(self):
+        if self.sniffing_thread and self.sniffing_thread.is_alive():
+            self.stop_sniffing.set()
+            self.sniffing_thread.join()
+            print("HIPS stopped.")
+
+    def monitor_traffic(self):
+        sniff(prn=self.check_traffic, store=False, stop_filter=lambda _: self.stop_sniffing.is_set())
+
+    def check_traffic(self, packet):
+        if packet.haslayer(DNS):
+            dns_query = packet[DNS].qd.qname.decode()
+            for rule in IDS_RULES["dns_queries"]:
+                if rule["pattern"].decode() in dns_query:
+                    self.handle_alert(rule)
+
+    def handle_alert(self, rule):
+        if rule["priority"] == 1:  # Critical
+            self.block_related_application(rule["msg"])
+        elif rule["priority"] == 2:  # Suspicious
+            self.ask_user(rule["msg"])
+
+    def block_related_application(self, msg):
+        # Get current network connections
+        connections = psutil.net_connections()
+        for conn in connections:
+            if conn.laddr.port == 53:  # DNS port
+                try:
+                    p = psutil.Process(conn.pid)
+                    p.terminate()
+                    print(f"Blocked application {p.name()} with PID {p.pid} related to the critical alert: {msg}.")
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
+                    print(f"Failed to terminate process: {e}")
+
+    def ask_user(self, msg):
+        reply = QMessageBox.question(self, 'Suspicious Activity Detected', msg, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            print("User chose to block the suspicious activity.")
+            self.block_related_application(msg)
+        else:
+            print("User chose to allow the suspicious activity.")
+            
     def toggle_real_time_protection(self, state):
         preferences["real_time_protection"] = (state == Qt.Checked)
         save_preferences(preferences)  # Save updated preferences
@@ -1191,6 +1291,14 @@ class PreferencesDialog(QDialog):
             self.start_real_time_web_protection()
         else:
             self.stop_real_time_web_protection()
+    
+    def toggle_hips(self, state):
+        preferences["enable_hips"] = (state == Qt.Checked)
+        save_preferences(preferences)  # Save updated preferences
+        if state == Qt.Checked:
+            self.start_hips()
+        else:
+            self.stop_hips()
 
     def start_real_time_protection(self):
         global real_time_observer
