@@ -401,7 +401,7 @@ def scan_file_real_time(file_path):
     if not os.path.exists(file_path):
         logging.error(f"Cannot access the provided file path: {file_path}")
         return False, f"Cannot access the provided file path: {file_path}"
-        
+
     if preferences["use_clamav"]:
         result = scan_file_with_clamd(file_path)
         if result and result != "Clean" and result != "":
@@ -1000,23 +1000,27 @@ class AntivirusUI(QWidget):
             threading.Thread(target=self.scan_file_path, args=(file_path,)).start()
 
     def scan_directory(self, directory):
+        detected_threats = []
+        clean_files = []
+
         logging.info(f"Started scanning directory: {directory}")
         try:
             for root, _, files in os.walk(directory):
                 for file in files:
                     file_path = os.path.join(root, file)
-                    self.scan_file_path(file_path)
+                    is_malicious, virus_name = self.scan_file_path(file_path)
+                    if is_malicious:
+                        detected_threats.append((file_path, virus_name))
+                    else:
+                        clean_files.append(file_path)
                     logging.info(f"Scanned file: {file_path}")
             logging.info(f"Finished scanning directory: {directory}")
         except Exception as e:
             logging.error(f"Error scanning directory {directory}: {e}")
+        
+        # Show summary
+        self.show_summary(detected_threats, clean_files)
         self.folder_scan_finished.emit()
-
-    def show_scan_finished_message(self):
-        QMessageBox.information(self, "Scan Finished", "Folder scan has finished.")
-
-    def show_memory_scan_finished_message(self):
-        QMessageBox.information(self, "Scan Finished", "Memory scan has finished.")
 
     def scan_file_path(self, file_path):
         is_malicious, virus_name = scan_file_real_time(file_path)
@@ -1027,6 +1031,35 @@ class AntivirusUI(QWidget):
             self.detected_list.addItem(item)
         else:
             logging.info(f"File is clean: {file_path}")
+
+    def show_summary(self, detected_threats, clean_files):
+        num_detected = len(detected_threats)
+        num_clean = len(clean_files)
+        total_files = num_detected + num_clean
+
+        logging.info(f"----------- SCAN SUMMARY -----------")
+        logging.info(f"Infected files: {num_detected}")
+        logging.info(f"Clean files: {num_clean}")
+        logging.info(f"Total files scanned: {total_files}")
+        logging.info("-----------------------------------")
+
+        # Display detected threats
+        for file_path, virus_name in detected_threats:
+            logging.warning(f"Infected file detected: {file_path} - Virus: {virus_name}")
+            item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
+            item.setData(Qt.UserRole, file_path)
+            self.detected_list.addItem(item)
+
+        # Display clean files
+        for file_path in clean_files:
+            logging.info(f"File is clean: {file_path}")
+            # You can handle displaying clean files as needed
+            
+    def show_scan_finished_message(self):
+        QMessageBox.information(self, "Scan Finished", "Folder scan has finished.")
+
+    def show_memory_scan_finished_message(self):
+        QMessageBox.information(self, "Scan Finished", "Memory scan has finished.")
 
     def apply_action(self):
         action = self.action_combobox.currentText()
