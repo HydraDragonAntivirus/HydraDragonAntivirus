@@ -47,44 +47,6 @@ config_folder_path = os.path.join(script_dir, "config")
 if not os.path.exists(config_folder_path):
     os.makedirs(config_folder_path)
 
-def load_hips_rules():
-    # Determine the directory where the script is located
-    script_dir = os.getcwd()  # or use os.path.dirname(os.path.abspath(__file__)) if script may be run from other locations
-    rules_file = os.path.join(script_dir, "hips", "HIPS.rules")
-    
-    rules = {
-        "dns_queries": [],
-        "http_requests": [],
-        "suspicious_processes": []
-    }
-
-    if not os.path.exists(rules_file):
-        print(f"Rules file {rules_file} not found.")
-        return rules
-
-    with open(rules_file, 'r') as file:
-        for line in file:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split(",")
-            if len(parts) != 3:
-                continue
-            rule_type, pattern, msg = parts
-            pattern = bytes.fromhex(pattern) if rule_type == "dns" else pattern.encode()
-            if rule_type == "dns":
-                rules["dns_queries"].append({"pattern": pattern, "msg": msg})
-            elif rule_type == "http":
-                rules["http_requests"].append({"pattern": pattern, "msg": msg})
-            elif rule_type == "process":
-                rules["suspicious_processes"].append(pattern.decode())
-
-    return rules
-
-# Load rules from hips/HIPS.rules
-IDS_RULES = load_hips_rules()
-print("HIPS Rules loaded successfully!")
-
 user_preference_file = os.path.join(config_folder_path, "user_preference.json")
 quarantine_file_path = os.path.join(config_folder_path, "quarantine.json")
 IP_ADDRESSES_PATH = os.path.join(script_dir, "website", "IP_Addresses.txt")
@@ -238,115 +200,6 @@ def load_preferences():
         return default_preferences
 
 preferences = load_preferences()
-
-# Real-time monitoring for HIPS
-class HIPSFileSystemEventHandler(FileSystemEventHandler):
-    def on_created(self, event):
-        if event.is_directory:
-            return
-        self.process(event.src_path)
-
-    def on_modified(self, event):
-        if event.is_directory:
-            return
-        self.process(event.src_path)
-
-    def process(self, file_path):
-        logging.info(f"Processing file: {file_path}")
-        for rule in IDS_RULES["http_requests"]:
-            if re.search(rule["pattern"].decode(), file_path):
-                logging.warning(f"HIPS Alert: {rule['msg']} in file: {file_path}")
-                Notify().send(f"HIPS Alert: {rule['msg']} in file: {file_path}")
-                quarantine_file(file_path, rule["msg"])
-
-# Function to apply HTTP HIPS rules
-def apply_http_hips_rules(packet):
-    if packet.haslayer(Raw):
-        payload = packet[Raw].load
-        for rule in IDS_RULES['http_requests']:
-            if rule["pattern"] in payload:
-                header_index = payload.find(rule["pattern"])
-                if header_index != -1:
-                    logging.warning(f"HIPS Alert: {rule['msg']} in HTTP packet")
-                    Notify().send(f"HIPS Alert: {rule['msg']} in HTTP packet")
-                    if preferences["enable_hips"]:
-                        # Identify and quarantine the associated file
-                        associated_files = identify_associated_files(packet)
-                        for file in associated_files:
-                            quarantine_file(file, rule['msg'])
-
-# Function to apply TCP HIPS rules
-def apply_tcp_hips_rules(packet):
-    if packet.haslayer(Raw):
-        payload = packet[Raw].load
-        for rule in IDS_RULES['dns_queries']:
-            if len(payload) == rule["dsize"] and payload[rule["offset"]:rule["offset"] + rule["depth"]] == rule["pattern"]:
-                logging.warning(f"HIPS Alert: {rule['msg']} in TCP packet")
-                Notify().send(f"HIPS Alert: {rule['msg']} in TCP packet")
-                if preferences["enable_hips"]:
-                    # Identify and quarantine the associated file
-                    associated_files = identify_associated_files(packet)
-                    for file in associated_files:
-                        quarantine_file(file, rule['msg'])
-
-# Function to identify the associated files for a given packet
-def identify_associated_files(packet):
-    associated_files = []
-    for conn in psutil.net_connections(kind='inet'):
-        if conn.laddr.ip == packet[IP].src and conn.laddr.port == packet[IP].sport:
-            try:
-                process = psutil.Process(conn.pid)
-                for file in process.open_files():
-                    associated_files.append(file.path)
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
-    return associated_files
-
-# Real-time monitoring for HIPS
-class HIPSFileSystemEventHandler(FileSystemEventHandler):
-    def on_created(self, event):
-        if event.is_directory:
-            return
-        self.process(event.src_path)
-
-    def on_modified(self, event):
-        if event.is_directory:
-            return
-        self.process(event.src_path)
-
-    def process(self, file_path):
-        logging.info(f"Processing file: {file_path}")
-        for rule in IDS_RULES["http_requests"]:
-            if re.search(rule["pattern"].decode(), file_path):
-                logging.warning(f"HIPS Alert: {rule['msg']} in file: {file_path}")
-                Notify().send(f"HIPS Alert: {rule['msg']} in file: {file_path}")
-                quarantine_file(file_path, rule["msg"])
-
-def monitor_hips():
-    if preferences["enable_hips"]:
-        event_handler = HIPSFileSystemEventHandler()
-        observer = Observer()
-        observer.schedule(event_handler, script_dir, recursive=True)
-        observer.start()
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            observer.stop()
-        observer.join()
-
-# Packet handler function
-def packet_handler(packet):
-    if packet.haslayer(IP):
-        if packet.haslayer(TCP):
-            apply_tcp_hips_rules(packet)
-            apply_http_hips_rules(packet)
-
-def start_sniffing_hips():
-    if preferences["enable_hips"]:
-        print("Starting network traffic monitoring...")
-        sniff(prn=packet_handler, store=0)
-
 malicious_json_file_data = os.path.join(script_dir, "machinelearning", "malicious_file_names.json")
 malicious_numeric_file_data = os.path.join(script_dir, "machinelearning", "malicious_numeric.pkl")
 benign_numeric_file_data = os.path.join(script_dir, "machinelearning", "benign_numeric.pkl")
@@ -541,41 +394,19 @@ def monitor_web_preferences():
             real_time_web_observer.stop()
             print("Real-time web protection is now disabled.")
 
-stop_monitoring_hips = False
-observer = None
-sniffing_thread = None
+stop_monitoring_for_snort = False
 
-def monitor_hips_preferences():
-    global stop_monitoring_hips, observer, sniffing_thread
-    while not stop_monitoring_hips:
-        if preferences["enable_hips"]:
-            # Start HIPS file system monitoring if not already started
-            if observer is None:
-                observer = Observer()
-                event_handler = HIPSFileSystemEventHandler()
-                observer.schedule(event_handler, script_dir, recursive=True)
-                observer.start()
-                print("HIPS file system monitoring is now enabled.")
-            
-            # Start network traffic monitoring if not already started
-            if sniffing_thread is None or not sniffing_thread.is_alive():
-                sniffing_thread = threading.Thread(target=start_sniffing_hips, daemon=True)
-                sniffing_thread.start()
-                print("Network traffic monitoring is now enabled.")
-        
-        else:
-            # Stop HIPS file system monitoring if enabled
-            if observer is not None:
-                observer.stop()
-                observer.join()
-                observer = None
-                print("HIPS file system monitoring is now disabled.")
-            
-            # Stop network traffic monitoring if enabled
-            if sniffing_thread is not None and sniffing_thread.is_alive():
-                sniffing_thread.join()
-                sniffing_thread = None
-                print("Network traffic monitoring is now disabled.")
+def monitor_snort_preferences():
+    global stop_monitoring_for_snort
+    while not stop_monitoring_for_snort:
+        # Check preferences and control Snort accordingly
+        if preferences["enable_hips"] and not snort_observer.is_started:
+            snort_observer.start_snort()
+            print("Snort is now enabled.")
+
+        elif not preferences["enable_hips"] and snort_observer.is_started:
+            snort_observer.stop_snort()
+            print("Snort is now disabled.")
 
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
@@ -1329,7 +1160,17 @@ class AntivirusUI(QWidget):
             QMessageBox.information(self, "Update Definitions", "Antivirus definitions updated successfully.")
         else:
             QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
-            
+
+def monitor_traffic():
+    # Define the command to run Snort
+    snort_command = "snort"  # You might need to adjust this based on your system configuration
+
+    try:
+        # Run Snort in the terminal
+        subprocess.run(snort_command, shell=True, check=True)
+    except subprocess.CalledProcessError as e:
+        print("Error running Snort:", e)
+
 class PreferencesDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1422,47 +1263,12 @@ class PreferencesDialog(QDialog):
             self.sniffing_thread = threading.Thread(target=monitor_traffic)
             self.sniffing_thread.start()
             print("HIPS started.")
-
+            
     def stop_hips(self):
         if self.sniffing_thread and self.sniffing_thread.is_alive():
             self.stop_sniffing.set()
             self.sniffing_thread.join()
             print("HIPS stopped.")
-
-# Function to check DNS traffic for malicious patterns
-def check_traffic(packet):
-    if packet.haslayer(DNS):
-        dns_query = packet[DNS].qd.qname.decode()
-        for rule in IDS_RULES["dns_queries"]:
-            if re.search(rule["pattern"].decode(), dns_query):
-                logging.warning(f"HIPS Alert: {rule['msg']} in DNS query: {dns_query}")
-                Notify().send(f"HIPS Alert: {rule['msg']} in DNS query: {dns_query}")
-                handle_alert(rule)
-
-def handle_alert(rule):
-    if rule["priority"] == 1:  # Critical
-        block_related_application(rule["msg"])
-    elif rule["priority"] == 2:  # Suspicious
-        ask_user(rule["msg"])
-
-def block_related_application(msg):
-    connections = psutil.net_connections()
-    for conn in connections:
-        if conn.laddr.port == 53:  # DNS port
-            try:
-                p = psutil.Process(conn.pid)
-                p.terminate()
-                print(f"Blocked application {p.name()} with PID {p.pid} related to the critical alert: {msg}.")
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
-                print(f"Failed to terminate process: {e}")
-
-def ask_user(msg):
-    reply = QMessageBox.question(None, 'Suspicious Activity Detected', msg, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-    if reply == QMessageBox.Yes:
-        print("User chose to block the suspicious activity.")
-        block_related_application(msg)
-    else:
-        print("User chose to allow the suspicious activity.")
 
 class QuarantineManager(QDialog):
     def __init__(self, parent=None):
