@@ -1177,6 +1177,42 @@ class AntivirusUI(QWidget):
         else:
             QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
 
+def monitor_traffic():
+    sniff(prn=check_traffic, store=False, stop_filter=lambda _: stop_sniffing.is_set())
+
+def check_traffic(packet):
+    if packet.haslayer(DNS):
+        dns_query = packet[DNS].qd.qname.decode()
+        for rule in IDS_RULES["dns_queries"]:
+            if rule["pattern"].decode() in dns_query:
+                handle_alert(rule)
+
+def handle_alert(rule):
+    if rule["priority"] == 1:  # Critical
+        block_related_application(rule["msg"])
+    elif rule["priority"] == 2:  # Suspicious
+        ask_user(rule["msg"])
+
+def block_related_application(msg):
+    # Get current network connections
+    connections = psutil.net_connections()
+    for conn in connections:
+        if conn.laddr.port == 53:  # DNS port
+            try:
+                p = psutil.Process(conn.pid)
+                p.terminate()
+                print(f"Blocked application {p.name()} with PID {p.pid} related to the critical alert: {msg}.")
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
+                print(f"Failed to terminate process: {e}")
+
+def ask_user(msg):
+    reply = QMessageBox.question(None, 'Suspicious Activity Detected', msg, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+    if reply == QMessageBox.Yes:
+        print("User chose to block the suspicious activity.")
+        block_related_application(msg)
+    else:
+        print("User chose to allow the suspicious activity.")
+
 class PreferencesDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1219,66 +1255,9 @@ class PreferencesDialog(QDialog):
 
         self.setLayout(layout)
 
-    def toggle_hips(self, state):
-        preferences["enable_hips"] = (state == Qt.Checked)
-        save_preferences(preferences)
-        if state == Qt.Checked:
-            self.start_hips()
-        else:
-            self.stop_hips()
-
-    def start_hips(self):
-        if not self.sniffing_thread or not self.sniffing_thread.is_alive():
-            self.stop_sniffing.clear()
-            self.sniffing_thread = threading.Thread(target=self.monitor_traffic)
-            self.sniffing_thread.start()
-            print("HIPS started.")
-
-    def stop_hips(self):
-        if self.sniffing_thread and self.sniffing_thread.is_alive():
-            self.stop_sniffing.set()
-            self.sniffing_thread.join()
-            print("HIPS stopped.")
-
-    def monitor_traffic(self):
-        sniff(prn=self.check_traffic, store=False, stop_filter=lambda _: self.stop_sniffing.is_set())
-
-    def check_traffic(self, packet):
-        if packet.haslayer(DNS):
-            dns_query = packet[DNS].qd.qname.decode()
-            for rule in IDS_RULES["dns_queries"]:
-                if rule["pattern"].decode() in dns_query:
-                    self.handle_alert(rule)
-
-    def handle_alert(self, rule):
-        if rule["priority"] == 1:  # Critical
-            self.block_related_application(rule["msg"])
-        elif rule["priority"] == 2:  # Suspicious
-            self.ask_user(rule["msg"])
-
-    def block_related_application(self, msg):
-        # Get current network connections
-        connections = psutil.net_connections()
-        for conn in connections:
-            if conn.laddr.port == 53:  # DNS port
-                try:
-                    p = psutil.Process(conn.pid)
-                    p.terminate()
-                    print(f"Blocked application {p.name()} with PID {p.pid} related to the critical alert: {msg}.")
-                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
-                    print(f"Failed to terminate process: {e}")
-
-    def ask_user(self, msg):
-        reply = QMessageBox.question(self, 'Suspicious Activity Detected', msg, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            print("User chose to block the suspicious activity.")
-            self.block_related_application(msg)
-        else:
-            print("User chose to allow the suspicious activity.")
-            
     def toggle_real_time_protection(self, state):
         preferences["real_time_protection"] = (state == Qt.Checked)
-        save_preferences(preferences)  # Save updated preferences
+        save_preferences(preferences)
         if state == Qt.Checked:
             self.start_real_time_protection()
         else:
@@ -1286,15 +1265,15 @@ class PreferencesDialog(QDialog):
 
     def toggle_real_time_web_protection(self, state):
         preferences["real_time_web_protection"] = (state == Qt.Checked)
-        save_preferences(preferences)  # Save updated preferences
+        save_preferences(preferences)
         if state == Qt.Checked:
             self.start_real_time_web_protection()
         else:
             self.stop_real_time_web_protection()
-    
+
     def toggle_hips(self, state):
         preferences["enable_hips"] = (state == Qt.Checked)
-        save_preferences(preferences)  # Save updated preferences
+        save_preferences(preferences)
         if state == Qt.Checked:
             self.start_hips()
         else:
@@ -1320,6 +1299,19 @@ class PreferencesDialog(QDialog):
         if real_time_web_observer and real_time_web_observer.is_started:
             real_time_web_observer.stop()
 
+    def start_hips(self):
+        if not self.sniffing_thread or not self.sniffing_thread.is_alive():
+            self.stop_sniffing.clear()
+            self.sniffing_thread = threading.Thread(target=monitor_traffic)
+            self.sniffing_thread.start()
+            print("HIPS started.")
+
+    def stop_hips(self):
+        if self.sniffing_thread and self.sniffing_thread.is_alive():
+            self.stop_sniffing.set()
+            self.sniffing_thread.join()
+            print("HIPS stopped.")
+
 class QuarantineManager(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1328,8 +1320,8 @@ class QuarantineManager(QDialog):
 
         self.quarantine_list = QListWidget()
         for entry in quarantine_data:
-            item = QListWidgetItem(f"{entry['file_path']} - Virus: {entry['virus_name']}")
-            item.setData(Qt.UserRole, entry['file_path'])
+            item = QListWidgetItem(f"{entry['original_path']} - Virus: {entry['virus_name']}")
+            item.setData(Qt.UserRole, entry['original_path'])
             self.quarantine_list.addItem(item)
         layout.addWidget(self.quarantine_list)
 
