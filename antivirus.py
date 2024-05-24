@@ -83,7 +83,8 @@ def load_hips_rules():
 
 # Load rules from hips/HIPS.rules
 IDS_RULES = load_hips_rules()
-("HIPS rules loaded!")
+("HIPS rules loaded successfully!")
+
 user_preference_file = os.path.join(config_folder_path, "user_preference.json")
 quarantine_file_path = os.path.join(config_folder_path, "quarantine.json")
 IP_ADDRESSES_PATH = os.path.join(script_dir, "website", "IP_Addresses.txt")
