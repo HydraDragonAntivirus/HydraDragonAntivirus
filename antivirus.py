@@ -893,7 +893,7 @@ class AntivirusUI(QWidget):
 
     def uefi_scan(self):
         folder_path = self.get_uefi_folder()
-        threading.Thread(target=self.scan_directory args=(folder_path,)).start()
+        threading.Thread(target=self.scan_directory, args=(folder_path,)).start()
 
     def get_uefi_folder(self):
         if system_platform() == "Windows":
