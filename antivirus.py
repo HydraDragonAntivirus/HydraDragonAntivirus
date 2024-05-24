@@ -121,6 +121,10 @@ def activate_uefi_drive():
 # Call the UEFI function
 activate_uefi_drive()
 
+def save_preferences(preferences):
+    with open(user_preference_file, 'w') as f:
+        json.dump(preferences, f, indent=4)
+        
 def load_quarantine_data():
     if os.path.exists(quarantine_file_path):
         with open(quarantine_file_path, 'r') as f:
@@ -216,10 +220,6 @@ def calculate_similarity(features1, features2, threshold=0.86):
     matching_keys = sum(1 for key in common_keys if features1[key] == features2[key])
     similarity = matching_keys / max(len(features1), len(features2))
     return similarity
-
-def save_preferences(preferences):
-    with open(user_preference_file, 'w') as f:
-        json.dump(preferences, f, indent=4)
 
 def load_preferences():
     if os.path.exists(user_preference_file):
@@ -585,7 +585,7 @@ def scan_file_real_time(file_path):
 
     logging.info(f"Started scanning file: {file_path}")
 
-    if preferences("use_clamav"):
+    if preferences.get("use_clamav"):
         result = scan_file_with_clamd(file_path)
         if result and result != "Clean" and result != "":
             logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
@@ -593,7 +593,7 @@ def scan_file_real_time(file_path):
         else:
             logging.info(f"No malware detected by ClamAV in file: {file_path}")
 
-    if preferences("use_yara"):
+    if preferences.get("use_yara"):
         try:
             yara_result = AntivirusUI().yara_scanner.static_analysis(file_path)
             if yara_result and yara_result != "Clean" and yara_result != "":
@@ -608,7 +608,7 @@ def scan_file_real_time(file_path):
             logging.error(f"Error scanning file with YARA: {file_path} - {str(e)}")
             return False, "YARAError"
 
-    if preferences("use_machine_learning"):
+    if preferences.get("use_machine_learning"):
         is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path, malicious_file_names_data, malicious_numeric_features_data, benign_numeric_features_data)
         if is_malicious and malware_definition != "Clean" and malware_definition != "":
             logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
@@ -1361,7 +1361,7 @@ class PreferencesDialog(QDialog):
         layout.addWidget(self.real_time_web_protection_checkbox)
         
         self.enable_hips_checkbox = QCheckBox("Enable HIPS")
-        self.enable_hips_checkbox.setChecked(preferences("enable_hips", False))
+        self.enable_hips_checkbox.setChecked(preferences.get("enable_hips", False))
         self.enable_hips_checkbox.stateChanged.connect(self.toggle_hips)
         layout.addWidget(self.enable_hips_checkbox)
 
@@ -1428,11 +1428,6 @@ class PreferencesDialog(QDialog):
             self.stop_sniffing.set()
             self.sniffing_thread.join()
             print("HIPS stopped.")
-
-def save_preferences(preferences):
-    user_preference_file = os.path.join(config_folder_path, "user_preference.json")
-    with open(user_preference_file, 'w') as f:
-        json.dump(preferences, f, indent=4)
 
 # Function to check DNS traffic for malicious patterns
 def check_traffic(packet):
