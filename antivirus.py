@@ -625,7 +625,7 @@ class RealTimeWebProtectionObserver:
 
     def start_sniffing(self):
         # Define a custom filter to exclude localhost and local IPs
-        custom_filter = "not (host 127.0.0.1 or host 192.168.0.0/16 or host 10.0.0.0/8 or host 172.16.0.0/12)"
+        custom_filter = "(not (host 127.0.0.1 or net 192.168.0.0/16 or net 10.0.0.0/8 or net 172.16.0.0/12))"
         filter_expression = f"(tcp or udp) and {custom_filter}"
         sniff(filter=filter_expression, prn=self.handler.on_packet_received, store=0)
 
