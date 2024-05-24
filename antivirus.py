@@ -813,8 +813,6 @@ class YaraScanner:
             with open(file_path, 'rb') as file:
                 data = file.read()
             return self.scan_data(data)
-        else:
-            return f"Cannot access the provided file path: {file_path}"
 
 class AntivirusUI(QWidget):
     folder_scan_finished = Signal()
