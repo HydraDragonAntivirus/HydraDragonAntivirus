@@ -20,6 +20,7 @@ import tarfile
 import yara
 import psutil
 from notifypy import Notify
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -27,6 +28,19 @@ from scapy.all import *
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
 script_dir = os.getcwd()
+
+# Configure logging
+log_directory = os.path.join(script_dir, "log")  # Replace with the path to your log directory
+log_file = os.path.join(log_directory, "scan_directory.log")
+
+if not os.path.exists(log_directory):
+    os.makedirs(log_directory)
+
+logging.basicConfig(
+    filename=log_file,
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+)
 
 # Path to the config folder
 config_folder_path = os.path.join(script_dir, "config")
@@ -965,10 +979,16 @@ class AntivirusUI(QWidget):
             threading.Thread(target=self.scan_file_path, args=(file_path,)).start()
 
     def scan_directory(self, directory):
-        for root, _, files in os.walk(directory):
-            for file in files:
-                file_path = os.path.join(root, file)
-                self.scan_file_path(file_path)
+        logging.info(f"Started scanning directory: {directory}")
+        try:
+            for root, _, files in os.walk(directory):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    self.scan_file_path(file_path)
+                    logging.info(f"Scanned file: {file_path}")
+            logging.info(f"Finished scanning directory: {directory}")
+        except Exception as e:
+            logging.error(f"Error scanning directory {directory}: {e}")
         self.folder_scan_finished.emit()
 
     def show_scan_finished_message(self):
