@@ -398,6 +398,10 @@ def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
     logging.info(f"Started scanning file: {file_path}")
 
+    if not os.path.exists(file_path):
+        logging.error(f"Cannot access the provided file path: {file_path}")
+        return False, f"Cannot access the provided file path: {file_path}"
+        
     if preferences["use_clamav"]:
         result = scan_file_with_clamd(file_path)
         if result and result != "Clean" and result != "":
