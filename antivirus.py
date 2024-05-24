@@ -394,11 +394,10 @@ def monitor_web_preferences():
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
     logging.info(f"Started scanning file: {file_path}")
-    result = ""
 
     if preferences["use_clamav"]:
         result = scan_file_with_clamd(file_path)
-        if result != "Clean":
+        if result:
             logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
             return True, result
         else:
@@ -406,7 +405,7 @@ def scan_file_real_time(file_path):
 
     if preferences["use_yara"]:
         yara_result = AntivirusUI().yara_scanner.static_analysis(file_path)
-        if yara_result != "Clean":
+        if yara_result:
             logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
             return True, yara_result
         else:
