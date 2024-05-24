@@ -342,20 +342,10 @@ def packet_handler(packet):
             apply_tcp_hips_rules(packet)
             apply_http_hips_rules(packet)
 
-def start_sniffing():
+def start_sniffing_hips():
     if preferences["enable_hips"]:
         print("Starting network traffic monitoring...")
         sniff(prn=packet_handler, store=0)
-
-# Start HIPS monitoring in a separate thread
-if preferences["enable_hips"]:
-    hips_thread = threading.Thread(target=monitor_hips, daemon=True)
-    hips_thread.start()
-    print("Real-time HIPS monitoring activated!")
-
-# Start network traffic monitoring in a separate thread
-sniffing_thread = threading.Thread(target=start_sniffing, daemon=True)
-sniffing_thread.start()
 
 malicious_json_file_data = os.path.join(script_dir, "machinelearning", "malicious_file_names.json")
 malicious_numeric_file_data = os.path.join(script_dir, "machinelearning", "malicious_numeric.pkl")
@@ -552,18 +542,40 @@ def monitor_web_preferences():
             print("Real-time web protection is now disabled.")
 
 stop_monitoring_hips = False
+observer = None
+sniffing_thread = None
 
 def monitor_hips_preferences():
-    global stop_monitoring_hips
+    global stop_monitoring_hips, observer, sniffing_thread
     while not stop_monitoring_hips:
-        if preferences["enable_hips"] and not any(t.name == "monitor_hips" for t in threading.enumerate()):
-            threading.Thread(target=monitor_hips, name="monitor_hips", daemon=True).start()
-            print("HIPS is now enabled.")
-        elif not preferences["enable_hips"]:
-            for t in threading.enumerate():
-                if t.name == "monitor_hips":
-                    stop_monitoring_hips = True
-                    print("HIPS is now disabled.")
+        if preferences["enable_hips"]:
+            # Start HIPS file system monitoring if not already started
+            if observer is None:
+                observer = Observer()
+                event_handler = HIPSFileSystemEventHandler()
+                observer.schedule(event_handler, script_dir, recursive=True)
+                observer.start()
+                print("HIPS file system monitoring is now enabled.")
+            
+            # Start network traffic monitoring if not already started
+            if sniffing_thread is None or not sniffing_thread.is_alive():
+                sniffing_thread = threading.Thread(target=start_sniffing_hips, daemon=True)
+                sniffing_thread.start()
+                print("Network traffic monitoring is now enabled.")
+        
+        else:
+            # Stop HIPS file system monitoring if enabled
+            if observer is not None:
+                observer.stop()
+                observer.join()
+                observer = None
+                print("HIPS file system monitoring is now disabled.")
+            
+            # Stop network traffic monitoring if enabled
+            if sniffing_thread is not None and sniffing_thread.is_alive():
+                sniffing_thread.join()
+                sniffing_thread = None
+                print("Network traffic monitoring is now disabled.")
 
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
