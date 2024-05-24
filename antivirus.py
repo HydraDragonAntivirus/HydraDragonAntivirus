@@ -532,8 +532,10 @@ class Firewall:
             print(f"Error adding firewall rule: {e}")
 
 class RealTimeWebProtectionHandler:
-    def __init__(self):
-        self.firewall = Firewall()
+    def __init__(self, firewall, domains_signatures_data, ip_addresses_signatures_data):
+        self.firewall = firewall
+        self.domains_signatures_data = domains_signatures_data
+        self.ip_addresses_signatures_data = ip_addresses_signatures_data
 
     def scan_domain(self, domain):
         print("Scanning domain:", domain)
@@ -543,7 +545,7 @@ class RealTimeWebProtectionHandler:
         else:
             main_domain = ".".join(parts[-2:])
 
-        for parent_domain in domains_signatures_data:
+        for parent_domain in self.domains_signatures_data:
             if main_domain == parent_domain or main_domain.endswith(f".{parent_domain}"):
                 print(f"Main domain {main_domain} or its parent domain {parent_domain} matches the signatures.")
                 notify_user_for_web(domain=main_domain)
@@ -558,35 +560,18 @@ class RealTimeWebProtectionHandler:
             print(f"Error setting firewall rule: {e}")
 
     def on_packet_received(self, packet):
-        if IP in packet or IPv6 in packet:
-            ip_packet = packet[IP] if IP in packet else packet[IPv6]
-            ip_address = ip_packet.dst
-            print("IP Packet Received:")
-            print("Source IP:", ip_packet.src)
-            print("Destination IP:", ip_packet.dst)
+        if DNS in packet:
+            if packet[DNS].qd:
+                for i in range(packet[DNS].qdcount):
+                    query_name = packet[DNSQR][i].qname.decode().rstrip('.')
+                    self.scan_domain(query_name)
+                    print("DNS Query:", query_name)
+            if packet[DNS].an:
+                for i in range(packet[DNS].ancount):
+                    answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
+                    self.scan_domain(answer_name)
+                    print("DNS Answer:", answer_name)
 
-            if ip_address in ip_addresses_signatures_data:
-                print(f"Destination IP address {ip_address} matches the signatures.")
-                print(f"Dropping packet associated with IP: {ip_address}")
-                notify_user_for_web(ip_address=ip_address)
-                self.mark_packet_for_drop(ip_address)
-                return
-
-            try:
-                if IP in packet:
-                    response = sr1(IP(dst=ip_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ip_address)), timeout=2, verbose=False)
-                else:
-                    response = sr1(IPv6(dst=ip_address) / UDP(dport=53) / DNS(rd=1, qd=DNSQR(qname=ip_address)), timeout=2, verbose=False)
-                
-                if response and DNS in response and response[DNS].an:
-                    domain = response[DNS].an.rdata.decode()
-                    self.scan_domain(domain)
-                    print("Associated Domain:", domain)
-                else:
-                    notify_user_for_web(ip_address=ip_address)
-            except Exception as e:
-                print(f"Error processing IP packet: {e}")
-                
 class RealTimeWebProtectionObserver:
     def __init__(self):
         self.handler = RealTimeWebProtectionHandler()
@@ -607,7 +592,7 @@ class RealTimeWebProtectionObserver:
             print("Real-time web protection observer stopped")
 
     def _start_sniffing(self):
-        sniff(filter="tcp or udp", prn=self.handler.on_packet_received, store=0)
+        sniff(filter="udp port 53 or (ip and udp port 53) or (ip6 and udp port 53)", prn=self.on_packet_received, store=0)
 
 def notify_user_for_web(domain=None, ip_address=None):
     notification = Notify()
