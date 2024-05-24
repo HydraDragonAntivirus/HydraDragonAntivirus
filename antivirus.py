@@ -624,7 +624,10 @@ class RealTimeWebProtectionObserver:
             print("Real-time web protection observer stopped")
 
     def start_sniffing(self):
-        sniff(filter="udp port 53 or (ip and udp port 53) or (ip6 and udp port 53)", prn=self.handler.on_packet_received, store=0)
+        # Define a custom filter to exclude localhost and local IPs
+        custom_filter = "not (host 127.0.0.1 or host 192.168.0.0/16 or host 10.0.0.0/8 or host 172.16.0.0/12)"
+        filter_expression = f"(tcp or udp) and {custom_filter}"
+        sniff(filter=filter_expression, prn=self.handler.on_packet_received, store=0)
 
 def notify_user_for_web(domain=None, ip_address=None):
     notification = Notify()
