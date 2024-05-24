@@ -238,6 +238,80 @@ def load_preferences():
         return default_preferences
 
 preferences = load_preferences()
+
+# Real-time monitoring for HIPS
+class HIPSFileSystemEventHandler(FileSystemEventHandler):
+    def on_created(self, event):
+        if event.is_directory:
+            return
+        self.process(event.src_path)
+
+    def on_modified(self, event):
+        if event.is_directory:
+            return
+        self.process(event.src_path)
+
+    def process(self, file_path):
+        logging.info(f"Processing file: {file_path}")
+        for rule in IDS_RULES["http_requests"]:
+            if re.search(rule["pattern"].decode(), file_path):
+                logging.warning(f"HIPS Alert: {rule['msg']} in file: {file_path}")
+                Notify().send(f"HIPS Alert: {rule['msg']} in file: {file_path}")
+                quarantine_file(file_path, rule["msg"])
+
+def monitor_hips():
+    event_handler = HIPSFileSystemEventHandler()
+    observer = Observer()
+    observer.schedule(event_handler, script_dir, recursive=True)
+    observer.start()
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        observer.stop()
+    observer.join()
+
+if preferences["enable_hips"]:
+    threading.Thread(target=monitor_hips, daemon=True).start()
+
+print("Real-time HIPS monitoring activated!")
+
+# Function to apply HTTP HIPS rules
+def apply_http_hips_rules(packet):
+    if packet.haslayer(Raw):
+        payload = packet[Raw].load
+        for rule in IDS_RULES['http_requests']:
+            if rule["pattern"] in payload:
+                header_index = payload.find(rule["pattern"])
+                if header_index != -1:
+                    logging.warning(f"HIPS Alert: {rule['msg']} in HTTP packet")
+                    Notify().send(f"HIPS Alert: {rule['msg']} in HTTP packet")
+                    # Add logic to quarantine if needed
+
+# Function to apply TCP HIPS rules
+def apply_tcp_hips_rules(packet):
+    if packet.haslayer(Raw):
+        payload = packet[Raw].load
+        for rule in IDS_RULES['dns_queries']:
+            if len(payload) == rule["dsize"] and payload[rule["offset"]:rule["offset"] + rule["depth"]] == rule["pattern"]:
+                logging.warning(f"HIPS Alert: {rule['msg']} in TCP packet")
+                Notify().send(f"HIPS Alert: {rule['msg']} in TCP packet")
+                # Add logic to quarantine if needed
+
+# Packet handler function
+def packet_handler(packet):
+    if packet.haslayer(IP):
+        if packet.haslayer(TCP):
+            apply_tcp_hips_rules(packet)
+            apply_http_hips_rules(packet)
+
+# Start sniffing
+print("Starting network traffic monitoring...")
+sniff(prn=packet_handler, store=0)
+
+def monitor_traffic():
+    sniff(prn=check_traffic, store=False, stop_filter=lambda _: stop_sniffing.is_set())
+
 malicious_json_file_data = os.path.join(script_dir, "machinelearning", "malicious_file_names.json")
 malicious_numeric_file_data = os.path.join(script_dir, "machinelearning", "malicious_numeric.pkl")
 benign_numeric_file_data = os.path.join(script_dir, "machinelearning", "benign_numeric.pkl")
@@ -269,7 +343,7 @@ print("Machine Learning AI Signatures loaded!")
 
 try:
     # Load the precompiled rules from the .yrc file
-    compiled_rule = yara.load(os.path.join(yara_folder_path, "compiled_rule.yrc"))
+    compiled_rule = yara.load(os.path.jin(yara_folder_path, "compiled_rule.yrc"))
     pyas_rule = yara.load(os.path.join(yara_folder_path, "PYAS.yrc"))
     print("YARA Rules Definitions loaded!")
 except yara.Error as e:
@@ -432,6 +506,19 @@ def monitor_web_preferences():
             real_time_web_observer.stop()
             print("Real-time web protection is now disabled.")
 
+stop_monitoring_hips = False
+
+def monitor_hips_preferences():
+    global stop_monitoring_hips
+    while not stop_monitoring_hips:
+        if preferences["enable_hips"] and not any(t.name == "monitor_hips" for t in threading.enumerate()):
+            threading.Thread(target=monitor_hips, name="monitor_hips", daemon=True).start()
+            print("HIPS is now enabled.")
+        elif not preferences["enable_hips"]:
+            for t in threading.enumerate():
+                if t.name == "monitor_hips":
+                    stop_monitoring_hips = True
+                    print("HIPS is now disabled.")
 
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
@@ -1176,43 +1263,7 @@ class AntivirusUI(QWidget):
             QMessageBox.information(self, "Update Definitions", "Antivirus definitions updated successfully.")
         else:
             QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
-
-def monitor_traffic():
-    sniff(prn=check_traffic, store=False, stop_filter=lambda _: stop_sniffing.is_set())
-
-def check_traffic(packet):
-    if packet.haslayer(DNS):
-        dns_query = packet[DNS].qd.qname.decode()
-        for rule in IDS_RULES["dns_queries"]:
-            if rule["pattern"].decode() in dns_query:
-                handle_alert(rule)
-
-def handle_alert(rule):
-    if rule["priority"] == 1:  # Critical
-        block_related_application(rule["msg"])
-    elif rule["priority"] == 2:  # Suspicious
-        ask_user(rule["msg"])
-
-def block_related_application(msg):
-    # Get current network connections
-    connections = psutil.net_connections()
-    for conn in connections:
-        if conn.laddr.port == 53:  # DNS port
-            try:
-                p = psutil.Process(conn.pid)
-                p.terminate()
-                print(f"Blocked application {p.name()} with PID {p.pid} related to the critical alert: {msg}.")
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
-                print(f"Failed to terminate process: {e}")
-
-def ask_user(msg):
-    reply = QMessageBox.question(None, 'Suspicious Activity Detected', msg, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-    if reply == QMessageBox.Yes:
-        print("User chose to block the suspicious activity.")
-        block_related_application(msg)
-    else:
-        print("User chose to allow the suspicious activity.")
-
+            
 class PreferencesDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1312,6 +1363,46 @@ class PreferencesDialog(QDialog):
             self.sniffing_thread.join()
             print("HIPS stopped.")
 
+def save_preferences(preferences):
+    user_preference_file = os.path.join(config_folder_path, "user_preference.json")
+    with open(user_preference_file, 'w') as f:
+        json.dump(preferences, f, indent=4)
+
+# Function to check DNS traffic for malicious patterns
+def check_traffic(packet):
+    if packet.haslayer(DNS):
+        dns_query = packet[DNS].qd.qname.decode()
+        for rule in IDS_RULES["dns_queries"]:
+            if re.search(rule["pattern"].decode(), dns_query):
+                logging.warning(f"HIPS Alert: {rule['msg']} in DNS query: {dns_query}")
+                Notify().send(f"HIPS Alert: {rule['msg']} in DNS query: {dns_query}")
+                handle_alert(rule)
+
+def handle_alert(rule):
+    if rule["priority"] == 1:  # Critical
+        block_related_application(rule["msg"])
+    elif rule["priority"] == 2:  # Suspicious
+        ask_user(rule["msg"])
+
+def block_related_application(msg):
+    connections = psutil.net_connections()
+    for conn in connections:
+        if conn.laddr.port == 53:  # DNS port
+            try:
+                p = psutil.Process(conn.pid)
+                p.terminate()
+                print(f"Blocked application {p.name()} with PID {p.pid} related to the critical alert: {msg}.")
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
+                print(f"Failed to terminate process: {e}")
+
+def ask_user(msg):
+    reply = QMessageBox.question(None, 'Suspicious Activity Detected', msg, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+    if reply == QMessageBox.Yes:
+        print("User chose to block the suspicious activity.")
+        block_related_application(msg)
+    else:
+        print("User chose to allow the suspicious activity.")
+
 class QuarantineManager(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1403,6 +1494,10 @@ if __name__ == "__main__":
         web_preferences_thread = threading.Thread(target=monitor_web_preferences)
         web_preferences_thread.daemon = True  # Daemonize the thread so it exits when the main thread exits
         web_preferences_thread.start()
+        # Create a thread for monitoring preferences
+        hips_preferences_thread = threading.Thread(target=monitor_hips_preferences)
+        hips_preferences_thread.daemon = True  # Daemonize the thread so it exits when the main thread exits
+        hips_preferences_thread.start()
         app = QApplication(sys.argv)
         main_gui = AntivirusUI()
         main_gui.folder_scan_finished.connect(main_gui.show_scan_finished_message)
