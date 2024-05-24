@@ -12,3 +12,4 @@ I recommend killing malicious processes first, then using quarantine, delete or 
 Then add C:\Program Files\ClamAV to the terminal, as this script uses ClamAV directly from the terminal, then run the script to use it. Don't quarantine any files during the scan.
 Also install Python from python.org Note: If you can't add ClamAV to the console on Windows etc, then copy it to the ClamAV folder
 For Windows you also need download https://npcap.com/#download for scapy and netsh advfirewall reset for reset firewall settings
+For Snort download at there: https://www.snort.org/downloads and add to console
