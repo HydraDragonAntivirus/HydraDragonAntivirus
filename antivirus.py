@@ -588,7 +588,7 @@ class RealTimeWebProtectionHandler:
                     answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
                     self.scan_domain(answer_name)
                     print("DNS Answer (IPv6):", answer_name)
-                    
+
 class RealTimeWebProtectionObserver:
     def __init__(self):
         self.handler = RealTimeWebProtectionHandler()
@@ -597,7 +597,7 @@ class RealTimeWebProtectionObserver:
 
     def start(self):
         if not self.is_started:
-            self.thread = threading.Thread(target=self._start_sniffing)
+            self.thread = threading.Thread(target=self.start_sniffing)
             self.thread.start()
             self.is_started = True
             print("Real-time web protection observer started")
@@ -608,8 +608,8 @@ class RealTimeWebProtectionObserver:
             self.is_started = False
             print("Real-time web protection observer stopped")
 
-    def _start_sniffing(self):
-        sniff(filter="udp port 53 or (ip and udp port 53) or (ip6 and udp port 53)", prn=self.on_packet_received, store=0)
+    def start_sniffing(self):
+        sniff(filter="udp port 53 or (ip and udp port 53) or (ip6 and udp port 53)", prn=self.handler.on_packet_received, store=0)
 
 def notify_user_for_web(domain=None, ip_address=None):
     notification = Notify()
@@ -719,15 +719,17 @@ class RealTimeProtectionObserver:
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
             if self.folder_to_watch not in disk_partitions:
                 print(f"Warning: {self.folder_to_watch} does not exist or is not accessible.")
-                # Update folder_to_watch to the first available drive
-                for partition in disk_partitions:
-                    if os.path.isdir(partition):
-                        self.folder_to_watch = partition
-                        print(f"Updated folder_to_watch to: {self.folder_to_watch}")
-                        return  # Exit the loop after updating
-                # If no accessible drives are found, set to %systemdrive%
-                self.folder_to_watch = os.path.expandvars("%systemdrive%")
-                print(f"No accessible drives found. Setting folder_to_watch to default: {self.folder_to_watch}")
+                # Update folder_to_watch to monitor all accessible partitions
+                accessible_partitions = [partition for partition in disk_partitions if os.path.isdir(partition)]
+                if accessible_partitions:
+                    self.folder_to_watch = accessible_partitions
+                    print(f"Updated folder_to_watch to monitor all accessible partitions: {self.folder_to_watch}")
+                else:
+                    # If no accessible drives are found, set to %systemdrive%
+                    self.folder_to_watch = [os.path.expandvars("%systemdrive%")]
+                    print(f"No accessible drives found. Setting folder_to_watch to default: {self.folder_to_watch}")
+            else:
+                print(f"folder_to_watch is accessible: {self.folder_to_watch}")
 
 # Create the real-time observer with the system drive as the monitored directory
 real_time_observer = RealTimeProtectionObserver(folder_to_watch)
