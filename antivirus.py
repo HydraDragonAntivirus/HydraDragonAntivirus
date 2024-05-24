@@ -437,10 +437,6 @@ def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
     logging.info(f"Started scanning file: {file_path}")
 
-    if not os.path.exists(file_path):
-        logging.error(f"Cannot access the provided file path: {file_path}")
-        return False, f"Cannot access the provided file path: {file_path}"
-
     if preferences["use_clamav"]:
         result = scan_file_with_clamd(file_path)
         if result and result != "Clean" and result != "":
@@ -451,7 +447,7 @@ def scan_file_real_time(file_path):
 
     if preferences["use_yara"]:
         yara_result = AntivirusUI().yara_scanner.static_analysis(file_path)
-        if yara_result and yara_result != "Clean" and yara_result != "":
+        if yara_result and yara_result != "Clean" and yara_result != "Error" and yara_result != "":
             logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
             return True, yara_result
         else:
@@ -856,6 +852,8 @@ class YaraScanner:
             with open(file_path, 'rb') as file:
                 data = file.read()
             return self.scan_data(data)
+        else:
+            return f"Error"
 
 class AntivirusUI(QWidget):
     folder_scan_finished = Signal()
