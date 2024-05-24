@@ -29,6 +29,24 @@ sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
 script_dir = os.getcwd()
 
+# Configure logging
+log_directory = os.path.join(script_dir, "log")  # Replace with the path to your log directory
+log_file = os.path.join(log_directory, "scan_directory.log")
+
+if not os.path.exists(log_directory):
+    os.makedirs(log_directory)
+
+logging.basicConfig(
+    filename=log_file,
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+)
+
+# Path to the config folder
+config_folder_path = os.path.join(script_dir, "config")
+if not os.path.exists(config_folder_path):
+    os.makedirs(config_folder_path)
+
 def load_hips_rules():
     # Determine the directory where the script is located
     script_dir = os.getcwd()  # or use os.path.dirname(os.path.abspath(__file__)) if script may be run from other locations
@@ -65,25 +83,7 @@ def load_hips_rules():
 
 # Load rules from hips/HIPS.rules
 IDS_RULES = load_hips_rules()
-
-# Configure logging
-log_directory = os.path.join(script_dir, "log")  # Replace with the path to your log directory
-log_file = os.path.join(log_directory, "scan_directory.log")
-
-if not os.path.exists(log_directory):
-    os.makedirs(log_directory)
-
-logging.basicConfig(
-    filename=log_file,
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-)
-
-# Path to the config folder
-config_folder_path = os.path.join(script_dir, "config")
-if not os.path.exists(config_folder_path):
-    os.makedirs(config_folder_path)
-
+("HIPS rules loaded!")
 user_preference_file = os.path.join(config_folder_path, "user_preference.json")
 quarantine_file_path = os.path.join(config_folder_path, "quarantine.json")
 IP_ADDRESSES_PATH = os.path.join(script_dir, "website", "IP_Addresses.txt")
