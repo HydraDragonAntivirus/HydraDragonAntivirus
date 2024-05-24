@@ -393,43 +393,60 @@ def monitor_web_preferences():
 
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
+    logging.info(f"Started scanning file: {file_path}")
     result = ""
 
     if preferences["use_clamav"]:
         result = scan_file_with_clamd(file_path)
-        if result == "Clean":
-            return False, ""
+        if result != "Clean":
+            logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
+            return True, result
+        else:
+            logging.info(f"File is clean (ClamAV): {file_path}")
 
     if preferences["use_yara"]:
         yara_result = AntivirusUI().yara_scanner.static_analysis(file_path)
-        if yara_result == "Clean":
-            return False, ""
+        if yara_result != "Clean":
+            logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
+            return True, yara_result
+        else:
+            logging.info(f"File is clean (YARA): {file_path}")
 
     if preferences["use_machine_learning"]:
         is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path, malicious_file_names_data, malicious_numeric_features_data, benign_numeric_features_data)
         if is_malicious:
+            logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
             return True, malware_definition
-
-    if result:
-        return True, result
+        else:
+            logging.info(f"File is clean (ML): {file_path}")
 
     # Check if the file is a PE file (executable)
     if is_pe_file(file_path):
         scan_result, virus_name = scan_exe_file(file_path)
         if scan_result:
+            logging.warning(f"Infected file detected (PE): {file_path} - Virus: {virus_name}")
             return True, virus_name
+        else:
+            logging.info(f"File is clean (PE): {file_path}")
 
     # Check if the file is a tar or zip archive and scan its content if it is
     if tarfile.is_tarfile(file_path):
         scan_result, virus_name = scan_tar_file(file_path)
         if scan_result:
+            logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
             return True, virus_name
+        else:
+            logging.info(f"File is clean (TAR): {file_path}")
 
     elif zipfile.is_zipfile(file_path):
         scan_result, virus_name = scan_zip_file(file_path)
         if scan_result:
+            logging.warning(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
             return True, virus_name
+        else:
+            logging.info(f"File is clean (ZIP): {file_path}")
 
+    logging.info(f"File is clean: {file_path}")
     return False, ""
 
 def is_pe_file(file_path):
@@ -999,11 +1016,13 @@ class AntivirusUI(QWidget):
 
     def scan_file_path(self, file_path):
         is_malicious, virus_name = scan_file_real_time(file_path)
-
         if is_malicious:
+            logging.warning(f"Infected file detected: {file_path} - Virus: {virus_name}")
             item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
             item.setData(Qt.UserRole, file_path)
             self.detected_list.addItem(item)
+        else:
+            logging.info(f"File is clean: {file_path}")
 
     def apply_action(self):
         action = self.action_combobox.currentText()
