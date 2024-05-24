@@ -533,9 +533,7 @@ class Firewall:
 
 class RealTimeWebProtectionHandler:
     def __init__(self):
-        self.firewall = firewall
-        self.domains_signatures_data = domains_signatures_data
-        self.ip_addresses_signatures_data = ip_addresses_signatures_data
+        self.firewall = Firewall()
 
     def scan_domain(self, domain):
         print("Scanning domain:", domain)
@@ -545,7 +543,7 @@ class RealTimeWebProtectionHandler:
         else:
             main_domain = ".".join(parts[-2:])
 
-        for parent_domain in self.domains_signatures_data:
+        for parent_domain in domains_signatures_data:
             if main_domain == parent_domain or main_domain.endswith(f".{parent_domain}"):
                 print(f"Main domain {main_domain} or its parent domain {parent_domain} matches the signatures.")
                 notify_user_for_web(domain=main_domain)
@@ -560,18 +558,37 @@ class RealTimeWebProtectionHandler:
             print(f"Error setting firewall rule: {e}")
 
     def on_packet_received(self, packet):
+        if IP in packet and UDP in packet:
+            self.handle_ipv4(packet)
+        elif IPv6 in packet and UDP in packet:
+            self.handle_ipv6(packet)
+
+    def handle_ipv4(self, packet):
         if DNS in packet:
             if packet[DNS].qd:
                 for i in range(packet[DNS].qdcount):
                     query_name = packet[DNSQR][i].qname.decode().rstrip('.')
                     self.scan_domain(query_name)
-                    print("DNS Query:", query_name)
+                    print("DNS Query (IPv4):", query_name)
             if packet[DNS].an:
                 for i in range(packet[DNS].ancount):
                     answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
                     self.scan_domain(answer_name)
-                    print("DNS Answer:", answer_name)
+                    print("DNS Answer (IPv4):", answer_name)
 
+    def handle_ipv6(self, packet):
+        if DNS in packet:
+            if packet[DNS].qd:
+                for i in range(packet[DNS].qdcount):
+                    query_name = packet[DNSQR][i].qname.decode().rstrip('.')
+                    self.scan_domain(query_name)
+                    print("DNS Query (IPv6):", query_name)
+            if packet[DNS].an:
+                for i in range(packet[DNS].ancount):
+                    answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
+                    self.scan_domain(answer_name)
+                    print("DNS Answer (IPv6):", answer_name)
+                    
 class RealTimeWebProtectionObserver:
     def __init__(self):
         self.handler = RealTimeWebProtectionHandler()
