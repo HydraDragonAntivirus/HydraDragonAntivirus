@@ -114,8 +114,10 @@ def quarantine_file(file_path, virus_name):
         destination_path = os.path.join(quarantine_folder, filename)
         # Move the file to the quarantine folder
         shutil.move(file_path, destination_path)
+        # Store the original file path in the quarantine data
+        original_path = os.path.relpath(file_path)
         # Update the quarantine_data list with the new quarantine entry
-        quarantine_data.append({"file_path": destination_path, "virus_name": virus_name})
+        quarantine_data.append({"original_path": original_path, "quarantine_path": destination_path, "virus_name": virus_name})
         # Save the updated quarantine data
         save_quarantine_data(quarantine_data)
     except Exception as e:
@@ -391,61 +393,62 @@ def monitor_web_preferences():
             real_time_web_observer.stop()
             print("Real-time web protection is now disabled.")
 
+
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
     logging.info(f"Started scanning file: {file_path}")
 
     if preferences["use_clamav"]:
         result = scan_file_with_clamd(file_path)
-        if result:
+        if result and result != "Clean" and result != "":
             logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
             return True, result
         else:
-            logging.info(f"File is clean (ClamAV): {file_path}")
+            logging.info(f"No malware detected by ClamAV in file: {file_path}")
 
     if preferences["use_yara"]:
         yara_result = AntivirusUI().yara_scanner.static_analysis(file_path)
-        if yara_result:
+        if yara_result and yara_result != "Clean" and yara_result != "":
             logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
             return True, yara_result
         else:
-            logging.info(f"File is clean (YARA): {file_path}")
+            logging.info(f"No malware detected by YARA in file: {file_path}")
 
     if preferences["use_machine_learning"]:
         is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path, malicious_file_names_data, malicious_numeric_features_data, benign_numeric_features_data)
-        if is_malicious:
+        if is_malicious and malware_definition != "Clean" and malware_definition != "":
             logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
             return True, malware_definition
         else:
-            logging.info(f"File is clean (ML): {file_path}")
+            logging.info(f"No malware detected by Machine Learning in file: {file_path}")
 
     # Check if the file is a PE file (executable)
     if is_pe_file(file_path):
         scan_result, virus_name = scan_exe_file(file_path)
-        if scan_result:
+        if scan_result and virus_name != "Clean" and virus_name != "":
             logging.warning(f"Infected file detected (PE): {file_path} - Virus: {virus_name}")
             return True, virus_name
         else:
-            logging.info(f"File is clean (PE): {file_path}")
+            logging.info(f"No malware detected in PE file: {file_path}")
 
     # Check if the file is a tar or zip archive and scan its content if it is
     if tarfile.is_tarfile(file_path):
         scan_result, virus_name = scan_tar_file(file_path)
-        if scan_result:
+        if scan_result and virus_name != "Clean" and virus_name != "":
             logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
             return True, virus_name
         else:
-            logging.info(f"File is clean (TAR): {file_path}")
+            logging.info(f"No malware detected in TAR file: {file_path}")
 
     elif zipfile.is_zipfile(file_path):
         scan_result, virus_name = scan_zip_file(file_path)
-        if scan_result:
+        if scan_result and virus_name != "Clean" and virus_name != "":
             logging.warning(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
             return True, virus_name
         else:
-            logging.info(f"File is clean (ZIP): {file_path}")
+            logging.info(f"No malware detected in ZIP file: {file_path}")
 
-    logging.info(f"File is clean: {file_path}")
+    # If no malware found, return False indicating the file is clean
     return False, ""
 
 def is_pe_file(file_path):
@@ -1218,11 +1221,18 @@ class QuarantineManager(QDialog):
         for item in selected_items:
             file_path = item.data(Qt.UserRole)
             try:
-                shutil.move(file_path, os.path.join(os.getcwd(), os.path.basename(file_path)))
+                # Find the entry in quarantine_data corresponding to the selected file
+                selected_entry = next(entry for entry in quarantine_data if entry['quarantine_path'] == file_path)
+                original_path = selected_entry['original_path']
+                # Restore the file to its original location
+                shutil.move(file_path, original_path)
+                # Remove the item from the list widget
                 self.quarantine_list.takeItem(self.quarantine_list.row(item))
-                quarantine_data = [entry for entry in quarantine_data if entry['file_path'] != file_path]
+                # Remove the entry from quarantine_data
+                quarantine_data.remove(selected_entry)
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to restore file: {str(e)}")
+        # Save the updated quarantine data
         save_quarantine_data(quarantine_data)
 
     def delete_selected(self):
