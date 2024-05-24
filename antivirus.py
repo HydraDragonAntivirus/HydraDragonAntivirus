@@ -388,7 +388,7 @@ print("Machine Learning AI Signatures loaded!")
 
 try:
     # Load the precompiled rules from the .yrc file
-    compiled_rule = yara.load(os.path.jin(yara_folder_path, "compiled_rule.yrc"))
+    compiled_rule = yara.load(os.path.join(yara_folder_path, "compiled_rule.yrc"))
     pyas_rule = yara.load(os.path.join(yara_folder_path, "PYAS.yrc"))
     print("YARA Rules Definitions loaded!")
 except yara.Error as e:
