@@ -1163,6 +1163,7 @@ class AntivirusUI(QWidget):
             preferences["use_yara"] = preferences_dialog.use_yara_checkbox.isChecked()
             preferences["real_time_protection"] = preferences_dialog.real_time_protection_checkbox.isChecked()
             preferences["real_time_web_protection"] = preferences_dialog.real_time_web_protection_checkbox.isChecked()
+            preferences["enable_hips"] = preferences_dialog.enable_hips_checkbox.isChecked()
             save_preferences(preferences)
 
     def manage_quarantine(self):
