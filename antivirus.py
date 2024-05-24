@@ -124,7 +124,7 @@ activate_uefi_drive()
 def save_preferences(preferences):
     with open(user_preference_file, 'w') as f:
         json.dump(preferences, f, indent=4)
-        
+
 def load_quarantine_data():
     if os.path.exists(quarantine_file_path):
         with open(quarantine_file_path, 'r') as f:
@@ -585,7 +585,7 @@ def scan_file_real_time(file_path):
 
     logging.info(f"Started scanning file: {file_path}")
 
-    if preferences.get("use_clamav"):
+    if preferences.["use_clamav"]:
         result = scan_file_with_clamd(file_path)
         if result and result != "Clean" and result != "":
             logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
@@ -593,7 +593,7 @@ def scan_file_real_time(file_path):
         else:
             logging.info(f"No malware detected by ClamAV in file: {file_path}")
 
-    if preferences.get("use_yara"):
+    if preferences.["use_yara"]:
         try:
             yara_result = AntivirusUI().yara_scanner.static_analysis(file_path)
             if yara_result and yara_result != "Clean" and yara_result != "":
@@ -608,7 +608,7 @@ def scan_file_real_time(file_path):
             logging.error(f"Error scanning file with YARA: {file_path} - {str(e)}")
             return False, "YARAError"
 
-    if preferences.get("use_machine_learning"):
+    if preferences("use_machine_learning"):
         is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path, malicious_file_names_data, malicious_numeric_features_data, benign_numeric_features_data)
         if is_malicious and malware_definition != "Clean" and malware_definition != "":
             logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
@@ -1361,7 +1361,7 @@ class PreferencesDialog(QDialog):
         layout.addWidget(self.real_time_web_protection_checkbox)
         
         self.enable_hips_checkbox = QCheckBox("Enable HIPS")
-        self.enable_hips_checkbox.setChecked(preferences.get("enable_hips", False))
+        self.enable_hips_checkbox.setChecked(preferences["enable_hips"])
         self.enable_hips_checkbox.stateChanged.connect(self.toggle_hips)
         layout.addWidget(self.enable_hips_checkbox)
 
