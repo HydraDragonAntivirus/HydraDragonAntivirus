@@ -567,9 +567,13 @@ def monitor_hips_preferences():
 
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
+    if not os.path.exists(file_path):
+        logging.error(f"File does not exist: {file_path}")
+        return False, "FileNotFound"
+
     logging.info(f"Started scanning file: {file_path}")
 
-    if preferences["use_clamav"]:
+    if preferences("use_clamav"):
         result = scan_file_with_clamd(file_path)
         if result and result != "Clean" and result != "":
             logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
@@ -577,15 +581,22 @@ def scan_file_real_time(file_path):
         else:
             logging.info(f"No malware detected by ClamAV in file: {file_path}")
 
-    if preferences["use_yara"]:
-        yara_result = AntivirusUI().yara_scanner.static_analysis(file_path)
-        if yara_result and yara_result != "Clean" and yara_result != "Error" and yara_result != "":
-            logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
-            return True, yara_result
-        else:
-            logging.info(f"No malware detected by YARA in file: {file_path}")
+    if preferences("use_yara"):
+        try:
+            yara_result = AntivirusUI().yara_scanner.static_analysis(file_path)
+            if yara_result and yara_result != "Clean" and yara_result != "":
+                logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
+                return True, yara_result
+            else:
+                logging.info(f"No malware detected by YARA in file: {file_path}")
+        except PermissionError as e:
+            logging.error(f"Permission denied: {file_path} - {str(e)}")
+            return False, "PermissionError"
+        except Exception as e:
+            logging.error(f"Error scanning file with YARA: {file_path} - {str(e)}")
+            return False, "YARAError"
 
-    if preferences["use_machine_learning"]:
+    if preferences("use_machine_learning"):
         is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path, malicious_file_names_data, malicious_numeric_features_data, benign_numeric_features_data)
         if is_malicious and malware_definition != "Clean" and malware_definition != "":
             logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
@@ -620,7 +631,7 @@ def scan_file_real_time(file_path):
             logging.info(f"No malware detected in ZIP file: {file_path}")
 
     # If no malware found, return False indicating the file is clean
-    return False, ""
+    return False, "Clean"
 
 def is_pe_file(file_path):
     """Check if the file is a PE file (executable)."""
@@ -984,8 +995,6 @@ class YaraScanner:
             with open(file_path, 'rb') as file:
                 data = file.read()
             return self.scan_data(data)
-        else:
-            return f"Error"
 
 class AntivirusUI(QWidget):
     folder_scan_finished = Signal()
@@ -1340,7 +1349,7 @@ class PreferencesDialog(QDialog):
         layout.addWidget(self.real_time_web_protection_checkbox)
         
         self.enable_hips_checkbox = QCheckBox("Enable HIPS")
-        self.enable_hips_checkbox.setChecked(preferences.get("enable_hips", False))
+        self.enable_hips_checkbox.setChecked(preferences("enable_hips", False))
         self.enable_hips_checkbox.stateChanged.connect(self.toggle_hips)
         layout.addWidget(self.enable_hips_checkbox)
 
