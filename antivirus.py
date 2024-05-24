@@ -881,19 +881,19 @@ class AntivirusUI(QWidget):
             if len(disk_partitions) > 1:
                 # Initiate a full scan for each drive
                 for drive in disk_partitions:
-                    threading.Thread(target=self.scan_folder, args=(drive,)).start()
+                    threading.Thread(target=self.scan_directory, args=(drive,)).start()
             else:
-                threading.Thread(target=self.scan_folder, args=(self.folder_to_watch,)).start()
+                threading.Thread(target=self.scan_directory, args=(self.folder_to_watch,)).start()
         else:
-            threading.Thread(target=self.scan_folder, args=(self.folder_to_watch,)).start()
+            threading.Thread(target=self.scan_directory, args=(self.folder_to_watch,)).start()
 
     def quick_scan(self):
         user_folder = os.path.expanduser("~")  # Get user's home directory
-        threading.Thread(target=self.scan_folder, args=(user_folder,)).start()
+        threading.Thread(target=self.scan_directory, args=(user_folder,)).start()
 
     def uefi_scan(self):
         folder_path = self.get_uefi_folder()
-        threading.Thread(target=self.scan_folder, args=(folder_path,)).start()
+        threading.Thread(target=self.scan_directory args=(folder_path,)).start()
 
     def get_uefi_folder(self):
         if system_platform() == "Windows":
