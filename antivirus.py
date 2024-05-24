@@ -532,7 +532,7 @@ class Firewall:
             print(f"Error adding firewall rule: {e}")
 
 class RealTimeWebProtectionHandler:
-    def __init__(self, firewall, domains_signatures_data, ip_addresses_signatures_data):
+    def __init__(self):
         self.firewall = firewall
         self.domains_signatures_data = domains_signatures_data
         self.ip_addresses_signatures_data = ip_addresses_signatures_data
