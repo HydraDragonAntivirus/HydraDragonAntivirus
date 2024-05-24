@@ -550,6 +550,17 @@ class RealTimeWebProtectionHandler:
                 self.mark_packet_for_drop(main_domain)
                 return
 
+    def scan_ip_address(self, ip_address, is_ipv6=False):
+        print("Scanning IP address:", ip_address)
+        if is_ipv6 and ip_address in ipv6_addresses_signatures_data:
+            print(f"IPv6 address {ip_address} matches the signatures.")
+            notify_user_for_ip(ip_address=ip_address)
+            self.mark_packet_for_drop(ip_address)
+        elif ip_address in ip_addresses_signatures_data:
+            print(f"IPv4 address {ip_address} matches the signatures.")
+            notify_user_for_ip(ip_address=ip_address)
+            self.mark_packet_for_drop(ip_address)
+
     def mark_packet_for_drop(self, identifier):
         try:
             self.firewall.add_rule(identifier)
@@ -569,6 +580,8 @@ class RealTimeWebProtectionHandler:
                 for i in range(packet[DNS].qdcount):
                     query_name = packet[DNSQR][i].qname.decode().rstrip('.')
                     self.scan_domain(query_name)
+                    self.scan_ip_address(packet[IP].src)
+                    self.scan_ip_address(packet[IP].dst)
                     print("DNS Query (IPv4):", query_name)
             if packet[DNS].an:
                 for i in range(packet[DNS].ancount):
@@ -582,6 +595,8 @@ class RealTimeWebProtectionHandler:
                 for i in range(packet[DNS].qdcount):
                     query_name = packet[DNSQR][i].qname.decode().rstrip('.')
                     self.scan_domain(query_name)
+                    self.scan_ip_address(packet[IPv6].src, is_ipv6=True)
+                    self.scan_ip_address(packet[IPv6].dst, is_ipv6=True)
                     print("DNS Query (IPv6):", query_name)
             if packet[DNS].an:
                 for i in range(packet[DNS].ancount):
