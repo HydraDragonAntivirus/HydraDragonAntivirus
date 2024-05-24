@@ -259,23 +259,6 @@ class HIPSFileSystemEventHandler(FileSystemEventHandler):
                 Notify().send(f"HIPS Alert: {rule['msg']} in file: {file_path}")
                 quarantine_file(file_path, rule["msg"])
 
-def monitor_hips():
-    event_handler = HIPSFileSystemEventHandler()
-    observer = Observer()
-    observer.schedule(event_handler, script_dir, recursive=True)
-    observer.start()
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        observer.stop()
-    observer.join()
-
-if preferences["enable_hips"]:
-    threading.Thread(target=monitor_hips, daemon=True).start()
-
-print("Real-time HIPS monitoring activated!")
-
 # Function to apply HTTP HIPS rules
 def apply_http_hips_rules(packet):
     if packet.haslayer(Raw):
@@ -286,7 +269,11 @@ def apply_http_hips_rules(packet):
                 if header_index != -1:
                     logging.warning(f"HIPS Alert: {rule['msg']} in HTTP packet")
                     Notify().send(f"HIPS Alert: {rule['msg']} in HTTP packet")
-                    # Add logic to quarantine if needed
+                    if preferences["enable_hips"]:
+                        # Identify and quarantine the associated file
+                        associated_files = identify_associated_files(packet)
+                        for file in associated_files:
+                            quarantine_file(file, rule['msg'])
 
 # Function to apply TCP HIPS rules
 def apply_tcp_hips_rules(packet):
@@ -296,7 +283,57 @@ def apply_tcp_hips_rules(packet):
             if len(payload) == rule["dsize"] and payload[rule["offset"]:rule["offset"] + rule["depth"]] == rule["pattern"]:
                 logging.warning(f"HIPS Alert: {rule['msg']} in TCP packet")
                 Notify().send(f"HIPS Alert: {rule['msg']} in TCP packet")
-                # Add logic to quarantine if needed
+                if preferences["enable_hips"]:
+                    # Identify and quarantine the associated file
+                    associated_files = identify_associated_files(packet)
+                    for file in associated_files:
+                        quarantine_file(file, rule['msg'])
+
+# Function to identify the associated files for a given packet
+def identify_associated_files(packet):
+    associated_files = []
+    for conn in psutil.net_connections(kind='inet'):
+        if conn.laddr.ip == packet[IP].src and conn.laddr.port == packet[IP].sport:
+            try:
+                process = psutil.Process(conn.pid)
+                for file in process.open_files():
+                    associated_files.append(file.path)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+    return associated_files
+
+# Real-time monitoring for HIPS
+class HIPSFileSystemEventHandler(FileSystemEventHandler):
+    def on_created(self, event):
+        if event.is_directory:
+            return
+        self.process(event.src_path)
+
+    def on_modified(self, event):
+        if event.is_directory:
+            return
+        self.process(event.src_path)
+
+    def process(self, file_path):
+        logging.info(f"Processing file: {file_path}")
+        for rule in IDS_RULES["http_requests"]:
+            if re.search(rule["pattern"].decode(), file_path):
+                logging.warning(f"HIPS Alert: {rule['msg']} in file: {file_path}")
+                Notify().send(f"HIPS Alert: {rule['msg']} in file: {file_path}")
+                quarantine_file(file_path, rule["msg"])
+
+def monitor_hips():
+    if preferences["enable_hips"]:
+        event_handler = HIPSFileSystemEventHandler()
+        observer = Observer()
+        observer.schedule(event_handler, script_dir, recursive=True)
+        observer.start()
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            observer.stop()
+        observer.join()
 
 # Packet handler function
 def packet_handler(packet):
@@ -305,12 +342,20 @@ def packet_handler(packet):
             apply_tcp_hips_rules(packet)
             apply_http_hips_rules(packet)
 
-# Start sniffing
-print("Starting network traffic monitoring...")
-sniff(prn=packet_handler, store=0)
+def start_sniffing():
+    if preferences["enable_hips"]:
+        print("Starting network traffic monitoring...")
+        sniff(prn=packet_handler, store=0)
 
-def monitor_traffic():
-    sniff(prn=check_traffic, store=False, stop_filter=lambda _: stop_sniffing.is_set())
+# Start HIPS monitoring in a separate thread
+if preferences["enable_hips"]:
+    hips_thread = threading.Thread(target=monitor_hips, daemon=True)
+    hips_thread.start()
+    print("Real-time HIPS monitoring activated!")
+
+# Start network traffic monitoring in a separate thread
+sniffing_thread = threading.Thread(target=start_sniffing, daemon=True)
+sniffing_thread.start()
 
 malicious_json_file_data = os.path.join(script_dir, "machinelearning", "malicious_file_names.json")
 malicious_numeric_file_data = os.path.join(script_dir, "machinelearning", "malicious_numeric.pkl")
