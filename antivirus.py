@@ -569,9 +569,9 @@ class RealTimeWebProtectionHandler:
             print(f"Error setting firewall rule: {e}")
 
     def on_packet_received(self, packet):
-        if IP in packet and UDP in packet:
+        if IP in packet:
             self.handle_ipv4(packet)
-        elif IPv6 in packet and UDP in packet:
+        elif IPv6 in packet:
             self.handle_ipv6(packet)
 
     def handle_ipv4(self, packet):
