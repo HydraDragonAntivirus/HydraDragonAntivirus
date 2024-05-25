@@ -1155,7 +1155,7 @@ class AntivirusUI(QWidget):
             else:
                 clean_files.append(file_path)
 
-        def scan_files_in_thread(files):
+        def scan_files(files):
             for file in files:
                 file_path = os.path.join(root, file)
                 scan_file(file_path)
@@ -1166,15 +1166,9 @@ class AntivirusUI(QWidget):
                     logging.info("Scanning stopped.")
                     return
 
-        for root, _, files in os.walk(directory):
-            # Start a thread for each batch of files
-            thread = threading.Thread(target=scan_files_in_thread, args=(files,))
-            thread.start()
-
-        # Wait for all threads to finish
-        for thread in threading.enumerate():
-            if thread != threading.current_thread():
-                thread.join()
+        with ThreadPoolExecutor() as executor:
+            for root, _, files in os.walk(directory):
+                executor.submit(scan_files, files)
 
         self.show_summary(detected_threats, clean_files)
         self.folder_scan_finished.emit()
