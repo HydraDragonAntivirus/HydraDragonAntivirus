@@ -411,19 +411,18 @@ def monitor_snort_preferences():
 class SnortObserver:
     def __init__(self):
         self.is_started = False
-        self.system_platform = platform.system()
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
         self.snort_config_path = os.path.join(self.script_dir, "snortconfig", "snort.conf")
 
     def start_snort(self):
         if not self.is_started:
             try:
-                if self.system_platform == "Windows":
+                if system_platform == "Windows":
                     subprocess.Popen(
                         ["snort.exe", "-D", "-c", self.snort_config_path],
                         shell=True
                     )
-                elif self.system_platform in ["Linux", "Darwin", "FreeBSD"]:
+                elif system_platform in ["Linux", "Darwin", "FreeBSD"]:
                     subprocess.Popen(
                         ["sudo", "snort", "-D", "-c", self.snort_config_path]
                     )
