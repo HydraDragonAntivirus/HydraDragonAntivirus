@@ -351,12 +351,12 @@ def scan_file_with_clamd(file_path):
     if "ERROR" in clamd_output:
         print(f"Clamdscan reported an error: {clamd_output}")
         return "Clean"
-    elif "Infected files: 1" in clamd_output:
+    elif "FOUND" in clamd_output:
         match = re.search(r": (.+) FOUND", clamd_output)
         if match:
             virus_name = match.group(1).strip()
             return virus_name
-    elif "Infected files: 0" in clamd_output:
+    elif "OK" in clamd_output:
         return "Clean"
     else:
         print(f"Unexpected clamdscan output: {clamd_output}")
