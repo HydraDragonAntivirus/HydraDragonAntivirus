@@ -192,8 +192,8 @@ def load_preferences():
             "use_machine_learning": True,
             "use_clamav": True,
             "use_yara": True,
-            "real_time_protection": True,
-            "real_time_web_protection": True,
+            "real_time_protection": False,
+            "real_time_web_protection": False,
             "enable_hips": True
         }
         save_preferences(default_preferences)
@@ -439,10 +439,11 @@ class SnortObserver:
                     if proc.info['name'] == 'snort' or (self.system_platform == "Windows" and proc.info['name'] == 'snort.exe'):
                         proc.terminate()  # or proc.kill()
                 self.is_started = False
-                logging.info("Snort has been stopped.")
-                print("Snort is now disabled.")
             except Exception as e:
                 logging.error(f"Failed to stop Snort: {e}")
+
+            logging.info("Snort has been stopped.")
+            print("Snort is now disabled.")  # Moved outside of the loop
 
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
@@ -1138,20 +1139,15 @@ class AntivirusUI(QWidget):
 
         logging.info(f"Started scanning directory: {directory}")
         try:
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future_to_file = {executor.submit(self.scan_file_in_thread, os.path.join(root, file)): os.path.join(root, file) for root, _, files in os.walk(directory) for file in files}
-                
-                for future in concurrent.futures.as_completed(future_to_file):
-                    file_path = future_to_file[future]
-                    try:
-                        result = future.result()
-                        if result:
-                            detected_threats.append(result)
-                        else:
-                            clean_files.append(file_path)
-                        logging.info(f"Scanned file: {file_path}")
-                    except Exception as e:
-                        logging.error(f"Error processing file {file_path}: {e}")
+            for root, _, files in os.walk(directory):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    result = self.scan_file_path(file_path)
+                    if result:
+                        detected_threats.append(result)
+                    else:
+                        clean_files.append(file_path)
+                    logging.info(f"Scanned file: {file_path}")
         
             logging.info(f"Finished scanning directory: {directory}")
         except Exception as e:
