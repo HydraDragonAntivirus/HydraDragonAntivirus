@@ -900,15 +900,15 @@ class AntivirusUI(QWidget):
         layout = QVBoxLayout()
         
         self.pause_button = QPushButton("Pause Scan", self)
-        self.pause_button.clicked.connect(self.toggle_pause)
+        self.pause_button.clicked.connect(self.pause_scanning)
         layout.addWidget(self.pause_button)
 
         self.stop_button = QPushButton("Stop Scan", self)
-        self.stop_button.clicked.connect(self.stop_scan)
+        self.stop_button.clicked.connect(self.stop_scanning)
         layout.addWidget(self.stop_button)
 
         self.resume_button = QPushButton("Resume Scan", self)
-        self.resume_button.clicked.connect(self.resume_scan)
+        self.resume_button.clicked.connect(self.resume_scanning)
         layout.addWidget(self.resume_button)
 
         # Quick Scan button
