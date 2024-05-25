@@ -896,6 +896,9 @@ class AntivirusUI(QWidget):
         main_layout.addWidget(self.stacked_widget)
         self.setLayout(main_layout)
         self.yara_scanner = YaraScanner()
+        # Define pause_event and stop_event attributes
+        self.pause_event = threading.Event()
+        self.stop_event = threading.Event()
 
     def setup_main_ui(self):
         layout = QVBoxLayout()
