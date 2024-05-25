@@ -1085,15 +1085,47 @@ class AntivirusUI(QWidget):
         self.folder_scan_finished.emit()
 
     def scan_file_path(self, file_path):
-        is_malicious, virus_name = scan_file_real_time(file_path)
-        if is_malicious:
+        result = ""
+        virus_name = ""
+        
+        if preferences["use_clamav"]:
+            result = scan_file_with_clamd(file_path)
+            if result == "Clean":
+                logging.info(f"File is clean (ClamAV): {file_path}")
+                return
+            virus_name = result if result != "Clean" else ""
+        
+        if preferences["use_yara"]:
+            yara_result = self.yara_scanner.static_analysis(file_path)
+            if yara_result == "Clean":
+                logging.info(f"File is clean (Yara): {file_path}")
+                return
+            if yara_result and isinstance(yara_result, list):
+                result = ', '.join(yara_result)
+                virus_name = result
+            elif isinstance(yara_result, str):
+                result = yara_result
+                virus_name = yara_result
+        
+        if preferences["use_machine_learning"]:
+            is_malicious, malware_definition = scan_file_with_machine_learning_ai(
+                file_path, 
+                malicious_file_names_data, 
+                malicious_numeric_features_data, 
+                benign_numeric_features_data
+            )
+            if is_malicious:
+                result = malware_definition
+                virus_name = malware_definition
+
+        if result:
             logging.warning(f"Infected file detected: {file_path} - Virus: {virus_name}")
-            item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
+            item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {result}")
             item.setData(Qt.UserRole, file_path)
             self.detected_list.addItem(item)
         else:
             logging.info(f"File is clean: {file_path}")
-
+            
     def show_summary(self, detected_threats, clean_files):
         num_detected = len(detected_threats)
         num_clean = len(clean_files)
