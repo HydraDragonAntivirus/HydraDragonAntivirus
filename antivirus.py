@@ -674,8 +674,6 @@ class RealTimeWebProtectionHandler:
                 for i in range(packet[DNS].qdcount):
                     query_name = packet[DNSQR][i].qname.decode().rstrip('.')
                     self.scan_domain(query_name)
-                    self.scan_ip_address(packet[IP].src)
-                    self.scan_ip_address(packet[IP].dst)
                     print("DNS Query (IPv4):", query_name)
             if packet[DNS].an:
                 for i in range(packet[DNS].ancount):
@@ -683,20 +681,26 @@ class RealTimeWebProtectionHandler:
                     self.scan_domain(answer_name)
                     print("DNS Answer (IPv4):", answer_name)
 
+        # Scan IPv4 addresses
+        self.scan_ip_address(packet[IP].src)
+        self.scan_ip_address(packet[IP].dst)
+
     def handle_ipv6(self, packet):
         if DNS in packet:
             if packet[DNS].qd:
                 for i in range(packet[DNS].qdcount):
                     query_name = packet[DNSQR][i].qname.decode().rstrip('.')
                     self.scan_domain(query_name)
-                    self.scan_ip_address(packet[IPv6].src, is_ipv6=True)
-                    self.scan_ip_address(packet[IPv6].dst, is_ipv6=True)
                     print("DNS Query (IPv6):", query_name)
             if packet[DNS].an:
                 for i in range(packet[DNS].ancount):
                     answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
                     self.scan_domain(answer_name)
                     print("DNS Answer (IPv6):", answer_name)
+
+        # Scan IPv6 addresses
+        self.scan_ip_address(packet[IPv6].src, is_ipv6=True)
+        self.scan_ip_address(packet[IPv6].dst, is_ipv6=True)
 
 class RealTimeWebProtectionObserver:
     def __init__(self):
