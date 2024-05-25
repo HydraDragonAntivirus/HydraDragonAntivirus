@@ -408,6 +408,43 @@ def monitor_snort_preferences():
             snort_observer.stop_snort()
             print("Snort is now disabled.")
 
+class SnortObserver:
+    def __init__(self):
+        self.is_started = False
+        self.system_platform = platform.system()
+        self.script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.snort_config_path = os.path.join(self.script_dir, "snortconfig", "snort.conf")
+
+    def start_snort(self):
+        if not self.is_started:
+            try:
+                if self.system_platform == "Windows":
+                    subprocess.Popen(
+                        ["snort.exe", "-D", "-c", self.snort_config_path],
+                        shell=True
+                    )
+                elif self.system_platform in ["Linux", "Darwin", "FreeBSD"]:
+                    subprocess.Popen(
+                        ["sudo", "snort", "-D", "-c", self.snort_config_path]
+                    )
+                self.is_started = True
+                logging.info("Snort has been started.")
+                print("Snort is now enabled.")
+            except Exception as e:
+                logging.error(f"Failed to start Snort: {e}")
+
+    def stop_snort(self):
+        if self.is_started:
+            try:
+                for proc in psutil.process_iter(['pid', 'name']):
+                    if proc.info['name'] == 'snort' or (self.system_platform == "Windows" and proc.info['name'] == 'snort.exe'):
+                        proc.terminate()  # or proc.kill()
+                self.is_started = False
+                logging.info("Snort has been stopped.")
+                print("Snort is now disabled.")
+            except Exception as e:
+                logging.error(f"Failed to stop Snort: {e}")
+
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
     if not os.path.exists(file_path):
@@ -810,6 +847,8 @@ class RealTimeProtectionObserver:
 # Create the real-time observer with the system drive as the monitored directory
 real_time_observer = RealTimeProtectionObserver(folder_to_watch)
 real_time_web_observer = RealTimeWebProtectionObserver()
+# Initialize Snort observer
+snort_observer = SnortObserver()
 
 class YaraScanner:
     def scan_data(self, data):
@@ -1161,21 +1200,9 @@ class AntivirusUI(QWidget):
         else:
             QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
 
-def monitor_traffic():
-    # Define the command to run Snort
-    snort_command = "snort"  # You might need to adjust this based on your system configuration
-
-    try:
-        # Run Snort in the terminal
-        subprocess.run(snort_command, shell=True, check=True)
-    except subprocess.CalledProcessError as e:
-        print("Error running Snort:", e)
-
 class PreferencesDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.stop_sniffing = threading.Event()
-        self.sniffing_thread = None
         self.setWindowTitle("Preferences")
         layout = QVBoxLayout()
 
@@ -1201,7 +1228,7 @@ class PreferencesDialog(QDialog):
         self.real_time_web_protection_checkbox.stateChanged.connect(self.toggle_real_time_web_protection)
         layout.addWidget(self.real_time_web_protection_checkbox)
         
-        self.enable_hips_checkbox = QCheckBox("Enable HIPS")
+        self.enable_hips_checkbox = QCheckBox("Enable Snort HIPS")
         self.enable_hips_checkbox.setChecked(preferences["enable_hips"])
         self.enable_hips_checkbox.stateChanged.connect(self.toggle_hips)
         layout.addWidget(self.enable_hips_checkbox)
@@ -1258,17 +1285,10 @@ class PreferencesDialog(QDialog):
             real_time_web_observer.stop()
 
     def start_hips(self):
-        if not self.sniffing_thread or not self.sniffing_thread.is_alive():
-            self.stop_sniffing.clear()
-            self.sniffing_thread = threading.Thread(target=monitor_traffic)
-            self.sniffing_thread.start()
-            print("HIPS started.")
+        snort_observer.start_snort()
             
     def stop_hips(self):
-        if self.sniffing_thread and self.sniffing_thread.is_alive():
-            self.stop_sniffing.set()
-            self.sniffing_thread.join()
-            print("HIPS stopped.")
+        snort_observer.stop_snort()
 
 class QuarantineManager(QDialog):
     def __init__(self, parent=None):
