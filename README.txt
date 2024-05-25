@@ -1,5 +1,5 @@
 # XylentOptionalScanner
-Cross-platform antivirus GUI for ClamAV, YARA and my machine learning AI module.
+Cross-platform antivirus GUI for ClamAV, YARA and my machine learning AI module also Snort.
 Guide:
 Please install ClamAV based on your platform and enter database directory and please run clamd
 Please copy the database folder signatures into your ClamAV database folder and copy freshclam.conf into your ClamAV config folder.
