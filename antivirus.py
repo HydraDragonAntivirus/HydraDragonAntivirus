@@ -1093,6 +1093,13 @@ class AntivirusUI(QWidget):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select File to Scan")
         if file_path:
             threading.Thread(target=self.scan_file_path, args=(file_path,)).start()
+            # Scan the file path in a separate thread and handle the result
+            is_infected, virus_name = self.scan_file_path(file_path)
+            if is_infected:
+                # If the file is infected, add it to the detected list
+                item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
+                item.setData(Qt.UserRole, file_path)
+                self.detected_list.addItem(item)
 
     def scan_file_path(self, file_path):
         self.pause_event.wait()  # Wait if the scan is paused
