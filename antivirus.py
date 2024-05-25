@@ -1169,7 +1169,7 @@ class AntivirusUI(QWidget):
                 # If the file is infected, add it to the detected list
                 item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
                 item.setData(Qt.UserRole, file_path)
-                detected_threats.append(file_path)
+                detected_threats.append((file_path, virus_name))
             else:
                 clean_files.append(file_path)
             if self.pause_event.is_set():
