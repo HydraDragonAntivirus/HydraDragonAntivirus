@@ -264,16 +264,6 @@ def load_data():
 
     print("Domain and IPv4 IPv6 signatures loaded successfully!")
 
-def close_open_files():
-    for proc in psutil.process_iter(['pid', 'name', 'open_files']):
-        if proc.info['pid'] == os.getpid():
-            if proc.info['open_files']:
-                for open_file in proc.info['open_files']:
-                    try:
-                        open_file.fd.close()
-                    except Exception as e:
-                        print(f"Error closing file descriptor: {e}")
-
 def safe_remove(file_path):
     try:
         os.remove(file_path)
@@ -1085,8 +1075,6 @@ class AntivirusUI(QWidget):
             self.detected_list.takeItem(item_index)
 
     def delete_selected(self):
-        # Ensure all files are closed
-        close_open_files()
         selected_items = self.detected_list.selectedItems()
         for item in selected_items:
             file_path = item.data(Qt.UserRole)
@@ -1255,9 +1243,6 @@ class AntivirusUI(QWidget):
             item = self.detected_list.item(index)
             file_path = item.data(Qt.UserRole)
             files_to_process.append(file_path)
-
-        # Close all open files
-        close_open_files()
 
         # Quarantine or delete all files simultaneously
         with ThreadPoolExecutor() as executor:
