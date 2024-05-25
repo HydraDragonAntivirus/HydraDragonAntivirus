@@ -916,7 +916,7 @@ class AntivirusUI(QWidget):
         self.stop_button.clicked.connect(self.stop_scanning)
         layout.addWidget(self.stop_button)
 
-        self.resume_button = QPushButton("Resume Scan", self)
+        self.resume_button = QPushButton("Resume Scan Or Enable Do Scan", self)
         self.resume_button.clicked.connect(self.resume_scanning)
         layout.addWidget(self.resume_button)
 
@@ -995,7 +995,7 @@ class AntivirusUI(QWidget):
 
     def load_website_signatures(self):
         load_data()  # Call the load_data function to load website signatures
-        
+
     def full_scan(self):
         if system_platform() == "Windows":
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
