@@ -898,6 +898,18 @@ class AntivirusUI(QWidget):
 
     def setup_main_ui(self):
         layout = QVBoxLayout()
+        
+        self.pause_button = QPushButton("Pause Scan", self)
+        self.pause_button.clicked.connect(self.toggle_pause)
+        layout.addWidget(self.pause_button)
+
+        self.stop_button = QPushButton("Stop Scan", self)
+        self.stop_button.clicked.connect(self.stop_scan)
+        layout.addWidget(self.stop_button)
+
+        self.resume_button = QPushButton("Resume Scan", self)
+        self.resume_button.clicked.connect(self.resume_scan)
+        layout.addWidget(self.resume_button)
 
         # Quick Scan button
         self.quick_scan_button = QPushButton("Quick Scan")
@@ -1062,6 +1074,10 @@ class AntivirusUI(QWidget):
             threading.Thread(target=self.scan_file_path, args=(file_path,)).start()
 
     def scan_file_path(self, file_path):
+        self.pause_event.wait()  # Wait if the scan is paused
+        if self.stop_event.is_set():
+            return False, ""
+        
         result = ""
         virus_name = ""
         
@@ -1113,6 +1129,11 @@ class AntivirusUI(QWidget):
         try:
             for root, _, files in os.walk(directory):
                 for file in files:
+                    self.pause_event.wait()  # Wait if the scan is paused
+                    if self.stop_event.is_set():
+                        logging.info("Scan stopped")
+                        return
+
                     file_path = os.path.join(root, file)
                     is_malicious, virus_name = self.scan_file_path(file_path)
                     if is_malicious:
@@ -1126,9 +1147,23 @@ class AntivirusUI(QWidget):
         
         # Show summary (assuming a method exists to show summary)
         self.show_summary(detected_threats, clean_files)
-        if self.folder_scan_finished:
-            self.folder_scan_finished.emit()
-            
+        self.folder_scan_finished.emit()
+
+    def pause_scanning(self):
+        self.pause_event.clear()
+        logging.info("Scanning paused")
+
+    def resume_scanning(self):
+        self.pause_event.set()
+        logging.info("Scanning resumed")
+        
+    def stop_scanning(self):
+        self.stop_event.set()
+        logging.info("Scanning stopped")
+        
+    def reset_stop_event(self):
+        self.stop_event.clear()
+
     def show_summary(self, detected_threats, clean_files):
         num_detected = len(detected_threats)
         num_clean = len(clean_files)
