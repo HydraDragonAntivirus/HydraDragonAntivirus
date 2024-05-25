@@ -1156,24 +1156,26 @@ class AntivirusUI(QWidget):
                 detected_threats.append((file_path, virus_name))
             else:
                 clean_files.append(file_path)
-
-        def scan_files(files):
-            for file in files:
-                file_path = os.path.join(root, file)
-                scan_file(file_path)
-                if self.pause_event.is_set():
-                    logging.info("Scanning paused. Waiting for resume.")
-                    self.pause_event.wait()
-                if self.stop_event.is_set():
-                    logging.info("Scanning stopped.")
-                    return
+            if self.pause_event.is_set():
+                logging.info("Scanning paused. Waiting for resume.")
+                self.pause_event.wait()
+            if self.stop_event.is_set():
+                logging.info("Scanning stopped.")
+                return
 
         with ThreadPoolExecutor() as executor:
+            futures = []
             for root, _, files in os.walk(directory):
-                executor.submit(scan_files, files)
-
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    futures.append(executor.submit(scan_file, file_path))
+            
+            # Ensure all futures are completed
+            for future in futures:
+                future.result()
+        
         self.show_summary(detected_threats, clean_files)
-        self.folder_scan_finished.emit()
+        self.folder_scan_finished()
 
     def pause_scanning(self):
         self.pause_event.clear()
