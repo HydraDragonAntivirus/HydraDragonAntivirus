@@ -14,3 +14,4 @@ Also install Python from python.org Note: If you can't add ClamAV to the console
 For Windows you also need download https://npcap.com/#download for scapy and netsh advfirewall reset for reset firewall settings
 For Snort download at there: https://www.snort.org/downloads and add to console
 If you want run web signatures then you need load website signatures by button
+HIPS folder things should be add Snort rules folder
