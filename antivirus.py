@@ -495,7 +495,7 @@ def scan_file_real_time(file_path):
     # Check if the file is a tar or zip archive and scan its content if it is
     if tarfile.is_tarfile(file_path):
         scan_result, virus_name = scan_tar_file(file_path)
-        if scan_result and virus_name != "Clean" and virus_name != "":
+        if scan_result and virus_name != "Clean" and virus_name != "" and virus_name != "F":
             logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
             return True, virus_name
         else:
