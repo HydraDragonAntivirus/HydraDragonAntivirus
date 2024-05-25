@@ -1061,29 +1061,6 @@ class AntivirusUI(QWidget):
         if file_path:
             threading.Thread(target=self.scan_file_path, args=(file_path,)).start()
 
-    def scan_directory(self, directory):
-        detected_threats = []
-        clean_files = []
-
-        logging.info(f"Started scanning directory: {directory}")
-        try:
-            for root, _, files in os.walk(directory):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    is_malicious, virus_name = self.scan_file_path(file_path)
-                    if is_malicious:
-                        detected_threats.append((file_path, virus_name))
-                    else:
-                        clean_files.append(file_path)
-                    logging.info(f"Scanned file: {file_path}")
-            logging.info(f"Finished scanning directory: {directory}")
-        except Exception as e:
-            logging.error(f"Error scanning directory {directory}: {e}")
-        
-        # Show summary
-        self.show_summary(detected_threats, clean_files)
-        self.folder_scan_finished.emit()
-
     def scan_file_path(self, file_path):
         result = ""
         virus_name = ""
@@ -1092,14 +1069,14 @@ class AntivirusUI(QWidget):
             result = scan_file_with_clamd(file_path)
             if result == "Clean":
                 logging.info(f"File is clean (ClamAV): {file_path}")
-                return
+                return False, ""
             virus_name = result if result != "Clean" else ""
         
         if preferences["use_yara"]:
             yara_result = self.yara_scanner.static_analysis(file_path)
             if yara_result == "Clean":
                 logging.info(f"File is clean (Yara): {file_path}")
-                return
+                return False, ""
             if yara_result and isinstance(yara_result, list):
                 result = ', '.join(yara_result)
                 virus_name = result
@@ -1123,8 +1100,34 @@ class AntivirusUI(QWidget):
             item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {result}")
             item.setData(Qt.UserRole, file_path)
             self.detected_list.addItem(item)
+            return True, virus_name
         else:
             logging.info(f"File is clean: {file_path}")
+            return False, ""
+
+    def scan_directory(self, directory):
+        detected_threats = []
+        clean_files = []
+
+        logging.info(f"Started scanning directory: {directory}")
+        try:
+            for root, _, files in os.walk(directory):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    is_malicious, virus_name = self.scan_file_path(file_path)
+                    if is_malicious:
+                        detected_threats.append((file_path, virus_name))
+                    else:
+                        clean_files.append(file_path)
+                    logging.info(f"Scanned file: {file_path}")
+            logging.info(f"Finished scanning directory: {directory}")
+        except Exception as e:
+            logging.error(f"Error scanning directory {directory}: {e}")
+        
+        # Show summary (assuming a method exists to show summary)
+        self.show_summary(detected_threats, clean_files)
+        if self.folder_scan_finished:
+            self.folder_scan_finished.emit()
             
     def show_summary(self, detected_threats, clean_files):
         num_detected = len(detected_threats)
