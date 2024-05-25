@@ -351,7 +351,7 @@ def scan_file_with_clamd(file_path):
     if "ERROR" in clamd_output:
         print(f"Clamdscan reported an error: {clamd_output}")
         return "Clean"
-    elif "FOUND" in clamd_output:
+    elif "FOUND" or "Infected files: 1" in clamd_output:
         match = re.search(r": (.+) FOUND", clamd_output)
         if match:
             virus_name = match.group(1).strip()
@@ -1169,7 +1169,7 @@ class AntivirusUI(QWidget):
                 # If the file is infected, add it to the detected list
                 item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
                 item.setData(Qt.UserRole, file_path)
-                detected_threats.append((file_path, virus_name))
+                detected_threats.append(file_path, virus_name))
             else:
                 clean_files.append(file_path)
             if self.pause_event.is_set():
