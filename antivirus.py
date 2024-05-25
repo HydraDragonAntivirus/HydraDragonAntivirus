@@ -1145,6 +1145,14 @@ class AntivirusUI(QWidget):
                     detected_threats.append((file_path, virus_name))
                 else:
                     clean_files.append(file_path)
+                # Check if scanning is paused
+                if self.pause_event.is_set():
+                    logging.info("Scanning paused. Waiting for resume.")
+                    self.pause_event.wait()
+                # Check if scanning is stopped
+                if self.stop_event.is_set():
+                    logging.info("Scanning stopped.")
+                    return
 
         self.show_summary(detected_threats, clean_files)
         self.folder_scan_finished.emit()
