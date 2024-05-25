@@ -1198,7 +1198,7 @@ class AntivirusUI(QWidget):
     def update_definitions(self):
         result = subprocess.run(["freshclam"], capture_output=True)
         if result.returncode == 0:
-            QMessageBox.information(self, "Update Definitions", "Antivirus definitions updated successfully.")
+            QMessageBox.information(self, "Update Definitions", "Antivirus definitions updated successfully. Plese restart program to apply changes.")
         else:
             QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
 
