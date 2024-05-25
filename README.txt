@@ -15,3 +15,4 @@ For Windows you also need download https://npcap.com/#download for scapy and net
 For Snort download at there: https://www.snort.org/downloads and add to console
 If you want run web signatures then you need load website signatures by button
 HIPS folder things should be add Snort rules folder
+If you want do scan, you first need enable it by button
