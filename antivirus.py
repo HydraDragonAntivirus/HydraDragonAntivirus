@@ -1160,10 +1160,10 @@ class AntivirusUI(QWidget):
         def scan_file(file_path):
             is_infected, virus_name = self.scan_file_path(file_path)
             if is_infected:
-            threat_info = (file_path, virus_name)
-            # Check if the threat is already detected
-            if threat_info not in detected_threats:
-                detected_threats.append(threat_info)
+                threat_info = (file_path, virus_name)
+                # Check if the threat is already detected
+                if threat_info not in detected_threats:
+                    detected_threats.append(threat_info)
             else:
                 clean_files.append(file_path)
             if self.pause_event.is_set():
