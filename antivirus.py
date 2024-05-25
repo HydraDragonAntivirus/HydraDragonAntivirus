@@ -237,31 +237,32 @@ try:
 except yara.Error as e:
     print(f"Error loading precompiled YARA rule: {e}")
 
-# Load IP addresses from IP_Addresses.txt and ipv6.txt
-try:
-    # Load IPv4 addresses
-    with open(IP_ADDRESSES_PATH, 'r') as ip_file:
-        ip_addresses = ip_file.read().splitlines()
-        ip_addresses_signatures_data = {ip: "" for ip in ip_addresses}
+def load_data():
+    try:
+        # Load IPv4 addresses
+        with open(IP_ADDRESSES_PATH, 'r') as ip_file:
+            ip_addresses = ip_file.read().splitlines()
+            ip_addresses_signatures_data = {ip: "" for ip in ip_addresses}
 
-    # Load IPv6 addresses
-    with open(IPV6_ADDRESSES_PATH, 'r') as ipv6_file:
-        ipv6_addresses = ipv6_file.read().splitlines()
-        for ipv6 in ipv6_addresses:
-            ipv6_addresses_signatures_data[ipv6] = ""
+        # Load IPv6 addresses
+        with open(IPV6_ADDRESSES_PATH, 'r') as ipv6_file:
+            ipv6_addresses = ipv6_file.read().splitlines()
+            ipv6_addresses_signatures_data = {ipv6: "" for ipv6 in ipv6_addresses}
 
-    print("IP Addresses (ipv4, ipv6) loaded successfully!")
-except Exception as e:
-    print(f"Error loading IP Addresses: {e}")
-# Load domains from Domains.txt
-try:
-    with open(DOMAINS_PATH, 'r') as domains_file:
-        domains = domains_file.read().splitlines()
-        domains_signatures_data = {domain: "" for domain in domains}
-    print("Domains loaded successfully!")
-except Exception as e:
-    print(f"Error loading Domains from {DOMAINS_PATH}: {e}")
-print ("Domain and IPv4 IPv6 signatures loaded succesfully!")
+        print("IP Addresses (ipv4, ipv6) loaded successfully!")
+    except Exception as e:
+        print(f"Error loading IP Addresses: {e}")
+
+    try:
+        # Load domains
+        with open(DOMAINS_PATH, 'r') as domains_file:
+            domains = domains_file.read().splitlines()
+            domains_signatures_data = {domain: "" for domain in domains}
+        print("Domains loaded successfully!")
+    except Exception as e:
+        print(f"Error loading Domains from {DOMAINS_PATH}: {e}")
+
+    print("Domain and IPv4 IPv6 signatures loaded successfully!")
 
 def scan_file_with_machine_learning_ai(file_path, malicious_file_names, malicious_numeric_features, benign_numeric_features, threshold=0.86):
     """Scan a file for malicious activity"""
@@ -902,7 +903,11 @@ class AntivirusUI(QWidget):
 
     def setup_main_ui(self):
         layout = QVBoxLayout()
-        
+
+        self.load_website_signatures_button = QPushButton("Load Website Signatures")
+        self.load_website_signatures_button.clicked.connect(self.load_website_signatures)
+        layout.addWidget(self.load_website_signatures_button)
+
         self.pause_button = QPushButton("Pause Scan", self)
         self.pause_button.clicked.connect(self.pause_scanning)
         layout.addWidget(self.pause_button)
@@ -988,6 +993,9 @@ class AntivirusUI(QWidget):
 
         self.setLayout(layout)
 
+    def load_website_signatures(self):
+        load_data()  # Call the load_data function to load website signatures
+        
     def full_scan(self):
         if system_platform() == "Windows":
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
@@ -1140,22 +1148,33 @@ class AntivirusUI(QWidget):
         detected_threats = []
         clean_files = []
 
-        for root, _, files in os.walk(directory):
+        def scan_file(file_path):
+            is_infected, virus_name = self.scan_file_path(file_path)
+            if is_infected:
+                detected_threats.append((file_path, virus_name))
+            else:
+                clean_files.append(file_path)
+
+        def scan_files_in_thread(files):
             for file in files:
                 file_path = os.path.join(root, file)
-                is_infected, virus_name = self.scan_file_path(file_path)
-                if is_infected:
-                    detected_threats.append((file_path, virus_name))
-                else:
-                    clean_files.append(file_path)
-                # Check if scanning is paused
+                scan_file(file_path)
                 if self.pause_event.is_set():
                     logging.info("Scanning paused. Waiting for resume.")
                     self.pause_event.wait()
-                # Check if scanning is stopped
                 if self.stop_event.is_set():
                     logging.info("Scanning stopped.")
                     return
+
+        for root, _, files in os.walk(directory):
+            # Start a thread for each batch of files
+            thread = threading.Thread(target=scan_files_in_thread, args=(files,))
+            thread.start()
+
+        # Wait for all threads to finish
+        for thread in threading.enumerate():
+            if thread != threading.current_thread():
+                thread.join()
 
         self.show_summary(detected_threats, clean_files)
         self.folder_scan_finished.emit()
