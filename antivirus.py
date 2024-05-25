@@ -1381,9 +1381,9 @@ if __name__ == "__main__":
         web_preferences_thread.daemon = True  # Daemonize the thread so it exits when the main thread exits
         web_preferences_thread.start()
         # Create a thread for monitoring preferences
-        hips_preferences_thread = threading.Thread(target=monitor_hips_preferences)
-        hips_preferences_thread.daemon = True  # Daemonize the thread so it exits when the main thread exits
-        hips_preferences_thread.start()
+        snort_preferences_thread = threading.Thread(target=monitor_snort_preferences)
+        snort_preferences_thread.daemon = True  # Daemonize the thread so it exits when the main thread exits
+        snort_preferences_thread.start()
         app = QApplication(sys.argv)
         main_gui = AntivirusUI()
         main_gui.folder_scan_finished.connect(main_gui.show_scan_finished_message)
