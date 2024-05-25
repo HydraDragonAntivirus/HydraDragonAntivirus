@@ -1136,7 +1136,6 @@ class AntivirusUI(QWidget):
             logging.warning(f"Infected file detected: {file_path} - Virus: {virus_name}")
             item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {result}")
             item.setData(Qt.UserRole, file_path)
-            self.detected_list.addItem(item)
             return True, virus_name
         else:
             logging.info(f"File is clean: {file_path}")
@@ -1160,10 +1159,7 @@ class AntivirusUI(QWidget):
         def scan_file(file_path):
             is_infected, virus_name = self.scan_file_path(file_path)
             if is_infected:
-                threat_info = (file_path, virus_name)
-                # Check if the threat is already detected
-                if threat_info not in detected_threats:
-                    detected_threats.append(threat_info)
+                detected_threats.append(threat_info)
             else:
                 clean_files.append(file_path)
             if self.pause_event.is_set():
