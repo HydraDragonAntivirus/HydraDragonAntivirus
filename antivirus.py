@@ -1121,31 +1121,43 @@ class AntivirusUI(QWidget):
             logging.info(f"File is clean: {file_path}")
             return False, ""
 
+    def scan_file_in_thread(self, file_path):
+        try:
+            is_malicious, virus_name = self.scan_file_path(file_path)
+            if is_malicious:
+                return (file_path, virus_name)
+            else:
+                return None
+        except Exception as e:
+            logging.error(f"Error scanning file {file_path}: {e}")
+            return None
+
     def scan_directory(self, directory):
         detected_threats = []
         clean_files = []
 
         logging.info(f"Started scanning directory: {directory}")
         try:
-            for root, _, files in os.walk(directory):
-                for file in files:
-                    self.pause_event.wait()  # Wait if the scan is paused
-                    if self.stop_event.is_set():
-                        logging.info("Scan stopped")
-                        return
-
-                    file_path = os.path.join(root, file)
-                    is_malicious, virus_name = self.scan_file_path(file_path)
-                    if is_malicious:
-                        detected_threats.append((file_path, virus_name))
-                    else:
-                        clean_files.append(file_path)
-                    logging.info(f"Scanned file: {file_path}")
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future_to_file = {executor.submit(self.scan_file_in_thread, os.path.join(root, file)): os.path.join(root, file) for root, _, files in os.walk(directory) for file in files}
+                
+                for future in concurrent.futures.as_completed(future_to_file):
+                    file_path = future_to_file[future]
+                    try:
+                        result = future.result()
+                        if result:
+                            detected_threats.append(result)
+                        else:
+                            clean_files.append(file_path)
+                        logging.info(f"Scanned file: {file_path}")
+                    except Exception as e:
+                        logging.error(f"Error processing file {file_path}: {e}")
+        
             logging.info(f"Finished scanning directory: {directory}")
         except Exception as e:
             logging.error(f"Error scanning directory {directory}: {e}")
         
-        # Show summary (assuming a method exists to show summary)
+        # Show summary
         self.show_summary(detected_threats, clean_files)
         self.folder_scan_finished.emit()
 
