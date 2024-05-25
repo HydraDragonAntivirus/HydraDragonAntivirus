@@ -1175,7 +1175,7 @@ class AntivirusUI(QWidget):
                 future.result()
         
         self.show_summary(detected_threats, clean_files)
-        folder_scan_finished()
+        self.folder_scan_finished.emit()
 
     def pause_scanning(self):
         self.pause_event.clear()
