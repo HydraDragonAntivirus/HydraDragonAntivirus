@@ -1137,23 +1137,15 @@ class AntivirusUI(QWidget):
         detected_threats = []
         clean_files = []
 
-        logging.info(f"Started scanning directory: {directory}")
-        try:
-            for root, _, files in os.walk(directory):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    result = self.scan_file_path(file_path)
-                    if result:
-                        detected_threats.append(result)
-                    else:
-                        clean_files.append(file_path)
-                    logging.info(f"Scanned file: {file_path}")
-        
-            logging.info(f"Finished scanning directory: {directory}")
-        except Exception as e:
-            logging.error(f"Error scanning directory {directory}: {e}")
-        
-        # Show summary
+        for root, _, files in os.walk(directory):
+            for file in files:
+                file_path = os.path.join(root, file)
+                is_infected, virus_name = self.scan_file_path(file_path)
+                if is_infected:
+                    detected_threats.append((file_path, virus_name))
+                else:
+                    clean_files.append(file_path)
+
         self.show_summary(detected_threats, clean_files)
         self.folder_scan_finished.emit()
 
