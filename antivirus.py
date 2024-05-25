@@ -648,11 +648,11 @@ class RealTimeWebProtectionHandler:
         print("Scanning IP address:", ip_address)
         if is_ipv6 and ip_address in ipv6_addresses_signatures_data:
             print(f"IPv6 address {ip_address} matches the signatures.")
-            notify_user_for_ip(ip_address=ip_address)
+            notify_user_for_web(ip_address=ip_address)
             self.mark_packet_for_drop(ip_address)
         elif ip_address in ip_addresses_signatures_data:
             print(f"IPv4 address {ip_address} matches the signatures.")
-            notify_user_for_ip(ip_address=ip_address)
+            notify_user_for_web(ip_address=ip_address)
             self.mark_packet_for_drop(ip_address)
 
     def mark_packet_for_drop(self, identifier):
