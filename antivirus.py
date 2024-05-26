@@ -845,7 +845,6 @@ class RealTimeProtectionObserver:
 class SnortObserver:
     def __init__(self):
         self.is_started = False
-        self.script_dir = os.path.dirname(os.path.abspath(__file__))
         self.thread = None
         self.snort_process = None
 
