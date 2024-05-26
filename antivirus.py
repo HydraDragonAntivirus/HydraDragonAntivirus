@@ -441,7 +441,7 @@ class SnortObserver:
                     )
                 self.is_started = True
                 logging.info("Snort has been started.")
-                print("Snort is now enabled.")
+                print("Snort has been started.")
             except Exception as e:
                 logging.error(f"Failed to start Snort: {e}")
 
