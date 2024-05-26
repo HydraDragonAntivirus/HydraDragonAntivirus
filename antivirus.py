@@ -599,16 +599,20 @@ def scan_zip_file(file_path):
 def scan_tar_file(file_path):
     """Scan files within a tar archive."""
     try:
-        with tarfile.open(file_path, 'r') as tar:
-            virus_name = []
-            for member in tar.getmembers():
-                if member.isfile():
-                    scan_result, virus_name = scan_file_real_time(tar.extractfile(member).read())
+        tar = tarfile.TarFile(file_path)
+        detected_virus_names = []
+        for member in tar.getmembers():
+            if member.isfile():
+                file_object = tar.extractfile(member)
+                if file_object:
+                    file_data = file_object.read()
+                    scan_result, virus_name = scan_file_real_time(file_data)
                     if scan_result:
-                        virus_name.append(virus_name)
+                        detected_virus_names.append(virus_name)
                         break  # Stop scanning if malware is detected
-            if virus_name:
-                return True, virus_name[0]  # Return the first virus name
+        tar.close()
+        if detected_virus_names:
+            return True, detected_virus_names[0]  # Return the first virus name
     except Exception as e:
         print(f"Error scanning tar file: {e}")
     return False, ""
