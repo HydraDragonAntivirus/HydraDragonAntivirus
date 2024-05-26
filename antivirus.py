@@ -25,6 +25,7 @@ from concurrent.futures import ThreadPoolExecutor
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from scapy.all import *
+import tempfile
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
 script_dir = os.getcwd()
@@ -55,7 +56,6 @@ DOMAINS_PATH = os.path.join(script_dir, "website", "Domains.txt")
 ip_addresses_signatures_data = {}
 ipv6_addresses_signatures_data = {}
 domains_signatures_data = {}
-print("Scan is enabled")
 # Get the root directory of the system drive based on the platform
 if system_platform() == "Windows":
     system_drives = [drive.mountpoint for drive in psutil.disk_partitions()]
@@ -873,34 +873,41 @@ snort_observer = SnortObserver()
 class YaraScanner:
     def scan_data(self, file_path):
         matched_rules = []
-        
-        if os.path.exists(file_path):
-            with open(file_path, 'rb') as file:
-                data = file.read()
-                
-                # Check matches for compiled_rule
-                if compiled_rule:
-                    matches = compiled_rule.match(data=data)
-                    if matches:
-                        for match in matches:
-                            if match.rule not in excluded_rules:
-                                matched_rules.append(match.rule)
-                        return matched_rules  # Return immediately if a match is found
 
-                # Check matches for pyas_rule
-                if pyas_rule:
-                    matches = pyas_rule.match(data=data)
-                    if matches:
-                        for match in matches:
-                            if match.rule not in excluded_rules:
-                                matched_rules.append(match.rule)
-                        return matched_rules  # Return immediately if a match is found
+        if os.path.exists(file_path):
+            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                shutil.copyfile(file_path, temp_file.name)
+                temp_file_path = temp_file.name
+
+            try:
+                with open(temp_file_path, 'rb') as file:
+                    data = file.read()
+
+                    # Check matches for compiled_rule
+                    if compiled_rule:
+                        matches = compiled_rule.match(data=data)
+                        if matches:
+                            for match in matches:
+                                if match.rule not in excluded_rules:
+                                    matched_rules.append(match.rule)
+                            return matched_rules  # Return immediately if a match is found
+
+                    # Check matches for pyas_rule
+                    if pyas_rule:
+                        matches = pyas_rule.match(data=data)
+                        if matches:
+                            for match in matches:
+                                if match.rule not in excluded_rules:
+                                    matched_rules.append(match.rule)
+                            return matched_rules  # Return immediately if a match is found
+            finally:
+                os.remove(temp_file_path)
         
         return matched_rules
 
     def static_analysis(self, file_path):
         return self.scan_data(file_path)
-
+        
 class AntivirusUI(QWidget):
     folder_scan_finished = Signal()
     # Define a new signal for memory scan finished
