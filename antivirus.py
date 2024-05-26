@@ -846,37 +846,39 @@ class SnortObserver:
     def __init__(self):
         self.is_started = False
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.thread = None
 
-    def start_snort(self):
+    def start_sniffing(self):
+        try:
+            if platform.system() == "Windows":
+                self.snort_process = subprocess.Popen(
+                    ["snort", "-c", os.path.join(self.script_dir, "hips\\HIPS.rules"), "-c", os.path.join(self.script_dir, "hips\\HIPSsnort3community.rules")],
+                    shell=True
+                )
+            elif platform.system() in ["Linux", "Darwin", "FreeBSD"]:
+                self.snort_process = subprocess.Popen(
+                    ["sudo", "snort", "-c", os.path.join(self.script_dir, "hips/HIPS.rules"), "-c", os.path.join(self.script_dir, "hips/HIPSsnort3community.rules")]
+                )
+            self.snort_process.wait()
+        except Exception as e:
+            logging.error(f"Failed to start Snort: {e}")
+            print(f"Failed to start Snort: {e}")
+
+    def start(self):
         if not self.is_started:
-            try:
-                if platform.system() == "Windows":
-                    subprocess.Popen(
-                        ["snort", "-c", "hips\\HIPS.rules", "-c", os.path.join(self.script_dir, "hips\\HIPSsnort3community.rules")],
-                        shell=True
-                    )
-                elif platform.system() in ["Linux", "Darwin", "FreeBSD"]:
-                    subprocess.Popen(
-                        ["sudo", "snort", "-c", "hips/HIPS.rules", "-c", os.path.join(self.script_dir, "hips/HIPSsnort3community.rules")]
-                    )
-                self.is_started = True
-                logging.info("Snort has been started.")
-                print("Snort has been started.")
-            except Exception as e:
-                logging.error(f"Failed to start Snort: {e}")
+            self.thread = threading.Thread(target=self.start_sniffing)
+            self.thread.start()
+            self.is_started = True
+            logging.info("Snort has been started.")
+            print("Snort has been started.")
 
-    def stop_snort(self):
-        if self.is_started:
-            try:
-                for proc in psutil.process_iter(['pid', 'name']):
-                    if proc.info['name'] == 'snort' or (platform.system() == "Windows" and proc.info['name'] == 'snort.exe'):
-                        proc.terminate()  # or proc.kill()
-                self.is_started = False
-            except Exception as e:
-                logging.error(f"Failed to stop Snort: {e}")
-
+    def stop(self):
+        if self.is_started and self.snort_process:
+            self.snort_process.terminate()
+            self.thread.join()  # Wait for the thread to finish
+            self.is_started = False
             logging.info("Snort has been stopped.")
-            print("Snort is now disabled.")  # Moved outside of the loop
+            print("Snort has been stopped.")
             
 # Create the real-time observer with the system drive as the monitored directory
 real_time_observer = RealTimeProtectionObserver(folder_to_watch)
