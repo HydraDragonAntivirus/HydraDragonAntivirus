@@ -849,9 +849,6 @@ class SnortObserver:
         self.thread = None
         self.snort_process = None
 
-    def system_platform(self):
-        return platform.system()
-
     def start_sniffing(self):
         device_number = 1
         while True:
@@ -895,7 +892,7 @@ class SnortObserver:
             self.is_started = False
             logging.info("Snort has been stopped.")
             print("Snort has been stopped.")
-            
+
 # Create the real-time observer with the system drive as the monitored directory
 real_time_observer = RealTimeProtectionObserver(folder_to_watch)
 real_time_web_observer = RealTimeWebProtectionObserver()
