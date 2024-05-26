@@ -842,26 +842,63 @@ class RealTimeProtectionObserver:
             else:
                 print(f"folder_to_watch is accessible: {self.folder_to_watch}")
 
+
+def system_platform():
+    # Implement your system platform detection logic here
+    from sys import platform
+    return platform
+
 class SnortObserver:
     def __init__(self):
         self.is_started = False
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
         self.thread = None
+        self.snort_process = None
+
+    def list_interfaces(self):
+        try:
+            if system_platform() == "Windows":
+                result = subprocess.run(["snort", "-W"], capture_output=True, text=True)
+                return result.stdout
+            elif system_platform() in ["Linux", "Darwin", "FreeBSD"]:
+                result = subprocess.run(["sudo", "snort", "-W"], capture_output=True, text=True)
+                return result.stdout
+        except Exception as e:
+            logging.error(f"Failed to list interfaces: {e}")
+            print(f"Failed to list interfaces: {e}")
+            return None
 
     def start_sniffing(self):
         try:
+            interfaces_output = self.list_interfaces()
+            if not interfaces_output:
+                logging.error("No interfaces found.")
+                print("No interfaces found.")
+                return
+
+            interface_ids = self.parse_interface_ids(interfaces_output)
+
             if system_platform() == "Windows":
                 self.snort_process = subprocess.Popen(
-                ["snort", "-c", "C:\Snort\etc\snort.conf"]
+                    ["snort", "-c", "C:\\Snort\\etc\\snort.conf", "-i"] + interface_ids
                 )
             elif system_platform() in ["Linux", "Darwin", "FreeBSD"]:
                 self.snort_process = subprocess.Popen(
-                ["sudo", "snort", "-c", "/etc/snort/snort.conf"]
+                    ["sudo", "snort", "-c", "/etc/snort/snort.conf", "-i"] + interface_ids
                 )
             self.snort_process.wait()
         except Exception as e:
             logging.error(f"Failed to start Snort: {e}")
             print(f"Failed to start Snort: {e}")
+
+    def parse_interface_ids(self, interfaces_output):
+        interface_ids = []
+        for line in interfaces_output.splitlines():
+            if "Interface" in line:
+                parts = line.split()
+                if len(parts) > 1 and parts[1].isdigit():
+                    interface_ids.append(parts[1])
+        return interface_ids
 
     def start(self):
         if not self.is_started:
