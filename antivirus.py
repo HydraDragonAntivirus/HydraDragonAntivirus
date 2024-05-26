@@ -877,7 +877,6 @@ class YaraScanner:
         if os.path.exists(file_path):
             with open(file_path, 'rb') as file:
                 data = file.read()
-                file.close()  # Close the file after reading
                 
                 # Check matches for compiled_rule
                 if compiled_rule:
