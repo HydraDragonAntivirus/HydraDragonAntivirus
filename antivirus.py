@@ -866,10 +866,20 @@ class SnortObserver:
                     )
                 
                 stdout, stderr = self.snort_process.communicate()
-                if b"ERROR: Invalid device number" in stderr:
+                stdout = stdout.decode('utf-8')
+                stderr = stderr.decode('utf-8')
+
+                if "ERROR: Invalid device number" in stderr:
                     logging.info(f"Device number {device_number} is invalid. Trying next device...")
                     device_number += 1
                     continue
+                elif stderr:
+                    logging.error(f"Error starting Snort: {stderr}")
+                    print(f"Error starting Snort: {stderr}")
+                    break
+
+                logging.info(f"Snort started on device number {device_number}.")
+                print(f"Snort started on device number {device_number}.")
                 break
             except Exception as e:
                 logging.error(f"Failed to start Snort on device {device_number}: {e}")
