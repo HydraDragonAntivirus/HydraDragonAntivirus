@@ -846,74 +846,60 @@ class SnortObserver:
     def __init__(self):
         self.is_started = False
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
-        self.threads = []
-        self.snort_processes = []
+        self.thread = None
+        self.snort_process = None
 
-    def list_interfaces(self):
+    def start_sniffing(self):
         try:
-            if system_platform() == "Windows":
-                result = subprocess.run(["snort", "-W"], capture_output=True, text=True)
-                return result.stdout
-            elif system_platform() in ["Linux", "Darwin", "FreeBSD"]:
-                result = subprocess.run(["sudo", "snort", "-W"], capture_output=True, text=True)
-                return result.stdout
+            device_number = 1
+            while True:
+                try:
+                    if system_platform() == "Windows":
+                        self.snort_process = subprocess.Popen(
+                            ["snort", "-c", "C:\\Snort\\etc\\snort.conf", "-i", str(device_number)],
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE
+                        )
+                    elif system_platform() in ["Linux", "Darwin", "FreeBSD"]:
+                        self.snort_process = subprocess.Popen(
+                            ["sudo", "snort", "-c", "/etc/snort/snort.conf", "-i", str(device_number)],
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE
+                        )
+                    stdout, stderr = self.snort_process.communicate()
+                    
+                    if b"ERROR: Invalid device number" in stderr:
+                        device_number += 1
+                        continue  # Try the next device number
+                    else:
+                        break  # Valid device number found, exit the loop
+                except Exception as e:
+                    logging.error(f"Failed to start Snort on device {device_number}: {e}")
+                    print(f"Failed to start Snort on device {device_number}: {e}")
+                    break  # Exit the loop on other exceptions
+            
+            if device_number == 1:
+                logging.error("No valid interfaces found to start Snort.")
+                print("No valid interfaces found to start Snort.")
         except Exception as e:
-            logging.error(f"Failed to list interfaces: {e}")
-            print(f"Failed to list interfaces: {e}")
-            return None
-
-    def parse_interface_ids(self, interfaces_output):
-        interface_ids = []
-        for line in interfaces_output.splitlines():
-            if "Interface" in line:
-                parts = line.split()
-                if len(parts) > 1 and parts[1].isdigit():
-                    interface_ids.append(parts[1])
-        return interface_ids
-
-    def start_sniffing(self, interface_id):
-        try:
-            if system_platform() == "Windows":
-                snort_command = ["snort", "-c", "C:\\Snort\\etc\\snort.conf", "-i", interface_id]
-            elif system_platform() in ["Linux", "Darwin", "FreeBSD"]:
-                snort_command = ["sudo", "snort", "-c", "/etc/snort/snort.conf", "-i", interface_id]
-
-            snort_process = subprocess.Popen(snort_command)
-            self.snort_processes.append(snort_process)
-            snort_process.wait()
-        except Exception as e:
-            logging.error(f"Failed to start Snort on interface {interface_id}: {e}")
-            print(f"Failed to start Snort on interface {interface_id}: {e}")
+            logging.error(f"Failed to start Snort: {e}")
+            print(f"Failed to start Snort: {e}")
 
     def start(self):
         if not self.is_started:
-            interfaces_output = self.list_interfaces()
-            if not interfaces_output:
-                logging.error("No interfaces found.")
-                print("No interfaces found.")
-                return
-
-            interface_ids = self.parse_interface_ids(interfaces_output)
-            for interface_id in interface_ids:
-                thread = threading.Thread(target=self.start_sniffing, args=(interface_id,))
-                thread.start()
-                self.threads.append(thread)
-
+            self.thread = threading.Thread(target=self.start_sniffing)
+            self.thread.start()
             self.is_started = True
-            logging.info("Snort has been started on all interfaces.")
-            print("Snort has been started on all interfaces.")
+            logging.info("Snort has been started.")
+            print("Snort has been started.")
 
     def stop(self):
-        if self.is_started:
-            for snort_process in self.snort_processes:
-                snort_process.terminate()
-
-            for thread in self.threads:
-                thread.join()  # Wait for all threads to finish
-
+        if self.is_started and self.snort_process:
+            self.snort_process.terminate()
+            self.thread.join()  # Wait for the thread to finish
             self.is_started = False
-            logging.info("Snort has been stopped on all interfaces.")
-            print("Snort has been stopped on all interfaces.")
+            logging.info("Snort has been stopped.")
+            print("Snort has been stopped.")
             
 # Create the real-time observer with the system drive as the monitored directory
 real_time_observer = RealTimeProtectionObserver(folder_to_watch)
