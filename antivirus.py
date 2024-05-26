@@ -888,13 +888,13 @@ class YaraScanner:
                         matched_rules.append(match.rule)
                 return matched_rules  # Return immediately if a match is found
 
-        return matched_rules
-
     def static_analysis(self, file_path):
         if os.path.exists(file_path):
             with open(file_path, 'rb') as file:
                 data = file.read()
             return self.scan_data(data)
+        else:
+            return []
 
 class AntivirusUI(QWidget):
     folder_scan_finished = Signal()
