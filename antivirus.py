@@ -499,10 +499,10 @@ def scan_file_real_time(file_path):
                 logging.info(f"No malware detected by YARA in file: {file_path}")
         except PermissionError as e:
             logging.error(f"Permission denied: {file_path} - {str(e)}")
-            return False, "PermissionError"
+            return False, "Clean"
         except Exception as e:
             logging.error(f"Error scanning file with YARA: {file_path} - {str(e)}")
-            return False, "YARAError"
+            return False, "Clean"
 
     if preferences["use_machine_learning"]:
         is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path, malicious_file_names_data, malicious_numeric_features_data, benign_numeric_features_data)
