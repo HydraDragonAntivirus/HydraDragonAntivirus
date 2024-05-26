@@ -358,11 +358,14 @@ def scan_file_with_clamd(file_path):
                 return f"Infected: UNOFFICIAL {virus_name}"
             else:
                 return f"Infected: {virus_name}"
+        else:
+            before_found = clamd_output.split("FOUND")[0]
+            return f"Infected: {before_found}FOUND"  # Print output before "FOUND"
     elif "OK" in clamd_output:
         return "Clean"
     else:
         print(f"Unexpected clamdscan output: {clamd_output}")
-        return "Unknown"  # Return unknown status if output doesn't match expected patterns
+        return "Unknown"  # Return unknown status if output doesn't match expected pattern
 
 def kill_malicious_process(file_path):
     try:
