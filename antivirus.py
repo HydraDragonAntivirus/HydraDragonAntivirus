@@ -338,7 +338,7 @@ def start_clamd():
         subprocess.run(["service", "clamd", "start"])
     else:
         print("Unsupported platform for ClamAV")
-
+        
 def scan_file_with_clamd(file_path):
     """Scan file using clamd."""
     file_path = os.path.abspath(file_path)  # Get absolute path
@@ -355,17 +355,17 @@ def scan_file_with_clamd(file_path):
         if match:
             virus_name = match.group(1).strip()
             if "UNOFFICIAL" in clamd_output:
-                return f"Infected: UNOFFICIAL {virus_name}"
+                return f"Infected: UNOFFICIAL {virus_name}", file_path
             else:
-                return f"Infected: {virus_name}"
+                return f"Infected: {virus_name}", file_path
         else:
             before_found = clamd_output.split("FOUND")[0]
-            return f"Infected: {before_found}FOUND"  # Print output before "FOUND"
+            return f"Infected: {before_found}FOUND", file_path  # Print output before "FOUND"
     elif "OK" in clamd_output:
-        return "Clean"
+        return "Clean", file_path
     else:
         print(f"Unexpected clamdscan output: {clamd_output}")
-        return "Unknown"  # Return unknown status if output doesn't match expected pattern
+        return "Unknown", file_path  # Return unknown status if output doesn't match expected pattern
 
 def kill_malicious_process(file_path):
     try:
