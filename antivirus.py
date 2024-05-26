@@ -348,15 +348,15 @@ def scan_file_with_clamd(file_path):
     clamd_output = result.stdout.decode('utf-8')  # Decode bytes to string
     print(f"Clamdscan output: {clamd_output}")
 
-    if "Infected files: 0" in clamd_output:
-        print(f"Clamdscan reported an error: {clamd_output}")
-        return "Clean"
-    elif "FOUND" in clamd_output:
+    if "FOUND" in clamd_output:
         match = re.search(r": (.+) FOUND", clamd_output)
         if match:
             virus_name = match.group(1).strip()
             return virus_name
     elif "OK" in clamd_output:
+        return "Clean"
+    elif "Infected files: 0" in clamd_output:
+        print(f"Clamdscan reported an error: {clamd_output}")
         return "Clean"
     else:
         print(f"Unexpected clamdscan output: {clamd_output}")
