@@ -282,41 +282,41 @@ def scan_file_with_machine_learning_ai(file_path, malicious_file_names, maliciou
             with open(file_path, 'rb') as original_file:
                 temp_file.write(original_file.read())
 
-        pe = pefile.PE(temp_file.name)
-        if not pe:
-            return False, malware_definition
-
-        file_info = extract_infos(temp_file.name)
-        file_numeric_features = extract_numeric_features(temp_file.name)
-
-        is_malicious = False
-        malware_rank = None
-        nearest_malicious_similarity = 0
-        nearest_benign_similarity = 0
-
-        for malicious_features, info in zip(malicious_numeric_features, malicious_file_names):
-            rank = info['numeric_tag']
-            similarity = calculate_similarity(file_numeric_features, malicious_features)
-            if similarity > nearest_malicious_similarity:
-                nearest_malicious_similarity = similarity
-            if similarity >= threshold:
-                is_malicious = True
-                malware_rank = rank
-                malware_definition = info['file_name']
-                break
-
-        for benign_features in benign_numeric_features:
-            similarity = calculate_similarity(file_numeric_features, benign_features)
-            if similarity > nearest_benign_similarity:
-                nearest_benign_similarity = similarity
-
-        if is_malicious:
-            if nearest_benign_similarity >= 0.9:
+            pe = pefile.PE(temp_file.name)
+            if not pe:
                 return False, malware_definition
+
+            file_info = extract_infos(temp_file.name)
+            file_numeric_features = extract_numeric_features(temp_file.name)
+
+            is_malicious = False
+            malware_rank = None
+            nearest_malicious_similarity = 0
+            nearest_benign_similarity = 0
+
+            for malicious_features, info in zip(malicious_numeric_features, malicious_file_names):
+                rank = info['numeric_tag']
+                similarity = calculate_similarity(file_numeric_features, malicious_features)
+                if similarity > nearest_malicious_similarity:
+                    nearest_malicious_similarity = similarity
+                if similarity >= threshold:
+                    is_malicious = True
+                    malware_rank = rank
+                    malware_definition = info['file_name']
+                    break
+
+            for benign_features in benign_numeric_features:
+                similarity = calculate_similarity(file_numeric_features, benign_features)
+                if similarity > nearest_benign_similarity:
+                    nearest_benign_similarity = similarity
+
+            if is_malicious:
+                if nearest_benign_similarity >= 0.9:
+                    return False, malware_definition
+                else:
+                    return True, malware_definition
             else:
-                return True, malware_definition
-        else:
-            return False, malware_definition
+                return False, malware_definition
 
     except pefile.PEFormatError:
         return False, malware_definition
@@ -325,10 +325,11 @@ def scan_file_with_machine_learning_ai(file_path, malicious_file_names, maliciou
         return False, str(e)
     finally:
         try:
-            temp_file.close()
-            # Clean up the temporary file
-            if temp_file.name:
-                os.unlink(temp_file.name)
+            if temp_file:
+                temp_file.close()
+                # Clean up the temporary file
+                if temp_file.name:
+                    os.unlink(temp_file.name)
         except Exception as e:
             print(f"Failed to delete temporary file {temp_file.name}: {e}")
 
@@ -887,35 +888,28 @@ snort_observer = SnortObserver()
 class YaraScanner:
     def scan_data(self, file_path):
         matched_rules = []
-
+        
         if os.path.exists(file_path):
-            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-                shutil.copyfile(file_path, temp_file.name)
-                temp_file_path = temp_file.name
+            with open(file_path, 'rb') as file:
+                data = file.read()
+                
+                # Check matches for compiled_rule
+                if compiled_rule:
+                    matches = compiled_rule.match(data=data)
+                    if matches:
+                        for match in matches:
+                            if match.rule not in excluded_rules:
+                                matched_rules.append(match.rule)
+                        return matched_rules  # Return immediately if a match is found
 
-            try:
-                with open(temp_file_path, 'rb') as file:
-                    data = file.read()
-
-                    # Check matches for compiled_rule
-                    if compiled_rule:
-                        matches = compiled_rule.match(data=data)
-                        if matches:
-                            for match in matches:
-                                if match.rule not in excluded_rules:
-                                    matched_rules.append(match.rule)
-                            return matched_rules  # Return immediately if a match is found
-
-                    # Check matches for pyas_rule
-                    if pyas_rule:
-                        matches = pyas_rule.match(data=data)
-                        if matches:
-                            for match in matches:
-                                if match.rule not in excluded_rules:
-                                    matched_rules.append(match.rule)
-                            return matched_rules  # Return immediately if a match is found
-            finally:
-                os.remove(temp_file_path)
+                # Check matches for pyas_rule
+                if pyas_rule:
+                    matches = pyas_rule.match(data=data)
+                    if matches:
+                        for match in matches:
+                            if match.rule not in excluded_rules:
+                                matched_rules.append(match.rule)
+                        return matched_rules  # Return immediately if a match is found
         
         return matched_rules
 
