@@ -440,19 +440,18 @@ class SnortObserver:
     def __init__(self):
         self.is_started = False
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
-        self.snort_config_path = os.path.join(self.script_dir, "snortconfig", "snort.conf")
 
     def start_snort(self):
         if not self.is_started:
             try:
                 if system_platform() == "Windows":
                     subprocess.Popen(
-                        ["snort", "-c", self.snort_config_path],
+                        ["snort", "-c"],
                         shell=True
                     )
                 elif system_platform() in ["Linux", "Darwin", "FreeBSD"]:
                     subprocess.Popen(
-                        ["sudo", "snort", "-c", self.snort_config_path]
+                        ["sudo", "snort", "-c"]
                     )
                 self.is_started = True
                 logging.info("Snort has been started.")
