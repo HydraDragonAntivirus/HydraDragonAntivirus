@@ -1416,7 +1416,6 @@ class PreferencesDialog(QDialog):
 
     def start_real_time_protection(self):
         global real_time_observer
-        real_time_observer = RealTimeProtectionObserver(folder_to_watch)
         real_time_observer.start()
 
     def stop_real_time_protection(self):
@@ -1426,7 +1425,6 @@ class PreferencesDialog(QDialog):
 
     def start_real_time_web_protection(self):
         global real_time_web_observer
-        real_time_web_observer = RealTimeWebProtectionObserver()
         real_time_web_observer.start()
 
     def stop_real_time_web_protection(self):
@@ -1436,9 +1434,8 @@ class PreferencesDialog(QDialog):
 
     def start_hips(self):
         global snort_observer
-        if not snort_observer.is_started:
-            snort_observer.start()
-            print("Snort is now enabled.")
+        snort_observer.start()
+        print("Snort is now enabled.")
 
     def stop_hips(self):
         global snort_observer
