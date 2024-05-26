@@ -867,34 +867,35 @@ real_time_web_observer = RealTimeWebProtectionObserver()
 snort_observer = SnortObserver()
 
 class YaraScanner:
-    def scan_data(self, data):
+    def scan_data(self, file_path):
         matched_rules = []
         
-        # Check matches for compiled_rule
-        if compiled_rule:
-            matches = compiled_rule.match(data=data)
-            if matches:
-                for match in matches:
-                    if match.rule not in excluded_rules:
-                        matched_rules.append(match.rule)
-                return matched_rules  # Return immediately if a match is found
-
-        # Check matches for pyas_rule
-        if pyas_rule:
-            matches = pyas_rule.match(data=data)
-            if matches:
-                for match in matches:
-                    if match.rule not in excluded_rules:
-                        matched_rules.append(match.rule)
-                return matched_rules  # Return immediately if a match is found
-
-    def static_analysis(self, file_path):
         if os.path.exists(file_path):
             with open(file_path, 'rb') as file:
                 data = file.read()
-            return self.scan_data(data)
-        else:
-            return []
+                
+                # Check matches for compiled_rule
+                if compiled_rule:
+                    matches = compiled_rule.match(data=data)
+                    if matches:
+                        for match in matches:
+                            if match.rule not in excluded_rules:
+                                matched_rules.append(match.rule)
+                        return matched_rules  # Return immediately if a match is found
+
+                # Check matches for pyas_rule
+                if pyas_rule:
+                    matches = pyas_rule.match(data=data)
+                    if matches:
+                        for match in matches:
+                            if match.rule not in excluded_rules:
+                                matched_rules.append(match.rule)
+                        return matched_rules  # Return immediately if a match is found
+        
+        return matched_rules
+
+    def static_analysis(self, file_path):
+        return self.scan_data(file_path)
 
 class AntivirusUI(QWidget):
     folder_scan_finished = Signal()
