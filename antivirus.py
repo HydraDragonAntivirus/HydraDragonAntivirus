@@ -276,12 +276,18 @@ def scan_file_with_machine_learning_ai(file_path, malicious_file_names, maliciou
     """Scan a file for malicious activity"""
     try:
         malware_definition = "Benign"  # Default
-        pe = pefile.PE(file_path)
+
+        # Use tempfile to open the file
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            with open(file_path, 'rb') as original_file:
+                temp_file.write(original_file.read())
+
+        pe = pefile.PE(temp_file.name)
         if not pe:
             return False, malware_definition
 
-        file_info = extract_infos(file_path)
-        file_numeric_features = extract_numeric_features(file_path)
+        file_info = extract_infos(temp_file.name)
+        file_numeric_features = extract_numeric_features(temp_file.name)
 
         is_malicious = False
         malware_rank = None
@@ -317,6 +323,14 @@ def scan_file_with_machine_learning_ai(file_path, malicious_file_names, maliciou
     except Exception as e:
         print(f"An error occurred while scanning file {file_path}: {e}")
         return False, str(e)
+    finally:
+        try:
+            temp_file.close()
+            # Clean up the temporary file
+            if temp_file.name:
+                os.unlink(temp_file.name)
+        except Exception as e:
+            print(f"Failed to delete temporary file {temp_file.name}: {e}")
 
 def is_clamd_running():
     """Check if clamd is running."""
@@ -330,11 +344,11 @@ def is_clamd_running():
 
 def start_clamd():
     """Start clamd service based on the platform."""
-    if system_platform == "Windows":
+    if system_platform() == "Windows":
         subprocess.run(["net", "start", "clamd"], shell=True)
-    elif system_platform in ["Linux", "Darwin"]:
+    elif system_platform() in ["Linux", "Darwin"]:
         subprocess.run(["clamd"], shell=True)
-    elif system_platform == "FreeBSD":
+    elif system_platform() == "FreeBSD":
         subprocess.run(["service", "clamd", "start"])
     else:
         print("Unsupported platform for ClamAV")
@@ -430,12 +444,12 @@ class SnortObserver:
     def start_snort(self):
         if not self.is_started:
             try:
-                if system_platform == "Windows":
+                if system_platform() == "Windows":
                     subprocess.Popen(
                         ["snort.exe", "-D", "-c", self.snort_config_path],
                         shell=True
                     )
-                elif system_platform in ["Linux", "Darwin", "FreeBSD"]:
+                elif system_platform() in ["Linux", "Darwin", "FreeBSD"]:
                     subprocess.Popen(
                         ["sudo", "snort", "-D", "-c", self.snort_config_path]
                     )
@@ -449,7 +463,7 @@ class SnortObserver:
         if self.is_started:
             try:
                 for proc in psutil.process_iter(['pid', 'name']):
-                    if proc.info['name'] == 'snort' or (self.system_platform == "Windows" and proc.info['name'] == 'snort.exe'):
+                    if proc.info['name'] == 'snort' or (self.system_platform() == "Windows" and proc.info['name'] == 'snort.exe'):
                         proc.terminate()  # or proc.kill()
                 self.is_started = False
             except Exception as e:
@@ -625,17 +639,17 @@ class Firewall:
     @staticmethod
     def add_rule(rule):
         try:
-            if system_platform == "Windows":
+            if system_platform() == "Windows":
                 subprocess.run(["netsh", "advfirewall", "firewall", "add", "rule", "name", f"Block {rule.remote_address}", "dir", "in", "action", "block", "remoteip", rule.remote_address], check=True)
                 print(f"Blocking traffic from {rule.remote_address} using Windows Firewall")
-            elif system_platform == "Darwin":
+            elif system_platform() == "Darwin":
                 subprocess.run(["pfctl", "-e"], check=True)
                 subprocess.run(["pfctl", "-t", "blocklist", "-T", "add", rule.remote_address], check=True)
                 print(f"Blocking traffic from {rule.remote_address} using pfctl on macOS")
-            elif system_platform == "Linux":
+            elif system_platform() == "Linux":
                 subprocess.run(["nft", "add", "rule", "ip", "filter", "input", "ip", "saddr", rule.remote_address, "drop"], check=True)
                 print(f"Blocking traffic from {rule.remote_address} using nftables")
-            elif system_platform == "FreeBSD":
+            elif system_platform() == "FreeBSD":
                 subprocess.run(["ipfw", "add", "deny", "ip", "from", rule.remote_address], check=True)
                 print(f"Blocking traffic from {rule.remote_address} using ipfw on FreeBSD")
             else:
