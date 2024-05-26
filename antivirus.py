@@ -1428,10 +1428,17 @@ class PreferencesDialog(QDialog):
             real_time_web_observer.stop()
 
     def start_hips(self):
-        snort_observer.start_snort()
-            
+        global snort_observer
+        if not snort_observer.is_started:
+            snort_observer = SnortObserver()
+            snort_observer.start_snort()
+            print("Snort is now enabled.")
+
     def stop_hips(self):
-        snort_observer.stop_snort()
+        global snort_observer
+        if snort_observer and snort_observer.is_started:
+            snort_observer.stop_snort()
+            print("Snort is now disabled.")
 
 class QuarantineManager(QDialog):
     def __init__(self, parent=None):
