@@ -316,7 +316,7 @@ def scan_file_with_machine_learning_ai(file_path, malicious_file_names, maliciou
                 else:
                     return True, malware_definition
             else:
-                return False, malware_definition
+                return False, malware_definiyation
 
     except pefile.PEFormatError:
         return False, malware_definition
@@ -910,8 +910,6 @@ class YaraScanner:
                             if match.rule not in excluded_rules:
                                 matched_rules.append(match.rule)
                         return matched_rules  # Return immediately if a match is found
-        
-        return matched_rules
 
     def static_analysis(self, file_path):
         return self.scan_data(file_path)
