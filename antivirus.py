@@ -763,11 +763,11 @@ def notify_user_for_web(domain=None, ip_address=None):
     notification = Notify()
     notification.title = "Malware or Phishing Alert"
     if domain and ip_address:
-        notification.message = f"Phishing or Malicious activity detected :\n Domain: {domain}\nIP Address: {ip_address}"
+        notification.message = f"Phishing or Malicious activity detected:\nDomain: {domain}\nIP Address: {ip_address}"
     elif domain:
-        notification.message = f"Phishing or Malicious activity detected :\n Domain: {domain}"
+        notification.message = f"Phishing or Malicious activity detected:\nDomain: {domain}"
     elif ip_address:
-        notification.message = f"Phishing or Malicious activity detected :\n IP Address: {ip_address}"
+        notification.message = f"Phishing or Malicious activity detected:\nIP Address: {ip_address}"
     else:
         notification.message = "Phishing or Malicious activity detected"
     notification.send()
