@@ -426,23 +426,16 @@ stop_monitoring_for_snort = False
 
 def monitor_snort_preferences():
     global stop_monitoring_for_snort
-
-    previous_enable_hips = preferences["enable_hips"]
-
     while not stop_monitoring_for_snort:
-        current_enable_hips = preferences["enable_hips"]
-
         # Check preferences and control Snort accordingly
-        if current_enable_hips != previous_enable_hips:
-            if current_enable_hips and not snort_observer.is_started:
-                snort_observer.start_snort()
-                print("Snort is now enabled.")
-            elif not current_enable_hips and snort_observer.is_started:
-                snort_observer.stop_snort()
-                print("Snort is now disabled.")
+        if preferences["enable_hips"] and not snort_observer.is_started:
+            snort_observer.start_snort()
+            print("Snort is now enabled.")
 
-            previous_enable_hips = current_enable_hips
-            
+        elif not preferences["enable_hips"] and snort_observer.is_started:
+            snort_observer.stop_snort()
+            print("Snort is now disabled.")
+
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
     if not os.path.exists(file_path):
