@@ -429,11 +429,11 @@ def monitor_snort_preferences():
     while not stop_monitoring_for_snort:
         # Check preferences and control Snort accordingly
         if preferences["enable_hips"] and not snort_observer.is_started:
-            snort_observer.start_snort()
+            snort_observer.start()
             print("Snort is now enabled.")
 
         elif not preferences["enable_hips"] and snort_observer.is_started:
-            snort_observer.stop_snort()
+            snort_observer.stop()
             print("Snort is now disabled.")
 
 def scan_file_real_time(file_path):
