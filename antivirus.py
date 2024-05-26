@@ -1431,7 +1431,6 @@ class PreferencesDialog(QDialog):
         global snort_observer
         if not snort_observer.is_started:
             snort_observer = SnortObserver()
-            snort_observer.start_snort()
             print("Snort is now enabled.")
 
     def stop_hips(self):
