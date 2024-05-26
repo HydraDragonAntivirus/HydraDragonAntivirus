@@ -867,39 +867,23 @@ class SnortObserver:
         for line in interfaces_output.splitlines():
             if "Interface" in line:
                 parts = line.split()
-                if len(parts) > 1 and parts[0].isdigit():
-                    interface_ids.append(parts[0])
+                if len(parts) > 1 and parts[1].isdigit():
+                    interface_ids.append(parts[1])
         return interface_ids
 
-    def start_sniffing(self, interface):
+    def start_sniffing(self, interface_id):
         try:
             if system_platform() == "Windows":
-                snort_process = subprocess.Popen(
-                    ["snort", "-c", "C:\\Snort\\etc\\snort.conf", "-i", interface],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
+                snort_command = ["snort", "-c", "C:\\Snort\\etc\\snort.conf", "-i", interface_id]
             elif system_platform() in ["Linux", "Darwin", "FreeBSD"]:
-                snort_process = subprocess.Popen(
-                    ["sudo", "snort", "-c", "/etc/snort/snort.conf", "-i", interface],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
-            self.snort_processes.append(snort_process)
+                snort_command = ["sudo", "snort", "-c", "/etc/snort/snort.conf", "-i", interface_id]
 
-            while True:
-                output = snort_process.stdout.readline()
-                if output == '' and snort_process.poll() is not None:
-                    break
-                if output:
-                    print(f"[Interface {interface}] {output.strip()}")
-            rc = snort_process.poll()
-            return rc
+            snort_process = subprocess.Popen(snort_command)
+            self.snort_processes.append(snort_process)
+            snort_process.wait()
         except Exception as e:
-            logging.error(f"Failed to start Snort on interface {interface}: {e}")
-            print(f"Failed to start Snort on interface {interface}: {e}")
+            logging.error(f"Failed to start Snort on interface {interface_id}: {e}")
+            print(f"Failed to start Snort on interface {interface_id}: {e}")
 
     def start(self):
         if not self.is_started:
@@ -908,10 +892,10 @@ class SnortObserver:
                 logging.error("No interfaces found.")
                 print("No interfaces found.")
                 return
-            
+
             interface_ids = self.parse_interface_ids(interfaces_output)
-            for interface in interface_ids:
-                thread = threading.Thread(target=self.start_sniffing, args=(interface,))
+            for interface_id in interface_ids:
+                thread = threading.Thread(target=self.start_sniffing, args=(interface_id,))
                 thread.start()
                 self.threads.append(thread)
 
@@ -921,8 +905,9 @@ class SnortObserver:
 
     def stop(self):
         if self.is_started:
-            for process in self.snort_processes:
-                process.terminate()
+            for snort_process in self.snort_processes:
+                snort_process.terminate()
+
             for thread in self.threads:
                 thread.join()  # Wait for all threads to finish
 
