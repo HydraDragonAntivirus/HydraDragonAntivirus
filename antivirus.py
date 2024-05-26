@@ -875,14 +875,28 @@ class SnortObserver:
         try:
             if system_platform() == "Windows":
                 snort_process = subprocess.Popen(
-                    ["snort", "-c", "C:\\Snort\\etc\\snort.conf", "-i", interface]
+                    ["snort", "-c", "C:\\Snort\\etc\\snort.conf", "-i", interface],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
                 )
             elif system_platform() in ["Linux", "Darwin", "FreeBSD"]:
                 snort_process = subprocess.Popen(
-                    ["sudo", "snort", "-c", "/etc/snort/snort.conf", "-i", interface]
+                    ["sudo", "snort", "-c", "/etc/snort/snort.conf", "-i", interface],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
                 )
             self.snort_processes.append(snort_process)
-            snort_process.wait()
+
+            while True:
+                output = snort_process.stdout.readline()
+                if output == '' and snort_process.poll() is not None:
+                    break
+                if output:
+                    print(f"[Interface {interface}] {output.strip()}")
+            rc = snort_process.poll()
+            return rc
         except Exception as e:
             logging.error(f"Failed to start Snort on interface {interface}: {e}")
             print(f"Failed to start Snort on interface {interface}: {e}")
@@ -925,7 +939,7 @@ snort_observer = SnortObserver()
 class YaraScanner:
     def scan_data(self, file_path):
         matched_rules = []
-        
+        7
         if os.path.exists(file_path):
             with open(file_path, 'rb') as file:
                 data = file.read()
