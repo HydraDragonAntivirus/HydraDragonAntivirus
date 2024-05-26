@@ -908,7 +908,6 @@ class AntivirusUI(QWidget):
     memory_scan_finished = Signal()
     def __init__(self):
         super().__init__()
-        self.scanned_files = set()
         self.setWindowTitle("Xylent Optional Scanner Antivirus Cross Platform Interface")
         self.stacked_widget = QStackedWidget()
         self.main_widget = QWidget()
@@ -1118,30 +1117,24 @@ class AntivirusUI(QWidget):
                 self.detected_list.addItem(item)
 
     def scan_file_path(self, file_path):
-        if file_path in self.scanned_files:
-            logging.info(f"File has already been scanned: {file_path}")
-            return False, ""
-
         self.pause_event.wait()  # Wait if the scan is paused
         if self.stop_event.is_set():
             return False, ""
-
+        
         result = ""
         virus_name = ""
-
+        
         if preferences["use_clamav"]:
             result = scan_file_with_clamd(file_path)
             if result == "Clean":
                 logging.info(f"File is clean (ClamAV): {file_path}")
-                self.scanned_files.add(file_path)
                 return False, ""
             virus_name = result if result != "Clean" else ""
-
+        
         if preferences["use_yara"]:
             yara_result = self.yara_scanner.static_analysis(file_path)
             if yara_result == "Clean":
                 logging.info(f"File is clean (Yara): {file_path}")
-                self.scanned_files.add(file_path)
                 return False, ""
             if yara_result and isinstance(yara_result, list):
                 result = ', '.join(yara_result)
@@ -1149,7 +1142,7 @@ class AntivirusUI(QWidget):
             elif isinstance(yara_result, str):
                 result = yara_result
                 virus_name = yara_result
-
+        
         if preferences["use_machine_learning"]:
             is_malicious, malware_definition = scan_file_with_machine_learning_ai(
                 file_path, 
@@ -1168,7 +1161,6 @@ class AntivirusUI(QWidget):
             return True, virus_name
         else:
             logging.info(f"File is clean: {file_path}")
-            self.scanned_files.add(file_path)
             return False, ""
 
     def scan_file_in_thread(self, file_path):
