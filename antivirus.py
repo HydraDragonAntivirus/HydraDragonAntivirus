@@ -464,7 +464,7 @@ class SnortObserver:
         if self.is_started:
             try:
                 for proc in psutil.process_iter(['pid', 'name']):
-                    if proc.info['name'] == 'snort' or (self.system_platform() == "Windows" and proc.info['name'] == 'snort.exe'):
+                    if proc.info['name'] == 'snort' or (system_platform() == "Windows" and proc.info['name'] == 'snort.exe'):
                         proc.terminate()  # or proc.kill()
                 self.is_started = False
             except Exception as e:
