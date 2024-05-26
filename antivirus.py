@@ -842,12 +842,6 @@ class RealTimeProtectionObserver:
             else:
                 print(f"folder_to_watch is accessible: {self.folder_to_watch}")
 
-
-def system_platform():
-    # Implement your system platform detection logic here
-    from sys import platform
-    return platform
-
 class SnortObserver:
     def __init__(self):
         self.is_started = False
