@@ -427,10 +427,10 @@ stop_monitoring_for_snort = False
 def monitor_snort_preferences():
     global stop_monitoring_for_snort
 
-    previous_enable_hips = preferences.get("enable_hips", False)
+    previous_enable_hips = preferences["enable_hips"]
 
     while not stop_monitoring_for_snort:
-        current_enable_hips = preferences.get("enable_hips", False)
+        current_enable_hips = preferences["enable_hips"]
 
         # Check preferences and control Snort accordingly
         if current_enable_hips != previous_enable_hips:
