@@ -853,13 +853,13 @@ class SnortObserver:
         device_number = 1
         while True:
             try:
-                if self.system_platform() == "Windows":
+                if system_platform() == "Windows":
                     self.snort_process = subprocess.Popen(
                         ["snort", "-i", str(device_number), "-c", "C:\\Snort\\etc\\snort.conf"],
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE
                     )
-                elif self.system_platform() in ["Linux", "Darwin", "FreeBSD"]:
+                elif system_platform() in ["Linux", "Darwin", "FreeBSD"]:
                     self.snort_process = subprocess.Popen(
                         ["sudo", "snort", "-i", str(device_number), "-c", "/etc/snort/snort.conf"],
                         stdout=subprocess.PIPE,
