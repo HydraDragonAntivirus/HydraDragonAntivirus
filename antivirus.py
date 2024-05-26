@@ -910,7 +910,6 @@ class AntivirusUI(QWidget):
         # Define pause_event and stop_event attributes
         self.pause_event = threading.Event()
         self.stop_event = threading.Event()
-        self.pause_event.is_set()
 
     def setup_main_ui(self):
         layout = QVBoxLayout()
@@ -927,7 +926,7 @@ class AntivirusUI(QWidget):
         self.stop_button.clicked.connect(self.stop_scanning)
         layout.addWidget(self.stop_button)
 
-        self.resume_button = QPushButton("Resume Scan", self)
+        self.resume_button = QPushButton("Resume Scan Or Enable Scan", self)
         self.resume_button.clicked.connect(self.resume_scanning)
         layout.addWidget(self.resume_button)
 
