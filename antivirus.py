@@ -271,7 +271,7 @@ def safe_remove(file_path):
         print(f"File {file_path} deleted successfully.")
     except Exception as e:
         print(f"Error deleting file {file_path}: {e}")
-        
+
 def scan_file_with_machine_learning_ai(file_path, malicious_file_names, malicious_numeric_features, benign_numeric_features, threshold=0.86):
     """Scan a file for malicious activity"""
     try:
@@ -874,6 +874,7 @@ class YaraScanner:
         if os.path.exists(file_path):
             with open(file_path, 'rb') as file:
                 data = file.read()
+                file.close()  # Close the file after reading
                 
                 # Check matches for compiled_rule
                 if compiled_rule:
