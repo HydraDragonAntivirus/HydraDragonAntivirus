@@ -55,10 +55,6 @@ DOMAINS_PATH = os.path.join(script_dir, "website", "Domains.txt")
 ip_addresses_signatures_data = {}
 ipv6_addresses_signatures_data = {}
 domains_signatures_data = {}
-# Define pause_event and stop_event attributes
-pause_event = threading.Event()
-stop_event = threading.Event()
-pause_event.is_set()
 print("Scan is enabled")
 # Get the root directory of the system drive based on the platform
 if system_platform() == "Windows":
@@ -912,8 +908,9 @@ class AntivirusUI(QWidget):
         self.setLayout(main_layout)
         self.yara_scanner = YaraScanner()
         # Define pause_event and stop_event attributes
-        self.pause_event = pause_event
-        self.stop_event = stop_event
+        self.pause_event = threading.Event()
+        self.stop_event = threading.Event()
+        self.pause_event.is_set()
 
     def setup_main_ui(self):
         layout = QVBoxLayout()
