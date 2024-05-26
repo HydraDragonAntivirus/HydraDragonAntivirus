@@ -850,12 +850,12 @@ class SnortObserver:
 
     def start_sniffing(self):
         try:
-            if platform.system() == "Windows":
+            if system_platform() == "Windows":
                 self.snort_process = subprocess.Popen(
                     ["snort", "-c", os.path.join(self.script_dir, "hips\\HIPS.rules"), "-c", os.path.join(self.script_dir, "hips\\HIPSsnort3community.rules")],
                     shell=True
                 )
-            elif platform.system() in ["Linux", "Darwin", "FreeBSD"]:
+            elif system_platform() in ["Linux", "Darwin", "FreeBSD"]:
                 self.snort_process = subprocess.Popen(
                     ["sudo", "snort", "-c", os.path.join(self.script_dir, "hips/HIPS.rules"), "-c", os.path.join(self.script_dir, "hips/HIPSsnort3community.rules")]
                 )
