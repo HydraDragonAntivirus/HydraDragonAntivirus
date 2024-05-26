@@ -201,9 +201,9 @@ def load_preferences():
         return default_preferences
 
 preferences = load_preferences()
-malicious_json_file_data = os.path.join(script_dir, "machinelearning", "malicious_file_names.json")
-malicious_numeric_file_data = os.path.join(script_dir, "machinelearning", "malicious_numeric.pkl")
-benign_numeric_file_data = os.path.join(script_dir, "machinelearning", "benign_numeric.pkl")
+malicious_file_names = os.path.join(script_dir, "machinelearning", "malicious_file_names.json")
+malicious_numeric_features = os.path.join(script_dir, "machinelearning", "malicious_numeric.pkl")
+benign_numeric_features = os.path.join(script_dir, "machinelearning", "benign_numeric.pkl")
 yara_folder_path = os.path.join(script_dir, "yara")
 excluded_rules_dir = os.path.join(script_dir, "excluded")
 excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
@@ -214,18 +214,18 @@ with open(excluded_rules_path, "r") as file:
         print("YARA Excluded Rules Definitions loaded!")
 
 # Load malicious file names from JSON file
-with open(malicious_json_file_data, 'r') as f:
-    malicious_file_names_data = json.load(f)
+with open(malicious_file_names, 'r') as f:
+    malicious_file_names = json.load(f)
     print("Machine Learning Definitions loaded!")
 
 # Load malicious numeric features from pickle file
-with open(malicious_numeric_file_data, 'rb') as f:
-    malicious_numeric_features_data = joblib.load(f)
+with open(malicious_numeric_features, 'rb') as f:
+    malicious_numeric_features = joblib.load(f)
     print("Malicious Feature Signatures loaded!")
 
 # Load benign numeric features from pickle file
-with open(benign_numeric_file_data, 'rb') as f:
-    benign_numeric_features_data = joblib.load(f)
+with open(benign_numeric_features, 'rb') as f:
+    benign_numeric_features = joblib.load(f)
     print("Benign Feature Signatures loaded!")
 
 print("Machine Learning AI Signatures loaded!")
