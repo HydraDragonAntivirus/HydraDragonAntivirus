@@ -446,12 +446,12 @@ class SnortObserver:
             try:
                 if system_platform() == "Windows":
                     subprocess.Popen(
-                        ["snort", "-c hips\HIPS.rules" "-c hips\HIPSsnort3community.rules"],
+                        ["snort", "-c", "hips\\HIPS.rules", "-c", os.path.join(script_dir, "hips\\HIPSsnort3community.rules")]
                         shell=True
                     )
                 elif system_platform() in ["Linux", "Darwin", "FreeBSD"]:
                     subprocess.Popen(
-                        ["sudo", "snort", "-c hips\HIPS.rules" "-c hips\HIPSsnort3community.rules"]
+                        ["sudo", "snort", "-c", "hips\\HIPS.rules", "-c", os.path.join(script_dir, "hips\\HIPSsnort3community.rules")]
                     )
                 self.is_started = True
                 logging.info("Snort has been started.")
