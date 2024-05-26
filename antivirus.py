@@ -442,42 +442,6 @@ def monitor_snort_preferences():
                 print("Snort is now disabled.")
 
             previous_enable_hips = current_enable_hips
-
-class SnortObserver:
-    def __init__(self):
-        self.is_started = False
-        self.script_dir = os.path.dirname(os.path.abspath(__file__))
-
-    def start_snort(self):
-        if not self.is_started:
-            try:
-                if platform.system() == "Windows":
-                    subprocess.Popen(
-                        ["snort", "-c", "hips\\HIPS.rules", "-c", os.path.join(self.script_dir, "hips\\HIPSsnort3community.rules")],
-                        shell=True
-                    )
-                elif platform.system() in ["Linux", "Darwin", "FreeBSD"]:
-                    subprocess.Popen(
-                        ["sudo", "snort", "-c", "hips/HIPS.rules", "-c", os.path.join(self.script_dir, "hips/HIPSsnort3community.rules")]
-                    )
-                self.is_started = True
-                logging.info("Snort has been started.")
-                print("Snort has been started.")
-            except Exception as e:
-                logging.error(f"Failed to start Snort: {e}")
-
-    def stop_snort(self):
-        if self.is_started:
-            try:
-                for proc in psutil.process_iter(['pid', 'name']):
-                    if proc.info['name'] == 'snort' or (platform.system() == "Windows" and proc.info['name'] == 'snort.exe'):
-                        proc.terminate()  # or proc.kill()
-                self.is_started = False
-            except Exception as e:
-                logging.error(f"Failed to stop Snort: {e}")
-
-            logging.info("Snort has been stopped.")
-            print("Snort is now disabled.")  # Moved outside of the loop
             
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
@@ -885,6 +849,42 @@ class RealTimeProtectionObserver:
             else:
                 print(f"folder_to_watch is accessible: {self.folder_to_watch}")
 
+class SnortObserver:
+    def __init__(self):
+        self.is_started = False
+        self.script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    def start_snort(self):
+        if not self.is_started:
+            try:
+                if platform.system() == "Windows":
+                    subprocess.Popen(
+                        ["snort", "-c", "hips\\HIPS.rules", "-c", os.path.join(self.script_dir, "hips\\HIPSsnort3community.rules")],
+                        shell=True
+                    )
+                elif platform.system() in ["Linux", "Darwin", "FreeBSD"]:
+                    subprocess.Popen(
+                        ["sudo", "snort", "-c", "hips/HIPS.rules", "-c", os.path.join(self.script_dir, "hips/HIPSsnort3community.rules")]
+                    )
+                self.is_started = True
+                logging.info("Snort has been started.")
+                print("Snort has been started.")
+            except Exception as e:
+                logging.error(f"Failed to start Snort: {e}")
+
+    def stop_snort(self):
+        if self.is_started:
+            try:
+                for proc in psutil.process_iter(['pid', 'name']):
+                    if proc.info['name'] == 'snort' or (platform.system() == "Windows" and proc.info['name'] == 'snort.exe'):
+                        proc.terminate()  # or proc.kill()
+                self.is_started = False
+            except Exception as e:
+                logging.error(f"Failed to stop Snort: {e}")
+
+            logging.info("Snort has been stopped.")
+            print("Snort is now disabled.")  # Moved outside of the loop
+            
 # Create the real-time observer with the system drive as the monitored directory
 real_time_observer = RealTimeProtectionObserver(folder_to_watch)
 real_time_web_observer = RealTimeWebProtectionObserver()
@@ -1430,7 +1430,7 @@ class PreferencesDialog(QDialog):
     def start_hips(self):
         global snort_observer
         if not snort_observer.is_started:
-            snort_observer = SnortObserver()
+            snort_observer.start_snort()
             print("Snort is now enabled.")
 
     def stop_hips(self):
