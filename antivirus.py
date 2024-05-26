@@ -1107,7 +1107,6 @@ class AntivirusUI(QWidget):
     def scan_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select File to Scan")
         if file_path:
-            threading.Thread(target=self.scan_file_path, args=(file_path,)).start()
             # Scan the file path in a separate thread and handle the result
             is_infected, virus_name = self.scan_file_path(file_path)
             if is_infected:
