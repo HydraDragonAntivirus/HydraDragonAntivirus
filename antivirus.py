@@ -272,7 +272,7 @@ def safe_remove(file_path):
     except Exception as e:
         print(f"Error deleting file {file_path}: {e}")
 
-def scan_file_with_machine_learning_ai(file_path, malicious_file_names, malicious_numeric_features, benign_numeric_features, threshold=0.86):
+def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     """Scan a file for malicious activity"""
     try:
         malware_definition = "Benign"  # Default
@@ -505,7 +505,7 @@ def scan_file_real_time(file_path):
             return False, "Clean"
 
     if preferences["use_machine_learning"]:
-        is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path, malicious_file_names_data, malicious_numeric_features_data, benign_numeric_features_data)
+        is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path)
         if is_malicious and malware_definition != "Clean" and malware_definition != "":
             logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
             return True, malware_definition
@@ -1155,12 +1155,7 @@ class AntivirusUI(QWidget):
                 virus_name = yara_result
         
         if preferences["use_machine_learning"]:
-            is_malicious, malware_definition = scan_file_with_machine_learning_ai(
-                file_path, 
-                malicious_file_names_data, 
-                malicious_numeric_features_data, 
-                benign_numeric_features_data
-            )
+            is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path)
             if is_malicious:
                 result = malware_definition
                 virus_name = malware_definition
