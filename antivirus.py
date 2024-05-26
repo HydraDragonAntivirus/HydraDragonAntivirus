@@ -444,14 +444,14 @@ class SnortObserver:
     def start_snort(self):
         if not self.is_started:
             try:
-                if system_platform() == "Windows":
+                if platform.system() == "Windows":
                     subprocess.Popen(
-                        ["snort", "-c", "hips\\HIPS.rules", "-c", os.path.join(script_dir, "hips\\HIPSsnort3community.rules")]
+                        ["snort", "-c", "hips\\HIPS.rules", "-c", os.path.join(self.script_dir, "hips\\HIPSsnort3community.rules")],
                         shell=True
                     )
-                elif system_platform() in ["Linux", "Darwin", "FreeBSD"]:
+                elif platform.system() in ["Linux", "Darwin", "FreeBSD"]:
                     subprocess.Popen(
-                        ["sudo", "snort", "-c", "hips\\HIPS.rules", "-c", os.path.join(script_dir, "hips\\HIPSsnort3community.rules")]
+                        ["sudo", "snort", "-c", "hips/HIPS.rules", "-c", os.path.join(self.script_dir, "hips/HIPSsnort3community.rules")]
                     )
                 self.is_started = True
                 logging.info("Snort has been started.")
@@ -463,7 +463,7 @@ class SnortObserver:
         if self.is_started:
             try:
                 for proc in psutil.process_iter(['pid', 'name']):
-                    if proc.info['name'] == 'snort' or (system_platform() == "Windows" and proc.info['name'] == 'snort.exe'):
+                    if proc.info['name'] == 'snort' or (platform.system() == "Windows" and proc.info['name'] == 'snort.exe'):
                         proc.terminate()  # or proc.kill()
                 self.is_started = False
             except Exception as e:
@@ -471,7 +471,7 @@ class SnortObserver:
 
             logging.info("Snort has been stopped.")
             print("Snort is now disabled.")  # Moved outside of the loop
-
+            
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
     if not os.path.exists(file_path):
