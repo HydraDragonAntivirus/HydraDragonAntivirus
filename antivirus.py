@@ -852,11 +852,11 @@ class SnortObserver:
         try:
             if system_platform() == "Windows":
                 self.snort_process = subprocess.Popen(
-                    ["snort"]
+                ["snort", "-c", "C:\Snort\snort.conf"]
                 )
             elif system_platform() in ["Linux", "Darwin", "FreeBSD"]:
                 self.snort_process = subprocess.Popen(
-                ["sudo", "snort"]
+                ["sudo", "snort", "-c", "/etc/snort/snort.conf"]
                 )
             self.snort_process.wait()
         except Exception as e:
