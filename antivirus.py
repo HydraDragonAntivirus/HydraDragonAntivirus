@@ -849,41 +849,36 @@ class SnortObserver:
         self.thread = None
         self.snort_process = None
 
+    def system_platform(self):
+        return platform.system()
+
     def start_sniffing(self):
-        try:
-            device_number = 1
-            while True:
-                try:
-                    if system_platform() == "Windows":
-                        self.snort_process = subprocess.Popen(
-                            ["snort", "-c", "C:\\Snort\\etc\\snort.conf", "-i", str(device_number)],
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE
-                        )
-                    elif system_platform() in ["Linux", "Darwin", "FreeBSD"]:
-                        self.snort_process = subprocess.Popen(
-                            ["sudo", "snort", "-c", "/etc/snort/snort.conf", "-i", str(device_number)],
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE
-                        )
-                    stdout, stderr = self.snort_process.communicate()
-                    
-                    if b"ERROR: Invalid device number" in stderr:
-                        device_number += 1
-                        continue  # Try the next device number
-                    else:
-                        break  # Valid device number found, exit the loop
-                except Exception as e:
-                    logging.error(f"Failed to start Snort on device {device_number}: {e}")
-                    print(f"Failed to start Snort on device {device_number}: {e}")
-                    break  # Exit the loop on other exceptions
-            
-            if device_number == 1:
-                logging.error("No valid interfaces found to start Snort.")
-                print("No valid interfaces found to start Snort.")
-        except Exception as e:
-            logging.error(f"Failed to start Snort: {e}")
-            print(f"Failed to start Snort: {e}")
+        device_number = 1
+        while True:
+            try:
+                if self.system_platform() == "Windows":
+                    self.snort_process = subprocess.Popen(
+                        ["snort", "-i", str(device_number), "-c", "C:\\Snort\\etc\\snort.conf"],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE
+                    )
+                elif self.system_platform() in ["Linux", "Darwin", "FreeBSD"]:
+                    self.snort_process = subprocess.Popen(
+                        ["sudo", "snort", "-i", str(device_number), "-c", "/etc/snort/snort.conf"],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE
+                    )
+                
+                stdout, stderr = self.snort_process.communicate()
+                if b"ERROR: Invalid device number" in stderr:
+                    logging.info(f"Device number {device_number} is invalid. Trying next device...")
+                    device_number += 1
+                    continue
+                break
+            except Exception as e:
+                logging.error(f"Failed to start Snort on device {device_number}: {e}")
+                print(f"Failed to start Snort on device {device_number}: {e}")
+                device_number += 1
 
     def start(self):
         if not self.is_started:
@@ -901,41 +896,6 @@ class SnortObserver:
             logging.info("Snort has been stopped.")
             print("Snort has been stopped.")
             
-# Create the real-time observer with the system drive as the monitored directory
-real_time_observer = RealTimeProtectionObserver(folder_to_watch)
-real_time_web_observer = RealTimeWebProtectionObserver()
-# Initialize Snort observer
-snort_observer = SnortObserver()
-
-class YaraScanner:
-    def scan_data(self, file_path):
-        matched_rules = []
-        7
-        if os.path.exists(file_path):
-            with open(file_path, 'rb') as file:
-                data = file.read()
-                
-                # Check matches for compiled_rule
-                if compiled_rule:
-                    matches = compiled_rule.match(data=data)
-                    if matches:
-                        for match in matches:
-                            if match.rule not in excluded_rules:
-                                matched_rules.append(match.rule)
-                        return matched_rules  # Return immediately if a match is found
-
-                # Check matches for pyas_rule
-                if pyas_rule:
-                    matches = pyas_rule.match(data=data)
-                    if matches:
-                        for match in matches:
-                            if match.rule not in excluded_rules:
-                                matched_rules.append(match.rule)
-                        return matched_rules  # Return immediately if a match is found
-
-    def static_analysis(self, file_path):
-        return self.scan_data(file_path)
-        
 class AntivirusUI(QWidget):
     folder_scan_finished = Signal()
     # Define a new signal for memory scan finished
