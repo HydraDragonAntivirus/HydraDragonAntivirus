@@ -426,14 +426,22 @@ stop_monitoring_for_snort = False
 
 def monitor_snort_preferences():
     global stop_monitoring_for_snort
-        # Check preferences and control Snort accordingly
-        if preferences["enable_hips"] and not snort_observer.is_started:
-            snort_observer.start_snort()
-            print("Snort is now enabled.")
 
-        elif not preferences["enable_hips"] and snort_observer.is_started:
-            snort_observer.stop_snort()
-            print("Snort is now disabled.")
+    previous_enable_hips = preferences.get("enable_hips", False)
+
+    while not stop_monitoring_for_snort:
+        current_enable_hips = preferences.get("enable_hips", False)
+
+        # Check preferences and control Snort accordingly
+        if current_enable_hips != previous_enable_hips:
+            if current_enable_hips and not snort_observer.is_started:
+                snort_observer.start_snort()
+                print("Snort is now enabled.")
+            elif not current_enable_hips and snort_observer.is_started:
+                snort_observer.stop_snort()
+                print("Snort is now disabled.")
+
+            previous_enable_hips = current_enable_hips
 
 class SnortObserver:
     def __init__(self):
@@ -470,7 +478,7 @@ class SnortObserver:
 
             logging.info("Snort has been stopped.")
             print("Snort is now disabled.")  # Moved outside of the loop
-
+            
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
     if not os.path.exists(file_path):
