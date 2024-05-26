@@ -316,7 +316,7 @@ def scan_file_with_machine_learning_ai(file_path, malicious_file_names, maliciou
                 else:
                     return True, malware_definition
             else:
-                return False, malware_definiyation
+                return False, malware_definition
 
     except pefile.PEFormatError:
         return False, malware_definition
