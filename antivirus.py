@@ -896,6 +896,41 @@ class SnortObserver:
             logging.info("Snort has been stopped.")
             print("Snort has been stopped.")
             
+# Create the real-time observer with the system drive as the monitored directory
+real_time_observer = RealTimeProtectionObserver(folder_to_watch)
+real_time_web_observer = RealTimeWebProtectionObserver()
+# Initialize Snort observer
+snort_observer = SnortObserver()
+
+class YaraScanner:
+    def scan_data(self, file_path):
+        matched_rules = []
+        
+        if os.path.exists(file_path):
+            with open(file_path, 'rb') as file:
+                data = file.read()
+                
+                # Check matches for compiled_rule
+                if compiled_rule:
+                    matches = compiled_rule.match(data=data)
+                    if matches:
+                        for match in matches:
+                            if match.rule not in excluded_rules:
+                                matched_rules.append(match.rule)
+                        return matched_rules  # Return immediately if a match is found
+
+                # Check matches for pyas_rule
+                if pyas_rule:
+                    matches = pyas_rule.match(data=data)
+                    if matches:
+                        for match in matches:
+                            if match.rule not in excluded_rules:
+                                matched_rules.append(match.rule)
+                        return matched_rules  # Return immediately if a match is found
+
+    def static_analysis(self, file_path):
+        return self.scan_data(file_path)
+        
 class AntivirusUI(QWidget):
     folder_scan_finished = Signal()
     # Define a new signal for memory scan finished
