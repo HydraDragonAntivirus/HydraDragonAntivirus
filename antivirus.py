@@ -447,12 +447,12 @@ class SnortObserver:
             try:
                 if system_platform() == "Windows":
                     subprocess.Popen(
-                        ["snort.exe", "-D", "-c", self.snort_config_path],
+                        ["snort", "-c", self.snort_config_path],
                         shell=True
                     )
                 elif system_platform() in ["Linux", "Darwin", "FreeBSD"]:
                     subprocess.Popen(
-                        ["sudo", "snort", "-D", "-c", self.snort_config_path]
+                        ["sudo", "snort", "-c", self.snort_config_path]
                     )
                 self.is_started = True
                 logging.info("Snort has been started.")
