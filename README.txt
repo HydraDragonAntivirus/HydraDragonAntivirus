@@ -17,3 +17,4 @@ If you want run web signatures then you need load website signatures by button
 HIPS folder things should be add Snort rules folder also config things
 If you want do scan, you first need enable it by button
 You need stop clamd manually after close this program
+For more protection for Windows please install MBRFilter at mbrfilter folder
