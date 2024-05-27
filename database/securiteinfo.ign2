@@ -80,6 +80,7 @@ Win.Malware.Generic-9880088-0
 Win.Malware.Fragtor-9947474-0
 Win.Virus.Expiro-9969767-0
 Win.Trojan.Spora-7724442-0
+Win.Trojan.Generic-10027282-0
 PUA.Win.Packer.Pequake-4
 PUA.Win.Packer.SiliconRealmsIn-2
 PUA.Win.Adware.Outbrowse-6628770-0
@@ -140,6 +141,7 @@ TwinWave.EvilDoc.SCTHEYAAAAHEYAAAA.20210714
 TwinWave.EvilDoc.RelsFileDottedQuadDancingInHeaven.20240216
 TwinWave.EvilDoc.CHMMiscreantLOLBinsDontCry.20210127
 TwinWave.EvilLNK.MixedUpVampire.20231208
+TwinWave.EvilHTML.QakbotTheDuck.20221017
 ditekSHen.MALWARE.Win.Trojan.NWorm
 ditekSHen.MALWARE.Win.Trojan.IAmTheKingKeylogger
 ditekSHen.MALWARE.Win.Ransomware.Epsilon
@@ -219,3 +221,4 @@ SecuriteInfo.com.Trojan.Crypt.21095.6832
 SecuriteInfo.com.Trojan.Loader.1550.2
 SecuriteInfo.com.JS.Iframe-DUA.32133.30025
 SecuriteInfo.com.JS.Agent-CPW.20448.22370
+SecuriteInfo.com.JS.Agent-CIS.7004.30549
