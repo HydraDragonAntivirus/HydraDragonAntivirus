@@ -283,9 +283,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
             with open(file_path, 'rb') as original_file:
                 temp_file.write(original_file.read())
 
-        # Ensure the temporary file is closed before further processing
-        temp_file.close()
-
+        # Temporary file is closed now, perform the analysis
         pe = pefile.PE(temp_file_name)
         if not pe:
             return False, malware_definition
@@ -329,12 +327,17 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
         return False, str(e)
     finally:
         # Ensure the temporary file is closed and removed
-        try:
-            if temp_file_name and os.path.exists(temp_file_name):
+        if temp_file_name:
+            try:
                 os.unlink(temp_file_name)
-        except Exception as e:
-            print(f"Failed to delete temporary file {temp_file_name}: {e}")
-            
+            except Exception as e:
+                print(f"Failed to delete temporary file {temp_file_name}: {e}")
+                # If the unlink fails, attempt to close the file explicitly
+                try:
+                    os.close(temp_file.fileno())
+                except Exception as e:
+                    print(f"Failed to close file {temp_file_name}: {e}")
+                    
 def is_clamd_running():
     """Check if clamd is running."""
     if system_platform() in ['Linux', 'Darwin', 'FreeBSD']:
