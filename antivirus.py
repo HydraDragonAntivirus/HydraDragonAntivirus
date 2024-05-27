@@ -865,18 +865,39 @@ class SnortObserver:
                         stderr=subprocess.PIPE
                     )
                 
-                stdout, stderr = self.snort_process.communicate()
-                stdout = stdout.decode('utf-8')
-                stderr = stderr.decode('utf-8')
+                # Function to read and print stdout in real-time
+                def read_stdout(pipe):
+                    while True:
+                        output = pipe.readline()
+                        if output == b'' and self.snort_process.poll() is not None:
+                            break
+                        if output:
+                            print(output.decode('utf-8').strip())
 
-                if "ERROR: Invalid device number" in stderr:
-                    logging.info(f"Device number {device_number} is invalid. Trying next device...")
+                # Function to read and print stderr in real-time
+                def read_stderr(pipe):
+                    while True:
+                        error = pipe.readline()
+                        if error == b'' and self.snort_process.poll() is not None:
+                            break
+                        if error:
+                            print(error.decode('utf-8').strip())
+
+                # Create and start threads for stdout and stderr
+                stdout_thread = threading.Thread(target=read_stdout, args=(self.snort_process.stdout,))
+                stderr_thread = threading.Thread(target=read_stderr, args=(self.snort_process.stderr,))
+                
+                stdout_thread.start()
+                stderr_thread.start()
+
+                stdout_thread.join()
+                stderr_thread.join()
+
+                # Check if there was an error related to invalid device number
+                if self.snort_process.returncode != 0:
+                    logging.info(f"Device number {device_number} is invalid or another error occurred. Trying next device...")
                     device_number += 1
                     continue
-                elif stderr:
-                    logging.error(f"Error starting Snort: {stderr}")
-                    print(f"Error starting Snort: {stderr}")
-                    break
 
                 logging.info(f"Snort started on device number {device_number}.")
                 print(f"Snort started on device number {device_number}.")
