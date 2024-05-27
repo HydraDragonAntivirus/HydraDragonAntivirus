@@ -274,13 +274,17 @@ def safe_remove(file_path):
 
 def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     """Scan a file for malicious activity"""
-    try:
-        malware_definition = "Benign"  # Default
+    malware_definition = "Benign"  # Default
+    temp_file_name = None
 
+    try:
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             temp_file_name = temp_file.name  # Store the temporary file name
             with open(file_path, 'rb') as original_file:
                 temp_file.write(original_file.read())
+
+        # Ensure the temporary file is closed before further processing
+        temp_file.close()
 
         pe = pefile.PE(temp_file_name)
         if not pe:
@@ -326,11 +330,11 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     finally:
         # Ensure the temporary file is closed and removed
         try:
-            if os.path.exists(temp_file_name):
+            if temp_file_name and os.path.exists(temp_file_name):
                 os.unlink(temp_file_name)
         except Exception as e:
             print(f"Failed to delete temporary file {temp_file_name}: {e}")
-
+            
 def is_clamd_running():
     """Check if clamd is running."""
     if system_platform() in ['Linux', 'Darwin', 'FreeBSD']:
