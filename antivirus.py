@@ -3,7 +3,7 @@ import os
 import shutil
 import subprocess
 import threading
-from platform import system as system_platform
+from platform import system as system_platform, architecture
 import re
 import json
 from PySide6.QtWidgets import (
@@ -265,6 +265,32 @@ def load_data():
 
     print("Domain and IPv4 IPv6 signatures loaded successfully!")
 
+# Add the setup MBRFilter button function
+def setup_mbrfilter():
+    if system_platform() != 'Windows':
+        QMessageBox.warning(None, "Unsupported Platform", "MBRFilter setup is only supported on Windows.")
+        return
+    
+    # Check system architecture
+    arch = architecture()[0]
+    if arch == '64bit':
+        mbrfilter_path = os.path.join(script_dir, "mbrfilter", "x64", "MBRFilter.inf")
+    else:
+        mbrfilter_path = os.path.join(script_dir, "mbrfilter", "x86", "MBRFilter.inf")
+
+    if os.path.exists(mbrfilter_path):
+        try:
+            # Run infdefaultinstall.exe to setup MBRFilter
+            result = subprocess.run(["infdefaultinstall.exe", mbrfilter_path], capture_output=True, text=True, check=True)
+            QMessageBox.information(None, "Success", "MBRFilter has been setup successfully.")
+        except subprocess.CalledProcessError as e:
+            error_message = e.stderr if e.stderr else str(e)
+            if "dijital imza" in error_message or "digital signature" in error_message:
+                error_message += "\n\nThe INF file does not contain a digital signature, which is required for 64-bit Windows."
+            QMessageBox.critical(None, "Error", f"Failed to setup MBRFilter: {error_message}")
+    else:
+        QMessageBox.critical(None, "Error", f"MBRFilter.inf not found at {mbrfilter_path}.")
+        
 def safe_remove(file_path):
     try:
         os.remove(file_path)
@@ -979,6 +1005,12 @@ class AntivirusUI(QWidget):
 
     def setup_main_ui(self):
         layout = QVBoxLayout()
+
+        # Add the setup MBRFilter button only if on Windows
+        if system_platform() == 'Windows':
+            self.mbrfilter_button = QPushButton('Setup MBRFilter')
+            self.mbrfilter_button.clicked.connect(setup_mbrfilter)
+            layout.addWidget(self.mbrfilter_button)
 
         self.start_clamd_button = QPushButton("Start ClamAV")
         self.start_clamd_button.clicked.connect(start_clamd)

@@ -1,0 +1,63 @@
+; MBRFilter.inf
+;
+
+[Version]
+Signature = "$Windows NT$"
+Class     = DiskDrive
+ClassGUID = {4d36e967-e325-11ce-bfc1-08002be10318}
+Provider  = %csco%
+DriverVer=09/21/2016,11.39.10.746
+CatalogFile=MBRFilter.cat
+
+;
+; General installation section
+;
+
+[DefaultInstall]
+CopyFiles = @MBRFilter.sys
+Addreg    = MBRFilter.AddReg
+
+[DefaultInstall.NT]
+CopyFiles = @MBRFilter.sys
+Addreg    = MBRFilter.AddReg
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[MBRFilter.AddReg]
+HKLM, System\CurrentControlSet\Control\Class\{4d36e967-e325-11ce-bfc1-08002be10318}, UpperFilters, 0x00010008, MBRFilter
+
+
+;
+; Service installation section
+;
+
+[DefaultInstall.Services]
+AddService = MBRFilter, , MBRFilter.Service.Install
+
+[DefaultInstall.NT.Services]
+AddService = MBRFilter, , MBRFilter.Service.Install
+
+[MBRFilter.Service.Install]
+DisplayName    = %service_desc%
+ServiceType    = 1
+StartType      = 0
+ErrorControl   = 1
+ServiceBinary  = %12%\MBRFilter.sys
+LoadOrderGroup = "PnP Filter"
+
+[SourceDisksFiles]
+MBRFilter.sys=1
+
+[SourceDisksNames]
+1 = %diskid1%,,,
+
+;
+; Localizable Strings
+;
+
+[Strings]
+
+csco         = "Cisco Talos"
+service_desc = "MBR write filter"
+diskid1      = "Cisco Talos MBR filter"
