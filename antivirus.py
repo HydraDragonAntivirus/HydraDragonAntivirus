@@ -326,18 +326,13 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
         print(f"An error occurred while scanning file {file_path}: {e}")
         return False, str(e)
     finally:
-        # Ensure the temporary file is closed and removed
+        # Ensure the temporary file is deleted
         if temp_file_name:
             try:
-                os.unlink(temp_file_name)
+                os.unlink(temp_file_name)  # Attempt to delete the temporary file
             except Exception as e:
-                print(f"Failed to delete temporary file {temp_file_name}: {e}")
-                # If the unlink fails, attempt to close the file explicitly
-                try:
-                    os.close(temp_file.fileno())
-                except Exception as e:
-                    print(f"Failed to close file {temp_file_name}: {e}")
-                    
+                print(f"Failed to delete temporary file {temp_file_name}: {e}")                               
+                
 def is_clamd_running():
     """Check if clamd is running."""
     if system_platform() in ['Linux', 'Darwin', 'FreeBSD']:
