@@ -25,7 +25,6 @@ from concurrent.futures import ThreadPoolExecutor
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from scapy.all import *
-import tempfile
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
 script_dir = os.getcwd()
@@ -300,22 +299,14 @@ def safe_remove(file_path):
 
 def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     """Scan a file for malicious activity"""
-    malware_definition = "Benign"  # Default
-    temp_file_name = None
-
     try:
-        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-            temp_file_name = temp_file.name  # Store the temporary file name
-            with open(file_path, 'rb') as original_file:
-                temp_file.write(original_file.read())
-
-        # Temporary file is closed now, perform the analysis
-        pe = pefile.PE(temp_file_name)
+        malware_definition = "Benign"  # Default
+        pe = pefile.PE(file_path)
         if not pe:
             return False, malware_definition
 
-        file_info = extract_infos(temp_file_name)
-        file_numeric_features = extract_numeric_features(temp_file_name)
+        file_info = extract_infos(file_path)
+        file_numeric_features = extract_numeric_features(file_path)
 
         is_malicious = False
         malware_rank = None
@@ -351,14 +342,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     except Exception as e:
         print(f"An error occurred while scanning file {file_path}: {e}")
         return False, str(e)
-    finally:
-        # Ensure the temporary file is deleted
-        if temp_file_name:
-            try:
-                os.unlink(temp_file_name)  # Attempt to delete the temporary file
-            except Exception as e:
-                print(f"Failed to delete temporary file {temp_file_name}: {e}")                               
-                
+
 def is_clamd_running():
     """Check if clamd is running."""
     if system_platform() in ['Linux', 'Darwin', 'FreeBSD']:
