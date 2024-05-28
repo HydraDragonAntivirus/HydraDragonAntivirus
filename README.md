@@ -1,6 +1,6 @@
 # XylentOptionalScanner
 <p align="center">
-<img src="assets/XylentMalwareScanner.png" width= 200px>
+<img src="assets/XylentMalwareScanner.png" width= 400px>
 </p>
 Cross-platform antivirus GUI for ClamAV, YARA and my machine learning AI module also Snort.
 Guide:
