@@ -307,6 +307,19 @@ def valid_signature_exists(file_path):
 
 def check_windows_signature(file_path):
     try:
+        # Construct the command to get the Authenticode signature status
+        command = f"(Get-AuthenticodeSignature '{file_path}').Status"
+        result = subprocess.run(["powershell.exe", "-Command", command], capture_output=True, text=True)
+        if "NotTrusted" in result.stdout or "HashMismatch" in result.stdout or "UnknownError" in result.stdout:
+            return False
+        else:
+            return True
+    except Exception as e:
+        logging.error(f"Error checking Windows signature: {e}")
+        return False
+
+def check_windows_signature(file_path):
+    try:
         command = f"Get-AuthenticodeSignature '{file_path}' | Format-List"
         result = subprocess.run(["powershell.exe", "-Command", command], capture_output=True, text=True)
         if "NotTrusted" in result.stdout and "HashMismatch" and "UnknownError" in result.stdout:
@@ -544,7 +557,7 @@ def scan_file_real_time(file_path):
     if system_platform() == "Windows":
         # Check for valid signature
         if preferences.get("check_valid_signature", False):
-            if valid_signature_exists(file_path):
+            if not valid_signature_exists(file_path):
                 logging.warning(f"Invalid signature detected: {file_path}")
                 return True, "Invalid Signature"
 
@@ -1307,7 +1320,7 @@ class AntivirusUI(QWidget):
         if system_platform() in ["Windows", "Linux", "Darwin"]:
             # Check for valid signature
             if preferences.get("check_valid_signature", False):
-                if valid_signature_exists(file_path):
+                if not valid_signature_exists(file_path):
                     logging.warning(f"Invalid signature detected: {file_path}")
                     result = "Invalid Signature"
                     virus_name = "Invalid Signature"
