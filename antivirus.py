@@ -194,7 +194,9 @@ def load_preferences():
             "use_yara": True,
             "real_time_protection": False,
             "real_time_web_protection": False,
-            "enable_hips": True
+            "enable_hips": True,
+            "check_valid_signature": False,  # Add new preference for valid signature
+            "check_microsoft_signature": False  # Add new preference for Microsoft signature
         }
         save_preferences(default_preferences)
         return default_preferences
@@ -263,6 +265,32 @@ def load_data():
         print(f"Error loading Domains from {DOMAINS_PATH}: {e}")
 
     print("Domain and IPv4 IPv6 signatures loaded successfully!")
+
+def hasMicrosoftSignature(path):
+    try:
+        command = f"Get-AuthenticodeSignature '{path}' | Format-List"
+        result = subprocess.run(["powershell.exe", "-Command", command], capture_output=True, text=True)
+        if "O=Microsoft Corporation" in result.stdout:
+            return True
+        else:
+            return False
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return False
+
+def valid_signature_exists(path):
+    try:
+        command = f"(Get-AuthenticodeSignature '{path}').Status"
+        result = subprocess.run(['powershell.exe', '-Command', command], capture_output=True, text=True)
+        
+        # Check if the status indicates a valid signature
+        if "Valid" in result.stdout:
+            return True
+        else:
+            return False
+    except Exception as e:
+        print(f"Error checking signature status: {e}")
+        return False
 
 # Add the setup MBRFilter button function
 def setup_mbrfilter():
@@ -459,6 +487,19 @@ def scan_file_real_time(file_path):
         return False, "FileNotFound"
 
     logging.info(f"Started scanning file: {file_path}")
+
+    if system_platform() == "Windows":
+        # Check for valid signature
+        if preferences.get("check_valid_signature", False):
+            if not valid_signature_exists(file_path):
+                logging.warning(f"Invalid signature detected: {file_path}")
+                return True, "Invalid Signature"
+
+        # Skip if Microsoft signature exists
+        if preferences.get("check_microsoft_signature", False):
+            if hasMicrosoftSignature(file_path):
+                logging.info(f"File signed by Microsoft, skipping: {file_path}")
+                return False, "Microsoft Signed"
 
     if preferences["use_clamav"]:
         result = scan_file_with_clamd(file_path)
@@ -1209,14 +1250,31 @@ class AntivirusUI(QWidget):
         
         result = ""
         virus_name = ""
-        
+
+        if system_platform() == "Windows":
+            # Check for valid signature
+            if preferences.get("check_valid_signature", False):
+                if not valid_signature_exists(file_path):
+                    logging.warning(f"Invalid signature detected: {file_path}")
+                    result = "Invalid Signature"
+                    virus_name = "Invalid Signature"
+                    item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {result}")
+                    item.setData(Qt.UserRole, file_path)
+                    return True, virus_name
+
+            # Skip if Microsoft signature exists
+            if preferences.get("check_microsoft_signature", False):
+                if hasMicrosoftSignature(file_path):
+                    logging.info(f"File signed by Microsoft, skipping: {file_path}")
+                    return False, ""
+
         if preferences["use_clamav"]:
             result = scan_file_with_clamd(file_path)
             if result == "Clean":
                 logging.info(f"File is clean (ClamAV): {file_path}")
                 return False, ""
             virus_name = result if result != "Clean" else ""
-        
+
         if preferences["use_yara"]:
             yara_result = self.yara_scanner.static_analysis(file_path)
             if yara_result == "Clean":
@@ -1228,7 +1286,7 @@ class AntivirusUI(QWidget):
             elif isinstance(yara_result, str):
                 result = yara_result
                 virus_name = yara_result
-        
+
         if preferences["use_machine_learning"]:
             is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path)
             if is_malicious:
@@ -1445,6 +1503,15 @@ class PreferencesDialog(QDialog):
         self.enable_hips_checkbox.stateChanged.connect(self.toggle_hips)
         layout.addWidget(self.enable_hips_checkbox)
 
+        if system_platform() == "Windows":
+            self.valid_signature_checkbox = QCheckBox("Check valid signature with PowerShell (Improve Detection)")
+            self.valid_signature_checkbox.setChecked(preferences.get("check_valid_signature", False))
+            layout.addWidget(self.valid_signature_checkbox)
+
+            self.microsoft_signature_checkbox = QCheckBox("Check Microsoft signature with PowerShell (Less F/P And Optimization)")
+            self.microsoft_signature_checkbox.setChecked(preferences.get("check_microsoft_signature", False))
+            layout.addWidget(self.microsoft_signature_checkbox)
+
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
@@ -1503,6 +1570,21 @@ class PreferencesDialog(QDialog):
         if snort_observer and snort_observer.is_started:
             snort_observer.stop()
             print("Snort is now disabled.")
+
+    def accept(self):
+        preferences["use_clamav"] = self.use_clamav_checkbox.isChecked()
+        preferences["use_yara"] = self.use_yara_checkbox.isChecked()
+        preferences["use_machine_learning"] = self.use_machine_learning_checkbox.isChecked()
+        preferences["real_time_protection"] = self.real_time_protection_checkbox.isChecked()
+        preferences["real_time_web_protection"] = self.real_time_web_protection_checkbox.isChecked()
+        preferences["enable_hips"] = self.enable_hips_checkbox.isChecked()
+        
+        if system_platform() == "Windows":
+            preferences["check_valid_signature"] = self.valid_signature_checkbox.isChecked()
+            preferences["check_microsoft_signature"] = self.microsoft_signature_checkbox.isChecked()
+
+        save_preferences(preferences)
+        super().accept()
 
 class QuarantineManager(QDialog):
     def __init__(self, parent=None):
