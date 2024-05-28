@@ -57,13 +57,13 @@ ip_addresses_signatures_data = {}
 ipv6_addresses_signatures_data = {}
 domains_signatures_data = {}
 # Get the root directory of the system drive based on the platform
-if system_platform() == "Windows":
+if system_platform() == 'Windows':
     system_drives = [drive.mountpoint for drive in psutil.disk_partitions()]
     if system_drives:
         folder_to_watch = system_drives
     else:
         folder_to_watch = os.path.expandvars("%systemdrive%")  # Default to %systemdrive% if no drives are detected
-elif system_platform() in ["Linux", "FreeBSD", "Darwin"]:
+elif system_platform() in ['Linux', 'FreeBSD', 'Darwin']:
     folder_to_watch = "/"     # Root directory on Linux, FreeBSD, and macOS
 else:
     folder_to_watch = "/"     # Default to root directory on other platforms
@@ -269,20 +269,20 @@ def load_data():
 
 def hasMicrosoftSignature(path):
     try:
-        if system_platform == "Windows":
+        if system_platform == 'Windows':
             command = f"Get-AuthenticodeSignature '{path}' | Format-List"
             result = subprocess.run(["powershell.exe", "-Command", command], capture_output=True, text=True)
             if "O=Microsoft Corporation" in result.stdout:
                 return True
             else:
                 return False
-        elif system_platform == "Darwin":  # macOS
+        elif system_platform == 'Darwin":  # macOS
             result = subprocess.run(["codesign", "-dvv", path], capture_output=True, text=True)
             if "Authority=Microsoft Corporation" in result.stdout:
                 return True
             else:
                 return False
-        elif system_platform == "Linux":
+        elif system_platform == 'Linux':
             result = subprocess.run(["osslsigncode", "verify", "-in", path], capture_output=True, text=True)
             if "Microsoft Corporation" in result.stdout:
                 return True
@@ -296,11 +296,11 @@ def hasMicrosoftSignature(path):
         return False
 
 def valid_signature_exists(file_path):    
-    if system_platform == "Windows":
+    if system_platform == 'Windows':
         return check_windows_signature(file_path)
-    elif system_platform == "Darwin":  # macOS
+    elif system_platform == 'Darwin':  # macOS
         return check_macos_signature(file_path)
-    elif system_platform == "Linux":
+    elif system_platform == 'Linux':
         return check_linux_signature(file_path)
     else:
         logging.error(f"Unsupported platform: {system_platform}")
@@ -456,11 +456,11 @@ def is_clamd_running():
 
 def start_clamd():
     """Start clamd service based on the platform."""
-    if system_platform() == "Windows":
+    if system_platform() == 'Windows':
         subprocess.run(["net", "start", "clamd"], shell=True)
-    elif system_platform() in ["Linux", "Darwin"]:
+    elif system_platform() in ['Linux', 'Darwin']:
         subprocess.run(["clamd"], shell=True)
-    elif system_platform() == "FreeBSD":
+    elif system_platform() == 'FreeBSD':
         subprocess.run(["service", "clamd", "start"])
     else:
         print("Unsupported platform for ClamAV")
@@ -555,7 +555,7 @@ def scan_file_real_time(file_path):
 
     logging.info(f"Started scanning file: {file_path}")
 
-    if system_platform() == "Windows":
+    if system_platform() == 'Windows':
         # Check for valid signature
         if preferences.get("check_valid_signature", False):
             if not valid_signature_exists(file_path):
@@ -727,17 +727,17 @@ class Firewall:
     @staticmethod
     def add_rule(rule):
         try:
-            if system_platform() == "Windows":
+            if system_platform() == 'Windows':
                 subprocess.run(["netsh", "advfirewall", "firewall", "add", "rule", "name", f"Block {rule.remote_address}", "dir", "in", "action", "block", "remoteip", rule.remote_address], check=True)
                 print(f"Blocking traffic from {rule.remote_address} using Windows Firewall")
-            elif system_platform() == "Darwin":
+            elif system_platform() == 'Darwin':
                 subprocess.run(["pfctl", "-e"], check=True)
                 subprocess.run(["pfctl", "-t", "blocklist", "-T", "add", rule.remote_address], check=True)
                 print(f"Blocking traffic from {rule.remote_address} using pfctl on macOS")
-            elif system_platform() == "Linux":
+            elif system_platform() == 'Linux':
                 subprocess.run(["nft", "add", "rule", "ip", "filter", "input", "ip", "saddr", rule.remote_address, "drop"], check=True)
                 print(f"Blocking traffic from {rule.remote_address} using nftables")
-            elif system_platform() == "FreeBSD":
+            elif system_platform() == 'FreeBSD':
                 subprocess.run(["ipfw", "add", "deny", "ip", "from", rule.remote_address], check=True)
                 print(f"Blocking traffic from {rule.remote_address} using ipfw on FreeBSD")
             else:
@@ -950,7 +950,7 @@ class RealTimeProtectionObserver:
             print("Observer stopped")
 
     def check_folder_to_watch(self):
-        if system_platform() == "Windows":
+        if system_platform() == 'Windows':
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
             if self.folder_to_watch not in disk_partitions:
                 print(f"Warning: {self.folder_to_watch} does not exist or is not accessible.")
@@ -976,13 +976,13 @@ class SnortObserver:
         device_number = 1
         while True:
             try:
-                if system_platform() == "Windows":
+                if system_platform() == 'Windows':
                     self.snort_process = subprocess.Popen(
                         ["snort", "-i", str(device_number), "-c", "C:\\Snort\\etc\\snort.conf"],
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE
                     )
-                elif system_platform() in ["Linux", "Darwin", "FreeBSD"]:
+                elif system_platform() in ['Linux', 'Darwin', 'FreeBSD']:
                     self.snort_process = subprocess.Popen(
                         ["sudo", "snort", "-i", str(device_number), "-c", "/etc/snort/snort.conf"],
                         stdout=subprocess.PIPE,
@@ -1207,7 +1207,7 @@ class AntivirusUI(QWidget):
         load_data()  # Call the load_data function to load website signatures
 
     def full_scan(self):
-        if system_platform() == "Windows":
+        if system_platform() == 'Windows':
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
             if len(disk_partitions) > 1:
                 # Initiate a full scan for each drive
@@ -1227,10 +1227,10 @@ class AntivirusUI(QWidget):
         threading.Thread(target=self.scan_directory, args=(folder_path,)).start()
 
     def get_uefi_folder(self):
-        if system_platform() == "Windows":
+        if system_platform() == 'Windows':
             return "X:\\"
         else:
-            return "/boot/efi" if system_platform() in ["Linux", "FreeBSD", "Darwin"] else "/boot/efi"
+            return "/boot/efi" if system_platform() in ['Linux', 'FreeBSD', 'Darwin'] else "/boot/efi"
     
     def scan_memory(self):
         def scan():
@@ -1318,7 +1318,7 @@ class AntivirusUI(QWidget):
         result = ""
         virus_name = ""
 
-        if system_platform() in ["Windows", "Linux", "Darwin"]:
+        if system_platform() in ['Windows', 'Linux', 'Darwin']:
             # Check for valid signature
             if preferences.get("check_valid_signature", False):
                 if not valid_signature_exists(file_path):
@@ -1570,7 +1570,7 @@ class PreferencesDialog(QDialog):
         self.enable_hips_checkbox.stateChanged.connect(self.toggle_hips)
         layout.addWidget(self.enable_hips_checkbox)
 
-        if system_platform() in ["Windows", "Linux", "Darwin"]:
+        if system_platform() in ['Windows', 'Linux', 'Darwin']:
             self.valid_signature_checkbox = QCheckBox("Check valid signature (Improve Detection)")
             self.valid_signature_checkbox.setChecked(preferences.get("check_valid_signature", False))
             layout.addWidget(self.valid_signature_checkbox)
@@ -1646,7 +1646,7 @@ class PreferencesDialog(QDialog):
         preferences["real_time_web_protection"] = self.real_time_web_protection_checkbox.isChecked()
         preferences["enable_hips"] = self.enable_hips_checkbox.isChecked()
         
-        if system_platform() in ["Windows", "Linux", "Darwin"]:
+        if system_platform() in ['Windows', 'Linux', 'Darwin']:
             preferences["check_valid_signature"] = self.valid_signature_checkbox.isChecked()
             preferences["check_microsoft_signature"] = self.microsoft_signature_checkbox.isChecked()
 
