@@ -276,7 +276,7 @@ def hasMicrosoftSignature(path):
                 return True
             else:
                 return False
-        elif system_platform == 'Darwin":  # macOS
+        elif system_platform == 'Darwin':  # macOS
             result = subprocess.run(["codesign", "-dvv", path], capture_output=True, text=True)
             if "Authority=Microsoft Corporation" in result.stdout:
                 return True
