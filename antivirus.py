@@ -471,27 +471,23 @@ def scan_file_with_clamd(file_path):
     if not is_clamd_running():
         start_clamd()  # Start clamd if it's not running
 
-    result = subprocess.run(["clamdscan", file_path], capture_output=True, text=True)
-    clamd_output = result.stdout.strip()  # Remove leading/trailing whitespace
-
+    result = subprocess.run(["clamdscan", file_path], capture_output=True)
+    clamd_output = result.stdout.decode('utf-8')  # Decode bytes to string
     print(f"Clamdscan output: {clamd_output}")
 
-    if "FOUND" in clamd_output:
+    if "ERROR" in clamd_output:
+        print(f"Clamdscan reported an error: {clamd_output}")
+        return "Clean"
+    elif "FOUND" in clamd_output:
         match = re.search(r": (.+) FOUND", clamd_output)
         if match:
             virus_name = match.group(1).strip()
-            if "UNOFFICIAL" in clamd_output:
-                return f"Infected: UNOFFICIAL {virus_name}", file_path
-            else:
-                return f"Infected: {virus_name}", file_path
-        else:
-            before_found = clamd_output.split("FOUND")[0]
-            return f"Infected: {before_found}FOUND", file_path  # Print output before "FOUND"
-    elif "OK" in clamd_output:
-        return "Clean", file_path
+            return virus_name
+    elif "OK" in clamd_output or "Infected files: 0" in clamd_output:
+        return "Clean"
     else:
         print(f"Unexpected clamdscan output: {clamd_output}")
-        return "Unknown", file_path  # Return unknown status if output doesn't match expected pattern
+        return "Clean"
 
 def kill_malicious_process(file_path):
     try:
