@@ -302,7 +302,7 @@ def valid_signature_exists(file_path):
     elif system_platform == "Linux":
         return check_linux_signature(file_path)
     else:
-        logging.error(f"Unsupported platform: {system}")
+        logging.error(f"Unsupported platform: {system_platform}")
         return False
 
 def check_windows_signature(file_path):
