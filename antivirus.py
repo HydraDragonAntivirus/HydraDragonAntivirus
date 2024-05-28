@@ -555,7 +555,7 @@ def scan_file_real_time(file_path):
 
     logging.info(f"Started scanning file: {file_path}")
 
-    if system_platform() == 'Windows':
+    if system_platform() in ['Windows', 'Linux', 'Darwin']:
         # Check for valid signature
         if preferences.get("check_valid_signature", False):
             if not valid_signature_exists(file_path):
