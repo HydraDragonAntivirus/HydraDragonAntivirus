@@ -305,29 +305,14 @@ def valid_signature_exists(file_path):
         logging.error(f"Unsupported platform: {system_platform}")
         return False
 
-def verifyExecutableSignature(path):
-    try:
-        cmd = f'"{path}"'
-        command = "(Get-AuthenticodeSignature" + cmd + ").Status"
-        process = subprocess.run(['Powershell', '-Command', command], stdout=subprocess.PIPE, encoding='utf-8')
-        
-        status = process.stdout.strip()
-        
-        if status in ["NotTrusted", "HashMismatch", "UnknownError"]:
-            return {'malware': status}
-        else:
-            return {'malware': None}
-    except Exception as e:
-        return {'malware': None}
-
 def check_windows_signature(file_path):
     try:
         command = f"Get-AuthenticodeSignature '{file_path}' | Format-List"
         result = subprocess.run(["powershell.exe", "-Command", command], capture_output=True, text=True)
-        if "SignerCertificate" in result.stdout and "Status : Valid" in result.stdout:
-            return True
-        else:
+        if "NotTrusted" in result.stdout and "HashMismatch" and "UnknownError" in result.stdout:
             return False
+        else:
+            return True
     except Exception as e:
         logging.error(f"Error checking Windows signature: {e}")
         return False
@@ -359,7 +344,7 @@ def check_linux_signature(file_path):
     except Exception as e:
         logging.error(f"Error checking Linux signature: {e}")
         return False
-        
+
 # Add the setup MBRFilter button function
 def setup_mbrfilter():
     if system_platform() != 'Windows':
