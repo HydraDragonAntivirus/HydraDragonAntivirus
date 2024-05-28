@@ -268,30 +268,80 @@ def load_data():
 
 def hasMicrosoftSignature(path):
     try:
-        command = f"Get-AuthenticodeSignature '{path}' | Format-List"
-        result = subprocess.run(["powershell.exe", "-Command", command], capture_output=True, text=True)
-        if "O=Microsoft Corporation" in result.stdout:
-            return True
+        system = platform.system()
+        if system == "Windows":
+            command = f"Get-AuthenticodeSignature '{path}' | Format-List"
+            result = subprocess.run(["powershell.exe", "-Command", command], capture_output=True, text=True)
+            if "O=Microsoft Corporation" in result.stdout:
+                return True
+            else:
+                return False
+        elif system == "Darwin":  # macOS
+            result = subprocess.run(["codesign", "-dvv", path], capture_output=True, text=True)
+            if "Authority=Microsoft Corporation" in result.stdout:
+                return True
+            else:
+                return False
+        elif system == "Linux":
+            result = subprocess.run(["osslsigncode", "verify", "-in", path], capture_output=True, text=True)
+            if "Microsoft Corporation" in result.stdout:
+                return True
+            else:
+                return False
         else:
+            print("Unsupported platform")
             return False
     except Exception as e:
         print(f"An error occurred: {e}")
         return False
 
-def valid_signature_exists(path):
+def valid_signature_exists(file_path):
+    system = platform.system()
+    
+    if system == "Windows":
+        return check_windows_signature(file_path)
+    elif system == "Darwin":  # macOS
+        return check_macos_signature(file_path)
+    elif system == "Linux":
+        return check_linux_signature(file_path)
+    else:
+        logging.error(f"Unsupported platform: {system}")
+        return False
+
+def check_windows_signature(file_path):
     try:
-        command = f"(Get-AuthenticodeSignature '{path}').Status"
-        result = subprocess.run(['powershell.exe', '-Command', command], capture_output=True, text=True)
-        
-        # Check if the status indicates a valid signature
-        if "Valid" in result.stdout:
+        command = f"Get-AuthenticodeSignature '{file_path}' | Format-List"
+        result = subprocess.run(["powershell.exe", "-Command", command], capture_output=True, text=True)
+        if "SignerCertificate" in result.stdout and "Status : Valid" in result.stdout:
             return True
         else:
             return False
     except Exception as e:
-        print(f"Error checking signature status: {e}")
+        logging.error(f"Error checking Windows signature: {e}")
         return False
 
+def check_macos_signature(file_path):
+    try:
+        result = subprocess.run(["codesign", "--verify", "--verbose=2", file_path], capture_output=True, text=True)
+        if "succeeded" in result.stdout:
+            return True
+        else:
+            return False
+    except Exception as e:
+        logging.error(f"Error checking macOS signature: {e}")
+        return False
+
+def check_linux_signature(file_path):
+    try:
+        result = subprocess.run(["osslsigncode", "verify", "-in", file_path], capture_output=True, text=True)
+        if "Signature verified successfully" in result.stdout:
+            return True
+        else:
+            return False
+    except Exception as e:
+        logging.error(f"Error checking Linux signature: {e}")
+        return False
+        
 # Add the setup MBRFilter button function
 def setup_mbrfilter():
     if system_platform() != 'Windows':
@@ -1251,7 +1301,7 @@ class AntivirusUI(QWidget):
         result = ""
         virus_name = ""
 
-        if system_platform() == "Windows":
+        if system_platform() in ["Windows", "Linux", "Darwin"]:
             # Check for valid signature
             if preferences.get("check_valid_signature", False):
                 if not valid_signature_exists(file_path):
@@ -1503,7 +1553,7 @@ class PreferencesDialog(QDialog):
         self.enable_hips_checkbox.stateChanged.connect(self.toggle_hips)
         layout.addWidget(self.enable_hips_checkbox)
 
-        if system_platform() == "Windows":
+        if system_platform() in ["Windows", "Linux", "Darwin"]:
             self.valid_signature_checkbox = QCheckBox("Check valid signature with PowerShell (Improve Detection)")
             self.valid_signature_checkbox.setChecked(preferences.get("check_valid_signature", False))
             layout.addWidget(self.valid_signature_checkbox)
@@ -1579,7 +1629,7 @@ class PreferencesDialog(QDialog):
         preferences["real_time_web_protection"] = self.real_time_web_protection_checkbox.isChecked()
         preferences["enable_hips"] = self.enable_hips_checkbox.isChecked()
         
-        if system_platform() == "Windows":
+        if system_platform() in ["Windows", "Linux", "Darwin"]:
             preferences["check_valid_signature"] = self.valid_signature_checkbox.isChecked()
             preferences["check_microsoft_signature"] = self.microsoft_signature_checkbox.isChecked()
 
