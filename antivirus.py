@@ -544,7 +544,7 @@ def scan_file_real_time(file_path):
     if system_platform() == "Windows":
         # Check for valid signature
         if preferences.get("check_valid_signature", False):
-            if not valid_signature_exists(file_path):
+            if valid_signature_exists(file_path):
                 logging.warning(f"Invalid signature detected: {file_path}")
                 return True, "Invalid Signature"
 
@@ -1307,7 +1307,7 @@ class AntivirusUI(QWidget):
         if system_platform() in ["Windows", "Linux", "Darwin"]:
             # Check for valid signature
             if preferences.get("check_valid_signature", False):
-                if not valid_signature_exists(file_path):
+                if valid_signature_exists(file_path):
                     logging.warning(f"Invalid signature detected: {file_path}")
                     result = "Invalid Signature"
                     virus_name = "Invalid Signature"
