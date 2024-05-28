@@ -1,4 +1,7 @@
 # XylentOptionalScanner
+<p align="center">
+<img src="assets/XylentMalwareScanner.png" width= 200px>
+</p>
 Cross-platform antivirus GUI for ClamAV, YARA and my machine learning AI module also Snort.
 Guide:
 Please install ClamAV based on your platform and enter database directory and please run clamd
