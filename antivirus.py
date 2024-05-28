@@ -1554,11 +1554,11 @@ class PreferencesDialog(QDialog):
         layout.addWidget(self.enable_hips_checkbox)
 
         if system_platform() in ["Windows", "Linux", "Darwin"]:
-            self.valid_signature_checkbox = QCheckBox("Check valid signature with PowerShell (Improve Detection)")
+            self.valid_signature_checkbox = QCheckBox("Check valid signature (Improve Detection)")
             self.valid_signature_checkbox.setChecked(preferences.get("check_valid_signature", False))
             layout.addWidget(self.valid_signature_checkbox)
 
-            self.microsoft_signature_checkbox = QCheckBox("Check Microsoft signature with PowerShell (Less F/P And Optimization)")
+            self.microsoft_signature_checkbox = QCheckBox("Check Microsoft signature (Less F/P And Optimization)")
             self.microsoft_signature_checkbox.setChecked(preferences.get("check_microsoft_signature", False))
             layout.addWidget(self.microsoft_signature_checkbox)
 
