@@ -298,13 +298,18 @@ def safe_remove(file_path):
         print(f"Error deleting file {file_path}: {e}")
 
 def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
-    """Scan a file for malicious activity"""
+    """Scan a file for malicious activity using machine learning."""
     try:
-        malware_definition = "Benign"  # Default
-        pe = pefile.PE(file_path)
-        if not pe:
+        # Initialize default response
+        malware_definition = "Benign"
+        
+        # Load PE file
+        try:
+            pe = pefile.PE(file_path)
+        except pefile.PEFormatError:
             return False, malware_definition
 
+        # Extract features
         file_info = extract_infos(file_path)
         file_numeric_features = extract_numeric_features(file_path)
 
@@ -313,6 +318,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
         nearest_malicious_similarity = 0
         nearest_benign_similarity = 0
 
+        # Compare with malicious features
         for malicious_features, info in zip(malicious_numeric_features, malicious_file_names):
             rank = info['numeric_tag']
             similarity = calculate_similarity(file_numeric_features, malicious_features)
@@ -324,11 +330,13 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
                 malware_definition = info['file_name']
                 break
 
+        # Compare with benign features
         for benign_features in benign_numeric_features:
             similarity = calculate_similarity(file_numeric_features, benign_features)
             if similarity > nearest_benign_similarity:
                 nearest_benign_similarity = similarity
 
+        # Determine final verdict
         if is_malicious:
             if nearest_benign_similarity >= 0.9:
                 return False, malware_definition
@@ -337,8 +345,6 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
         else:
             return False, malware_definition
 
-    except pefile.PEFormatError:
-        return False, malware_definition
     except Exception as e:
         print(f"An error occurred while scanning file {file_path}: {e}")
         return False, str(e)
@@ -1176,16 +1182,30 @@ class AntivirusUI(QWidget):
         if folder_path:
             threading.Thread(target=self.scan_directory, args=(folder_path,)).start()
 
+
     def scan_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select File to Scan")
         if file_path:
-            # Scan the file path in a separate thread and handle the result
-            is_infected, virus_name = self.scan_file_path(file_path)
+            # Start a new thread to scan the file
+            scan_thread = threading.Thread(target=self.scan_file_in_thread, args=(file_path,))
+            scan_thread.start()
+
+    def scan_file_in_thread(self, file_path):
+        # Scan the file path and handle the result
+        is_infected, virus_name = self.scan_file_path(file_path)
+        self.handle_scan_result(file_path, is_infected, virus_name)
+
+    def handle_scan_result(self, file_path, is_infected, virus_name):
+        # This function updates the GUI, so it needs to be run in the main thread
+        def update_gui():
             if is_infected:
                 # If the file is infected, add it to the detected list
                 item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
                 item.setData(Qt.UserRole, file_path)
                 self.detected_list.addItem(item)
+        
+        # Use Qt's method to ensure the GUI update happens in the main thread
+        self.detected_list.window().invokeMethod(self, update_gui)
 
     def scan_file_path(self, file_path):
         self.pause_event.wait()  # Wait if the scan is paused
