@@ -3,7 +3,8 @@ import os
 import shutil
 import subprocess
 import threading
-from platform import system as system_platform, architecture
+from platform import system as system_platform
+from platform import architecture
 import re
 import json
 from PySide6.QtWidgets import (
