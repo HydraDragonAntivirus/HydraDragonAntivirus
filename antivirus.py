@@ -305,6 +305,21 @@ def valid_signature_exists(file_path):
         logging.error(f"Unsupported platform: {system_platform}")
         return False
 
+def verifyExecutableSignature(path):
+    try:
+        cmd = f'"{path}"'
+        command = "(Get-AuthenticodeSignature" + cmd + ").Status"
+        process = subprocess.run(['Powershell', '-Command', command], stdout=subprocess.PIPE, encoding='utf-8')
+        
+        status = process.stdout.strip()
+        
+        if status in ["NotTrusted", "HashMismatch", "UnknownError"]:
+            return {'malware': status}
+        else:
+            return {'malware': None}
+    except Exception as e:
+        return {'malware': None}
+
 def check_windows_signature(file_path):
     try:
         command = f"Get-AuthenticodeSignature '{file_path}' | Format-List"
@@ -322,6 +337,9 @@ def check_macos_signature(file_path):
         result = subprocess.run(["codesign", "--verify", "--verbose=2", file_path], capture_output=True, text=True)
         if "succeeded" in result.stdout:
             return True
+        elif "code object is not signed at all" in result.stdout:
+            # If there's no signature, don't flag as malware
+            return True
         else:
             return False
     except Exception as e:
@@ -332,6 +350,9 @@ def check_linux_signature(file_path):
     try:
         result = subprocess.run(["osslsigncode", "verify", "-in", file_path], capture_output=True, text=True)
         if "Signature verified successfully" in result.stdout:
+            return True
+        elif "no signature found" in result.stdout:
+            # If there's no signature, don't flag as malware
             return True
         else:
             return False
