@@ -1182,30 +1182,25 @@ class AntivirusUI(QWidget):
         if folder_path:
             threading.Thread(target=self.scan_directory, args=(folder_path,)).start()
 
-
     def scan_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select File to Scan")
         if file_path:
-            # Start a new thread to scan the file
-            scan_thread = threading.Thread(target=self.scan_file_in_thread, args=(file_path,))
-            scan_thread.start()
+            # Create a new thread to scan the file
+            thread = threading.Thread(target=self.scan_file_thread, args=(file_path,))
+            thread.start()
 
-    def scan_file_in_thread(self, file_path):
-        # Scan the file path and handle the result
+    def scan_file_thread(self, file_path):
+        # Scan the file path in a separate thread and handle the result
         is_infected, virus_name = self.scan_file_path(file_path)
-        self.handle_scan_result(file_path, is_infected, virus_name)
+        if is_infected:
+            # If the file is infected, add it to the detected list
+            self.handle_infected_file(file_path, virus_name)
 
-    def handle_scan_result(self, file_path, is_infected, virus_name):
-        # This function updates the GUI, so it needs to be run in the main thread
-        def update_gui():
-            if is_infected:
-                # If the file is infected, add it to the detected list
-                item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
-                item.setData(Qt.UserRole, file_path)
-                self.detected_list.addItem(item)
-        
-        # Use Qt's method to ensure the GUI update happens in the main thread
-        self.detected_list.window().invokeMethod(self, update_gui)
+    def handle_infected_file(self, file_path, virus_name):
+        # Add the infected file to the detected list
+        item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
+        item.setData(Qt.UserRole, file_path)
+        self.detected_list.addItem(item)
 
     def scan_file_path(self, file_path):
         self.pause_event.wait()  # Wait if the scan is paused
