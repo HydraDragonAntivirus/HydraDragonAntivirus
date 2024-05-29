@@ -1297,8 +1297,7 @@ class ScanManager(QDialog):
         
         # Show the currently scanned file
         self.current_file_label.setText(f"Currently Scanning: {file_path}")
-        
-        result = ""
+
         virus_name = ""
 
         if system_platform() in ['Windows', 'Linux', 'Darwin']:
@@ -1306,9 +1305,8 @@ class ScanManager(QDialog):
             if preferences.get("check_valid_signature", False):
                 if not valid_signature_exists(file_path):
                     logging.warning(f"Invalid signature detected: {file_path}")
-                    result = "Invalid Signature"
                     virus_name = "Invalid Signature"
-                    item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {result}")
+                    item = QListWidgetItem(f"Scanned file: {file_path} - Virus: Invalid Signature")
                     item.setData(Qt.UserRole, file_path)
                     return True, virus_name
 
@@ -1319,33 +1317,27 @@ class ScanManager(QDialog):
                     return False, ""
 
         if preferences["use_clamav"]:
-            result = scan_file_with_clamd(file_path)
-            if result == "Clean":
-                logging.info(f"File is clean (ClamAV): {file_path}")
-                return False, ""
-            virus_name = result if result != "Clean" else ""
+            virus_name = scan_file_with_clamd(file_path)
+            if virus_name != "Clean":
+                logging.info(f"File is infected (ClamAV): {file_path}")
+                return True, virus_name
 
         if preferences["use_yara"]:
             yara_result = self.yara_scanner.static_analysis(file_path)
-            if yara_result == "Clean":
-                logging.info(f"File is clean (Yara): {file_path}")
-                return False, ""
-            if yara_result and isinstance(yara_result, list):
-                result = ', '.join(yara_result)
-                virus_name = result
-            elif isinstance(yara_result, str):
-                result = yara_result
-                virus_name = yara_result
+            if yara_result != "Clean":
+                if isinstance(yara_result, list):
+                    virus_name = ', '.join(yara_result)
+                elif isinstance(yara_result, str):
+                    virus_name = yara_result
 
         if preferences["use_machine_learning"]:
             is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path)
             if is_malicious:
-                result = malware_definition
                 virus_name = malware_definition
 
-        if result:
+        if virus_name:
             logging.warning(f"Infected file detected: {file_path} - Virus: {virus_name}")
-            item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {result}")
+            item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
             item.setData(Qt.UserRole, file_path)
             self.detected_list.addItem(item)
             self.total_scanned += 1
