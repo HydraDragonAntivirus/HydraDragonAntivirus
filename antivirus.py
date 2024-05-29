@@ -577,7 +577,7 @@ def scan_file_real_time(file_path):
 
     if preferences["use_yara"]:
         try:
-            yara_result = AntivirusUI().yara_scanner.static_analysis(file_path)
+            yara_result = YaraScanner.yara_scanner.static_analysis(file_path)
             if yara_result and yara_result != "Clean" and yara_result != "":
                 logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
                 return True, yara_result
@@ -1318,7 +1318,7 @@ class ScanManager(QDialog):
                 return True, virus_name
 
         if preferences["use_yara"]:
-            yara_result = self.yara_scanner.static_analysis(file_path)
+            yara_result = yara_scanner.static_analysis(file_path)
             if yara_result != "Clean":
                 if isinstance(yara_result, list):
                     virus_name = ', '.join(yara_result)
