@@ -1460,7 +1460,6 @@ class ScanManager(QDialog):
             file_path = item.data(Qt.UserRole)
             virus_name = item.text().split("-")[-1].strip()
             quarantine_file(file_path, virus_name)
-        self.detected_list.clear()
 
     def skip_selected(self):
         selected_items = self.detected_list.selectedItems()
