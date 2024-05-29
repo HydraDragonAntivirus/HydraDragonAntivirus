@@ -971,11 +971,14 @@ class SnortObserver:
         self.thread = None
         self.snort_process = None
 
+    def system_platform(self):
+        return platform.system()
+
     def start_sniffing(self):
-        device_number = 1
-        while True:
+        max_device_number = 20
+        for device_number in range(1, max_device_number + 1):
             try:
-                if system_platform() == 'Windows':
+                if self.system_platform() == 'Windows':
                     snort_config_path = "C:\\Snort\\etc\\snort.conf"
                 else:
                     snort_config_path = "/etc/snort/snort.conf"
@@ -1016,19 +1019,14 @@ class SnortObserver:
                 if self.snort_process.returncode != 0:
                     logging.info(f"Device number {device_number} is invalid or another error occurred.")
                     print(f"Device number {device_number} is invalid or another error occurred.")
+                    continue
+                else:
+                    logging.info(f"Snort started on device number {device_number}.")
+                    print(f"Snort started on device number {device_number}.")
                     break
-
-                logging.info(f"Snort started on device number {device_number}.")
-                print(f"Snort started on device number {device_number}.")
-                break
-            else:
-                logging.info(f"Device number {device_number} is invalid.")
-                print(f"Device number {device_number} is invalid.")
-                device_number += 1     
             except Exception as e:
                 logging.error(f"Failed to start Snort on device {device_number}: {e}")
                 print(f"Failed to start Snort on device {device_number}: {e}")
-                break
 
     def start(self):
         if not self.is_started:
@@ -1045,7 +1043,7 @@ class SnortObserver:
             self.is_started = False
             logging.info("Snort has been stopped.")
             print("Snort has been stopped.")
-
+            
 # Create the real-time observer with the system drive as the monitored directory
 real_time_observer = RealTimeProtectionObserver(folder_to_watch)
 real_time_web_observer = RealTimeWebProtectionObserver()
@@ -1514,7 +1512,7 @@ class AntivirusUI(QWidget):
     memory_scan_finished = Signal()
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Xylent Optional Scanner Antivirus Cross Platform Interface")
+        self.setWindowTitle("Hydra Dragon Antivirus")
         self.stacked_widget = QStackedWidget()
         self.main_widget = QWidget()
         self.setup_main_ui()
