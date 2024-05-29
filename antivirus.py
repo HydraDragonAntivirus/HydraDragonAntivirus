@@ -1236,19 +1236,15 @@ class ScanManager(QDialog):
             self.scan_file_path(self.path)
 
     def start_scan(self, path, is_directory):
-        self.reset_scan()
-        worker = ScanWorker(path, is_directory)
-        thread = QThread()
-
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        worker.finished.connect(thread.quit)
-        worker.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-
-        worker.progress.connect(self.handle_progress)
-
-        thread.start()
+        self.path = path
+        self.is_directory = is_directory
+        self.thread = QThread()
+        self.moveToThread(self.thread)
+        self.thread.started.connect(self.run)
+        self.thread.finished.connect(self.thread.deleteLater)
+        self.folder_scan_finished.connect(self.thread.quit)
+        self.memory_scan_finished.connect(self.thread.quit)
+        self.thread.start()
 
     def scan_directory(self, directory):
         detected_threats = []
