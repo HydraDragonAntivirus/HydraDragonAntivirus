@@ -1231,16 +1231,27 @@ class ScanManager(QDialog):
                 print(f"Error while iterating over processes: {e}")
 
             # Send detected memory file paths for scanning
-            for file_path in detected_files:
-                self.scan_file_path(file_path)
+            with ThreadPoolExecutor(max_workers=1000) as executor:
+                for file_path in detected_files:
+                    executor.submit(self.scan_file_path, file_path)
 
             # Emit the signal when the memory scan is finished
             self.memory_scan_finished.emit()
 
-        scan_thread = threading.Thread(target=scan)
-        scan_thread.start()
+        # Start the scan in a separate thread
+        threading.Thread(target=scan).start()
 
-    def full_scan(self):
+  def full_scan(self):
+        with ThreadPoolExecutor(max_workers=1000) as executor:
+            if self.system_platform() == 'Windows':
+                disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
+                if len(disk_partitions) > 1:
+                    # Initiate a full scan for each drive
+                    futures = [executor.submit(self.scan_directory, drive) for drive in disk_partitions]
+                else:
+                    futures = [executor.submit(self.scan_directory, self.folder_to_watch)]
+            else:
+                futures = [executor.submit(self.scan_directory, self.folder_to_watch)]
         self.reset_scan()
         if system_platform() == 'Windows':
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
