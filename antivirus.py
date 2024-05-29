@@ -976,35 +976,25 @@ class SnortObserver:
         while True:
             try:
                 if system_platform() == 'Windows':
-                    self.snort_process = subprocess.Popen(
-                        ["snort", "-i", str(device_number), "-c", "C:\\Snort\\etc\\snort.conf"],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE
-                    )
-                elif system_platform() in ['Linux', 'Darwin', 'FreeBSD']:
-                    self.snort_process = subprocess.Popen(
-                        ["sudo", "snort", "-i", str(device_number), "-c", "/etc/snort/snort.conf"],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE
-                    )
-                
+                    snort_config_path = "C:\\Snort\\etc\\snort.conf"
+                else:
+                    snort_config_path = "/etc/snort/snort.conf"
+                    
+                self.snort_process = subprocess.Popen(
+                    ["snort", "-i", str(device_number), "-c", snort_config_path],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+
                 # Function to read and print stdout in real-time
                 def read_stdout(pipe):
-                    while True:
-                        output = pipe.readline()
-                        if output == b'' and self.snort_process.poll() is not None:
-                            break
-                        if output:
-                            print(output.decode('utf-8').strip())
+                    for output in iter(pipe.readline, b''):
+                        print(output.decode('utf-8').strip())
 
                 # Function to read and print stderr in real-time
                 def read_stderr(pipe):
-                    while True:
-                        error = pipe.readline()
-                        if error == b'' and self.snort_process.poll() is not None:
-                            break
-                        if error:
-                            print(error.decode('utf-8').strip())
+                    for error in iter(pipe.readline, b''):
+                        print(error.decode('utf-8').strip())
 
                 # Create and start threads for stdout and stderr
                 stdout_thread = threading.Thread(target=read_stdout, args=(self.snort_process.stdout,))
@@ -1016,9 +1006,10 @@ class SnortObserver:
                 stdout_thread.join()
                 stderr_thread.join()
 
-                # Check if there was an error related to invalid device number
+                # Check if there was an error related to an invalid device number
                 if self.snort_process.returncode != 0:
                     logging.info(f"Device number {device_number} is invalid or another error occurred. Trying next device...")
+                    print(f"Device number {device_number} is invalid or another error occurred. Trying next device...")
                     device_number += 1
                     continue
 
@@ -1029,7 +1020,7 @@ class SnortObserver:
                 logging.error(f"Failed to start Snort on device {device_number}: {e}")
                 print(f"Failed to start Snort on device {device_number}: {e}")
                 device_number += 1
-
+                
     def start(self):
         if not self.is_started:
             self.thread = threading.Thread(target=self.start_sniffing)
