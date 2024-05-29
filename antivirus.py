@@ -1192,11 +1192,6 @@ class ScanManager(QDialog):
         self.detected_list.clear()
         self.current_file_label.setText("Currently Scanning:")
 
-    def update_scan_labels(self):
-        self.scanned_files_label.setText(f"Total Scanned Files: {self.total_scanned}")
-        self.infected_files_label.setText(f"Infected Files: {self.infected_files}")
-        self.clean_files_label.setText(f"Clean Files: {self.clean_files}")
-
     def full_scan(self):
         if system_platform() == 'Windows':
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
@@ -1350,6 +1345,11 @@ class ScanManager(QDialog):
             self.clean_files += 1
             self.update_scan_labels()
             return False, ""
+
+    def update_scan_labels(self):
+        self.scanned_files_label.setText(f"Total Scanned Files: {self.total_scanned}")
+        self.infected_files_label.setText(f"Infected Files: {self.infected_files}")
+        self.clean_files_label.setText(f"Clean Files: {self.clean_files}")
 
     def scan_file_in_thread(self, file_path):
         try:
