@@ -1016,11 +1016,9 @@ class SnortObserver:
                 if self.snort_process.returncode != 0:
                     logging.info(f"Device number {device_number} is invalid or another error occurred.")
                     print(f"Device number {device_number} is invalid or another error occurred.")
-                    continue
                 else:
                     logging.info(f"Snort started on device number {device_number}.")
                     print(f"Snort started on device number {device_number}.")
-                    break
             except Exception as e:
                 logging.error(f"Failed to start Snort on device {device_number}: {e}")
                 print(f"Failed to start Snort on device {device_number}: {e}")
