@@ -9,7 +9,7 @@ Cross-platform antivirus GUI for ClamAV, YARA and my machine learning AI module 
 Guide:
 Please install ClamAV based on your platform and enter database directory and please run clamd
 Please copy the database folder signatures into your ClamAV database folder and copy freshclam.conf into your ClamAV config folder.
-Also do the update definitions yourself, it's just a cross-platform interface for ClamAV and Xylent.
+Also do the update definitions yourself, it's just a cross-platform interface for ClamAV and Hydra Dragon Antivirus.
 Don't forget to install the modules via pip with requriements.txt and don't forget to compile the python script yourself.
 Please don't use hash signatures as they are easily bypassed and take up too much space.
 Also, don't forget to add ClamAV's clamdscan to the console so that the program can be run with just the clamdscan command on Windows, Linux, MacOS, FreeBSD, etc.
