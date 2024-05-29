@@ -1080,101 +1080,67 @@ class YaraScanner:
 
     def static_analysis(self, file_path):
         return self.scan_data(file_path)
-        
-class AntivirusUI(QWidget):
+
+class ScanManager(QDialog):
     folder_scan_finished = Signal()
     # Define a new signal for memory scan finished
     memory_scan_finished = Signal()
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Xylent Optional Scanner Antivirus Cross Platform Interface")
-        self.stacked_widget = QStackedWidget()
-        self.main_widget = QWidget()
-        self.setup_main_ui()
-        self.stacked_widget.addWidget(self.main_widget)
-        main_layout = QVBoxLayout()
-        main_layout.addWidget(self.stacked_widget)
-        self.setLayout(main_layout)
-        self.yara_scanner = YaraScanner()
-        # Define pause_event and stop_event attributes
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Scan Manager")
+        self.setup_ui()
         self.pause_event = threading.Event()
         self.stop_event = threading.Event()
+        self.pause_event.set()
 
-    def setup_main_ui(self):
-        layout = QVBoxLayout()
-
-        # Add the setup MBRFilter button only if on Windows
-        if system_platform() == 'Windows':
-            self.mbrfilter_button = QPushButton('Setup MBRFilter')
-            self.mbrfilter_button.clicked.connect(setup_mbrfilter)
-            layout.addWidget(self.mbrfilter_button)
-
-        self.start_clamd_button = QPushButton("Start ClamAV")
-        self.start_clamd_button.clicked.connect(start_clamd)
-        layout.addWidget(self.start_clamd_button)
-
-        self.load_website_signatures_button = QPushButton("Load Website Signatures")
-        self.load_website_signatures_button.clicked.connect(self.load_website_signatures)
-        layout.addWidget(self.load_website_signatures_button)
+    def setup_ui(self):
+        main_layout = QVBoxLayout()
 
         self.pause_button = QPushButton("Pause Scan", self)
         self.pause_button.clicked.connect(self.pause_scanning)
-        layout.addWidget(self.pause_button)
+        main_layout.addWidget(self.pause_button)
 
         self.stop_button = QPushButton("Stop Scan", self)
         self.stop_button.clicked.connect(self.stop_scanning)
-        layout.addWidget(self.stop_button)
+        main_layout.addWidget(self.stop_button)
 
-        self.resume_button = QPushButton("Resume Scan Or Enable Scan", self)
+        self.resume_button = QPushButton("Resume Scan", self)
         self.resume_button.clicked.connect(self.resume_scanning)
-        layout.addWidget(self.resume_button)
+        main_layout.addWidget(self.resume_button)
 
-        # Quick Scan button
         self.quick_scan_button = QPushButton("Quick Scan")
         self.quick_scan_button.clicked.connect(self.quick_scan)
-        layout.addWidget(self.quick_scan_button)
-        
-        # Full Scan button
+        main_layout.addWidget(self.quick_scan_button)
+
         self.full_scan_button = QPushButton("Full Scan")
         self.full_scan_button.clicked.connect(self.full_scan)
-        layout.addWidget(self.full_scan_button)
+        main_layout.addWidget(self.full_scan_button)
 
-        # UEFI Scan button
         self.uefi_scan_button = QPushButton("UEFI Scan")
         self.uefi_scan_button.clicked.connect(self.uefi_scan)
-        layout.addWidget(self.uefi_scan_button)
+        main_layout.addWidget(self.uefi_scan_button)
 
-        self.scan_button = QPushButton("Scan Folder")
-        self.scan_button.clicked.connect(self.scan_folder)
-        layout.addWidget(self.scan_button)
+        self.scan_folder_button = QPushButton("Scan Folder")
+        self.scan_folder_button.clicked.connect(self.scan_folder)
+        main_layout.addWidget(self.scan_folder_button)
 
         self.scan_file_button = QPushButton("Scan File")
         self.scan_file_button.clicked.connect(self.scan_file)
-        layout.addWidget(self.scan_file_button)
+        main_layout.addWidget(self.scan_file_button)
 
         self.scan_memory_button = QPushButton("Scan Memory")
         self.scan_memory_button.clicked.connect(self.scan_memory)
-        layout.addWidget(self.scan_memory_button)
-
-        self.preferences_button = QPushButton("Preferences")
-        self.preferences_button.clicked.connect(self.show_preferences)
-        layout.addWidget(self.preferences_button)
-
-        self.quarantine_button = QPushButton("Quarantine Manager")
-        self.quarantine_button.clicked.connect(self.manage_quarantine)
-        layout.addWidget(self.quarantine_button)
-
-        self.update_definitions_button = QPushButton("Update Definitions")
-        self.update_definitions_button.clicked.connect(self.update_definitions)
-        layout.addWidget(self.update_definitions_button)
+        main_layout.addWidget(self.scan_memory_button)
 
         self.detected_list_label = QLabel("Detected Threats:")
-        layout.addWidget(self.detected_list_label)
+        main_layout.addWidget(self.detected_list_label)
 
         self.detected_list = QListWidget()
-        layout.addWidget(self.detected_list)
+        main_layout.addWidget(self.detected_list)
 
         self.action_button_layout = QHBoxLayout()
+
         self.quarantine_button = QPushButton("Quarantine")
         self.quarantine_button.clicked.connect(self.quarantine_selected)
         self.action_button_layout.addWidget(self.quarantine_button)
@@ -1186,6 +1152,7 @@ class AntivirusUI(QWidget):
         self.delete_button = QPushButton("Delete")
         self.delete_button.clicked.connect(self.delete_selected)
         self.action_button_layout.addWidget(self.delete_button)
+
         self.action_combobox = QComboBox()
         self.action_combobox.addItems(["Quarantine All", "Delete All", "Skip All"])
         self.action_button_layout.addWidget(self.action_combobox)
@@ -1198,12 +1165,8 @@ class AntivirusUI(QWidget):
         self.kill_button.clicked.connect(self.kill_all_malicious_processes)
         self.action_button_layout.addWidget(self.kill_button)
 
-        layout.addLayout(self.action_button_layout)
-
-        self.setLayout(layout)
-
-    def load_website_signatures(self):
-        load_data()  # Call the load_data function to load website signatures
+        main_layout.addLayout(self.action_button_layout)
+        self.setLayout(main_layout)
 
     def full_scan(self):
         if system_platform() == 'Windows':
@@ -1514,6 +1477,67 @@ class AntivirusUI(QWidget):
             except psutil.AccessDenied:
                 print(f"Access denied when trying to kill process: {proc.info['pid']} ({proc.info['name']})")
 
+class AntivirusUI(QWidget):
+    folder_scan_finished = Signal()
+    # Define a new signal for memory scan finished
+    memory_scan_finished = Signal()
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Xylent Optional Scanner Antivirus Cross Platform Interface")
+        self.stacked_widget = QStackedWidget()
+        self.main_widget = QWidget()
+        self.setup_main_ui()
+        self.stacked_widget.addWidget(self.main_widget)
+        main_layout = QVBoxLayout()
+        main_layout.addWidget(self.stacked_widget)
+        self.setLayout(main_layout)
+        self.yara_scanner = YaraScanner()
+        # Define pause_event and stop_event attributes
+        self.pause_event = threading.Event()
+        self.stop_event = threading.Event()
+
+    def setup_main_ui(self):
+        layout = QVBoxLayout()
+
+        # Add the setup MBRFilter button only if on Windows
+        if system_platform() == 'Windows':
+            self.mbrfilter_button = QPushButton('Setup MBRFilter')
+            self.mbrfilter_button.clicked.connect(setup_mbrfilter)
+            layout.addWidget(self.mbrfilter_button)
+
+        self.start_clamd_button = QPushButton("Start ClamAV")
+        self.start_clamd_button.clicked.connect(start_clamd)
+        layout.addWidget(self.start_clamd_button)
+
+        self.load_website_signatures_button = QPushButton("Load Website Signatures")
+        self.load_website_signatures_button.clicked.connect(self.load_website_signatures)
+        layout.addWidget(self.load_website_signatures_button)
+        
+        self.preferences_button = QPushButton("Preferences")
+        self.preferences_button.clicked.connect(self.show_preferences)
+        layout.addWidget(self.preferences_button)
+
+        self.scan_manager_button = QPushButton("Scan Manager")  # Add Scan Manager button
+        self.scan_manager_button.clicked.connect(self.show_scan_manager)
+        layout.addWidget(self.scan_manager_button)
+
+        self.quarantine_button = QPushButton("Quarantine Manager")
+        self.quarantine_button.clicked.connect(self.manage_quarantine)
+        layout.addWidget(self.quarantine_button)
+
+        self.update_definitions_button = QPushButton("Update Definitions")
+        self.update_definitions_button.clicked.connect(self.update_definitions)
+        layout.addWidget(self.update_definitions_button)
+
+        self.setLayout(layout)
+
+    def load_website_signatures(self):
+        load_data()  # Call the load_data function to load website signatures
+
+    def show_scan_manager(self):
+        scan_manager = ScanManager(self)
+        scan_manager.show()
+
     def show_preferences(self):
         preferences_dialog = PreferencesDialog(self)
         if preferences_dialog.show() == QDialog.Accepted:
@@ -1750,8 +1774,11 @@ if __name__ == "__main__":
         snort_preferences_thread.start()
         app = QApplication(sys.argv)
         main_gui = AntivirusUI()
-        main_gui.folder_scan_finished.connect(main_gui.show_scan_finished_message)
-        main_gui.memory_scan_finished.connect(main_gui.show_memory_scan_finished_message)
+        # Initialize the ScanManager
+        scan_manager = ScanManager()
+         # Connect signals to the ScanManager's slots
+        scan_manager.folder_scan_finished.connect(scan_manager.folder_scan_finished.emit)
+        scan_manager.memory_scan_finished.connect(scan_manager.memory_scan_finished.emit)
         main_gui.show()
         sys.exit(app.exec())
     except Exception as e:
