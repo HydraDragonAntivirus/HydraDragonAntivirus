@@ -1455,9 +1455,6 @@ class ScanManager(QDialog):
         # Display detected threats
         for file_path, virus_name in detected_threats:
             logging.warning(f"Infected file detected: {file_path} - Virus: {virus_name}")
-            item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
-            item.setData(Qt.UserRole, file_path)
-            self.detected_list.addItem(item)
 
         # Display clean files
         for file_path in clean_files:
