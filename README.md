@@ -25,3 +25,4 @@ If you want do scan, you first need enable it by button
 You need stop clamd manually after close this program
 For more protection for Windows please install MBRFilter at mbrfilter folder
 Don't quarantine any files during the scan or delete.
+To avoid crashes pause or stop scan while scan is running at scan manager screen.
