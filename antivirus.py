@@ -1190,6 +1190,19 @@ class ScanManager(QDialog):
         self.detected_list.clear()
         self.current_file_label.setText("Currently Scanning:")
 
+    def start_scan(self, path):
+        self.thread = QThread()
+        self.thread.run = lambda: self.scan(path)
+        self.thread.finished.connect(self.thread.deleteLater)
+        self.thread.start()
+
+    def scan(self, path):
+        if os.path.isdir(path):
+            self.scan_directory(path)
+        else:
+            self.scan_file_path(path)
+        self.folder_scan_finished.emit()
+        
     def get_uefi_folder(self):
         if system_platform() == 'Windows':
             return "X:\\"
@@ -1227,24 +1240,6 @@ class ScanManager(QDialog):
 
         # Start the scan in a separate thread
         threading.Thread(target=scan).start()
-
-    @Slot()
-    def run(self):
-        if self.is_directory:
-            self.scan_directory(self.path)
-        else:
-            self.scan_file_path(self.path)
-
-    def start_scan(self, path, is_directory):
-        self.path = path
-        self.is_directory = is_directory
-        self.thread = QThread()
-        self.moveToThread(self.thread)
-        self.thread.started.connect(self.run)
-        self.thread.finished.connect(self.thread.deleteLater)
-        self.folder_scan_finished.connect(self.thread.quit)
-        self.memory_scan_finished.connect(self.thread.quit)
-        self.thread.start()
 
     def scan_directory(self, directory):
         detected_threats = []
