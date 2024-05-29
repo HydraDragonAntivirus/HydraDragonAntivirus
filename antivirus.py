@@ -1082,6 +1082,7 @@ yara_scanner = YaraScanner()
 class ScanManager(QDialog):
     folder_scan_finished = Signal()
     memory_scan_finished = Signal()
+    scan_started = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
