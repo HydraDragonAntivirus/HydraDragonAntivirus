@@ -1,4 +1,4 @@
-# XylentOptionalScanner
+# Hydra Dragon Antivirus
 <p align="center">
 <img src="assets/HydraDragonAntivirus.png" width= 400px>
 </p>
