@@ -25,7 +25,10 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from scapy.all import *
+from scapy.layers.inet import IP
+from scapy.layers.inet6 import IPv6
+from scapy.layers.dns import DNS, DNSQR, DNSRR
+from scapy.all import sniff
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
 script_dir = os.getcwd()
