@@ -1157,7 +1157,7 @@ class AntivirusUI(QWidget):
         self.preferences_button.clicked.connect(self.show_preferences)
         layout.addWidget(self.preferences_button)
 
-        self.quarantine_button = QPushButton("Quarantine")
+        self.quarantine_button = QPushButton("Quarantine Manager")
         self.quarantine_button.clicked.connect(self.manage_quarantine)
         layout.addWidget(self.quarantine_button)
 
@@ -1513,7 +1513,7 @@ class AntivirusUI(QWidget):
 
     def show_preferences(self):
         preferences_dialog = PreferencesDialog(self)
-        if preferences_dialog.exec() == QDialog.Accepted:
+        if preferences_dialog.show() == QDialog.Accepted:
             global preferences
             preferences["use_machine_learning"] = preferences_dialog.use_machine_learning_checkbox.isChecked()
             preferences["use_clamav"] = preferences_dialog.use_clamav_checkbox.isChecked()
@@ -1525,7 +1525,7 @@ class AntivirusUI(QWidget):
 
     def manage_quarantine(self):
         quarantine_manager = QuarantineManager(self)
-        quarantine_manager.exec()
+        quarantine_manager.show()
 
     def update_definitions(self):
         result = subprocess.run(["freshclam"], capture_output=True)
