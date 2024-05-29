@@ -51,6 +51,7 @@ config_folder_path = os.path.join(script_dir, "config")
 if not os.path.exists(config_folder_path):
     os.makedirs(config_folder_path)
 
+yara_scanner = YaraScanner()
 user_preference_file = os.path.join(config_folder_path, "user_preference.json")
 quarantine_file_path = os.path.join(config_folder_path, "quarantine.json")
 IP_ADDRESSES_PATH = os.path.join(script_dir, "website", "IP_Addresses.txt")
@@ -577,7 +578,7 @@ def scan_file_real_time(file_path):
 
     if preferences["use_yara"]:
         try:
-            yara_result = YaraScanner.yara_scanner.static_analysis(file_path)
+            yara_result = yara_scanner.static_analysis(file_path)
             if yara_result and yara_result != "Clean" and yara_result != "":
                 logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
                 return True, yara_result
@@ -1522,7 +1523,6 @@ class AntivirusUI(QWidget):
         main_layout = QVBoxLayout()
         main_layout.addWidget(self.stacked_widget)
         self.setLayout(main_layout)
-        self.yara_scanner = YaraScanner()
         # Define pause_event and stop_event attributes
         self.pause_event = threading.Event()
         self.stop_event = threading.Event()
