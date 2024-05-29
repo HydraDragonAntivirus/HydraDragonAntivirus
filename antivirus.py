@@ -971,65 +971,65 @@ class SnortObserver:
         self.thread = None
         self.snort_process = None
 
-def start_sniffing(self):
-    device_number = 1
-    while True:
-        try:
-            if system_platform() == 'Windows':
-                snort_config_path = "C:\\Snort\\etc\\snort.conf"
-            else:
-                snort_config_path = "/etc/snort/snort.conf"
+    def start_sniffing(self):
+        device_number = 1
+        while True:
+            try:
+                if system_platform() == 'Windows':
+                    snort_config_path = "C:\\Snort\\etc\\snort.conf"
+                else:
+                    snort_config_path = "/etc/snort/snort.conf"
+                    
+                self.snort_process = subprocess.Popen(
+                    ["snort", "-i", str(device_number), "-c", snort_config_path],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+
+                # Function to read and print stdout in real-time
+                def read_stdout(pipe):
+                    for output in iter(pipe.readline, b''):
+                        print(output.decode('utf-8').strip())
+
+                # Function to read and print stderr in real-time
+                def read_stderr(pipe):
+                    for error in iter(pipe.readline, b''):
+                        print(error.decode('utf-8').strip())
+                        # Check if the error is related to an invalid device number
+                        if "ERROR: OpenPcap() device" in error.decode('utf-8').strip():
+                            self.snort_process.terminate()
+                            logging.error(f"Device number {device_number} is invalid. Snort process terminated.")
+                            print(f"Device number {device_number} is invalid. Snort process terminated.")
+                            return
+
+                # Create and start threads for stdout and stderr
+                stdout_thread = threading.Thread(target=read_stdout, args=(self.snort_process.stdout,))
+                stderr_thread = threading.Thread(target=read_stderr, args=(self.snort_process.stderr,))
                 
-            self.snort_process = subprocess.Popen(
-                ["snort", "-i", str(device_number), "-c", snort_config_path],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
+                stdout_thread.start()
+                stderr_thread.start()
 
-            # Function to read and print stdout in real-time
-            def read_stdout(pipe):
-                for output in iter(pipe.readline, b''):
-                    print(output.decode('utf-8').strip())
+                stdout_thread.join()
+                stderr_thread.join()
 
-            # Function to read and print stderr in real-time
-            def read_stderr(pipe):
-                for error in iter(pipe.readline, b''):
-                    print(error.decode('utf-8').strip())
-                    # Check if the error is related to an invalid device number
-                    if "ERROR: OpenPcap() device" in error.decode('utf-8').strip():
-                        self.snort_process.terminate()
-                        logging.error(f"Device number {device_number} is invalid. Snort process terminated.")
-                        print(f"Device number {device_number} is invalid. Snort process terminated.")
-                        return
+                # Check if there was an error related to an invalid device number
+                if self.snort_process.returncode != 0:
+                    logging.info(f"Device number {device_number} is invalid or another error occurred.")
+                    print(f"Device number {device_number} is invalid or another error occurred.")
+                    break
 
-            # Create and start threads for stdout and stderr
-            stdout_thread = threading.Thread(target=read_stdout, args=(self.snort_process.stdout,))
-            stderr_thread = threading.Thread(target=read_stderr, args=(self.snort_process.stderr,))
-            
-            stdout_thread.start()
-            stderr_thread.start()
-
-            stdout_thread.join()
-            stderr_thread.join()
-
-            # Check if there was an error related to an invalid device number
-            if self.snort_process.returncode != 0:
-                logging.info(f"Device number {device_number} is invalid or another error occurred.")
-                print(f"Device number {device_number} is invalid or another error occurred.")
+                logging.info(f"Snort started on device number {device_number}.")
+                print(f"Snort started on device number {device_number}.")
+                break
+            else:
+                logging.info(f"Device number {device_number} is invalid.")
+                print(f"Device number {device_number} is invalid.")
+                device_number += 1     
+            except Exception as e:
+                logging.error(f"Failed to start Snort on device {device_number}: {e}")
+                print(f"Failed to start Snort on device {device_number}: {e}")
                 break
 
-            logging.info(f"Snort started on device number {device_number}.")
-            print(f"Snort started on device number {device_number}.")
-            break
-        else:
-            logging.info(f"Device number {device_number} is invalid.")
-            print(f"Device number {device_number} is invalid.")
-            device_number += 1
-        except Exception as e:
-            logging.error(f"Failed to start Snort on device {device_number}: {e}")
-            print(f"Failed to start Snort on device {device_number}: {e}")
-            break
-            
     def start(self):
         if not self.is_started:
             self.thread = threading.Thread(target=self.start_sniffing)
