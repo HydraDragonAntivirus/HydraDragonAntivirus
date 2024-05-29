@@ -1246,19 +1246,6 @@ class ScanManager(QDialog):
         scan_thread = threading.Thread(target=scan)
         scan_thread.start()
 
-    def reset_scan(self):
-        self.total_scanned = 0
-        self.infected_files = 0
-        self.clean_files = 0
-        self.update_scan_labels()
-        self.detected_list.clear()
-        self.current_file_label.setText("Currently Scanning:")
-
-    def update_scan_labels(self):
-        self.scanned_files_label.setText(f"Total Scanned Files: {self.total_scanned}")
-        self.infected_files_label.setText(f"Infected Files: {self.infected_files}")
-        self.clean_files_label.setText(f"Clean Files: {self.clean_files}")
-
     def full_scan(self):
         self.reset_scan()
         if system_platform() == 'Windows':
@@ -1297,17 +1284,11 @@ class ScanManager(QDialog):
             thread.start()
 
     def scan_file_thread(self, file_path):
-        # Scan the file path in a separate thread and handle the result
-        is_infected, virus_name = self.scan_file_path(file_path)
-        if is_infected:
-            # If the file is infected, add it to the detected list
-            self.handle_infected_file(file_path, virus_name)
-
-    def handle_infected_file(self, file_path, virus_name):
-        # Add the infected file to the detected list
-        item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
-        item.setData(Qt.UserRole, file_path)
-        self.detected_list.addItem(item)
+        try:
+            # Scan the file path in a separate thread
+            self.scan_file_path(file_path)
+        except Exception as e:
+            logging.error(f"Error scanning file {file_path}: {e}")
 
     def scan_file_path(self, file_path):
         self.pause_event.wait()  # Wait if the scan is paused
@@ -1329,9 +1310,6 @@ class ScanManager(QDialog):
                     virus_name = "Invalid Signature"
                     item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {result}")
                     item.setData(Qt.UserRole, file_path)
-                    self.total_scanned += 1
-                    self.infected_files += 1
-                    self.update_scan_labels()
                     return True, virus_name
 
             # Skip if Microsoft signature exists
