@@ -22,7 +22,7 @@ import yara
 import psutil
 from notifypy import Notify
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from scapy.layers.inet import IP
