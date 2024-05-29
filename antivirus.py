@@ -51,7 +51,6 @@ config_folder_path = os.path.join(script_dir, "config")
 if not os.path.exists(config_folder_path):
     os.makedirs(config_folder_path)
 
-yara_scanner = YaraScanner()
 user_preference_file = os.path.join(config_folder_path, "user_preference.json")
 quarantine_file_path = os.path.join(config_folder_path, "quarantine.json")
 IP_ADDRESSES_PATH = os.path.join(script_dir, "website", "IP_Addresses.txt")
@@ -1052,6 +1051,7 @@ real_time_observer = RealTimeProtectionObserver(folder_to_watch)
 real_time_web_observer = RealTimeWebProtectionObserver()
 # Initialize Snort observer
 snort_observer = SnortObserver()
+yara_scanner = YaraScanner()
 
 class YaraScanner:
     def scan_data(self, file_path):
