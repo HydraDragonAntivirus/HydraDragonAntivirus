@@ -1083,7 +1083,6 @@ class YaraScanner:
 
 class ScanManager(QDialog):
     folder_scan_finished = Signal()
-    # Define a new signal for memory scan finished
     memory_scan_finished = Signal()
 
     def __init__(self, parent=None):
@@ -1093,6 +1092,11 @@ class ScanManager(QDialog):
         self.pause_event = threading.Event()
         self.stop_event = threading.Event()
         self.pause_event.set()
+
+        # Initialize counters
+        self.total_scanned = 0
+        self.infected_files = 0
+        self.clean_files = 0
 
     def setup_ui(self):
         main_layout = QVBoxLayout()
@@ -1139,6 +1143,18 @@ class ScanManager(QDialog):
         self.detected_list = QListWidget()
         main_layout.addWidget(self.detected_list)
 
+        self.current_file_label = QLabel("Currently Scanning:")
+        main_layout.addWidget(self.current_file_label)
+
+        self.scanned_files_label = QLabel("Total Scanned Files: 0")
+        main_layout.addWidget(self.scanned_files_label)
+
+        self.infected_files_label = QLabel("Infected Files: 0")
+        main_layout.addWidget(self.infected_files_label)
+
+        self.clean_files_label = QLabel("Clean Files: 0")
+        main_layout.addWidget(self.clean_files_label)
+
         self.action_button_layout = QHBoxLayout()
 
         self.quarantine_button = QPushButton("Quarantine")
@@ -1168,6 +1184,19 @@ class ScanManager(QDialog):
         main_layout.addLayout(self.action_button_layout)
         self.setLayout(main_layout)
 
+    def reset_scan(self):
+        self.total_scanned = 0
+        self.infected_files = 0
+        self.clean_files = 0
+        self.update_scan_labels()
+        self.detected_list.clear()
+        self.current_file_label.setText("Currently Scanning:")
+
+    def update_scan_labels(self):
+        self.scanned_files_label.setText(f"Total Scanned Files: {self.total_scanned}")
+        self.infected_files_label.setText(f"Infected Files: {self.infected_files}")
+        self.clean_files_label.setText(f"Clean Files: {self.clean_files}")
+
     def full_scan(self):
         if system_platform() == 'Windows':
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
@@ -1180,14 +1209,6 @@ class ScanManager(QDialog):
         else:
             threading.Thread(target=self.scan_directory, args=(self.folder_to_watch,)).start()
 
-    def quick_scan(self):
-        user_folder = os.path.expanduser("~")  # Get user's home directory
-        threading.Thread(target=self.scan_directory, args=(user_folder,)).start()
-
-    def uefi_scan(self):
-        folder_path = self.get_uefi_folder()
-        threading.Thread(target=self.scan_directory, args=(folder_path,)).start()
-
     def get_uefi_folder(self):
         if system_platform() == 'Windows':
             return "X:\\"
@@ -1195,6 +1216,8 @@ class ScanManager(QDialog):
             return "/boot/efi" if system_platform() in ['Linux', 'FreeBSD', 'Darwin'] else "/boot/efi"
     
     def scan_memory(self):
+        self.reset_scan()
+
         def scan():
             scanned_files = set()  # Set to store scanned file paths
             detected_files = []
@@ -1223,36 +1246,50 @@ class ScanManager(QDialog):
         scan_thread = threading.Thread(target=scan)
         scan_thread.start()
 
-    def quarantine_selected(self):
-        selected_items = self.detected_list.selectedItems()
-        for item in selected_items:
-            file_path = item.data(Qt.UserRole)
-            virus_name = item.text().split("-")[-1].strip()
-            quarantine_file(file_path, virus_name)
+    def reset_scan(self):
+        self.total_scanned = 0
+        self.infected_files = 0
+        self.clean_files = 0
+        self.update_scan_labels()
         self.detected_list.clear()
+        self.current_file_label.setText("Currently Scanning:")
 
-    def skip_selected(self):
-        selected_items = self.detected_list.selectedItems()
-        for item in selected_items:
-            item_index = self.detected_list.row(item)
-            self.detected_list.takeItem(item_index)
+    def update_scan_labels(self):
+        self.scanned_files_label.setText(f"Total Scanned Files: {self.total_scanned}")
+        self.infected_files_label.setText(f"Infected Files: {self.infected_files}")
+        self.clean_files_label.setText(f"Clean Files: {self.clean_files}")
 
-    def delete_selected(self):
-        selected_items = self.detected_list.selectedItems()
-        for item in selected_items:
-            file_path = item.data(Qt.UserRole)
-            try:
-                os.remove(file_path)
-                self.detected_list.takeItem(self.detected_list.row(item))
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to delete file: {str(e)}")
+    def full_scan(self):
+        self.reset_scan()
+        if system_platform() == 'Windows':
+            disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
+            if len(disk_partitions) > 1:
+                # Initiate a full scan for each drive
+                for drive in disk_partitions:
+                    threading.Thread(target=self.scan_directory, args=(drive,)).start()
+            else:
+                threading.Thread(target=self.scan_directory, args=(self.folder_to_watch,)).start()
+        else:
+            threading.Thread(target=self.scan_directory, args=(self.folder_to_watch,)).start()
+
+    def quick_scan(self):
+        self.reset_scan()
+        user_folder = os.path.expanduser("~")  # Get user's home directory
+        threading.Thread(target=self.scan_directory, args=(user_folder,)).start()
+
+    def uefi_scan(self):
+        self.reset_scan()
+        folder_path = self.get_uefi_folder()
+        threading.Thread(target=self.scan_directory, args=(folder_path,)).start()
 
     def scan_folder(self):
+        self.reset_scan()
         folder_path = QFileDialog.getExistingDirectory(self, "Select Folder to Scan")
         if folder_path:
             threading.Thread(target=self.scan_directory, args=(folder_path,)).start()
 
     def scan_file(self):
+        self.reset_scan()
         file_path, _ = QFileDialog.getOpenFileName(self, "Select File to Scan")
         if file_path:
             # Create a new thread to scan the file
@@ -1277,6 +1314,9 @@ class ScanManager(QDialog):
         if self.stop_event.is_set():
             return False, ""
         
+        # Show the currently scanned file
+        self.current_file_label.setText(f"Currently Scanning: {file_path}")
+        
         result = ""
         virus_name = ""
 
@@ -1289,6 +1329,9 @@ class ScanManager(QDialog):
                     virus_name = "Invalid Signature"
                     item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {result}")
                     item.setData(Qt.UserRole, file_path)
+                    self.total_scanned += 1
+                    self.infected_files += 1
+                    self.update_scan_labels()
                     return True, virus_name
 
             # Skip if Microsoft signature exists
@@ -1301,6 +1344,9 @@ class ScanManager(QDialog):
             result = scan_file_with_clamd(file_path)
             if result == "Clean":
                 logging.info(f"File is clean (ClamAV): {file_path}")
+                self.total_scanned += 1
+                self.clean_files += 1
+                self.update_scan_labels()
                 return False, ""
             virus_name = result if result != "Clean" else ""
 
@@ -1308,6 +1354,9 @@ class ScanManager(QDialog):
             yara_result = self.yara_scanner.static_analysis(file_path)
             if yara_result == "Clean":
                 logging.info(f"File is clean (Yara): {file_path}")
+                self.total_scanned += 1
+                self.clean_files += 1
+                self.update_scan_labels()
                 return False, ""
             if yara_result and isinstance(yara_result, list):
                 result = ', '.join(yara_result)
@@ -1327,9 +1376,15 @@ class ScanManager(QDialog):
             item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {result}")
             item.setData(Qt.UserRole, file_path)
             self.detected_list.addItem(item)
+            self.total_scanned += 1
+            self.infected_files += 1
+            self.update_scan_labels()
             return True, virus_name
         else:
             logging.info(f"File is clean: {file_path}")
+            self.total_scanned += 1
+            self.clean_files += 1
+            self.update_scan_labels()
             return False, ""
 
     def scan_file_in_thread(self, file_path):
@@ -1445,6 +1500,30 @@ class ScanManager(QDialog):
                 executor.map(safe_remove, files_to_process)
 
         self.detected_list.clear()
+
+    def quarantine_selected(self):
+        selected_items = self.detected_list.selectedItems()
+        for item in selected_items:
+            file_path = item.data(Qt.UserRole)
+            virus_name = item.text().split("-")[-1].strip()
+            quarantine_file(file_path, virus_name)
+        self.detected_list.clear()
+
+    def skip_selected(self):
+        selected_items = self.detected_list.selectedItems()
+        for item in selected_items:
+            item_index = self.detected_list.row(item)
+            self.detected_list.takeItem(item_index)
+
+    def delete_selected(self):
+        selected_items = self.detected_list.selectedItems()
+        for item in selected_items:
+            file_path = item.data(Qt.UserRole)
+            try:
+                os.remove(file_path)
+                self.detected_list.takeItem(self.detected_list.row(item))
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to delete file: {str(e)}")
 
     def quarantine_all_files(self):
         self.handle_detected_files(quarantine=True)
