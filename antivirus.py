@@ -1228,13 +1228,13 @@ class ScanManager(QDialog):
         # Start the scan in a separate thread
         threading.Thread(target=scan).start()
 
-    @pyqtSlot()
+    @Slot()
     def run(self):
         if self.is_directory:
             self.scan_directory(self.path)
         else:
             self.scan_file_path(self.path)
-            
+
     def start_scan(self, path, is_directory):
         self.reset_scan()
         worker = ScanWorker(path, is_directory)
