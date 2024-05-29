@@ -1241,54 +1241,67 @@ class ScanManager(QDialog):
         # Start the scan in a separate thread
         threading.Thread(target=scan).start()
 
-  def full_scan(self):
-        with ThreadPoolExecutor(max_workers=1000) as executor:
+    def full_scan(self):
+        def full_scan_thread():
+            self.reset_scan()
             if self.system_platform() == 'Windows':
                 disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
                 if len(disk_partitions) > 1:
                     # Initiate a full scan for each drive
-                    futures = [executor.submit(self.scan_directory, drive) for drive in disk_partitions]
+                    with ThreadPoolExecutor(max_workers=1000) as executor:
+                        for drive in disk_partitions:
+                            executor.submit(self.scan_directory, drive)
                 else:
-                    futures = [executor.submit(self.scan_directory, self.folder_to_watch)]
+                    with ThreadPoolExecutor(max_workers=1000) as executor:
+                        executor.submit(self.scan_directory, self.folder_to_watch)
             else:
-                futures = [executor.submit(self.scan_directory, self.folder_to_watch)]
-        self.reset_scan()
-        if system_platform() == 'Windows':
-            disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
-            if len(disk_partitions) > 1:
-                # Initiate a full scan for each drive
-                for drive in disk_partitions:
-                    threading.Thread(target=self.scan_directory, args=(drive,)).start()
-            else:
-                threading.Thread(target=self.scan_directory, args=(self.folder_to_watch,)).start()
-        else:
-            threading.Thread(target=self.scan_directory, args=(self.folder_to_watch,)).start()
+                with ThreadPoolExecutor(max_workers=1000) as executor:
+                    executor.submit(self.scan_directory, self.folder_to_watch)
+        
+        thread = threading.Thread(target=full_scan_thread)
+        thread.start()
 
     def quick_scan(self):
-        self.reset_scan()
-        user_folder = os.path.expanduser("~")  # Get user's home directory
-        with ThreadPoolExecutor(max_workers=1000) as executor:
-            executor.submit(self.scan_directory, user_folder)
+        def quick_scan_thread():
+            self.reset_scan()
+            user_folder = os.path.expanduser("~")  # Get user's home directory
+            with ThreadPoolExecutor(max_workers=1000) as executor:
+                executor.submit(self.scan_directory, user_folder)
+        
+        thread = threading.Thread(target=quick_scan_thread)
+        thread.start()
 
     def uefi_scan(self):
-        self.reset_scan()
-        folder_path = self.get_uefi_folder()
-        with ThreadPoolExecutor(max_workers=1000) as executor:
-            executor.submit(self.scan_directory, folder_path)
-
-    def scan_folder(self):
-        self.reset_scan()
-        folder_path = QFileDialog.getExistingDirectory(self, "Select Folder to Scan")
-        if folder_path:
+        def uefi_scan_thread():
+            self.reset_scan()
+            folder_path = self.get_uefi_folder()
             with ThreadPoolExecutor(max_workers=1000) as executor:
                 executor.submit(self.scan_directory, folder_path)
+        
+        thread = threading.Thread(target=uefi_scan_thread)
+        thread.start()
+
+    def scan_folder(self):
+        def scan_folder_thread():
+            self.reset_scan()
+            folder_path = QFileDialog.getExistingDirectory(self, "Select Folder to Scan")
+            if folder_path:
+                with ThreadPoolExecutor(max_workers=1000) as executor:
+                    executor.submit(self.scan_directory, folder_path)
+        
+        thread = threading.Thread(target=scan_folder_thread)
+        thread.start()
 
     def scan_file(self):
-        self.reset_scan()
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select File to Scan")
-        if file_path:
-            with ThreadPoolExecutor(max_workers=1000) as executor:
-                executor.submit(self.scan_file_path, file_path)
+        def scan_file_thread():
+            self.reset_scan()
+            file_path, _ = QFileDialog.getOpenFileName(self, "Select File to Scan")
+            if file_path:
+                with ThreadPoolExecutor(max_workers=1000) as executor:
+                    executor.submit(self.scan_file_path, file_path)
+        
+        thread = threading.Thread(target=scan_file_thread)
+        thread.start()
 
     def scan_file_path(self, file_path):
         self.pause_event.wait()  # Wait if the scan is paused
