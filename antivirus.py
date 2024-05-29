@@ -1043,7 +1043,7 @@ class SnortObserver:
             self.is_started = False
             logging.info("Snort has been stopped.")
             print("Snort has been stopped.")
-            
+
 # Create the real-time observer with the system drive as the monitored directory
 real_time_observer = RealTimeProtectionObserver(folder_to_watch)
 real_time_web_observer = RealTimeWebProtectionObserver()
@@ -1193,16 +1193,20 @@ class ScanManager(QDialog):
         self.current_file_label.setText("Currently Scanning:")
 
     def full_scan(self):
-        if system_platform() == 'Windows':
-            disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
-            if len(disk_partitions) > 1:
-                # Initiate a full scan for each drive
-                for drive in disk_partitions:
-                    threading.Thread(target=self.scan_directory, args=(drive,)).start()
+        with ThreadPoolExecutor(max_workers=1000) as executor:
+            if self.system_platform() == 'Windows':
+                disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
+                if len(disk_partitions) > 1:
+                    # Initiate a full scan for each drive
+                    futures = [executor.submit(self.scan_directory, drive) for drive in disk_partitions]
+                else:
+                    futures = [executor.submit(self.scan_directory, self.folder_to_watch)]
             else:
-                threading.Thread(target=self.scan_directory, args=(self.folder_to_watch,)).start()
-        else:
-            threading.Thread(target=self.scan_directory, args=(self.folder_to_watch,)).start()
+                futures = [executor.submit(self.scan_directory, self.folder_to_watch)]
+
+            # Ensure all futures are completed
+            for future in as_completed(futures):
+                future.result()
 
     def get_uefi_folder(self):
         if system_platform() == 'Windows':
@@ -1254,36 +1258,25 @@ class ScanManager(QDialog):
         else:
             threading.Thread(target=self.scan_directory, args=(self.folder_to_watch,)).start()
 
-    def quick_scan(self):
-        self.reset_scan()
-        user_folder = os.path.expanduser("~")  # Get user's home directory
-        threading.Thread(target=self.scan_directory, args=(user_folder,)).start()
-
     def uefi_scan(self):
         self.reset_scan()
         folder_path = self.get_uefi_folder()
-        threading.Thread(target=self.scan_directory, args=(folder_path,)).start()
+        with ThreadPoolExecutor(max_workers=1000) as executor:
+            executor.submit(self.scan_directory, folder_path)
 
     def scan_folder(self):
         self.reset_scan()
         folder_path = QFileDialog.getExistingDirectory(self, "Select Folder to Scan")
         if folder_path:
-            threading.Thread(target=self.scan_directory, args=(folder_path,)).start()
+            with ThreadPoolExecutor(max_workers=1000) as executor:
+                executor.submit(self.scan_directory, folder_path)
 
     def scan_file(self):
         self.reset_scan()
         file_path, _ = QFileDialog.getOpenFileName(self, "Select File to Scan")
         if file_path:
-            # Create a new thread to scan the file
-            thread = threading.Thread(target=self.scan_file_thread, args=(file_path,))
-            thread.start()
-
-    def scan_file_thread(self, file_path):
-        try:
-            # Scan the file path in a separate thread
-            self.scan_file_path(file_path)
-        except Exception as e:
-            logging.error(f"Error scanning file {file_path}: {e}")
+            with ThreadPoolExecutor(max_workers=1000) as executor:
+                executor.submit(self.scan_file_path, file_path)
 
     def scan_file_path(self, file_path):
         self.pause_event.wait()  # Wait if the scan is paused
@@ -1350,30 +1343,11 @@ class ScanManager(QDialog):
         self.infected_files_label.setText(f"Infected Files: {self.infected_files}")
         self.clean_files_label.setText(f"Clean Files: {self.clean_files}")
 
-    def scan_file_in_thread(self, file_path):
-        try:
-            is_malicious, virus_name = self.scan_file_path(file_path)
-            if is_malicious:
-                return (file_path, virus_name)
-            else:
-                return None
-        except Exception as e:
-            logging.error(f"Error scanning file {file_path}: {e}")
-            return None
-
     def scan_directory(self, directory):
         detected_threats = []
         clean_files = []
 
         def scan_file(file_path):
-            is_infected, virus_name = self.scan_file_path(file_path)
-            if is_infected:
-                # If the file is infected, add it to the detected list
-                item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
-                item.setData(Qt.UserRole, file_path)
-                detected_threats.append((file_path, virus_name))
-            else:
-                clean_files.append(file_path)
             if self.pause_event.is_set():
                 logging.info("Scanning paused. Waiting for resume.")
                 self.pause_event.wait()
@@ -1381,17 +1355,29 @@ class ScanManager(QDialog):
                 logging.info("Scanning stopped.")
                 return
 
-        with ThreadPoolExecutor() as executor:
+            with ThreadPoolExecutor(max_workers=1000) as executor:
+                future = executor.submit(self.scan_file_path, file_path)
+                is_infected, virus_name = future.result()
+
+            if is_infected:
+                # If the file is infected, add it to the detected list
+                item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
+                item.setData(Qt.UserRole, file_path)
+                detected_threats.append((file_path, virus_name))
+            else:
+                clean_files.append(file_path)
+
+        with ThreadPoolExecutor(max_workers=1000) as executor:
             futures = []
             for root, _, files in os.walk(directory):
                 for file in files:
                     file_path = os.path.join(root, file)
                     futures.append(executor.submit(scan_file, file_path))
-            
+
             # Ensure all futures are completed
-            for future in futures:
+            for future in as_completed(futures):
                 future.result()
-        
+
         self.show_summary(detected_threats, clean_files)
         self.folder_scan_finished.emit()
 
