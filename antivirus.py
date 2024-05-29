@@ -1451,15 +1451,6 @@ class ScanManager(QDialog):
         logging.info(f"Clean files: {num_clean}")
         logging.info(f"Total files scanned: {total_files}")
         logging.info("-----------------------------------")
-
-        # Display detected threats
-        for file_path, virus_name in detected_threats:
-            logging.warning(f"Infected file detected: {file_path} - Virus: {virus_name}")
-
-        # Display clean files
-        for file_path in clean_files:
-            logging.info(f"File is clean: {file_path}")
-            # You can handle displaying clean files as needed
             
     def show_scan_finished_message(self):
         QMessageBox.information(self, "Scan Finished", "Folder scan has finished.")
