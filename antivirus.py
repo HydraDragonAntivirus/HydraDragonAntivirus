@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QListWidget, QListWidgetItem, QHBoxLayout, QMessageBox, QCheckBox, QStackedWidget,
     QComboBox, QDialog, QDialogButtonBox
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QObject, QThread, Signal, Slot
 import sklearn
 import joblib
 import pefile
@@ -1079,6 +1079,121 @@ class YaraScanner:
 
 yara_scanner = YaraScanner()
 
+class ScanWorker(QObject):
+    finished = Signal()
+    progress = Signal(str)
+
+    def __init__(self, path, is_directory):
+        super().__init__()
+        self.path = path
+        self.is_directory = is_directory
+
+    @Slot()
+    def run(self):
+        if self.is_directory:
+            self.scan_directory(self.path)
+        else:
+            self.scan_file_path(self.path)
+        self.finished.emit()
+
+    def scan_directory(self, directory):
+        detected_threats = []
+        clean_files = []
+
+        def scan_file(file_path):
+            if self.pause_event.is_set():
+                logging.info("Scanning paused. Waiting for resume.")
+                self.pause_event.wait()
+            if self.stop_event.is_set():
+                logging.info("Scanning stopped.")
+                return
+
+            with ThreadPoolExecutor(max_workers=1000) as executor:
+                future = executor.submit(self.scan_file_path, file_path)
+                is_infected, virus_name = future.result()
+
+            if is_infected:
+                # If the file is infected, add it to the detected list
+                item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
+                item.setData(Qt.UserRole, file_path)
+                detected_threats.append((file_path, virus_name))
+            else:
+                clean_files.append(file_path)
+
+        with ThreadPoolExecutor(max_workers=1000) as executor:
+            futures = []
+            for root, _, files in os.walk(directory):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    futures.append(executor.submit(scan_file, file_path))
+
+            # Ensure all futures are completed
+            for future in as_completed(futures):
+                future.result()
+
+        self.show_summary(detected_threats, clean_files)
+        self.folder_scan_finished.emit()
+
+    def scan_file_path(self, file_path):
+        self.pause_event.wait()  # Wait if the scan is paused
+        if self.stop_event.is_set():
+            return False, ""
+        
+        # Show the currently scanned file
+        self.current_file_label.setText(f"Currently Scanning: {file_path}")
+
+        virus_name = ""
+
+        if system_platform() in ['Windows', 'Linux', 'Darwin']:
+            # Check for valid signature
+            if preferences.get("check_valid_signature", False):
+                if not valid_signature_exists(file_path):
+                    logging.warning(f"Invalid signature detected: {file_path}")
+                    virus_name = "Invalid Signature"
+                    item = QListWidgetItem(f"Scanned file: {file_path} - Virus: Invalid Signature")
+                    item.setData(Qt.UserRole, file_path)
+                    return True, virus_name
+
+            # Skip if Microsoft signature exists
+            if preferences.get("check_microsoft_signature", False):
+                if hasMicrosoftSignature(file_path):
+                    logging.info(f"File signed by Microsoft, skipping: {file_path}")
+                    return False, ""
+
+        if preferences["use_clamav"]:
+            virus_name = scan_file_with_clamd(file_path)
+            if virus_name != "Clean":
+                return True, virus_name
+
+        if preferences["use_yara"]:
+            yara_result = yara_scanner.static_analysis(file_path)
+            if yara_result != "Clean":
+                if isinstance(yara_result, list):
+                    virus_name = ', '.join(yara_result)
+                elif isinstance(yara_result, str):
+                    virus_name = yara_result
+
+        if preferences["use_machine_learning"]:
+            is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path)
+            if is_malicious:
+                virus_name = malware_definition
+
+        if virus_name:
+            logging.warning(f"Infected file detected: {file_path} - Virus: {virus_name}")
+            item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
+            item.setData(Qt.UserRole, file_path)
+            self.detected_list.addItem(item)
+            self.total_scanned += 1
+            self.infected_files += 1
+            self.update_scan_labels()
+            return True, virus_name
+        else:
+            logging.info(f"File is clean: {file_path}")
+            self.total_scanned += 1
+            self.clean_files += 1
+            self.update_scan_labels()
+            return False, ""
+
 class ScanManager(QDialog):
     folder_scan_finished = Signal()
     memory_scan_finished = Signal()
@@ -1229,146 +1344,55 @@ class ScanManager(QDialog):
         # Start the scan in a separate thread
         threading.Thread(target=scan).start()
 
-    def start_scan(self, path):
-        with ThreadPoolExecutor(max_workers=1000) as executor:
-            if os.path.isdir(path):
-                executor.submit(self.scan_directory, path)
-            else:
-                executor.submit(self.scan_file_path, path)
+    def start_scan(self, path, is_directory):
+        self.reset_scan()
+        worker = ScanWorker(path, is_directory)
+        thread = QThread()
+
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+
+        worker.progress.connect(self.handle_progress)
+
+        thread.start()
+
+    @Slot(str)
+    def handle_progress(self, message):
+        print(message)
 
     def full_scan(self):
-        self.reset_scan()
-        if self.system_platform() == 'Windows':
+        if self.system_platform() == 'nt':  # Windows platform
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
             for drive in disk_partitions:
-                self.scan_started.emit(drive)
+                self.start_scan(drive, True)
         else:
-            self.scan_started.emit(self.folder_to_watch)
+            self.start_scan(self.folder_to_watch, True)
 
     def quick_scan(self):
-        self.reset_scan()
         user_folder = os.path.expanduser("~")  # Get user's home directory
-        self.scan_started.emit(user_folder)
+        self.start_scan(user_folder, True)
 
     def uefi_scan(self):
-        self.reset_scan()
         folder_path = self.get_uefi_folder()
-        self.scan_started.emit(folder_path)
+        self.start_scan(folder_path, True)
 
     def scan_folder(self):
-        self.reset_scan()
         folder_path = QFileDialog.getExistingDirectory(None, "Select Folder to Scan")
         if folder_path:
-            self.scan_started.emit(folder_path)
+            self.start_scan(folder_path, True)
 
     def scan_file(self):
-        self.reset_scan()
         file_path, _ = QFileDialog.getOpenFileName(None, "Select File to Scan")
         if file_path:
-            self.scan_started.emit(file_path)
-
-    def scan_file_path(self, file_path):
-        self.pause_event.wait()  # Wait if the scan is paused
-        if self.stop_event.is_set():
-            return False, ""
-        
-        # Show the currently scanned file
-        self.current_file_label.setText(f"Currently Scanning: {file_path}")
-
-        virus_name = ""
-
-        if system_platform() in ['Windows', 'Linux', 'Darwin']:
-            # Check for valid signature
-            if preferences.get("check_valid_signature", False):
-                if not valid_signature_exists(file_path):
-                    logging.warning(f"Invalid signature detected: {file_path}")
-                    virus_name = "Invalid Signature"
-                    item = QListWidgetItem(f"Scanned file: {file_path} - Virus: Invalid Signature")
-                    item.setData(Qt.UserRole, file_path)
-                    return True, virus_name
-
-            # Skip if Microsoft signature exists
-            if preferences.get("check_microsoft_signature", False):
-                if hasMicrosoftSignature(file_path):
-                    logging.info(f"File signed by Microsoft, skipping: {file_path}")
-                    return False, ""
-
-        if preferences["use_clamav"]:
-            virus_name = scan_file_with_clamd(file_path)
-            if virus_name != "Clean":
-                return True, virus_name
-
-        if preferences["use_yara"]:
-            yara_result = yara_scanner.static_analysis(file_path)
-            if yara_result != "Clean":
-                if isinstance(yara_result, list):
-                    virus_name = ', '.join(yara_result)
-                elif isinstance(yara_result, str):
-                    virus_name = yara_result
-
-        if preferences["use_machine_learning"]:
-            is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path)
-            if is_malicious:
-                virus_name = malware_definition
-
-        if virus_name:
-            logging.warning(f"Infected file detected: {file_path} - Virus: {virus_name}")
-            item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
-            item.setData(Qt.UserRole, file_path)
-            self.detected_list.addItem(item)
-            self.total_scanned += 1
-            self.infected_files += 1
-            self.update_scan_labels()
-            return True, virus_name
-        else:
-            logging.info(f"File is clean: {file_path}")
-            self.total_scanned += 1
-            self.clean_files += 1
-            self.update_scan_labels()
-            return False, ""
+            self.start_scan(file_path, False)
 
     def update_scan_labels(self):
         self.scanned_files_label.setText(f"Total Scanned Files: {self.total_scanned}")
         self.infected_files_label.setText(f"Infected Files: {self.infected_files}")
         self.clean_files_label.setText(f"Clean Files: {self.clean_files}")
-
-    def scan_directory(self, directory):
-        detected_threats = []
-        clean_files = []
-
-        def scan_file(file_path):
-            if self.pause_event.is_set():
-                logging.info("Scanning paused. Waiting for resume.")
-                self.pause_event.wait()
-            if self.stop_event.is_set():
-                logging.info("Scanning stopped.")
-                return
-
-            with ThreadPoolExecutor(max_workers=1000) as executor:
-                future = executor.submit(self.scan_file_path, file_path)
-                is_infected, virus_name = future.result()
-
-            if is_infected:
-                # If the file is infected, add it to the detected list
-                item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
-                item.setData(Qt.UserRole, file_path)
-                detected_threats.append((file_path, virus_name))
-            else:
-                clean_files.append(file_path)
-
-        with ThreadPoolExecutor(max_workers=1000) as executor:
-            futures = []
-            for root, _, files in os.walk(directory):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    futures.append(executor.submit(scan_file, file_path))
-
-            # Ensure all futures are completed
-            for future in as_completed(futures):
-                future.result()
-
-        self.show_summary(detected_threats, clean_files)
-        self.folder_scan_finished.emit()
 
     def pause_scanning(self):
         self.pause_event.clear()
