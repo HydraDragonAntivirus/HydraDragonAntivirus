@@ -971,9 +971,6 @@ class SnortObserver:
         self.thread = None
         self.snort_process = None
 
-    def system_platform(self):
-        return platform.system()
-
     def start_sniffing(self):
         max_device_number = 20
         for device_number in range(1, max_device_number + 1):
