@@ -1316,7 +1316,6 @@ class ScanManager(QDialog):
         if preferences["use_clamav"]:
             virus_name = scan_file_with_clamd(file_path)
             if virus_name != "Clean":
-                logging.info(f"File is infected (ClamAV): {file_path}")
                 return True, virus_name
 
         if preferences["use_yara"]:
