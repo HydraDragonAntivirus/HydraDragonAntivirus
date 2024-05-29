@@ -1344,9 +1344,6 @@ class ScanManager(QDialog):
             result = scan_file_with_clamd(file_path)
             if result == "Clean":
                 logging.info(f"File is clean (ClamAV): {file_path}")
-                self.total_scanned += 1
-                self.clean_files += 1
-                self.update_scan_labels()
                 return False, ""
             virus_name = result if result != "Clean" else ""
 
@@ -1354,9 +1351,6 @@ class ScanManager(QDialog):
             yara_result = self.yara_scanner.static_analysis(file_path)
             if yara_result == "Clean":
                 logging.info(f"File is clean (Yara): {file_path}")
-                self.total_scanned += 1
-                self.clean_files += 1
-                self.update_scan_labels()
                 return False, ""
             if yara_result and isinstance(yara_result, list):
                 result = ', '.join(yara_result)
