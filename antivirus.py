@@ -1255,6 +1255,12 @@ class ScanManager(QDialog):
         else:
             threading.Thread(target=self.scan_directory, args=(self.folder_to_watch,)).start()
 
+    def quick_scan(self):
+        self.reset_scan()
+        user_folder = os.path.expanduser("~")  # Get user's home directory
+        with ThreadPoolExecutor(max_workers=1000) as executor:
+            executor.submit(self.scan_directory, user_folder)
+
     def uefi_scan(self):
         self.reset_scan()
         folder_path = self.get_uefi_folder()
