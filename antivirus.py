@@ -112,7 +112,7 @@ def save_quarantine_data(quarantine_data):
         json.dump(quarantine_data, f, indent=4)
 
 def quarantine_file(file_path, virus_name):
-    quarantine_folder = os.path.join(os.getcwd(), "quarantine")
+    quarantine_folder = os.path.abspath(os.path.join(os.getcwd(), "quarantine"))
     if not os.path.exists(quarantine_folder):
         os.makedirs(quarantine_folder)
     try:
@@ -123,7 +123,7 @@ def quarantine_file(file_path, virus_name):
         # Move the file to the quarantine folder
         shutil.move(file_path, destination_path)
         # Store the original file path in the quarantine data
-        original_path = os.path.relpath(file_path)
+        original_path = os.path.abspath(file_path)
         # Update the quarantine_data list with the new quarantine entry
         quarantine_data.append({"original_path": original_path, "quarantine_path": destination_path, "virus_name": virus_name})
         # Save the updated quarantine data
