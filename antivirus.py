@@ -1051,7 +1051,6 @@ real_time_observer = RealTimeProtectionObserver(folder_to_watch)
 real_time_web_observer = RealTimeWebProtectionObserver()
 # Initialize Snort observer
 snort_observer = SnortObserver()
-yara_scanner = YaraScanner()
 
 class YaraScanner:
     def scan_data(self, file_path):
@@ -1081,6 +1080,8 @@ class YaraScanner:
 
     def static_analysis(self, file_path):
         return self.scan_data(file_path)
+
+yara_scanner = YaraScanner()
 
 class ScanManager(QDialog):
     folder_scan_finished = Signal()
