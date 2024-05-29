@@ -975,7 +975,7 @@ class SnortObserver:
         max_device_number = 20
         for device_number in range(1, max_device_number + 1):
             try:
-                if self.system_platform() == 'Windows':
+                if system_platform() == 'Windows':
                     snort_config_path = "C:\\Snort\\etc\\snort.conf"
                 else:
                     snort_config_path = "/etc/snort/snort.conf"
@@ -1191,7 +1191,7 @@ class ScanManager(QDialog):
 
     def full_scan(self):
         with ThreadPoolExecutor(max_workers=1000) as executor:
-            if self.system_platform() == 'Windows':
+            if system_platform() == 'Windows':
                 disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
                 if len(disk_partitions) > 1:
                     # Initiate a full scan for each drive
