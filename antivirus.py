@@ -573,7 +573,6 @@ def scan_file_real_time(file_path):
                             return True, result
                     # Check with YARA if enabled
                     if preferences.get("use_yara", False):
-                        try:
                             yara_result = yara_scanner.static_analysis(file_path)
                             if yara_result and yara_result != "Clean" and yara_result != "":
                                 logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
