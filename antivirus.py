@@ -1279,15 +1279,6 @@ class ScanManager(QDialog):
         logging.info(f"Total files scanned: {total_files}")
         logging.info("-----------------------------------")
 
-    def _log_infected_file(self, file_path, virus_name):
-        # Log the infected file details
-        item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
-        item.setData(Qt.UserRole, file_path)
-        self.detected_list.addItem(item)
-        self.total_scanned += 1
-        self.infected_files += 1
-        self.update_scan_labels()
-
     def scan_file_path(self, file_path):
         self.pause_event.wait()  # Wait if the scan is paused
         if self.stop_event.is_set():
@@ -1302,11 +1293,21 @@ class ScanManager(QDialog):
             # Check for valid signature
             if self.preferences.get("check_valid_signature", False):
                 if not valid_signature_exists(file_path):
-                    self._log_infected_file(file_path, virus_name)
+                    logging.warning(f"Invalid signature detected: {file_path}")
+                    virus_name = "Invalid Signature"
+                    item = QListWidgetItem(f"Scanned file: {file_path} - Virus: Invalid Signature")
+                    item.setData(Qt.UserRole, file_path)
+                    self.detected_list.addItem(item)
+                    self.total_scanned += 1
+                    self.infected_files += 1
+                    self.update_scan_labels()
                     return True, virus_name
                 elif self.preferences.get("check_microsoft_signature", False):
                     if hasMicrosoftSignature(file_path):
                         logging.info(f"File signed by Microsoft, skipping: {file_path}")
+                        self.total_scanned += 1
+                        self.clean_files += 1
+                        self.update_scan_labels()
                         return False, ""
 
         if self.preferences.get("use_machine_learning"):
@@ -1323,34 +1324,72 @@ class ScanManager(QDialog):
         if self.preferences.get("use_clamav"):
             virus_name = scan_file_with_clamd(file_path)
             if virus_name != "Clean":
-                self._log_infected_file(file_path, virus_name)
+                item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
+                item.setData(Qt.UserRole, file_path)
+                self.detected_list.addItem(item)
+                self.total_scanned += 1
+                self.infected_files += 1
+                self.update_scan_labels()
                 return True, virus_name
 
         if self.preferences.get("use_yara"):
             yara_result = yara_scanner.static_analysis(file_path)
             if yara_result != "Clean":
                 virus_name = ', '.join(yara_result) if isinstance(yara_result, list) else yara_result
+                item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
+                item.setData(Qt.UserRole, file_path)
+                self.detected_list.addItem(item)
+                self.total_scanned += 1
+                self.infected_files += 1
+                self.update_scan_labels()
+                return True, virus_name
 
         # Scan PE files
         if is_pe_file(file_path):
             scan_result, pe_virus_name = scan_pe_file(file_path)
             if scan_result:
                 virus_name = pe_virus_name
+                item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
+                item.setData(Qt.UserRole, file_path)
+                self.detected_list.addItem(item)
+                self.total_scanned += 1
+                self.infected_files += 1
+                self.update_scan_labels()
+                return True, virus_name
 
         # Scan TAR files
         if tarfile.is_tarfile(file_path):
             scan_result, tar_virus_name = scan_tar_file(file_path)
             if scan_result:
                 virus_name = tar_virus_name
+                item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
+                item.setData(Qt.UserRole, file_path)
+                self.detected_list.addItem(item)
+                self.total_scanned += 1
+                self.infected_files += 1
+                self.update_scan_labels()
+                return True, virus_name
 
         # Scan ZIP files
         if zipfile.is_zipfile(file_path):
             scan_result, zip_virus_name = scan_zip_file(file_path)
             if scan_result:
                 virus_name = zip_virus_name
+                item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
+                item.setData(Qt.UserRole, file_path)
+                self.detected_list.addItem(item)
+                self.total_scanned += 1
+                self.infected_files += 1
+                self.update_scan_labels()
+                return True, virus_name
 
         if virus_name:
-            self._log_infected_file(file_path, virus_name)
+            item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
+            item.setData(Qt.UserRole, file_path)
+            self.detected_list.addItem(item)
+            self.total_scanned += 1
+            self.infected_files += 1
+            self.update_scan_labels()
             return True, virus_name
         else:
             logging.info(f"File is clean: {file_path}")
@@ -1358,16 +1397,7 @@ class ScanManager(QDialog):
             self.clean_files += 1
             self.update_scan_labels()
             return False, ""
-
-    def _log_infected_file(self, file_path, virus_name):
-        logging.warning(f"Infected file detected: {file_path} - Virus: {virus_name}")
-        item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
-        item.setData(Qt.UserRole, file_path)
-        self.detected_list.addItem(item)
-        self.total_scanned += 1
-        self.infected_files += 1
-        self.update_scan_labels()
-
+            
     def full_scan(self):
         if self.system_platform() == 'nt':  # Windows platform
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
