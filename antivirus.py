@@ -1188,7 +1188,6 @@ class ScanManager(QDialog):
             self.scan_directory(path)
         else:
             self.scan_file_path(path)
-        self.folder_scan_finished.emit()
 
     def get_uefi_folder(self):
         if system_platform() == 'Windows':
@@ -1363,21 +1362,26 @@ class ScanManager(QDialog):
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
             for drive in disk_partitions:
                 self.start_scan(drive)
+                self.folder_scan_finished.emit()
         else:
             self.start_scan(self.folder_to_watch)
+            self.folder_scan_finished.emit()
 
     def quick_scan(self):
         user_folder = os.path.expanduser("~")  # Get user's home directory
         self.start_scan(user_folder)
+        self.folder_scan_finished.emit()
 
     def uefi_scan(self):
         folder_path = self.get_uefi_folder()
         self.start_scan(folder_path)
+        self.folder_scan_finished.emit()
 
     def scan_folder(self):
         folder_path = QFileDialog.getExistingDirectory(None, "Select Folder to Scan")
         if folder_path:
             self.start_scan(folder_path)
+            self.folder_scan_finished.emit()
 
     def scan_file(self):
         file_path, _ = QFileDialog.getOpenFileName(None, "Select File to Scan")
