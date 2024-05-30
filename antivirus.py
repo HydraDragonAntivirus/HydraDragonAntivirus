@@ -199,8 +199,8 @@ def load_preferences():
             "real_time_protection": False,
             "real_time_web_protection": False,
             "enable_hips": True,
-            "check_valid_signature": False,  # Add new preference for valid signature
-            "check_microsoft_signature": False  # Add new preference for Microsoft signature
+            "check_valid_signature": True,  # Add new preference for valid signature
+            "check_microsoft_signature": True # Add new preference for Microsoft signature
         }
         save_preferences(default_preferences)
         return default_preferences
@@ -1076,7 +1076,9 @@ class ScanManager(QDialog):
         self.stop_event = threading.Event()
         self.pause_event.set()
         self.preferences = load_preferences()
-
+        # Connect signals to slots
+        self.folder_scan_finished.connect(self.show_scan_finished_message)
+        self.memory_scan_finished.connect(self.show_memory_scan_finished_message)
         # Initialize counters
         self.total_scanned = 0
         self.infected_files = 0
@@ -1263,7 +1265,6 @@ class ScanManager(QDialog):
                 future.result()
 
         self.show_summary(detected_threats, clean_files)
-        self.folder_scan_finished.emit()
 
     def show_summary(self, detected_threats, clean_files):
         num_detected = len(detected_threats)
@@ -1405,7 +1406,7 @@ class ScanManager(QDialog):
         self.stop_event.clear()
          
     def show_scan_finished_message(self):
-        QMessageBox.information(self, "Scan Finished", "Folder scan has finished.")
+        QMessageBox.information(self, "Scan Finished", "File scan has finished.")
 
     def show_memory_scan_finished_message(self):
         QMessageBox.information(self, "Scan Finished", "Memory scan has finished.")
