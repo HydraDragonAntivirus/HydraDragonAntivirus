@@ -1624,13 +1624,13 @@ class ScanManager(QDialog):
 
             # Check with ClamAV if enabled and no issues found
             if not virus_name and preferences.get("use_clamav", False):
-                virus_name = self.scan_file_with_clamd(file_path)
+                virus_name = scan_file_with_clamd(file_path)
                 if virus_name:
                     logging.warning(f"Virus detected by ClamAV in file: {file_path} - Virus: {virus_name}")
 
             # Check with YARA if enabled and no issues found
             if not virus_name and preferences.get("use_yara", False):
-                yara_result = self.yara_scanner(file_path)
+                yara_result = yara_scanner(file_path)
                 if yara_result:
                     if isinstance(yara_result, list):
                         virus_name = ", ".join(yara_result)
