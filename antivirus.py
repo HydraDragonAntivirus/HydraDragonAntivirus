@@ -1177,7 +1177,7 @@ class ScanManager(QDialog):
         self.detected_list.clear()
         self.current_file_label.setText("Currently Scanning:")
 
-     def start_scan(self, path):
+    def start_scan(self, path):
         self.reset_scan()
         self.thread = QThread()
         self.thread.run = lambda: self.scan(path)
