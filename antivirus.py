@@ -316,7 +316,6 @@ def check_windows_signature(file_path):
         result = subprocess.run(["powershell.exe", "-Command", command], capture_output=True, text=True)
         
         status = result.stdout.strip()
-        logging.info(f"Signature status for {file_path}: {status}")
         
         if "Valid" in status or "NotSigned" or "UnknownError" in status:
             return True
