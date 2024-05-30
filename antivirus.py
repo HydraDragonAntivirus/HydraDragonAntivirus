@@ -1090,6 +1090,7 @@ class ScanManager(QDialog):
         self.pause_event = threading.Event()
         self.stop_event = threading.Event()
         self.pause_event.set()
+        self.preferences = load_preferences()
 
         # Initialize counters
         self.total_scanned = 0
@@ -1349,7 +1350,7 @@ class ScanManager(QDialog):
             self.clean_files += 1
             self.update_scan_labels()
             return False, ""
-            
+
     def full_scan(self):
         if self.system_platform() == 'nt':  # Windows platform
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
