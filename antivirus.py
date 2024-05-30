@@ -560,12 +560,12 @@ def scan_file_real_time(file_path):
             if not valid_signature_exists(file_path):
                 logging.warning(f"Invalid signature detected: {file_path}")
                 return True, "Invalid Signature"
-
-        # Skip if Microsoft signature exists
-        if preferences.get("check_microsoft_signature", False):
-            if hasMicrosoftSignature(file_path):
-                logging.info(f"File signed by Microsoft, skipping: {file_path}")
-                return False, "Microsoft Signed"
+            else:
+                # Check for Microsoft signature only if the signature is valid
+                if preferences.get("check_microsoft_signature", False):
+                    if hasMicrosoftSignature(file_path):
+                        logging.info(f"File signed by Microsoft, skipping: {file_path}")
+                        return False, "Clean"
 
     if preferences["use_clamav"]:
         result = scan_file_with_clamd(file_path)
@@ -1302,26 +1302,26 @@ class ScanManager(QDialog):
 
         if system_platform() in ['Windows', 'Linux', 'Darwin']:
             # Check for valid signature
-            if preferences.get("check_valid_signature", False):
+            if self.preferences.get("check_valid_signature", False):
                 if not valid_signature_exists(file_path):
                     logging.warning(f"Invalid signature detected: {file_path}")
                     virus_name = "Invalid Signature"
                     item = QListWidgetItem(f"Scanned file: {file_path} - Virus: Invalid Signature")
                     item.setData(Qt.UserRole, file_path)
                     return True, virus_name
+                else:
+                    # Check for Microsoft signature only if the signature is valid
+                    if self.preferences.get("check_microsoft_signature", False):
+                        if hasMicrosoftSignature(file_path):
+                            logging.info(f"File signed by Microsoft, skipping: {file_path}")
+                            return False, ""
 
-            # Skip if Microsoft signature exists
-            if preferences.get("check_microsoft_signature", False):
-                if hasMicrosoftSignature(file_path):
-                    logging.info(f"File signed by Microsoft, skipping: {file_path}")
-                    return False, ""
-
-        if preferences["use_clamav"]:
+        if self.preferences["use_clamav"]:
             virus_name = scan_file_with_clamd(file_path)
             if virus_name != "Clean":
                 return True, virus_name
 
-        if preferences["use_yara"]:
+        if self.preferences["use_yara"]:
             yara_result = yara_scanner.static_analysis(file_path)
             if yara_result != "Clean":
                 if isinstance(yara_result, list):
@@ -1329,7 +1329,7 @@ class ScanManager(QDialog):
                 elif isinstance(yara_result, str):
                     virus_name = yara_result
 
-        if preferences["use_machine_learning"]:
+        if self.preferences["use_machine_learning"]:
             is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path)
             if is_malicious:
                 virus_name = malware_definition
@@ -1349,7 +1349,7 @@ class ScanManager(QDialog):
             self.clean_files += 1
             self.update_scan_labels()
             return False, ""
-
+            
     def full_scan(self):
         if self.system_platform() == 'nt':  # Windows platform
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
