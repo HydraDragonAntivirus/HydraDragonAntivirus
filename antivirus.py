@@ -566,7 +566,7 @@ def scan_file_real_time(file_path):
     logging.info(f"Started scanning file: {file_path}")
 
     # Check for valid signature
-    if preferences.get("check_valid_signature", False):
+    if preferences.get["check_valid_signature"]:
         if not valid_signature_exists(file_path):
             logging.warning(f"Invalid signature detected: {file_path}")
             return True, "Invalid Signature"
@@ -575,7 +575,7 @@ def scan_file_real_time(file_path):
             return False, "Clean"
 
     # Scan with Machine Learning
-    if preferences.get("use_machine_learning"):
+    if preferences.get["use_machine_learning"]:
         is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
         if is_malicious and benign_score < 0.93:
             logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
@@ -586,7 +586,7 @@ def scan_file_real_time(file_path):
         logging.info(f"No malware detected by Machine Learning in file: {file_path}")
 
     # Scan with ClamAV
-    if preferences.get("use_clamav"):
+    if preferences.get["use_clamav"]:
         result = scan_file_with_clamd(file_path)
         if result not in ("Clean", ""):
             logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
@@ -594,7 +594,7 @@ def scan_file_real_time(file_path):
         logging.info(f"No malware detected by ClamAV in file: {file_path}")
 
     # Scan with YARA
-    if preferences.get("use_yara"):
+    if preferences.get["use_yara"]:
         try:
             yara_result = yara_scanner.static_analysis(file_path)
             if yara_result not in ("Clean", ""):
@@ -631,7 +631,7 @@ def scan_file_real_time(file_path):
         logging.info(f"No malware detected in ZIP file: {file_path}")
 
     return False, "Clean"
-    
+
 def is_pe_file(file_path):
     """Check if the file is a PE file (executable)."""
     try:
@@ -1312,18 +1312,18 @@ class ScanManager(QDialog):
 
         if system_platform() in ['Windows', 'Linux', 'Darwin']:
             # Check for valid signature
-            if self.preferences.get("check_valid_signature", False):
+            if self.preferences.get["check_valid_signature"]:
                 if not valid_signature_exists(file_path):
                     logging.warning(f"Invalid signature detected: {file_path}")
                     virus_name = "Invalid Signature"
                     self._log_infected_file(file_path, virus_name)
                     return True, virus_name
-                elif self.preferences.get("check_microsoft_signature", False):
+                elif self.preferences.get["check_microsoft_signature"]:
                     if hasMicrosoftSignature(file_path):
                         logging.info(f"File signed by Microsoft, skipping: {file_path}")
                         return False, ""
 
-        if self.preferences.get("use_machine_learning"):
+        if self.preferences.get["use_machine_learning"]:
             is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
             if is_malicious and benign_score < 0.93:  # Add the benign score check here
                 virus_name = malware_definition
@@ -1334,13 +1334,13 @@ class ScanManager(QDialog):
                 self.update_scan_labels()
                 return False, ""
 
-        if self.preferences.get("use_clamav"):
+        if self.preferences.get["use_clamav"]:
             virus_name = scan_file_with_clamd(file_path)
             if virus_name != "Clean":
                 self._log_infected_file(file_path, virus_name)
                 return True, virus_name
 
-        if self.preferences.get("use_yara"):
+        if self.preferences.get["use_yara"]:
             yara_result = yara_scanner.static_analysis(file_path)
             if yara_result != "Clean":
                 virus_name = ', '.join(yara_result) if isinstance(yara_result, list) else yara_result
@@ -1649,11 +1649,11 @@ class PreferencesDialog(QDialog):
 
         if system_platform() in ['Windows', 'Linux', 'Darwin']:
             self.valid_signature_checkbox = QCheckBox("Check valid signature (Improve Detection)")
-            self.valid_signature_checkbox.setChecked(preferences.get("check_valid_signature", False))
+            self.valid_signature_checkbox.setChecked(preferences.get["check_valid_signature"])
             layout.addWidget(self.valid_signature_checkbox)
 
             self.microsoft_signature_checkbox = QCheckBox("Check Microsoft signature (Less F/P And Optimization)")
-            self.microsoft_signature_checkbox.setChecked(preferences.get("check_microsoft_signature", False))
+            self.microsoft_signature_checkbox.setChecked(preferences.get["check_microsoft_signature"])
             layout.addWidget(self.microsoft_signature_checkbox)
 
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
