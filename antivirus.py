@@ -1607,14 +1607,14 @@ class ScanManager(QDialog):
 
         if system_platform() in ['Windows', 'Linux', 'Darwin']:
             # Check for valid signature
-            if self.preferences.get("check_valid_signature", False):
+            if preferences.get("check_valid_signature", False):
                 if not self.valid_signature_exists(file_path):
                     logging.warning(f"Invalid signature detected: {file_path}")
                     virus_name = "Invalid Signature"
                 else:
                     logging.info(f"Valid signature found for: {file_path}")
                     # Check for Microsoft signature only if the signature is valid
-                    if self.preferences.get("check_microsoft_signature", False):
+                    if preferences.get("check_microsoft_signature", False):
                         if self.hasMicrosoftSignature(file_path):
                             logging.info(f"File signed by Microsoft, skipping: {file_path}")
                             self.total_scanned += 1  # Increment total scanned count
@@ -1623,13 +1623,13 @@ class ScanManager(QDialog):
                             return False, ""
 
             # Check with ClamAV if enabled and no issues found
-            if not virus_name and self.preferences.get("use_clamav", False):
+            if not virus_name and preferences.get("use_clamav", False):
                 virus_name = self.scan_file_with_clamd(file_path)
                 if virus_name:
                     logging.warning(f"Virus detected by ClamAV in file: {file_path} - Virus: {virus_name}")
 
             # Check with YARA if enabled and no issues found
-            if not virus_name and self.preferences.get("use_yara", False):
+            if not virus_name and preferences.get("use_yara", False):
                 yara_result = self.yara_scanner(file_path)
                 if yara_result:
                     if isinstance(yara_result, list):
@@ -1690,7 +1690,7 @@ class ScanManager(QDialog):
         self.clean_files += 1
         self.update_scan_labels()
         return False, ""
-        
+
 class WorkerSignals(QObject):
     success = Signal()
     failure = Signal()
