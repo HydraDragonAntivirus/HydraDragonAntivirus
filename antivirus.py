@@ -600,7 +600,7 @@ def scan_file_real_time(file_path):
 
     # Check if the file is a PE file (executable)
     if is_pe_file(file_path):
-        scan_result, virus_name = scan_exe_file(file_path)
+        scan_result, virus_name = scan_pe_file(file_path)
         if scan_result and virus_name != "Clean" and virus_name != "":
             logging.warning(f"Infected file detected (PE): {file_path} - Virus: {virus_name}")
             return True, virus_name
@@ -635,7 +635,7 @@ def is_pe_file(file_path):
     except pefile.PEFormatError:
         return False
 
-def scan_exe_file(file_path):
+def scan_pe_file(file_path):
     """Scan files within an exe file."""
     virus_name = []
     try:
