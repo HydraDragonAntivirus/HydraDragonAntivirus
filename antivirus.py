@@ -1481,6 +1481,10 @@ class ScanManager(QDialog):
             except psutil.AccessDenied:
                 print(f"Access denied when trying to kill process: {proc.info['pid']} ({proc.info['name']})")
 
+class WorkerSignals(QObject):
+    success = Signal()
+    failure = Signal()
+
 class AntivirusUI(QWidget):
     folder_scan_finished = Signal()
     # Define a new signal for memory scan finished
@@ -1498,6 +1502,9 @@ class AntivirusUI(QWidget):
         # Define pause_event and stop_event attributes
         self.pause_event = threading.Event()
         self.stop_event = threading.Event()
+        self.signals = WorkerSignals()
+        self.signals.success.connect(self.show_success_message)
+        self.signals.failure.connect(self.show_failure_message)
 
     def setup_main_ui(self):
         layout = QVBoxLayout()
@@ -1534,6 +1541,12 @@ class AntivirusUI(QWidget):
 
         self.setLayout(layout)
 
+    def show_success_message(self):
+        QMessageBox.information(self, "Update Definitions", "Antivirus definitions updated successfully.")
+
+    def show_failure_message(self):
+        QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
+
     def load_website_signatures(self):
         load_data()  # Call the load_data function to load website signatures
 
@@ -1558,14 +1571,13 @@ class AntivirusUI(QWidget):
         quarantine_manager.show()
 
     def update_definitions(self):
-        """Threaded update definitions method."""
         def run_update():
             result = subprocess.run(["freshclam"], capture_output=True)
             if result.returncode == 0:
-                QMessageBox.information(self, "Update Definitions", "Antivirus definitions updated successfully.")
+                self.signals.success.emit()
             else:
-                QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
-        
+                self.signals.failure.emit()
+
         update_thread = threading.Thread(target=run_update)
         update_thread.start()
 
