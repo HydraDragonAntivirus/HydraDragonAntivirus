@@ -1,3 +1,4 @@
+
 import sys
 import os
 import shutil
@@ -1789,29 +1790,35 @@ class QuarantineManager(QDialog):
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to restore file: {str(e)}")
         save_quarantine_data(quarantine_data)
-        
-if __name__ == "__main__":
+
+def main():
     try:
-        # Create a thread for monitoring preferences
+        # Create threads for monitoring preferences
         preferences_thread = threading.Thread(target=monitor_preferences)
         preferences_thread.daemon = True  # Daemonize the thread so it exits when the main thread exits
         preferences_thread.start()
-        # Create a thread for monitoring preferences
+
         web_preferences_thread = threading.Thread(target=monitor_web_preferences)
-        web_preferences_thread.daemon = True  # Daemonize the thread so it exits when the main thread exits
+        web_preferences_thread.daemon = True
         web_preferences_thread.start()
-        # Create a thread for monitoring preferences
+
         snort_preferences_thread = threading.Thread(target=monitor_snort_preferences)
-        snort_preferences_thread.daemon = True  # Daemonize the thread so it exits when the main thread exits
+        snort_preferences_thread.daemon = True
         snort_preferences_thread.start()
+
         app = QApplication(sys.argv)
         main_gui = AntivirusUI()
-        # Initialize the ScanManager
+
         scan_manager = ScanManager()
-         # Connect signals to the ScanManager's slots
-        scan_manager.folder_scan_finished.connect(scan_manager.folder_scan_finished.emit)
-        scan_manager.memory_scan_finished.connect(scan_manager.memory_scan_finished.emit)
+
+        # Connect signals to the ScanManager's slots
+        scan_manager.folder_scan_finished.connect(scan_manager.show_scan_finished_message)
+        scan_manager.memory_scan_finished.connect(scan_manager.show_memory_scan_finished_message)
+
         main_gui.show()
         sys.exit(app.exec())
     except Exception as e:
         print(f"An error occurred: {e}")
+
+if __name__ == "__main__":
+    main()
