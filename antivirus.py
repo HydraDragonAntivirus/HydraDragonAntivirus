@@ -403,7 +403,8 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
         
         # Load PE file
         try:
-            pe = pefile.PE(file_path)
+            with open(file_path, 'rb') as f:
+                pe = pefile.PE(data=f.read())
         except pefile.PEFormatError:
             return False, malware_definition
 
