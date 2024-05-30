@@ -567,7 +567,7 @@ def scan_file_real_time(file_path):
                 else:
                     # Check with ClamAV if enabled
                     if preferences.get("use_clamav", False):
-                        result = scan_file_with_clamd_classic(file_path)
+                        result = scan_file_with_clamd(file_path)
                         if result and result != "Clean" and result != "":
                             logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
                             return True, result
@@ -650,7 +650,7 @@ def scan_sub_file_real_time(data):
 
         # Check with ClamAV if enabled and no issues found
         if preferences.get("use_clamav", False):
-            clamav_result = scan_file_with_clamd_classic(data)
+            clamav_result = scan_file_with_clamd(data)
             if clamav_result and clamav_result != "Clean" and clamav_result != "":
                 logging.warning(f"Infected sub-file detected (ClamAV): Virus: {clamav_result}")
                 return True, clamav_result
@@ -1297,7 +1297,7 @@ class ScanManager(QDialog):
                     
             # Check with ClamAV if enabled and no issues found
             if preferences.get("use_clamav", False):
-                virus_name = self.scan_file_with_clamd_classic(file_path)
+                virus_name = self.scan_file_with_clamd(file_path)
                 if virus_name:
                     logging.warning(f"Virus detected by ClamAV in file: {file_path} - Virus: {virus_name}")
                     return True, virus_name
