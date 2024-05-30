@@ -22,6 +22,7 @@ import yara
 import psutil
 from notifypy import Notify
 import logging
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -395,59 +396,68 @@ def safe_remove(file_path):
     except Exception as e:
         print(f"Error deleting file {file_path}: {e}")
 
+
 def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     """Scan a file for malicious activity using machine learning."""
     try:
         # Initialize default response
         malware_definition = "Benign"
         
-        # Load PE file
-        try:
-            with open(file_path, 'rb') as f:
-                pe = pefile.PE(data=f.read())
-        except pefile.PEFormatError:
-            return False, malware_definition
+        # Create a temporary copy of the file
+        with tempfile.NamedTemporaryFile(delete=True) as temp_file:
+            shutil.copyfile(file_path, temp_file.name)
+            temp_file.flush()  # Ensure all data is written to disk
 
-        # Extract features
-        file_info = extract_infos(file_path)
-        file_numeric_features = extract_numeric_features(file_path)
-
-        is_malicious = False
-        malware_rank = None
-        nearest_malicious_similarity = 0
-        nearest_benign_similarity = 0
-
-        # Compare with malicious features
-        for malicious_features, info in zip(malicious_numeric_features, malicious_file_names):
-            rank = info['numeric_tag']
-            similarity = calculate_similarity(file_numeric_features, malicious_features)
-            if similarity > nearest_malicious_similarity:
-                nearest_malicious_similarity = similarity
-            if similarity >= threshold:
-                is_malicious = True
-                malware_rank = rank
-                malware_definition = info['file_name']
-                break
-
-        # Compare with benign features
-        for benign_features in benign_numeric_features:
-            similarity = calculate_similarity(file_numeric_features, benign_features)
-            if similarity > nearest_benign_similarity:
-                nearest_benign_similarity = similarity
-
-        # Determine final verdict
-        if is_malicious:
-            if nearest_benign_similarity >= 0.9:
+            try:
+                pe = pefile.PE(temp_file.name)
+            except pefile.PEFormatError:
                 return False, malware_definition
-            else:
-                return True, malware_definition
-        else:
-            return False, malware_definition
+
+            try:
+                # Extract features
+                file_info = extract_infos(temp_file.name)
+                file_numeric_features = extract_numeric_features(temp_file.name)
+
+                is_malicious = False
+                malware_rank = None
+                nearest_malicious_similarity = 0
+                nearest_benign_similarity = 0
+
+                # Compare with malicious features
+                for malicious_features, info in zip(malicious_numeric_features, malicious_file_names):
+                    rank = info['numeric_tag']
+                    similarity = calculate_similarity(file_numeric_features, malicious_features)
+                    if similarity > nearest_malicious_similarity:
+                        nearest_malicious_similarity = similarity
+                    if similarity >= threshold:
+                        is_malicious = True
+                        malware_rank = rank
+                        malware_definition = info['file_name']
+                        break
+
+                # Compare with benign features
+                for benign_features in benign_numeric_features:
+                    similarity = calculate_similarity(file_numeric_features, benign_features)
+                    if similarity > nearest_benign_similarity:
+                        nearest_benign_similarity = similarity
+
+                # Determine final verdict
+                if is_malicious:
+                    if nearest_benign_similarity >= 0.9:
+                        return False, malware_definition
+                    else:
+                        return True, malware_definition
+                else:
+                    return False, malware_definition
+
+            finally:
+                # Ensure the PE file is closed
+                pe.close()
 
     except Exception as e:
         print(f"An error occurred while scanning file {file_path}: {e}")
         return False, str(e)
-
+        
 def is_clamd_running():
     """Check if clamd is running."""
     if system_platform() in ['Linux', 'Darwin', 'FreeBSD']:
