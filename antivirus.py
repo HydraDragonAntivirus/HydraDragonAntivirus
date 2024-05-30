@@ -1276,7 +1276,7 @@ class ScanManager(QDialog):
 
         if system_platform() in ['Windows', 'Linux', 'Darwin']:
             # Check for valid signature
-            if self.preferences.get("check_valid_signature", False):
+            if preferences.get("check_valid_signature", False):
                 if not self.valid_signature_exists(file_path):
                     logging.warning(f"Invalid signature detected: {file_path}")
                     virus_name = "Invalid Signature"
@@ -1290,20 +1290,20 @@ class ScanManager(QDialog):
                 else:
                     logging.info(f"Valid signature found for: {file_path}")
                     # Check for Microsoft signature only if the signature is valid
-                    if self.preferences.get("check_microsoft_signature", False):
+                    if preferences.get("check_microsoft_signature", False):
                         if self.hasMicrosoftSignature(file_path):
                             logging.info(f"File signed by Microsoft, skipping: {file_path}")
                             return False, ""
                     
             # Check with ClamAV if enabled and no issues found
-            if self.preferences.get("use_clamav", False):
+            if preferences.get("use_clamav", False):
                 virus_name = self.scan_file_with_clamd_classic(file_path)
                 if virus_name:
                     logging.warning(f"Virus detected by ClamAV in file: {file_path} - Virus: {virus_name}")
                     return True, virus_name
 
             # Check with YARA if enabled and no issues found
-            if self.preferences.get("use_yara", False):
+            if preferences.get("use_yara", False):
                 yara_result = self.yara_scanner.static_analysis(file_path)
                 if yara_result:
                     if isinstance(yara_result, list):
@@ -1345,27 +1345,27 @@ class ScanManager(QDialog):
 
         if system_platform() in ['Windows', 'Linux', 'Darwin']:
             # Check for valid signature
-            if self.preferences.get("check_valid_signature", False):
+            if preferences.get("check_valid_signature", False):
                 if not self.valid_signature_exists(file_data):
                     logging.warning("Invalid signature detected")
                     virus_name = "Invalid Signature"
                     return True, virus_name
                 
                 # Check for Microsoft signature only if the signature is valid
-                if self.preferences.get("check_microsoft_signature", False):
+                if preferences.get("check_microsoft_signature", False):
                     if self.hasMicrosoftSignature(file_data):
                         logging.info("File signed by Microsoft, skipping")
                         return False, ""
             
             # Check with ClamAV if enabled and no issues found
-            if self.preferences.get("use_clamav", False):
+            if preferences.get("use_clamav", False):
                 virus_name = self.scan_file_with_clamd(file_data)
                 if virus_name:
                     logging.warning(f"Infected file detected - Virus: {virus_name}")
                     return True, virus_name
 
             # Check with YARA if enabled and no issues found
-            if self.preferences.get("use_yara", False):
+            if preferences.get("use_yara", False):
                 yara_result = self.yara_scanner.scan_data(file_data)
                 if yara_result:
                     if isinstance(yara_result, list):
