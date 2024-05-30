@@ -312,15 +312,18 @@ def valid_signature_exists(file_path):
 
 def check_windows_signature(file_path):
     try:
-        # Construct the command to get the Authenticode signature status
         command = f"(Get-AuthenticodeSignature '{file_path}').Status"
         result = subprocess.run(["powershell.exe", "-Command", command], capture_output=True, text=True)
-        if "NotTrusted" in result.stdout or "HashMismatch" in result.stdout or "UnknownError" in result.stdout:
-            return False
-        else:
+        
+        status = result.stdout.strip()
+        logging.info(f"Signature status for {file_path}: {status}")
+        
+        if "Valid" in status or "NotSigned" or "UnknownError" in status:
             return True
+        else:
+            return False
     except Exception as e:
-        logging.error(f"Error checking Windows signature: {e}")
+        logging.error(f"Error checking Windows signature for {file_path}: {e}")
         return False
 
 def check_macos_signature(file_path):
@@ -1397,7 +1400,7 @@ class ScanManager(QDialog):
             self.clean_files += 1
             self.update_scan_labels()
             return False, ""
-            
+
     def full_scan(self):
         if self.system_platform() == 'nt':  # Windows platform
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
