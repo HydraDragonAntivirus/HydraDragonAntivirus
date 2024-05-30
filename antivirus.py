@@ -1177,11 +1177,11 @@ class ScanManager(QDialog):
         self.detected_list.clear()
         self.current_file_label.setText("Currently Scanning:")
 
-    def start_scan(self, path):
+     def start_scan(self, path):
         self.reset_scan()
         self.thread = QThread()
         self.thread.run = lambda: self.scan(path)
-        self.thread.finished.connect(self.thread.deleteLater)
+        self.thread.finished.connect(self.folder_scan_finished.emit)  # Connect to signal emit
         self.thread.start()
 
     def scan(self, path):
@@ -1366,23 +1366,19 @@ class ScanManager(QDialog):
                 self.folder_scan_finished.emit()
         else:
             self.start_scan(self.folder_to_watch)
-            self.folder_scan_finished.emit()
 
     def quick_scan(self):
         user_folder = os.path.expanduser("~")  # Get user's home directory
         self.start_scan(user_folder)
-        self.folder_scan_finished.emit()
 
     def uefi_scan(self):
         folder_path = self.get_uefi_folder()
         self.start_scan(folder_path)
-        self.folder_scan_finished.emit()
 
     def scan_folder(self):
         folder_path = QFileDialog.getExistingDirectory(None, "Select Folder to Scan")
         if folder_path:
             self.start_scan(folder_path)
-            self.folder_scan_finished.emit()
 
     def scan_file(self):
         file_path, _ = QFileDialog.getOpenFileName(None, "Select File to Scan")
