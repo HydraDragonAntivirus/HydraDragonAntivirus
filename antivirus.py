@@ -571,101 +571,52 @@ def scan_file_real_time(file_path):
                         if result and result != "Clean" and result != "":
                             logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
                             return True, result
-                        else:
-                            # Check with YARA if enabled
-                            if preferences.get("use_yara", False):
-                                yara_result = None
-                                try:
-                                    yara_result = yara_scanner.static_analysis(file_path)
-                                except PermissionError as e:
-                                    logging.error(f"Permission denied: {file_path} - {str(e)}")
-                                    return False, "Clean"
-                                except Exception as e:
-                                    logging.error(f"Error scanning file with YARA: {file_path} - {str(e)}")
-                                    return False, "Clean"
-                                
-                                if yara_result and yara_result != "Clean" and yara_result != "":
-                                    logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
-                                    return True, yara_result
-
-                            # Check with machine learning if enabled
-                            if preferences.get("use_machine_learning", False):
-                                is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path)
-                                if is_malicious and malware_definition != "Clean" and malware_definition != "":
-                                    logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
-                                    return True, malware_definition
-
-                            # Check if the file is a PE file (executable)
-                            if is_pe_file(file_path):
-                                scan_result, virus_name = scan_pe_file(file_path)
-                                if scan_result and virus_name != "Clean" and virus_name != "":
-                                    logging.warning(f"Infected file detected (PE): {file_path} - Virus: {virus_name}")
-                                    return True, virus_name
-
-                            # Check if the file is a tar archive
-                            if tarfile.is_tarfile(file_path):
-                                scan_result, virus_name = scan_tar_file(file_path)
-                                if scan_result and virus_name != "Clean" and virus_name != "":
-                                    logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
-                                    return True, virus_name
-
-                            # Check if the file is a zip archive
-                            if zipfile.is_zipfile(file_path):
-                                scan_result, virus_name = scan_zip_file(file_path)
-                                if scan_result and virus_name != "Clean" and virus_name != "":
-                                    logging.warning(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
-                                    return True, virus_name
-
-                    # If ClamAV is not enabled or no issues found
-                    else:
-                        # Check with YARA if enabled
-                        if preferences.get("use_yara", False):
-                            yara_result = None
-                            try:
-                                yara_result = yara_scanner.static_analysis(file_path)
-                            except PermissionError as e:
-                                logging.error(f"Permission denied: {file_path} - {str(e)}")
-                                return False, "Clean"
-                            except Exception as e:
-                                logging.error(f"Error scanning file with YARA: {file_path} - {str(e)}")
-                                return False, "Clean"
-                            
+                    # Check with YARA if enabled
+                    if preferences.get("use_yara", False):
+                        try:
+                            yara_result = yara_scanner.static_analysis(file_path)
                             if yara_result and yara_result != "Clean" and yara_result != "":
                                 logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
                                 return True, yara_result
+                        except PermissionError as e:
+                            logging.error(f"Permission denied: {file_path} - {str(e)}")
+                            return False, "Clean"
+                        except Exception as e:
+                            logging.error(f"Error scanning file with YARA: {file_path} - {str(e)}")
+                            return False, "Clean"
+                    
+                    # Check with machine learning if enabled
+                    if preferences.get("use_machine_learning", False):
+                        is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path)
+                        if is_malicious and malware_definition != "Clean" and malware_definition != "":
+                            logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
+                            return True, malware_definition
 
-                        # Check with machine learning if enabled
-                        if preferences.get("use_machine_learning", False):
-                            is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path)
-                            if is_malicious and malware_definition != "Clean" and malware_definition != "":
-                                logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
-                                return True, malware_definition
+                    # Check if the file is a PE file (executable)
+                    if is_pe_file(file_path):
+                        scan_result, virus_name = scan_pe_file(file_path)
+                        if scan_result and virus_name != "Clean" and virus_name != "":
+                            logging.warning(f"Infected file detected (PE): {file_path} - Virus: {virus_name}")
+                            return True, virus_name
 
-                        # Check if the file is a PE file (executable)
-                        if is_pe_file(file_path):
-                            scan_result, virus_name = scan_pe_file(file_path)
-                            if scan_result and virus_name != "Clean" and virus_name != "":
-                                logging.warning(f"Infected file detected (PE): {file_path} - Virus: {virus_name}")
-                                return True, virus_name
+                    # Check if the file is a tar archive
+                    if tarfile.is_tarfile(file_path):
+                        scan_result, virus_name = scan_tar_file(file_path)
+                        if scan_result and virus_name != "Clean" and virus_name != "":
+                            logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
+                            return True, virus_name
 
-                        # Check if the file is a tar archive
-                        if tarfile.is_tarfile(file_path):
-                            scan_result, virus_name = scan_tar_file(file_path)
-                            if scan_result and virus_name != "Clean" and virus_name != "":
-                                logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
-                                return True, virus_name
-
-                        # Check if the file is a zip archive
-                        if zipfile.is_zipfile(file_path):
-                            scan_result, virus_name = scan_zip_file(file_path)
-                            if scan_result and virus_name != "Clean" and virus_name != "":
-                                logging.warning(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
-                                return True, virus_name
+                    # Check if the file is a zip archive
+                    if zipfile.is_zipfile(file_path):
+                        scan_result, virus_name = scan_zip_file(file_path)
+                        if scan_result and virus_name != "Clean" and virus_name != "":
+                            logging.warning(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
+                            return True, virus_name
 
         # If all checks are passed and the file is clean
         logging.info(f"File is clean: {file_path}")
         return False, "Clean"
-
+        
 def scan_sub_file_real_time(data):
     """Scan sub-files (extracted from PE, TAR, ZIP) in real-time using multiple engines."""
 
@@ -741,7 +692,7 @@ def scan_sub_file_real_time(data):
     except Exception as e:
         logging.error(f"Error scanning sub-file in real-time: {str(e)}")
         return False, "Clean"
-            
+
 def is_pe_file(file_path):
     """Check if the file is a PE file (executable)."""
     try:
@@ -1314,108 +1265,118 @@ class ScanManager(QDialog):
     def scan_file_path(self, file_path):
         self.pause_event.wait()  # Wait if the scan is paused
         if self.stop_event.is_set():
+            logging.info("Scan stopped.")
             return False, ""
         
         # Show the currently scanned file
         self.current_file_label.setText(f"Currently Scanning: {file_path}")
+        logging.info(f"Scanning file: {file_path}")
 
         virus_name = ""
 
         if system_platform() in ['Windows', 'Linux', 'Darwin']:
             # Check for valid signature
-            if preferences.get("check_valid_signature", False):
-                if not valid_signature_exists(file_path):
+            if self.preferences.get("check_valid_signature", False):
+                if not self.valid_signature_exists(file_path):
                     logging.warning(f"Invalid signature detected: {file_path}")
                     virus_name = "Invalid Signature"
                     item = QListWidgetItem(f"Scanned file: {file_path} - Virus: Invalid Signature")
                     item.setData(Qt.UserRole, file_path)
+                    self.detected_list.addItem(item)
+                    self.total_scanned += 1
+                    self.infected_files += 1
+                    self.update_scan_labels()
                     return True, virus_name
                 else:
+                    logging.info(f"Valid signature found for: {file_path}")
                     # Check for Microsoft signature only if the signature is valid
-                    if preferences.get("check_microsoft_signature", False):
-                        if hasMicrosoftSignature(file_path):
+                    if self.preferences.get("check_microsoft_signature", False):
+                        if self.hasMicrosoftSignature(file_path):
                             logging.info(f"File signed by Microsoft, skipping: {file_path}")
                             return False, ""
+                    
+            # Check with ClamAV if enabled and no issues found
+            if self.preferences.get("use_clamav", False):
+                virus_name = self.scan_file_with_clamd_classic(file_path)
+                if virus_name:
+                    logging.warning(f"Virus detected by ClamAV in file: {file_path} - Virus: {virus_name}")
+                    return True, virus_name
+
+            # Check with YARA if enabled and no issues found
+            if self.preferences.get("use_yara", False):
+                yara_result = self.yara_scanner.static_analysis(file_path)
+                if yara_result:
+                    if isinstance(yara_result, list):
+                        virus_name = ", ".join(yara_result)
                     else:
-                        # Check with ClamAV if enabled and no issues found
-                        if preferences["use_clamav"]:
-                            virus_name = self.scan_file_with_clamd_classic(file_path)
-                            if virus_name:
-                                return True, virus_name
-                            else:
-                                # Check with YARA if enabled and no issues found
-                                if preferences["use_yara"]:
-                                    yara_result = yara_scanner.static_analysis(file_path)
-                                    if yara_result:
-                                        if isinstance(yara_result, list):
-                                            virus_name = ', '.join(yara_result)
-                                        elif isinstance(yara_result, str):
-                                            virus_name = yara_result
-                                    else:
-                                        # If no malware found with other methods, check PE, TAR, ZIP
-                                        if not virus_name:
-                                            # Check if the file is a PE file (executable)
-                                            if self.is_pe_file_classic(file_path):
-                                                scan_result, virus_name = self.scan_pe_file_classic(file_path)
-                                                if scan_result:
-                                                    logging.warning(f"Infected file detected (PE): {file_path} - Virus: {virus_name}")
-                                                    item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
-                                                    item.setData(Qt.UserRole, file_path)
-                                                    self.detected_list.addItem(item)
-                                                    self.total_scanned += 1
-                                                    self.infected_files += 1
-                                                    self.update_scan_labels()
-                                                    return True, virus_name
-                                                else:
-                                                    logging.info(f"No malware detected in PE file: {file_path}")
-                                                    self.total_scanned += 1
-                                                    self.clean_files += 1
-                                                    self.update_scan_labels()
-                                                    return False, ""
-                                            else:
-                                                # Check if the file is a tar archive and scan its content if it is
-                                                if self.is_tar_file_classic(file_path):
-                                                    scan_result, virus_name = self.scan_tar_file_classic(file_path)
-                                                    if scan_result:
-                                                        logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
-                                                        item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
-                                                        item.setData(Qt.UserRole, file_path)
-                                                        self.detected_list.addItem(item)
-                                                        self.total_scanned += 1
-                                                        self.infected_files += 1
-                                                        self.update_scan_labels()
-                                                        return True, virus_name
-                                                    else:
-                                                        logging.info(f"No malware detected in TAR file: {file_path}")
-                                                        self.total_scanned += 1
-                                                        self.clean_files += 1
-                                                        self.update_scan_labels()
-                                                        return False, ""
-                                                else:
-                                                    # Check if the file is a zip archive and scan its content if it is
-                                                    if self.is_zip_file_classic(file_path):
-                                                        scan_result, virus_name = self.scan_zip_file_classic(file_path)
-                                                        if scan_result:
-                                                            logging.warning(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
-                                                            item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
-                                                            item.setData(Qt.UserRole, file_path)
-                                                            self.detected_list.addItem(item)
-                                                            self.total_scanned += 1
-                                                            self.infected_files += 1
-                                                            self.update_scan_labels()
-                                                            return True, virus_name
-                                                        else:
-                                                            logging.info(f"No malware detected in ZIP file: {file_path}")
-                                                            self.total_scanned += 1
-                                                            self.clean_files += 1
-                                                            self.update_scan_labels()
-                                                            return False, ""
+                        virus_name = yara_result
+                    logging.warning(f"Virus detected by YARA in file: {file_path} - Virus: {virus_name}")
+                    return True, virus_name
+
+            # Check if the file is a zip archive and scan its content if it is
+            if self.is_zip_file_classic(file_path):
+                scan_result, virus_name = self.scan_zip_file_classic(file_path)
+                if scan_result:
+                    logging.warning(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
+                    item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
+                    item.setData(Qt.UserRole, file_path)
+                    self.detected_list.addItem(item)
+                    self.total_scanned += 1
+                    self.infected_files += 1
+                    self.update_scan_labels()
+                    return True, virus_name
+                else:
+                    logging.info(f"No malware detected in ZIP file: {file_path}")
+                    self.total_scanned += 1
+                    self.clean_files += 1
+                    self.update_scan_labels()
+                    return False, ""
 
         # If no malware found, return False indicating the file is clean
         logging.info(f"File is clean: {file_path}")
         self.total_scanned += 1
         self.clean_files += 1
         self.update_scan_labels()
+        return False, ""
+
+    def scan_sub_file_path_classic(self, file_data):
+        """Scan file data using various engines."""
+        virus_name = ""
+
+        if system_platform() in ['Windows', 'Linux', 'Darwin']:
+            # Check for valid signature
+            if self.preferences.get("check_valid_signature", False):
+                if not self.valid_signature_exists(file_data):
+                    logging.warning("Invalid signature detected")
+                    virus_name = "Invalid Signature"
+                    return True, virus_name
+                
+                # Check for Microsoft signature only if the signature is valid
+                if self.preferences.get("check_microsoft_signature", False):
+                    if self.hasMicrosoftSignature(file_data):
+                        logging.info("File signed by Microsoft, skipping")
+                        return False, ""
+            
+            # Check with ClamAV if enabled and no issues found
+            if self.preferences.get("use_clamav", False):
+                virus_name = self.scan_file_with_clamd(file_data)
+                if virus_name:
+                    logging.warning(f"Infected file detected - Virus: {virus_name}")
+                    return True, virus_name
+
+            # Check with YARA if enabled and no issues found
+            if self.preferences.get("use_yara", False):
+                yara_result = self.yara_scanner.scan_data(file_data)
+                if yara_result:
+                    if isinstance(yara_result, list):
+                        virus_name = ', '.join(yara_result)
+                    elif isinstance(yara_result, str):
+                        virus_name = yara_result
+                    logging.warning(f"Infected file detected - Virus: {virus_name}")
+                    return True, virus_name
+
+        # If no malware found, return False indicating the file is clean
+        logging.info("File is clean")
         return False, ""
 
     def scan(self, path):
@@ -1512,147 +1473,6 @@ class ScanManager(QDialog):
         logging.info(f"Total files scanned: {total_files}")
         logging.info("-----------------------------------")
 
-    def scan_sub_file_path_classic(self, file_data):
-        """Scan file data using various engines."""
-        virus_name = ""
-
-        if system_platform() in ['Windows', 'Linux', 'Darwin']:
-            # Check for valid signature
-            if preferences.get("check_valid_signature", False):
-                if not valid_signature_exists(file_data):
-                    logging.warning(f"Invalid signature detected")
-                    virus_name = "Invalid Signature"
-                    return True, virus_name
-                else:
-                    # Check for Microsoft signature only if the signature is valid
-                    if preferences.get("check_microsoft_signature", False):
-                        if hasMicrosoftSignature(file_data):
-                            logging.info(f"File signed by Microsoft, skipping")
-                            return False, ""
-                        else:
-                            # Check with ClamAV if enabled and no issues found
-                            if preferences["use_clamav"]:
-                                virus_name = self.scan_file_with_clamd(file_data)
-                                if virus_name:
-                                    logging.warning(f"Infected file detected - Virus: {virus_name}")
-                                    return True, virus_name
-                                else:
-                                    # Check with YARA if enabled and no issues found
-                                    if preferences["use_yara"]:
-                                        yara_result = yara_scanner.scan_data(file_data)
-                                        if yara_result:
-                                            if isinstance(yara_result, list):
-                                                virus_name = ', '.join(yara_result)
-                                            elif isinstance(yara_result, str):
-                                                virus_name = yara_result
-                                    else:
-                                        # If no malware found, return False indicating the file is clean
-                                        if virus_name:
-                                            logging.warning(f"Infected file detected - Virus: {virus_name}")
-                                            return True, virus_name
-                                        else:
-                                            logging.info(f"No malware detected")
-                                            return False, ""
-
-                    else:
-                        # Check with ClamAV if enabled and no issues found
-                        if preferences["use_clamav"]:
-                            virus_name = self.scan_file_with_clamd(file_data)
-                            if virus_name:
-                                logging.warning(f"Infected file detected - Virus: {virus_name}")
-                                return True, virus_name
-                            else:
-                                # Check with YARA if enabled and no issues found
-                                if preferences["use_yara"]:
-                                    yara_result = yara_scanner.scan_data(file_data)
-                                    if yara_result:
-                                        if isinstance(yara_result, list):
-                                            virus_name = ', '.join(yara_result)
-                                        elif isinstance(yara_result, str):
-                                            virus_name = yara_result
-                                else:
-                                    # If no malware found, return False indicating the file is clean
-                                    if virus_name:
-                                        logging.warning(f"Infected file detected - Virus: {virus_name}")
-                                        return True, virus_name
-                                    else:
-                                        logging.info(f"No malware detected")
-                                        return False, ""
-
-        # If no malware found, return False indicating the file is clean
-        logging.info(f"File is clean")
-        return False, ""
-    def scan_sub_file_path_classic(self, file_data):
-        """Scan file data using various engines."""
-        virus_name = ""
-
-        if system_platform() in ['Windows', 'Linux', 'Darwin']:
-            # Check for valid signature
-            if preferences.get("check_valid_signature", False):
-                if not valid_signature_exists(file_data):
-                    logging.warning(f"Invalid signature detected")
-                    virus_name = "Invalid Signature"
-                    return True, virus_name
-                else:
-                    # Check for Microsoft signature only if the signature is valid
-                    if preferences.get("check_microsoft_signature", False):
-                        if hasMicrosoftSignature(file_data):
-                            logging.info(f"File signed by Microsoft, skipping")
-                            return False, ""
-                        else:
-                            # Check with ClamAV if enabled and no issues found
-                            if preferences["use_clamav"]:
-                                virus_name = self.scan_file_with_clamd(file_data)
-                                if virus_name:
-                                    logging.warning(f"Infected file detected - Virus: {virus_name}")
-                                    return True, virus_name
-                                else:
-                                    # Check with YARA if enabled and no issues found
-                                    if preferences["use_yara"]:
-                                        yara_result = yara_scanner.scan_data(file_data)
-                                        if yara_result:
-                                            if isinstance(yara_result, list):
-                                                virus_name = ', '.join(yara_result)
-                                            elif isinstance(yara_result, str):
-                                                virus_name = yara_result
-                                    else:
-                                        # If no malware found, return False indicating the file is clean
-                                        if virus_name:
-                                            logging.warning(f"Infected file detected - Virus: {virus_name}")
-                                            return True, virus_name
-                                        else:
-                                            logging.info(f"No malware detected")
-                                            return False, ""
-
-                    else:
-                        # Check with ClamAV if enabled and no issues found
-                        if preferences["use_clamav"]:
-                            virus_name = self.scan_file_with_clamd(file_data)
-                            if virus_name:
-                                logging.warning(f"Infected file detected - Virus: {virus_name}")
-                                return True, virus_name
-                            else:
-                                # Check with YARA if enabled and no issues found
-                                if preferences["use_yara"]:
-                                    yara_result = yara_scanner.scan_data(file_data)
-                                    if yara_result:
-                                        if isinstance(yara_result, list):
-                                            virus_name = ', '.join(yara_result)
-                                        elif isinstance(yara_result, str):
-                                            virus_name = yara_result
-                                else:
-                                    # If no malware found, return False indicating the file is clean
-                                    if virus_name:
-                                        logging.warning(f"Infected file detected - Virus: {virus_name}")
-                                        return True, virus_name
-                                    else:
-                                        logging.info(f"No malware detected")
-                                        return False, ""
-
-        # If no malware found, return False indicating the file is clean
-        logging.info(f"File is clean")
-        return False, ""
-
     def is_pe_file_classic(self, file_path):
         """Check if the file is a PE file (executable)."""
         try:
@@ -1717,48 +1537,6 @@ class ScanManager(QDialog):
                     return True, detected_virus_names[0]  # Return the first virus name
         except Exception as e:
             print(f"Error scanning zip file: {e}")
-        return False, ""
-
-    def scan_sub_file_path_classic(self, file_data):
-        """Scan file data using various engines."""
-        virus_name = ""
-
-        if system_platform() in ['Windows', 'Linux', 'Darwin']:
-            # Check for valid signature
-            if preferences.get("check_valid_signature", False):
-                if not valid_signature_exists(file_path):
-                    logging.warning(f"Invalid signature detected")
-                    virus_name = "Invalid Signature"
-                    return True, virus_name
-                else:
-                    # Check for Microsoft signature only if the signature is valid
-                    if preferences.get("check_microsoft_signature", False):
-                        if hasMicrosoftSignature(file_path):
-                            logging.info(f"File signed by Microsoft, skipping")
-                            return False, ""
-
-        if preferences["use_clamav"]:
-            virus_name = scan_file_with_clamd(file_data)
-            if virus_name:
-                return True, virus_name
-
-        if preferences["use_yara"]:
-            yara_result = yara_scanner.scan_data(file_data)
-            if yara_result:
-                if isinstance(yara_result, list):
-                    virus_name = ', '.join(yara_result)
-                elif isinstance(yara_result, str):
-                    virus_name = yara_result
-
-        if virus_name:
-            logging.warning(f"Infected file detected - Virus: {virus_name}")
-            return True, virus_name
-        else:
-            logging.info(f"No malware detected")
-            return False, ""
-
-        # If no malware found, return False indicating the file is clean
-        logging.info(f"File is clean")
         return False, ""
 
     def full_scan(self):
