@@ -578,12 +578,6 @@ def scan_file_real_time(file_path):
                             if yara_result and yara_result != "Clean" and yara_result != "":
                                 logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
                                 return True, yara_result
-                        except PermissionError as e:
-                            logging.error(f"Permission denied: {file_path} - {str(e)}")
-                            return False, "Clean"
-                        except Exception as e:
-                            logging.error(f"Error scanning file with YARA: {file_path} - {str(e)}")
-                            return False, "Clean"
                     
                     # Check with machine learning if enabled
                     if preferences.get("use_machine_learning", False):
@@ -615,7 +609,7 @@ def scan_file_real_time(file_path):
 
         # If all checks are passed and the file is clean
         logging.info(f"File is clean: {file_path}")
-        return False, "Clean"
+        return False, ""
         
 def scan_sub_file_real_time(data):
     """Scan sub-files (extracted from PE, TAR, ZIP) in real-time using multiple engines."""
