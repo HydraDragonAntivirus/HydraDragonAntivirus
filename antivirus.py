@@ -323,18 +323,6 @@ def check_windows_signature(file_path):
         logging.error(f"Error checking Windows signature: {e}")
         return False
 
-def check_windows_signature(file_path):
-    try:
-        command = f"Get-AuthenticodeSignature '{file_path}' | Format-List"
-        result = subprocess.run(["powershell.exe", "-Command", command], capture_output=True, text=True)
-        if "NotTrusted" in result.stdout and "HashMismatch" and "UnknownError" in result.stdout:
-            return False
-        else:
-            return True
-    except Exception as e:
-        logging.error(f"Error checking Windows signature: {e}")
-        return False
-
 def check_macos_signature(file_path):
     try:
         result = subprocess.run(["codesign", "--verify", "--verbose=2", file_path], capture_output=True, text=True)
