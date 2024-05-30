@@ -673,70 +673,67 @@ def scan_sub_file_real_time(data):
         # Check if it's a PE file
         try:
             pe = pefile.PE(data=data)
-        except pefile.PEFormatError:
-            pass
-        else:
             scan_result, virus_name = scan_pe_file(data)
             if scan_result:
                 return True, virus_name
-        else:
-            # Check if it's a ZIP file
+        except pefile.PEFormatError:
+            pass
+
+        # Check if it's a ZIP file
+        try:
+            zfile = zipfile.ZipFile(data)
+            scan_result, virus_name = scan_zip_file(data)
+            if scan_result:
+                return True, virus_name
+        except zipfile.BadZipFile:
+            pass
+
+        # Check if it's a TAR file
+        try:
+            tar = tarfile.open(fileobj=data, mode='r')
+            scan_result, virus_name = scan_tar_file(data)
+            if scan_result:
+                return True, virus_name
+        except tarfile.ReadError:
+            pass
+
+        # Check with ClamAV if enabled and no issues found
+        if preferences.get("use_clamav", False):
+            clamav_result = scan_file_with_clamd_classic(data)
+            if clamav_result and clamav_result != "Clean" and clamav_result != "":
+                logging.warning(f"Infected sub-file detected (ClamAV): Virus: {clamav_result}")
+                return True, clamav_result
+
+        # Check with YARA if enabled and no issues found
+        if preferences.get("use_yara", False):
             try:
-                zfile = zipfile.ZipFile(data)
-            except zipfile.BadZipFile:
-                pass
-            else:
-                scan_result, virus_name = scan_zip_file(data)
-                if scan_result:
-                    return True, virus_name
-            else:
-                # Check if it's a TAR file
-                try:
-                    tar = tarfile.open(fileobj=data, mode='r')
-                except tarfile.ReadError:
-                    pass
-                else:
-                    scan_result, virus_name = scan_tar_file(data)
-                    if scan_result:
-                        return True, virus_name
-                else:
-                    # Check with ClamAV if enabled and no issues found
-                    if preferences.get("use_clamav", False):
-                        clamav_result = scan_file_with_clamd_classic(data)
-                        if clamav_result and clamav_result != "Clean" and clamav_result != "":
-                            logging.warning(f"Infected sub-file detected (ClamAV): Virus: {clamav_result}")
-                            return True, clamav_result
-                    else:
-                        # Check with YARA if enabled and no issues found
-                        if preferences.get("use_yara", False):
-                            try:
-                                yara_result = yara_scanner.static_analysis(data)
-                                if yara_result and yara_result != "Clean" and yara_result != "":
-                                    logging.warning(f"Infected sub-file detected (YARA): Virus: {yara_result}")
-                                    return True, yara_result
-                            except PermissionError as e:
-                                logging.error(f"Permission denied: {str(e)}")
-                            except Exception as e:
-                                logging.error(f"Error scanning sub-file with YARA: {str(e)}")
-                        else:
-                            # Check with machine learning if enabled and no issues found
-                            if preferences.get("use_machine_learning", False):
-                                is_malicious, malware_definition = scan_file_with_machine_learning_ai(data)
-                                if is_malicious and malware_definition != "Clean" and malware_definition != "":
-                                    logging.warning(f"Infected sub-file detected (ML): Virus: {malware_definition}")
-                                    return True, malware_definition
-                            else:
-                                # Check for valid signature
-                                if preferences.get("check_valid_signature", False):
-                                    if not valid_signature_exists(data):
-                                        logging.warning(f"Invalid signature detected for sub-file.")
-                                        return True, "Invalid Signature"
-                                else:
-                                    # Check for Microsoft signature only if the signature is valid
-                                    if preferences.get("check_microsoft_signature", False):
-                                        if hasMicrosoftSignature(data):
-                                            logging.info(f"Sub-file signed by Microsoft, skipping.")
-                                            return False, "Clean"
+                yara_result = yara_scanner.static_analysis(data)
+                if yara_result and yara_result != "Clean" and yara_result != "":
+                    logging.warning(f"Infected sub-file detected (YARA): Virus: {yara_result}")
+                    return True, yara_result
+            except PermissionError as e:
+                logging.error(f"Permission denied: {str(e)}")
+            except Exception as e:
+                logging.error(f"Error scanning sub-file with YARA: {str(e)}")
+
+        # Check with machine learning if enabled and no issues found
+        if preferences.get("use_machine_learning", False):
+            is_malicious, malware_definition = scan_file_with_machine_learning_ai(data)
+            if is_malicious and malware_definition != "Clean" and malware_definition != "":
+                logging.warning(f"Infected sub-file detected (ML): Virus: {malware_definition}")
+                return True, malware_definition
+
+        # Check for valid signature
+        if preferences.get("check_valid_signature", False):
+            if not valid_signature_exists(data):
+                logging.warning(f"Invalid signature detected for sub-file.")
+                return True, "Invalid Signature"
+
+        # Check for Microsoft signature only if the signature is valid
+        if preferences.get("check_microsoft_signature", False):
+            if hasMicrosoftSignature(data):
+                logging.info(f"Sub-file signed by Microsoft, skipping.")
+                return False, "Clean"
 
         # If no malware found, return False indicating the file is clean
         return False, "Clean"
@@ -744,7 +741,7 @@ def scan_sub_file_real_time(data):
     except Exception as e:
         logging.error(f"Error scanning sub-file in real-time: {str(e)}")
         return False, "Clean"
-
+            
 def is_pe_file(file_path):
     """Check if the file is a PE file (executable)."""
     try:
