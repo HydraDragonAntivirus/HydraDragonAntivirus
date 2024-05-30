@@ -570,7 +570,7 @@ def scan_file_real_time(file_path):
         if not valid_signature_exists(file_path):
             logging.warning(f"Invalid signature detected: {file_path}")
             return True, "Invalid Signature"
-        if preferences.get("check_microsoft_signature", False) and hasMicrosoftSignature(file_path):
+    if preferences.get("check_microsoft_signature", False) and hasMicrosoftSignature(file_path):
             logging.info(f"File signed by Microsoft, skipping: {file_path}")
             return False, "Clean"
 
@@ -1314,14 +1314,7 @@ class ScanManager(QDialog):
             # Check for valid signature
             if self.preferences.get("check_valid_signature", False):
                 if not valid_signature_exists(file_path):
-                    logging.warning(f"Invalid signature detected: {file_path}")
-                    virus_name = "Invalid Signature"
-                    item = QListWidgetItem(f"Scanned file: {file_path} - Virus: Invalid Signature")
-                    item.setData(Qt.UserRole, file_path)
-                    self.detected_list.addItem(item)
-                    self.total_scanned += 1
-                    self.infected_files += 1
-                    self.update_scan_labels()
+                    self._log_infected_file(file_path, virus_name)
                     return True, virus_name
                 elif self.preferences.get("check_microsoft_signature", False):
                     if hasMicrosoftSignature(file_path):
