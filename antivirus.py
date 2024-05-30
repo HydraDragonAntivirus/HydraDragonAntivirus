@@ -457,7 +457,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     except Exception as e:
         print(f"An error occurred while scanning file {file_path}: {e}")
         return False, str(e)
-        
+
 def is_clamd_running():
     """Check if clamd is running."""
     if system_platform() in ['Linux', 'Darwin', 'FreeBSD']:
@@ -561,7 +561,7 @@ def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
     if not os.path.exists(file_path):
         logging.error(f"File does not exist: {file_path}")
-        return False, "FileNotFound"
+        return False, "Clean"
 
     logging.info(f"Started scanning file: {file_path}")
 
@@ -573,6 +573,17 @@ def scan_file_real_time(file_path):
         if preferences.get("check_microsoft_signature", False) and hasMicrosoftSignature(file_path):
             logging.info(f"File signed by Microsoft, skipping: {file_path}")
             return False, "Clean"
+
+    # Scan with Machine Learning
+    if preferences.get("use_machine_learning"):
+        is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
+        if is_malicious and benign_score < 0.93:
+            logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
+            return True, malware_definition
+        elif benign_score >= 0.93:
+            logging.info(f"File is clean based on ML benign score: {file_path}")
+            return False, "Clean"
+        logging.info(f"No malware detected by Machine Learning in file: {file_path}")
 
     # Scan with ClamAV
     if preferences.get("use_clamav"):
@@ -597,14 +608,6 @@ def scan_file_real_time(file_path):
             logging.error(f"Error scanning file with YARA: {file_path} - {str(e)}")
             return False, "Clean"
 
-    # Scan with Machine Learning
-    if preferences.get("use_machine_learning"):
-        is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path)
-        if is_malicious and malware_definition not in ("Clean", ""):
-            logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
-            return True, malware_definition
-        logging.info(f"No malware detected by Machine Learning in file: {file_path}")
-
     # Scan PE files
     if is_pe_file(file_path):
         scan_result, virus_name = scan_pe_file(file_path)
@@ -628,7 +631,7 @@ def scan_file_real_time(file_path):
         logging.info(f"No malware detected in ZIP file: {file_path}")
 
     return False, "Clean"
-
+    
 def is_pe_file(file_path):
     """Check if the file is a PE file (executable)."""
     try:
@@ -1288,6 +1291,15 @@ class ScanManager(QDialog):
         logging.info(f"Total files scanned: {total_files}")
         logging.info("-----------------------------------")
 
+    def _log_infected_file(self, file_path, virus_name):
+        # Log the infected file details
+        item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
+        item.setData(Qt.UserRole, file_path)
+        self.detected_list.addItem(item)
+        self.total_scanned += 1
+        self.infected_files += 1
+        self.update_scan_labels()
+
     def scan_file_path(self, file_path):
         self.pause_event.wait()  # Wait if the scan is paused
         if self.stop_event.is_set():
@@ -1304,17 +1316,23 @@ class ScanManager(QDialog):
                 if not valid_signature_exists(file_path):
                     logging.warning(f"Invalid signature detected: {file_path}")
                     virus_name = "Invalid Signature"
-                    item = QListWidgetItem(f"Scanned file: {file_path} - Virus: Invalid Signature")
-                    item.setData(Qt.UserRole, file_path)
-                    self.detected_list.addItem(item)
-                    self.total_scanned += 1
-                    self.infected_files += 1
-                    self.update_scan_labels()
+                    self._log_infected_file(file_path, virus_name)
                     return True, virus_name
                 elif self.preferences.get("check_microsoft_signature", False):
                     if hasMicrosoftSignature(file_path):
                         logging.info(f"File signed by Microsoft, skipping: {file_path}")
                         return False, ""
+
+        if self.preferences.get("use_machine_learning"):
+            is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
+            if is_malicious and benign_score < 0.93:  # Add the benign score check here
+                virus_name = malware_definition
+            elif benign_score >= 0.93:
+                logging.info(f"File is clean based on ML benign score: {file_path}")
+                self.total_scanned += 1
+                self.clean_files += 1
+                self.update_scan_labels()
+                return False, ""
 
         if self.preferences.get("use_clamav"):
             virus_name = scan_file_with_clamd(file_path)
@@ -1326,11 +1344,6 @@ class ScanManager(QDialog):
             yara_result = yara_scanner.static_analysis(file_path)
             if yara_result != "Clean":
                 virus_name = ', '.join(yara_result) if isinstance(yara_result, list) else yara_result
-
-        if self.preferences.get("use_machine_learning"):
-            is_malicious, malware_definition = scan_file_with_machine_learning_ai(file_path)
-            if is_malicious:
-                virus_name = malware_definition
 
         # Scan PE files
         if is_pe_file(file_path):
