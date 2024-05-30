@@ -1558,11 +1558,16 @@ class AntivirusUI(QWidget):
         quarantine_manager.show()
 
     def update_definitions(self):
-        result = subprocess.run(["freshclam"], capture_output=True)
-        if result.returncode == 0:
-            QMessageBox.information(self, "Update Definitions", "Antivirus definitions updated successfully.")
-        else:
-            QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
+        """Threaded update definitions method."""
+        def run_update():
+            result = subprocess.run(["freshclam"], capture_output=True)
+            if result.returncode == 0:
+                QMessageBox.information(self, "Update Definitions", "Antivirus definitions updated successfully.")
+            else:
+                QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
+        
+        update_thread = threading.Thread(target=run_update)
+        update_thread.start()
 
 class PreferencesDialog(QDialog):
     def __init__(self, parent=None):
