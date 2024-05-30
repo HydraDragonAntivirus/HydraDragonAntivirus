@@ -552,7 +552,7 @@ def scan_file_real_time(file_path):
 
     if not os.path.exists(file_path):
         logging.error(f"File does not exist: {file_path}")
-        return False, "Clean"
+        return False, ""
     else:
         # Check for valid signature
         if preferences.get("check_valid_signature", False):
@@ -563,7 +563,7 @@ def scan_file_real_time(file_path):
                 # Check for Microsoft signature only if the signature is valid
                 if preferences.get("check_microsoft_signature", False) and hasMicrosoftSignature(file_path):
                     logging.info(f"File signed by Microsoft, skipping: {file_path}")
-                    return False, "Clean"
+                    return False, ""
                 else:
                     # Check with ClamAV if enabled
                     if preferences.get("use_clamav", False):
