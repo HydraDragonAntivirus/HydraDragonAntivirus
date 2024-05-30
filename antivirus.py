@@ -272,20 +272,20 @@ def load_data():
 
 def hasMicrosoftSignature(path):
     try:
-        if system_platform == 'Windows':
+        if system_platform() == 'Windows':
             command = f"Get-AuthenticodeSignature '{path}' | Format-List"
             result = subprocess.run(["powershell.exe", "-Command", command], capture_output=True, text=True)
             if "O=Microsoft Corporation" in result.stdout:
                 return True
             else:
                 return False
-        elif system_platform == 'Darwin':  # macOS
+        elif system_platform() == 'Darwin':  # macOS
             result = subprocess.run(["codesign", "-dvv", path], capture_output=True, text=True)
             if "Authority=Microsoft Corporation" in result.stdout:
                 return True
             else:
                 return False
-        elif system_platform == 'Linux':
+        elif system_platform() == 'Linux':
             result = subprocess.run(["osslsigncode", "verify", "-in", path], capture_output=True, text=True)
             if "Microsoft Corporation" in result.stdout:
                 return True
@@ -299,11 +299,11 @@ def hasMicrosoftSignature(path):
         return False
 
 def valid_signature_exists(file_path):    
-    if system_platform == 'Windows':
+    if system_platform() == 'Windows':
         return check_windows_signature(file_path)
-    elif system_platform == 'Darwin':  # macOS
+    elif system_platform() == 'Darwin':  # macOS
         return check_macos_signature(file_path)
-    elif system_platform == 'Linux':
+    elif system_platform() == 'Linux':
         return check_linux_signature(file_path)
     else:
         logging.error(f"Unsupported platform: {system_platform}")
