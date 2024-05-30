@@ -1261,7 +1261,7 @@ class ScanManager(QDialog):
         self.thread.run = lambda: self.scan(path)
         self.thread.finished.connect(self.thread.deleteLater)
         self.thread.start()
-
+        
     def scan_file_path(self, file_path):
         self.pause_event.wait()  # Wait if the scan is paused
         if self.stop_event.is_set():
@@ -1293,13 +1293,19 @@ class ScanManager(QDialog):
                     if preferences.get("check_microsoft_signature", False):
                         if self.hasMicrosoftSignature(file_path):
                             logging.info(f"File signed by Microsoft, skipping: {file_path}")
+                            self.total_scanned += 1  # Increment total scanned count
+                            self.clean_files += 1    # Increment clean files count
+                            self.update_scan_labels()
                             return False, ""
-                    
+            
             # Check with ClamAV if enabled and no issues found
             if preferences.get("use_clamav", False):
                 virus_name = scan_file_with_clamd(file_path)
                 if virus_name:
                     logging.warning(f"Virus detected by ClamAV in file: {file_path} - Virus: {virus_name}")
+                    self.total_scanned += 1
+                    self.infected_files += 1
+                    self.update_scan_labels()
                     return True, virus_name
 
             # Check with YARA if enabled and no issues found
@@ -1311,6 +1317,9 @@ class ScanManager(QDialog):
                     else:
                         virus_name = yara_result
                     logging.warning(f"Virus detected by YARA in file: {file_path} - Virus: {virus_name}")
+                    self.total_scanned += 1
+                    self.infected_files += 1
+                    self.update_scan_labels()
                     return True, virus_name
 
             # Check if the file is a zip archive and scan its content if it is
