@@ -1130,7 +1130,7 @@ class ScanManager(QDialog):
         self.stop_button.clicked.connect(self.stop_scanning)
         main_layout.addWidget(self.stop_button)
 
-        self.resume_button = QPushButton("Resume Scan (Click This Before Scan)", self)
+        self.resume_button = QPushButton("Resume Scan", self)
         self.resume_button.clicked.connect(self.resume_scanning)
         main_layout.addWidget(self.resume_button)
 
