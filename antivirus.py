@@ -1704,7 +1704,7 @@ class PreferencesDialog(QDialog):
             self.valid_signature_checkbox.setChecked(preferences.get("check_valid_signature", False))
             layout.addWidget(self.valid_signature_checkbox)
 
-            self.microsoft_signature_checkbox = QCheckBox("Check Microsoft signature (Less F/P And Optimization)")
+            self.microsoft_signature_checkbox = QCheckBox("Check Microsoft signature (Less F/P)")
             self.microsoft_signature_checkbox.setChecked(preferences.get("check_microsoft_signature", False))
             layout.addWidget(self.microsoft_signature_checkbox)
 
