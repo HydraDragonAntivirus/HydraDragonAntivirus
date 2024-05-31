@@ -1333,7 +1333,8 @@ class ScanManager(QDialog):
                     self.infected_files += 1
                     self.update_scan_labels()
                     return True, virus_name
-                elif self.preferences.get("check_microsoft_signature", False):
+                    
+        if self.preferences.get("check_microsoft_signature", False):
                     if hasMicrosoftSignature(file_path):
                         logging.info(f"File signed by Microsoft, skipping: {file_path}")
                         self.total_scanned += 1
