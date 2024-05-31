@@ -1440,7 +1440,7 @@ class ScanManager(QDialog):
             return False, ""
 
     def full_scan(self):
-        if self.system_platform() == 'nt':  # Windows platform
+        if self.system_platform() == 'Windows':  # Windows platform
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
             for drive in disk_partitions:
                 self.start_scan(drive)
