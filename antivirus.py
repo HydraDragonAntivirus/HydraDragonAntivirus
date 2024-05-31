@@ -1370,14 +1370,15 @@ class ScanManager(QDialog):
             yara_result = yara_scanner.static_analysis(file_path)
             if yara_result != "Clean" and yara_result != "":
                 virus_name = ', '.join(yara_result) if isinstance(yara_result, list) else yara_result
-                logging.warning(f"Scanned file with YARA: {file_path} - Virus: {virus_name}")
-                item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
-                item.setData(Qt.UserRole, file_path)
-                self.detected_list.addItem(item)
-                self.total_scanned += 1
-                self.infected_files += 1
-                self.update_scan_labels()
-                return True, virus_name
+                if virus_name != "":
+                    logging.warning(f"Scanned file with YARA: {file_path} - Virus: {virus_name}")
+                    item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
+                    item.setData(Qt.UserRole, file_path)
+                    self.detected_list.addItem(item)
+                    self.total_scanned += 1
+                    self.infected_files += 1
+                    self.update_scan_labels()
+                    return True, virus_name
 
         # Scan PE files
         if is_pe_file(file_path):
