@@ -1269,13 +1269,6 @@ class ScanManager(QDialog):
         clean_files = []
 
         def scan_file(file_path):
-            if self.pause_event.is_set():
-                logging.info("Scanning paused. Waiting for resume.")
-                self.pause_event.wait()
-            if self.stop_event.is_set():
-                logging.info("Scanning stopped.")
-                return
-
             with ThreadPoolExecutor(max_workers=1000) as executor:
                 future = executor.submit(self.scan_file_path, file_path)
                 is_infected, virus_name = future.result()
