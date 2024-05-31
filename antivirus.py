@@ -387,13 +387,13 @@ def safe_remove(file_path):
     except Exception as e:
         print(f"Error deleting file {file_path}: {e}")
 
-
 def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     """Scan a file for malicious activity using machine learning."""
     try:
         # Initialize default response
         malware_definition = "Benign"
-        
+        benign_score = 0.5  # Default benign score
+
         # Create a temporary copy of the file
         with tempfile.NamedTemporaryFile(delete=True) as temp_file:
             shutil.copyfile(file_path, temp_file.name)
@@ -402,7 +402,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
             try:
                 pe = pefile.PE(temp_file.name)
             except pefile.PEFormatError:
-                return False, malware_definition
+                return False, malware_definition, benign_score
 
             try:
                 # Extract features
@@ -432,14 +432,17 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
                     if similarity > nearest_benign_similarity:
                         nearest_benign_similarity = similarity
 
+                # Calculate the benign score based on the nearest similarities
+                benign_score = nearest_benign_similarity / (nearest_malicious_similarity + nearest_benign_similarity + 1e-5)
+
                 # Determine final verdict
                 if is_malicious:
                     if nearest_benign_similarity >= 0.9:
-                        return False, malware_definition
+                        return False, malware_definition, benign_score
                     else:
-                        return True, malware_definition
+                        return True, malware_definition, benign_score
                 else:
-                    return False, malware_definition
+                    return False, malware_definition, benign_score
 
             finally:
                 # Ensure the PE file is closed
@@ -447,7 +450,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
 
     except Exception as e:
         print(f"An error occurred while scanning file {file_path}: {e}")
-        return False, str(e)
+        return False, str(e), 0.5
 
 def is_clamd_running():
     """Check if clamd is running."""
