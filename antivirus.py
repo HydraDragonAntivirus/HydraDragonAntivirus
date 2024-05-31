@@ -735,7 +735,7 @@ def scan_tar_file(file_path):
                         break  # Stop scanning if malware is detected
         tar.close()
         if detected_virus_names:
-            return True, detected_virus_names[0]  # Return the first virus name
+            return True, detected_virus_names
     except Exception as e:
         print(f"Error scanning tar file: {e}")
     return False, ""
