@@ -1123,9 +1123,6 @@ class ScanManager(QDialog):
         self.save_results_button.clicked.connect(self.save_results)
         main_layout.addWidget(self.save_results_button)
 
-        main_layout.addLayout(self.action_button_layout)
-        self.setLayout(main_layout)
-
         self.detected_list_label = QLabel("Detected Threats:")
         main_layout.addWidget(self.detected_list_label)
 
