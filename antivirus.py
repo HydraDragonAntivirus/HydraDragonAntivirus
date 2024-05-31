@@ -690,36 +690,37 @@ def scan_pe_file(file_path):
 def scan_zip_file(file_path):
     """Scan files within a zip archive."""
     try:
+        temp_dir = tempfile.mkdtemp()  # Create a temporary directory to extract files
         with zipfile.ZipFile(file_path, 'r') as zfile:
-            for file_info in zfile.infolist():
-                if not file_info.is_dir():
-                    file_data = zfile.read(file_info.filename)
-                    scan_result, virus_name = scan_file_real_time(file_data)
+            zfile.extractall(temp_dir)  # Extract all files to temporary directory
+            for root, _, files in os.walk(temp_dir):
+                for file_name in files:
+                    file_path = os.path.join(root, file_name)
+                    scan_result, virus_name = scan_file_real_time(file_path)
                     if scan_result:
                         return True, virus_name
     except Exception as e:
         logging.error(f"Error scanning zip file: {file_path} - {str(e)}")
+    finally:
+        shutil.rmtree(temp_dir)  # Cleanup temporary directory
     return False, ""
 
 def scan_tar_file(file_path):
     """Scan files within a tar archive."""
     try:
-        tar = tarfile.TarFile(file_path)
-        detected_virus_names = []
-        for member in tar.getmembers():
-            if member.isfile():
-                file_object = tar.extractfile(member)
-                if file_object:
-                    file_data = file_object.read()
-                    scan_result, virus_name = scan_file_real_time(file_data)
+        temp_dir = tempfile.mkdtemp()  # Create a temporary directory to extract files
+        with tarfile.TarFile(file_path, 'r') as tar:
+            tar.extractall(temp_dir)  # Extract all files to temporary directory
+            for root, _, files in os.walk(temp_dir):
+                for file_name in files:
+                    file_path = os.path.join(root, file_name)
+                    scan_result, virus_name = scan_file_real_time(file_path)
                     if scan_result:
-                        detected_virus_names.append(virus_name)
-                        break  # Stop scanning if malware is detected
-        tar.close()
-        if detected_virus_names:
-            return True, detected_virus_names
+                        return True, virus_name
     except Exception as e:
-        print(f"Error scanning tar file: {e}")
+        logging.error(f"Error scanning tar file: {file_path} - {str(e)}")
+    finally:
+        shutil.rmtree(temp_dir)  # Cleanup temporary directory
     return False, ""
  
 class Firewall:
