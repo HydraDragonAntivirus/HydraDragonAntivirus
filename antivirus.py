@@ -201,7 +201,8 @@ def load_preferences():
             "real_time_web_protection": False,
             "enable_hips": True,
             "check_valid_signature": True,  # Add new preference for valid signature
-            "check_microsoft_signature": True # Add new preference for Microsoft signature
+            "check_microsoft_signature": True, # Add new preference for Microsoft signature
+            "enable_pup_detection": True
         }
         save_preferences(default_preferences)
         return default_preferences
@@ -560,25 +561,38 @@ def scan_file_real_time(file_path):
         if not valid_signature_exists(file_path):
             logging.warning(f"Invalid signature detected: {file_path}")
             return True, "Invalid Signature"
+        else:
+            if not preferences.get("enable_pup_detection", False):
+                logging.info(f"Valid signature detected and PUP detection is not enabled, skipping: {file_path}")
+                return False, "Clean"
+
+    # Check for Microsoft signature
     if preferences.get("check_microsoft_signature", False) and hasMicrosoftSignature(file_path):
-            logging.info(f"File signed by Microsoft, skipping: {file_path}")
-            return False, "Clean"
+        logging.info(f"File signed by Microsoft, skipping: {file_path}")
+        return False, "Clean"
 
     # Scan with Machine Learning
     if preferences.get("use_machine_learning"):
         is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
-        if is_malicious and benign_score < 0.93:
-            logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
-            return True, malware_definition
-        elif benign_score >= 0.93:
-            logging.info(f"File is clean based on ML benign score: {file_path}")
-            return False, "Clean"
+        if is_malicious:
+            if (malware_definition.startswith("PUA") or malware_definition.startswith("PUP")) and not preferences.get("enable_pup_detection", False):
+                logging.info(f"Detected {malware_definition} but skipping as PUP detection is not enabled.")
+                return False, "Clean"
+            if benign_score < 0.93:
+                logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
+                return True, malware_definition
+            elif benign_score >= 0.93:
+                logging.info(f"File is clean based on ML benign score: {file_path}")
+                return False, "Clean"
         logging.info(f"No malware detected by Machine Learning in file: {file_path}")
 
     # Scan with ClamAV
     if preferences.get("use_clamav"):
         result = scan_file_with_clamd(file_path)
         if result not in ("Clean", ""):
+            if (result.startswith("PUA") or result.startswith("PUP")) and not preferences.get("enable_pup_detection", False):
+                logging.info(f"Detected {result} but skipping as PUP detection is not enabled.")
+                return False, "Clean"
             logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
             return True, result
         logging.info(f"No malware detected by ClamAV in file: {file_path}")
@@ -588,6 +602,9 @@ def scan_file_real_time(file_path):
         try:
             yara_result = yara_scanner.static_analysis(file_path)
             if yara_result not in ("Clean", ""):
+                if (yara_result.startswith("PUA") or yara_result.startswith("PUP")) and not preferences.get("enable_pup_detection", False):
+                    logging.info(f"Detected {yara_result} but skipping as PUP detection is not enabled.")
+                    return False, "Clean"
                 logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
                 return True, yara_result
             logging.info(f"No malware detected by YARA in file: {file_path}")
@@ -602,6 +619,9 @@ def scan_file_real_time(file_path):
     if is_pe_file(file_path):
         scan_result, virus_name = scan_pe_file(file_path)
         if scan_result and virus_name not in ("Clean", ""):
+            if (virus_name.startswith("PUA") or virus_name.startswith("PUP")) and not preferences.get("enable_pup_detection", False):
+                logging.info(f"Detected {virus_name} but skipping as PUP detection is not enabled.")
+                return False, "Clean"
             logging.warning(f"Infected file detected (PE): {file_path} - Virus: {virus_name}")
             return True, virus_name
         logging.info(f"No malware detected in PE file: {file_path}")
@@ -610,18 +630,24 @@ def scan_file_real_time(file_path):
     if tarfile.is_tarfile(file_path):
         scan_result, virus_name = scan_tar_file(file_path)
         if scan_result and virus_name not in ("Clean", "F", ""):
+            if (virus_name.startswith("PUA") or virus_name.startswith("PUP")) and not preferences.get("enable_pup_detection", False):
+                logging.info(f"Detected {virus_name} but skipping as PUP detection is not enabled.")
+                return False, "Clean"
             logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
             return True, virus_name
         logging.info(f"No malware detected in TAR file: {file_path}")
     elif zipfile.is_zipfile(file_path):
         scan_result, virus_name = scan_zip_file(file_path)
         if scan_result and virus_name not in ("Clean", ""):
+            if (virus_name.startswith("PUA") or virus_name.startswith("PUP")) and not preferences.get("enable_pup_detection", False):
+                logging.info(f"Detected {virus_name} but skipping as PUP detection is not enabled.")
+                return False, "Clean"
             logging.warning(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
             return True, virus_name
         logging.info(f"No malware detected in ZIP file: {file_path}")
 
     return False, "Clean"
-
+   
 def is_pe_file(file_path):
     """Check if the file is a PE file (executable)."""
     try:
@@ -1314,7 +1340,7 @@ class ScanManager(QDialog):
 
         if self.preferences.get("use_machine_learning"):
             is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
-            if is_malicious and benign_score < 0.93:  # Add the benign score check here
+            if is_malicious and virus_name and benign_score < 0.93:  # Add the benign score check here
                 virus_name = malware_definition
             elif benign_score >= 0.93:
                 logging.info(f"File is clean based on ML benign score: {file_path}")
@@ -1615,6 +1641,7 @@ class AntivirusUI(QWidget):
             preferences["real_time_protection"] = preferences_dialog.real_time_protection_checkbox.isChecked()
             preferences["real_time_web_protection"] = preferences_dialog.real_time_web_protection_checkbox.isChecked()
             preferences["enable_hips"] = preferences_dialog.enable_hips_checkbox.isChecked()
+            preferences["enable_pup_detection"] = preferences_dialog.enable_pup_detection_checkbox.isChecked()  # Save PUP detection preference
             save_preferences(preferences)
 
     def manage_quarantine(self):
@@ -1664,6 +1691,10 @@ class PreferencesDialog(QDialog):
         self.enable_hips_checkbox.setChecked(preferences["enable_hips"])
         self.enable_hips_checkbox.stateChanged.connect(self.toggle_hips)
         layout.addWidget(self.enable_hips_checkbox)
+
+        self.enable_pup_detection_checkbox = QCheckBox("Enable PUP Detection")
+        self.enable_pup_detection_checkbox.setChecked(preferences.get("enable_pup_detection", False))
+        layout.addWidget(self.enable_pup_detection_checkbox)
 
         if system_platform() in ['Windows', 'Linux', 'Darwin']:
             self.valid_signature_checkbox = QCheckBox("Check valid signature (Improve Detection)")
