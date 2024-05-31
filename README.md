@@ -27,3 +27,5 @@ For more protection for Windows please install MBRFilter at mbrfilter folder
 Don't quarantine any files during the scan or delete.
 To avoid crashes pause or stop scan while scan is running at scan manager screen.
 Don't forget clean temp files older than 24 hours.
+I highly recommend if you going to use signature checking don't use microsoft signature checking only if you are going to check microsoft
+signatures
