@@ -1118,6 +1118,14 @@ class ScanManager(QDialog):
         self.scan_memory_button.clicked.connect(self.scan_memory)
         main_layout.addWidget(self.scan_memory_button)
 
+        # Save Results button
+        self.save_results_button = QPushButton("Save Results")
+        self.save_results_button.clicked.connect(self.save_results)
+        main_layout.addWidget(self.save_results_button)
+
+        main_layout.addLayout(self.action_button_layout)
+        self.setLayout(main_layout)
+
         self.detected_list_label = QLabel("Detected Threats:")
         main_layout.addWidget(self.detected_list_label)
 
@@ -1164,6 +1172,37 @@ class ScanManager(QDialog):
 
         main_layout.addLayout(self.action_button_layout)
         self.setLayout(main_layout)
+
+    def save_results(self):
+        summary_data = self.collect_summary_data()
+        threats_data = self.collect_threats_data()
+        results_data = f"{summary_data}\n\n{threats_data}"
+        
+        file_path, _ = QFileDialog.getSaveFileName(self, "Save Results File", "", "Text Files (*.txt);;All Files (*)")
+        if file_path:
+            try:
+                with open(file_path, 'w') as file:
+                    file.write(results_data)
+                QMessageBox.information(self, "Success", "Results file saved successfully.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to save results file: {str(e)}")
+
+    def collect_summary_data(self):
+        summary_lines = []
+        summary_lines.append("----------- SCAN SUMMARY -----------")
+        summary_lines.append(f"Infected files: {self.infected_files}")
+        summary_lines.append(f"Clean files: {self.clean_files}")
+        summary_lines.append(f"Total files scanned: {self.total_scanned}")
+        summary_lines.append("-----------------------------------")
+        return "\n".join(summary_lines)
+
+    def collect_threats_data(self):
+        threats_lines = []
+        threats_lines.append("----------- DETECTED THREATS -----------")
+        for index in range(self.detected_list.count()):
+            item = self.detected_list.item(index)
+            threats_lines.append(item.text())
+        return "\n".join(threats_lines)
 
     def reset_scan(self):
         self.total_scanned = 0
@@ -1274,7 +1313,7 @@ class ScanManager(QDialog):
         self.current_file_label.setText(f"Currently Scanning: {file_path}")
 
         virus_name = ""
-        
+
         if self.preferences["use_machine_learning"]:
             is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
             if is_malicious and virus_name not in ["Clean", ""] and benign_score < 0.93:  
