@@ -684,7 +684,7 @@ def scan_pe_file(file_path):
                 if virus_names:
                     break
         if virus_names:
-            return True, virus_names[0]  # Return the first virus name
+            return True, virus_names
     except Exception as e:
         logging.error(f"Error scanning exe file: {file_path} - {str(e)}")
     return False, ""
