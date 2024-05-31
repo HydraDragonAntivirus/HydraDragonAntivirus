@@ -200,8 +200,8 @@ def load_preferences():
             "real_time_protection": False,
             "real_time_web_protection": False,
             "enable_hips": True,
-            "check_valid_signature": True,  # Add new preference for valid signature
-            "check_microsoft_signature": True, # Add new preference for Microsoft signature
+            "check_valid_signature": False,  # Add new preference for valid signature
+            "check_microsoft_signature": False, # Add new preference for Microsoft signature
             "enable_pup_detection": True
         }
         save_preferences(default_preferences)
@@ -1689,11 +1689,11 @@ class PreferencesDialog(QDialog):
         layout.addWidget(self.enable_pup_detection_checkbox)
 
         if system_platform() in ['Windows', 'Linux', 'Darwin']:
-            self.valid_signature_checkbox = QCheckBox("Check valid signature (Improve Detection)")
+            self.valid_signature_checkbox = QCheckBox("Check valid signature (Improve Detection Slow Scanning More Usage)")
             self.valid_signature_checkbox.setChecked(preferences["check_valid_signature"])
             layout.addWidget(self.valid_signature_checkbox)
 
-            self.microsoft_signature_checkbox = QCheckBox("Check Microsoft signature (Less F/P)")
+            self.microsoft_signature_checkbox = QCheckBox("Check Microsoft signature (Less F/P Slow Scanning)")
             self.microsoft_signature_checkbox.setChecked(preferences["check_microsoft_signature"])
             self.microsoft_signature_checkbox.setEnabled(preferences["check_valid_signature"])  # Disable if 'check_valid_signature' is not enabled
             layout.addWidget(self.microsoft_signature_checkbox)
