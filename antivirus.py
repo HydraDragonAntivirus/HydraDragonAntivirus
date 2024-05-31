@@ -1333,7 +1333,7 @@ class ScanManager(QDialog):
                     self.infected_files += 1
                     self.update_scan_labels()
                     return True, virus_name
-                    
+
         if self.preferences.get("check_microsoft_signature", False):
                     if hasMicrosoftSignature(file_path):
                         logging.info(f"File signed by Microsoft, skipping: {file_path}")
@@ -1346,6 +1346,12 @@ class ScanManager(QDialog):
             is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
             if is_malicious and virus_name and benign_score < 0.93:  # Add the benign score check here
                 virus_name = malware_definition
+                item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
+                item.setData(Qt.UserRole, file_path)
+                self.detected_list.addItem(item)
+                self.total_scanned += 1
+                self.infected_files += 1
+                self.update_scan_labels()
             elif benign_score >= 0.93:
                 logging.info(f"File is clean based on ML benign score: {file_path}")
                 self.total_scanned += 1
