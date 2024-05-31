@@ -574,7 +574,7 @@ def scan_file_real_time(file_path):
     if preferences["use_machine_learning"]:
         is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
         if is_malicious:
-            if (malware_definition.startswith("PUA") or malware_definition.startswith("PUP")) and not preferences.["enable_pup_detection"]:
+            if (malware_definition.startswith("PUA") or malware_definition.startswith("PUP")) and not preferences["enable_pup_detection"]:
                 logging.info(f"Detected {malware_definition} but skipping as PUP detection is not enabled.")
                 return False, "Clean"
             if benign_score < 0.93:
