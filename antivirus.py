@@ -598,22 +598,18 @@ def scan_file_real_time(file_path):
 
     # Scan with YARA
     if preferences["use_yara"]:
-        try:
-            yara_result = yara_scanner.static_analysis(file_path)
+            yara_result = self.yara_scanner.static_analysis(file_path)
+                
+            # Ensure yara_result is a string
+            if isinstance(yara_result, list):
+                yara_result = ', '.join(yara_result)
+                
             if yara_result not in ("Clean", ""):
                 if (yara_result.startswith("PUA") or yara_result.startswith("PUP")) and not preferences["enable_pup_detection"]:
                     logging.info(f"Detected {yara_result} but skipping as PUP detection is not enabled.")
                     return False, "Clean"
                 logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
                 return True, yara_result
-            logging.info(f"No malware detected by YARA in file: {file_path}")
-        except PermissionError as e:
-            logging.error(f"Permission denied: {file_path} - {str(e)}")
-            return False, "Clean"
-        except Exception as e:
-            logging.error(f"Error scanning file with YARA: {file_path} - {str(e)}")
-            return False, "Clean"
-
     # Scan PE files
     if is_pe_file(file_path):
         scan_result, virus_name = scan_pe_file(file_path)
@@ -1396,14 +1392,15 @@ class ScanManager(QDialog):
             scan_result, zip_virus_name = scan_zip_file(file_path)
             if scan_result != "Clean" or scan_result == "":
                 virus_name = zip_virus_name
-                logging.warning(f"Scanned ZIP file: {file_path} - Virus: {virus_name}")
-                item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
-                item.setData(Qt.UserRole, file_path)
-                self.detected_list.addItem(item)
-                self.total_scanned += 1
-                self.infected_files += 1
-                self.update_scan_labels()
-                return True, virus_name
+                if virus_name != "Clean" and virus_name != "":
+                    logging.warning(f"Scanned ZIP file: {file_path} - Virus: {virus_name}")
+                    item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
+                    item.setData(Qt.UserRole, file_path)
+                    self.detected_list.addItem(item)
+                    self.total_scanned += 1
+                    self.infected_files += 1
+                    self.update_scan_labels()
+                    return True, virus_name
 
         if virus_name != "Clean" and virus_name != "":
             item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
@@ -1706,7 +1703,7 @@ class PreferencesDialog(QDialog):
         layout.addWidget(button_box)
 
         self.setLayout(layout)        
-        
+
     def toggle_real_time_protection(self, state):
         preferences["real_time_protection"] = (state == Qt.Checked)
         save_preferences(preferences)
