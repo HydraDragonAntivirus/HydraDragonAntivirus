@@ -1706,7 +1706,15 @@ class PreferencesDialog(QDialog):
 
             self.microsoft_signature_checkbox = QCheckBox("Check Microsoft signature (Less F/P)")
             self.microsoft_signature_checkbox.setChecked(preferences.get("check_microsoft_signature", False))
+            self.microsoft_signature_checkbox.setEnabled(preferences.get("check_valid_signature", False))  # Disable if 'check_valid_signature' is not enabled
             layout.addWidget(self.microsoft_signature_checkbox)
+
+            # Connect the stateChanged signal of valid_signature_checkbox to a slot that updates the enabled state of microsoft_signature_checkbox
+            self.valid_signature_checkbox.stateChanged.connect(self.update_microsoft_signature_checkbox_state)
+
+    def update_microsoft_signature_checkbox_state(self, state):
+        # Enable microsoft_signature_checkbox only if valid_signature_checkbox is checked
+        self.microsoft_signature_checkbox.setEnabled(state == Qt.Checked)
 
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
