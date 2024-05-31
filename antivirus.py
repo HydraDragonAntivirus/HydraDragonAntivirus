@@ -629,7 +629,7 @@ def scan_file_real_time(file_path):
             return True, virus_name
         logging.info(f"No malware detected in PE file: {file_path}")
 
-    # Scan TAR and ZIP files
+    # Scan TAR files
     if tarfile.is_tarfile(file_path):
         scan_result, virus_name = scan_tar_file(file_path)
         if scan_result and virus_name not in ("Clean", "F", ""):
@@ -639,7 +639,9 @@ def scan_file_real_time(file_path):
             logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
             return True, virus_name
         logging.info(f"No malware detected in TAR file: {file_path}")
-    elif zipfile.is_zipfile(file_path):
+
+    # Scan ZIP files
+    if zipfile.is_zipfile(file_path):
         scan_result, virus_name = scan_zip_file(file_path)
         if scan_result and virus_name not in ("Clean", ""):
             if (virus_name.startswith("PUA") or virus_name.startswith("PUP")) and not preferences.get("enable_pup_detection", False):
