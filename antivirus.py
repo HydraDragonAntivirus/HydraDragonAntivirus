@@ -1306,7 +1306,6 @@ class ScanManager(QDialog):
                     self.update_scan_labels()
                     return True, virus_name
 
-        if system_platform() in ['Windows', 'Linux', 'Darwin']:
             if self.preferences["check_microsoft_signature"]:
                     if hasMicrosoftSignature(file_path):
                         logging.info(f"File signed by Microsoft, skipping: {file_path}")
@@ -1695,7 +1694,6 @@ class PreferencesDialog(QDialog):
 
             self.microsoft_signature_checkbox = QCheckBox("Check Microsoft signature (Less F/P Slow Scanning)")
             self.microsoft_signature_checkbox.setChecked(preferences["check_microsoft_signature"])
-            self.microsoft_signature_checkbox.setEnabled(preferences["check_valid_signature"])  # Disable if 'check_valid_signature' is not enabled
             layout.addWidget(self.microsoft_signature_checkbox)
 
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
