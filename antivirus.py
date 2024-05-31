@@ -1385,28 +1385,30 @@ class ScanManager(QDialog):
              scan_result, pe_virus_name = scan_pe_file(file_path)
              if scan_result != "Clean" or scan_result == "":
                 virus_name = pe_virus_name
-                logging.warning(f"Scanned PE file: {file_path} - Virus: {virus_name}")
-                item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
-                item.setData(Qt.UserRole, file_path)
-                self.detected_list.addItem(item)
-                self.total_scanned += 1
-                self.infected_files += 1
-                self.update_scan_labels()
-                return True, virus_name
+                if virus_name != "":
+                   logging.warning(f"Scanned PE file: {file_path} - Virus: {virus_name}")
+                   item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
+                   item.setData(Qt.UserRole, file_path)
+                   self.detected_list.addItem(item)
+                   self.total_scanned += 1
+                   self.infected_files += 1
+                   self.update_scan_labels()
+                   return True, virus_name
 
         # Scan TAR files
         if tarfile.is_tarfile(file_path):
             scan_result, tar_virus_name = scan_tar_file(file_path)
             if scan_result != "Clean" or scan_result == "":
                 virus_name = tar_virus_name
-                logging.warning(f"Scanned TAR file: {file_path} - Virus: {virus_name}")
-                item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
-                item.setData(Qt.UserRole, file_path)
-                self.detected_list.addItem(item)
-                self.total_scanned += 1
-                self.infected_files += 1
-                self.update_scan_labels()
-                return True, virus_name
+                if virus_name != "":
+                    logging.warning(f"Scanned TAR file: {file_path} - Virus: {virus_name}")
+                    item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
+                    item.setData(Qt.UserRole, file_path)
+                    self.detected_list.addItem(item)
+                    self.total_scanned += 1
+                    self.infected_files += 1
+                    self.update_scan_labels()
+                    return True, virus_name
 
         # Scan ZIP files
         if zipfile.is_zipfile(file_path):
