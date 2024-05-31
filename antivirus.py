@@ -200,8 +200,6 @@ def load_preferences():
             "real_time_protection": False,
             "real_time_web_protection": False,
             "enable_hips": True,
-            "check_valid_signature": False,  # Add new preference for valid signature
-            "check_microsoft_signature": False, # Add new preference for Microsoft signature
             "enable_pup_detection": True
         }
         save_preferences(default_preferences)
@@ -554,21 +552,6 @@ def monitor_snort_preferences():
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
     logging.info(f"Started scanning file: {file_path}")
-
-    # Check for valid signature
-    if preferences["check_valid_signature"]:
-        if not valid_signature_exists(file_path):
-            logging.warning(f"Invalid signature detected: {file_path}")
-            return True, "Invalid Signature"
-        else:
-            if not preferences["enable_pup_detection"]:
-                logging.info(f"Valid signature detected and PUP detection is not enabled, skipping: {file_path}")
-                return False, "Clean"
-
-    # Check for Microsoft signature
-    if preferences["check_microsoft_signature"] and hasMicrosoftSignature(file_path):
-        logging.info(f"File signed by Microsoft, skipping: {file_path}")
-        return False, "Clean"
 
     # Scan with Machine Learning
     if preferences["use_machine_learning"]:
@@ -1291,29 +1274,7 @@ class ScanManager(QDialog):
         self.current_file_label.setText(f"Currently Scanning: {file_path}")
 
         virus_name = ""
-
-        if system_platform() in ['Windows', 'Linux', 'Darwin']:
-            # Check for valid signature
-            if self.preferences["check_valid_signature"]:
-                if not valid_signature_exists(file_path):
-                    logging.warning(f"Invalid signature detected: {file_path}")
-                    virus_name = "Invalid Signature"
-                    item = QListWidgetItem(f"Scanned file: {file_path} - Virus: Invalid Signature")
-                    item.setData(Qt.UserRole, file_path)
-                    self.detected_list.addItem(item)
-                    self.total_scanned += 1
-                    self.infected_files += 1
-                    self.update_scan_labels()
-                    return True, virus_name
-
-            if self.preferences["check_microsoft_signature"]:
-                    if hasMicrosoftSignature(file_path):
-                        logging.info(f"File signed by Microsoft, skipping: {file_path}")
-                        self.total_scanned += 1
-                        self.clean_files += 1
-                        self.update_scan_labels()
-                        return False, ""
-
+        
         if self.preferences["use_machine_learning"]:
             is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
             if is_malicious and virus_name not in ["Clean", ""] and benign_score < 0.93:  
@@ -1687,15 +1648,6 @@ class PreferencesDialog(QDialog):
         self.enable_pup_detection_checkbox.setChecked(preferences["enable_pup_detection"])
         layout.addWidget(self.enable_pup_detection_checkbox)
 
-        if system_platform() in ['Windows', 'Linux', 'Darwin']:
-            self.valid_signature_checkbox = QCheckBox("Check valid signature (Improve Detection Slow Scanning More Usage)")
-            self.valid_signature_checkbox.setChecked(preferences["check_valid_signature"])
-            layout.addWidget(self.valid_signature_checkbox)
-
-            self.microsoft_signature_checkbox = QCheckBox("Check Microsoft signature (Less F/P Slow Scanning)")
-            self.microsoft_signature_checkbox.setChecked(preferences["check_microsoft_signature"])
-            layout.addWidget(self.microsoft_signature_checkbox)
-
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
@@ -1763,10 +1715,6 @@ class PreferencesDialog(QDialog):
         preferences["real_time_web_protection"] = self.real_time_web_protection_checkbox.isChecked()
         preferences["enable_hips"] = self.enable_hips_checkbox.isChecked()
         
-        if system_platform() in ['Windows', 'Linux', 'Darwin']:
-            preferences["check_valid_signature"] = self.valid_signature_checkbox.isChecked()
-            preferences["check_microsoft_signature"] = self.microsoft_signature_checkbox.isChecked()
-
         save_preferences(preferences)
         super().accept()
 
