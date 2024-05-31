@@ -1382,7 +1382,7 @@ class ScanManager(QDialog):
         # Scan PE files
         if is_pe_file(file_path):
              scan_result, pe_virus_name = scan_pe_file(file_path)
-            if scan_result != "Clean" or scan_result == "":
+             if scan_result != "Clean" or scan_result == "":
                 virus_name = pe_virus_name
                 logging.warning(f"Scanned PE file: {file_path} - Virus: {virus_name}")
                 item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
