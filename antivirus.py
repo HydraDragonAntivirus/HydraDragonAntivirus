@@ -553,10 +553,6 @@ def monitor_snort_preferences():
 
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
-    if not os.path.exists(file_path):
-        logging.error(f"File does not exist: {file_path}")
-        return False, "Clean"
-
     logging.info(f"Started scanning file: {file_path}")
 
     # Check for valid signature
@@ -703,22 +699,6 @@ def scan_zip_file(file_path):
                         return True, virus_name
     except Exception as e:
         logging.error(f"Error scanning zip file: {file_path} - {str(e)}")
-    return False, ""
-
-def scan_tar_file(file_path):
-    """Scan files within a tar archive."""
-    try:
-        with tarfile.open(file_path, 'r') as tar:
-            for member in tar.getmembers():
-                if member.isfile():
-                    file_object = tar.extractfile(member)
-                    if file_object:
-                        file_data = file_object.read()
-                        scan_result, virus_name = scan_file_real_time(file_data)
-                        if scan_result:
-                            return True, virus_name
-    except Exception as e:
-        logging.error(f"Error scanning tar file: {file_path} - {str(e)}")
     return False, ""
 
 def scan_tar_file(file_path):
