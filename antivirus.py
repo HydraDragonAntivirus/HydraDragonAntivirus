@@ -876,7 +876,7 @@ class SnortObserver:
             else:
                 snort_config_path = "/etc/snort/snort.conf"
                 
-            device_args = [f"-i {i}" for i in range(1, 21)]
+            device_args = [f"-i {i}" for i in range(1, 26)]
             command = ["snort"] + device_args + ["-c", snort_config_path]
             
             self.snort_process = subprocess.Popen(
