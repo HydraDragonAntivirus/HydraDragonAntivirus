@@ -29,6 +29,13 @@ To avoid crashes pause or stop scan while scan is running at scan manager screen
 Don't forget clean temp files older than 24 hours.
 I highly recommend if you going to use signature checking don't use microsoft signature checking only if you are going to check microsoft
 signatures
-# Hydra Dragon Antivirus Optional Scanner Only Notices:
-If you using optional scanner there no need to install Snort and there no real-time protection also there no web signatures so it's more smaller
-to run python antiviruslite.py
+
+# Snort Notes
+Notes
+Snort on Windows does not like SO rules - that is why they are disabled.
+
+If Snort can't find blacklists, whitelists and other files - an error will be thrown. They need to be presented, even if empty.
+
+Current files that you must create: C:\Snort\rules\black.list and C:\Snort\rules\white.list. If you want to use different files - you must modify the configuration file manually.
+
+Also the configuration presumes that your installation is C:\Snort, if it is different, then change it manually from the config file.
