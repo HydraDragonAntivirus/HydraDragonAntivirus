@@ -556,17 +556,17 @@ def scan_file_real_time(file_path):
     logging.info(f"Started scanning file: {file_path}")
 
     # Check for valid signature
-    if preferences.get("check_valid_signature", False):
+    if preferences.get("check_valid_signature"):
         if not valid_signature_exists(file_path):
             logging.warning(f"Invalid signature detected: {file_path}")
             return True, "Invalid Signature"
         else:
-            if not preferences.get("enable_pup_detection", False):
+            if not preferences.get("enable_pup_detection"):
                 logging.info(f"Valid signature detected and PUP detection is not enabled, skipping: {file_path}")
                 return False, "Clean"
 
     # Check for Microsoft signature
-    if preferences.get("check_microsoft_signature", False) and hasMicrosoftSignature(file_path):
+    if preferences.get("check_microsoft_signature") and hasMicrosoftSignature(file_path):
         logging.info(f"File signed by Microsoft, skipping: {file_path}")
         return False, "Clean"
 
@@ -574,7 +574,7 @@ def scan_file_real_time(file_path):
     if preferences.get("use_machine_learning"):
         is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
         if is_malicious:
-            if (malware_definition.startswith("PUA") or malware_definition.startswith("PUP")) and not preferences.get("enable_pup_detection", False):
+            if (malware_definition.startswith("PUA") or malware_definition.startswith("PUP")) and not preferences.get("enable_pup_detection"):
                 logging.info(f"Detected {malware_definition} but skipping as PUP detection is not enabled.")
                 return False, "Clean"
             if benign_score < 0.93:
@@ -589,7 +589,7 @@ def scan_file_real_time(file_path):
     if preferences.get("use_clamav"):
         result = scan_file_with_clamd(file_path)
         if result not in ("Clean", ""):
-            if (result.startswith("PUA") or result.startswith("PUP")) and not preferences.get("enable_pup_detection", False):
+            if (result.startswith("PUA") or result.startswith("PUP")) and not preferences.get("enable_pup_detection"):
                 logging.info(f"Detected {result} but skipping as PUP detection is not enabled.")
                 return False, "Clean"
             logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
@@ -601,7 +601,7 @@ def scan_file_real_time(file_path):
         try:
             yara_result = yara_scanner.static_analysis(file_path)
             if yara_result not in ("Clean", ""):
-                if (yara_result.startswith("PUA") or yara_result.startswith("PUP")) and not preferences.get("enable_pup_detection", False):
+                if (yara_result.startswith("PUA") or yara_result.startswith("PUP")) and not preferences.get("enable_pup_detection"):
                     logging.info(f"Detected {yara_result} but skipping as PUP detection is not enabled.")
                     return False, "Clean"
                 logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
@@ -618,7 +618,7 @@ def scan_file_real_time(file_path):
     if is_pe_file(file_path):
         scan_result, virus_name = scan_pe_file(file_path)
         if scan_result and virus_name not in ("Clean", ""):
-            if (virus_name.startswith("PUA") or virus_name.startswith("PUP")) and not preferences.get("enable_pup_detection", False):
+            if (virus_name.startswith("PUA") or virus_name.startswith("PUP")) and not preferences.get("enable_pup_detection"):
                 logging.info(f"Detected {virus_name} but skipping as PUP detection is not enabled.")
                 return False, "Clean"
             logging.warning(f"Infected file detected (PE): {file_path} - Virus: {virus_name}")
@@ -629,7 +629,7 @@ def scan_file_real_time(file_path):
     if tarfile.is_tarfile(file_path):
         scan_result, virus_name = scan_tar_file(file_path)
         if scan_result and virus_name not in ("Clean", "F", ""):
-            if (virus_name.startswith("PUA") or virus_name.startswith("PUP")) and not preferences.get("enable_pup_detection", False):
+            if (virus_name.startswith("PUA") or virus_name.startswith("PUP")) and not preferences.get("enable_pup_detection"):
                 logging.info(f"Detected {virus_name} but skipping as PUP detection is not enabled.")
                 return False, "Clean"
             logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
@@ -640,7 +640,7 @@ def scan_file_real_time(file_path):
     if zipfile.is_zipfile(file_path):
         scan_result, virus_name = scan_zip_file(file_path)
         if scan_result and virus_name not in ("Clean", ""):
-            if (virus_name.startswith("PUA") or virus_name.startswith("PUP")) and not preferences.get("enable_pup_detection", False):
+            if (virus_name.startswith("PUA") or virus_name.startswith("PUP")) and not preferences.get("enable_pup_detection"):
                 logging.info(f"Detected {virus_name} but skipping as PUP detection is not enabled.")
                 return False, "Clean"
             logging.warning(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
@@ -1298,7 +1298,7 @@ class ScanManager(QDialog):
 
         if system_platform() in ['Windows', 'Linux', 'Darwin']:
             # Check for valid signature
-            if self.preferences.get("check_valid_signature", False):
+            if self.preferences.get("check_valid_signature"):
                 if not valid_signature_exists(file_path):
                     logging.warning(f"Invalid signature detected: {file_path}")
                     virus_name = "Invalid Signature"
@@ -1310,7 +1310,7 @@ class ScanManager(QDialog):
                     self.update_scan_labels()
                     return True, virus_name
 
-        if self.preferences.get("check_microsoft_signature", False):
+        if self.preferences.get("check_microsoft_signature"):
                     if hasMicrosoftSignature(file_path):
                         logging.info(f"File signed by Microsoft, skipping: {file_path}")
                         self.total_scanned += 1
@@ -1687,17 +1687,17 @@ class PreferencesDialog(QDialog):
         layout.addWidget(self.enable_hips_checkbox)
 
         self.enable_pup_detection_checkbox = QCheckBox("Enable PUP Detection")
-        self.enable_pup_detection_checkbox.setChecked(preferences.get("enable_pup_detection", False))
+        self.enable_pup_detection_checkbox.setChecked(preferences.get["enable_pup_detection"])
         layout.addWidget(self.enable_pup_detection_checkbox)
 
         if system_platform() in ['Windows', 'Linux', 'Darwin']:
             self.valid_signature_checkbox = QCheckBox("Check valid signature (Improve Detection)")
-            self.valid_signature_checkbox.setChecked(preferences.get("check_valid_signature", False))
+            self.valid_signature_checkbox.setChecked(preferences.get["check_valid_signature"])
             layout.addWidget(self.valid_signature_checkbox)
 
             self.microsoft_signature_checkbox = QCheckBox("Check Microsoft signature (Less F/P)")
-            self.microsoft_signature_checkbox.setChecked(preferences.get("check_microsoft_signature", False))
-            self.microsoft_signature_checkbox.setEnabled(preferences.get("check_valid_signature", False))  # Disable if 'check_valid_signature' is not enabled
+            self.microsoft_signature_checkbox.setChecked(preferences.get["check_microsoft_signature"])
+            self.microsoft_signature_checkbox.setEnabled(preferences.get["check_valid_signature"])  # Disable if 'check_valid_signature' is not enabled
             layout.addWidget(self.microsoft_signature_checkbox)
 
             # Connect the stateChanged signal of valid_signature_checkbox to a slot that updates the enabled state of microsoft_signature_checkbox
