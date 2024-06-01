@@ -878,27 +878,13 @@ class SnortObserver:
         self.thread = None
         self.snort_process = None
 
-        # Determine the log file path based on the operating system
-        if system_platform() == 'Windows':
-            log_file_path = os.path.join("C:\\", "Snort", "log")
-        else:
-            log_file_path = os.path.join("/var", "log", "snort")
-
         # Set up logging
         logging.basicConfig(filename=log_file_path, level=logging.INFO, 
                             format='%(asctime)s %(levelname)s:%(message)s')
 
     def start_sniffing(self):
-        try:
-            if system_platform() == 'Windows':
-                snort_config_path = "C:\\Snort\\etc\\snort.conf"
-                log_dir = "C:\\Snort\\log"
-            else:
-                snort_config_path = "/etc/snort/snort.conf"
-                log_dir = "/var/log/snort"
-
             device_args = [f"-i {i}" for i in range(1, 26)]
-            command = ["snort"] + device_args + ["-c", snort_config_path, "-A", "fast", "-l", log_dir]
+            command = ["snort"] + device_args + ["-c", snort_config_path, "-A", "fast"]
 
             self.snort_process = subprocess.Popen(
                 command,
@@ -1047,7 +1033,6 @@ def read_alerts(file_path):
         else:
             logging.error(f"Alert file not found at {file_path}")
             print(f"Alert file not found at {file_path}")
-        time.sleep(1)
 
 def main_snort():
     if preferences["enable_hips"]:
