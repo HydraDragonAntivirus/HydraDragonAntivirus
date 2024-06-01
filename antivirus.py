@@ -29,7 +29,8 @@ from watchdog.events import FileSystemEventHandler
 from scapy.layers.inet import IP
 from scapy.layers.inet6 import IPv6
 from scapy.layers.dns import DNS, DNSQR, DNSRR
-from scapy.all import sniff
+from scapy.all import sniff, get_if_list
+import time
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
 script_dir = os.getcwd()
@@ -52,6 +53,14 @@ config_folder_path = os.path.join(script_dir, "config")
 if not os.path.exists(config_folder_path):
     os.makedirs(config_folder_path)
 
+# Configuration
+LOG_PATH_WINDOWS = r"c:\snort\log\alert.ids"
+LOG_PATH_LINUX = "/var/log/snort/alert.ids"
+log_path = LOG_PATH_LINUX if system_platform() != 'Windows' else LOG_PATH_WINDOWS
+# Regular expression to extract IP addresses and priority from the alert
+alert_regex = re.compile(r'\[Priority: (\d+)\].*\{UDP\} (\d+\.\d+\.\d+\.\d+):\d+ -> (\d+\.\d+\.\d+\.\d+):\d+')
+# Dictionary to store IP to file path mappings
+ip_to_file_path = {}
 user_preference_file = os.path.join(config_folder_path, "user_preference.json")
 quarantine_file_path = os.path.join(config_folder_path, "quarantine.json")
 IP_ADDRESSES_PATH = os.path.join(script_dir, "website", "IP_Addresses.txt")
@@ -871,9 +880,9 @@ class SnortObserver:
 
         # Determine the log file path based on the operating system
         if system_platform() == 'Windows':
-            log_file_path = os.path.join("C:\\", "Snort", "log", "quarantine_script.log")
+            log_file_path = os.path.join("C:\\", "Snort", "log")
         else:
-            log_file_path = os.path.join("/var", "log", "snort", "quarantine_script.log")
+            log_file_path = os.path.join("/var", "log", "snort")
 
         # Set up logging
         logging.basicConfig(filename=log_file_path, level=logging.INFO, 
@@ -987,6 +996,79 @@ class YaraScanner:
         return self.scan_data(file_path)
 
 yara_scanner = YaraScanner()
+
+def process_alert(alert):
+    """
+    Process a single alert line from the alert.ids file.
+    """
+    match = alert_regex.search(alert)
+    if match:
+        priority = int(match.group(1))
+        src_ip = match.group(2)
+        dst_ip = match.group(3)
+
+        # Example condition for potential malware detection
+        if priority == 2:
+            logging.info(f"Potential malware detected: {alert.strip()}")
+            print(f"Potential malware detected from {src_ip} to {dst_ip} with priority {priority}")
+            quarantine_files(src_ip, dst_ip, alert.strip())
+
+def quarantine_files(src_ip, dst_ip, virus_name):
+    """
+    Quarantine files associated with the given IP addresses.
+    """
+    for proc in psutil.process_iter(['pid', 'name', 'exe', 'connections']):
+        try:
+            connections = proc.info['connections']
+            if connections:
+                for conn in connections:
+                    if conn.raddr and (conn.raddr.ip == src_ip or conn.raddr.ip == dst_ip):
+                        file_path = proc.info['exe']
+                        if file_path:
+                            logging.info(f"Quarantining file {file_path} associated with IP {src_ip} or {dst_ip}")
+                            quarantine_file(file_path, virus_name)
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+
+def read_alerts(file_path):
+    """
+    Read and process alerts from the alert.ids file incrementally.
+    """
+    last_position = 0
+    while True:
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as file:
+                file.seek(last_position)
+                lines = file.readlines()
+                if lines:
+                    for line in lines:
+                        process_alert(line)
+                    last_position = file.tell()
+        else:
+            logging.error(f"Alert file not found at {file_path}")
+            print(f"Alert file not found at {file_path}")
+        time.sleep(1)
+
+def main_snort():
+    if preferences["enable_hips"]:
+        # Check if Snort is running and wait until it stops
+        snort_running = True
+        while snort_running:
+            snort_running = False
+            for proc in psutil.process_iter(['name']):
+                if proc.info['name'].lower() == 'snort':
+                    snort_running = True
+                    break
+
+            if snort_running:
+                print("Waiting for Snort to finish...")
+                time.sleep(5)
+
+        # Once Snort has stopped, process the alert.ids file
+        print("Snort has finished. Processing alerts...")
+        read_alerts(log_path)
+    else:
+        print("HIPS is not enabled. Exiting...")
 
 class ScanManager(QDialog):
     folder_scan_finished = Signal()
@@ -1778,6 +1860,9 @@ def main():
         snort_preferences_thread = threading.Thread(target=monitor_snort_preferences)
         snort_preferences_thread.daemon = True
         snort_preferences_thread.start()
+
+        hips_thread = threading.Thread(target=main_snort)
+        hips_thread.start()
 
         app = QApplication(sys.argv)
         main_gui = AntivirusUI()

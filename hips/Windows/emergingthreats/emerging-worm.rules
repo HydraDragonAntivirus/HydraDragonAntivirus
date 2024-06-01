@@ -1,0 +1,76 @@
+# Emerging Threats 
+#
+# This distribution may contain rules under two different licenses. 
+#
+#  Rules with sids 100000000 through 100000908 are under the GPLv2.
+#  A copy of that license is available at http://www.gnu.org/licenses/gpl-2.0.html
+#
+#  Rules with sids 2000000 through 2799999 are from Emerging Threats and are covered under the BSD License 
+#  as follows:
+#
+#*************************************************************
+#  Copyright (c) 2003-2024, Emerging Threats
+#  All rights reserved.
+#  
+#  Redistribution and use in source and binary forms, with or without modification, are permitted provided that the 
+#  following conditions are met:
+#  
+#  * Redistributions of source code must retain the above copyright notice, this list of conditions and the following 
+#    disclaimer.
+#  * Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the 
+#    following disclaimer in the documentation and/or other materials provided with the distribution.
+#  * Neither the name of the nor the names of its contributors may be used to endorse or promote products derived 
+#    from this software without specific prior written permission.
+#  
+#  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS AS IS AND ANY EXPRESS OR IMPLIED WARRANTIES, 
+#  INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
+#  DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+#  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
+#  SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+#  WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE 
+#  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+#
+#*************************************************************
+#
+#
+#
+#
+
+# This Ruleset is EmergingThreats Open No-GPL optimized for snort-2.9.0-enhanced.
+
+#alert tcp $HOME_NET any -> !$SQL_SERVERS 3306 (msg:"ET WORM Potential MySQL bot scanning for SQL server"; flags:S,12; reference:url,isc.sans.org/diary.php?date=2005-01-27; classtype:trojan-activity; sid:2001689; rev:8; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET WORM shell bot perl code download"; flow:to_client,established; content:"# ShellBOT"; nocase; classtype:trojan-activity; sid:2002683; rev:5; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert icmp $HOME_NET any -> $EXTERNAL_NET any (msg:"ET WORM Allaple ICMP Sweep Ping Outbound"; icode:0; itype:8; content:"Babcdefghijklmnopqrstuvwabcdefghi"; fast_pattern:only; threshold: type both, count 1, seconds 60, track by_src; reference:url,www.sophos.com/virusinfo/analyses/w32allapleb.html; reference:url,isc.sans.org/diary.html?storyid=2451; classtype:trojan-activity; sid:2003292; rev:8; metadata:created_at 2010_07_30, updated_at 2010_08_30;)
+
+#alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"ET WORM Allaple ICMP Sweep Reply Inbound"; icode:0; itype:0; content:"Babcdefghijklmnopqrstuvwabcdefghi"; fast_pattern:only; threshold: type both, count 1, seconds 60, track by_dst; reference:url,www.sophos.com/virusinfo/analyses/w32allapleb.html; reference:url,isc.sans.org/diary.html?storyid=2451; classtype:trojan-activity; sid:2003293; rev:10; metadata:created_at 2010_07_30, updated_at 2010_08_30;)
+
+#alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET WORM Shell Bot Code Download"; flow:to_client,established; content:"##################### IRC #######################"; nocase; fast_pattern; classtype:trojan-activity; sid:2002684; rev:7; metadata:created_at 2010_07_30, updated_at 2010_08_31;)
+
+#alert icmp $HOME_NET any -> $EXTERNAL_NET any (msg:"ET WORM Allaple ICMP Sweep Reply Outbound"; icode:0; itype:0; content:"Babcdefghijklmnopqrstuvwabcdefghi"; fast_pattern:only; threshold: type both, count 1, seconds 60, track by_dst; reference:url,www.sophos.com/virusinfo/analyses/w32allapleb.html; reference:url,isc.sans.org/diary.html?storyid=2451; classtype:trojan-activity; sid:2003295; rev:9; metadata:created_at 2010_07_30, updated_at 2010_09_19;)
+
+alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET WORM Win32.Socks.s HTTP Post Checkin"; flow:established,to_server; content:"POST"; http_method; content:".php"; http_uri; content:"proc=[System Process]|0a|"; http_client_body; classtype:trojan-activity; sid:2008020; rev:6; metadata:created_at 2010_07_30, updated_at 2010_09_29;)
+
+#alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"ET WORM Allaple ICMP Sweep Ping Inbound"; icode:0; itype:8; content:"Babcdefghijklmnopqrstuvwabcdefghi"; threshold: type both, count 1, seconds 60, track by_src; reference:url,www.sophos.com/virusinfo/analyses/w32allapleb.html; reference:url,isc.sans.org/diary.html?storyid=2451; classtype:trojan-activity; sid:2003294; rev:8; metadata:created_at 2010_07_30, updated_at 2010_10_05;)
+
+alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET WORM Possible Worm Sohanad.Z or Other Infection Request for setting.nql"; flow:established,to_server; content:"/setting.nql"; nocase; http_uri; reference:md5,a70aad8f27957702febfa162556dc5b5; classtype:trojan-activity; sid:2012201; rev:1; metadata:created_at 2011_01_17, updated_at 2011_01_17;)
+
+
+alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET WORM Rimecud Worm checkin"; flow:established,to_server; content:"GET"; http_method; content:"User-Agent|3a| Mozilla/3.0 (compatible|3b| Indy Library)"; http_header; content:"/taskx.txt"; http_uri; fast_pattern; reference:md5,9623efa133415d19c941ef92a4f921fc; classtype:trojan-activity; sid:2012739; rev:1; metadata:created_at 2011_04_29, updated_at 2011_04_29;)
+
+#alert tcp $HOME_NET any -> $EXTERNAL_NET 15000:30000 (msg:"ET WORM W32/Rimecud /qvod/ff.txt Checkin"; flow:established,to_server; content:"GET /qvod/ff.txt"; depth:16; reference:url,www.microsoft.com/security/portal/Threat/Encyclopedia/Entry.aspx?Name=Worm%3AWin32%2FRimecud; reference:md5,f97e1c4aefbd2595fcfeb0f482c47517; reference:md5,f96a29bcf6cba870efd8f7dd9344c39e; reference:md5,fae8675502d909d6b546c111625bcfba; classtype:trojan-activity; sid:2014401; rev:1; metadata:created_at 2012_03_20, updated_at 2012_03_20;)
+
+alert tcp $HOME_NET any -> $EXTERNAL_NET 15000:30000 (msg:"ET WORM W32/Rimecud wg.txt Checkin"; flow:established,to_server; content:"GET /wg.txt"; depth:11; reference:md5,a89f7289d5cce821a194542e90026082; reference:md5,fd56ce176889d4fbe588760a1da6462b; reference:url,www.microsoft.com/security/portal/Threat/Encyclopedia/Entry.aspx?Name=Worm%3AWin32%2FRimecud; classtype:trojan-activity; sid:2014402; rev:1; metadata:created_at 2012_03_20, updated_at 2012_03_20;)
+
+
+alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"ET WORM W32/Njw0rm CnC Beacon"; flow:established,to_server; content:"lv0njxq80"; depth:9; content:"njxq80"; distance:0; reference:url,www.fireeye.com/blog/technical/malware-research/2013/08/njw0rm-brother-from-the-same-mother.html; reference:md5,4c60493b14c666c56db163203e819272; reference:md5,b0e1d20accd9a2ed29cdacb803e4a89d; classtype:trojan-activity; sid:2017404; rev:3; metadata:attack_target Client_Endpoint, created_at 2013_08_31, deployment Perimeter, signature_severity Major, tag c2, updated_at 2013_08_31, mitre_tactic_id TA0011, mitre_tactic_name Command_And_Control, mitre_technique_id T1041, mitre_technique_name Exfiltration_Over_C2_Channel;)
+
+alert tcp any any -> $HOME_NET $HTTP_PORTS (msg:"ET WORM TheMoon.linksys.router 1"; flow:to_server,established; urilen:7; content:"GET"; http_method; content:"/HNAP1/"; http_uri; pcre:"/Host\x3a (?:[0-9]{1,3}\.){3}[0-9]{1,3}/H"; reference:url,isc.sans.edu/forums/diary/Linksys+Worm+Captured/17630; classtype:trojan-activity; sid:2018131; rev:4; metadata:created_at 2014_02_13, updated_at 2016_04_25;)
+
+alert tcp any any -> $HOME_NET $HTTP_PORTS (msg:"ET WORM TheMoon.linksys.router 2"; flow:to_server,established; content:"POST"; http_method; content:"/tmUnblock.cgi"; http_uri; reference:url,isc.sans.edu/forums/diary/Linksys+Worm+Captured/17630; reference:url,devttys0.com/2014/02/wrt120n-fprintf-stack-overflow/; classtype:trojan-activity; sid:2018132; rev:4; metadata:created_at 2014_02_13, updated_at 2016_04_25;)
+
+alert tcp any any -> $HOME_NET $HTTP_PORTS (msg:"ET WORM TheMoon.linksys.router 3"; flow:to_server,established; content:"POST"; http_method; content:"/hndUnblock.cgi"; http_uri; reference:url,isc.sans.edu/forums/diary/Linksys+Worm+Captured/17630; reference:url,exploit-db.com/exploits/31683/; reference:url,devttys0.com/2014/02/wrt120n-fprintf-stack-overflow/; classtype:trojan-activity; sid:2018155; rev:3; metadata:created_at 2014_02_19, updated_at 2016_04_25;)
+
+#alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET WORM SDBot HTTP Checkin"; flow:established,to_server; content:"User-Agent|3a| Mozilla/3.0 (compatible|3b| Indy Library)|0d 0a|"; http_header; content:"quem=dodoi&tit="; depth:15; http_client_body; fast_pattern; content:"&txt="; http_client_body; offset:15; depth:40; classtype:trojan-activity; sid:2007914; rev:5; metadata:created_at 2010_07_30, updated_at 2022_05_03;)
+

@@ -39,3 +39,5 @@ If Snort can't find blacklists, whitelists and other files - an error will be th
 Current files that you must create: C:\Snort\rules\black.list and C:\Snort\rules\white.list. If you want to use different files - you must modify the configuration file manually.
 
 Also the configuration presumes that your installation is C:\Snort, if it is different, then change it manually from the config file.
+
+https://rules.emergingthreats.net/open/ Download Rules From There

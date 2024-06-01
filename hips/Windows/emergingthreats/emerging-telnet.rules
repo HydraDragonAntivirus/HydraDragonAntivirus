@@ -1,0 +1,65 @@
+# Emerging Threats 
+#
+# This distribution may contain rules under two different licenses. 
+#
+#  Rules with sids 100000000 through 100000908 are under the GPLv2.
+#  A copy of that license is available at http://www.gnu.org/licenses/gpl-2.0.html
+#
+#  Rules with sids 2000000 through 2799999 are from Emerging Threats and are covered under the BSD License 
+#  as follows:
+#
+#*************************************************************
+#  Copyright (c) 2003-2024, Emerging Threats
+#  All rights reserved.
+#  
+#  Redistribution and use in source and binary forms, with or without modification, are permitted provided that the 
+#  following conditions are met:
+#  
+#  * Redistributions of source code must retain the above copyright notice, this list of conditions and the following 
+#    disclaimer.
+#  * Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the 
+#    following disclaimer in the documentation and/or other materials provided with the distribution.
+#  * Neither the name of the nor the names of its contributors may be used to endorse or promote products derived 
+#    from this software without specific prior written permission.
+#  
+#  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS AS IS AND ANY EXPRESS OR IMPLIED WARRANTIES, 
+#  INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
+#  DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+#  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
+#  SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+#  WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE 
+#  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+#
+#*************************************************************
+#
+#
+#
+#
+
+# This Ruleset is EmergingThreats Open No-GPL optimized for snort-2.9.0-enhanced.
+
+
+
+
+
+
+alert tcp $HOME_NET 23 -> $EXTERNAL_NET any (msg:"ET TELNET External Telnet Attempt To Cisco Device With No Telnet Password Set (Automatically Dissalowed Until Password Set)"; flow:from_server; content:"Password required, but none set"; depth:31; classtype:attempted-admin; sid:2008860; rev:4; metadata:created_at 2010_07_30, updated_at 2015_04_15;)
+
+#alert tcp $HOME_NET 23 -> $EXTERNAL_NET any (msg:"ET TELNET External Telnet Login Prompt from Cisco Device"; flow:from_server,established; pcre:"/^(\r\n)*/"; content:"User Access Verification"; within:24; classtype:attempted-admin; sid:2008861; rev:6; metadata:created_at 2010_07_30, updated_at 2015_04_15;)
+
+alert tcp $EXTERNAL_NET any -> $HOME_NET [23,2323,3323,4323] (msg:"ET TELNET busybox MIRAI hackers - Possible Brute Force Attack"; flow:to_server,established; content:"MIRAI"; flowbits:isset,ET.telnet.busybox; threshold: type limit, count 1, track by_src, seconds 30; reference:url,lists.emergingthreats.net/pipermail/emerging-sigs/2016-August/027524.html; classtype:attempted-admin; sid:2023019; rev:2; metadata:attack_target Server, created_at 2016_08_08, deployment Datacenter, performance_impact Low, signature_severity Major, updated_at 2016_09_26;)
+
+alert tcp $EXTERNAL_NET any -> $HOME_NET [23,2323,3323,4323] (msg:"ET TELNET busybox ECCHI hackers - Possible Brute Force Attack"; flow:to_server,established; content:"ECCHI"; flowbits:isset,ET.telnet.busybox; threshold: type limit, count 1, track by_src, seconds 30; reference:url,lists.emergingthreats.net/pipermail/emerging-sigs/2016-August/027524.html; classtype:attempted-admin; sid:2023304; rev:1; metadata:attack_target Server, created_at 2016_09_27, deployment Datacenter, performance_impact Low, signature_severity Major, updated_at 2016_09_27;)
+
+alert tcp $EXTERNAL_NET any -> $HOME_NET [23,2323,3323,4323] (msg:"ET TELNET busybox MEMES Hackers - Possible Brute Force Attack"; flow:to_server,established; content:"MEMES"; flowbits:isset,ET.telnet.busybox; threshold: type limit, count 1, track by_src, seconds 30; reference:url,lists.emergingthreats.net/pipermail/emerging-sigs/2016-August/027524.html; classtype:attempted-admin; sid:2023901; rev:1; metadata:affected_product Linux, attack_target Networking_Equipment, created_at 2017_02_14, deployment Perimeter, malware_family Mirai, performance_impact Moderate, signature_severity Major, updated_at 2017_02_14;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET [23,2323,3323,4323] (msg:"ET TELNET SUSPICIOUS busybox shell"; flow:to_server,established; content:"shell"; fast_pattern:only; pcre:"/\bshell\b/"; flowbits:isset,ET.telnet.busybox; threshold: type limit, count 1, track by_src, seconds 30; reference:url,lists.emergingthreats.net/pipermail/emerging-sigs/2016-August/027524.html; classtype:attempted-admin; sid:2023017; rev:3; metadata:attack_target Server, created_at 2016_08_08, deployment Datacenter, performance_impact Low, signature_severity Major, updated_at 2017_11_01;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET [23,2323,3323,4323] (msg:"ET TELNET SUSPICIOUS busybox enable"; flow:to_server,established; content:"enable"; fast_pattern:only; pcre:"/\benable\b/"; flowbits:isset,ET.telnet.busybox; threshold: type limit, count 1, track by_src, seconds 30; reference:url,lists.emergingthreats.net/pipermail/emerging-sigs/2016-August/027524.html; classtype:attempted-admin; sid:2023018; rev:4; metadata:attack_target Server, created_at 2016_08_08, deployment Datacenter, performance_impact Low, signature_severity Major, updated_at 2017_11_01;)
+
+alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET TELNET Lunar Builder CnC Activity"; flow:established,to_server; content:"POST"; http_method; content:"<UsernameSplit>"; nocase; fast_pattern; http_client_body; content:"<TimeHackedSplit>"; nocase; http_client_body; reference:md5,4a07860c39171b71ca0aa359b0185f33; classtype:trojan-activity; sid:2032879; rev:1; metadata:affected_product Windows_XP_Vista_7_8_10_Server_32_64_Bit, attack_target Client_Endpoint, created_at 2021_04_27, deployment Perimeter, deployment SSLDecrypt, malware_family Lunar_Builder, performance_impact Low, signature_severity Major, updated_at 2021_04_27;)
+
+alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"ET TELNET Teslarvng Ransomware CnC Activity M2"; flow:established,to_server; content:"|0d 0a|clinet|20|utc|20|time|3a 3a 20|"; fast_pattern; content:"Hard|20|Disk|20|Used|20|Sizes|3a 3a|"; nocase; reference:md5,d26e609c77e314fc3f242a736c323ab6; classtype:trojan-activity; sid:2033017; rev:2; metadata:affected_product Windows_XP_Vista_7_8_10_Server_32_64_Bit, attack_target Client_Endpoint, created_at 2021_05_24, deployment Perimeter, malware_family Ouroboros, signature_severity Major, tag Ransomware, updated_at 2021_05_24, mitre_tactic_id TA0040, mitre_tactic_name Impact, mitre_technique_id T1486, mitre_technique_name Data_Encrypted_for_Impact;)
+
+alert tcp $EXTERNAL_NET any -> $HOME_NET [23,2323,3323,4323] (msg:"ET TELNET SUSPICIOUS Path to BusyBox"; flow:established,to_server; content:"/bin/busybox"; flowbits:set,ET.telnet.busybox; threshold: type limit, count 1, track by_src, seconds 30; reference:url,lists.emergingthreats.net/pipermail/emerging-sigs/2016-August/027524.html; classtype:suspicious-filename-detect; sid:2023016; rev:2; metadata:attack_target Server, created_at 2016_08_08, deployment Datacenter, performance_impact Low, signature_severity Major, updated_at 2022_04_18;)
+
