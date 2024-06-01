@@ -877,12 +877,12 @@ class SnortObserver:
         self.is_started = False
         self.thread = None
         self.snort_process = None
-
         # Set up logging
         logging.basicConfig(filename=log_file_path, level=logging.INFO, 
                             format='%(asctime)s %(levelname)s:%(message)s')
 
     def start_sniffing(self):
+        try:
             device_args = [f"-i {i}" for i in range(1, 26)]
             command = ["snort"] + device_args + ["-c", snort_config_path, "-A", "fast"]
 
