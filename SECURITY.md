@@ -5,8 +5,7 @@ Demo	:white_check_mark:
 Reporting a Vulnerability
 If you discover a security vulnerability within Hydra Dragon Antivirus, please report it to us promptly to ensure we can address the issue as quickly as possible. To report a vulnerability, follow these steps:
 
-Contact: Email the details of the vulnerability to semaemirhan555@gmail.com.
-Include Information:
+Contact: Create an issue on our GitHub repository, regardless of the severity of the vulnerability.Include Information:
 Description of the vulnerability.
 Steps to reproduce the vulnerability.
 Potential impact and severity.
