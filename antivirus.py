@@ -345,7 +345,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
                 nearest_benign_similarity = similarity
 
         if is_malicious:
-            if nearest_benign_similarity >= 0.9:  # Modify this condition
+            if nearest_benign_similarity >= 0.93:
                 return False, malware_definition, nearest_benign_similarity
             else:
                 return True, malware_definition, nearest_benign_similarity
