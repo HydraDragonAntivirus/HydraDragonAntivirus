@@ -567,7 +567,7 @@ def scan_pe_file(file_path):
     """Scan files within an exe file."""
     try:
         pe = pefile.PE(file_path)
-        virus_names = []
+        virus_names = ""
         for entry in pe.DIRECTORY_ENTRY_RESOURCE.entries:
             if hasattr(entry, 'directory'):
                 for resource in entry.directory.entries:
