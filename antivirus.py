@@ -879,6 +879,13 @@ class SnortObserver:
         self.snort_process = None
     def start_sniffing(self):
         try:
+            if system_platform() == 'Windows':
+                snort_config_path = "C:\\Snort\\etc\\snort.conf"
+                log_dir = "C:\\Snort\\log"
+            else:
+                snort_config_path = "/etc/snort/snort.conf"
+                log_dir = "/var/log/snort"
+
             device_args = [f"-i {i}" for i in range(1, 26)]
             command = ["snort"] + device_args + ["-c", snort_config_path, "-A", "fast"]
 

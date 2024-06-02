@@ -27,8 +27,6 @@ For more protection for Windows please install MBRFilter at mbrfilter folder
 Don't quarantine any files during the scan or delete.
 To avoid crashes pause or stop scan while scan is running at scan manager screen.
 Don't forget clean temp files older than 24 hours.
-I highly recommend if you going to use signature checking don't use microsoft signature checking only if you are going to check microsoft
-signatures
 
 # Snort Notes
 Notes
@@ -41,3 +39,60 @@ Current files that you must create: C:\Snort\rules\black.list and C:\Snort\rules
 Also the configuration presumes that your installation is C:\Snort, if it is different, then change it manually from the config file.
 
 https://rules.emergingthreats.net/open/ Download Rules From There
+
+# Hydra Dragon Antivirus AI Generated Text
+Overview
+Hydra Dragon Antivirus is a cross-platform antivirus GUI that integrates ClamAV, YARA, a machine learning AI module, and Snort to provide comprehensive security solutions. This policy outlines the security measures, practices, and guidelines for users to follow when using Hydra Dragon Antivirus to ensure optimal protection and system stability.
+
+Installation and Setup
+ClamAV Installation:
+
+Install ClamAV based on your operating system (Windows, Linux, MacOS, FreeBSD).
+Configure the database directory and run clamd.
+Copy the provided database folder signatures into your ClamAV database folder.
+Copy freshclam.conf into your ClamAV config folder.
+Update the definitions manually.
+Python Environment:
+
+Install required Python modules via pip using the requirements.txt file.
+Compile the Python script yourself.
+Command Line Configuration:
+
+Add clamdscan to the system path for easy access to ClamAV functionalities.
+On Windows, add C:\Program Files\ClamAV to the terminal path.
+Additional Software:
+
+Download and install npcap for Scapy support: Npcap Download.
+Reset firewall settings using netsh advfirewall reset.
+Download and configure Snort: Snort Downloads.
+Install MBRFilter from the mbrfilter folder for enhanced protection.
+Usage Guidelines
+Malicious Process Handling:
+
+Kill malicious processes before performing quarantine or delete operations.
+ClamAV and ClamDScan:
+
+Ensure ClamAV is added to the console path.
+Manually stop clamd after closing the program to free system resources.
+Snort Configuration:
+
+Snort on Windows does not support SO rules; ensure they are disabled.
+Create necessary files such as C:\Snort\rules\black.list and C:\Snort\rules\white.list, even if they are empty.
+Adjust the Snort configuration file if your installation directory is different from C:\Snort.
+Signature and Rule Management:
+
+Avoid using hash signatures as they can be easily bypassed and are space-consuming.
+For web signatures, use the appropriate button to load them.
+Add HIPS folder contents to the Snort rules folder, including configuration files.
+Scanning Practices:
+
+Enable scanning via the designated button before starting a scan.
+Do not quarantine or delete files during an active scan to avoid system crashes.
+Pause or stop scans using the scan manager screen if necessary.
+Clean temporary files older than 24 hours to maintain system performance.
+
+Maintenance and Updates
+Regularly update ClamAV definitions and Snort rules to ensure the latest protection.
+Follow best practices for security updates and patch management.
+Contact Information
+For any security concerns or issues, please contact the Hydra Dragon Antivirus support team.
