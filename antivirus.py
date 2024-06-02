@@ -580,18 +580,12 @@ def scan_pe_file(file_path):
                                         scan_result, virus_name = scan_file_real_time(data)
                                         if scan_result:
                                             virus_names.append(virus_name)
-                                            break  # Stop scanning if malware is detected
-                                if virus_names:
-                                    break
-                        if virus_names:
-                            break
-                if virus_names:
-                    break
-        if virus_names:
-            return True, virus_names
+                                            # Return immediately if malware is detected
+                                            return True, virus_names
+        return False, virus_names
     except Exception as e:
         logging.error(f"Error scanning exe file: {file_path} - {str(e)}")
-    return False, ""
+        return False, ""
 
 def scan_zip_file(file_path):
     """Scan files within a zip archive."""
