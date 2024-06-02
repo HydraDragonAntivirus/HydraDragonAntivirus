@@ -482,6 +482,8 @@ def scan_file_real_time(file_path):
 
     # Scan with Machine Learning
     if preferences["use_machine_learning"]:
+      # Scan PE files
+      if is_pe_file(file_path):
         is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
         if is_malicious:
             if (malware_definition.startswith("PUA") or malware_definition.startswith("PUP")) and not preferences["enable_pup_detection"]:
@@ -1063,7 +1065,6 @@ class ScanManager(QDialog):
         self.pause_event = threading.Event()
         self.stop_event = threading.Event()
         self.pause_event.set()
-        self.preferences = load_preferences()
         # Connect signals to slots
         self.folder_scan_finished.connect(self.show_scan_finished_message)
         self.memory_scan_finished.connect(self.show_memory_scan_finished_message)
@@ -1304,7 +1305,9 @@ class ScanManager(QDialog):
 
         virus_name = ""
 
-        if self.preferences["use_machine_learning"]:
+        if preferences["use_machine_learning"]:
+          # Scan PE files
+          if is_pe_file(file_path):
             is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
             if is_malicious and virus_name not in ["Clean", ""] and benign_score < 0.93:  
                 virus_name = malware_definition
@@ -1321,7 +1324,7 @@ class ScanManager(QDialog):
                 self.update_scan_labels()
                 return False, ""
 
-        if self.preferences["use_clamav"]:
+        if preferences["use_clamav"]:
             virus_name = scan_file_with_clamd(file_path)
             if virus_name != "Clean" and virus_name != "":
                 logging.warning(f"Scanned file with ClamAV: {file_path} - Virus: {virus_name}")
@@ -1333,7 +1336,7 @@ class ScanManager(QDialog):
                 self.update_scan_labels()
                 return True, virus_name
 
-        if self.preferences["use_yara"]:
+        if preferences["use_yara"]:
             yara_result = yara_scanner.static_analysis(file_path)
             if yara_result != "Clean" and yara_result != "":
                 virus_name = ', '.join(yara_result) if isinstance(yara_result, list) else yara_result
