@@ -379,6 +379,9 @@ def start_clamd():
     else:
         print("Unsupported platform for ClamAV")
         
+def start_clamd_thread():
+    threading.Thread(target=start_clamd).start()
+    
 def scan_file_with_clamd(file_path):
     """Scan file using clamd."""
     file_path = os.path.abspath(file_path)  # Get absolute path
@@ -1558,7 +1561,7 @@ class AntivirusUI(QWidget):
             layout.addWidget(self.mbrfilter_button)
 
         self.start_clamd_button = QPushButton("Start ClamAV")
-        self.start_clamd_button.clicked.connect(start_clamd)
+        self.start_clamd_button.clicked.connect(start_clamd_thread)
         layout.addWidget(self.start_clamd_button)
 
         self.load_website_signatures_button = QPushButton("Load Website Signatures")
