@@ -248,6 +248,7 @@ try:
     # Load the precompiled rules from the .yrc file
     compiled_rule = yara.load(os.path.join(yara_folder_path, "compiled_rule.yrc"))
     pyas_rule = yara.load(os.path.join(yara_folder_path, "PYAS.yrc"))
+    machine_learning_rule = yara.load(os.path.join(yara_folder_path, "machinelearning.yrc"))
     print("YARA Rules Definitions loaded!")
 except yara.Error as e:
     print(f"Error loading precompiled YARA rule: {e}")
@@ -954,6 +955,14 @@ class YaraScanner:
                 # Check matches for pyas_rule
                 if pyas_rule:
                     matches = pyas_rule.match(data=data)
+                    if matches:
+                        for match in matches:
+                            if match.rule not in excluded_rules:
+                                matched_rules.append(match.rule)
+
+                # Check matches for pyas_rule
+                if machine_learning_rule:
+                    matches = machine_learning_rule.match(data=data)
                     if matches:
                         for match in matches:
                             if match.rule not in excluded_rules:
