@@ -495,18 +495,26 @@ def scan_file_real_time(file_path):
 
     # Scan with YARA
     if preferences["use_yara"]:
-            yara_result = yara_scanner.scan_data(file_path)
+            try:
+                yara_result = yara_scanner.scan_data(file_path)
                 
-            # Ensure yara_result is a string
-            if isinstance(yara_result, list):
-                yara_result = ', '.join(yara_result)
-                
-            if yara_result is not None and yara_result not in ("Clean", ""):
-                if (yara_result.startswith("PUA") or yara_result.startswith("PUP")) and not preferences["enable_pup_detection"]:
-                    logging.info(f"Detected {yara_result} but skipping as PUP detection is not enabled.")
-                    return False, "Clean"
-                logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
-                return True, yara_result
+                # Ensure yara_result is a string
+                if isinstance(yara_result, list):
+                    yara_result = ', '.join(yara_result)
+                    
+                if yara_result is not None and yara_result not in ("Clean", ""):
+                    if (yara_result.startswith("PUA") or yara_result.startswith("PUP")) and not preferences["enable_pup_detection"]:
+                        logging.info(f"Detected {yara_result} but skipping as PUP detection is not enabled.")
+                        return False, "Clean"
+                    logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
+                    return True, yara_result
+            except PermissionError:
+                logging.error(f"Permission error occurred while scanning file with YARA: {file_path}")
+            except FileNotFoundError:
+                logging.error(f"File not found error occurred while scanning file with YARA: {file_path}")
+            except Exception as e:
+                logging.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {str(e)}")
+
     # Scan PE files
     if is_pe_file(file_path):
         scan_result, virus_name = scan_pe_file(file_path)
