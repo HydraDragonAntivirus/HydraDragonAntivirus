@@ -73,6 +73,7 @@ domains_signatures_data = {}
 if system_platform() == 'Windows':
     system_drives = [drive.mountpoint for drive in psutil.disk_partitions()]
     if system_drives:
+        system_drives.append(os.path.expandvars("%systemdrive%"))  # Append %systemdrive% to the list of system drives
         folder_to_watch = system_drives
     else:
         folder_to_watch = os.path.expandvars("%systemdrive%")  # Default to %systemdrive% if no drives are detected
@@ -809,6 +810,7 @@ class RealTimeProtectionHandler(FileSystemEventHandler):
 
 class RealTimeProtectionObserver:
     def __init__(self, folder_to_watch):
+        self.folder_to_watch = folder_to_watch
         self.event_handler = RealTimeProtectionHandler()
         self.observer = Observer()
         self.is_started = False  # Initialize is_started attribute
@@ -839,19 +841,19 @@ class RealTimeProtectionObserver:
     def check_folder_to_watch(self):
         if system_platform() == 'Windows':
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
-            if folder_to_watch not in disk_partitions:
-                print(f"Warning: {folder_to_watch} does not exist or is not accessible.")
+            if self.folder_to_watch not in disk_partitions:
+                print(f"Warning: {self.folder_to_watch} does not exist or is not accessible.")
                 # Update folder_to_watch to monitor all accessible partitions
                 accessible_partitions = [partition for partition in disk_partitions if os.path.isdir(partition)]
                 if accessible_partitions:
-                    folder_to_watch = accessible_partitions
+                    self.folder_to_watch = accessible_partitions
                     print(f"Updated folder_to_watch to monitor all accessible partitions: {folder_to_watch}")
                 else:
                     # If no accessible drives are found, set to %systemdrive%
-                    folder_to_watch = [os.path.expandvars("%systemdrive%")]
+                    self.folder_to_watch = [os.path.expandvars("%systemdrive%")]
                     print(f"No accessible drives found. Setting folder_to_watch to default: {folder_to_watch}")
             else:
-                print(f"folder_to_watch is accessible: {folder_to_watch}")
+                print(f"folder_to_watch is accessible: {self.folder_to_watch}")
 
 class SnortObserver:
     def __init__(self):
