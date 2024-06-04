@@ -418,7 +418,7 @@ def kill_malicious_process(file_path):
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 pass
     except Exception as e:
-        print(f"Error while terminating malicious process: {e}")
+        print(f"Error while killing malicious process: {e}")
 
 # Initialize the stop monitoring flag and preferences
 stop_monitoring = False
