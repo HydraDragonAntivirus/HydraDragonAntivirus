@@ -840,7 +840,6 @@ class RealTimeProtectionObserver:
 
     def stop(self):
         if self.is_started:
-            self.observer.stop()
             self.observer.join()
             self.is_started = False
             print("Observer stopped")
@@ -934,7 +933,6 @@ class SnortObserver:
     def stop(self):
         if self.is_started and self.snort_process:
             self.snort_process.kill()
-            self.thread.stop()
             self.thread.join()  # Wait for the thread to finish
             self.is_started = False
             logging.info("Snort has been stopped.")
