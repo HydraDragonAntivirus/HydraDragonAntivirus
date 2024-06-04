@@ -495,7 +495,7 @@ def scan_file_real_time(file_path):
 
     # Scan with YARA
     if preferences["use_yara"]:
-            yara_result = self.yara_scanner.static_analysis(file_path)
+            yara_result = yara_scanner.static_analysis(file_path)
                 
             # Ensure yara_result is a string
             if isinstance(yara_result, list):
