@@ -986,7 +986,7 @@ def process_alert(alert):
         dst_ip = match.group(3)
 
         # Example condition for potential malware detection
-        if priority == 2:
+        if priority == 1:
             logging.info(f"Potential malware detected: {alert.strip()}")
             print(f"Potential malware detected from {src_ip} to {dst_ip} with priority {priority}")
             quarantine_files(src_ip, dst_ip, alert.strip())
