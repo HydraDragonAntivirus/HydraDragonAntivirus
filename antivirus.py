@@ -465,10 +465,10 @@ def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
     logging.info(f"Started scanning file: {file_path}")
 
-    # Scan with Machine Learning
-    if preferences["use_machine_learning"]:
-      # Scan PE files
-      if is_pe_file(file_path):
+    # Scan PE files
+    if is_pe_file(file_path):
+      # Scan with Machine Learning
+      if preferences["use_machine_learning"]:
         is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
         if is_malicious:
             if (malware_definition.startswith("PUA") or malware_definition.startswith("PUP")) and not preferences["enable_pup_detection"]:
