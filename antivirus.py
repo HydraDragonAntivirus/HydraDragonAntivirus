@@ -796,7 +796,9 @@ class RealTimeProtectionHandler(FileSystemEventHandler):
         if is_malicious:
             print(f"File {file_path} is malicious. Virus: {virus_name}")
             self.notify_user(file_path, virus_name)
-            kill_malicious_process(file_path)
+            # Create a thread to kill the malicious process
+            kill_process_thread = threading.Thread(target=kill_malicious_process, args=(file_path, virus_name))
+            kill_process_thread.start()
             # Quarantine the file in a separate thread
             quarantine_thread = threading.Thread(target=quarantine_file, args=(file_path, virus_name))
             quarantine_thread.start()
@@ -1004,6 +1006,9 @@ def quarantine_files(src_ip, dst_ip, virus_name):
                         file_path = proc.info['exe']
                         if file_path:
                             logging.info(f"Quarantining file {file_path} associated with IP {src_ip} or {dst_ip}")
+                            # Create a thread to kill the malicious process
+                            kill_process_real_time_thread = threading.Thread(target=kill_malicious_process, args=(file_path, virus_name))
+                            kill_process_real_time_thread.start()
                             # Quarantine the file in a separate thread
                             quarantine_real_time_thread = threading.Thread(target=quarantine_file, args=(file_path, virus_name))
                             quarantine_real_time_thread.start()
