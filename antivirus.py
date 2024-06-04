@@ -501,7 +501,7 @@ def scan_file_real_time(file_path):
             if isinstance(yara_result, list):
                 yara_result = ', '.join(yara_result)
                 
-            if yara_result not in ("Clean", ""):
+            if yara_result is not None and yara_result not in ("Clean", ""):
                 if (yara_result.startswith("PUA") or yara_result.startswith("PUP")) and not preferences["enable_pup_detection"]:
                     logging.info(f"Detected {yara_result} but skipping as PUP detection is not enabled.")
                     return False, "Clean"
