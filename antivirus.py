@@ -1006,9 +1006,7 @@ def quarantine_files(src_ip, dst_ip, virus_name):
                         file_path = proc.info['exe']
                         if file_path:
                             logging.info(f"Quarantining file {file_path} associated with IP {src_ip} or {dst_ip}")
-                            # Create a thread to kill the malicious process
-                            kill_process_real_time_thread = threading.Thread(target=kill_malicious_process, args=(file_path, virus_name))
-                            kill_process_real_time_thread.start()
+                            kill_malicious_process(file_path, virus_name)
                             # Quarantine the file in a separate thread
                             quarantine_real_time_thread = threading.Thread(target=quarantine_file, args=(file_path, virus_name))
                             quarantine_real_time_thread.start()
