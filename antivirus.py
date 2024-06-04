@@ -809,7 +809,6 @@ class RealTimeProtectionHandler(FileSystemEventHandler):
 
 class RealTimeProtectionObserver:
     def __init__(self, folder_to_watch):
-        self.folder_to_watch = folder_to_watch
         self.event_handler = RealTimeProtectionHandler()
         self.observer = Observer()
         self.is_started = False  # Initialize is_started attribute
@@ -840,19 +839,19 @@ class RealTimeProtectionObserver:
     def check_folder_to_watch(self):
         if system_platform() == 'Windows':
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
-            if self.folder_to_watch not in disk_partitions:
-                print(f"Warning: {self.folder_to_watch} does not exist or is not accessible.")
+            if folder_to_watch not in disk_partitions:
+                print(f"Warning: {folder_to_watch} does not exist or is not accessible.")
                 # Update folder_to_watch to monitor all accessible partitions
                 accessible_partitions = [partition for partition in disk_partitions if os.path.isdir(partition)]
                 if accessible_partitions:
-                    self.folder_to_watch = accessible_partitions
-                    print(f"Updated folder_to_watch to monitor all accessible partitions: {self.folder_to_watch}")
+                    folder_to_watch = accessible_partitions
+                    print(f"Updated folder_to_watch to monitor all accessible partitions: {folder_to_watch}")
                 else:
                     # If no accessible drives are found, set to %systemdrive%
-                    self.folder_to_watch = [os.path.expandvars("%systemdrive%")]
-                    print(f"No accessible drives found. Setting folder_to_watch to default: {self.folder_to_watch}")
+                    folder_to_watch = [os.path.expandvars("%systemdrive%")]
+                    print(f"No accessible drives found. Setting folder_to_watch to default: {folder_to_watch}")
             else:
-                print(f"folder_to_watch is accessible: {self.folder_to_watch}")
+                print(f"folder_to_watch is accessible: {folder_to_watch}")
 
 class SnortObserver:
     def __init__(self):
@@ -1416,9 +1415,10 @@ class ScanManager(QDialog):
     def full_scan(self):
         if system_platform() == 'Windows':  # Windows platform
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
+            disk_partitions.append(folder_to_watch)  # Add the folder_to_watch to the list of paths to scan
             self.start_full_scan(disk_partitions)
         else:
-            self.start_scan(self.folder_to_watch)
+            self.start_scan(folder_to_watch)
 
     def quick_scan(self):
         user_folder = os.path.expanduser("~")  # Get user's home directory
