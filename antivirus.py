@@ -1510,8 +1510,9 @@ class ScanManager(QDialog):
         for item in selected_items:
             file_path = item.data(Qt.UserRole)
             virus_name = item.text().split("-")[-1].strip()
-            quarantine_file(file_path, virus_name)
-
+            # Quarantine the file in a separate thread
+            quarantine_real_time_thread = threading.Thread(target=quarantine_file, args=(file_path, virus_name))
+            quarantine_real_time_thread.start()
     def skip_selected(self):
         selected_items = self.detected_list.selectedItems()
         for item in selected_items:
