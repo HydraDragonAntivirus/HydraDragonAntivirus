@@ -1580,7 +1580,7 @@ class AntivirusUI(QWidget):
         self.start_clamd_button.clicked.connect(start_clamd_thread)
         layout.addWidget(self.start_clamd_button)
 
-        self.load_website_signatures_button = QPushButton("Load Web Signatures")
+        self.load_website_signatures_button = QPushButton("Load Web IPv4 IPv6 Signatures")
         self.load_website_signatures_button.clicked.connect(self.load_website_signatures)
         layout.addWidget(self.load_website_signatures_button)
         
