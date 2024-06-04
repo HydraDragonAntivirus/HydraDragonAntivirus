@@ -793,7 +793,7 @@ class RealTimeProtectionHandler(FileSystemEventHandler):
     def scan_and_quarantine(self, file_path):
         print(f"Scanning file: {file_path}")
         is_malicious, virus_name = scan_file_real_time(file_path)
-        if is_malicious:
+          if is_malicious:
             print(f"File {file_path} is malicious. Virus: {virus_name}")
             self.notify_user(file_path, virus_name)
             # Create a thread to kill the malicious process
