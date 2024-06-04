@@ -465,36 +465,37 @@ def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
     logging.info(f"Started scanning file: {file_path}")
 
-    # Scan PE files
-    if is_pe_file(file_path):
-      # Scan with Machine Learning
-      if preferences["use_machine_learning"]:
-        is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
-        if is_malicious:
-            if (malware_definition.startswith("PUA") or malware_definition.startswith("PUP")) and not preferences["enable_pup_detection"]:
-                logging.info(f"Detected {malware_definition} but skipping as PUP detection is not enabled.")
-                return False, "Clean"
-            if benign_score < 0.93:
-                logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
-                return True, malware_definition
-            elif benign_score >= 0.93:
-                logging.info(f"File is clean based on ML benign score: {file_path}")
-                return False, "Clean"
-        logging.info(f"No malware detected by Machine Learning in file: {file_path}")
+    try:
+        # Scan PE files
+        if is_pe_file(file_path):
+            # Scan with Machine Learning
+            if preferences["use_machine_learning"]:
+                is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
+                if is_malicious:
+                    if (malware_definition.startswith("PUA") or malware_definition.startswith("PUP")) and not preferences["enable_pup_detection"]:
+                        logging.info(f"Detected {malware_definition} but skipping as PUP detection is not enabled.")
+                        return False, "Clean"
+                    if benign_score < 0.93:
+                        logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
+                        return True, malware_definition
+                    elif benign_score >= 0.93:
+                        logging.info(f"File is clean based on ML benign score: {file_path}")
+                        return False, "Clean"
+                logging.info(f"No malware detected by Machine Learning in file: {file_path}")
 
-    # Scan with ClamAV
-    if preferences["use_clamav"]:
-        result = scan_file_with_clamd(file_path)
-        if result not in ("Clean", ""):
-            if (result.startswith("PUA") or result.startswith("PUP")) and not preferences["enable_pup_detection"]:
-                logging.info(f"Detected {result} but skipping as PUP detection is not enabled.")
-                return False, "Clean"
-            logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
-            return True, result
-        logging.info(f"No malware detected by ClamAV in file: {file_path}")
+        # Scan with ClamAV
+        if preferences["use_clamav"]:
+            result = scan_file_with_clamd(file_path)
+            if result not in ("Clean", ""):
+                if (result.startswith("PUA") or result.startswith("PUP")) and not preferences["enable_pup_detection"]:
+                    logging.info(f"Detected {result} but skipping as PUP detection is not enabled.")
+                    return False, "Clean"
+                logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
+                return True, result
+            logging.info(f"No malware detected by ClamAV in file: {file_path}")
 
-    # Scan with YARA
-    if preferences["use_yara"]:
+        # Scan with YARA
+        if preferences["use_yara"]:
             try:
                 yara_result = yara_scanner.scan_data(file_path)
                 
@@ -515,41 +516,64 @@ def scan_file_real_time(file_path):
             except Exception as e:
                 logging.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {str(e)}")
 
-    # Scan PE files
-    if is_pe_file(file_path):
-        scan_result, virus_name = scan_pe_file(file_path)
-        if scan_result and virus_name not in ("Clean", ""):
-            if (virus_name.startswith("PUA") or virus_name.startswith("PUP")) and not preferences["enable_pup_detection"]:
-                logging.info(f"Detected {virus_name} but skipping as PUP detection is not enabled.")
-                return False, "Clean"
-            logging.warning(f"Infected file detected (PE): {file_path} - Virus: {virus_name}")
-            return True, virus_name
-        logging.info(f"No malware detected in PE file: {file_path}")
+        # Scan PE files
+        if is_pe_file(file_path):
+            try:
+                scan_result, virus_name = scan_pe_file(file_path)
+                if scan_result and virus_name not in ("Clean", ""):
+                    if (virus_name.startswith("PUA") or virus_name.startswith("PUP")) and not preferences["enable_pup_detection"]:
+                        logging.info(f"Detected {virus_name} but skipping as PUP detection is not enabled.")
+                        return False, "Clean"
+                    logging.warning(f"Infected file detected (PE): {file_path} - Virus: {virus_name}")
+                    return True, virus_name
+                logging.info(f"No malware detected in PE file: {file_path}")
+            except PermissionError:
+                logging.error(f"Permission error occurred while scanning PE file: {file_path}")
+            except FileNotFoundError:
+                logging.error(f"PE file not found error occurred while scanning PE file: {file_path}")
+            except Exception as e:
+                logging.error(f"An error occurred while scanning PE file: {file_path}. Error: {str(e)}")
 
-    # Scan TAR files
-    if os.path.exists(file_path) and tarfile.is_tarfile(file_path):
-        scan_result, virus_name = scan_tar_file(file_path)
-        if scan_result and virus_name not in ("Clean", "F", ""):
-            if (virus_name.startswith("PUA") or virus_name.startswith("PUP")) and not preferences["enable_pup_detection"]:
-                logging.info(f"Detected {virus_name} but skipping as PUP detection is not enabled.")
-                return False, "Clean"
-            logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
-            return True, virus_name
-        logging.info(f"No malware detected in TAR file: {file_path}")
+        # Scan TAR files
+        if os.path.exists(file_path) and tarfile.is_tarfile(file_path):
+            try:
+                scan_result, virus_name = scan_tar_file(file_path)
+                if scan_result and virus_name not in ("Clean", "F", ""):
+                    if (virus_name.startswith("PUA") or virus_name.startswith("PUP")) and not preferences["enable_pup_detection"]:
+                        logging.info(f"Detected {virus_name} but skipping as PUP detection is not enabled.")
+                        return False, "Clean"
+                    logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
+                    return True, virus_name
+                logging.info(f"No malware detected in TAR file: {file_path}")
+            except PermissionError:
+                logging.error(f"Permission error occurred while scanning TAR file: {file_path}")
+            except FileNotFoundError:
+                logging.error(f"TAR file not found error occurred while scanning TAR file: {file_path}")
+            except Exception as e:
+                logging.error(f"An error occurred while scanning TAR file: {file_path}. Error: {str(e)}")
 
-    # Scan ZIP files
-    if os.path.exists(file_path) and zipfile.is_zipfile(file_path):
-        scan_result, virus_name = scan_zip_file(file_path)
-        if scan_result and virus_name not in ("Clean", ""):
-            if (virus_name.startswith("PUA") or virus_name.startswith("PUP")) and not preferences["enable_pup_detection"]:
-                logging.info(f"Detected {virus_name} but skipping as PUP detection is not enabled.")
-                return False, "Clean"
-            logging.warning(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
-            return True, virus_name
-        logging.info(f"No malware detected in ZIP file: {file_path}")
+        # Scan ZIP files
+        if os.path.exists(file_path) and zipfile.is_zipfile(file_path):
+            try:
+                scan_result, virus_name = scan_zip_file(file_path)
+                if scan_result and virus_name not in ("Clean", ""):
+                    if (virus_name.startswith("PUA") or virus_name.startswith("PUP")) and not preferences["enable_pup_detection"]:
+                        logging.info(f"Detected {virus_name} but skipping as PUP detection is not enabled.")
+                        return False, "Clean"
+                    logging.warning(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
+                    return True, virus_name
+                logging.info(f"No malware detected in ZIP file: {file_path}")
+            except PermissionError:
+                logging.error(f"Permission error occurred while scanning ZIP file: {file_path}")
+            except FileNotFoundError:
+                logging.error(f"ZIP file not found error occurred while scanning ZIP file: {file_path}")
+            except Exception as e:
+                logging.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {str(e)}")
+    except Exception as e:
+        logging.error(f"An error occurred while scanning file: {file_path}. Error: {str(e)}")
 
     return False, "Clean"
-   
+
 def is_pe_file(file_path):
     """Check if the file at the specified path is a Portable Executable (PE) file."""
     if not os.path.exists(file_path):
