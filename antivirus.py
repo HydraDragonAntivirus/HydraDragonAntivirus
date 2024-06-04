@@ -1020,8 +1020,14 @@ def read_alerts(file_path):
                         process_alert(line)
                     last_position = file.tell()
         else:
-            logging.error(f"Alert file not found at {file_path}")
-            print(f"Alert file not found at {file_path}")
+            try:
+                with open(file_path, 'w') as file:
+                    pass
+                logging.info(f"Alert file created at {file_path}")
+                print(f"Alert file created at {file_path}")
+            except Exception as e:
+                logging.error(f"Error creating alert file: {str(e)}")
+                print(f"Error creating alert file: {str(e)}")
 
 def main_snort():
     if preferences["enable_hips"]:
