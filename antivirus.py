@@ -1004,7 +1004,9 @@ def quarantine_files(src_ip, dst_ip, virus_name):
                         file_path = proc.info['exe']
                         if file_path:
                             logging.info(f"Quarantining file {file_path} associated with IP {src_ip} or {dst_ip}")
-                            quarantine_file(file_path, virus_name)
+                            # Quarantine the file in a separate thread
+                            quarantine_real_time_thread = threading.Thread(target=quarantine_file, args=(file_path, virus_name))
+                            quarantine_real_time_thread.start()
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             continue
 
