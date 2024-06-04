@@ -543,11 +543,18 @@ def scan_file_real_time(file_path):
     return False, "Clean"
    
 def is_pe_file(file_path):
-    """Check if the file is a PE file (executable)."""
+    """Check if the file at the specified path is a Portable Executable (PE) file."""
+    if not os.path.exists(file_path):
+        return False
+    
     try:
-        pefile.PE(file_path)
-        return True
+        with open(file_path, 'rb') as file:
+            pe = pefile.PE(data=file.read())
+            return True
     except pefile.PEFormatError:
+        return False
+    except Exception as e:
+        print(f"Error occurred while checking if file is PE: {e}")
         return False
 
 def scan_pe_file(file_path):
