@@ -1203,6 +1203,18 @@ class ScanManager(QDialog):
         self.detected_list.clear()
         self.current_file_label.setText("Currently Scanning:")
 
+    def start_full_scan(self, paths):
+        self.reset_scan()
+        self.threads = [QThread() for _ in paths]
+        for thread, path in zip(self.threads, paths):
+            thread.run = lambda: self.scan(path)
+            thread.finished.connect(self.check_all_scans_finished)  # Connect to signal emit
+            thread.start()
+
+    def check_all_scans_finished(self):
+        if all(not thread.isRunning() for thread in self.threads):
+            self.folder_scan_finished.emit()
+            
     def start_scan(self, path):
         self.reset_scan()
         self.thread = QThread()
@@ -1413,9 +1425,7 @@ class ScanManager(QDialog):
     def full_scan(self):
         if system_platform() == 'Windows':  # Windows platform
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
-            for drive in disk_partitions:
-                self.start_scan(drive)
-                self.folder_scan_finished.emit()
+            self.start_full_scan(disk_partitions)
         else:
             self.start_scan(self.folder_to_watch)
 
