@@ -815,7 +815,7 @@ class RealTimeProtectionObserver:
         self.is_initialized = False
 
     def start(self):
-        self.check_folder_to_watch()  # Check and update folder_to_watch if necessary
+        check_folder_to_watch()  # Check and update folder_to_watch if necessary
         
         if not self.is_initialized:
             # Schedule the event handler for each drive
