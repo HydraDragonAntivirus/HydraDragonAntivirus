@@ -58,7 +58,7 @@ LOG_PATH_WINDOWS = r"c:\snort\log\alert.ids"
 LOG_PATH_LINUX = "/var/log/snort/alert.ids"
 log_path = LOG_PATH_LINUX if system_platform() != 'Windows' else LOG_PATH_WINDOWS
 # Regular expression to extract IP addresses and priority from the alert
-alert_regex = re.compile(r'\[Priority: (\d+)\].*\{UDP\} (\d+\.\d+\.\d+\.\d+):\d+ -> (\d+\.\d+\.\d+\.\d+):\d+')
+alert_regex = re.compile(r'\[Priority: (\d+)\].*?\{(?:UDP|TCP)\} (\d+\.\d+\.\d+\.\d+):\d+ -> (\d+\.\d+\.\d+\.\d+):\d+')
 # Dictionary to store IP to file path mappings
 ip_to_file_path = {}
 user_preference_file = os.path.join(config_folder_path, "user_preference.json")
