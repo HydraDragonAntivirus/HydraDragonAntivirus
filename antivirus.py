@@ -519,7 +519,7 @@ def scan_file_real_time(file_path):
         logging.info(f"No malware detected in PE file: {file_path}")
 
     # Scan TAR files
-    if tarfile.is_tarfile(file_path):
+    if os.path.exists(file_path) and tarfile.is_tarfile(file_path):
         scan_result, virus_name = scan_tar_file(file_path)
         if scan_result and virus_name not in ("Clean", "F", ""):
             if (virus_name.startswith("PUA") or virus_name.startswith("PUP")) and not preferences["enable_pup_detection"]:
@@ -530,7 +530,7 @@ def scan_file_real_time(file_path):
         logging.info(f"No malware detected in TAR file: {file_path}")
 
     # Scan ZIP files
-    if zipfile.is_zipfile(file_path):
+    if os.path.exists(file_path) and zipfile.is_zipfile(file_path):
         scan_result, virus_name = scan_zip_file(file_path)
         if scan_result and virus_name not in ("Clean", ""):
             if (virus_name.startswith("PUA") or virus_name.startswith("PUP")) and not preferences["enable_pup_detection"]:
