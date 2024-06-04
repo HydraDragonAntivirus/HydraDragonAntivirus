@@ -896,9 +896,9 @@ class SnortObserver:
                     print(error.decode('utf-8').strip())
                     # Check if the error is related to an invalid device number
                     if "ERROR: OpenPcap() device" in error.decode('utf-8').strip():
-                        self.snort_process.terminate()
-                        logging.error("An invalid device number detected. Snort process terminated.")
-                        print("An invalid device number detected. Snort process terminated.")
+                        self.snort_process.kill()
+                        logging.error("An invalid device number detected. Snort process killed.")
+                        print("An invalid device number detected. Snort process killed.")
                         return
 
             # Create and start threads for stdout and stderr
