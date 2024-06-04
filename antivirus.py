@@ -814,8 +814,25 @@ class RealTimeProtectionObserver:
         self.is_started = False  # Initialize is_started attribute
         self.is_initialized = False
 
+    def check_folder_to_watch(self):
+        if system_platform() == 'Windows':
+            disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
+            if folder_to_watch not in disk_partitions:
+                print(f"Warning: {folder_to_watch} does not exist or is not accessible.")
+                # Update folder_to_watch to monitor all accessible partitions
+                accessible_partitions = [partition for partition in disk_partitions if os.path.isdir(partition)]
+                if accessible_partitions:
+                    folder_to_watch = accessible_partitions
+                    print(f"Updated folder_to_watch to monitor all accessible partitions: {folder_to_watch}")
+                else:
+                    # If no accessible drives are found, set to %systemdrive%
+                    folder_to_watch = [os.path.expandvars("%systemdrive%")]
+                    print(f"No accessible drives found. Setting folder_to_watch to default: {folder_to_watch}")
+            else:
+                print(f"folder_to_watch is accessible: {folder_to_watch}")
+
     def start(self):
-        check_folder_to_watch()  # Check and update folder_to_watch if necessary
+        self.check_folder_to_watch()  # Check and update folder_to_watch if necessary
         
         if not self.is_initialized:
             # Schedule the event handler for each drive
@@ -835,23 +852,6 @@ class RealTimeProtectionObserver:
             self.observer.join()
             self.is_started = False
             print("Observer stopped")
-
-    def check_folder_to_watch(self):
-        if system_platform() == 'Windows':
-            disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
-            if folder_to_watch not in disk_partitions:
-                print(f"Warning: {folder_to_watch} does not exist or is not accessible.")
-                # Update folder_to_watch to monitor all accessible partitions
-                accessible_partitions = [partition for partition in disk_partitions if os.path.isdir(partition)]
-                if accessible_partitions:
-                    folder_to_watch = accessible_partitions
-                    print(f"Updated folder_to_watch to monitor all accessible partitions: {folder_to_watch}")
-                else:
-                    # If no accessible drives are found, set to %systemdrive%
-                    folder_to_watch = [os.path.expandvars("%systemdrive%")]
-                    print(f"No accessible drives found. Setting folder_to_watch to default: {folder_to_watch}")
-            else:
-                print(f"folder_to_watch is accessible: {folder_to_watch}")
 
 class SnortObserver:
     def __init__(self):
