@@ -792,21 +792,21 @@ class RealTimeProtectionHandler(FileSystemEventHandler):
     def on_any_event(self, event):
         if event.is_directory:
             print(f"Folder changed: {event.src_path}")
-            self.scan_folder_rtp(event.src_path)
+            threading.Thread(target=self.scan_folder_rtp, args=(event.src_path,)).start()
         else:
             file_path = event.src_path
             if event.event_type == 'created':
                 print(f"File created: {file_path}")
-                self.scan_and_quarantine(file_path)
+                threading.Thread(target=self.scan_and_quarantine, args=(file_path,)).start()
             elif event.event_type == 'modified':
                 print(f"File modified: {file_path}")
-                self.scan_and_quarantine(file_path)
+                threading.Thread(target=self.scan_and_quarantine, args=(file_path,)).start()
             elif event.event_type == 'moved':
                 src_path = event.src_path
                 dest_path = event.dest_path
                 print(f"File moved from {src_path} to {dest_path}")
-                self.scan_and_quarantine(src_path)  # Scan the source path
-                self.scan_and_quarantine(dest_path) # Scan the destination path
+                threading.Thread(target=self.scan_and_quarantine, args=(src_path,)).start()
+                threading.Thread(target=self.scan_and_quarantine, args=(dest_path,)).start()
 
     def is_folder_in_use(self, folder_path):
         # Check if the folder is being used by any process
