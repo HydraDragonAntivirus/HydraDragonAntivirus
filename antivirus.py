@@ -1223,7 +1223,6 @@ class ScanManager(QDialog):
     def update_timer(self):
         self.elapsed_time = self.elapsed_time.addSecs(1)
         self.timer_label.setText(f"Elapsed Time: {self.elapsed_time.toString('hh:mm:ss')}")
-        logging.debug(f"Timer updated: {self.elapsed_time.toString('hh:mm:ss')}")
 
     def stop_timer(self):
         self.timer.stop()
