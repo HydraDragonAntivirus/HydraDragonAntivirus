@@ -1320,6 +1320,10 @@ class ScanManager(QDialog):
             return "/boot/efi" if system_platform() in ['Linux', 'FreeBSD', 'Darwin'] else "/boot/efi"
     
     def scan_memory(self):
+        if self.stop_event.is_set():
+            return
+        while self.pause_event.is_set():
+            time.sleep(1)  # Sleep for a short duration while the scan is paused
         self.reset_scan()
 
         def scan():
@@ -1352,6 +1356,10 @@ class ScanManager(QDialog):
         threading.Thread(target=scan).start()
 
     def scan_directory(self, directory):
+        if self.stop_event.is_set():
+            return
+        while self.pause_event.is_set():
+            time.sleep(1)  # Sleep for a short duration while the scan is paused
         detected_threats = []
         clean_files = []
 
@@ -1393,10 +1401,10 @@ class ScanManager(QDialog):
         logging.info("-----------------------------------")
 
     def scan_file_path(self, file_path):
-        self.pause_event.wait()  # Wait if the scan is paused
         if self.stop_event.is_set():
-            return False, "Scan stopped"
-        
+            return
+        while self.pause_event.is_set():
+            time.sleep(1)  # Sleep for a short duration while the scan is paused
         # Show the currently scanned file
         self.current_file_label.setText(f"Currently Scanning: {file_path}")
 
