@@ -1289,23 +1289,23 @@ class ScanManager(QDialog):
         self.reset_scan()
         self.threads = [QThread() for _ in paths]
         for thread, path in zip(self.threads, paths):
-            thread.run = lambda: self.scan(path)
+            thread.run = lambda p=path: self.scan(p)  # Use a default argument to capture the current value of path
             thread.finished.connect(self.check_all_scans_finished)  # Connect to signal emit
             thread.start()
         self.start_timer()
-
-    def check_all_scans_finished(self):
-        if all(not thread.isRunning() for thread in self.threads):
-            self.folder_scan_finished.emit()
 
     def start_scan(self, path):
         self.reset_timer()
         self.reset_scan()
         self.thread = QThread()
-        self.thread.run = lambda: self.scan(path)
+        self.thread.run = lambda p=path: self.scan(p)  # Use a default argument to capture the current value of path
         self.thread.finished.connect(self.folder_scan_finished.emit)  # Connect to signal emit
         self.thread.start()
         self.start_timer()
+
+    def check_all_scans_finished(self):
+        if all(not thread.isRunning() for thread in self.threads):
+            self.folder_scan_finished.emit()
 
     def scan(self, path):
         if os.path.isdir(path):
