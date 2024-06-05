@@ -1101,6 +1101,7 @@ class ScanManager(QDialog):
         self.pause_event = threading.Event()
         self.stop_event = threading.Event()
         self.pause_event.set()
+        self.is_paused = False
         # Connect signals to slots
         self.folder_scan_finished.connect(self.show_scan_finished_message)
         self.memory_scan_finished.connect(self.show_memory_scan_finished_message)
@@ -1208,16 +1209,18 @@ class ScanManager(QDialog):
         main_layout.addLayout(self.action_button_layout)
         self.setLayout(main_layout)
 
-   def start_timer(self):
+    def start_timer(self):
         if self.is_paused:
             # If the timer is paused, just resume it
             self.timer.start(1000)
             self.is_paused = False
+            logging.info("Timer resumed")
         else:
             # If the timer is not paused, reset the elapsed time and start
             self.elapsed_time = QTime(0, 0, 0)
             self.timer_label.setText("Elapsed Time: 00:00:00")
             self.timer.start(1000)
+            logging.info("Timer started")
 
     def update_timer(self):
         self.elapsed_time = self.elapsed_time.addSecs(1)
