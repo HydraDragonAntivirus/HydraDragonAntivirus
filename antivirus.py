@@ -1090,18 +1090,6 @@ def main_snort():
     else:
         print("HIPS is not enabled. Exiting...")
 
-class ScanWorker(QObject):
-    finished = Signal()  # Signal to emit when scan is finished
-    
-    def __init__(self, path, scan_function):
-        super().__init__()
-        self.path = path
-        self.scan_function = scan_function
-    
-    def do_work(self):
-        self.scan_function(self.path)
-        self.finished.emit()
-
 class ScanManager(QDialog):
     folder_scan_finished = Signal()
     memory_scan_finished = Signal()
@@ -1305,7 +1293,7 @@ class ScanManager(QDialog):
             thread.start()
             self.reset_timer()
             self.start_timer()
-            
+
     def check_all_scans_finished(self):
         if all(not thread.isRunning() for thread in self.threads):
             self.folder_scan_finished.emit()
