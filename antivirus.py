@@ -870,6 +870,13 @@ class RealTimeProtectionObserver:
 
     def stop(self):
         if self.is_started:
+            stop_thread = threading.Thread(target=self.stop_observer)
+            stop_thread.start()
+            stop_thread.join()
+
+    def stop_observer(self):
+        if self.is_started:
+            self.observer.stop()
             self.observer.join()
             self.is_started = False
             print("Observer stopped")
