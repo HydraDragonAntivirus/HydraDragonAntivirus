@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QListWidget, QListWidgetItem, QHBoxLayout, QMessageBox, QCheckBox, QStackedWidget,
     QComboBox, QDialog, QDialogButtonBox
 )
-from PySide6.QtCore import Qt, QObject, QThread, Signal, Slot
+from PySide6.QtCore import Qt, QObject, QThread, Signal, Slot, QTimer, QTime
 import sklearn
 import joblib
 import pefile
@@ -1108,6 +1108,10 @@ class ScanManager(QDialog):
         self.total_scanned = 0
         self.infected_files = 0
         self.clean_files = 0
+        # Initialize timer
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_timer)
+        self.elapsed_time = QTime(0, 0)
 
     def setup_ui(self):
         main_layout = QVBoxLayout()
@@ -1171,6 +1175,10 @@ class ScanManager(QDialog):
         self.clean_files_label = QLabel("Clean Files: 0")
         main_layout.addWidget(self.clean_files_label)
 
+        # Timer label
+        self.timer_label = QLabel("Elapsed Time: 00:00:00")
+        main_layout.addWidget(self.timer_label)
+
         self.action_button_layout = QHBoxLayout()
 
         self.quarantine_button = QPushButton("Quarantine")
@@ -1200,6 +1208,23 @@ class ScanManager(QDialog):
         main_layout.addLayout(self.action_button_layout)
         self.setLayout(main_layout)
 
+    def start_timer(self):
+        self.elapsed_time = QTime(0, 0)
+        self.timer_label.setText("Elapsed Time: 00:00:00")
+        self.timer.start(1000)
+
+    def update_timer(self):
+        self.elapsed_time = self.elapsed_time.addSecs(1)
+        self.timer_label.setText(f"Elapsed Time: {self.elapsed_time.toString('hh:mm:ss')}")
+
+    def stop_timer(self):
+        self.timer.stop()
+
+    def reset_timer(self):
+        self.stop_timer()
+        self.elapsed_time = QTime(0, 0)
+        self.timer_label.setText("Elapsed Time: 00:00:00")
+
     def save_results(self):
         summary_data = self.collect_summary_data()
         threats_data = self.collect_threats_data()
@@ -1215,11 +1240,13 @@ class ScanManager(QDialog):
                 QMessageBox.critical(self, "Error", f"Failed to save results file: {str(e)}")
 
     def collect_summary_data(self):
+        elapsed_time_str = self.elapsed_time.toString('hh:mm:ss')
         summary_lines = []
         summary_lines.append("----------- SCAN SUMMARY -----------")
         summary_lines.append(f"Infected files: {self.infected_files}")
         summary_lines.append(f"Clean files: {self.clean_files}")
         summary_lines.append(f"Total files scanned: {self.total_scanned}")
+        summary_lines.append(f"Elapsed Time: {elapsed_time_str}")
         summary_lines.append("-----------------------------------")
         return "\n".join(summary_lines)
 
@@ -1286,7 +1313,7 @@ class ScanManager(QDialog):
                         if executable_path and executable_path not in scanned_files:
                             detected_files.append(executable_path)
                             scanned_files.add(executable_path)  # Add path to scanned files set
-                    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
+                    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProxcess) as e:
                         print(f"Error while accessing process info: {e}")
             except Exception as e:
                 print(f"Error while iterating over processes: {e}")
@@ -1459,30 +1486,46 @@ class ScanManager(QDialog):
             return False, ""
 
     def full_scan(self):
+        self.reset_timer()
+        self.start_timer()
         if system_platform() == 'Windows':  # Windows platform
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
             disk_partitions.append(folder_to_watch)  # Add the folder_to_watch to the list of paths to scan
             self.start_full_scan(disk_partitions)
+            self.stop_timer()
         else:
             self.start_scan(folder_to_watch)
+            self.stop_timer()
 
     def quick_scan(self):
+        self.reset_timer()
+        self.start_timer()
         user_folder = os.path.expanduser("~")  # Get user's home directory
         self.start_scan(user_folder)
+        self.stop_timer()
 
     def uefi_scan(self):
+        self.reset_timer()
+        self.start_timer()
         folder_path = self.get_uefi_folder()
         self.start_scan(folder_path)
+        self.stop_timer()
 
     def scan_folder(self):
+        self.reset_timer()
+        self.start_timer()
         folder_path = QFileDialog.getExistingDirectory(None, "Select Folder to Scan")
         if folder_path:
             self.start_scan(folder_path)
+            self.stop_timer()
 
     def scan_file(self):
+        self.reset_timer()
+        self.start_timer()
         file_path, _ = QFileDialog.getOpenFileName(None, "Select File to Scan")
         if file_path:
             self.start_scan(file_path)
+            self.stop_timer()
 
     def update_scan_labels(self):
         self.scanned_files_label.setText(f"Total Scanned Files: {self.total_scanned}")
