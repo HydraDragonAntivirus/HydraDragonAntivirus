@@ -1236,6 +1236,13 @@ class ScanManager(QDialog):
             self.is_paused = True
             logging.debug("Timer paused")
             
+    def reset_timer(self):
+        self.stop_timer()
+        self.elapsed_time = QTime(0, 0, 0)
+        self.timer_label.setText("Elapsed Time: 00:00:00")
+        self.is_paused = False
+        logging.debug("Timer resetted")
+        
     def save_results(self):
         summary_data = self.collect_summary_data()
         threats_data = self.collect_threats_data()
