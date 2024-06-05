@@ -1109,10 +1109,8 @@ class ScanManager(QDialog):
         self.total_scanned = 0
         self.infected_files = 0
         self.clean_files = 0
-        self.scan_threads = []
         # Initialize timer
-        self.scan_timer = QTimer()
-        self.scan_timer.timeout.connect(self.on_timer_timeout)
+        self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_timer)
         self.elapsed_time = QTime(0, 0, 0)
 
@@ -1289,19 +1287,21 @@ class ScanManager(QDialog):
     def start_full_scan(self, paths):
         self.reset_timer()
         self.reset_scan()
-        self.scan_threads = [ScanThread(path, self.scan) for path in paths]
-        for thread in self.scan_threads:
-            thread.finished.connect(self.check_all_scans_finished)
-            thread.start()
         self.start_timer()
+        self.threads = [QThread() for _ in paths]
+        for thread, path in zip(self.threads, paths):
+            thread.run = lambda: self.scan(path)
+            thread.finished.connect(self.check_all_scans_finished)  # Connect to signal emit
+            thread.start()
 
     def start_scan(self, path):
         self.reset_timer()
         self.reset_scan()
-        self.scan_thread = ScanThread(path, self.scan)
-        self.scan_thread.finished.connect(self.folder_scan_finished.emit)
-        self.scan_thread.start()
         self.start_timer()
+        self.thread = QThread()
+        self.thread.run = lambda: self.scan(path)
+        self.thread.finished.connect(self.folder_scan_finished.emit)  # Connect to signal emit
+        self.thread.start()
 
     def check_all_scans_finished(self):
         if all(not thread.isRunning() for thread in self.threads):
