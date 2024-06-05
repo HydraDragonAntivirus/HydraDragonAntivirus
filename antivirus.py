@@ -1287,8 +1287,9 @@ class ScanManager(QDialog):
     def start_full_scan(self, paths):
         self.reset_timer()
         # Start the timer in a separate thread
-        timer_thread = threading.Thread(target=self.start_timer)
-        timer_thread.start()        
+        timer_full_thread = QThread()
+        timer_full_thread.run = self.start_timer
+        timer_full_thread.start()  
         self.reset_scan()
         self.threads = [QThread() for _ in paths]
         for thread, path in zip(self.threads, paths):
@@ -1303,7 +1304,8 @@ class ScanManager(QDialog):
     def start_scan(self, path):
         self.reset_timer()
         # Start the timer in a separate thread
-        timer_thread = threading.Thread(target=self.start_timer)
+        timer_thread = QThread()
+        timer_thread.run = self.start_timer
         timer_thread.start()
         self.reset_scan()
         self.thread = QThread()
