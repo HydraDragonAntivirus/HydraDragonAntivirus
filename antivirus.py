@@ -1211,36 +1211,31 @@ class ScanManager(QDialog):
 
     def start_timer(self):
         if self.is_paused:
-            # If the timer is paused, just resume it
             self.timer.start(1000)
             self.is_paused = False
-            logging.info("Timer resumed")
+            logging.debug("Timer resumed")
         else:
-            # If the timer is not paused, reset the elapsed time and start
             self.elapsed_time = QTime(0, 0, 0)
             self.timer_label.setText("Elapsed Time: 00:00:00")
             self.timer.start(1000)
-            logging.info("Timer started")
+            logging.debug("Timer started")
 
     def update_timer(self):
         self.elapsed_time = self.elapsed_time.addSecs(1)
         self.timer_label.setText(f"Elapsed Time: {self.elapsed_time.toString('hh:mm:ss')}")
+        logging.debug(f"Timer updated: {self.elapsed_time.toString('hh:mm:ss')}")
 
     def stop_timer(self):
         self.timer.stop()
-        self.is_paused = False  # Reset pause state when timer is stopped
+        self.is_paused = False
+        logging.debug("Timer stopped")
 
     def pause_timer(self):
         if not self.is_paused:
             self.timer.stop()
             self.is_paused = True
-
-    def reset_timer(self):
-        self.stop_timer()
-        self.elapsed_time = QTime(0, 0, 0)
-        self.timer_label.setText("Elapsed Time: 00:00:00")
-        self.is_paused = False
-
+            logging.debug("Timer paused")
+            
     def save_results(self):
         summary_data = self.collect_summary_data()
         threats_data = self.collect_threats_data()
