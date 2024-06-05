@@ -1267,6 +1267,8 @@ class ScanManager(QDialog):
         self.current_file_label.setText("Currently Scanning:")
 
     def start_full_scan(self, paths):
+        self.reset_timer()
+        self.start_timer()
         self.reset_scan()
         self.threads = [QThread() for _ in paths]
         for thread, path in zip(self.threads, paths):
@@ -1279,6 +1281,8 @@ class ScanManager(QDialog):
             self.folder_scan_finished.emit()
 
     def start_scan(self, path):
+        self.reset_timer()
+        self.start_timer()
         self.reset_scan()
         self.thread = QThread()
         self.thread.run = lambda: self.scan(path)
@@ -1486,8 +1490,6 @@ class ScanManager(QDialog):
             return False, ""
 
     def full_scan(self):
-        self.reset_timer()
-        self.start_timer()
         if system_platform() == 'Windows':  # Windows platform
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
             disk_partitions.append(folder_to_watch)  # Add the folder_to_watch to the list of paths to scan
@@ -1498,30 +1500,22 @@ class ScanManager(QDialog):
             self.stop_timer()
 
     def quick_scan(self):
-        self.reset_timer()
-        self.start_timer()
         user_folder = os.path.expanduser("~")  # Get user's home directory
         self.start_scan(user_folder)
         self.stop_timer()
 
     def uefi_scan(self):
-        self.reset_timer()
-        self.start_timer()
         folder_path = self.get_uefi_folder()
         self.start_scan(folder_path)
         self.stop_timer()
 
     def scan_folder(self):
-        self.reset_timer()
-        self.start_timer()
         folder_path = QFileDialog.getExistingDirectory(None, "Select Folder to Scan")
         if folder_path:
             self.start_scan(folder_path)
             self.stop_timer()
 
     def scan_file(self):
-        self.reset_timer()
-        self.start_timer()
         file_path, _ = QFileDialog.getOpenFileName(None, "Select File to Scan")
         if file_path:
             self.start_scan(file_path)
