@@ -1211,7 +1211,7 @@ class ScanManager(QDialog):
     def start_timer(self):
         self.elapsed_time = QTime(0, 0)
         self.timer_label.setText("Elapsed Time: 00:00:00")
-        self.timer.start(1000)
+        self.timer.start(interval)
 
     def update_timer(self):
         self.elapsed_time = self.elapsed_time.addSecs(1)
