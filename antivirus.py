@@ -1111,7 +1111,7 @@ class ScanManager(QDialog):
         # Initialize timer
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_timer)
-        self.elapsed_time = QTime(0, 0)
+        self.elapsed_time = QTime(0, 0, 0)
 
     def setup_ui(self):
         main_layout = QVBoxLayout()
@@ -1208,10 +1208,16 @@ class ScanManager(QDialog):
         main_layout.addLayout(self.action_button_layout)
         self.setLayout(main_layout)
 
-    def start_timer(self):
-        self.elapsed_time = QTime(0, 0)
-        self.timer_label.setText("Elapsed Time: 00:00:00")
-        self.timer.start(1000)
+   def start_timer(self):
+        if self.is_paused:
+            # If the timer is paused, just resume it
+            self.timer.start(1000)
+            self.is_paused = False
+        else:
+            # If the timer is not paused, reset the elapsed time and start
+            self.elapsed_time = QTime(0, 0, 0)
+            self.timer_label.setText("Elapsed Time: 00:00:00")
+            self.timer.start(1000)
 
     def update_timer(self):
         self.elapsed_time = self.elapsed_time.addSecs(1)
@@ -1219,11 +1225,18 @@ class ScanManager(QDialog):
 
     def stop_timer(self):
         self.timer.stop()
+        self.is_paused = False  # Reset pause state when timer is stopped
+
+    def pause_timer(self):
+        if not self.is_paused:
+            self.timer.stop()
+            self.is_paused = True
 
     def reset_timer(self):
         self.stop_timer()
-        self.elapsed_time = QTime(0, 0)
+        self.elapsed_time = QTime(0, 0, 0)
         self.timer_label.setText("Elapsed Time: 00:00:00")
+        self.is_paused = False
 
     def save_results(self):
         summary_data = self.collect_summary_data()
@@ -1528,14 +1541,17 @@ class ScanManager(QDialog):
 
     def pause_scanning(self):
         self.pause_event.clear()
+        self.pause_timer()
         logging.info("Scanning paused")
 
     def resume_scanning(self):
         self.pause_event.set()
+        self.start_timer()
         logging.info("Scanning resumed")
         
     def stop_scanning(self):
         self.stop_event.set()
+        self.stop_timer()
         logging.info("Scanning stopped")
         
     def reset_stop_event(self):
