@@ -1242,7 +1242,7 @@ class ScanManager(QDialog):
         self.timer_label.setText("Elapsed Time: 00:00:00")
         self.is_paused = False
         logging.debug("Timer resetted")
-        
+
     def save_results(self):
         summary_data = self.collect_summary_data()
         threats_data = self.collect_threats_data()
@@ -1666,9 +1666,6 @@ class AntivirusUI(QWidget):
         main_layout = QVBoxLayout()
         main_layout.addWidget(self.stacked_widget)
         self.setLayout(main_layout)
-        # Define pause_event and stop_event attributes
-        self.pause_event = threading.Event()
-        self.stop_event = threading.Event()
         self.signals = WorkerSignals()
         self.signals.success.connect(self.show_success_message)
         self.signals.failure.connect(self.show_failure_message)
