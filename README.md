@@ -40,6 +40,8 @@ Also the configuration presumes that your installation is C:\Snort, if it is dif
 
 https://rules.emergingthreats.net/open/ Download Rules From There
 
+Don't forget to check all boxes at npcap also if you get this warning then look this:  https://ask.wireshark.org/question/33483/why-do-i-get-this-wireshark-is-installed-but-cannot-read-manuf-when-i-use-wireshark/
+
 # Hydra Dragon Antivirus AI Generated Text
 Overview
 Hydra Dragon Antivirus is a cross-platform antivirus GUI that integrates ClamAV, YARA, a machine learning AI module, and Snort to provide comprehensive security solutions. This policy outlines the security measures, practices, and guidelines for users to follow when using Hydra Dragon Antivirus to ensure optimal protection and system stability.
