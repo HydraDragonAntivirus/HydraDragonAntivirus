@@ -1285,13 +1285,13 @@ class ScanManager(QDialog):
         self.current_file_label.setText("Currently Scanning:")
 
     def start_full_scan(self, paths):
+        self.reset_timer()
         self.reset_scan()
         self.threads = [QThread() for _ in paths]
         for thread, path in zip(self.threads, paths):
             thread.run = lambda: self.scan(path)
             thread.finished.connect(self.check_all_scans_finished)  # Connect to signal emit
             thread.start()
-            self.reset_timer()
             self.start_timer()
 
     def check_all_scans_finished(self):
@@ -1299,12 +1299,12 @@ class ScanManager(QDialog):
             self.folder_scan_finished.emit()
 
     def start_scan(self, path):
+        self.reset_timer()
         self.reset_scan()
         self.thread = QThread()
         self.thread.run = lambda: self.scan(path)
         self.thread.finished.connect(self.folder_scan_finished.emit)  # Connect to signal emit
         self.thread.start()
-        self.reset_timer()
         self.start_timer()
 
     def scan(self, path):
