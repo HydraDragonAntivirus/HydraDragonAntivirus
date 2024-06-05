@@ -1292,7 +1292,7 @@ class ScanManager(QDialog):
             thread.run = lambda: self.scan(path)
             thread.finished.connect(self.check_all_scans_finished)  # Connect to signal emit
             thread.start()
-            self.start_timer()
+        self.start_timer()
 
     def check_all_scans_finished(self):
         if all(not thread.isRunning() for thread in self.threads):
