@@ -1090,6 +1090,18 @@ def main_snort():
     else:
         print("HIPS is not enabled. Exiting...")
 
+class ScanWorker(QObject):
+    finished = Signal()  # Signal to emit when scan is finished
+    
+    def __init__(self, path, scan_function):
+        super().__init__()
+        self.path = path
+        self.scan_function = scan_function
+    
+    def do_work(self):
+        self.scan_function(self.path)
+        self.finished.emit()
+
 class ScanManager(QDialog):
     folder_scan_finished = Signal()
     memory_scan_finished = Signal()
@@ -1285,33 +1297,27 @@ class ScanManager(QDialog):
         self.current_file_label.setText("Currently Scanning:")
 
     def start_full_scan(self, paths):
-        self.reset_timer()
-        # Start the timer in a separate thread
-        timer_full_thread = QThread()
-        timer_full_thread.run = self.start_timer
-        timer_full_thread.start()  
         self.reset_scan()
         self.threads = [QThread() for _ in paths]
         for thread, path in zip(self.threads, paths):
             thread.run = lambda: self.scan(path)
             thread.finished.connect(self.check_all_scans_finished)  # Connect to signal emit
             thread.start()
-
+            self.reset_timer()
+            self.start_timer()
+            
     def check_all_scans_finished(self):
         if all(not thread.isRunning() for thread in self.threads):
             self.folder_scan_finished.emit()
 
     def start_scan(self, path):
-        self.reset_timer()
-        # Start the timer in a separate thread
-        timer_thread = QThread()
-        timer_thread.run = self.start_timer
-        timer_thread.start()
         self.reset_scan()
         self.thread = QThread()
         self.thread.run = lambda: self.scan(path)
         self.thread.finished.connect(self.folder_scan_finished.emit)  # Connect to signal emit
         self.thread.start()
+        self.reset_timer()
+        self.start_timer()
 
     def scan(self, path):
         if os.path.isdir(path):
