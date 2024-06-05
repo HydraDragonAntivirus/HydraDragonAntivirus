@@ -1,3 +1,4 @@
+
 import sys
 import os
 import shutil
@@ -12,7 +13,7 @@ from PySide6.QtWidgets import (
     QListWidget, QListWidgetItem, QHBoxLayout, QMessageBox, QCheckBox, QStackedWidget,
     QComboBox, QDialog, QDialogButtonBox
 )
-from PySide6.QtCore import Qt, QObject, QThread, Signal, Slot, QTimer, QTime
+from PySide6.QtCore import Qt, QObject, QThread, Signal, Slot
 import sklearn
 import joblib
 import pefile
@@ -1101,7 +1102,6 @@ class ScanManager(QDialog):
         self.pause_event = threading.Event()
         self.stop_event = threading.Event()
         self.pause_event.set()
-        self.is_paused = False
         # Connect signals to slots
         self.folder_scan_finished.connect(self.show_scan_finished_message)
         self.memory_scan_finished.connect(self.show_memory_scan_finished_message)
@@ -1109,10 +1109,9 @@ class ScanManager(QDialog):
         self.total_scanned = 0
         self.infected_files = 0
         self.clean_files = 0
-        # Initialize timer
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_timer)
-        self.elapsed_time = QTime(0, 0, 0)
+        # Initialize scan time
+        self.scan_start_time = None
+        self.scan_end_time = None
 
     def setup_ui(self):
         main_layout = QVBoxLayout()
@@ -1176,10 +1175,6 @@ class ScanManager(QDialog):
         self.clean_files_label = QLabel("Clean Files: 0")
         main_layout.addWidget(self.clean_files_label)
 
-        # Timer label
-        self.timer_label = QLabel("Elapsed Time: 00:00:00")
-        main_layout.addWidget(self.timer_label)
-
         self.action_button_layout = QHBoxLayout()
 
         self.quarantine_button = QPushButton("Quarantine")
@@ -1206,41 +1201,11 @@ class ScanManager(QDialog):
         self.kill_button.clicked.connect(self.kill_all_malicious_processes)
         self.action_button_layout.addWidget(self.kill_button)
 
+        self.scan_time_label = QLabel("Scan Time: 00:00:00")
+        main_layout.addWidget(self.scan_time_label)
+
         main_layout.addLayout(self.action_button_layout)
         self.setLayout(main_layout)
-
-    def start_timer(self):
-        if self.is_paused:
-            self.timer.start(1000)
-            self.is_paused = False
-            logging.debug("Timer resumed")
-        else:
-            self.elapsed_time = QTime(0, 0, 0)
-            self.timer_label.setText("Elapsed Time: 00:00:00")
-            self.timer.start(1000)
-            logging.debug("Timer started")
-
-    def update_timer(self):
-        self.elapsed_time = self.elapsed_time.addSecs(1)
-        self.timer_label.setText(f"Elapsed Time: {self.elapsed_time.toString('hh:mm:ss')}")
-
-    def stop_timer(self):
-        self.timer.stop()
-        self.is_paused = False
-        logging.debug("Timer stopped")
-
-    def pause_timer(self):
-        if not self.is_paused:
-            self.timer.stop()
-            self.is_paused = True
-            logging.debug("Timer paused")
-            
-    def reset_timer(self):
-        self.stop_timer()
-        self.elapsed_time = QTime(0, 0, 0)
-        self.timer_label.setText("Elapsed Time: 00:00:00")
-        self.is_paused = False
-        logging.debug("Timer resetted")
 
     def save_results(self):
         summary_data = self.collect_summary_data()
@@ -1257,13 +1222,14 @@ class ScanManager(QDialog):
                 QMessageBox.critical(self, "Error", f"Failed to save results file: {str(e)}")
 
     def collect_summary_data(self):
-        elapsed_time_str = self.elapsed_time.toString('hh:mm:ss')
         summary_lines = []
         summary_lines.append("----------- SCAN SUMMARY -----------")
         summary_lines.append(f"Infected files: {self.infected_files}")
         summary_lines.append(f"Clean files: {self.clean_files}")
         summary_lines.append(f"Total files scanned: {self.total_scanned}")
-        summary_lines.append(f"Elapsed Time: {elapsed_time_str}")
+        if self.scan_start_time and self.scan_end_time:
+            elapsed_time = self.scan_end_time - self.scan_start_time
+            summary_lines.append(f"Scan Time: {self.format_time(elapsed_time)}")
         summary_lines.append("-----------------------------------")
         return "\n".join(summary_lines)
 
@@ -1284,27 +1250,27 @@ class ScanManager(QDialog):
         self.current_file_label.setText("Currently Scanning:")
 
     def start_full_scan(self, paths):
-        self.reset_timer()
         self.reset_scan()
-        self.start_timer()
+        self.scan_start_time = time.time()  # Start scan time
         self.threads = [QThread() for _ in paths]
         for thread, path in zip(self.threads, paths):
             thread.run = lambda: self.scan(path)
-            thread.finished.connect(self.check_all_scans_finished)  # Connect to signal emit
+            thread.finished.connect(self.check_all_scans_finished)
             thread.start()
-
-    def start_scan(self, path):
-        self.reset_timer()
-        self.reset_scan()
-        self.start_timer()
-        self.thread = QThread()
-        self.thread.run = lambda: self.scan(path)
-        self.thread.finished.connect(self.folder_scan_finished.emit)  # Connect to signal emit
-        self.thread.start()
 
     def check_all_scans_finished(self):
         if all(not thread.isRunning() for thread in self.threads):
+            self.scan_end_time = time.time()  # End scan time
+            self.update_scan_time_label()
             self.folder_scan_finished.emit()
+
+    def start_scan(self, path):
+        self.reset_scan()
+        self.scan_start_time = time.time()  # Start scan time
+        self.thread = QThread()
+        self.thread.run = lambda: self.scan(path)
+        self.thread.finished.connect(self.folder_scan_finished.emit)
+        self.thread.start()
 
     def scan(self, path):
         if os.path.isdir(path):
@@ -1319,11 +1285,8 @@ class ScanManager(QDialog):
             return "/boot/efi" if system_platform() in ['Linux', 'FreeBSD', 'Darwin'] else "/boot/efi"
     
     def scan_memory(self):
-        if self.stop_event.is_set():
-            return
-        while self.pause_event.is_set():
-            time.sleep(1)  # Sleep for a short duration while the scan is paused
         self.reset_scan()
+        self.scan_start_time = time.time()  # Start scan time
 
         def scan():
             scanned_files = set()  # Set to store scanned file paths
@@ -1338,7 +1301,7 @@ class ScanManager(QDialog):
                         if executable_path and executable_path not in scanned_files:
                             detected_files.append(executable_path)
                             scanned_files.add(executable_path)  # Add path to scanned files set
-                    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProxcess) as e:
+                    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
                         print(f"Error while accessing process info: {e}")
             except Exception as e:
                 print(f"Error while iterating over processes: {e}")
@@ -1355,10 +1318,6 @@ class ScanManager(QDialog):
         threading.Thread(target=scan).start()
 
     def scan_directory(self, directory):
-        if self.stop_event.is_set():
-            return
-        while self.pause_event.is_set():
-            time.sleep(1)  # Sleep for a short duration while the scan is paused
         detected_threats = []
         clean_files = []
 
@@ -1389,21 +1348,26 @@ class ScanManager(QDialog):
         self.show_summary(detected_threats, clean_files)
 
     def show_summary(self, detected_threats, clean_files):
+        self.scan_end_time = time.time()  # End scan time
+        self.update_scan_time_label()
         num_detected = len(detected_threats)
         num_clean = len(clean_files)
         total_files = num_detected + num_clean
 
-        logging.info(f"----------- SCAN SUMMARY -----------")
+        logging.info("----------- SCAN SUMMARY -----------")
         logging.info(f"Infected files: {num_detected}")
         logging.info(f"Clean files: {num_clean}")
         logging.info(f"Total files scanned: {total_files}")
+        if self.scan_start_time and self.scan_end_time:
+            elapsed_time = self.scan_end_time - self.scan_start_time
+            logging.info(f"Scan Time: {str(elapsed_time)}")
         logging.info("-----------------------------------")
 
     def scan_file_path(self, file_path):
+        self.pause_event.wait()  # Wait if the scan is paused
         if self.stop_event.is_set():
-            return
-        while self.pause_event.is_set():
-            time.sleep(1)  # Sleep for a short duration while the scan is paused
+            return False, "Scan stopped"
+        
         # Show the currently scanned file
         self.current_file_label.setText(f"Currently Scanning: {file_path}")
 
@@ -1519,32 +1483,26 @@ class ScanManager(QDialog):
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
             disk_partitions.append(folder_to_watch)  # Add the folder_to_watch to the list of paths to scan
             self.start_full_scan(disk_partitions)
-            self.stop_timer()
         else:
             self.start_scan(folder_to_watch)
-            self.stop_timer()
 
     def quick_scan(self):
         user_folder = os.path.expanduser("~")  # Get user's home directory
         self.start_scan(user_folder)
-        self.stop_timer()
 
     def uefi_scan(self):
         folder_path = self.get_uefi_folder()
         self.start_scan(folder_path)
-        self.stop_timer()
 
     def scan_folder(self):
         folder_path = QFileDialog.getExistingDirectory(None, "Select Folder to Scan")
         if folder_path:
             self.start_scan(folder_path)
-            self.stop_timer()
 
     def scan_file(self):
         file_path, _ = QFileDialog.getOpenFileName(None, "Select File to Scan")
         if file_path:
             self.start_scan(file_path)
-            self.stop_timer()
 
     def update_scan_labels(self):
         self.scanned_files_label.setText(f"Total Scanned Files: {self.total_scanned}")
@@ -1553,27 +1511,33 @@ class ScanManager(QDialog):
 
     def pause_scanning(self):
         self.pause_event.clear()
-        self.pause_timer()
         logging.info("Scanning paused")
 
     def resume_scanning(self):
         self.pause_event.set()
-        self.start_timer()
         logging.info("Scanning resumed")
         
     def stop_scanning(self):
         self.stop_event.set()
-        self.stop_timer()
         logging.info("Scanning stopped")
         
     def reset_stop_event(self):
         self.stop_event.clear()
          
     def show_scan_finished_message(self):
-        QMessageBox.information(self, "Scan Finished", "File scan has finished.")
+        QMessageBox.information(self, "Scan Finished", "Folder scan has been completed.")
+        self.scan_end_time = time.time()  # End scan time
+        self.update_scan_time_label()
 
     def show_memory_scan_finished_message(self):
-        QMessageBox.information(self, "Scan Finished", "Memory scan has finished.")
+        QMessageBox.information(self, "Scan Finished", "Memory scan has been completed.")
+        self.scan_end_time = time.time()  # End scan time
+        self.update_scan_time_label()
+
+    def update_scan_time_label(self):
+        if self.scan_start_time and self.scan_end_time:
+            elapsed_time = self.scan_end_time - self.scan_start_time
+            self.scan_time_label.setText(f"Scan Time: {str(elapsed_time)}")
 
     def apply_action(self):
         action = self.action_combobox.currentText()
@@ -1608,6 +1572,7 @@ class ScanManager(QDialog):
             # Quarantine the file in a separate thread
             quarantine_real_time_thread = threading.Thread(target=quarantine_file, args=(file_path, virus_name))
             quarantine_real_time_thread.start()
+
     def skip_selected(self):
         selected_items = self.detected_list.selectedItems()
         for item in selected_items:
