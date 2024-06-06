@@ -1042,7 +1042,17 @@ def quarantine_files(src_ip, dst_ip, virus_name):
                             # Quarantine the file in a separate thread
                             quarantine_real_time_thread = threading.Thread(target=quarantine_file, args=(file_path, virus_name))
                             quarantine_real_time_thread.start()
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        except psutil.NoSuchProcess:
+            logging.warning(f"Process no longer exists: {proc.info.get('pid')}")
+            continue
+        except psutil.AccessDenied:
+            logging.error(f"Access denied to process: {proc.info.get('pid')}")
+            continue
+        except psutil.ZombieProcess:
+            logging.warning(f"Zombie process encountered: {proc.info.get('pid')}")
+            continue
+        except Exception as e:
+            logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {e}")
             continue
 
 def read_alerts(file_path):
