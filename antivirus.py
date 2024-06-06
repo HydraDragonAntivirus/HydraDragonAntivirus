@@ -1297,6 +1297,7 @@ class ScanManager(QDialog):
     def scan(self, path):
         if os.path.isdir(path):
             self.scan_directory(path)
+            self.stop_timer()
         else:
             self.scan_file_path(path)
 
