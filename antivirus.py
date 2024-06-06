@@ -1259,7 +1259,6 @@ class ScanManager(QDialog):
     def stop_timer(self):
         self.timer_running = False
         self.scan_end_time = time.time()
-        self.update_scan_time_label()
 
     def update_timer(self):
         while self.timer_running:
@@ -1528,16 +1527,9 @@ class ScanManager(QDialog):
          
     def show_scan_finished_message(self):
         QMessageBox.information(self, "Scan Finished", "Folder scan has been completed.")
-        self.update_scan_time_label()
 
     def show_memory_scan_finished_message(self):
         QMessageBox.information(self, "Scan Finished", "Memory scan has been completed.")
-        self.update_scan_time_label()
-        
-    def update_scan_time_label(self):
-        if self.scan_start_time and self.scan_end_time:
-            elapsed_time = self.scan_end_time - self.scan_start_time
-            self.scan_time_label.setText(f"Scan Time: {str(elapsed_time)}")
 
     def apply_action(self):
         action = self.action_combobox.currentText()
