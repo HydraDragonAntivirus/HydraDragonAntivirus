@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QListWidget, QListWidgetItem, QHBoxLayout, QMessageBox, QCheckBox, QStackedWidget,
     QComboBox, QDialog, QDialogButtonBox
 )
-from PySide6.QtCore import Qt, QObject, QThread, Signal, Slot
+from PySide6.QtCore import Qt, QObject, QThread, Signal, Slot, QMetaObject
 import sklearn
 import joblib
 import pefile
@@ -140,7 +140,11 @@ def quarantine_file(file_path, virus_name):
         # Save the updated quarantine data
         save_quarantine_data(quarantine_data)
     except Exception as e:
-        QMessageBox.critical(None, "Error", f"Failed to quarantine file: {str(e)}")
+        QMetaObject.invokeMethod(
+            QApplication.instance(),
+            lambda: QMessageBox.critical(None, "Error", f"Failed to quarantine file: {str(e)}"),
+            Qt.QueuedConnection
+        )
 
 def extract_infos(file_path, rank=None):
     """Extract information about file"""
