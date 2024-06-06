@@ -1292,12 +1292,12 @@ class ScanManager(QDialog):
         self.thread = QThread()
         self.thread.run = lambda: self.scan(path)
         self.thread.finished.connect(self.folder_scan_finished.emit)
+        self.thread.finished.connect(self.stop_timer)
         self.thread.start()
 
     def scan(self, path):
         if os.path.isdir(path):
             self.scan_directory(path)
-            self.stop_timer()
         else:
             self.scan_file_path(path)
 
@@ -1551,12 +1551,10 @@ class ScanManager(QDialog):
     def show_scan_finished_message(self):
         QMessageBox.information(self, "Scan Finished", "Folder scan has been completed.")
         self.update_scan_time_label()
-        self.show_scan_summary()
 
     def show_memory_scan_finished_message(self):
         QMessageBox.information(self, "Scan Finished", "Memory scan has been completed.")
         self.update_scan_time_label()
-        self.show_scan_summary()
         
     def update_scan_time_label(self):
         if self.scan_start_time and self.scan_end_time:
