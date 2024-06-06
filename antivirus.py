@@ -1342,7 +1342,6 @@ class ScanManager(QDialog):
 
     def scan_directory(self, directory):
         detected_threats = []
-        clean_files = []
 
         def scan_file(file_path):
             with ThreadPoolExecutor(max_workers=1000) as executor:
@@ -1354,8 +1353,6 @@ class ScanManager(QDialog):
                 item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
                 item.setData(Qt.UserRole, file_path)
                 detected_threats.append((file_path, virus_name))
-            else:
-                clean_files.append(file_path)
 
         with ThreadPoolExecutor(max_workers=1000) as executor:
             futures = []
