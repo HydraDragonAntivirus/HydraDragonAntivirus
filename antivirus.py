@@ -1368,25 +1368,6 @@ class ScanManager(QDialog):
             for future in as_completed(futures):
                 future.result()
 
-        self.show_summary(detected_threats, clean_files)
-
-    def show_summary(self, detected_threats, clean_files):
-        self.scan_end_time = time.time()  # End scan time
-        self.update_scan_time_label()
-        num_detected = len(detected_threats)
-        num_clean = len(clean_files)
-        total_files = num_detected + num_clean
-
-        logging.info("----------- SCAN SUMMARY -----------")
-        logging.info(f"Infected files: {num_detected}")
-        logging.info(f"Clean files: {num_clean}")
-        logging.info(f"Total files scanned: {total_files}")
-        if self.scan_start_time and self.scan_end_time:
-            elapsed_time = self.scan_end_time - self.scan_start_time
-            formatted_time = self.format_time(elapsed_time)
-            logging.info(f"Scan Time: {formatted_time}")
-        logging.info("-----------------------------------")
-
     def scan_file_path(self, file_path):
         self.pause_event.wait()  # Wait if the scan is paused
         if self.stop_event.is_set():
