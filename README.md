@@ -40,7 +40,7 @@ Also the configuration presumes that your installation is C:\Snort, if it is dif
 
 https://rules.emergingthreats.net/open/ Download Rules From There
 
-Don't forget to check all boxes at npcap also if you get this warning then look this:  https://ask.wireshark.org/question/33483/why-do-i-get-this-wireshark-is-installed-but-cannot-read-manuf-when-i-use-wireshark/
+Don't forget to check all boxes at npcap also if you get this warning then ignore it. Wireshark is not required:  https://ask.wireshark.org/question/33483/why-do-i-get-this-wireshark-is-installed-but-cannot-read-manuf-when-i-use-wireshark/
 
 # Hydra Dragon Antivirus AI Generated Text
 Overview
