@@ -1399,7 +1399,7 @@ class ScanManager(QDialog):
           # Scan PE files
           if is_pe_file(file_path):
             is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
-            if is_malicious and virus_name not in ["Clean", ""] and benign_score < 0.93:  
+            if is_malicious and virus_name not in ["Clean", "", "None"] and benign_score < 0.93:  
                 virus_name = malware_definition
                 item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
                 item.setData(Qt.UserRole, file_path)
@@ -1416,7 +1416,7 @@ class ScanManager(QDialog):
 
         if preferences["use_clamav"]:
             virus_name = scan_file_with_clamd(file_path)
-            if virus_name != "Clean" and virus_name != "":
+            if virus_name != "Clean" and virus_name != "" and virus_name != "None":
                 logging.warning(f"Scanned file with ClamAV: {file_path} - Virus: {virus_name}")
                 item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
                 item.setData(Qt.UserRole, file_path)
@@ -1428,7 +1428,7 @@ class ScanManager(QDialog):
 
         if preferences["use_yara"]:
             yara_result = yara_scanner.scan_data(file_path)
-            if yara_result != "Clean" and yara_result != "":
+            if yara_result != "Clean" and yara_result != "" and virus_name != "None":
                 virus_name = ', '.join(yara_result) if isinstance(yara_result, list) else yara_result
                 if virus_name != "":
                     logging.warning(f"Scanned file with YARA: {file_path} - Virus: {virus_name}")
@@ -1443,7 +1443,7 @@ class ScanManager(QDialog):
         # Scan PE files
         if is_pe_file(file_path):
              scan_result, pe_virus_name = scan_pe_file(file_path)
-             if scan_result != "Clean" or scan_result == "":
+             if scan_result != "Clean" or scan_result != ""  and scan_result != "None":
                 virus_name = pe_virus_name
                 if virus_name != "":
                    logging.warning(f"Scanned PE file: {file_path} - Virus: {virus_name}")
@@ -1458,7 +1458,7 @@ class ScanManager(QDialog):
         # Scan TAR files
         if tarfile.is_tarfile(file_path):
             scan_result, tar_virus_name = scan_tar_file(file_path)
-            if scan_result != "Clean" or scan_result == "":
+            if scan_result != "Clean" or scan_result != "" and scan_result != "None":
                 virus_name = tar_virus_name
                 if virus_name != "":
                     logging.warning(f"Scanned TAR file: {file_path} - Virus: {virus_name}")
@@ -1475,7 +1475,7 @@ class ScanManager(QDialog):
             scan_result, zip_virus_name = scan_zip_file(file_path)
             if scan_result != "Clean" or scan_result == "":
                 virus_name = zip_virus_name
-                if virus_name != "Clean" and virus_name != "":
+                if virus_name != "Clean" and virus_name != "" and scan_result != "None":
                     logging.warning(f"Scanned ZIP file: {file_path} - Virus: {virus_name}")
                     item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {virus_name}")
                     item.setData(Qt.UserRole, file_path)
