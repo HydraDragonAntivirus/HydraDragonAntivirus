@@ -393,8 +393,8 @@ def scan_file_with_clamd(file_path):
     if not is_clamd_running():
         start_clamd()  # Start clamd if it's not running
 
-    result = subprocess.run(["clamdscan", file_path], capture_output=True)
-    clamd_output = result.stdout.decode('utf-8')  # Decode bytes to string
+    result = subprocess.run(["clamdscan", file_path], capture_output=True, text=True)
+    clamd_output = result.stdout
     print(f"Clamdscan output: {clamd_output}")
 
     if "ERROR" in clamd_output:
@@ -463,7 +463,6 @@ def monitor_snort_preferences():
 
         elif not preferences["enable_hips"] and snort_observer.is_started:
             snort_observer.stop()
-            print("Snort is now disabled.")
 
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
