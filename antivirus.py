@@ -1,4 +1,3 @@
-
 import sys
 import os
 import shutil
@@ -1112,6 +1111,8 @@ class ScanManager(QDialog):
         # Initialize scan time
         self.scan_start_time = None
         self.scan_end_time = None
+        self.timer_thread = None
+        self.timer_running = False
 
     def setup_ui(self):
         main_layout = QVBoxLayout()
@@ -1211,7 +1212,7 @@ class ScanManager(QDialog):
         summary_data = self.collect_summary_data()
         threats_data = self.collect_threats_data()
         results_data = f"{summary_data}\n\n{threats_data}"
-        
+
         file_path, _ = QFileDialog.getSaveFileName(self, "Save Results File", "", "Text Files (*.txt);;All Files (*)")
         if file_path:
             try:
@@ -1249,9 +1250,31 @@ class ScanManager(QDialog):
         self.detected_list.clear()
         self.current_file_label.setText("Currently Scanning:")
 
+    def start_timer(self):
+        self.scan_start_time = time.time()
+        self.timer_running = True
+        self.timer_thread = threading.Thread(target=self.update_timer)
+        self.timer_thread.start()
+
+    def stop_timer(self):
+        self.timer_running = False
+        self.scan_end_time = time.time()
+        self.update_scan_time_label()
+
+    def update_timer(self):
+        while self.timer_running:
+            elapsed_time = time.time() - self.scan_start_time
+            self.scan_time_label.setText(f"Scan Time: {self.format_time(elapsed_time)}")
+            time.sleep(1)
+
+    def format_time(self, elapsed_time):
+        hours, rem = divmod(elapsed_time, 3600)
+        minutes, seconds = divmod(rem, 60)
+        return "{:02}:{:02}:{:02}".format(int(hours), int(minutes), int(seconds))
+
     def start_full_scan(self, paths):
         self.reset_scan()
-        self.scan_start_time = time.time()  # Start scan time
+        self.start_timer()  # Start the timer
         self.threads = [QThread() for _ in paths]
         for thread, path in zip(self.threads, paths):
             thread.run = lambda: self.scan(path)
@@ -1260,13 +1283,12 @@ class ScanManager(QDialog):
 
     def check_all_scans_finished(self):
         if all(not thread.isRunning() for thread in self.threads):
-            self.scan_end_time = time.time()  # End scan time
-            self.update_scan_time_label()
+            self.stop_timer()  # Stop the timer
             self.folder_scan_finished.emit()
 
     def start_scan(self, path):
         self.reset_scan()
-        self.scan_start_time = time.time()  # Start scan time
+        self.start_timer()  # Start the timer
         self.thread = QThread()
         self.thread.run = lambda: self.scan(path)
         self.thread.finished.connect(self.folder_scan_finished.emit)
@@ -1283,13 +1305,13 @@ class ScanManager(QDialog):
             return "X:\\"
         else:
             return "/boot/efi" if system_platform() in ['Linux', 'FreeBSD', 'Darwin'] else "/boot/efi"
-    
+
     def scan_memory(self):
         self.reset_scan()
-        self.scan_start_time = time.time()  # Start scan time
+        self.start_timer()  # Start the timer
 
         def scan():
-            scanned_files = set()  # Set to store scanned file paths
+            scanned_files = set() # Set to store scanned file paths
             detected_files = []
 
             try:
@@ -1297,10 +1319,9 @@ class ScanManager(QDialog):
                     try:
                         process_name = proc.info['name']
                         executable_path = proc.info['exe']
-                        # Check if the process has an executable path
                         if executable_path and executable_path not in scanned_files:
                             detected_files.append(executable_path)
-                            scanned_files.add(executable_path)  # Add path to scanned files set
+                            scanned_files.add(executable_path) # Add path to scanned files set
                     except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
                         print(f"Error while accessing process info: {e}")
             except Exception as e:
@@ -1311,11 +1332,12 @@ class ScanManager(QDialog):
                 for file_path in detected_files:
                     executor.submit(self.scan_file_path, file_path)
 
-            # Emit the signal when the memory scan is finished
+            self.stop_timer()  # Stop the timer
             self.memory_scan_finished.emit()
 
         # Start the scan in a separate thread
-        threading.Thread(target=scan).start()
+        self.thread = threading.Thread(target=scan)
+        self.thread.start()
 
     def scan_directory(self, directory):
         detected_threats = []
@@ -1360,7 +1382,8 @@ class ScanManager(QDialog):
         logging.info(f"Total files scanned: {total_files}")
         if self.scan_start_time and self.scan_end_time:
             elapsed_time = self.scan_end_time - self.scan_start_time
-            logging.info(f"Scan Time: {str(elapsed_time)}")
+            formatted_time = self.format_time(elapsed_time)
+            logging.info(f"Scan Time: {formatted_time}")
         logging.info("-----------------------------------")
 
     def scan_file_path(self, file_path):
@@ -1526,14 +1549,14 @@ class ScanManager(QDialog):
          
     def show_scan_finished_message(self):
         QMessageBox.information(self, "Scan Finished", "Folder scan has been completed.")
-        self.scan_end_time = time.time()  # End scan time
         self.update_scan_time_label()
+        self.show_scan_summary()
 
     def show_memory_scan_finished_message(self):
         QMessageBox.information(self, "Scan Finished", "Memory scan has been completed.")
-        self.scan_end_time = time.time()  # End scan time
         self.update_scan_time_label()
-
+        self.show_scan_summary()
+        
     def update_scan_time_label(self):
         if self.scan_start_time and self.scan_end_time:
             elapsed_time = self.scan_end_time - self.scan_start_time
