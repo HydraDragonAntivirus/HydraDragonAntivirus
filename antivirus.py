@@ -834,12 +834,18 @@ class RealTimeProtectionHandler(FileSystemEventHandler):
         is_malicious, virus_name = scan_file_real_time(file_path)
         if is_malicious:
             print(f"File {file_path} is malicious. Virus: {virus_name}")
-            self.notify_user(file_path, virus_name)
-            kill_malicious_process(file_path)
-            # Quarantine the file in a separate thread
+            # Notify the user in a separate thread (independent)
+            notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
+            notify_user_thread.start()
+            # Kill malicious process in a separate thread and wait for it to finish
+            kill_thread = threading.Thread(target=kill_malicious_process, args=(file_path,))
+            kill_thread.start()
+            kill_thread.join()            
+            # Quarantine the file in a separate thread (independent)
             quarantine_thread = threading.Thread(target=quarantine_file, args=(file_path, virus_name))
             quarantine_thread.start()
-    def notify_user(self, file_path, virus_name):
+
+def notify_user(file_path, virus_name):
         notification = Notify()
         notification.title = "Malware Alert"
         notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
@@ -1038,23 +1044,25 @@ def quarantine_files(src_ip, dst_ip, virus_name):
                         file_path = proc.info['exe']
                         if file_path:
                             logging.info(f"Quarantining file {file_path} associated with IP {src_ip} or {dst_ip}")
-                            kill_malicious_process(file_path)
-                            # Quarantine the file in a separate thread
+                            # Notify the user in a separate thread (independent)
+                            notify_user_real_time_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
+                            notify_user_real_time_thread.start()
+                            # Kill malicious process in a separate thread and wait for it to finish
+                            kill_thread = threading.Thread(target=kill_malicious_process, args=(file_path,))
+                            kill_thread.start()
+                            kill_thread.join()
+                            # Quarantine the file in a separate thread (independent)
                             quarantine_real_time_thread = threading.Thread(target=quarantine_file, args=(file_path, virus_name))
                             quarantine_real_time_thread.start()
         except psutil.NoSuchProcess:
             logging.warning(f"Process no longer exists: {proc.info.get('pid')}")
-            continue
         except psutil.AccessDenied:
             logging.error(f"Access denied to process: {proc.info.get('pid')}")
-            continue
         except psutil.ZombieProcess:
             logging.warning(f"Zombie process encountered: {proc.info.get('pid')}")
-            continue
         except Exception as e:
             logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {e}")
-            continue
-
+            
 def read_alerts(file_path):
     """
     Read and process alerts from the alert.ids file incrementally.
