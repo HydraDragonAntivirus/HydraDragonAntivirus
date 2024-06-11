@@ -1,4 +1,5 @@
 yara-python
+yara-x
 joblib
 scikit-learn
 pefile

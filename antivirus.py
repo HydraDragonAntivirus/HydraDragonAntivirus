@@ -19,6 +19,7 @@ import pefile
 import zipfile
 import tarfile
 import yara
+import yara_x
 import psutil
 from notifypy import Notify
 import logging
@@ -257,6 +258,16 @@ try:
     print("YARA Rules Definitions loaded!")
 except yara.Error as e:
     print(f"Error loading precompiled YARA rule: {e}")
+
+try:
+    # Load the precompiled rule from the .yrc file using yara_x
+    with open(os.path.join(yara_folder_path, "yaraxtr.yrc"), 'rb') as f:
+        yaraxtr_rule = yara_x.Rules.deserialize_from(f)
+    print("YARA-X Rules Definitions loaded!")
+except FileNotFoundError:
+    print("Error: File not found.")
+except Exception as e:
+    print(f"An unexpected error occurred: {e}")
 
 def load_data():
     try:
@@ -1023,8 +1034,16 @@ class YaraScanner:
                             if match.rule not in excluded_rules:
                                 matched_rules.append(match.rule)
 
-                return matched_rules
+                # Check matches for yaraxtr_rule (loaded with yara_x)
+                if yaraxtr_rule:
+                    scanner = yara_x.Scanner(yaraxtr_rule)
+                    results = scanner.scan(data=data)
+                    for rule in results.matching_rules:
+                        if hasattr(rule, 'identifier') and rule.identifier not in excluded_rules:
+                            matched_rules.append(rule.identifier)
 
+                return matched_rules
+                
 yara_scanner = YaraScanner()
 
 def process_alert(alert):
