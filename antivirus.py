@@ -32,6 +32,7 @@ from scapy.layers.inet6 import IPv6
 from scapy.layers.dns import DNS, DNSQR, DNSRR
 from scapy.all import sniff, get_if_list
 import time
+from winmonitor import monitor_drivers
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
 script_dir = os.getcwd()
@@ -822,6 +823,8 @@ def notify_user_for_web(domain=None, ip_address=None):
 class RealTimeProtectionHandler(FileSystemEventHandler):
     def __init__(self):
         super().__init__()
+        self.thread_resume = threading.Event()
+        self.thread_resume.set()
 
     def on_any_event(self, event):
         if event.is_directory:
@@ -841,16 +844,6 @@ class RealTimeProtectionHandler(FileSystemEventHandler):
                 print(f"File moved from {src_path} to {dest_path}")
                 threading.Thread(target=self.scan_and_quarantine, args=(src_path,)).start()
                 threading.Thread(target=self.scan_and_quarantine, args=(dest_path,)).start()
-
-    def is_folder_in_use(self, folder_path):
-        # Check if the folder is being used by any process
-        for proc in psutil.process_iter(['pid', 'name', 'cwd']):
-            try:
-                if folder_path == proc.cwd():
-                    return True
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                pass
-        return False
 
     def scan_folder_rtp(self, folder_path):
         # Check if the folder is in use by any process
@@ -879,11 +872,27 @@ class RealTimeProtectionHandler(FileSystemEventHandler):
             quarantine_thread = threading.Thread(target=quarantine_file, args=(file_path, virus_name))
             quarantine_thread.start()
 
+    def is_folder_in_use(self, folder_path):
+        # Check if the folder is being used by any process
+        for proc in psutil.process_iter(['pid', 'name', 'cwd']):
+            try:
+                if folder_path == proc.cwd():
+                    return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+        return False
+
+    def scan_callback(self, path):
+        if os.path.isdir(path):
+            self.scan_folder_rtp(path)
+        else:
+            self.scan_and_quarantine(path)
+
 def notify_user(file_path, virus_name):
-        notification = Notify()
-        notification.title = "Malware Alert"
-        notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
-        notification.send()
+    notification = Notify()
+    notification.title = "Malware Alert"
+    notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
 
 class RealTimeProtectionObserver:
     def __init__(self, folder_to_watch):
@@ -895,14 +904,24 @@ class RealTimeProtectionObserver:
 
     def start(self):
         self.check_folder_to_watch()  # Check and update folder_to_watch if necessary
-        
+
         if not self.is_initialized:
-            # Schedule the event handler for each drive
-            for drive in psutil.disk_partitions():
-                if os.path.isdir(drive.mountpoint):
-                    self.observer.schedule(self.event_handler, path=drive.mountpoint, recursive=True)
+            if system_platform() == 'Windows':
+                # Use winmonitor for additional monitoring on Windows
+                drive_letters = [drive.mountpoint.strip(':\\') for drive in psutil.disk_partitions()]
+                for drive_letter in drive_letters:
+                    monitor_thread = threading.Thread(target=monitor_drivers, args=(drive_letter, self.event_handler.scan_callback, self.event_handler.thread_resume))
+                    monitor_thread.daemon = True
+                    monitor_thread.start()
+                    print(f"Started monitoring drive {drive_letter} with winmonitor")
+            
+            # Schedule the event handler for each folder in folder_to_watch
+            for path in self.folder_to_watch:
+                if os.path.isdir(path):
+                    self.observer.schedule(self.event_handler, path=path, recursive=True)
+                    print(f"Started monitoring path {path} with watchdog")
             self.is_initialized = True
-        
+
         if not self.is_started:
             self.observer.start()
             self.is_started = True
@@ -918,25 +937,19 @@ class RealTimeProtectionObserver:
         if self.is_started:
             self.observer.stop()
             self.observer.join()
+            self.event_handler.thread_resume.clear()  # Stop winmonitor threads
             self.is_started = False
             print("Observer stopped")
 
     def check_folder_to_watch(self):
-        if system_platform() == 'Windows':
-            disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
-            if self.folder_to_watch not in disk_partitions:
-                print(f"Warning: {self.folder_to_watch} does not exist or is not accessible.")
-                # Update folder_to_watch to monitor all accessible partitions
-                accessible_partitions = [partition for partition in disk_partitions if os.path.isdir(partition)]
-                if accessible_partitions:
-                    self.folder_to_watch = accessible_partitions
-                    print(f"Updated folder_to_watch to monitor all accessible partitions: {folder_to_watch}")
-                else:
-                    # If no accessible drives are found, set to %systemdrive%
-                    self.folder_to_watch = [os.path.expandvars("%systemdrive%")]
-                    print(f"No accessible drives found. Setting folder_to_watch to default: {folder_to_watch}")
-            else:
-                print(f"folder_to_watch is accessible: {self.folder_to_watch}")
+        disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
+        accessible_partitions = [partition for partition in disk_partitions if os.path.isdir(partition)]
+        if not accessible_partitions:
+            self.folder_to_watch = [os.path.expandvars("%systemdrive%")]
+            print(f"No accessible drives found. Setting folder_to_watch to default: {self.folder_to_watch}")
+        else:
+            self.folder_to_watch = accessible_partitions
+            print(f"Updated folder_to_watch to monitor all accessible partitions: {self.folder_to_watch}")
 
 class SnortObserver:
     def __init__(self):

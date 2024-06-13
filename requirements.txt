@@ -7,4 +7,5 @@ psutil
 PySide6
 watchdog
 notify-py
+pywin32
 scapy # For Windows you also need download https://npcap.com/#download
