@@ -296,6 +296,18 @@ def load_data():
 
     print("Domain and IPv4 IPv6 signatures loaded successfully!")
 
+# Additional function to check if a file is an SQLite database
+def is_sqlite_file(file_path):
+    try:
+        with open(file_path, 'rb') as file:
+            header = file.read(16)
+            # SQLite database files have a specific header
+            if header.startswith(b'SQLite format 3'):
+                return True
+    except Exception as e:
+        print(f"Error reading file {file_path}: {e}")
+    return False
+
 # Add the setup MBRFilter button function
 def setup_mbrfilter():
     if system_platform() != 'Windows':
@@ -331,6 +343,7 @@ def safe_remove(file_path):
 
 def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     """Scan a file for malicious activity using machine learning."""
+
     try:
         malware_definition = "Benign"  # Default
         pe = pefile.PE(file_path)
@@ -481,6 +494,12 @@ def scan_file_real_time(file_path):
     logging.info(f"Started scanning file: {file_path}")
 
     try:
+
+        # Skip scanning if the file is an SQLite file
+        if is_sqlite_file(file_path):
+            logging.info(f"Skipping SQLite file: {file_path}")
+            return False, "Clean"
+
         # Scan PE files
         if is_pe_file(file_path):
             # Scan with Machine Learning
@@ -1420,6 +1439,14 @@ class ScanManager(QDialog):
         
         # Show the currently scanned file
         self.current_file_label.setText(f"Currently Scanning: {file_path}")
+
+        # Skip scanning if the file is an SQLite file
+        if is_sqlite_file(file_path):
+            logging.info(f"Skipping SQLite file: {file_path}")
+            self.total_scanned += 1
+            self.clean_files += 1
+            self.update_scan_labels()
+            return False, "Clean"
 
         virus_name = ""
 
