@@ -124,8 +124,8 @@ def save_quarantine_data(quarantine_data):
     with open(quarantine_file_path, 'w') as f:
         json.dump(quarantine_data, f, indent=4)
 
+quarantine_folder = os.path.abspath(os.path.join(os.getcwd(), "quarantine"))
 def quarantine_file(file_path, virus_name):
-    quarantine_folder = os.path.abspath(os.path.join(os.getcwd(), "quarantine"))
     if not os.path.exists(quarantine_folder):
         os.makedirs(quarantine_folder)
     try:
@@ -827,6 +827,10 @@ class RealTimeProtectionHandler(FileSystemEventHandler):
         self.thread_resume.set()
 
     def on_any_event(self, event):
+        # Check if the event path is within the quarantine folder
+        if event.src_path.startswith(quarantine_folder):
+            return
+            
         if event.is_directory:
             print(f"Folder changed: {event.src_path}")
             threading.Thread(target=self.scan_folder_rtp, args=(event.src_path,)).start()
