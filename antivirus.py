@@ -32,10 +32,6 @@ from scapy.layers.inet6 import IPv6
 from scapy.layers.dns import DNS, DNSQR, DNSRR
 from scapy.all import sniff, get_if_list
 import time
-from sigma.backends.elasticsearch import LuceneBackend
-from sigma.pipelines.elasticsearch import ecs_windows
-from sigma.parser.collection import SigmaCollectionParser
-
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
 script_dir = os.getcwd()
@@ -219,8 +215,7 @@ def load_preferences():
             "real_time_protection": False,
             "real_time_web_protection": False,
             "enable_hips": True,
-            "enable_pup_detection": True,
-            "use_sigma": True
+            "enable_pup_detection": True
         }
         save_preferences(default_preferences)
         return default_preferences
@@ -301,39 +296,6 @@ def load_data():
 
     print("Domain and IPv4 IPv6 signatures loaded successfully!")
 
-sigma_rules = []
-
-def load_sigma_rules():
-    global sigma_rules
-    sigma_rules_path = os.path.join(script_dir, 'sigma/sigma.txt')
-
-    try:
-        with open(sigma_rules_path, 'r', encoding='latin-1') as f:
-            sigma_rules = f.readlines()
-        print("Sigma rules loaded successfully.")
-    except FileNotFoundError:
-        print(f"Error: '{sigma_rules_path}' file not found.")
-    except IOError as e:
-        print(f"Error reading '{sigma_rules_path}': {e}")
-
-def scan_file_with_sigma(file_path):
-    try:
-        with open(file_path, 'r', encoding='latin-1') as f:
-            file_content = f.read()
-
-        for rule in sigma_rules:
-            if rule in file_content:
-                return {'is_malicious': True, 'virus_name': 'Sigma Rule Match'}
-
-        return {'is_malicious': False, 'virus_name': ''}
-    except Exception as e:
-        print(f"An error occurred while scanning file with Sigma rules: {e}")
-        return {'is_malicious': False, 'virus_name': ''}
-
-try:
-    load_sigma_rules()
-except Exception as e:
-        print(f"An error occurred while loading SIGMA rules: {e}")
 # Add the setup MBRFilter button function
 def setup_mbrfilter():
     if system_platform() != 'Windows':
@@ -513,7 +475,7 @@ def monitor_snort_preferences():
 
         elif not preferences["enable_hips"] and snort_observer.is_started:
             snort_observer.stop()
-        
+
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
     logging.info(f"Started scanning file: {file_path}")
@@ -568,14 +530,6 @@ def scan_file_real_time(file_path):
                 logging.error(f"File not found error occurred while scanning file with YARA: {file_path}")
             except Exception as e:
                 logging.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {str(e)}")
-
-        # Sigma rule scanning
-        if preferences["use_sigma"]:
-            sigma_result = scan_file_with_sigma(file_path)
-            if sigma_result['is_malicious']:
-                logging.warning(f"Infected file detected (Sigma): {file_path} - Virus: {sigma_result['virus_name']}")
-                return True, sigma_result['virus_name']
-            logging.info(f"No malware detected by Sigma rules in file: {file_path}")
 
         # Scan PE files
         if is_pe_file(file_path):
@@ -1514,19 +1468,6 @@ class ScanManager(QDialog):
                     self.update_scan_labels()
                     return True, virus_name
 
-        # Sigma rule scanning
-        if preferences["use_sigma"]:
-            sigma_result = scan_file_with_sigma(file_path)
-            if sigma_result['is_malicious']:
-                logging.warning(f"Infected file detected (Sigma): {file_path} - Virus: {sigma_result['virus_name']}")
-                item = QListWidgetItem(f"Scanned file: {file_path} - Virus: {sigma_result['virus_name']}")
-                item.setData(Qt.UserRole, file_path)
-                self.detected_list.addItem(item)
-                self.total_scanned += 1
-                self.infected_files += 1
-                self.update_scan_labels()
-                return True, sigma_result['virus_name']
-
         # Scan PE files
         if is_pe_file(file_path):
              scan_result, pe_virus_name = scan_pe_file(file_path)
@@ -1797,11 +1738,10 @@ class AntivirusUI(QWidget):
             preferences["use_machine_learning"] = preferences_dialog.use_machine_learning_checkbox.isChecked()
             preferences["use_clamav"] = preferences_dialog.use_clamav_checkbox.isChecked()
             preferences["use_yara"] = preferences_dialog.use_yara_checkbox.isChecked()
-            preferences["use_sigma"] = preferences_dialog.use_sigma_checkbox.isChecked() # Save SIGMA preference
             preferences["real_time_protection"] = preferences_dialog.real_time_protection_checkbox.isChecked()
             preferences["real_time_web_protection"] = preferences_dialog.real_time_web_protection_checkbox.isChecked()
             preferences["enable_hips"] = preferences_dialog.enable_hips_checkbox.isChecked()
-            preferences["enable_pup_detection"] = preferences_dialog.enable_pup_detection_checkbox.isChecked() # Save PUP detection preference
+            preferences["enable_pup_detection"] = preferences_dialog.enable_pup_detection_checkbox.isChecked()  # Save PUP detection preference
             save_preferences(preferences)
 
     def manage_quarantine(self):
@@ -1832,10 +1772,6 @@ class PreferencesDialog(QDialog):
         self.use_yara_checkbox = QCheckBox("Use YARA Engine")
         self.use_yara_checkbox.setChecked(preferences["use_yara"])
         layout.addWidget(self.use_yara_checkbox)
-
-        self.use_sigma_checkbox = QCheckBox("Use SIGMA Engine")
-        self.use_sigma_checkbox.setChecked(preferences["use_sigma"])
-        layout.addWidget(self.use_sigma_checkbox)
 
         self.use_machine_learning_checkbox = QCheckBox("Use Machine Learning AI Engine")
         self.use_machine_learning_checkbox.setChecked(preferences["use_machine_learning"])
