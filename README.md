@@ -42,6 +42,10 @@ https://rules.emergingthreats.net/open/ Download Rules From There
 
 Don't forget to check all boxes at npcap also if you get this warning then ignore it. Wireshark is not required:  https://ask.wireshark.org/question/33483/why-do-i-get-this-wireshark-is-installed-but-cannot-read-manuf-when-i-use-wireshark/
 
+# Download Machine Learnin Malware And Benign Database
+- Malware Database: https://mega.nz/file/1CcGTRoQ#Chp5oNpk2ExhcCjrlY1Q_n0w9ToF5ozGdyn5hjfmQdk
+- Benign Database: https://mega.nz/file/wOVmTJTS#qywYEZWYBKmvc8z6CtLNxJh4L9MBcvQIY9Mb7pQapik
+
 # Hydra Dragon Antivirus AI Generated Text
 Overview
 Hydra Dragon Antivirus is a cross-platform antivirus GUI that integrates ClamAV, YARA, a machine learning AI module, and Snort to provide comprehensive security solutions. This policy outlines the security measures, practices, and guidelines for users to follow when using Hydra Dragon Antivirus to ensure optimal protection and system stability.
@@ -98,10 +102,3 @@ Regularly update ClamAV definitions and Snort rules to ensure the latest protect
 Follow best practices for security updates and patch management.
 Contact Information
 For any security concerns or issues, please contact the Hydra Dragon Antivirus support team.
-# Tests
-![image](https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/assets/142328963/0348863f-8350-4a49-b572-7a6be1d79fb2)
-![image](https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/assets/142328963/58554e4e-289c-42f4-8a53-671e9df15ad1)
-![image](https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/assets/142328963/0acf211c-a312-432a-9230-e6c8d5fddb94)
-![image](https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/assets/142328963/d97d89ff-4c6d-4814-95b3-7cc86c1be8c4)
-![image](https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/assets/142328963/89379921-06c6-4413-a9e0-fabebb12c484)
-Dr.Web 111 Comodo 111 HydraDragonAntivirus 171 Kaspersky 193 Norton 202 MalwareBazaar 12.06.2024 daily samples

@@ -650,38 +650,62 @@ def scan_pe_file(file_path):
 
 def scan_zip_file(file_path):
     """Scan files within a zip archive."""
+    temp_dir = None
     try:
         temp_dir = tempfile.mkdtemp()  # Create a temporary directory to extract files
         with zipfile.ZipFile(file_path, 'r') as zfile:
             zfile.extractall(temp_dir)  # Extract all files to temporary directory
             for root, _, files in os.walk(temp_dir):
                 for file_name in files:
-                    file_path = os.path.join(root, file_name)
-                    scan_result, virus_name = scan_file_real_time(file_path)
+                    extracted_file_path = os.path.join(root, file_name)
+                    scan_result, virus_name = scan_file_real_time(extracted_file_path)
                     if scan_result:
                         return True, virus_name
     except Exception as e:
         logging.error(f"Error scanning zip file: {file_path} - {str(e)}")
     finally:
-        shutil.rmtree(temp_dir)  # Cleanup temporary directory
+        if temp_dir:
+            # Try to remove the directory, with retries on failure
+            for _ in range(5):
+                try:
+                    shutil.rmtree(temp_dir)
+                    break  # If successful, exit the loop
+                except PermissionError:
+                    logging.warning(f"Permission error while deleting {temp_dir}. Retrying...")
+                    time.sleep(1)  # Wait a bit before retrying
+                except Exception as e:
+                    logging.error(f"Unexpected error while deleting {temp_dir}: {e}")
+                    break  # Exit the loop on unexpected errors
     return False, ""
 
 def scan_tar_file(file_path):
     """Scan files within a tar archive."""
+    temp_dir = None
     try:
         temp_dir = tempfile.mkdtemp()  # Create a temporary directory to extract files
         with tarfile.TarFile(file_path, 'r') as tar:
             tar.extractall(temp_dir)  # Extract all files to temporary directory
             for root, _, files in os.walk(temp_dir):
                 for file_name in files:
-                    file_path = os.path.join(root, file_name)
-                    scan_result, virus_name = scan_file_real_time(file_path)
+                    extracted_file_path = os.path.join(root, file_name)
+                    scan_result, virus_name = scan_file_real_time(extracted_file_path)
                     if scan_result:
                         return True, virus_name
     except Exception as e:
         logging.error(f"Error scanning tar file: {file_path} - {str(e)}")
     finally:
-        shutil.rmtree(temp_dir)  # Cleanup temporary directory
+        if temp_dir:
+            # Try to remove the directory, with retries on failure
+            for _ in range(5):
+                try:
+                    shutil.rmtree(temp_dir)
+                    break  # If successful, exit the loop
+                except PermissionError:
+                    logging.warning(f"Permission error while deleting {temp_dir}. Retrying...")
+                    time.sleep(1)  # Wait a bit before retrying
+                except Exception as e:
+                    logging.error(f"Unexpected error while deleting {temp_dir}: {e}")
+                    break  # Exit the loop on unexpected errors
     return False, ""
  
 class Firewall:
@@ -1356,7 +1380,7 @@ class ScanManager(QDialog):
         minutes, seconds = divmod(rem, 60)
         return "{:02}:{:02}:{:02}".format(int(hours), int(minutes), int(seconds))
 
-    def start_full_scan(self, paths):
+    def start_multiple_scan(self, paths):
         self.reset_scan()
         self.start_timer()  # Start the timer
         self.threads = [QThread() for _ in paths]
@@ -1576,13 +1600,14 @@ class ScanManager(QDialog):
         if system_platform() == 'Windows':  # Windows platform
             disk_partitions = [drive.mountpoint for drive in psutil.disk_partitions()]
             disk_partitions.append(folder_to_watch)  # Add the folder_to_watch to the list of paths to scan
-            self.start_full_scan(disk_partitions)
+            self.start_multiple_scan(disk_partitions)
         else:
             self.start_scan(folder_to_watch)
 
     def quick_scan(self):
         user_folder = os.path.expanduser("~")  # Get user's home directory
-        self.start_scan(user_folder)
+        temp_folder = tempfile.gettempdir()  # Get the temporary directory
+        self.start_multiple_scan([user_folder, temp_folder])  # Use start_multiple_scan for both directories
 
     def uefi_scan(self):
         folder_path = self.get_uefi_folder()
