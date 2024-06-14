@@ -215,7 +215,7 @@ def load_preferences():
             "use_yara": True,
             "real_time_protection": False,
             "real_time_web_protection": False,
-            "enable_hips": True,
+            "enable_hips": False,
             "enable_pup_detection": True
         }
         save_preferences(default_preferences)
