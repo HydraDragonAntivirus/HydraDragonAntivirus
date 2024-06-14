@@ -45,6 +45,7 @@ Don't forget to check all boxes at npcap also if you get this warning then ignor
 # Download Machine Learnin Malware And Benign Database
 - Malware Database: https://mega.nz/file/1CcGTRoQ#Chp5oNpk2ExhcCjrlY1Q_n0w9ToF5ozGdyn5hjfmQdk
 - Benign Database: https://mega.nz/file/wOVmTJTS#qywYEZWYBKmvc8z6CtLNxJh4L9MBcvQIY9Mb7pQapik
+- Notice: Only contains PE files.
 
 # Hydra Dragon Antivirus AI Generated Text
 Overview
