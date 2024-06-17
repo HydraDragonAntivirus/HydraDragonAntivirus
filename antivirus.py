@@ -1654,7 +1654,7 @@ class ScanManager(QDialog):
         self.stop_event.clear()
          
     def show_scan_finished_message(self):
-        QMessageBox.information(self, "Scan Finished", "Folder scan has been completed.")
+        QMessageBox.information(self, "Scan Finished", "Folder or file scan has been completed.")
 
     def show_memory_scan_finished_message(self):
         QMessageBox.information(self, "Scan Finished", "Memory scan has been completed.")
