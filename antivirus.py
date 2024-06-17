@@ -1791,14 +1791,14 @@ class AntivirusUI(QWidget):
         self.quarantine_button.clicked.connect(self.manage_quarantine)
         layout.addWidget(self.quarantine_button)
 
-        self.update_definitions_button = QPushButton("Update Definitions")
+        self.update_definitions_button = QPushButton("Update Definitions Or Install")
         self.update_definitions_button.clicked.connect(self.update_definitions)
         layout.addWidget(self.update_definitions_button)
 
         self.setLayout(layout)
 
     def show_success_message(self):
-        QMessageBox.information(self, "Update Definitions", "Antivirus definitions updated successfully.")
+        QMessageBox.information(self, "Update Definitions", "Antivirus definitions updated successfully. Please restart clamd.")
 
     def show_failure_message(self):
         QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
