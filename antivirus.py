@@ -412,12 +412,22 @@ def start_clamd():
         
 def start_clamd_thread():
     threading.Thread(target=start_clamd).start()
-    
+
+#Start ClamAV
+try:
+    if not is_clamd_running():
+        print("ClamAV's clamd is not running. Attempting to start clamd...")
+        start_clamd_thread()
+    else:
+        print("ClamAV's clamd is already running.")
+except Exception as e:
+    print(f"An error occurred in the main logic: {e}")
+ 
 def scan_file_with_clamd(file_path):
     """Scan file using clamd."""
     file_path = os.path.abspath(file_path)  # Get absolute path
     if not is_clamd_running():
-        start_clamd()  # Start clamd if it's not running
+        start_clamd_thread()  # Start clamd if it's not running
 
     result = subprocess.run(["clamdscan", file_path], capture_output=True, text=True)
     clamd_output = result.stdout
