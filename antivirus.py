@@ -1892,7 +1892,7 @@ class AntivirusUI(QWidget):
 
     def load_website_signatures(self):
         # Create a thread to run the load_data method
-        load_data_thread = threading.Thread(target=self.load_data)  # Call the load_data function to load website signatures
+        load_data_thread = threading.Thread(target=load_data)  # Call the load_data function to load website signatures
         load_data_thread.start()
 
     def show_scan_manager(self):
