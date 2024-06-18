@@ -7,6 +7,7 @@
 </p>
 Cross-platform antivirus GUI for ClamAV, YARA and my machine learning AI module also Snort.
 Guide:
+Video: https://www.youtube.com/watch?v=L4oVZrEYaEY
 Please install ClamAV based on your platform and enter database directory and please run clamd
 Please copy the database folder signatures into your ClamAV database folder and copy freshclam.conf into your ClamAV config folder.
 Also do the update definitions yourself, it's just a cross-platform interface for ClamAV and Hydra Dragon Antivirus.
