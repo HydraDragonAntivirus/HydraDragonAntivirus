@@ -5,7 +5,7 @@
 <p align="center">
 <img src="assets/HydraDragonAntivirusGUI.png" width= 800px>
 </p>
-Cross-platform antivirus GUI for ClamAV, YARA and my machine learning AI module also Snort.
+Cross-platform antivirus GUI for ClamAV, YARA-X and my machine learning AI module also Snort.
 Guide:
 Video: https://www.youtube.com/watch?v=L4oVZrEYaEY
 Please install ClamAV based on your platform and enter database directory and please run clamd
