@@ -1891,7 +1891,9 @@ class AntivirusUI(QWidget):
         QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
 
     def load_website_signatures(self):
-        load_data()  # Call the load_data function to load website signatures
+        # Create a thread to run the load_data method
+        load_data_thread = threading.Thread(target=self.load_data)  # Call the load_data function to load website signatures
+        load_data_thread.start()
 
     def show_scan_manager(self):
         scan_manager = ScanManager(self)
