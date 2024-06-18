@@ -1744,6 +1744,90 @@ class WorkerSignals(QObject):
     success = Signal()
     failure = Signal()
 
+antivirus_style = """
+QWidget {
+    background-color: #2b2b2b;
+    color: #e0e0e0;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+}
+
+QPushButton {
+    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+                                stop:0.2 #007bff, stop:0.8 #0056b3);
+    color: white;
+    border: 2px solid #007bff;
+    padding: 4px 10px;  /* Adjusted padding */
+    border-radius: 8px;  /* Adjusted border-radius */
+    min-width: 70px;  /* Adjusted min-width */
+    font-weight: bold;
+    text-align: center;
+    qproperty-iconSize: 16px;
+}
+
+QPushButton:hover {
+    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+                                stop:0.2 #0056b3, stop:0.8 #004380);
+    border-color: #0056b3;
+}
+
+QPushButton:pressed {
+    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+                                stop:0.2 #004380, stop:0.8 #003d75);
+    border-color: #004380;
+}
+
+QLabel {
+    color: #e0e0e0;
+}
+
+QFileDialog {
+    background-color: #2b2b2b;
+    color: #e0e0e0;
+}
+
+QListWidget {
+    background-color: #3c3c3c;
+    color: #e0e0e0;
+    border: 1px solid #5a5a5a;
+}
+
+QListWidget::item {
+    padding: 4px;  /* Adjusted padding */
+}
+
+QListWidget::item:selected {
+    background-color: #007bff;
+    color: white;
+}
+
+QCheckBox {
+    color: #e0e0e0;
+}
+
+QComboBox {
+    background-color: #3c3c3c;
+    color: #e0e0e0;
+    border: 1px solid #5a5a5a;
+    padding: 2px 8px;  /* Adjusted padding */
+    border-radius: 4px;  /* Adjusted border-radius */
+    min-width: 80px;  /* Adjusted min-width */
+}
+
+QComboBox::down-arrow {
+    image: url(assets/down_arrow.png);
+}
+
+QDialog {
+    background-color: #2b2b2b;
+    color: #e0e0e0;
+}
+
+QDialogButtonBox {
+    background-color: #2b2b2b;
+}
+"""
+
 class AntivirusUI(QWidget):
     folder_scan_finished = Signal()
     # Define a new signal for memory scan finished
@@ -2045,6 +2129,7 @@ def main():
         hips_thread.start()
 
         app = QApplication(sys.argv)
+        app.setStyleSheet(antivirus_style)  # Apply the style sheet
         main_gui = AntivirusUI()
 
         scan_manager = ScanManager()
