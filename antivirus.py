@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox
 )
 from PySide6.QtCore import Qt, QObject, QThread, Signal, Slot, QMetaObject
+from PySide6.QtGui import QIcon
 import sklearn
 import joblib
 import pefile
@@ -1845,7 +1846,9 @@ class AntivirusUI(QWidget):
         self.signals = WorkerSignals()
         self.signals.success.connect(self.show_success_message)
         self.signals.failure.connect(self.show_failure_message)
-
+        # Set the window icon
+        self.setWindowIcon(QIcon("assets/HydraDragonAV.png"))
+        
     def setup_main_ui(self):
         layout = QVBoxLayout()
 
