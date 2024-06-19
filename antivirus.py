@@ -942,19 +942,19 @@ class RealTimeProtectionObserver:
         self.is_initialized = False
 
     def start(self):
-        self.check_folder_to_watch()  # Check and update folder_to_watch if necessary
+        # Check and update folder_to_watch if necessary
+        self.check_folder_to_watch()
 
         if not self.is_initialized:
             if system_platform() == 'Windows':
                 # Use winmonitor for additional monitoring on Windows
-                drive_letters = [drive.mountpoint.strip(':\\') for drive in psutil.disk_partitions()]
-                for drive_letter in drive_letters:
-                    monitor_thread = threading.Thread(target=monitor_drivers, args=(drive_letter, self.event_handler.scan_callback, self.event_handler.thread_resume))
+                for drive_mountpoint in self.folder_to_watch:
+                    monitor_thread = threading.Thread(target=monitor_drivers, args=(drive_mountpoint, self.event_handler.scan_callback, self.event_handler.thread_resume))
                     monitor_thread.daemon = True
                     monitor_thread.start()
-                    print(f"Started monitoring drive {drive_letter} with winmonitor")
+                    print(f"Started monitoring drive {drive_mountpoint} with winmonitor")
             
-            # Schedule the event handler for each folder in folder_to_watch
+            # Schedule the event handler for each folder in the updated folder_to_watch list
             for path in self.folder_to_watch:
                 if os.path.isdir(path):
                     self.observer.schedule(self.event_handler, path=path, recursive=True)

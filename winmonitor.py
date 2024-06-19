@@ -11,7 +11,6 @@ FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
 def monitor_drivers(drive_letter, callback, thread_resume):
-    drive_path = drive_letter + ":\\"
     while thread_resume.wait():
         hDir = win32file.CreateFile(
             drive_path,
