@@ -37,7 +37,6 @@ from winmonitor import monitor_drivers
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
 script_dir = os.getcwd()
-
 # Configure logging
 log_directory = os.path.join(script_dir, "log")  # Replace with the path to your log directory
 log_file = os.path.join(log_directory, "scan_directory.log")
@@ -505,6 +504,11 @@ def scan_file_real_time(file_path):
 
     try:
 
+        # Skip scanning if the file is in the script directory
+        if os.path.commonpath([file_path, script_dir]) == script_dir:
+            logging.info(f"Skipping file in script directory: {file_path}")
+            return False, "Clean"
+
         # Skip scanning if the file is an SQLite file
         if is_sqlite_file(file_path):
             logging.info(f"Skipping SQLite file: {file_path}")
@@ -579,7 +583,7 @@ def scan_file_real_time(file_path):
                 logging.error(f"An error occurred while scanning PE file: {file_path}. Error: {str(e)}")
 
         # Scan TAR files
-        if os.path.exists(file_path) and tarfile.is_tarfile(file_path):
+        if tarfile.is_tarfile(file_path):
             try:
                 scan_result, virus_name = scan_tar_file(file_path)
                 if scan_result and virus_name not in ("Clean", "F", ""):
@@ -597,7 +601,7 @@ def scan_file_real_time(file_path):
                 logging.error(f"An error occurred while scanning TAR file: {file_path}. Error: {str(e)}")
 
         # Scan ZIP files
-        if os.path.exists(file_path) and zipfile.is_zipfile(file_path):
+        if zipfile.is_zipfile(file_path):
             try:
                 scan_result, virus_name = scan_zip_file(file_path)
                 if scan_result and virus_name not in ("Clean", ""):
@@ -853,14 +857,62 @@ def notify_user_for_web(domain=None, ip_address=None):
         notification.message = "Phishing or Malicious activity detected"
     notification.send()
 
+def notify_user(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Malware Alert"
+    notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def check_startup_files(thread_resume):
+    """Monitor and handle files in startup folders."""
+    user_startup_folder = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+    common_startup_folder = os.path.join(os.getenv('ALLUSERSPROFILE'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+    startup_folders = {user_startup_folder, common_startup_folder}
+
+    while thread_resume.is_set():
+        for startup_folder in startup_folders:
+            try:
+                files_in_folder = os.listdir(startup_folder)
+                if files_in_folder:
+                    for file_name in files_in_folder:
+                        if file_name.lower() == 'desktop.ini':
+                            continue
+                        path_to_scan = os.path.join(startup_folder, file_name)
+
+                        if script_dir in path_to_scan:
+                            print(f"Skipping quarantine for script directory related file: {path_to_scan}")
+                            continue
+
+                        virus_name = "Startup File Detected"
+                        quarantine_file(path_to_scan, virus_name)
+                        notif_str = "Hydra Dragon is blocking startup file " + file_name
+                        notification = Notify()
+                        notification.title = "Startup file blocked"
+                        notification.message = notif_str
+                        notification.send()
+            except Exception as e:
+                print(f"Error accessing files in {startup_folder}: {e}")
+
 class RealTimeProtectionHandler(FileSystemEventHandler):
     def __init__(self):
         super().__init__()
         self.thread_resume = threading.Event()
         self.thread_resume.set()
 
+        if system_platform() == 'Windows':
+            self.start_startup_detector()
+
+    def start_startup_detector(self):
+        self.startup_thread = threading.Thread(target=check_startup_files, args=(self.thread_resume,))
+        self.startup_thread.start()
+
+    def stop_startup_detector(self):
+        if hasattr(self, 'thread_resume'):
+            self.thread_resume.clear()
+        if hasattr(self, 'startup_thread'):
+            self.startup_thread.join()
+
     def on_any_event(self, event):
-        # Check if the event path is within the quarantine folder
         if event.src_path.startswith(quarantine_folder):
             return
             
@@ -883,34 +935,34 @@ class RealTimeProtectionHandler(FileSystemEventHandler):
                 threading.Thread(target=self.scan_and_quarantine, args=(dest_path,)).start()
 
     def scan_folder_rtp(self, folder_path):
-        # Check if the folder is in use by any process
         if not self.is_folder_in_use(folder_path):
             return
         
-        # Scan files that are not in use by any process
         files = [f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))]
         for file in files:
             file_path = os.path.join(folder_path, file)
             self.scan_and_quarantine(file_path)
 
     def scan_and_quarantine(self, file_path):
+        if script_dir in file_path:
+            print(f"Skipping quarantine for script directory related file: {file_path}")
+            return
+
         print(f"Scanning file: {file_path}")
         is_malicious, virus_name = scan_file_real_time(file_path)
         if is_malicious:
             print(f"File {file_path} is malicious. Virus: {virus_name}")
-            # Notify the user in a separate thread (independent)
             notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
             notify_user_thread.start()
-            # Kill malicious process in a separate thread and wait for it to finish
+
             kill_thread = threading.Thread(target=kill_malicious_process, args=(file_path,))
             kill_thread.start()
-            kill_thread.join()            
-            # Quarantine the file in a separate thread (independent)
+            kill_thread.join()
+            
             quarantine_thread = threading.Thread(target=quarantine_file, args=(file_path, virus_name))
             quarantine_thread.start()
 
     def is_folder_in_use(self, folder_path):
-        # Check if the folder is being used by any process
         for proc in psutil.process_iter(['pid', 'name', 'cwd']):
             try:
                 if folder_path == proc.cwd():
@@ -925,34 +977,26 @@ class RealTimeProtectionHandler(FileSystemEventHandler):
         else:
             self.scan_and_quarantine(path)
 
-def notify_user(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Malware Alert"
-    notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-
+# RealTimeProtectionObserver class to start and stop observers
 class RealTimeProtectionObserver:
     def __init__(self, folder_to_watch):
         self.folder_to_watch = folder_to_watch
         self.event_handler = RealTimeProtectionHandler()
         self.observer = Observer()
-        self.is_started = False  # Initialize is_started attribute
+        self.is_started = False
         self.is_initialized = False
 
     def start(self):
-        # Check and update folder_to_watch if necessary
         self.check_folder_to_watch()
 
         if not self.is_initialized:
             if system_platform() == 'Windows':
-                # Use winmonitor for additional monitoring on Windows
                 for drive_mountpoint in self.folder_to_watch:
                     monitor_thread = threading.Thread(target=monitor_drivers, args=(drive_mountpoint, self.event_handler.scan_callback, self.event_handler.thread_resume))
                     monitor_thread.daemon = True
                     monitor_thread.start()
                     print(f"Started monitoring drive {drive_mountpoint} with winmonitor")
             
-            # Schedule the event handler for each folder in the updated folder_to_watch list
             for path in self.folder_to_watch:
                 if os.path.isdir(path):
                     self.observer.schedule(self.event_handler, path=path, recursive=True)
@@ -974,7 +1018,8 @@ class RealTimeProtectionObserver:
         if self.is_started:
             self.observer.stop()
             self.observer.join()
-            self.event_handler.thread_resume.clear()  # Stop winmonitor threads
+            self.event_handler.thread_resume.clear()
+            self.event_handler.stop_startup_detector()
             self.is_started = False
             print("Observer stopped")
 
@@ -1203,9 +1248,8 @@ class ScanManager(QDialog):
         self.pause_event = threading.Event()
         self.stop_event = threading.Event()
         self.pause_event.set()
-        # Connect signals to slots
+        # Connect signals to slot
         self.folder_scan_finished.connect(self.show_scan_finished_message)
-        self.memory_scan_finished.connect(self.show_memory_scan_finished_message)
         # Initialize counters
         self.total_scanned = 0
         self.infected_files = 0
@@ -1378,9 +1422,14 @@ class ScanManager(QDialog):
         self.start_timer()  # Start the timer
         self.threads = [QThread() for _ in paths]
         for thread, path in zip(self.threads, paths):
-            thread.run = lambda: self.scan(path)
+            thread.run = self.create_thread_run_function(path)
             thread.finished.connect(self.check_all_scans_finished)
             thread.start()
+
+    def create_thread_run_function(self, path):
+        def thread_run():
+            self.scan_file_path(path)
+        return thread_run
 
     def check_all_scans_finished(self):
         if all(not thread.isRunning() for thread in self.threads):
@@ -1409,37 +1458,26 @@ class ScanManager(QDialog):
             return "/boot/efi" if system_platform() in ['Linux', 'FreeBSD', 'Darwin'] else "/boot/efi"
 
     def scan_memory(self):
-        self.reset_scan()
-        self.start_timer()  # Start the timer
+        self.memory_scan_thread = QThread()
+        self.memory_scan_thread.run = self.scan_memory_processes
+        self.memory_scan_thread.finished.connect(self.memory_scan_finished.emit)
+        self.memory_scan_thread.finished.connect(self.stop_timer)
+        self.memory_scan_thread.start()
 
-        def scan():
-            scanned_files = set() # Set to store scanned file paths
-            detected_files = []
+    def scan_memory_processes(self):
+        detected_files = set()  # Use a set to avoid duplicates
+        try:
+            for proc in psutil.process_iter(['pid', 'name', 'exe']):
+                try:
+                    executable_path = proc.info['exe']
+                    if executable_path and executable_path not in detected_files:
+                        detected_files.add(executable_path)
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
+                    print(f"Error while accessing process info for PID {proc.info['pid']}: {e}")
+        except Exception as e:
+            print(f"Error while iterating over processes: {e}")
 
-            try:
-                for proc in psutil.process_iter(['pid', 'name', 'exe']):
-                    try:
-                        process_name = proc.info['name']
-                        executable_path = proc.info['exe']
-                        if executable_path and executable_path not in scanned_files:
-                            detected_files.append(executable_path)
-                            scanned_files.add(executable_path) # Add path to scanned files set
-                    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
-                        print(f"Error while accessing process info: {e}")
-            except Exception as e:
-                print(f"Error while iterating over processes: {e}")
-
-            # Send detected memory file paths for scanning
-            with ThreadPoolExecutor(max_workers=1000) as executor:
-                for file_path in detected_files:
-                    executor.submit(self.scan_file_path, file_path)
-
-            self.stop_timer()  # Stop the timer
-            self.memory_scan_finished.emit()
-
-        # Start the scan in a separate thread
-        self.thread = threading.Thread(target=scan)
-        self.thread.start()
+        self.start_multiple_scan(detected_files)
 
     def scan_directory(self, directory):
         detected_threats = []
@@ -1466,11 +1504,23 @@ class ScanManager(QDialog):
             for future in as_completed(futures):
                 future.result()
 
+    def stop_scanning(self):
+        self.stop_event.set()
+        for thread in self.threads:
+            thread.join()
+            stop_timer()
+        logging.info("Scanning stopped")
+
     def scan_file_path(self, file_path):
         self.pause_event.wait()  # Wait if the scan is paused
         if self.stop_event.is_set():
-            return False, "Scan stopped"
-        
+            stop_scanning()
+
+        # Check if the file path is related to the script directory
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        if file_path.startswith(script_dir):
+            return
+
         # Show the currently scanned file
         self.current_file_label.setText(f"Currently Scanning: {file_path}")
 
@@ -1638,9 +1688,6 @@ class ScanManager(QDialog):
          
     def show_scan_finished_message(self):
         QMessageBox.information(self, "Scan Finished", "Folder or file scan has been completed.")
-
-    def show_memory_scan_finished_message(self):
-        QMessageBox.information(self, "Scan Finished", "Memory scan has been completed.")
 
     def apply_action(self):
         action = self.action_combobox.currentText()
@@ -1813,8 +1860,6 @@ QDialogButtonBox {
 
 class AntivirusUI(QWidget):
     folder_scan_finished = Signal()
-    # Define a new signal for memory scan finished
-    memory_scan_finished = Signal()
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Hydra Dragon Antivirus")
@@ -2121,9 +2166,8 @@ def main():
 
         scan_manager = ScanManager()
 
-        # Connect signals to the ScanManager's slots
+        # Connect signal to the ScanManager's slot
         scan_manager.folder_scan_finished.connect(scan_manager.show_scan_finished_message)
-        scan_manager.memory_scan_finished.connect(scan_manager.show_memory_scan_finished_message)
 
         main_gui.show()
         sys.exit(app.exec())
