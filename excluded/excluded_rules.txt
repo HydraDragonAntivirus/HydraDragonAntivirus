@@ -1697,3 +1697,4 @@ INFO_PE_DeviceIOControl_API",
 "j3f4_090e603696eb1932", 
 "j3f4_23b46a08c0000b32",
 "Win_Trojan_Obfus_6",
+"isLNK"

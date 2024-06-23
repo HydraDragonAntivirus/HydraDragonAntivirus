@@ -1,0 +1,36 @@
+#
+# $Id: emerging-dshield.rules $
+# Emerging Threats Dshield rules.
+#
+# Rules to block Dshield identified Top Attackers (www.dshield.org)
+#
+# More information available at www.emergingthreats.net
+#
+# Please submit any feedback or ideas to support@emergingthreats.net or the emerging-sigs mailing list
+#
+#*************************************************************
+#
+#  Copyright (c) 2003-2024, Emerging Threats
+#  All rights reserved.
+#  
+#  Redistribution and use in source and binary forms, with or without modification, are permitted provided that the 
+#  following conditions are met:
+#  
+#  * Redistributions of source code must retain the above copyright notice, this list of conditions and the following 
+#    disclaimer.
+#  * Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the 
+#    following disclaimer in the documentation and/or other materials provided with the distribution.
+#  * Neither the name of the nor the names of its contributors may be used to endorse or promote products derived 
+#    from this software without specific prior written permission.
+#  
+#  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS AS IS AND ANY EXPRESS OR IMPLIED WARRANTIES, 
+#  INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
+#  DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+#  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
+#  SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+#  WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE 
+#  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+#
+#
+alert tcp [162.216.149.0/24,162.216.150.0/24,35.203.210.0/24,35.203.211.0/24,198.235.24.0/24,205.210.31.0/24,193.163.125.0/24,79.110.62.0/24,80.66.83.0/24,185.242.226.0/24,206.168.34.0/24,154.212.141.0/24,94.156.64.0/24,167.94.138.0/24,167.94.145.0/24,64.62.156.0/24,167.94.146.0/24,62.122.184.0/24,64.62.197.0/24,65.49.1.0/24] any -> $HOME_NET any (msg:"ET DROP Dshield Block Listed Source group 1"; flags:S; reference:url,feeds.dshield.org/block.txt; threshold: type limit, track by_src, seconds 3600, count 1; classtype:misc-attack; flowbits:set,ET.Evil; flowbits:set,ET.DshieldIP; sid:2402000; rev:7022; metadata:affected_product Any, attack_target Any, deployment Perimeter, tag Dshield, signature_severity Major, created_at 2010_12_30, updated_at 2024_05_31;)
+alert udp [162.216.149.0/24,162.216.150.0/24,35.203.210.0/24,35.203.211.0/24,198.235.24.0/24,205.210.31.0/24,193.163.125.0/24,79.110.62.0/24,80.66.83.0/24,185.242.226.0/24,206.168.34.0/24,154.212.141.0/24,94.156.64.0/24,167.94.138.0/24,167.94.145.0/24,64.62.156.0/24,167.94.146.0/24,62.122.184.0/24,64.62.197.0/24,65.49.1.0/24] any -> $HOME_NET any (msg:"ET DROP Dshield Block Listed Source group 1"; reference:url,feeds.dshield.org/block.txt; threshold: type limit, track by_src, seconds 3600, count 1; classtype:misc-attack; flowbits:set,ET.Evil; flowbits:set,ET.DshieldIP; sid:2402001; rev:7022; metadata:affected_product Any, attack_target Any, deployment Perimeter, tag Dshield, signature_severity Major, created_at 2010_12_30, updated_at 2024_05_31;)

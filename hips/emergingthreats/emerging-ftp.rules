@@ -1,0 +1,182 @@
+# Emerging Threats 
+#
+# This distribution may contain rules under two different licenses. 
+#
+#  Rules with sids 100000000 through 100000908 are under the GPLv2.
+#  A copy of that license is available at http://www.gnu.org/licenses/gpl-2.0.html
+#
+#  Rules with sids 2000000 through 2799999 are from Emerging Threats and are covered under the BSD License 
+#  as follows:
+#
+#*************************************************************
+#  Copyright (c) 2003-2024, Emerging Threats
+#  All rights reserved.
+#  
+#  Redistribution and use in source and binary forms, with or without modification, are permitted provided that the 
+#  following conditions are met:
+#  
+#  * Redistributions of source code must retain the above copyright notice, this list of conditions and the following 
+#    disclaimer.
+#  * Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the 
+#    following disclaimer in the documentation and/or other materials provided with the distribution.
+#  * Neither the name of the nor the names of its contributors may be used to endorse or promote products derived 
+#    from this software without specific prior written permission.
+#  
+#  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS AS IS AND ANY EXPRESS OR IMPLIED WARRANTIES, 
+#  INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
+#  DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+#  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
+#  SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+#  WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE 
+#  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+#
+#*************************************************************
+#
+#
+#
+#
+
+# This Ruleset is EmergingThreats Open No-GPL optimized for snort-2.9.0-enhanced.
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET FTP FTP CWD command attempt without login"; flow:established,to_server; flowbits:isnotset,ET.ftp.user.login; content:!"USER"; depth:4; content:"CWD"; nocase; reference:url,www.nsftools.com/tips/RawFTP.htm; classtype:attempted-recon; sid:2010731; rev:2; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET FTP FTP SITE command attempt without login"; flow:established,to_server; flowbits:isnotset,ET.ftp.user.login; content:!"USER"; depth:4; content:"SITE"; nocase; reference:url,www.nsftools.com/tips/RawFTP.htm; classtype:attempted-recon; sid:2010732; rev:2; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET FTP FTP RMDIR command attempt without login"; flow:established,to_server; flowbits:isnotset,ET.ftp.user.login; content:!"USER"; depth:4; content:"RMDIR"; nocase; reference:url,www.nsftools.com/tips/RawFTP.htm; classtype:attempted-recon; sid:2010733; rev:2; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET FTP FTP MKDIR command attempt without login"; flow:established,to_server; flowbits:isnotset,ET.ftp.user.login; content:!"USER"; depth:4; content:"MKDIR"; nocase; reference:url,www.nsftools.com/tips/RawFTP.htm; classtype:attempted-recon; sid:2010734; rev:2; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET FTP FTP PWD command attempt without login"; flow:established,to_server; flowbits:isnotset,ET.ftp.user.login; content:!"USER"; depth:4; content:"PWD"; nocase; reference:url,www.nsftools.com/tips/RawFTP.htm; classtype:attempted-recon; sid:2010735; rev:2; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET FTP FTP RETR command attempt without login"; flow:established,to_server; flowbits:isnotset,ET.ftp.user.login; content:!"USER"; depth:4; content:"RETR"; nocase; reference:url,www.nsftools.com/tips/RawFTP.htm; classtype:attempted-recon; sid:2010736; rev:2; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET FTP FTP NLST command attempt without login"; flow:established,to_server; flowbits:isnotset,ET.ftp.user.login; content:!"USER"; depth:4; content:"NLST"; nocase; reference:url,www.nsftools.com/tips/RawFTP.htm; classtype:attempted-recon; sid:2010737; rev:2; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET FTP FTP RNTO command attempt without login"; flow:established,to_server; flowbits:isnotset,ET.ftp.user.login; content:!"USER"; depth:4; content:"RNTO"; nocase; reference:url,www.nsftools.com/tips/RawFTP.htm; classtype:attempted-recon; sid:2010738; rev:2; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET FTP FTP RNFR command attempt without login"; flow:established,to_server; flowbits:isnotset,ET.ftp.user.login; content:!"USER"; depth:4; content:"RNFR"; nocase; reference:url,www.nsftools.com/tips/RawFTP.htm; classtype:attempted-recon; sid:2010739; rev:2; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET FTP FTP STOR command attempt without login"; flow:established,to_server; flowbits:isnotset,ET.ftp.user.login; content:!"USER"; depth:4; content:"STOR"; nocase; reference:url,www.nsftools.com/tips/RawFTP.htm; classtype:attempted-recon; sid:2010740; rev:2; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET FTP USER login flowbit"; flow:established,to_server; content:"USER "; nocase; depth:5; flowbits:set,ET.ftp.user.login; flowbits:noalert; classtype:not-suspicious; sid:2002850; rev:4; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET FTP HP-UX LIST command without login"; flow:established,to_server; flowbits:isnotset,ET.ftp.user.login; content:"LIST "; nocase; depth:5; reference:cve,2005-3296; reference:bugtraq,15138; classtype:attempted-recon; sid:2002851; rev:5; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET FTP Possible FTP Daemon Username SELECT FROM SQL Injection Attempt"; flow:established,to_server; content:"USER"; depth:4; content:"SELECT"; within:200; nocase; content:"FROM"; distance:0; nocase; pcre:"/SELECT.+FROM/i"; reference:url,en.wikipedia.org/wiki/SQL_injection; classtype:attempted-user; sid:2009981; rev:2; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_07_30;)
+
+alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET FTP Possible FTP Daemon Username DELETE FROM SQL Injection Attempt"; flow:established,to_server; content:"USER"; depth:4; content:"DELETE"; within:200; nocase; content:"FROM"; distance:0; nocase; pcre:"/DELETE.+FROM/i"; reference:url,en.wikipedia.org/wiki/SQL_injection; classtype:attempted-user; sid:2009982; rev:2; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_07_30;)
+
+alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET FTP Possible FTP Daemon Username INSERT INTO SQL Injection Attempt"; flow:established,to_server; content:"USER"; depth:4; content:"INSERT"; within:200; nocase; content:"INTO"; distance:0; nocase; pcre:"/INSERT.+INTO/i"; reference:url,en.wikipedia.org/wiki/SQL_injection; classtype:attempted-user; sid:2009983; rev:2; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_07_30;)
+
+alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET FTP Possible FTP Daemon Username UPDATE SET SQL Injection Attempt"; flow:established,to_server; content:"USER"; depth:4; content:"UPDATE"; within:200; nocase; content:"SET"; distance:0; nocase; pcre:"/UPDATE.+SET/i"; reference:url,en.wikipedia.org/wiki/SQL_injection; classtype:attempted-user; sid:2009984; rev:2; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_07_30;)
+
+alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET FTP Possible FTP Daemon Username UNION SELECT SQL Injection Attempt"; flow:established,to_server; content:"USER"; depth:4; content:"UNION"; within:200; nocase; content:"SELECT"; distance:0; nocase; pcre:"/UNION.+SELECT/i"; reference:url,en.wikipedia.org/wiki/SQL_injection; classtype:attempted-user; sid:2009985; rev:2; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_07_30;)
+
+alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET FTP Possible FTP Daemon Username INTO OUTFILE SQL Injection Attempt"; flow:established,to_server; content:"USER"; depth:4; content:"INTO"; within:200; nocase; content:"OUTFILE"; distance:0; nocase; pcre:"/INTO.+OUTFILE/i"; reference:url,www.milw0rm.com/papers/372; reference:url,www.greensql.net/publications/backdoor-webserver-using-mysql-sql-injection; reference:url,websec.wordpress.com/2007/11/17/mysql-into-outfile/; classtype:attempted-user; sid:2010081; rev:2; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_07_30;)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET FTP Suspicious Percentage Symbol Usage in FTP Username"; flow:established,to_server; content:"USER "; depth:5; nocase; content:!"|0d 0a|"; within:50; content:"%"; distance:0; reference:url,www.checkpoint.com/defense/advisories/public/2010/sbp-16-Aug.html; classtype:bad-unknown; sid:2011487; rev:2; metadata:created_at 2010_09_29, updated_at 2012_03_12;)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+alert tcp $HOME_NET any -> $EXTERNAL_NET 21 (msg:"ET FTP Outbound Java Anonymous FTP Login"; flow:to_server,established; content:"USER anonymous|0d 0a|PASS Java1."; fast_pattern:7,20; pcre:"/^\d\.\d(_\d+)?\@\r\n/R"; flowbits:set,ET.Java.FTP.Logon; classtype:misc-activity; sid:2016687; rev:2; metadata:created_at 2013_03_29, updated_at 2013_03_29, reviewed_at 2024_01_25;)
+
+alert tcp $HOME_NET any -> $EXTERNAL_NET 21 (msg:"ET FTP Outbound Java Downloading jar over FTP"; flow:to_server,established; flowbits:isset,ET.Java.FTP.Logon; content:".jar"; nocase; fast_pattern:only; content:"RETR "; pcre:"/^[^\r\n]+\.jar/Ri"; classtype:misc-activity; sid:2016688; rev:2; metadata:created_at 2013_03_29, updated_at 2014_02_03;)
+
+
+#alert tcp any any -> $HOME_NET 21 (msg:"ET FTP ProFTPD Backdoor Inbound Backdoor Open Request (ACIDBITCHEZ)"; flow:established,to_server; content:"HELP "; depth:5; content:"ACIDBITCHEZ"; distance:0; nocase; reference:url,slashdot.org/story/10/12/02/131214/ProFTPDorg-Compromised-Backdoor-Distributed; reference:url,xorl.wordpress.com/2010/12/02/news-proftpd-owned-and-backdoored/; reference:url,sourceforge.net/mailarchive/message.php?msg_name=alpine.DEB.2.00.1012011542220.12930%40familiar.castaglia.org; classtype:trojan-activity; sid:2011994; rev:5; metadata:created_at 2010_12_02, updated_at 2014_09_12;)
+
+
+alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET FTP Suspicious Quotation Mark Usage in FTP Username"; flow:established,to_server; content:"USER "; depth:5; content:"|22|"; distance:0; pcre:"/^USER [^\r\n]*?\x22/"; reference:url,www.checkpoint.com/defense/advisories/public/2010/sbp-16-Aug.html; classtype:bad-unknown; sid:2011488; rev:3; metadata:created_at 2010_09_29, updated_at 2022_05_03;)
+
+alert tcp $HOME_NET $FTP_PORTS -> any any (msg:"ET FTP Vulnerable WS_FTP Version in FTP Banner Response (CVE-2023-40044)"; flow:established,to_client; content:"220"; depth:3; content:"WS_FTP|20|Server|20|"; fast_pattern; distance:0; pcre:"/^(8\.7\.[0-3])|(8\.[0-6]\.)|(8\.8\.[0-1])/R"; threshold: type limit, track by_src, seconds 3600, count 1; reference:url,www.assetnote.io/resources/research/rce-in-progress-ws-ftp-ad-hoc-via-iis-http-modules-cve-2023-40044; reference:cve,2023-40044; classtype:network-scan; sid:2048464; rev:2; metadata:affected_product WS_FTP, attack_target FTP_Server, created_at 2023_10_05, cve CVE_2023_40044, deployment Perimeter, deployment Internal, performance_impact Low, confidence High, signature_severity Minor, updated_at 2023_10_06, reviewed_at 2023_10_06;)
+

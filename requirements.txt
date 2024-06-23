@@ -1,0 +1,10 @@
+yara-python
+yara-x
+joblib
+scikit-learn
+pefile
+psutil
+PySide6
+watchdog
+notify-py
+pywin32

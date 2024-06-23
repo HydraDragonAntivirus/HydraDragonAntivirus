@@ -1,0 +1,572 @@
+# Emerging Threats 
+#
+# This distribution may contain rules under two different licenses. 
+#
+#  Rules with sids 100000000 through 100000908 are under the GPLv2.
+#  A copy of that license is available at http://www.gnu.org/licenses/gpl-2.0.html
+#
+#  Rules with sids 2000000 through 2799999 are from Emerging Threats and are covered under the BSD License 
+#  as follows:
+#
+#*************************************************************
+#  Copyright (c) 2003-2024, Emerging Threats
+#  All rights reserved.
+#  
+#  Redistribution and use in source and binary forms, with or without modification, are permitted provided that the 
+#  following conditions are met:
+#  
+#  * Redistributions of source code must retain the above copyright notice, this list of conditions and the following 
+#    disclaimer.
+#  * Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the 
+#    following disclaimer in the documentation and/or other materials provided with the distribution.
+#  * Neither the name of the nor the names of its contributors may be used to endorse or promote products derived 
+#    from this software without specific prior written permission.
+#  
+#  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS AS IS AND ANY EXPRESS OR IMPLIED WARRANTIES, 
+#  INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
+#  DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+#  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
+#  SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+#  WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE 
+#  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+#
+#*************************************************************
+#
+#
+#
+#
+
+# This Ruleset is EmergingThreats Open No-GPL optimized for snort-2.9.0-enhanced.
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 445 (msg:"ET NETBIOS Remote SMB2.0 DoS Exploit"; flow:to_server,established; content:"|ff|SMB|72 00 00 00 00 18 53 c8|"; offset:4; content:!"|00 00|"; within:2; reference:url,securityreason.com/exploitalert/7138; classtype:attempted-dos; sid:2009886; rev:4; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 445 (msg:"ET NETBIOS MS04011 Lsasrv.dll RPC exploit (Win2k)"; flow: to_server,established; content:"|00 00 00 00 9A A8 40 00 01 00 00 00 00 00 00 00|"; content:"|01 0000 00 00 00 00 00 9A A8 40 00 01 00 00 00|"; reference:cve,2003-0533; classtype:misc-activity; sid:2000046; rev:9; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 445 (msg:"ET NETBIOS MS04011 Lsasrv.dll RPC exploit (WinXP)"; flow: to_server,established; content:"|95 14 40 00 03 00 00 00 7C 70 40 00 01|"; content:"|78 85 13 00 AB5B A6 E9 31 31|"; reference:cve,2003-0533; classtype:misc-activity; sid:2000033; rev:9; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $HOME_NET 445 -> $EXTERNAL_NET any (msg:"ET NETBIOS ms05-011 exploit"; flow:from_server,established; content:"|00|"; depth:1; content:"|FF|SMB|32|"; depth:9; offset:4; content: "|ff ff ff ff 00 00 00 00 ff|"; offset: 132; depth: 141; reference:bugtraq,12484; reference:url,www.frsirt.com/exploits/20050623.mssmb_poc.c.php; classtype:attempted-admin; sid:2002064; rev:7; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 445 (msg:"ET NETBIOS SMB-DS Microsoft Windows 2000 Plug and Play Vulnerability"; flow:to_server,established; content:"|FF|SMB%"; depth:5; offset:4; nocase; content:"|2600|"; depth:2; offset:65; content:"|67157a76|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS05-039.mspx; reference:url,isc.sans.org/diary.php?date=2005-08-14; classtype:attempted-admin; sid:2002186; rev:4; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 445 (msg:"ET NETBIOS SMB-DS DCERPC PnP HOD bind attempt"; flow:to_server,established; content:"|FF|SMB%"; depth:5; offset:4; nocase; content:"&|00|"; within:2; distance:56; content:"|5C 00|P|00|I|00|P|00|E|00 5C 00|"; within:12; distance:5; nocase; content:"|05|"; within:1; distance:4; content:"|0B|"; within:1; distance:1; content:"|40 4E 9F 8D 3D A0 CE 11 8F 69 08 00 3E 30 05 1B|"; flowbits:set,netbios.pnp.bind.attempt; flowbits:noalert; classtype:protocol-command-decode; sid:2002199; rev:4; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 445 (msg:"ET NETBIOS SMB-DS DCERPC PnP bind attempt"; flow:to_server,established; content:"|FF|SMB%"; depth:5; offset:4; nocase; content:"&|00|"; within:2; distance:56; content:"|5C 00|P|00|I|00|P|00|E|00 5C 00|"; within:12; distance:5; nocase; content:"|05|"; within:1; distance:2; content:"|0B|"; within:1; distance:1; content:"|40 4E 9F 8D 3D A0 CE 11 8F 69 08 00 3E 30 05 1B|"; flowbits:set,netbios.pnp.bind.attempt; flowbits:noalert; classtype:protocol-command-decode; sid:2002200; rev:4; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 445 (msg:"ET NETBIOS SMB-DS DCERPC PnP QueryResConfList exploit attempt"; flow:to_server,established; content:"|FF|SMB%"; depth:5; offset:4; nocase; content:"&|00|"; within:2; distance:56; content:"|5C 00|P|00|I|00|P|00|E|00 5C 00|"; within:12; distance:5; nocase; content:"|36 00|"; within:2; distance:26; pcre:"/(\x00\\\x00.*?){2}\x00{2}\xFF{2}.{128,}[\x04-\xFF][\x00-\xFF]{3}\x00{4}$/Rs"; flowbits:isset,netbios.pnp.bind.attempt; reference:cve,CAN-2005-1983; reference:url,www.microsoft.com/technet/security/Bulletin/MS05-039.mspx; classtype:attempted-admin; sid:2002201; rev:4; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 139 (msg:"ET NETBIOS SMB DCERPC PnP bind attempt"; flow:to_server,established; content:"|00|"; depth:1; content:"|FF|SMB%"; depth:5; offset:4; nocase; byte_test:2,^,1,5,relative; content:"&|00|"; within:2; distance:56; content:"|5C|PIPE|5C 00 05 00 0B|"; within:10; distance:4; byte_test:1,&,16,1,relative; content:"|40 4E 9F 8D 3D A0 CE 11 8F 69 08 00 3E 30 05 1B|"; flowbits:set,netbios.pnp.bind.attempt; flowbits:noalert; classtype:protocol-command-decode; sid:2002202; rev:4; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 139 (msg:"ET NETBIOS SMB DCERPC PnP QueryResConfList exploit attempt"; flow:to_server,established; content:"|00|"; depth:1; content:"|FF|SMB%"; depth:5; offset:4; nocase; byte_test:2,^,1,5,relative; content:"&|00|"; within:2; distance:56; content:"|5C|PIPE|5C 00 05 00 00|"; within:10; distance:4; nocase; content:"|36 00|"; within:2; distance:19; pcre:"/(\x00\\\x00.*?){2}\x00{2}\xFF{2}.{128,}[\x04-\xFF][\x00-\xFF]{3}\x00{4}$/Rs"; flowbits:isset,netbios.pnp.bind.attempt; reference:cve,CAN-2005-1983; reference:url,www.microsoft.com/technet/security/Bulletin/MS05-039.mspx; classtype:attempted-admin; sid:2002203; rev:4; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 139 (msg:"ET NETBIOS NETBIOS SMB DCERPC NetrpPathCanonicalize request (possible MS06-040)"; flow:to_server,established; content:"|00|"; depth:1; content:"|FF|SMB|25|"; depth:5; offset:4; nocase; byte_test:2,^,1,5,relative; content:"&|00|"; within:2; distance:56; content:"|5C|PIPE|5C 00 05 00|"; within:9; distance:4; content:"|1f 00|"; distance:20; within:2; reference:url,www.microsoft.com/technet/security/bulletin/MS06-040.mspx; classtype:misc-attack; sid:2003081; rev:5; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 445 (msg:"ET NETBIOS NETBIOS SMB-DS DCERPC NetrpPathCanonicalize request (possible MS06-040)"; flow:to_server,established; content:"|00|"; depth:1; content:"|FF|SMB|25|"; depth:5; offset:4; nocase; byte_test:2,^,1,5,relative; content:"&|00|"; within:2; distance:56; content:"|5C|PIPE|5C 00 05 00|"; within:9; distance:4; content:"|1f 00|"; distance:20; within:2; reference:url,www.microsoft.com/technet/security/bulletin/MS06-040.mspx; classtype:misc-attack; sid:2003082; rev:5; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+alert udp any any -> $HOME_NET 139 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (1)"; content:"|0B|"; offset:2; depth:1; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008690; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert udp any any -> $HOME_NET 139 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (2)"; content:"|1F 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"..|5C|..|5C|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008691; rev:6; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert udp any any -> $HOME_NET 139 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (3)"; content:"|1F 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"../../"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008692; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert udp any any -> $HOME_NET 139 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (4)"; content:"|1F 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"|00 2E 00 2E 00 2F 00 2E 00 2E 00 2F|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008693; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert udp any any -> $HOME_NET 139 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (5)"; content:"|1F 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"|00 2E 00 2E 00 5C 00 2E 00 2E 00 5C|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008694; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert udp any any -> $HOME_NET 139 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (7)"; content:"|20 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"..|5C|..|5C|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008696; rev:6; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert udp any any -> $HOME_NET 139 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (8)"; content:"|20 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"../../"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008697; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert udp any any -> $HOME_NET 139 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (9)"; content:"|20 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"|00 2E 00 2E 00 2F 00 2E 00 2E 00 2F|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008698; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert udp any any -> $HOME_NET 139 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (10)"; content:"|20 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"|00 2E 00 2E 00 5C 00 2E 00 2E 00 5C|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008699; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert tcp any any -> $HOME_NET 445 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (11)"; flow:established,to_server; content:"|0B|"; offset:2; depth:1; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008701; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert tcp any any -> $HOME_NET 445 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (12)"; flow:established,to_server; content:"|1F 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"|5C|..|5C|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008702; rev:6; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert tcp any any -> $HOME_NET 445 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (13)"; flow:established,to_server; content:"|1F 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"/../"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008703; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert tcp any any -> $HOME_NET 445 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (14)"; flow:established,to_server; content:"|1F 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"|00 2E 00 2E 00 2F 00 2E 00 2E 00 2F|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008704; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert tcp any any -> $HOME_NET 445 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (15)"; flow:established,to_server; content:"|1F 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"|00 2E 00 2E 00 5C 00 2E 00 2E 00 5C|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008705; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert tcp any any -> $HOME_NET 139 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (16)"; flow:established,to_server; content:"|0B|"; offset:2; depth:1; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008706; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert tcp any any -> $HOME_NET 139 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (17)"; flow:established,to_server; content:"|1F 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"..|5C|..|5C|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008707; rev:6; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert tcp any any -> $HOME_NET 139 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (18)"; flow:established,to_server; content:"|1F 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"../../"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008708; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert tcp any any -> $HOME_NET 139 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (19)"; flow:established,to_server; content:"|1F 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"|00 2E 00 2E 00 2F 00 2E 00 2E 00 2F|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008709; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert tcp any any -> $HOME_NET 139 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (20)"; flow:established,to_server; content:"|1F 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"|00 2E 00 2E 00 5C 00 2E 00 2E 00 5C|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008710; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert tcp any any -> $HOME_NET 445 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (22)"; flow:established,to_server; content:"|20 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"|5C|..|5C|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008712; rev:6; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert tcp any any -> $HOME_NET 445 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (23)"; flow:established,to_server; content:"|20 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"/../"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008713; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert tcp any any -> $HOME_NET 445 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (24)"; flow:established,to_server; content:"|20 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"|00 2E 00 2E 00 2F 00 2E 00 2E 00 2F|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008714; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert tcp any any -> $HOME_NET 445 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (25)"; flow:established,to_server; content:"|20 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"|00 2E 00 2E 00 5C 00 2E 00 2E 00 5C|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008715; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert tcp any any -> $HOME_NET 139 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (27)"; flow:established,to_server; content:"|20 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"..|5C|..|5C|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008717; rev:6; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert tcp any any -> $HOME_NET 139 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (28)"; flow:established,to_server; content:"|20 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"../../"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008718; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert tcp any any -> $HOME_NET 139 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (29)"; flow:established,to_server; content:"|20 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"|00 2E 00 2E 00 2F 00 2E 00 2E 00 2F|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008719; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+alert tcp any any -> $HOME_NET 139 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 (30)"; flow:established,to_server; content:"|20 00|"; content:"|C8 4F 32 4B 70 16 D3 01 12 78 5A 47 BF 6E E1 88|"; content:"|00 2E 00 2E 00 5C 00 2E 00 2E 00 5C|"; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008720; rev:5; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_07_30;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 445 (msg:"ET NETBIOS LSA exploit"; flow: to_server,established; content:"|313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131|"; offset: 78; depth: 192; reference:url,www.eeye.com/html/research/advisories/AD20040501.html; reference:url,www.upenn.edu/computing/virus/04/w32.sasser.worm.html; classtype:misc-activity; sid:2000032; rev:9; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
+
+alert udp any any -> $HOME_NET 139 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 - Known Exploit Instance"; content:"|00 2e 00 2e 00 2f 00 2e 00 2e 00 2f 00 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 87|"; fast_pattern:only; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008700; rev:6; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_11_09;)
+
+alert tcp any any -> $HOME_NET 445 (msg:"ET NETBIOS Microsoft Windows NETAPI Stack Overflow Inbound - MS08-067 - Known Exploit Instance (2)"; flow:established,to_server; content:"|00 2e 00 2e 00 2f 00 2e 00 2e 00 2f 00 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 87|"; fast_pattern:only; reference:url,www.microsoft.com/technet/security/Bulletin/MS08-067.mspx; reference:cve,2008-4250; reference:url,www.kb.cert.org/vuls/id/827267; classtype:attempted-admin; sid:2008721; rev:6; metadata:created_at 2010_07_30, cve CVE_2008_4250, updated_at 2010_11_09;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 139 (msg:"ET NETBIOS NII Microsoft ASN.1 Library Buffer Overflow Exploit"; flow: to_server,established; content:"|A1 05 23 03 03 01 07|"; fast_pattern:only; reference:url,www.microsoft.com/technet/security/bulletin/ms04-007.asp; classtype:bad-unknown; sid:2000017; rev:7; metadata:created_at 2010_07_30, confidence High, updated_at 2010_11_09;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 445 (msg:"ET NETBIOS MS04-007 Kill-Bill ASN1 exploit attempt"; flow: established,to_server; content:"CCCC|20f0fd7f|SVWf"; reference:url,www.phreedom.org/solar/exploits/msasn1-bitstring/; reference:url,www.microsoft.com/technet/security/bulletin/MS04-007.mspx; reference:cve,CAN-2003-0818; classtype:attempted-admin; sid:2001944; rev:7; metadata:created_at 2010_07_30, updated_at 2010_11_10;)
+
+#alert tcp any any -> $HOME_NET [139,445] (msg:"ET NETBIOS windows recycler .exe request - suspicious"; flow:to_server,established; content:"|00 00 5C 00 72 00 65 00 63 00 79 00 63 00 6C 00 65 00 72 00 5C|"; content:"|00 2E 00 65 00 78 00 65|"; distance:0; reference:url,about-threats.trendmicro.com/ArchiveMalware.aspx?name=WORM_AUTORUN.ZBC; reference:url,www.symantec.com/connect/forums/virus-alert-crecyclers-1-5-21-1482476501-1644491937-682003330-1013svchostexe; classtype:suspicious-filename-detect; sid:2011527; rev:4; metadata:created_at 2010_09_27, updated_at 2010_12_18;)
+
+alert tcp $EXTERNAL_NET 445 -> $HOME_NET any (msg:"ET NETBIOS Microsoft Windows SMB Client Race Condition Remote Code Execution"; flow:to_client,established; content:"|ff 53 4d 42 72|"; offset:4; depth:5; content:"|00 00 00 00|"; distance:0; within:4; byte_test:4,<,4356,30,relative,little; reference:url,www.exploit-db.com/exploits/12258/; reference:cve,2010-0017; reference:bid,38100; reference:url,www.microsoft.com/technet/security/Bulletin/MS10-006.mspx; classtype:attempted-user; sid:2012084; rev:2; metadata:created_at 2010_12_22, cve CVE_2010_0017, updated_at 2010_12_23;)
+
+alert tcp $EXTERNAL_NET any -> $HOME_NET 445 (msg:"ET NETBIOS SMB Trans2 Query_Fs_Attribute_Info SrvSmbQueryFsInformation Pool Buffer Overflow"; flow:to_server,established; content:"|ff 53 4d 42 32|"; offset:4; depth:5; content:"|00 00 00 00|"; distance:0; within:4; content:"|00 00|"; distance:30; within:2; content:"|00 03 00|"; distance:19; within:3; reference:url,www.exploit-db.com/exploits/14607/; reference:url,seclists.org/fulldisclosure/2010/Aug/122; reference:cve,2010-2550; reference:bid,42224; reference:url,www.microsoft.com/technet/security/Bulletin/MS10-054.mspx; classtype:attempted-user; sid:2012094; rev:2; metadata:created_at 2010_12_23, cve CVE_2010_2550, confidence High, updated_at 2010_12_23;)
+
+alert udp $EXTERNAL_NET any -> $HOME_NET [137,138,139,445] (msg:"ET NETBIOS Microsoft Windows Server 2003 Active Directory Pre-Auth BROWSER ELECTION Heap Overflow Attempt"; content:"|42 4F 00|"; content:"BROWSER"; nocase; distance:0; content:"|08 09 A8 0F 01 20|"; fast_pattern; distance:0; isdataat:65,relative; content:!"|0A|"; within:65; reference:url,tools.cisco.com/security/center/viewAlert.x?alertId=22457; reference:bid,46360; classtype:attempted-admin; sid:2012317; rev:2; metadata:created_at 2011_02_18, updated_at 2011_02_21;)
+
+#alert tcp any any -> $HOME_NET [139,445] (msg:"ET NETBIOS windows recycler request - suspicious"; flow:to_server,established; content:"|00 00 5C 00 72 00 65 00 63 00 79 00 63 00 6C 00 65 00 72 00 5C|"; fast_pattern:only; reference:url,about-threats.trendmicro.com/ArchiveMalware.aspx?name=WORM_AUTORUN.ZBC; reference:url,www.symantec.com/connect/forums/virus-alert-crecyclers-1-5-21-1482476501-1644491937-682003330-1013svchostexe; reference:url,www.microsoft.com/security/portal/Threat/Encyclopedia/Entry.aspx?Name=Worm%3AWin32%2FFakerecy.A; reference:url,support.microsoft.com/kb/971029; classtype:suspicious-filename-detect; sid:2011526; rev:4; metadata:created_at 2010_09_27, updated_at 2011_03_01;)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#alert tcp any any -> any [139,445] (msg:"ET NETBIOS Tree Connect AndX Request IPC$ Unicode"; flow:established,to_server; content:"|00|"; depth:1; content:"|FF|SMBu"; within:5; distance:3; content:"| 00 5c 00 69 00 70 00 63 00 24 00 00 00|"; nocase; flowbits:noalert; reference:cve,2006-4691; classtype:protocol-command-decode; sid:2025090; rev:2; metadata:created_at 2016_06_14, updated_at 2017_11_28;)
+
+alert tcp any any -> $HOME_NET 445 (msg:"ET NETBIOS Microsoft Windows RRAS SMB Remote Code Execution"; flow:established,to_server; content:"|21 00 00 00 10 27 00 00 a4 86 01 00 41 41 41 41 04 00 00 00 41 41 41 41 a4 86 01 00 ad 0b 2d 06 d0 ba 61 41 41 90 90 90 90 90|"; reference:cve,2017-11885; reference:url,exploit-db.com/exploits/44616/; classtype:attempted-user; sid:2025824; rev:1; metadata:affected_product Windows_XP_Vista_7_8_10_Server_32_64_Bit, attack_target Client_and_Server, created_at 2018_07_11, cve CVE_2017_11885, deployment Perimeter, deployment Datacenter, performance_impact Low, signature_severity Major, updated_at 2018_07_11;)
+
+#alert tcp any any -> $HOME_NET any (msg:"ET NETBIOS DCERPC WMI Remote Process Execution"; flow:to_server,established; dce_iface:00000143-0000-0000-c000-000000000046; classtype:bad-unknown; sid:2027167; rev:2; metadata:affected_product Windows_XP_Vista_7_8_10_Server_32_64_Bit, attack_target Client_Endpoint, created_at 2019_04_09, deployment Internal, signature_severity Informational, updated_at 2019_04_09;)
+
+#alert tcp any any -> $HOME_NET any (msg:"ET NETBIOS DCERPC DCOM ShellExecute - Likely Lateral Movement"; flow:established,to_server; content:"|00|S|00|h|00|e|00|l|00|l|00|E|00|x|00|e|00|c|00|u|00|t|00|e|00|"; reference:url,enigma0x3.net/2017/01/05/lateral-movement-using-the-mmc20-application-com-object/; reference:url,enigma0x3.net/2017/01/23/lateral-movement-via-dcom-round-2/; reference:url,attack.mitre.org/techniques/T1175/; classtype:bad-unknown; sid:2027190; rev:2; metadata:affected_product Windows_XP_Vista_7_8_10_Server_32_64_Bit, attack_target Client_Endpoint, created_at 2019_04_11, deployment Internal, signature_severity Minor, updated_at 2019_04_15;)
+
+alert tcp any any -> $HOME_NET 135 (msg:"ET NETBIOS DCERPC SVCCTL - Remote Service Control Manager Access"; flow:established,to_server; content:"|00 00 00 00 00 00 00 00|"; content:"|13 00 0d 81 bb 7a 36 44 98 f1 35 ad 32 98 f0 38 00 10 03|"; distance:0; within:100; classtype:attempted-user; sid:2027237; rev:2; metadata:affected_product Windows_XP_Vista_7_8_10_Server_32_64_Bit, attack_target Client_and_Server, created_at 2019_04_22, deployment Perimeter, performance_impact Low, signature_severity Informational, updated_at 2019_04_22;)
+
+alert tcp any any -> $HOME_NET any (msg:"ET NETBIOS DCERPC DCOM ExecuteShellCommand Call - Likely Lateral Movement"; flow:established,to_server; content:"|00|E|00|x|00|e|00|c|00|u|00|t|00|e|00|S|00|h|00|e|00|l|00|l|00|C|00|o|00|m|00|m|00|a|00|n|00|d|00|"; content:!"S|00|Q|00|L|00|C|00|m|00|d|00|P|00|a|00|r|00|s|00|e|00|r|00|E|00|x|00|e|00|c|00|u|00|t|00|e|00|r"; reference:url,enigma0x3.net/2017/01/05/lateral-movement-using-the-mmc20-application-com-object/; reference:url,enigma0x3.net/2017/01/23/lateral-movement-via-dcom-round-2/; reference:url,attack.mitre.org/techniques/T1175/; classtype:bad-unknown; sid:2027189; rev:2; metadata:affected_product Windows_XP_Vista_7_8_10_Server_32_64_Bit, attack_target Client_Endpoint, created_at 2019_04_11, deployment Internal, signature_severity Minor, updated_at 2021_05_06;)
+
+alert tcp $HOME_NET [445,139] -> any any (msg:"ET NETBIOS PolarisOffice Insecure Library Loading - SMB ASCII"; flow:from_server; content:"SMB"; offset:4; depth:5; byte_test:1,!&,0x80,7,relative; content:"puiframeworkproresenu|2E|dll"; nocase; distance:0; fast_pattern; reference:cve,2018-12589; reference:url,exploit-db.com/exploits/44985; classtype:attempted-user; sid:2025790; rev:2; metadata:attack_target Client_Endpoint, created_at 2018_07_06, cve CVE_2018_12589, deployment Perimeter, updated_at 2021_09_09;)
+
+alert tcp $HOME_NET [445,139] -> any any (msg:"ET NETBIOS PolarisOffice Insecure Library Loading - SMB Unicode"; flow:from_server; content:"SMB"; offset:4; depth:5; byte_test:1,&,0x80,7,relative; content:"p|00|u|00|i|00|f|00|r|00|a|00|m|00|e|00|w|00|o|00|r|00|k|00|p|00|r|00|o|00|r|00|e|00|s|00|e|00|n|00|u|00 2E 00|d|00|l|00|l|00|"; nocase; distance:0; reference:cve,2018-12589; reference:url,exploit-db.com/exploits/44985; classtype:attempted-user; sid:2025791; rev:2; metadata:attack_target Client_Endpoint, created_at 2018_07_06, cve CVE_2018_12589, deployment Perimeter, updated_at 2021_09_09;)
+
+
+
