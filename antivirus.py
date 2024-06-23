@@ -295,6 +295,18 @@ def scan_file_with_clamd(file_path):
         print(f"Unexpected clamdscan output: {clamd_output}")
         return "Clean"
 
+def verify_executable_signature(path):
+    cmd = " " + f'"{path}"'
+    command = "(Get-AuthenticodeSignature" + cmd + ").Status"
+    process = subprocess.run(['Powershell', '-Command', command], stdout=subprocess.PIPE, encoding='utf-8')
+    
+    status = process.stdout.strip()
+    
+    if status in ["HashMismatch", "NotTrusted"]:
+        return True
+    else:
+        return False
+
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
     logging.info(f"Started scanning file: {file_path}")
@@ -392,6 +404,11 @@ def scan_file_real_time(file_path):
                 logging.error(f"ZIP file not found error occurred while scanning ZIP file: {file_path}")
             except Exception as e:
                 logging.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {str(e)}")
+
+        # Verify executable signature
+        if is_pe_file(file_path) and verify_executable_signature(file_path):
+            logging.warning(f"File has invalid signature: {file_path}")
+            return True, "Invalid signature"
 
     except Exception as e:
         logging.error(f"An error occurred while scanning file: {file_path}. Error: {str(e)}")
