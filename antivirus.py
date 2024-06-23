@@ -819,7 +819,7 @@ def clean_directory(directory_path):
         except Exception as e:
             logging.error(f'Failed to delete {file_path}. Reason: {e}')
 
-def perform_sandbox_analysis(file_path, sandbox_folder, log_folder):
+def perform_sandbox_analysis(file_path):
     try:
         if not isinstance(file_path, (str, bytes, os.PathLike)):
             raise ValueError(f"Expected str, bytes or os.PathLike object, not {type(file_path).__name__}")
@@ -848,11 +848,12 @@ def perform_sandbox_analysis(file_path, sandbox_folder, log_folder):
         sandboxie_thread.start()
 
         # Monitor Snort log for new lines and process alerts
-        snort_log_path = os.path.join(log_path)
-        snort_log_thread = threading.Thread(target=monitor_snort_log, args=(snort_log_path,))
+        snort_log_thread = threading.Thread(target=monitor_snort_log, args=(log_path,))
         snort_log_thread.start()
 
-        scan_sandbox_folder(sandbox_folder)
+        scan_sandbox_thread = threading.Thread(target=scan_sandbox_folder, args=(sandbox_folder,))
+        scan_sandbox_thread.start()
+
 
         time.sleep(600)  # Wait for 10 minutes (600 seconds)
 
