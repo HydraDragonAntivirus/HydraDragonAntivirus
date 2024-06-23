@@ -782,7 +782,27 @@ def start_monitoring_sandbox(sandbox_path):
     sandbox_thread.start()
     return sandbox_thread
 
-def perform_sandbox_analysis(file_path):
+def monitor_snort_log(log_path):
+    with open(log_path, 'r') as log_file:
+        log_file.seek(0, os.SEEK_END)  # Move to the end of the file
+        while True:
+            line = log_file.readline()
+            if not line:
+                continue
+            process_alert(line)
+
+def clean_directory(directory_path):
+    for filename in os.listdir(directory_path):
+        file_path = os.path.join(directory_path, filename)
+        try:
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.unlink(file_path)
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+        except Exception as e:
+            logging.error(f'Failed to delete {file_path}. Reason: {e}')
+
+def perform_sandbox_analysis(file_path, sandbox_folder, log_folder):
     try:
         if not isinstance(file_path, (str, bytes, os.PathLike)):
             raise ValueError(f"Expected str, bytes or os.PathLike object, not {type(file_path).__name__}")
@@ -793,6 +813,10 @@ def perform_sandbox_analysis(file_path):
         if not os.path.isfile(file_path):
             logging.error(f"File does not exist: {file_path}")
             return f"File does not exist: {file_path}"
+
+        # Clean sandbox and log folders
+        clean_directory(sandbox_folder)
+        clean_directory(log_folder)
 
         scan_warn_thread = threading.Thread(target=scan_and_warn, args=(file_path,))
         scan_warn_thread.start()
@@ -806,6 +830,11 @@ def perform_sandbox_analysis(file_path):
         sandboxie_thread = threading.Thread(target=run_sandboxie, args=(file_path,))
         sandboxie_thread.start()
 
+        # Monitor Snort log for new lines and process alerts
+        snort_log_path = os.path.join(log_path)
+        snort_log_thread = threading.Thread(target=monitor_snort_log, args=(snort_log_path,))
+        snort_log_thread.start()
+
         scan_sandbox_folder(sandbox_folder)
 
         time.sleep(600)  # Wait for 10 minutes (600 seconds)
@@ -813,6 +842,7 @@ def perform_sandbox_analysis(file_path):
         sandbox_thread.join()
         snort_thread.join()
         sandboxie_thread.join()
+        snort_log_thread.join()
 
         results = "Sandbox analysis completed. Please check log."
 
