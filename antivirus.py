@@ -6,11 +6,7 @@ import threading
 from platform import architecture
 import re
 import json
-from PySide6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QPushButton, QLabel, QFileDialog,
-    QListWidget, QListWidgetItem, QHBoxLayout, QMessageBox, QCheckBox, QStackedWidget,
-    QComboBox, QDialog, QDialogButtonBox
-)
+from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, QFileDialog, QMessageBox, QStackedWidget)
 from PySide6.QtCore import Qt, QObject, QThread, Signal, Slot, QMetaObject
 from PySide6.QtGui import QIcon
 import sklearn
@@ -574,54 +570,9 @@ QPushButton:pressed {
     border-color: #004380;
 }
 
-QLabel {
-    color: #e0e0e0;
-}
-
 QFileDialog {
     background-color: #2b2b2b;
     color: #e0e0e0;
-}
-
-QListWidget {
-    background-color: #3c3c3c;
-    color: #e0e0e0;
-    border: 1px solid #5a5a5a;
-}
-
-QListWidget::item {
-    padding: 4px;  /* Adjusted padding */
-}
-
-QListWidget::item:selected {
-    background-color: #007bff;
-    color: white;
-}
-
-QCheckBox {
-    color: #e0e0e0;
-}
-
-QComboBox {
-    background-color: #3c3c3c;
-    color: #e0e0e0;
-    border: 1px solid #5a5a5a;
-    padding: 2px 8px;  /* Adjusted padding */
-    border-radius: 4px;  /* Adjusted border-radius */
-    min-width: 80px;  /* Adjusted min-width */
-}
-
-QComboBox::down-arrow {
-    image: url(assets/down_arrow.png);
-}
-
-QDialog {
-    background-color: #2b2b2b;
-    color: #e0e0e0;
-}
-
-QDialogButtonBox {
-    background-color: #2b2b2b;
 }
 """
 
