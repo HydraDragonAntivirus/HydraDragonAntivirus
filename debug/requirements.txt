@@ -1,0 +1,11 @@
+yara-python
+yara-x
+joblib
+scikit-learn
+pefile
+psutil
+PySide6
+watchdog
+notify-py
+pywin32
+scapy # For Windows you also need download https://npcap.com/#download
