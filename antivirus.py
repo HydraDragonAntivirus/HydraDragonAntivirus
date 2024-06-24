@@ -27,6 +27,7 @@ import time
 import win32file
 import win32con
 from datetime import datetime, timedelta
+import winreg
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
 script_dir = os.getcwd()
@@ -156,13 +157,27 @@ def is_sqlite_file(file_path):
         print(f"Error reading file {file_path}: {e}")
     return False
 
-# Add the setup MBRFilter button function
+def is_mbrfilter_installed():
+    # This function checks the Windows Registry for the presence of MBRFilter.
+    try:
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Services\MBRFilter")
+        winreg.CloseKey(key)
+        return True
+    except FileNotFoundError:
+        return False
+    except Exception as e:
+        print(f"Error checking MBRFilter installation: {e}")
+        return False
+
 def setup_mbrfilter():
-    QMessageBox.warning(None, "Unsupported Platform", "MBRFilter setup is only supported on Windows.")
-    return
+    # Check if MBRFilter is already installed
+    if is_mbrfilter_installed():
+        print("MBRFilter is already installed.")
+        return
     
     # Check system architecture
     arch = architecture()[0]
+    script_dir = os.path.dirname(os.path.abspath(__file__))
     if arch == '64bit':
         mbrfilter_path = os.path.join(script_dir, "mbrfilter", "x64", "MBRFilter.inf")
     else:
@@ -172,15 +187,17 @@ def setup_mbrfilter():
         try:
             # Run infdefaultinstall.exe to setup MBRFilter
             result = subprocess.run(["infdefaultinstall.exe", mbrfilter_path], capture_output=True, text=True, check=True)
-            QMessageBox.information(None, "Success", "MBRFilter has been setup successfully.")
+            print("MBRFilter has been setup successfully.")
         except subprocess.CalledProcessError as e:
             error_message = e.stderr if e.stderr else str(e)
             if "dijital imza" in error_message or "digital signature" in error_message:
                 error_message += "\n\nThe INF file does not contain a digital signature, which is required for 64-bit Windows."
-            QMessageBox.critical(None, "Error", f"Failed to setup MBRFilter: {error_message}")
+            print(f"Failed to setup MBRFilter: {error_message}")
     else:
-        QMessageBox.critical(None, "Error", f"MBRFilter.inf not found at {mbrfilter_path}.")
-        
+        print(f"MBRFilter.inf not found at {mbrfilter_path}.")
+      
+setup_mbrfilter()
+     
 def safe_remove(file_path):
     try:
         os.remove(file_path)
@@ -538,7 +555,7 @@ QPushButton {
     border: 2px solid #007bff;
     padding: 4px 10px;  /* Adjusted padding */
     border-radius: 8px;  /* Adjusted border-radius */
-    min-width: 70px;  /* Adjusted min-width */
+    min-width: 250px;  /* Adjusted min-width */
     font-weight: bold;
     text-align: center;
     qproperty-iconSize: 16px;
@@ -563,22 +580,18 @@ QFileDialog {
 """
 
 class AnalysisThread(QThread):
-    result_signal = Signal(str)
-
     def __init__(self, file_path):
         super().__init__()
         self.file_path = file_path
 
     def run(self):
         try:
-            print(f"Running analysis for: {self.file_path}")  # Debug statement
-            result = perform_sandbox_analysis(self.file_path)
-            print(f"Analysis result: {result}")  # Debug statement
-            self.result_signal.emit(result)
+            print(f"Running analysis for: {self.file_path}")  
+            logging.info(f"Running analysis for: {self.file_path}")
+            perform_sandbox_analysis(self.file_path)
         except Exception as e:
             error_message = f"An error occurred during sandbox analysis: {str(e)}"
-            print(error_message)  # Debug statement
-            self.result_signal.emit(error_message)
+            logging.error(error_message)
 
 class WorkerSignals(QObject):
     success = Signal()
@@ -609,10 +622,6 @@ class AntivirusUI(QWidget):
     def setup_main_ui(self):
         layout = QVBoxLayout()
 
-        self.mbrfilter_button = QPushButton('Setup MBRFilter')
-        self.mbrfilter_button.clicked.connect(setup_mbrfilter)
-        layout.addWidget(self.mbrfilter_button)
-
         self.sandbox_button = QPushButton("Scan File")
         self.sandbox_button.clicked.connect(self.sandbox_analysis_for_file)
         layout.addWidget(self.sandbox_button)
@@ -629,12 +638,7 @@ class AntivirusUI(QWidget):
 
     def run_analysis_thread(self, file_path):
         self.analysis_thread = AnalysisThread(file_path)
-        self.analysis_thread.result_signal.connect(self.display_result)
         self.analysis_thread.start()
-
-    def display_result(self, result):
-        print(f"Displaying result: {result}")  # Debug statement
-        QMessageBox.information(self, "Sandbox Analysis Result", result)
 
     def show_success_message(self):
         QMessageBox.information(self, "Update Definitions", "Antivirus definitions updated successfully. Please restart clamd.")
@@ -643,30 +647,42 @@ class AntivirusUI(QWidget):
         QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
 
     def update_definitions(self):
-        file_path = r"C:\Program Files\ClamAV\daily.cvd"
-        
-        # Check if the file exists
-        if os.path.exists(file_path):
-            # Get the file's modification time
-            file_mod_time = os.path.getmtime(file_path)
-            file_mod_time = datetime.fromtimestamp(file_mod_time)
-            
-            # Calculate the age of the file
-            file_age = datetime.now() - file_mod_time
-            
-            # Check if the file is older than 12 hours
-            if file_age > timedelta(hours=12):
-                result = subprocess.run(["freshclam"], capture_output=True, text=True)
-                if result.returncode == 0:
-                    self.success.emit()
-                    self.restart_clamd_thread()
+        file_paths = [r"C:\Program Files\ClamAV\database\daily.cvd", r"C:\Program Files\ClamAV\database\daily.cld"]
+        file_found = False
+
+        for file_path in file_paths:
+            # Check if the file exists
+            if os.path.exists(file_path):
+                file_found = True
+                # Get the file's modification time
+                file_mod_time = os.path.getmtime(file_path)
+                file_mod_time = datetime.fromtimestamp(file_mod_time)
+                
+                # Calculate the age of the file
+                file_age = datetime.now() - file_mod_time
+                
+                # Check if the file is older than 12 hours
+                if file_age > timedelta(hours=12):
+                    result = subprocess.run(["freshclam"], capture_output=True, text=True)
+                    if result.returncode == 0:
+                        self.signals.success.emit()
+                        self.restart_clamd_thread()
+                    else:
+                        self.signals.failure.emit()
+                        print(f"freshclam failed with output: {result.stdout}\n{result.stderr}")
                 else:
-                    self.failure.emit()
-                    print(f"freshclam failed with output: {result.stdout}\n{result.stderr}")
+                    print("The file is not older than 12 hours. No update needed.")
+                break
+
+        if not file_found:
+            print("Neither daily.cvd nor daily.cld files exist. Running freshclam.")
+            result = subprocess.run(["freshclam"], capture_output=True, text=True)
+            if result.returncode == 0:
+                self.signals.success.emit()
+                self.restart_clamd_thread()
             else:
-                print("The daily.cvd file is not older than 12 hours. No update needed.")
-        else:
-            print("The daily.cvd file does not exist.")
+                self.signals.failure.emit()
+                print(f"freshclam failed with output: {result.stdout}\n{result.stderr}")
 
     def restart_clamd_thread(self):
         threading.Thread(target=self.restart_clamd).start()
@@ -707,9 +723,9 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-def monitor_sandbox(sandbox_path):
+def monitor_sandbox(sandbox_folder):
     hDir = win32file.CreateFile(
-        sandbox_path,
+        sandbox_folder,
         1,
         win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
         None,
@@ -739,7 +755,7 @@ def monitor_sandbox(sandbox_path):
                 None
             )
             for action, file in results:
-                pathToScan = os.path.join(sandbox_path, file)
+                pathToScan = os.path.join(sandbox_folder, file)
                 print(pathToScan)
                 scan_and_warn(pathToScan)
     except Exception as e:
@@ -787,19 +803,22 @@ def scan_and_warn(file_path):
         notify_user_thread.start()
     return is_malicious
 
-def start_monitoring_sandbox(sandbox_path):
-    sandbox_thread = threading.Thread(target=monitor_sandbox, args=(sandbox_path,))
+def start_monitoring_sandbox(sandbox_folder):
+    sandbox_thread = threading.Thread(target=monitor_sandbox, args=(sandbox_folder,))
     sandbox_thread.start()
     return sandbox_thread
 
 def monitor_snort_log(log_path):
+    if not os.path.exists(log_path):
+        open(log_path, 'w').close()  # Create an empty file if it doesn't exist
+
     with open(log_path, 'r') as log_file:
         log_file.seek(0, os.SEEK_END)  # Move to the end of the file
         while True:
             line = log_file.readline()
             if not line:
                 continue
-            process_alert(line)
+            process_alert(line)  # Assuming process_alert is defined elsewhere
 
 def clean_directory(directory_path):
     for filename in os.listdir(directory_path):
@@ -812,6 +831,34 @@ def clean_directory(directory_path):
         except Exception as e:
             logging.error(f'Failed to delete {file_path}. Reason: {e}')
 
+def notify_user_startup(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Startup Alert"
+    notification.message = f" Suspicious Startup file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+# Main function to monitor startup directories
+def check_startup_directories(username):
+    # Define the paths to check
+    defaultbox_user_startup_folder = rf'C:\Sandbox\{username}\DefaultBox\user\current\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup'
+    defaultbox_programdata_startup_folder = rf'C:\Sandbox\{username}\DefaultBox\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup'
+
+    # List of directories to check
+    directories_to_check = [
+        defaultbox_user_startup_folder,
+        defaultbox_programdata_startup_folder
+    ]
+
+    while True:
+        for directory in directories_to_check:
+            if os.path.exists(directory):
+                for file in os.listdir(directory):
+                    file_path = os.path.join(directory, file)
+                    if os.path.isfile(file_path):
+                        logging.info(f"Startup file detected in {directory}: {file}")
+                        print(f"Startup file detected in {directory}: {file}")
+                        notify_user_startup(file_path, "HEUR:Win32Startup.Generic.Malware")
+
 def perform_sandbox_analysis(file_path):
     try:
         if not isinstance(file_path, (str, bytes, os.PathLike)):
@@ -822,7 +869,7 @@ def perform_sandbox_analysis(file_path):
         file_path = os.path.normpath(file_path)
         if not os.path.isfile(file_path):
             logging.error(f"File does not exist: {file_path}")
-            return f"File does not exist: {file_path}"
+            return
 
         # Clean sandbox and log folders
         clean_directory(sandbox_folder)
@@ -847,21 +894,10 @@ def perform_sandbox_analysis(file_path):
         scan_sandbox_thread = threading.Thread(target=scan_sandbox_folder, args=(sandbox_folder,))
         scan_sandbox_thread.start()
 
-
-        time.sleep(600)  # Wait for 10 minutes (600 seconds)
-
-        sandbox_thread.join()
-        snort_thread.join()
-        sandboxie_thread.join()
-        snort_log_thread.join()
-
-        results = "Sandbox analysis completed. Please check log."
-
-        return results
+        logging.info("Sandbox analysis started. Please check log after you close program. There no limit to scan time.")
 
     except Exception as e:
         logging.error(f"An error occurred during sandbox analysis: {e}")
-        return f"An error occurred during sandbox analysis: {str(e)}"
 
 def run_sandboxie(file_path):
     try:
