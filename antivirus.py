@@ -26,6 +26,7 @@ from watchdog.events import FileSystemEventHandler
 import time
 import win32file
 import win32con
+from datetime import datetime, timedelta
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
 script_dir = os.getcwd()
@@ -642,12 +643,30 @@ class AntivirusUI(QWidget):
         QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
 
     def update_definitions(self):
-        result = subprocess.run(["freshclam"], capture_output=True)
-        if result.returncode == 0:
-            self.signals.success.emit()
-            restart_clamd_thread()
+        file_path = r"C:\Program Files\ClamAV\daily.cvd"
+        
+        # Check if the file exists
+        if os.path.exists(file_path):
+            # Get the file's modification time
+            file_mod_time = os.path.getmtime(file_path)
+            file_mod_time = datetime.fromtimestamp(file_mod_time)
+            
+            # Calculate the age of the file
+            file_age = datetime.now() - file_mod_time
+            
+            # Check if the file is older than 12 hours
+            if file_age > timedelta(hours=12):
+                result = subprocess.run(["freshclam"], capture_output=True, text=True)
+                if result.returncode == 0:
+                    self.success.emit()
+                    self.restart_clamd_thread()
+                else:
+                    self.failure.emit()
+                    print(f"freshclam failed with output: {result.stdout}\n{result.stderr}")
+            else:
+                print("The daily.cvd file is not older than 12 hours. No update needed.")
         else:
-            self.signals.failure.emit()
+            print("The daily.cvd file does not exist.")
 
     def restart_clamd_thread(self):
         threading.Thread(target=self.restart_clamd).start()
