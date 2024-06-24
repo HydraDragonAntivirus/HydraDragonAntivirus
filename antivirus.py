@@ -106,45 +106,6 @@ yara_folder_path = os.path.join(script_dir, "yara")
 excluded_rules_dir = os.path.join(script_dir, "excluded")
 excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
 
-# Load excluded rules from text file
-with open(excluded_rules_path, "r") as file:
-        excluded_rules = file.read()
-        print("YARA Excluded Rules Definitions loaded!")
-
-# Load malicious file names from JSON file
-with open(malicious_file_names, 'r') as f:
-    malicious_file_names = json.load(f)
-    print("Machine Learning Definitions loaded!")
-
-# Load malicious numeric features from pickle file
-with open(malicious_numeric_features, 'rb') as f:
-    malicious_numeric_features = joblib.load(f)
-    print("Malicious Feature Signatures loaded!")
-
-# Load benign numeric features from pickle file
-with open(benign_numeric_features, 'rb') as f:
-    benign_numeric_features = joblib.load(f)
-    print("Benign Feature Signatures loaded!")
-
-print("Machine Learning AI Signatures loaded!")
-
-try:
-    # Load the precompiled rules from the .yrc file
-    compiled_rule = yara.load(os.path.join(yara_folder_path, "compiled_rule.yrc"))
-    print("YARA Rules Definitions loaded!")
-except yara.Error as e:
-    print(f"Error loading precompiled YARA rule: {e}")
-
-try:
-    # Load the precompiled rule from the .yrc file using yara_x
-    with open(os.path.join(yara_folder_path, "yaraxtr.yrc"), 'rb') as f:
-        yaraxtr_rule = yara_x.Rules.deserialize_from(f)
-    print("YARA-X Rules Definitions loaded!")
-except FileNotFoundError:
-    print("Error: File not found.")
-except Exception as e:
-    print(f"An unexpected error occurred: {e}")
-
 # Additional function to check if a file is an SQLite database
 def is_sqlite_file(file_path):
     try:
@@ -195,8 +156,6 @@ def setup_mbrfilter():
             print(f"Failed to setup MBRFilter: {error_message}")
     else:
         print(f"MBRFilter.inf not found at {mbrfilter_path}.")
-      
-setup_mbrfilter()
      
 def safe_remove(file_path):
     try:
@@ -794,6 +753,48 @@ def run_snort():
         logging.error(f"Failed to run Snort: {e}")
         print(f"Failed to run Snort: {e}")
 
+snort_thread = threading.Thread(target=run_snort)
+snort_thread.start()
+setup_mbrfilter()
+# Load excluded rules from text file
+with open(excluded_rules_path, "r") as file:
+        excluded_rules = file.read()
+        print("YARA Excluded Rules Definitions loaded!")
+
+# Load malicious file names from JSON file
+with open(malicious_file_names, 'r') as f:
+    malicious_file_names = json.load(f)
+    print("Machine Learning Definitions loaded!")
+
+# Load malicious numeric features from pickle file
+with open(malicious_numeric_features, 'rb') as f:
+    malicious_numeric_features = joblib.load(f)
+    print("Malicious Feature Signatures loaded!")
+
+# Load benign numeric features from pickle file
+with open(benign_numeric_features, 'rb') as f:
+    benign_numeric_features = joblib.load(f)
+    print("Benign Feature Signatures loaded!")
+
+print("Machine Learning AI Signatures loaded!")
+
+try:
+    # Load the precompiled rules from the .yrc file
+    compiled_rule = yara.load(os.path.join(yara_folder_path, "compiled_rule.yrc"))
+    print("YARA Rules Definitions loaded!")
+except yara.Error as e:
+    print(f"Error loading precompiled YARA rule: {e}")
+
+try:
+    # Load the precompiled rule from the .yrc file using yara_x
+    with open(os.path.join(yara_folder_path, "yaraxtr.yrc"), 'rb') as f:
+        yaraxtr_rule = yara_x.Rules.deserialize_from(f)
+    print("YARA-X Rules Definitions loaded!")
+except FileNotFoundError:
+    print("Error: File not found.")
+except Exception as e:
+    print(f"An unexpected error occurred: {e}")
+
 def scan_and_warn(file_path):
     logging.info(f"Scanning file: {file_path}")
     is_malicious, virus_name = scan_file_real_time(file_path)
@@ -831,12 +832,6 @@ def clean_directory(directory_path):
         except Exception as e:
             logging.error(f'Failed to delete {file_path}. Reason: {e}')
 
-def notify_user_startup(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Startup Alert"
-    notification.message = f" Suspicious Startup file detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-
 # Main function to monitor startup directories
 def check_startup_directories(username):
     # Define the paths to check
@@ -857,7 +852,7 @@ def check_startup_directories(username):
                     if os.path.isfile(file_path):
                         logging.info(f"Startup file detected in {directory}: {file}")
                         print(f"Startup file detected in {directory}: {file}")
-                        notify_user_startup(file_path, "HEUR:Win32.Startup.Generic.Malware")
+                        notify_user(file_path, "HEUR:Win32.Startup.Generic.Malware")
 
 def perform_sandbox_analysis(file_path):
     try:
@@ -875,24 +870,21 @@ def perform_sandbox_analysis(file_path):
         clean_directory(sandbox_folder)
         clean_directory(log_folder)
 
+        # Monitor Snort log for new lines and process alerts
+        snort_log_thread = threading.Thread(target=monitor_snort_log, args=(log_path,))
+        snort_log_thread.start()
+    
         scan_warn_thread = threading.Thread(target=scan_and_warn, args=(file_path,))
         scan_warn_thread.start()
 
         sandbox_thread = threading.Thread(target=start_monitoring_sandbox, args=(sandbox_folder,))
         sandbox_thread.start()
 
-        snort_thread = threading.Thread(target=run_snort)
-        snort_thread.start()
+        scan_sandbox_thread = threading.Thread(target=scan_sandbox_folder, args=(sandbox_folder,))
+        scan_sandbox_thread.start()
 
         sandboxie_thread = threading.Thread(target=run_sandboxie, args=(file_path,))
         sandboxie_thread.start()
-
-        # Monitor Snort log for new lines and process alerts
-        snort_log_thread = threading.Thread(target=monitor_snort_log, args=(log_path,))
-        snort_log_thread.start()
-
-        scan_sandbox_thread = threading.Thread(target=scan_sandbox_folder, args=(sandbox_folder,))
-        scan_sandbox_thread.start()
 
         logging.info("Sandbox analysis started. Please check log after you close program. There no limit to scan time.")
 
