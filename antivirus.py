@@ -234,42 +234,10 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
         print(f"An error occurred while scanning file {file_path}: {e}")
         return False, malware_definition, nearest_benign_similarity
 
-clamd_thread = None
-
 def is_clamd_running():
     """Check if clamd is running."""
     result = subprocess.run(['sc', 'query', 'clamd'], capture_output=True, text=True)
     return "RUNNING" in result.stdout
-
-def start_clamd():
-    """Start clamd service based on the platform."""
-    subprocess.run(["net", "start", "clamd"], shell=True)
-
-def stop_clamd():
-    """Stop clamd service based on the platform."""
-    subprocess.run(["net", "stop", "clamd"], shell=True)
-
-def start_clamd_thread():
-    global clamd_thread
-    if clamd_thread is None or not clamd_thread.is_alive():
-        clamd_thread = threading.Thread(target=start_clamd)
-        clamd_thread.start()
-
-def stop_clamd_thread():
-    global clamd_thread
-    if clamd_thread is None or not clamd_thread.is_alive():
-        clamd_thread = threading.Thread(target=stop_clamd)
-        clamd_thread.start()
-
-#Start ClamAV
-try:
-    if not is_clamd_running():
-        print("ClamAV's clamd is not running. Attempting to start clamd...")
-        start_clamd_thread()
-    else:
-        print("ClamAV's clamd is already running.")
-except Exception as e:
-    print(f"An error occurred in the main logic: {e}")
  
 def scan_file_with_clamd(file_path):
     """Scan file using clamd."""
@@ -634,6 +602,9 @@ class AntivirusUI(QWidget):
         self.signals.success.connect(self.show_success_message)
         self.signals.failure.connect(self.show_failure_message)
 
+        # Automatically update definitions during initialization
+        self.start_update_definitions_thread()
+
     def setup_main_ui(self):
         layout = QVBoxLayout()
 
@@ -641,20 +612,7 @@ class AntivirusUI(QWidget):
         self.mbrfilter_button.clicked.connect(setup_mbrfilter)
         layout.addWidget(self.mbrfilter_button)
 
-        self.start_clamd_button = QPushButton("Start ClamAV")
-        self.start_clamd_button.clicked.connect(start_clamd_thread)
-        layout.addWidget(self.start_clamd_button)
-
-        self.stop_clamd_button = QPushButton("Stop ClamAV")
-        self.stop_clamd_button.clicked.connect(stop_clamd_thread)
-        layout.addWidget(self.stop_clamd_button)
-
-        self.update_definitions_button = QPushButton("Update Definitions or Install")
-        self.update_definitions_button.clicked.connect(self.start_update_definitions_thread)
-        layout.addWidget(self.update_definitions_button)
-
-        # Add the button for static and dynamic analysis
-        self.sandbox_button = QPushButton("Do Static and Dynamic Analysis For One File")
+        self.sandbox_button = QPushButton("Scan File")
         self.sandbox_button.clicked.connect(self.sandbox_analysis_for_file)
         layout.addWidget(self.sandbox_button)
 
@@ -687,8 +645,24 @@ class AntivirusUI(QWidget):
         result = subprocess.run(["freshclam"], capture_output=True)
         if result.returncode == 0:
             self.signals.success.emit()
+            restart_clamd_thread()
         else:
             self.signals.failure.emit()
+
+    def restart_clamd_thread(self):
+        threading.Thread(target=self.restart_clamd).start()
+
+    def restart_clamd(self):
+        if is_clamd_running():
+            stop_result = subprocess.run(["sc", "stop", "clamd"], capture_output=True, text=True)
+            if stop_result.returncode != 0:
+                QMessageBox.critical(self, "ClamAV", "Failed to stop ClamAV.")
+                return
+        start_result = subprocess.run(["sc", "start", "clamd"], capture_output=True, text=True)
+        if start_result.returncode == 0:
+            QMessageBox.information(self, "ClamAV", "ClamAV restarted successfully.")
+        else:
+            QMessageBox.critical(self, "ClamAV", "Failed to start ClamAV.")
 
     def start_update_definitions_thread(self):
         threading.Thread(target=self.update_definitions).start()
