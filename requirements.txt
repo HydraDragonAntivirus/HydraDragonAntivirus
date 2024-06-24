@@ -9,3 +9,4 @@ watchdog
 notify-py
 pywin32
 winreg
+scapy # You also need to download https://npcap.com/#download

@@ -105,6 +105,9 @@ benign_numeric_features = os.path.join(script_dir, "machinelearning", "benign_nu
 yara_folder_path = os.path.join(script_dir, "yara")
 excluded_rules_dir = os.path.join(script_dir, "excluded")
 excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
+ip_addresses_path = os.path.join(script_dir, "website", "IP_Addresses.txt")
+ipv6_addresses_path = os.path.join(script_dir, "website", "ipv6.txt")
+domains_path = os.path.join(script_dir, "website", "Domains.txt")
 
 # Additional function to check if a file is an SQLite database
 def is_sqlite_file(file_path):
@@ -117,6 +120,33 @@ def is_sqlite_file(file_path):
     except Exception as e:
         print(f"Error reading file {file_path}: {e}")
     return False
+
+def load_data():
+    try:
+        # Load IPv4 addresses
+        with open(IP_ADDRESSES_PATH, 'r') as ip_file:
+            ip_addresses = ip_file.read().splitlines()
+            ip_addresses_signatures_data = {ip: "" for ip in ip_addresses}
+
+        # Load IPv6 addresses
+        with open(IPV6_ADDRESSES_PATH, 'r') as ipv6_file:
+            ipv6_addresses = ipv6_file.read().splitlines()
+            ipv6_addresses_signatures_data = {ipv6: "" for ipv6 in ipv6_addresses}
+
+        print("IP Addresses (ipv4, ipv6) loaded successfully!")
+    except Exception as e:
+        print(f"Error loading IP Addresses: {e}")
+
+    try:
+        # Load domains
+        with open(DOMAINS_PATH, 'r') as domains_file:
+            domains = domains_file.read().splitlines()
+            domains_signatures_data = {domain: "" for domain in domains}
+        print("Domains loaded successfully!")
+    except Exception as e:
+        print(f"Error loading Domains from {DOMAINS_PATH}: {e}")
+
+    print("Domain and IPv4 IPv6 signatures loaded successfully!")
 
 def is_mbrfilter_installed():
     # This function checks the Windows Registry for the presence of MBRFilter.
@@ -220,7 +250,8 @@ def scan_file_with_clamd(file_path):
     """Scan file using clamd."""
     file_path = os.path.abspath(file_path)  # Get absolute path
     if not is_clamd_running():
-        start_clamd_thread()  # Start clamd if it's not running
+        antivirus_ui = AntivirusUI()
+        antivirus_ui.restart_clamd_thread()  # Start clamd if it's not running
 
     result = subprocess.run(["clamdscan", file_path], capture_output=True, text=True)
     clamd_output = result.stdout
@@ -463,6 +494,19 @@ def notify_user(file_path, virus_name):
     notification = Notify()
     notification.title = "Malware Alert"
     notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_web(ip_address=None, dst_ip_address=None):
+    notification = Notify()
+    notification.title = "Malware or Phishing Alert"
+    if ip_address and dst_ip_address:
+        notification.message = f"Phishing or Malicious activity detected:\nIP Addresses involved:\nSource: {ip_address}\nDestination: {dst_ip_address}"
+    elif ip_address:
+        notification.message = f"Phishing or Malicious activity detected:\nIP Address: {ip_address}"
+    elif dst_ip_address:
+        notification.message = f"Phishing or Malicious activity detected:\nIP Address: {dst_ip_address}"
+    else:
+        notification.message = "Phishing or Malicious activity detected"
     notification.send()
 
 class YaraScanner:
@@ -732,13 +776,26 @@ def process_alert(line):
         logging.info(f"Alert detected: Priority {priority}, Source {src_ip}, Destination {dst_ip}")
         print(f"Alert detected: Priority {priority}, Source {src_ip}, Destination {dst_ip}")
         if priority == 1:
-            logging.info(f"Potential malware detected: {line.strip()}")
+            logging.warning(f"Potential malware detected: {line.strip()}")
             print(f"Potential malware detected from {src_ip} to {dst_ip} with priority {priority}")
+            notify_user_web(ip_address=src_ip, dst_ip_address=dst_ip)
             return True
     return False
 
+def clean_directory(directory_path):
+    for filename in os.listdir(directory_path):
+        file_path = os.path.join(directory_path, filename)
+        try:
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.unlink(file_path)
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+        except Exception as e:
+            logging.error(f'Failed to delete {file_path}. Reason: {e}')
+
 def run_snort():    
     try:
+        clean_directory(log_folder)
         # Run snort without capturing output
         subprocess.run(command, check=True)
         
@@ -756,6 +813,7 @@ def run_snort():
 snort_thread = threading.Thread(target=run_snort)
 snort_thread.start()
 setup_mbrfilter()
+load_data()
 # Load excluded rules from text file
 with open(excluded_rules_path, "r") as file:
         excluded_rules = file.read()
@@ -799,7 +857,7 @@ def scan_and_warn(file_path):
     logging.info(f"Scanning file: {file_path}")
     is_malicious, virus_name = scan_file_real_time(file_path)
     if is_malicious:
-        logging.info(f"File {file_path} is malicious. Virus: {virus_name}")
+        logging.warning(f"File {file_path} is malicious. Virus: {virus_name}")
         notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
         notify_user_thread.start()
     return is_malicious
@@ -819,21 +877,10 @@ def monitor_snort_log(log_path):
             line = log_file.readline()
             if not line:
                 continue
-            process_alert(line)  # Assuming process_alert is defined elsewhere
-
-def clean_directory(directory_path):
-    for filename in os.listdir(directory_path):
-        file_path = os.path.join(directory_path, filename)
-        try:
-            if os.path.isfile(file_path) or os.path.islink(file_path):
-                os.unlink(file_path)
-            elif os.path.isdir(file_path):
-                shutil.rmtree(file_path)
-        except Exception as e:
-            logging.error(f'Failed to delete {file_path}. Reason: {e}')
+            process_alert(line)
 
 # Main function to monitor startup directories
-def check_startup_directories(username):
+def check_startup_directories():
     # Define the paths to check
     defaultbox_user_startup_folder = rf'C:\Sandbox\{username}\DefaultBox\user\current\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup'
     defaultbox_programdata_startup_folder = rf'C:\Sandbox\{username}\DefaultBox\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup'
@@ -868,23 +915,19 @@ def perform_sandbox_analysis(file_path):
 
         # Clean sandbox and log folders
         clean_directory(sandbox_folder)
-        clean_directory(log_folder)
 
         # Monitor Snort log for new lines and process alerts
-        snort_log_thread = threading.Thread(target=monitor_snort_log, args=(log_path,))
-        snort_log_thread.start()
+        snort_log_thread = threading.Thread(target=monitor_snort_log, args=(log_path,)).start()
     
-        scan_warn_thread = threading.Thread(target=scan_and_warn, args=(file_path,))
-        scan_warn_thread.start()
+        scan_warn_thread = threading.Thread(target=scan_and_warn, args=(file_path,)).start()
 
-        sandbox_thread = threading.Thread(target=start_monitoring_sandbox, args=(sandbox_folder,))
-        sandbox_thread.start()
+        sandbox_thread = threading.Thread(target=start_monitoring_sandbox, args=(sandbox_folder,)).start()
 
-        scan_sandbox_thread = threading.Thread(target=scan_sandbox_folder, args=(sandbox_folder,))
-        scan_sandbox_thread.start()
+        scan_sandbox_thread = threading.Thread(target=scan_sandbox_folder, args=(sandbox_folder,)).start()
 
-        sandboxie_thread = threading.Thread(target=run_sandboxie, args=(file_path,))
-        sandboxie_thread.start()
+        sandboxie_thread = threading.Thread(target=check_startup_directories).start()
+
+        sandboxie_thread = threading.Thread(target=run_sandboxie, args=(file_path,)).start()
 
         logging.info("Sandbox analysis started. Please check log after you close program. There no limit to scan time.")
 
