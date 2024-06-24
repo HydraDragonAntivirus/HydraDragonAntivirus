@@ -857,7 +857,7 @@ def check_startup_directories(username):
                     if os.path.isfile(file_path):
                         logging.info(f"Startup file detected in {directory}: {file}")
                         print(f"Startup file detected in {directory}: {file}")
-                        notify_user_startup(file_path, "HEUR:Win32Startup.Generic.Malware")
+                        notify_user_startup(file_path, "HEUR:Win32.Startup.Generic.Malware")
 
 def perform_sandbox_analysis(file_path):
     try:
