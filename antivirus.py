@@ -659,17 +659,18 @@ class AntivirusUI(QWidget):
         self.analysis_thread.start()
 
     def show_success_message(self):
-        QMessageBox.information(self, "Update Definitions", "Antivirus definitions updated successfully. Please restart clamd.")
+        QMessageBox.information(self, "Update Definitions", "Antivirus definitions updated successfully.")
 
     def show_failure_message(self):
         QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
 
     def update_definitions(self):
         file_paths = [r"C:\Program Files\ClamAV\database\daily.cvd", r"C:\Program Files\ClamAV\database\daily.cld"]
+        directory_path = r"C:\Program Files\ClamAV\database"
         file_found = False
 
+        # Check if either daily.cvd or daily.cld exists
         for file_path in file_paths:
-            # Check if the file exists
             if os.path.exists(file_path):
                 file_found = True
                 # Get the file's modification time
@@ -679,19 +680,37 @@ class AntivirusUI(QWidget):
                 # Calculate the age of the file
                 file_age = datetime.now() - file_mod_time
                 
-                # Check if the file is older than 12 hours
+                # If the file is older than 12 hours, check other files in the directory
                 if file_age > timedelta(hours=12):
-                    result = subprocess.run(["freshclam"], capture_output=True, text=True)
-                    if result.returncode == 0:
-                        self.signals.success.emit()
-                        self.restart_clamd_thread()
+                    all_files_old = True
+                    for root, dirs, files in os.walk(directory_path):
+                        for file_name in files:
+                            other_file_path = os.path.join(root, file_name)
+                            other_file_mod_time = os.path.getmtime(other_file_path)
+                            other_file_mod_time = datetime.fromtimestamp(other_file_mod_time)
+                            other_file_age = datetime.now() - other_file_mod_time
+                            if other_file_age <= timedelta(hours=12):
+                                all_files_old = False
+                                break
+                        if not all_files_old:
+                            break
+                    if all_files_old:
+                        result = subprocess.run(["freshclam"], capture_output=True, text=True)
+                        if result.returncode == 0:
+                            self.signals.success.emit()
+                            self.restart_clamd_thread()
+                        else:
+                            self.signals.failure.emit()
+                            print(f"freshclam failed with output: {result.stdout}\n{result.stderr}")
+                        return
                     else:
-                        self.signals.failure.emit()
-                        print(f"freshclam failed with output: {result.stdout}\n{result.stderr}")
+                        print("One of the other files is not older than 12 hours. No update needed.")
+                        return
                 else:
                     print("The file is not older than 12 hours. No update needed.")
-                break
+                return
 
+        # If neither daily.cvd nor daily.cld exists, run freshclam
         if not file_found:
             print("Neither daily.cvd nor daily.cld files exist. Running freshclam.")
             result = subprocess.run(["freshclam"], capture_output=True, text=True)
