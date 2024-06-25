@@ -707,7 +707,7 @@ class AntivirusUI(QWidget):
                         print("One of the other files is not older than 12 hours. No update needed.")
                         return
                 else:
-                    print("The file is not older than 12 hours. No update needed.")
+                    print("The database is not older than 12 hours. No update needed.")
                 return
 
         # If neither daily.cvd nor daily.cld exists, run freshclam
