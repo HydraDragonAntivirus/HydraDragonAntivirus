@@ -50,7 +50,7 @@ logging.basicConfig(
 
 main_file_path = None
 
-fileTypes = ['.pyd', '.elf', '.ps1', '.bas', '.bat', '.chm', '.cmd', '.com', '.cpl', '.dll', '.exe', '.msc', '.ocx', '.pcd', '.pif', '.reg', '.scr', '.sct', '.url', '.vbe', '.wsc', '.wsf', '.wsh', '.ct', '.t', '.input', '.war', '.jspx', '.tmp', '.dump', '.pwd', '.w', '.cfg', '.psd1', '.psm1', '.ps1xml', '.clixml', '.psc1', '.pssc', '.www', '.rdp', '.msi', '.dat', '.contact', '.settings', '.odt', '.jpg', '.mka','shtml', '.mhtml', '.oqy', '.png', '.csv', '.py', '.sql', '.mdb', '.html', '.htm', '.xml', '.psd', '.pdf', '.xla', '.cub', '.dae', '.indd', '.cs', '.mp3', '.mp4', '.dwg', '.rar', '.mov', '.rtf', '.bmp', '.mkv', '.avi', '.apk', '.lnk', '.dib', '.dic', '.dif', '.divx', '.iso', '.7zip', '.ace', '.arj', '.bz2', '.cab', '.gzip', '.lzh', '.jpeg', '.xz', '.mpeg', '.torrent', '.mpg', '.core', '.pdb', '.ico', '.pas', '.db', '.wmv', '.swf', '.cer', '.bak', '.backup', '.accdb', '.bay', '.p7c', '.exif', '.vss', '.raw', '.m4a', '.wma', '.flv', '.sie', '.sum', '.ibank', '.wallet', '.css', '.js', '.rb', '.xlsm', '.xlsb', '.7z', '.cpp', '.java', '.jpe', '.ini', '.blob', '.wps', '.wav', '.3gp', '.webm', '.m4v', '.amv', '.m4p', '.svg', '.ods', '.bk', '.vdi', '.vmdk', '.accde', '.json', '.gif', '.gz', '.m1v', '.sln', '.pst', '.obj', '.xlam', '.djvu', '.inc', '.cvs', '.dbf', '.tbi', '.wpd', '.dot', '.dotx', '.xltx', '.pptm', '.potx', '.potm', '.xlw', '.xps', '.xsd', '.xsf', '.xsl', '.kmz', '.accdr', '.stm', '.accdt', '.ppam', '.pps', '.ppsm', '.1cd', '.3ds', '.3fr', '.3g2', '.accda', '.accdc', '.accdw', '.adp', '.ai', '.ai3', '.ai4', '.ai5', '.ai6', '.ai7', '.ai8', '.arw', '.ascx', '.asm', '.asmx', '.avs', '.bin', '.cfm', '.dbx', '.dcm', '.dcr', '.pict', '.rgbe', '.dwt', '.f4v', '.exr', '.kwm', '.max', '.mda', '.mde', '.mdf', '.mdw', '.mht', '.mpv', '.msg', '.myi', '.nef', '.odc', '.geo', '.swift', '.odm', '.odp', '.oft', '.orf', '.pfx', '.p12', '.pls', '.safe', '.tab', '.vbs', '.xlk', '.xlm', '.xlt', '.xltm', '.svgz', '.slk', '.dmg', '.ps', '.psb', '.tif', '.rss', '.key', '.vob', '.epsp', '.dc3', '.iff', '.onepkg', '.onetoc2', '.opt', '.p7b', '.pam', '.r3d', '.pkg', '.yml', '.old', '.thmx', '.keytab', '.h', '.php', '.c', '.zip']
+fileTypes = ['.pyd', '.elf', '.ps1', '.bas', '.bat', '.chm', '.cmd', '.com', '.cpl', '.dll', '.exe', '.msc', '.ocx', '.pcd', '.pif', '.reg', '.scr', '.sct', '.url', '.vbe', '.wsc', '.wsf', '.wsh', '.ct', '.t', '.input', '.war', '.jspx', '.tmp', '.dump', '.pwd', '.w', '.cfg', '.psd1', '.psm1', '.ps1xml', '.clixml', '.psc1', '.pssc', '.www', '.rdp', '.msi', '.dat', '.contact', '.settings', '.odt', '.jpg', '.mka','shtml', '.mhtml', '.oqy', '.png', '.csv', '.py', '.sql', '.mdb', '.html', '.htm', '.xml', '.psd', '.pdf', '.xla', '.cub', '.dae', '.indd', '.cs', '.mp3', '.mp4', '.dwg', '.rar', '.mov', '.rtf', '.bmp', '.mkv', '.avi', '.apk', '.lnk', '.dib', '.dic', '.dif', '.divx', '.iso', '.7zip', '.ace', '.arj', '.bz2', '.cab', '.gzip', '.lzh', '.jpeg', '.xz', '.mpeg', '.torrent', '.mpg', '.core', '.pdb', '.ico', '.pas', '.db', '.wmv', '.swf', '.cer', '.bak', '.backup', '.accdb', '.bay', '.p7c', '.exif', '.vss', '.raw', '.m4a', '.wma', '.flv', '.sie', '.sum', '.ibank', '.wallet', '.css', '.js', '.rb', '.xlsm', '.xlsb', '.7z', '.cpp', '.java', '.jpe', '.ini', '.blob', '.wps', '.wav', '.3gp', '.webm', '.m4v', '.amv', '.m4p', '.svg', '.ods', '.bk', '.vdi', '.vmdk', '.accde', '.json', '.gif', '.gz', '.m1v', '.sln', '.pst', '.obj', '.xlam', '.djvu', '.inc', '.cvs', '.dbf', '.tbi', '.wpd', '.dot', '.dotx', '.xltx', '.pptm', '.potx', '.potm', '.xlw', '.xps', '.xsd', '.xsf', '.xsl', '.kmz', '.accdr', '.stm', '.accdt', '.ppam', '.pps', '.ppsm', '.1cd', '.3ds', '.3fr', '.3g2', '.accda', '.accdc', '.accdw', '.adp', '.ai', '.ai3', '.ai4', '.ai5', '.ai6', '.ai7', '.ai8', '.arw', '.ascx', '.asm', '.asmx', '.avs', '.bin', '.cfm', '.dbx', '.dcm', '.dcr', '.pict', '.rgbe', '.dwt', '.f4v', '.exr', '.kwm', '.max', '.mda', '.mde', '.mdf', '.mdw', '.mht', '.mpv', '.msg', '.myi', '.nef', '.odc', '.geo', '.swift', '.odm', '.odp', '.oft', '.orf', '.pfx', '.p12', '.pls', '.safe', '.tab', '.vbs', '.xlk', '.xlm', '.xlt', '.xltm', '.svgz', '.slk', '.dmg', '.ps', '.psb', '.tif', '.rss', '.key', '.vob', '.epsp', '.dc3', '.iff', '.onepkg', '.onetoc2', '.opt', '.p7b', '.pam', '.r3d', '.pkg', '.yml', '.old', '.thmx', '.keytab', '.h', '.php', '.c', '.zip,' '.log', '.log1', '.log2', '.tm', '.blf', '.uic', '.widget-plugin']
 
 def extract_infos(file_path, rank=None):
     """Extract information about file"""
@@ -513,7 +513,7 @@ def notify_user_startup(file_path, virus_name):
 def notify_user_ransomware(file_path, virus_name):
     notification = Notify()
     notification.title = "Ransomware Alert"
-    notification.message = f"Suspicious encrypted file detected: {file_path}\nVirus: {virus_name}"
+    notification.message = f"Potential ransomware detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
 def notify_user_web(ip_address=None, dst_ip_address=None):
@@ -752,6 +752,7 @@ log_path = r"C:\Snort\log\alert.ids"
 log_folder = r"C:\Snort\log"
 snort_config_path = r"C:\Snort\etc\snort.conf"
 sandboxie_path = r"C:\Program Files\Sandboxie\Start.exe"
+sandboxie_control_path = r"C:\Program Files\Sandboxie\SbieCtrl.exe"
 device_args = [f"-i {i}" for i in range(1, 26)]  # Fixed device arguments
 username = os.getlogin()
 sandbox_folder = rf'C:\Sandbox\{username}\DefaultBox'
@@ -976,19 +977,31 @@ def is_readable(file_path):
 def is_ransomware(file_path):
     try:
         filename = os.path.basename(file_path)
-        ext = os.path.splitext(filename)[1].lower()
+        parts = filename.split('.')
         
-        logging.info(f"Checking ransomware conditions for file '{file_path}' with extension '{ext}'")
-        
-        # Check if the file extension is not in fileTypes
-        if ext not in fileTypes:
-            logging.warning(f"File '{file_path}' has unrecognized extension '{ext}', checking if it might be ransomware")
+        logging.info(f"Checking ransomware conditions for file '{file_path}' with parts '{parts}'")
+
+        # Check if there are multiple extensions
+        if len(parts) < 3:
+            logging.info(f"File '{file_path}' does not have multiple extensions, not flagged as ransomware")
+            return False
+
+        # Check if the second last extension is known
+        previous_extension = '.' + parts[-2].lower()
+        if previous_extension not in fileTypes:
+            logging.info(f"Previous extension '{previous_extension}' of file '{file_path}' is not known, not flagged as ransomware")
+            return False
+
+        # Check if the final extension is not in fileTypes
+        final_extension = '.' + parts[-1].lower()
+        if final_extension not in fileTypes:
+            logging.warning(f"File '{file_path}' has unrecognized final extension '{final_extension}', checking if it might be ransomware sign")
             # Check if the file has a known extension or is readable
             if has_known_extension(file_path) or is_readable(file_path):
                 logging.info(f"File '{file_path}' is not ransomware")
                 return False
             else:
-                logging.warning(f"File '{file_path}' might be ransomware")
+                logging.warning(f"File '{file_path}' might be ransomware sign")
                 return True
 
         logging.info(f"File '{file_path}' does not meet ransomware conditions")
@@ -996,6 +1009,20 @@ def is_ransomware(file_path):
     except Exception as e:
         logging.error(f"Error checking ransomware for file {file_path}: {e}")
         return False
+
+def search_files_with_same_extension(directory, extension):
+    try:
+        logging.info(f"Searching for files with extension '{extension}' in directory '{directory}'")
+        files_with_same_extension = []
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if file.endswith(extension):
+                    files_with_same_extension.append(os.path.join(root, file))
+        logging.info(f"Found {len(files_with_same_extension)} files with extension '{extension}'")
+        return files_with_same_extension
+    except Exception as e:
+        logging.error(f"Error searching for files with extension '{extension}' in directory '{directory}': {e}")
+        return []
 
 def ransomware_alert(file_path):
     global main_file_path
@@ -1010,11 +1037,24 @@ def ransomware_alert(file_path):
         logging.info(f"Running ransomware alert check for file '{file_path}'")
         if is_ransomware(file_path):
             ransomware_detection_count += 1
-            logging.warning(f"File '{file_path}' might be related to ransomware. Count: {ransomware_detection_count}")
-            if ransomware_detection_count >= 20:
+            logging.warning(f"File '{file_path}' might be ransomware sign. Count: {ransomware_detection_count}")
+            
+            # If two alerts happen, search directories for files with the same extension
+            if ransomware_detection_count == 2:
+                _, ext = os.path.splitext(file_path)
+                if ext:
+                    directory = os.path.dirname(file_path)
+                    files_with_same_extension = search_files_with_same_extension(directory, ext)
+                    for file in files_with_same_extension:
+                        logging.info(f"Checking file '{file}' with same extension '{ext}'")
+                        if is_ransomware(file):
+                            logging.warning(f"File '{file}' might also be related to ransomware")
+
+            # Notify user if the detection count reaches the threshold
+            if ransomware_detection_count >= 10:
                 notify_user_ransomware(main_file_path, "HEUR:Win32.Ransomware.Generic")
                 has_warned_ransomware = True
-                logging.info("User has been notified about potential ransomware")
+                logging.warning("User has been notified about potential ransomware")
 
     except Exception as e:
         logging.error(f"Error in ransomware_alert: {e}")
@@ -1034,6 +1074,16 @@ class ScanAndWarnHandler(FileSystemEventHandler):
 
     def process(self, file_path):
         scan_and_warn(file_path)
+
+def run_sandboxie_control():
+    try:
+        logging.info("Running Sandboxie control.")
+        result = subprocess.run(sandboxie_control_path, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        logging.info(f"Sandboxie control output: {result.stdout}")
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Error running Sandboxie control: {e.stderr}")
+    except Exception as e:
+        logging.error(f"Unexpected error running Sandboxie control: {e}")
 
 def perform_sandbox_analysis(file_path):
     global main_file_path
@@ -1070,6 +1120,7 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=start_monitoring_sandbox).start()
         threading.Thread(target=scan_sandbox_folder).start()
         threading.Thread(target=check_startup_directories).start()
+        threading.Thread(target=run_sandboxie_control).start()
         threading.Thread(target=run_sandboxie, args=(file_path,)).start()
 
         logging.info("Sandbox analysis started. Please check log after you close program. There is no limit to scan time.")
