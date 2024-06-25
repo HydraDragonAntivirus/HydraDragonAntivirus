@@ -28,7 +28,7 @@ import win32file
 import win32con
 from datetime import datetime, timedelta
 import winreg
-from cryptography.fernet import Fernet
+import math
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
 script_dir = os.getcwd()
@@ -946,37 +946,44 @@ def is_ransomware(filename):
     parts = filename.split('.')
     if len(parts) < 3:
         return False
-    if parts[-1] not in file_types and parts[-2] in file_types:
-        return True
-    if parts[-1] not in file_types and parts[-3] in file_types:
-        return True
+    for i in range(1, len(parts)):
+        if parts[-i] in file_types and parts[-(i + 1)] not in file_types:
+            return True
     return False
+
+def calculate_entropy(data):
+    if len(data) == 0:
+        return 0
+    entropy = 0
+    for x in range(256):
+        p_x = data.count(bytes([x])) / len(data)
+        if p_x > 0:
+            entropy += - p_x * math.log2(p_x)
+    return entropy
 
 def check_encryption(file_path):
     try:
         with open(file_path, 'rb') as file:
             data = file.read()
-            Fernet.generate_key()  # Fernet şifreleme anahtarı oluşturma
-            Fernet(Fernet.generate_key()).decrypt(data)  # Veriyi çözümleme denemesi
+            entropy = calculate_entropy(data)
+            return entropy > 7.5  # This threshold can be adjusted as needed
+    except Exception as e:
+        logging.error(f"Error reading file {file_path}: {e}")
         return False
-    except:
-        return True
 
-def ransomware_alert(directory):
+def ransomware_alert():
     global notified_files
-    for root, dirs, files in os.walk(directory):
+    for root, dirs, files in os.walk(sandbox_foler):
         for file in files:
             file_path = os.path.join(root, file)
             if is_ransomware(file) and file_path not in notified_files:
                 if check_encryption(file_path):
-                    logging.info(f'Ransomware Alert: {file_path}')
-                    print(f'Ransomware Alert: {file_path}')
-                    notified_files.add(file_path)
                     notify_user_ransomware(file_path, "HEUR:Win32.Ransomware.Generic")
+                    notified_files.add(file_path)
 
 def monitor_sandbox_for_ransomware():
     while True:
-        ransomware_alert(sandbox_folder)
+        ransomware_alert()
 
 def perform_sandbox_analysis(file_path):
     try:
