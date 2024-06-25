@@ -508,7 +508,7 @@ def notify_user_startup(file_path, virus_name):
 def notify_user_ransomware(file_path, virus_name):
     notification = Notify()
     notification.title = "Ransomware Alert"
-    notification.message = f"Potential suspicious encrypted file detected: {file_path}\nVirus: {virus_name}"
+    notification.message = f"Suspicious encrypted file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
 def notify_user_web(ip_address=None, dst_ip_address=None):
