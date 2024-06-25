@@ -132,7 +132,7 @@ def load_data():
             ip_addresses_signatures_data = {ip: "" for ip in ip_addresses}
 
         # Load IPv6 addresses
-        with open(ipv6_addresses_Path, 'r') as ipv6_file:
+        with open(ipv6_addresses_path, 'r') as ipv6_file:
             ipv6_addresses = ipv6_file.read().splitlines()
             ipv6_addresses_signatures_data = {ipv6: "" for ipv6 in ipv6_addresses}
 
