@@ -6,7 +6,7 @@ import threading
 from platform import architecture
 import re
 import json
-from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, QFileDialog, QMessageBox, QStackedWidget)
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QFileDialog, QMessageBox, QStackedWidget
 from PySide6.QtCore import Qt, QObject, QThread, Signal, Slot, QMetaObject
 from PySide6.QtGui import QIcon
 import sklearn
@@ -28,7 +28,7 @@ import win32file
 import win32con
 from datetime import datetime, timedelta
 import winreg
-import math
+
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
 script_dir = os.getcwd()
@@ -45,7 +45,10 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
 )
 
-fileTypes = ['.pyd', '.elf', '.ps1', '.bas', '.bat', '.chm', '.cmd', '.com', '.cpl', '.dll', '.exe', '.msc', '.ocx', '.pcd', '.pif', '.reg', '.scr', '.sct', '.url', '.vbe', '.wsc', '.wsf', '.wsh', '.ct', '.t', '.input', '.war', '.jspx', '.tmp', '.dump', '.pwd', '.w', '.cfg', '.psd1', '.psm1', '.ps1xml', '.clixml', '.psc1', '.pssc', '.www', '.rdp', '.msi', '.dat', '.contact', '.settings', '.odt', '.jpg', '.mka','shtml', '.mhtml', '.oqy', '.png', '.csv', '.py', '.sql', '.mdb', '.html', '.htm', '.xml', '.psd', '.pdf', '.xla', '.cub', '.dae', '.indd', '.cs', '.mp3', '.mp4', '.dwg', '.rar', '.mov', '.rtf', '.bmp', '.mkv', '.avi', '.apk', '.lnk', '.dib', '.dic', '.dif', '.divx', '.iso', '.7zip', '.ace', '.arj', '.bz2', '.cab', '.gzip', '.lzh', '.jpeg', '.xz', '.mpeg', '.torrent', '.mpg', '.core', '.pdb', '.ico', '.pas', '.db', '.wmv', '.swf', '.cer', '.bak', '.backup', '.accdb', '.bay', '.p7c', '.exif', '.vss', '.raw', '.m4a', '.wma', '.flv', '.sie', '.sum', '.ibank', '.wallet', '.css', '.js', '.rb', '.xlsm', '.xlsb', '.7z', '.cpp', '.java', '.jpe', '.ini', '.blob', '.wps', '.wav', '.3gp', '.webm', '.m4v', '.amv', '.m4p', '.svg', '.ods', '.bk', '.vdi', '.vmdk', '.accde', '.json', '.gif', '.gz', '.m1v', '.sln', '.pst', '.obj', '.xlam', '.djvu', '.inc', '.cvs', '.dbf', '.tbi', '.wpd', '.dot', '.dotx', '.xltx', '.pptm', '.potx', '.potm', '.xlw', '.xps', '.xsd', '.xsf', '.xsl', '.kmz', '.accdr', '.stm', '.accdt', '.ppam', '.pps', '.ppsm', '.1cd', '.3ds', '.3fr', '.3g2', '.accda', '.accdc', '.accdw', '.adp', '.ai', '.ai3', '.ai4', '.ai5', '.ai6', '.ai7', '.ai8', '.arw', '.ascx', '.asm', '.asmx', '.avs', '.bin', '.cfm', '.dbx', '.dcm', '.dcr', '.pict', '.rgbe', '.dwt', '.f4v', '.exr', '.kwm', '.max', '.mda', '.mde', '.mdf', '.mdw', '.mht', '.mpv', '.msg', '.myi', '.nef', '.odc', '.geo', '.swift', '.odm', '.odp', '.oft', '.orf', '.pfx', '.p12', '.pls', '.safe', '.tab', '.vbs', '.xlk', '.xlm', '.xlt', '.xltm', '.svgz', '.slk', '.tar.gz', '.dmg', '.ps', '.psb', '.tif', '.rss', '.key', '.vob', '.epsp', '.dc3', '.iff', '.onepkg', '.onetoc2', '.opt', '.p7b', '.pam', '.r3d', '.pkg']
+notified_files = set()
+detected_files = set()
+
+fileTypes = ['.pyd', '.elf', '.ps1', '.bas', '.bat', '.chm', '.cmd', '.com', '.cpl', '.dll', '.exe', '.msc', '.ocx', '.pcd', '.pif', '.reg', '.scr', '.sct', '.url', '.vbe', '.wsc', '.wsf', '.wsh', '.ct', '.t', '.input', '.war', '.jspx', '.tmp', '.dump', '.pwd', '.w', '.cfg', '.psd1', '.psm1', '.ps1xml', '.clixml', '.psc1', '.pssc', '.www', '.rdp', '.msi', '.dat', '.contact', '.settings', '.odt', '.jpg', '.mka','shtml', '.mhtml', '.oqy', '.png', '.csv', '.py', '.sql', '.mdb', '.html', '.htm', '.xml', '.psd', '.pdf', '.xla', '.cub', '.dae', '.indd', '.cs', '.mp3', '.mp4', '.dwg', '.rar', '.mov', '.rtf', '.bmp', '.mkv', '.avi', '.apk', '.lnk', '.dib', '.dic', '.dif', '.divx', '.iso', '.7zip', '.ace', '.arj', '.bz2', '.cab', '.gzip', '.lzh', '.jpeg', '.xz', '.mpeg', '.torrent', '.mpg', '.core', '.pdb', '.ico', '.pas', '.db', '.wmv', '.swf', '.cer', '.bak', '.backup', '.accdb', '.bay', '.p7c', '.exif', '.vss', '.raw', '.m4a', '.wma', '.flv', '.sie', '.sum', '.ibank', '.wallet', '.css', '.js', '.rb', '.xlsm', '.xlsb', '.7z', '.cpp', '.java', '.jpe', '.ini', '.blob', '.wps', '.wav', '.3gp', '.webm', '.m4v', '.amv', '.m4p', '.svg', '.ods', '.bk', '.vdi', '.vmdk', '.accde', '.json', '.gif', '.gz', '.m1v', '.sln', '.pst', '.obj', '.xlam', '.djvu', '.inc', '.cvs', '.dbf', '.tbi', '.wpd', '.dot', '.dotx', '.xltx', '.pptm', '.potx', '.potm', '.xlw', '.xps', '.xsd', '.xsf', '.xsl', '.kmz', '.accdr', '.stm', '.accdt', '.ppam', '.pps', '.ppsm', '.1cd', '.3ds', '.3fr', '.3g2', '.accda', '.accdc', '.accdw', '.adp', '.ai', '.ai3', '.ai4', '.ai5', '.ai6', '.ai7', '.ai8', '.arw', '.ascx', '.asm', '.asmx', '.avs', '.bin', '.cfm', '.dbx', '.dcm', '.dcr', '.pict', '.rgbe', '.dwt', '.f4v', '.exr', '.kwm', '.max', '.mda', '.mde', '.mdf', '.mdw', '.mht', '.mpv', '.msg', '.myi', '.nef', '.odc', '.geo', '.swift', '.odm', '.odp', '.oft', '.orf', '.pfx', '.p12', '.pls', '.safe', '.tab', '.vbs', '.xlk', '.xlm', '.xlt', '.xltm', '.svgz', '.slk', '.tar.gz', '.dmg', '.ps', '.psb', '.tif', '.rss', '.key', '.vob', '.epsp', '.dc3', '.iff', '.onepkg', '.onetoc2', '.opt', '.p7b', '.pam', '.r3d', '.pkg', '.yml', '.old', '.thmx', '.keytab', '.h', '.php', '.c']
 
 def extract_infos(file_path, rank=None):
     """Extract information about file"""
@@ -760,7 +763,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-def monitor_sandbox(sandbox_folder):
+def monitor_sandbox():
     hDir = win32file.CreateFile(
         sandbox_folder,
         1,
@@ -795,6 +798,7 @@ def monitor_sandbox(sandbox_folder):
                 pathToScan = os.path.join(sandbox_folder, file)
                 print(pathToScan)
                 scan_and_warn(pathToScan)
+                detected_files.add(pathToScan)
     except Exception as e:
         print("An error occurred at monitor_sandbox:", e)
         logging.error(f"An error occurred at monitor_sandbox: {e}")
@@ -896,8 +900,8 @@ def scan_and_warn(file_path):
         notify_user_thread.start()
     return is_malicious
 
-def start_monitoring_sandbox(sandbox_folder):
-    sandbox_thread = threading.Thread(target=monitor_sandbox, args=(sandbox_folder,))
+def start_monitoring_sandbox():
+    sandbox_thread = threading.Thread(target=monitor_sandbox)
     sandbox_thread.start()
     return sandbox_thread
 
@@ -914,7 +918,7 @@ def monitor_snort_log(log_path):
             process_alert(line)
 
 # Main function to monitor startup directories
-def check_startup_directories(username):
+def check_startup_directories():
     # Define the paths to check
     defaultbox_user_startup_folder = rf'C:\Sandbox\{username}\DefaultBox\user\current\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup'
     defaultbox_programdata_startup_folder = rf'C:\Sandbox\{username}\DefaultBox\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup'
@@ -940,46 +944,55 @@ def check_startup_directories(username):
                             notify_user_startup(file_path, "HEUR:Win32.Startup.Generic.Malware")
                             alerted_files.add(file_path)
 
-notified_files = set()
-
 def is_ransomware(filename):
     parts = filename.split('.')
     if len(parts) < 3:
         return False
-    for i in range(1, len(parts)):
-        if parts[-i] in file_types and parts[-(i + 1)] not in file_types:
-            return True
+    if parts[-1] not in fileTypes and parts[-2] in fileTypes:
+        return True
     return False
 
-def calculate_entropy(data):
-    if len(data) == 0:
-        return 0
-    entropy = 0
-    for x in range(256):
-        p_x = data.count(bytes([x])) / len(data)
-        if p_x > 0:
-            entropy += - p_x * math.log2(p_x)
-    return entropy
+def has_known_extension(file_path):
+    ext = os.path.splitext(file_path)[1].lstrip('.')
+    return ext in fileTypes
 
-def check_encryption(file_path):
+def is_readable(file_path):
     try:
         with open(file_path, 'rb') as file:
-            data = file.read()
-            entropy = calculate_entropy(data)
-            return entropy > 7.5  # This threshold can be adjusted as needed
+            file_data = file.read(1024)
+            if file_data:  # Check if file has readable content
+                return True
+            return False
     except Exception as e:
         logging.error(f"Error reading file {file_path}: {e}")
         return False
 
+def check_extension_frequency(file_path, extension):
+    try:
+        count = 0
+        for root, _, files in os.walk(os.path.dirname(file_path)):
+            for file in files:
+                if file.endswith(f".{extension}"):
+                    count += 1
+                    logging.info(f"Count of '.{extension}' files: {count} (Current file: {os.path.join(root, file)})")
+                    if count > 10:  # Threshold for extension frequency
+                        return True
+        return False
+    except Exception as e:
+        logging.error(f"Error checking extension frequency for {extension}: {e}")
+        return False
+
 def ransomware_alert():
     global notified_files
-    for root, dirs, files in os.walk(sandbox_foler):
-        for file in files:
-            file_path = os.path.join(root, file)
-            if is_ransomware(file) and file_path not in notified_files:
-                if check_encryption(file_path):
+    try:
+        for file_path in detected_files:
+            if is_ransomware(os.path.basename(file_path)) and file_path not in notified_files:
+                ext = os.path.splitext(file_path)[1].lstrip('.')
+                if not has_known_extension(file_path) and not is_readable(file_path) and check_extension_frequency(file_path, ext):
                     notify_user_ransomware(file_path, "HEUR:Win32.Ransomware.Generic")
                     notified_files.add(file_path)
+    except Exception as e:
+        logging.error(f"Error in ransomware_alert: {e}")
 
 def monitor_sandbox_for_ransomware():
     while True:
@@ -999,12 +1012,13 @@ def perform_sandbox_analysis(file_path):
 
         # Clean sandbox and log folders
         clean_directory(sandbox_folder)
+        clean_directory(log_folder)
 
         # Monitor Snort log for new lines and process alerts
         threading.Thread(target=monitor_snort_log, args=(log_path,)).start()
         threading.Thread(target=scan_and_warn, args=(file_path,)).start()
-        threading.Thread(target=start_monitoring_sandbox, args=(sandbox_folder,)).start()
-        threading.Thread(target=scan_sandbox_folder, args=(sandbox_folder,)).start()
+        threading.Thread(target=start_monitoring_sandbox).start()
+        threading.Thread(target=scan_sandbox_folder).start()
         threading.Thread(target=check_startup_directories).start()
         threading.Thread(target=monitor_sandbox_for_ransomware).start()
         threading.Thread(target=run_sandboxie, args=(file_path,)).start()
@@ -1020,7 +1034,7 @@ def run_sandboxie(file_path):
     except subprocess.CalledProcessError as e:
         logging.error(f"Failed to run Sandboxie on {file_path}: {e}")
 
-def scan_sandbox_folder(sandbox_folder):
+def scan_sandbox_folder():
     for root, _, files in os.walk(sandbox_folder):
         for file in files:
             file_path = os.path.join(root, file)

@@ -1698,3 +1698,7 @@ INFO_PE_DeviceIOControl_API",
 "j3f4_23b46a08c0000b32",
 "Win_Trojan_Obfus_6",
 "isLNK"
+"RarArchive", 
+"head_rar", 
+"ft_rar", 
+"rar_file",
