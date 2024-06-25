@@ -28,6 +28,7 @@ import win32file
 import win32con
 from datetime import datetime, timedelta
 import winreg
+from cryptography.fernet import Fernet
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
 script_dir = os.getcwd()
@@ -43,6 +44,8 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
 )
+
+fileTypes = ['.pyd', '.elf', '.ps1', '.bas', '.bat', '.chm', '.cmd', '.com', '.cpl', '.dll', '.exe', '.msc', '.ocx', '.pcd', '.pif', '.reg', '.scr', '.sct', '.url', '.vbe', '.wsc', '.wsf', '.wsh', '.ct', '.t', '.input', '.war', '.jspx', '.tmp', '.dump', '.pwd', '.w', '.cfg', '.psd1', '.psm1', '.ps1xml', '.clixml', '.psc1', '.pssc', '.www', '.rdp', '.msi', '.dat', '.contact', '.settings', '.odt', '.jpg', '.mka','shtml', '.mhtml', '.oqy', '.png', '.csv', '.py', '.sql', '.mdb', '.html', '.htm', '.xml', '.psd', '.pdf', '.xla', '.cub', '.dae', '.indd', '.cs', '.mp3', '.mp4', '.dwg', '.rar', '.mov', '.rtf', '.bmp', '.mkv', '.avi', '.apk', '.lnk', '.dib', '.dic', '.dif', '.divx', '.iso', '.7zip', '.ace', '.arj', '.bz2', '.cab', '.gzip', '.lzh', '.jpeg', '.xz', '.mpeg', '.torrent', '.mpg', '.core', '.pdb', '.ico', '.pas', '.db', '.wmv', '.swf', '.cer', '.bak', '.backup', '.accdb', '.bay', '.p7c', '.exif', '.vss', '.raw', '.m4a', '.wma', '.flv', '.sie', '.sum', '.ibank', '.wallet', '.css', '.js', '.rb', '.xlsm', '.xlsb', '.7z', '.cpp', '.java', '.jpe', '.ini', '.blob', '.wps', '.wav', '.3gp', '.webm', '.m4v', '.amv', '.m4p', '.svg', '.ods', '.bk', '.vdi', '.vmdk', '.accde', '.json', '.gif', '.gz', '.m1v', '.sln', '.pst', '.obj', '.xlam', '.djvu', '.inc', '.cvs', '.dbf', '.tbi', '.wpd', '.dot', '.dotx', '.xltx', '.pptm', '.potx', '.potm', '.xlw', '.xps', '.xsd', '.xsf', '.xsl', '.kmz', '.accdr', '.stm', '.accdt', '.ppam', '.pps', '.ppsm', '.1cd', '.3ds', '.3fr', '.3g2', '.accda', '.accdc', '.accdw', '.adp', '.ai', '.ai3', '.ai4', '.ai5', '.ai6', '.ai7', '.ai8', '.arw', '.ascx', '.asm', '.asmx', '.avs', '.bin', '.cfm', '.dbx', '.dcm', '.dcr', '.pict', '.rgbe', '.dwt', '.f4v', '.exr', '.kwm', '.max', '.mda', '.mde', '.mdf', '.mdw', '.mht', '.mpv', '.msg', '.myi', '.nef', '.odc', '.geo', '.swift', '.odm', '.odp', '.oft', '.orf', '.pfx', '.p12', '.pls', '.safe', '.tab', '.vbs', '.xlk', '.xlm', '.xlt', '.xltm', '.svgz', '.slk', '.tar.gz', '.dmg', '.ps', '.psb', '.tif', '.rss', '.key', '.vob', '.epsp', '.dc3', '.iff', '.onepkg', '.onetoc2', '.opt', '.p7b', '.pam', '.r3d', '.pkg']
 
 def extract_infos(file_path, rank=None):
     """Extract information about file"""
@@ -124,12 +127,12 @@ def is_sqlite_file(file_path):
 def load_data():
     try:
         # Load IPv4 addresses
-        with open(IP_ADDRESSES_PATH, 'r') as ip_file:
+        with open(ip_addresses_path, 'r') as ip_file:
             ip_addresses = ip_file.read().splitlines()
             ip_addresses_signatures_data = {ip: "" for ip in ip_addresses}
 
         # Load IPv6 addresses
-        with open(IPV6_ADDRESSES_PATH, 'r') as ipv6_file:
+        with open(ipv6_addresses_Path, 'r') as ipv6_file:
             ipv6_addresses = ipv6_file.read().splitlines()
             ipv6_addresses_signatures_data = {ipv6: "" for ipv6 in ipv6_addresses}
 
@@ -139,7 +142,7 @@ def load_data():
 
     try:
         # Load domains
-        with open(DOMAINS_PATH, 'r') as domains_file:
+        with open(domains_path, 'r') as domains_file:
             domains = domains_file.read().splitlines()
             domains_signatures_data = {domain: "" for domain in domains}
         print("Domains loaded successfully!")
@@ -494,6 +497,18 @@ def notify_user(file_path, virus_name):
     notification = Notify()
     notification.title = "Malware Alert"
     notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_startup(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Startup Malware Alert"
+    notification.message = f"Suspicious startup file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_ransomware(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Ransomware Alert"
+    notification.message = f"Potential suspicious encrypted file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
 def notify_user_web(ip_address=None, dst_ip_address=None):
@@ -880,7 +895,7 @@ def monitor_snort_log(log_path):
             process_alert(line)
 
 # Main function to monitor startup directories
-def check_startup_directories():
+def check_startup_directories(username):
     # Define the paths to check
     defaultbox_user_startup_folder = rf'C:\Sandbox\{username}\DefaultBox\user\current\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup'
     defaultbox_programdata_startup_folder = rf'C:\Sandbox\{username}\DefaultBox\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup'
@@ -891,15 +906,58 @@ def check_startup_directories():
         defaultbox_programdata_startup_folder
     ]
 
+    # Set to keep track of already alerted files
+    alerted_files = set()
+
     while True:
         for directory in directories_to_check:
             if os.path.exists(directory):
                 for file in os.listdir(directory):
                     file_path = os.path.join(directory, file)
                     if os.path.isfile(file_path):
-                        logging.info(f"Startup file detected in {directory}: {file}")
-                        print(f"Startup file detected in {directory}: {file}")
-                        notify_user(file_path, "HEUR:Win32.Startup.Generic.Malware")
+                        if file_path not in alerted_files:
+                            logging.info(f"Startup file detected in {directory}: {file}")
+                            print(f"Startup file detected in {directory}: {file}")
+                            notify_user_startup(file_path, "HEUR:Win32.Startup.Generic.Malware")
+                            alerted_files.add(file_path)
+
+notified_files = set()
+
+def is_ransomware(filename):
+    parts = filename.split('.')
+    if len(parts) < 3:
+        return False
+    if parts[-1] not in file_types and parts[-2] in file_types:
+        return True
+    if parts[-1] not in file_types and parts[-3] in file_types:
+        return True
+    return False
+
+def check_encryption(file_path):
+    try:
+        with open(file_path, 'rb') as file:
+            data = file.read()
+            Fernet.generate_key()  # Fernet şifreleme anahtarı oluşturma
+            Fernet(Fernet.generate_key()).decrypt(data)  # Veriyi çözümleme denemesi
+        return False
+    except:
+        return True
+
+def ransomware_alert(directory):
+    global notified_files
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            file_path = os.path.join(root, file)
+            if is_ransomware(file) and file_path not in notified_files:
+                if check_encryption(file_path):
+                    logging.info(f'Ransomware Alert: {file_path}')
+                    print(f'Ransomware Alert: {file_path}')
+                    notified_files.add(file_path)
+                    notify_user_ransomware(file_path, "HEUR:Win32.Ransomware.Generic")
+
+def monitor_sandbox_for_ransomware():
+    while True:
+        ransomware_alert(sandbox_folder)
 
 def perform_sandbox_analysis(file_path):
     try:
@@ -917,17 +975,13 @@ def perform_sandbox_analysis(file_path):
         clean_directory(sandbox_folder)
 
         # Monitor Snort log for new lines and process alerts
-        snort_log_thread = threading.Thread(target=monitor_snort_log, args=(log_path,)).start()
-    
-        scan_warn_thread = threading.Thread(target=scan_and_warn, args=(file_path,)).start()
-
-        sandbox_thread = threading.Thread(target=start_monitoring_sandbox, args=(sandbox_folder,)).start()
-
-        scan_sandbox_thread = threading.Thread(target=scan_sandbox_folder, args=(sandbox_folder,)).start()
-
-        sandboxie_thread = threading.Thread(target=check_startup_directories).start()
-
-        sandboxie_thread = threading.Thread(target=run_sandboxie, args=(file_path,)).start()
+        threading.Thread(target=monitor_snort_log, args=(log_path,)).start()
+        threading.Thread(target=scan_and_warn, args=(file_path,)).start()
+        threading.Thread(target=start_monitoring_sandbox, args=(sandbox_folder,)).start()
+        threading.Thread(target=scan_sandbox_folder, args=(sandbox_folder,)).start()
+        threading.Thread(target=check_startup_directories).start()
+        threading.Thread(target=monitor_sandbox_for_ransomware).start()
+        threading.Thread(target=run_sandboxie, args=(file_path,)).start()
 
         logging.info("Sandbox analysis started. Please check log after you close program. There no limit to scan time.")
 
