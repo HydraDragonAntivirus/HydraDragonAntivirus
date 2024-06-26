@@ -1248,7 +1248,8 @@ def perform_sandbox_analysis(file_path):
 
         # Monitor Snort log for new lines and process alerts
         threading.Thread(target=monitor_snort_log, args=(log_path,)).start()
-        
+        threading.Thread(target=web_protection_observer.start).start()
+
         # Initialize Watchdog Observer to monitor file system events
         observer = Observer()
         observer.schedule(event_handler, path=os.path.dirname(file_path), recursive=False)
@@ -1263,7 +1264,6 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=check_startup_directories).start()
         threading.Thread(target=run_sandboxie_control).start()
         threading.Thread(target=run_sandboxie, args=(file_path,)).start()
-        threading.Thread(target=web_protection_observer.start).start()
 
         logging.info("Sandbox analysis started. Please check log after you close program. There is no limit to scan time.")
 
