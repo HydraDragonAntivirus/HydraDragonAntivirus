@@ -902,6 +902,10 @@ device_args = [f"-i {i}" for i in range(1, 26)]  # Fixed device arguments
 username = os.getlogin()
 sandbox_folder = rf'C:\Sandbox\{username}\DefaultBox'
 
+uefi_100kb_paths = [
+    rf'{sandbox_folder}\drive\X\EFI\Microsoft\Boot\SecureBootRecovery.efi'
+]
+
 uefi_paths = [
     rf'{sandbox_folder}\drive\X\EFI\Microsoft\Boot\bootmgfw.efi',
     rf'{sandbox_folder}\drive\X\EFI\Microsoft\Boot\bootmgr.efi',
@@ -1113,22 +1117,41 @@ def check_startup_directories():
                             notify_user_startup(file_path, "HEUR:Win32.Startup.Generic.Malware")
                             alerted_files.add(file_path)
 
-def is_malicious_file(file_path):
-    """ Check if the file is less than 1MB """
-    return os.path.getsize(file_path) < 1 * 1024 * 1024  # 1MB
+def is_malicious_file(file_path, size_limit_kb):
+    """ Check if the file is less than the given size limit """
+    return os.path.getsize(file_path) < size_limit_kb * 1024
 
 def check_uefi_directories():
     """ Continuously check the specified UEFI directories for malicious files """
     alerted_uefi_files = set()
-    
+    known_uefi_files = set(uefi_100kb_paths + uefi_paths)
+
     while True:
-        for uefi_path in uefi_paths:
+        for uefi_path in uefi_paths + uefi_100kb_paths:
             if os.path.isfile(uefi_path):
-                if uefi_path not in alerted_uefi_files and is_malicious_file(uefi_path):
-                    logging.warning(f"Malicious file detected: {uefi_path}")
-                    print(f"Malicious file detected: {uefi_path}")
-                    notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.Generic.Malware")
-                    alerted_uefi_files.add(uefi_path)
+                if uefi_path.endswith(".efi"):
+                    if uefi_path not in alerted_uefi_files:
+                        if uefi_path in uefi_100kb_paths and is_malicious_file(uefi_path, 100):
+                            logging.warning(f"Malicious file detected: {uefi_path}")
+                            print(f"Malicious file detected: {uefi_path}")
+                            notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.SecureBootRecovery.Generic.Malware")
+                            alerted_uefi_files.add(uefi_path)
+                        elif uefi_path in uefi_paths and is_malicious_file(uefi_path, 1024):
+                            logging.warning(f"Malicious file detected: {uefi_path}")
+                            print(f"Malicious file detected: {uefi_path}")
+                            notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.ScreenLocker.Ransomware.Generic.Malware")
+                            alerted_uefi_files.add(uefi_path)
+
+        # Check for any new files in the EFI directory
+        efi_dir = rf'{sandbox_folder}\drive\X\EFI'
+        for root, dirs, files in os.walk(efi_dir):
+            for file in files:
+                file_path = os.path.join(root, file)
+                if file_path.endswith(".efi") and file_path not in known_uefi_files and file_path not in alerted_uefi_files:
+                    logging.warning(f"Unknown file detected: {file_path}")
+                    print(f"Unknown file detected: {file_path}")
+                    notify_user_uefi(file_path, "HEUR:Win32.Startup.UEFI.Generic.Malware")
+                    alerted_uefi_files.add(file_path)
 
 def has_known_extension(file_path):
     try:
