@@ -283,6 +283,15 @@ def scan_file_with_clamd(file_path):
         print(f"Unexpected clamdscan output: {clamd_output}")
         return "Clean"
 
+def restart_clamd_if_not_running():
+    try:
+        if not is_clamd_running():
+            antivirus_ui = AntivirusUI()
+            antivirus_ui.restart_clamd_thread()  # Start clamd if it's not running
+    except Exception as e:
+        logging.error(f"An error occurred while restarting clamd: {e}")
+        print(f"An error occurred while restarting clamd: {e}")
+
 def verify_executable_signature(path):
     cmd = " " + f'"{path}"'
     command = "(Get-AuthenticodeSignature" + cmd + ").Status"
@@ -982,9 +991,10 @@ def run_snort():
         logging.error(f"Failed to run Snort: {e}")
         print(f"Failed to run Snort: {e}")
 
+setup_mbrfilter()
 snort_thread = threading.Thread(target=run_snort)
 snort_thread.start()
-setup_mbrfilter()
+restart_clamd_if_not_running()
 load_data()
 # Load excluded rules from text file
 with open(excluded_rules_path, "r") as file:
