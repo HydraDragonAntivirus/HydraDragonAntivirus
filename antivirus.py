@@ -1215,6 +1215,8 @@ class ScanAndWarnHandler(FileSystemEventHandler):
     def process(self, file_path):
         scan_and_warn(file_path)
 
+event_handler = ScanAndWarnHandler()
+
 def run_sandboxie_control():
     try:
         logging.info("Running Sandboxie control.")
@@ -1248,7 +1250,6 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=monitor_snort_log, args=(log_path,)).start()
         
         # Initialize Watchdog Observer to monitor file system events
-        event_handler = ScanAndWarnHandler()
         observer = Observer()
         observer.schedule(event_handler, path=os.path.dirname(file_path), recursive=False)
         observer.start()
