@@ -680,7 +680,7 @@ class RealTimeWebProtectionObserver:
         filter_expression = f"(tcp or udp)"
         sniff(filter=filter_expression, prn=self.handler.on_packet_received, store=0)
 
-xweb_protection_observer = RealTimeWebProtectionObserver()
+web_protection_observer = RealTimeWebProtectionObserver()
 
 class YaraScanner:
     def scan_data(self, file_path):
