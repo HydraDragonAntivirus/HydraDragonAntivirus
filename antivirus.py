@@ -28,10 +28,7 @@ import win32file
 import win32con
 from datetime import datetime, timedelta
 import winreg
-from scapy.layers.inet import IP
-from scapy.layers.inet6 import IPv6
-from scapy.layers.dns import DNS, DNSQR, DNSRR
-from scapy.all import sniff, get_if_list
+from scapy.all import IP, IPv6, DNS, DNSQR, DNSRR, sniff
 
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
@@ -523,7 +520,7 @@ def notify_user_ransomware(file_path, virus_name):
     notification.message = f"Potential ransomware detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
-def notify_user_web(ip_address=None, dst_ip_address=None):
+def notify_user_for_web(ip_address=None, dst_ip_address=None):
     notification = Notify()
     notification.title = "Malware or Phishing Alert"
     if ip_address and dst_ip_address:
@@ -535,6 +532,133 @@ def notify_user_web(ip_address=None, dst_ip_address=None):
     else:
         notification.message = "Phishing or Malicious activity detected"
     notification.send()
+
+def is_local_ip(ip):
+    if re.match(r'^192\.168\.\d{1,3}\.\d{1,3}$', ip):
+        return True
+    if re.match(r'^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$', ip):
+        return True
+    if re.match(r'^172\.(1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3}$', ip):
+        return True
+    return False
+
+class RealTimeWebProtectionHandler:
+    def scan_domain(self, domain):
+        message = f"Scanning domain: {domain}"
+        logging.info(message)
+        print(message)
+        parts = domain.split(".")
+        if len(parts) < 3:
+            main_domain = domain
+        else:
+            main_domain = ".".join(parts[-2:])
+
+        for parent_domain in domains_signatures_data:
+            if main_domain == parent_domain or main_domain.endswith(f".{parent_domain}"):
+                message = f"Main domain {main_domain} or its parent domain {parent_domain} matches the signatures."
+                logging.info(message)
+                print(message)
+                notify_user_for_web(domain=main_domain)
+                return
+
+    def scan_ip_address(self, ip_address, is_ipv6=False):
+        if is_local_ip(ip_address):
+            message = f"Skipping local IP address: {ip_address}"
+            logging.info(message)
+            print(message)
+            return
+        
+        message = f"Scanning IP address: {ip_address}"
+        logging.info(message)
+        print(message)
+        if is_ipv6 and ip_address in ipv6_addresses_signatures_data:
+            message = f"IPv6 address {ip_address} matches the signatures."
+            logging.info(message)
+            print(message)
+            notify_user_for_web(ip_address=ip_address)
+        elif ip_address in ip_addresses_signatures_data:
+            message = f"IPv4 address {ip_address} matches the signatures."
+            logging.info(message)
+            print(message)
+            notify_user_for_web(ip_address=ip_address)
+
+    def on_packet_received(self, packet):
+        if IP in packet:
+            self.handle_ipv4(packet)
+        elif IPv6 in packet:
+            self.handle_ipv6(packet)
+
+    def handle_ipv4(self, packet):
+        if DNS in packet:
+            if packet[DNS].qd:
+                for i in range(packet[DNS].qdcount):
+                    query_name = packet[DNSQR][i].qname.decode().rstrip('.')
+                    self.scan_domain(query_name)
+                    message = f"DNS Query (IPv4): {query_name}"
+                    logging.info(message)
+                    print(message)
+            if packet[DNS].an:
+                for i in range(packet[DNS].ancount):
+                    answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
+                    self.scan_domain(answer_name)
+                    message = f"DNS Answer (IPv4): {answer_name}"
+                    logging.info(message)
+                    print(message)
+
+        # Scan IPv4 addresses
+        self.scan_ip_address(packet[IP].src)
+        self.scan_ip_address(packet[IP].dst)
+
+    def handle_ipv6(self, packet):
+        if DNS in packet:
+            if packet[DNS].qd:
+                for i in range(packet[DNS].qdcount):
+                    query_name = packet[DNSQR][i].qname.decode().rstrip('.')
+                    self.scan_domain(query_name)
+                    message = f"DNS Query (IPv6): {query_name}"
+                    logging.info(message)
+                    print(message)
+            if packet[DNS].an:
+                for i in range(packet[DNS].ancount):
+                    answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
+                    self.scan_domain(answer_name)
+                    message = f"DNS Answer (IPv6): {answer_name}"
+                    logging.info(message)
+                    print(message)
+
+        # Scan IPv6 addresses
+        self.scan_ip_address(packet[IPv6].src, is_ipv6=True)
+        self.scan_ip_address(packet[IPv6].dst, is_ipv6=True)
+
+class RealTimeWebProtectionObserver:
+    def __init__(self):
+        self.handler = RealTimeWebProtectionHandler()
+        self.is_started = False
+        self.thread = None
+
+    def start(self):
+        if not self.is_started:
+            self.thread = threading.Thread(target=self.start_sniffing)
+            self.thread.start()
+            self.is_started = True
+            message = "Real-time web protection observer started"
+            logging.info(message)
+            print(message)
+
+    def stop(self):
+        if self.is_started:
+            self.thread.join()  # Wait for the thread to finish
+            self.is_started = False
+            message = "Real-time web protection observer stopped"
+            logging.info(message)
+            print(message)
+
+    def start_sniffing(self):
+        # Define a custom filter to exclude localhost and local IPs
+        filter_expression = f"(tcp or udp)"
+        sniff(filter=filter_expression, prn=self.handler.on_packet_received, store=0)
+
+xweb_protection_observer = RealTimeWebProtectionObserver()
 
 class YaraScanner:
     def scan_data(self, file_path):
@@ -622,6 +746,7 @@ class AnalysisThread(QThread):
         except Exception as e:
             error_message = f"An error occurred during sandbox analysis: {str(e)}"
             logging.error(error_message)
+            print(error_message)
 
 class WorkerSignals(QObject):
     success = Signal()
@@ -825,7 +950,7 @@ def process_alert(line):
         if priority == 1:
             logging.warning(f"Potential malware detected: {line.strip()}")
             print(f"Potential malware detected from {src_ip} to {dst_ip} with priority {priority}")
-            notify_user_web(ip_address=src_ip, dst_ip_address=dst_ip)
+            notify_user_for_web(ip_address=src_ip, dst_ip_address=dst_ip)
             return True
     return False
 
@@ -1061,8 +1186,8 @@ def ransomware_alert(file_path):
             if ransomware_detection_count >= 10:
                 notify_user_ransomware(main_file_path, "HEUR:Win32.Ransomware.Generic")
                 has_warned_ransomware = True
-                logging.warning("User has been notified about potential ransomware")
-
+                logging.warning(f"User has been notified about potential ransomware in {main_file_path}")
+                print(f"User has been notified about potential ransomware in {main_file_path}")
     except Exception as e:
         logging.error(f"Error in ransomware_alert: {e}")
 
@@ -1129,6 +1254,7 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=check_startup_directories).start()
         threading.Thread(target=run_sandboxie_control).start()
         threading.Thread(target=run_sandboxie, args=(file_path,)).start()
+        threading.Thread(target=web_protection_observer.start).start()
 
         logging.info("Sandbox analysis started. Please check log after you close program. There is no limit to scan time.")
 
