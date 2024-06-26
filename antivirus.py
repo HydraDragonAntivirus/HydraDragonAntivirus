@@ -258,12 +258,26 @@ def is_clamd_running():
     result = subprocess.run(['sc', 'query', 'clamd'], capture_output=True, text=True)
     return "RUNNING" in result.stdout
  
+def restart_clamd_thread():
+    threading.Thread(target=self.restart_clamd).start()
+
+def restart_clamd():
+    if is_clamd_running():
+        stop_result = subprocess.run(["sc", "stop", "clamd"], capture_output=True, text=True)
+        if stop_result.returncode != 0:
+            QMessageBox.critical(self, "ClamAV", "Failed to stop ClamAV.")
+            return
+    start_result = subprocess.run(["sc", "start", "clamd"], capture_output=True, text=True)
+    if start_result.returncode == 0:
+        QMessageBox.information(self, "ClamAV", "ClamAV restarted successfully.")
+    else:
+        QMessageBox.critical(self, "ClamAV", "Failed to start ClamAV.")
+
 def scan_file_with_clamd(file_path):
     """Scan file using clamd."""
     file_path = os.path.abspath(file_path)  # Get absolute path
     if not is_clamd_running():
-        antivirus_ui = AntivirusUI()
-        antivirus_ui.restart_clamd_thread()  # Start clamd if it's not running
+        restart_clamd_thread()  # Start clamd if it's not running
 
     result = subprocess.run(["clamdscan", file_path], capture_output=True, text=True)
     clamd_output = result.stdout
@@ -286,8 +300,7 @@ def scan_file_with_clamd(file_path):
 def restart_clamd_if_not_running():
     try:
         if not is_clamd_running():
-            antivirus_ui = AntivirusUI()
-            antivirus_ui.restart_clamd_thread()  # Start clamd if it's not running
+            restart_clamd_thread()  # Start clamd if it's not running
     except Exception as e:
         logging.error(f"An error occurred while restarting clamd: {e}")
         print(f"An error occurred while restarting clamd: {e}")
@@ -844,7 +857,7 @@ class AntivirusUI(QWidget):
                         result = subprocess.run(["freshclam"], capture_output=True, text=True)
                         if result.returncode == 0:
                             self.signals.success.emit()
-                            self.restart_clamd_thread()
+                            restart_clamd_thread()
                         else:
                             self.signals.failure.emit()
                             print(f"freshclam failed with output: {result.stdout}\n{result.stderr}")
@@ -862,25 +875,10 @@ class AntivirusUI(QWidget):
             result = subprocess.run(["freshclam"], capture_output=True, text=True)
             if result.returncode == 0:
                 self.signals.success.emit()
-                self.restart_clamd_thread()
+                restart_clamd_thread()
             else:
                 self.signals.failure.emit()
                 print(f"freshclam failed with output: {result.stdout}\n{result.stderr}")
-
-    def restart_clamd_thread(self):
-        threading.Thread(target=self.restart_clamd).start()
-
-    def restart_clamd(self):
-        if is_clamd_running():
-            stop_result = subprocess.run(["sc", "stop", "clamd"], capture_output=True, text=True)
-            if stop_result.returncode != 0:
-                QMessageBox.critical(self, "ClamAV", "Failed to stop ClamAV.")
-                return
-        start_result = subprocess.run(["sc", "start", "clamd"], capture_output=True, text=True)
-        if start_result.returncode == 0:
-            QMessageBox.information(self, "ClamAV", "ClamAV restarted successfully.")
-        else:
-            QMessageBox.critical(self, "ClamAV", "Failed to start ClamAV.")
 
     def start_update_definitions_thread(self):
         threading.Thread(target=self.update_definitions).start()
