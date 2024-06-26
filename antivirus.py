@@ -536,6 +536,12 @@ def notify_user_startup(file_path, virus_name):
     notification.message = f"Suspicious startup file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
+def notify_user_uefi(file_path, virus_name):
+    notification = Notify()
+    notification.title = "UEFI Malware Alert"
+    notification.message = f"Suspicious UEFI file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
 def notify_user_ransomware(file_path, virus_name):
     notification = Notify()
     notification.title = "Ransomware Alert"
@@ -895,7 +901,14 @@ sandboxie_control_path = r"C:\Program Files\Sandboxie\SbieCtrl.exe"
 device_args = [f"-i {i}" for i in range(1, 26)]  # Fixed device arguments
 username = os.getlogin()
 sandbox_folder = rf'C:\Sandbox\{username}\DefaultBox'
-command = ["snort"] + device_args + ["-c", snort_config_path, "-A", "fast"]
+
+uefi_paths = [
+    rf'{sandbox_folder}\drive\X\EFI\Microsoft\Boot\bootmgfw.efi',
+    rf'{sandbox_folder}\drive\X\EFI\Microsoft\Boot\bootmgr.efi',
+    rf'{sandbox_folder}\drive\X\EFI\Microsoft\Boot\memtest.efi',
+    rf'{sandbox_folder}\drive\X\EFI\Boot\bootx64.efi'
+]
+snort_command = ["snort"] + device_args + ["-c", snort_config_path, "-A", "fast"]
 
 # Custom flags for directory changes
 FILE_NOTIFY_CHANGE_LAST_ACCESS = 0x00000020
@@ -976,7 +989,7 @@ def run_snort():
     try:
         clean_directory(log_folder)
         # Run snort without capturing output
-        subprocess.run(command, check=True)
+        subprocess.run(snort_command, check=True)
         
         logging.info("Snort completed analysis.")
         print("Snort completed analysis.")
@@ -989,7 +1002,18 @@ def run_snort():
         logging.error(f"Failed to run Snort: {e}")
         print(f"Failed to run Snort: {e}")
 
+def activate_uefi_drive():
+    # Check if the platform is Windows
+    mount_command = 'mountvol X: /S'  # Command to mount UEFI drive
+    try:
+        # Execute the mountvol command
+        subprocess.run(mount_command, shell=True, check=True)
+        print("UEFI drive activated!")
+    except subprocess.CalledProcessError as e:
+        print(f"Error mounting UEFI drive: {e}")
+
 setup_mbrfilter()
+activate_uefi_drive() # Call the UEFI function
 snort_thread = threading.Thread(target=run_snort)
 snort_thread.start()
 restart_clamd_if_not_running()
@@ -1088,6 +1112,23 @@ def check_startup_directories():
                             print(f"Startup file detected in {directory}: {file}")
                             notify_user_startup(file_path, "HEUR:Win32.Startup.Generic.Malware")
                             alerted_files.add(file_path)
+
+def is_malicious_file(file_path):
+    """ Check if the file is less than 1MB """
+    return os.path.getsize(file_path) < 1 * 1024 * 1024  # 1MB
+
+def check_uefi_directories():
+    """ Continuously check the specified UEFI directories for malicious files """
+    alerted_uefi_files = set()
+    
+    while True:
+        for uefi_path in uefi_paths:
+            if os.path.isfile(uefi_path):
+                if uefi_path not in alerted_uefi_files and is_malicious_file(uefi_path):
+                    logging.warning(f"Malicious file detected: {uefi_path}")
+                    print(f"Malicious file detected: {uefi_path}")
+                    notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.Generic.Malware")
+                    alerted_uefi_files.add(uefi_path)
 
 def has_known_extension(file_path):
     try:
@@ -1262,6 +1303,7 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=start_monitoring_sandbox).start()
         threading.Thread(target=scan_sandbox_folder).start()
         threading.Thread(target=check_startup_directories).start()
+        threading.Thread(target=check_uefi_directories).start() # Start monitoring UEFI directories for malicious files in a separate thread
         threading.Thread(target=run_sandboxie_control).start()
         threading.Thread(target=run_sandboxie, args=(file_path,)).start()
 
