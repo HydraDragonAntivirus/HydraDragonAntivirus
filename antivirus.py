@@ -873,8 +873,8 @@ class AntivirusUI(QWidget):
                 # Calculate the age of the file
                 file_age = datetime.now() - file_mod_time
                 
-                # If the file is older than 12 hours, check other files in the directory
-                if file_age > timedelta(hours=12):
+                # If the file is older than 6 hours, check other files in the directory
+                if file_age > timedelta(hours=6):
                     all_files_old = True
                     for root, dirs, files in os.walk(directory_path):
                         for file_name in files:
@@ -882,7 +882,7 @@ class AntivirusUI(QWidget):
                             other_file_mod_time = os.path.getmtime(other_file_path)
                             other_file_mod_time = datetime.fromtimestamp(other_file_mod_time)
                             other_file_age = datetime.now() - other_file_mod_time
-                            if other_file_age <= timedelta(hours=12):
+                            if other_file_age <= timedelta(hours=6):
                                 all_files_old = False
                                 break
                         if not all_files_old:
@@ -897,10 +897,10 @@ class AntivirusUI(QWidget):
                             print(f"freshclam failed with output: {result.stdout}\n{result.stderr}")
                         return
                     else:
-                        print("One of the other files is not older than 12 hours. No update needed.")
+                        print("One of the other files is not older than 6 hours. No update needed.")
                         return
                 else:
-                    print("The database is not older than 12 hours. No update needed.")
+                    print("The database is not older than 6 hours. No update needed.")
                 return
 
         # If neither daily.cvd nor daily.cld exists, run freshclam
