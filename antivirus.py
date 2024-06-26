@@ -51,7 +51,7 @@ logging.basicConfig(
 
 main_file_path = None
 
-fileTypes = ['.pyd', '.elf', '.ps1', '.bas', '.bat', '.chm', '.cmd', '.com', '.cpl', '.dll', '.exe', '.msc', '.ocx', '.pcd', '.pif', '.reg', '.scr', '.sct', '.url', '.vbe', '.wsc', '.wsf', '.wsh', '.ct', '.t', '.input', '.war', '.jspx', '.tmp', '.dump', '.pwd', '.w', '.cfg', '.psd1', '.psm1', '.ps1xml', '.clixml', '.psc1', '.pssc', '.www', '.rdp', '.msi', '.dat', '.contact', '.settings', '.odt', '.jpg', '.mka','shtml', '.mhtml', '.oqy', '.png', '.csv', '.py', '.sql', '.mdb', '.html', '.htm', '.xml', '.psd', '.pdf', '.xla', '.cub', '.dae', '.indd', '.cs', '.mp3', '.mp4', '.dwg', '.rar', '.mov', '.rtf', '.bmp', '.mkv', '.avi', '.apk', '.lnk', '.dib', '.dic', '.dif', '.divx', '.iso', '.7zip', '.ace', '.arj', '.bz2', '.cab', '.gzip', '.lzh', '.jpeg', '.xz', '.mpeg', '.torrent', '.mpg', '.core', '.pdb', '.ico', '.pas', '.db', '.wmv', '.swf', '.cer', '.bak', '.backup', '.accdb', '.bay', '.p7c', '.exif', '.vss', '.raw', '.m4a', '.wma', '.flv', '.sie', '.sum', '.ibank', '.wallet', '.css', '.js', '.rb', '.xlsm', '.xlsb', '.7z', '.cpp', '.java', '.jpe', '.ini', '.blob', '.wps', '.wav', '.3gp', '.webm', '.m4v', '.amv', '.m4p', '.svg', '.ods', '.bk', '.vdi', '.vmdk', '.accde', '.json', '.gif', '.gz', '.m1v', '.sln', '.pst', '.obj', '.xlam', '.djvu', '.inc', '.cvs', '.dbf', '.tbi', '.wpd', '.dot', '.dotx', '.xltx', '.pptm', '.potx', '.potm', '.xlw', '.xps', '.xsd', '.xsf', '.xsl', '.kmz', '.accdr', '.stm', '.accdt', '.ppam', '.pps', '.ppsm', '.1cd', '.3ds', '.3fr', '.3g2', '.accda', '.accdc', '.accdw', '.adp', '.ai', '.ai3', '.ai4', '.ai5', '.ai6', '.ai7', '.ai8', '.arw', '.ascx', '.asm', '.asmx', '.avs', '.bin', '.cfm', '.dbx', '.dcm', '.dcr', '.pict', '.rgbe', '.dwt', '.f4v', '.exr', '.kwm', '.max', '.mda', '.mde', '.mdf', '.mdw', '.mht', '.mpv', '.msg', '.myi', '.nef', '.odc', '.geo', '.swift', '.odm', '.odp', '.oft', '.orf', '.pfx', '.p12', '.pls', '.safe', '.tab', '.vbs', '.xlk', '.xlm', '.xlt', '.xltm', '.svgz', '.slk', '.dmg', '.ps', '.psb', '.tif', '.rss', '.key', '.vob', '.epsp', '.dc3', '.iff', '.onepkg', '.onetoc2', '.opt', '.p7b', '.pam', '.r3d', '.pkg', '.yml', '.old', '.thmx', '.keytab', '.h', '.php', '.c', '.zip,' '.log', '.log1', '.log2', '.tm', '.blf', '.uic', '.widget-plugin', '.regtrans-ms']
+fileTypes = ['.pyd', '.elf', '.ps1', '.bas', '.bat', '.chm', '.cmd', '.com', '.cpl', '.dll', '.exe', '.msc', '.ocx', '.pcd', '.pif', '.reg', '.scr', '.sct', '.url', '.vbe', '.wsc', '.wsf', '.wsh', '.ct', '.t', '.input', '.war', '.jspx', '.tmp', '.dump', '.pwd', '.w', '.cfg', '.psd1', '.psm1', '.ps1xml', '.clixml', '.psc1', '.pssc', '.www', '.rdp', '.msi', '.dat', '.contact', '.settings', '.odt', '.jpg', '.mka','shtml', '.mhtml', '.oqy', '.png', '.csv', '.py', '.sql', '.mdb', '.html', '.htm', '.xml', '.psd', '.pdf', '.xla', '.cub', '.dae', '.indd', '.cs', '.mp3', '.mp4', '.dwg', '.rar', '.mov', '.rtf', '.bmp', '.mkv', '.avi', '.apk', '.lnk', '.dib', '.dic', '.dif', '.divx', '.iso', '.7zip', '.ace', '.arj', '.bz2', '.cab', '.gzip', '.lzh', '.jpeg', '.xz', '.mpeg', '.torrent', '.mpg', '.core', '.pdb', '.ico', '.pas', '.db', '.wmv', '.swf', '.cer', '.bak', '.backup', '.accdb', '.bay', '.p7c', '.exif', '.vss', '.raw', '.m4a', '.wma', '.flv', '.sie', '.sum', '.ibank', '.wallet', '.css', '.js', '.rb', '.xlsm', '.xlsb', '.7z', '.cpp', '.java', '.jpe', '.ini', '.blob', '.wps', '.wav', '.3gp', '.webm', '.m4v', '.amv', '.m4p', '.svg', '.ods', '.bk', '.vdi', '.vmdk', '.accde', '.json', '.gif', '.gz', '.m1v', '.sln', '.pst', '.obj', '.xlam', '.djvu', '.inc', '.cvs', '.dbf', '.tbi', '.wpd', '.dot', '.dotx', '.xltx', '.pptm', '.potx', '.potm', '.xlw', '.xps', '.xsd', '.xsf', '.xsl', '.kmz', '.accdr', '.stm', '.accdt', '.ppam', '.pps', '.ppsm', '.1cd', '.3ds', '.3fr', '.3g2', '.accda', '.accdc', '.accdw', '.adp', '.ai', '.ai3', '.ai4', '.ai5', '.ai6', '.ai7', '.ai8', '.arw', '.ascx', '.asm', '.asmx', '.avs', '.bin', '.cfm', '.dbx', '.dcm', '.dcr', '.pict', '.rgbe', '.dwt', '.f4v', '.exr', '.kwm', '.max', '.mda', '.mde', '.mdf', '.mdw', '.mht', '.mpv', '.msg', '.myi', '.nef', '.odc', '.geo', '.swift', '.odm', '.odp', '.oft', '.orf', '.pfx', '.p12', '.pls', '.safe', '.tab', '.vbs', '.xlk', '.xlm', '.xlt', '.xltm', '.svgz', '.slk', '.dmg', '.ps', '.psb', '.tif', '.rss', '.key', '.vob', '.epsp', '.dc3', '.iff', '.onepkg', '.onetoc2', '.opt', '.p7b', '.pam', '.r3d', '.pkg', '.yml', '.old', '.thmx', '.keytab', '.h', '.php', '.c', '.zip,' '.log', '.log1', '.log2', '.tm', '.blf', '.uic', '.widget-plugin', '.regtrans-ms', '.efi']
 
 def extract_infos(file_path, rank=None):
     """Extract information about file"""
@@ -548,6 +548,12 @@ def notify_user_ransomware(file_path, virus_name):
     notification.message = f"Potential ransomware detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
+def notify_user_worm(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Worm Alert"
+    notification.message = f"Potential worm detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
 def notify_user_for_web(ip_address=None, dst_ip_address=None):
     notification = Notify()
     notification.title = "Malware or Phishing Alert"
@@ -571,7 +577,17 @@ def is_local_ip(ip):
     return False
 
 class RealTimeWebProtectionHandler:
+    def __init__(self):
+        self.scanned_domains = set()
+        self.scanned_ipv4_addresses = set()
+        self.scanned_ipv6_addresses = set()
+
     def scan_domain(self, domain):
+        if domain in self.scanned_domains:
+            logging.info(f"Domain {domain} already scanned, skipping.")
+            return
+        self.scanned_domains.add(domain)
+
         message = f"Scanning domain: {domain}"
         logging.info(message)
         print(message)
@@ -590,6 +606,17 @@ class RealTimeWebProtectionHandler:
                 return
 
     def scan_ip_address(self, ip_address, is_ipv6=False):
+        if is_ipv6:
+            if ip_address in self.scanned_ipv6_addresses:
+                logging.info(f"IPv6 address {ip_address} already scanned, skipping.")
+                return
+            self.scanned_ipv6_addresses.add(ip_address)
+        else:
+            if ip_address in self.scanned_ipv4_addresses:
+                logging.info(f"IPv4 address {ip_address} already scanned, skipping.")
+                return
+            self.scanned_ipv4_addresses.add(ip_address)
+
         if is_local_ip(ip_address):
             message = f"Skipping local IP address: {ip_address}"
             logging.info(message)
@@ -657,6 +684,7 @@ class RealTimeWebProtectionHandler:
         # Scan IPv6 addresses
         self.scan_ip_address(packet[IPv6].src, is_ipv6=True)
         self.scan_ip_address(packet[IPv6].dst, is_ipv6=True)
+
 
 class RealTimeWebProtectionObserver:
     def __init__(self):
@@ -1065,7 +1093,8 @@ def scan_and_warn(file_path):
     logging.info(f"Scanning file: {file_path}")
     is_malicious, virus_name = scan_file_real_time(file_path)
     ransomware_alert(file_path)
-    
+    worm_alert(file_path)
+
     if is_malicious:
         logging.warning(f"File {file_path} is malicious. Virus: {virus_name}")
         notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
@@ -1093,8 +1122,8 @@ def monitor_snort_log(log_path):
 # Main function to monitor startup directories
 def check_startup_directories():
     # Define the paths to check
-    defaultbox_user_startup_folder = rf'C:\Sandbox\{username}\DefaultBox\user\current\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup'
-    defaultbox_programdata_startup_folder = rf'C:\Sandbox\{username}\DefaultBox\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup'
+    defaultbox_user_startup_folder = rf'{sandbox_folder}\user\current\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup'
+    defaultbox_programdata_startup_folder = rf'{sandbox_folder}\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup'
 
     # List of directories to check
     directories_to_check = [
@@ -1263,6 +1292,142 @@ def ransomware_alert(file_path):
     except Exception as e:
         logging.error(f"Error in ransomware_alert: {e}")
 
+# Global variables for worm detection
+worm_alerted_files = set()
+worm_detected_count = {}
+file_paths = []
+
+def calculate_similarity_worm(features1, features2, threshold=0.86):
+    """
+    Calculate similarity between two dictionaries of features for worm detection.
+    Adjusted threshold for worm detection.
+    """
+    common_keys = set(features1.keys()) & set(features2.keys())
+    matching_keys = sum(1 for key in common_keys if features1[key] == features2[key])
+    similarity = matching_keys / max(len(features1), len(features2))
+    return similarity
+
+def extract_numeric_worm_features(file_path):
+    """
+    Extract numeric features of a file using pefile for worm detection.
+    """
+    res = {}
+    try:
+        pe = pefile.PE(file_path)
+        res['SizeOfOptionalHeader'] = pe.FILE_HEADER.SizeOfOptionalHeader
+        res['MajorLinkerVersion'] = pe.OPTIONAL_HEADER.MajorLinkerVersion
+        res['MinorLinkerVersion'] = pe.OPTIONAL_HEADER.MinorLinkerVersion
+        res['SizeOfCode'] = pe.OPTIONAL_HEADER.SizeOfCode
+        res['SizeOfInitializedData'] = pe.OPTIONAL_HEADER.SizeOfInitializedData
+        res['SizeOfUninitializedData'] = pe.OPTIONAL_HEADER.SizeOfUninitializedData
+        res['AddressOfEntryPoint'] = pe.OPTIONAL_HEADER.AddressOfEntryPoint
+        res['BaseOfCode'] = pe.OPTIONAL_HEADER.BaseOfCode
+        res['BaseOfData'] = pe.OPTIONAL_HEADER.BaseOfData if hasattr(pe.OPTIONAL_HEADER, 'BaseOfData') else 0
+        res['ImageBase'] = pe.OPTIONAL_HEADER.ImageBase
+        res['SectionAlignment'] = pe.OPTIONAL_HEADER.SectionAlignment
+        res['FileAlignment'] = pe.OPTIONAL_HEADER.FileAlignment
+        res['MajorOperatingSystemVersion'] = pe.OPTIONAL_HEADER.MajorOperatingSystemVersion
+        res['MinorOperatingSystemVersion'] = pe.OPTIONAL_HEADER.MinorOperatingSystemVersion
+        res['MajorImageVersion'] = pe.OPTIONAL_HEADER.MajorImageVersion
+        res['MinorImageVersion'] = pe.OPTIONAL_HEADER.MinorImageVersion
+        res['MajorSubsystemVersion'] = pe.OPTIONAL_HEADER.MajorSubsystemVersion
+        res['MinorSubsystemVersion'] = pe.OPTIONAL_HEADER.MinorSubsystemVersion
+        res['SizeOfImage'] = pe.OPTIONAL_HEADER.SizeOfImage
+        res['SizeOfHeaders'] = pe.OPTIONAL_HEADER.SizeOfHeaders
+        res['CheckSum'] = pe.OPTIONAL_HEADER.CheckSum
+        res['Subsystem'] = pe.OPTIONAL_HEADER.Subsystem
+        res['DllCharacteristics'] = pe.OPTIONAL_HEADER.DllCharacteristics
+        res['SizeOfStackReserve'] = pe.OPTIONAL_HEADER.SizeOfStackReserve
+        res['SizeOfStackCommit'] = pe.OPTIONAL_HEADER.SizeOfStackCommit
+        res['SizeOfHeapReserve'] = pe.OPTIONAL_HEADER.SizeOfHeapReserve
+        res['SizeOfHeapCommit'] = pe.OPTIONAL_HEADER.SizeOfHeapCommit
+        res['LoaderFlags'] = pe.OPTIONAL_HEADER.LoaderFlags
+        res['NumberOfRvaAndSizes'] = pe.OPTIONAL_HEADER.NumberOfRvaAndSizes
+    except Exception as e:
+        logging.error(f"An error occurred while processing {file_path}: {e}")
+
+    return res
+
+# Worm alert function
+def worm_alert(file_path):
+    global main_file_path
+    global worm_alerted_files
+    global worm_detected_count
+    global file_paths
+
+    if file_path in worm_alerted_files:
+        logging.info(f"Worm alert already triggered for {file_path}, skipping...")
+        return
+
+    try:
+        logging.info(f"Running worm detection for file '{file_path}'")
+
+        if is_pe_file(file_path):
+            logging.info(f"File '{file_path}' is identified as a PE file")
+            features_current = extract_numeric_worm_features(file_path)
+
+            system32_dir = rf'{sandbox_folder}\drive\C\Windows\System32'
+            syswow64_dir = rf'{sandbox_folder}\drive\C\Windows\SysWOW64'
+
+            detected_in_syswow64 = os.path.exists(syswow64_dir) and \
+                                   os.path.isfile(os.path.join(syswow64_dir, os.path.basename(file_path)))
+            detected_in_system32 = False
+
+            if detected_in_syswow64:
+                if os.path.exists(system32_dir):
+                    detected_in_system32 = os.path.isfile(os.path.join(system32_dir, os.path.basename(file_path)))
+                    logging.info(f"File '{file_path}' detected in SysWOW64 and checking System32...")
+
+            if main_file_path:
+                features_main = extract_numeric_worm_features(main_file_path)
+                similarity_main = calculate_similarity_worm(features_current, features_main)
+                if similarity_main > 0.86:
+                    logging.warning(f"Main file '{main_file_path}' is spreading the worm to '{file_path}' with similarity score {similarity_main}")
+                    detected_in_system32 = True
+
+            for collected_file_path in file_paths:
+                if collected_file_path != file_path:
+                    features_collected = extract_numeric_worm_features(collected_file_path)
+                    similarity_collected = calculate_similarity_worm(features_current, features_collected)
+                    if similarity_collected > 0.86:
+                        logging.warning(f"Worm has spread to '{collected_file_path}' with similarity score {similarity_collected}")
+                        detected_in_system32 = True
+
+            worm_detected_count[file_path] = worm_detected_count.get(file_path, 0) + 1
+            if detected_in_syswow64 and detected_in_system32:
+                logging.warning(f"Worm '{file_path}' detected in both SysWOW64 and System32. Alerting user.")
+                notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Generic.Malware")
+                worm_alerted_files.add(file_path)
+            elif worm_detected_count[file_path] >= 5:
+                logging.warning(f"Worm '{file_path}' detected under 5 different names in critical directories. Alerting user.")
+                notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Generic.Malware")
+                worm_alerted_files.add(file_path)
+        else:
+            logging.info(f"File '{file_path}' is not a PE file, skipping worm detection.")
+
+    except Exception as e:
+        logging.error(f"Error in worm detection for file {file_path}: {e}")
+
+# Function to monitor System32 and SysWOW64 directories
+def check_critical_directories():
+    system32_dir = rf'{sandbox_folder}\drive\C\Windows\System32'
+    syswow64_dir = rf'{sandbox_folder}\drive\C\Windows\SysWOW64'
+
+    critical_directories = [system32_dir, syswow64_dir]
+    alerted_files = set()
+
+    while True:
+        for directory in critical_directories:
+            if os.path.exists(directory):
+                for file in os.listdir(directory):
+                    file_path = os.path.join(directory, file)
+                    if os.path.isfile(file_path) and file_path not in alerted_files:
+                        logging.info(f"File detected in {directory}: {file}")
+                        print(f"File detected in {directory}: {file}")
+                        file_paths.append(file_path)
+                        worm_alert(file_path)
+                        alerted_files.add(file_path)
+
 class ScanAndWarnHandler(FileSystemEventHandler):
     def on_created(self, event):
         if not event.is_directory:
@@ -1316,7 +1481,7 @@ def perform_sandbox_analysis(file_path):
 
         # Initialize Watchdog Observer to monitor file system events
         observer = Observer()
-        observer.schedule(event_handler, path=os.path.dirname(file_path), recursive=False)
+        observer.schedule(event_handler, path=sandbox_folder, recursive=False)
         observer.start()
         
         logging.info("File system event monitoring started.")
@@ -1326,6 +1491,7 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=start_monitoring_sandbox).start()
         threading.Thread(target=scan_sandbox_folder).start()
         threading.Thread(target=check_startup_directories).start()
+        threading.Thread(target=check_critical_directories).start()
         threading.Thread(target=check_uefi_directories).start() # Start monitoring UEFI directories for malicious files in a separate thread
         threading.Thread(target=run_sandboxie_control).start()
         threading.Thread(target=run_sandboxie, args=(file_path,)).start()
