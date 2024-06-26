@@ -55,6 +55,15 @@ if exist database (
     echo database directory not found. Please ensure it is in the same directory as this script.
 )
 
+:: Install Python requirements
+if exist requirements.txt (
+    echo Installing Python requirements...
+    pip install -r requirements.txt
+    echo Python requirements installed.
+) else (
+    echo requirements.txt not found. Please ensure it is in the same directory as this script.
+)
+
 :: Setup MBRFilter
 :: Check system architecture and copy appropriate MBRFilter files
 echo Setting up MBRFilter...
