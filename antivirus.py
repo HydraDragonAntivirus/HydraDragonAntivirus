@@ -1027,9 +1027,9 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line):
     Convert IP addresses to associated file paths.
     This function will only warn the user and simulate the detection of files.
     """
-    for proc in psutil.process_iter(['pid', 'name', 'exe', 'connections']):
+    for proc in psutil.process_iter(['pid', 'name', 'exe']):
         try:
-            connections = proc.info['connections']
+            connections = proc.connections()
             if connections:
                 for conn in connections:
                     if conn.raddr and (conn.raddr.ip == src_ip or conn.raddr.ip == dst_ip):
@@ -1037,9 +1037,8 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line):
                         if file_path:
                             logging.info(f"Warning: Detected file {file_path} associated with IP {src_ip} or {dst_ip}")
                             print(f"Warning: Detected file {file_path} associated with IP {src_ip} or {dst_ip}")
-                            # Notify the user in a separate thread (independent)
-                            notify_user_real_time_thread = threading.Thread(target=notify_user_for_detected_hips_file, args=(file_path, src_ip, alert_line))
-                            notify_user_real_time_thread.start()
+                            # Notify the user directly
+                            notify_user_for_detected_hips_file(file_path, src_ip, alert_line)
         except psutil.NoSuchProcess:
             logging.warning(f"Process no longer exists: {proc.info.get('pid')}")
         except psutil.AccessDenied:
