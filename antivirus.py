@@ -308,7 +308,7 @@ def restart_clamd_if_not_running():
 def verify_executable_signature(path):
     cmd = " " + f'"{path}"'
     command = "(Get-AuthenticodeSignature" + cmd + ").Status"
-    process = subprocess.run(['Powershell', '-Command', command], stdout=subprocess.PIPE, encoding='utf-8')
+    process = subprocess.run(['Powershell', '-Command', command], stdout=subprocess.PIPE, encoding='cp1254')
     
     status = process.stdout.strip()
     
@@ -1235,7 +1235,7 @@ def has_known_extension(file_path):
 def is_readable(file_path):
     try:
         logging.info(f"Attempting to read file '{file_path}'")
-        with open(file_path, 'r', encoding='utf-8') as file:
+        with open(file_path, 'r', encoding='cp1254') as file:
             file_data = file.read(1024)
             if file_data:  # Check if file has readable content
                 logging.info(f"File '{file_path}' is readable")
