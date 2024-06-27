@@ -1482,9 +1482,14 @@ def worm_alert(file_path):
             detected_in_system32 = False
 
             if detected_in_syswow64:
-                if os.path.exists(system32_dir):
+                if (os.path.exists(system32_dir)):
                     detected_in_system32 = os.path.isfile(os.path.join(system32_dir, os.path.basename(file_path)))
                     logging.info(f"File '{file_path}' detected in SysWOW64 and checking System32...")
+
+            # Ensure the detected file path is not the same as any other file path
+            if any(file_path == other_file_path for other_file_path in file_paths):
+                logging.info(f"File '{file_path}' is the same as another file path, skipping worm detection.")
+                return
 
             if main_file_path:
                 features_main = extract_numeric_worm_features(main_file_path)
