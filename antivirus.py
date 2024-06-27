@@ -1528,7 +1528,7 @@ def run_sandboxie_control():
     except Exception as e:
         logging.error(f"Unexpected error running Sandboxie control: {e}")
 
-def monitor_user_directory(sandbox_folder, fileTypes, ransomware_alert):
+def monitor_user_directory():
     try:
         user_dir = rf'{sandbox_folder}\DefaultBox\user\current'
 
