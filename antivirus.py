@@ -698,7 +698,7 @@ class RealTimeWebProtectionHandler:
                     logging.info(message)
                     print(message)
             if packet[DNS].an:
-                for i in range(packet[DNS].ancount]):
+                for i in range(packet[DNS].ancount):
                     answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
                     self.scan_domain(answer_name)
                     message = f"DNS Answer (IPv6): {answer_name}"
