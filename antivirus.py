@@ -999,7 +999,7 @@ def process_alert(line):
         dst_ip = match.group(3)
         logging.info(f"Alert detected: Priority {priority}, Source {src_ip}, Destination {dst_ip}")
         print(f"Alert detected: Priority {priority}, Source {src_ip}, Destination {dst_ip}")
-        if priority == 1:
+        if priority == 1 or priority == 2:
             logging.warning(f"Potential malware detected: {line.strip()}")
             print(f"Potential malware detected from {src_ip} to {dst_ip} with priority {priority}")
             notify_user_for_web(ip_address=src_ip, dst_ip_address=dst_ip)
