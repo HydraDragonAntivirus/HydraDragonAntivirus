@@ -327,7 +327,114 @@ def scan_file_real_time(file_path):
             logging.info(f"Skipping file in script directory: {file_path}")
             return False, "Clean"
 
+        # Skip scanning if the file is an SQLite filedef scan_file_real_time(file_path):
+    """Scan file in real-time using multiple engines."""
+    logging.info(f"Started scanning file: {file_path}")
+
+    try:
+        # Skip scanning if the file is in the script directory
+        if os.path.commonpath([file_path, script_dir]) == script_dir:
+            logging.info(f"Skipping file in script directory: {file_path}")
+            return False, "Clean"
+
         # Skip scanning if the file is an SQLite file
+        if is_sqlite_file(file_path):
+            logging.info(f"Skipping SQLite file: {file_path}")
+            return False, "Clean"
+
+        # Scan PE files with Static Machine Learning
+        if is_pe_file(file_path):
+            is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
+            if is_malicious:
+                if benign_score < 0.93:
+                    logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
+                    return True, malware_definition
+                elif benign_score >= 0.93:
+                    logging.info(f"File is clean based on ML benign score: {file_path}")
+                    return False, "Clean"
+            logging.info(f"No malware detected by Machine Learning in file: {file_path}")
+
+        # Scan with ClamAV
+        try:
+            result = scan_file_with_clamd(file_path)
+            if result not in ("Clean", ""):
+                logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
+                return True, result
+            logging.info(f"No malware detected by ClamAV in file: {file_path}")
+        except Exception as e:
+            logging.error(f"An error occurred while scanning file with ClamAV: {file_path}. Error: {str(e)}")
+
+        # Scan with YARA
+        try:
+            yara_result = yara_scanner.scan_data(file_path)
+            
+            if yara_result is not None and yara_result not in ("Clean", ""):
+                logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
+                # Add your GUI-related code here if necessary (e.g., adding items to a list widget)
+                return True, yara_result
+
+            logging.info(f"Scanned file with YARA: {file_path} - No viruses detected")
+            return False, None
+        
+        except Exception as e:
+            logging.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {e}")
+            return False, None
+
+        # Scan PE files
+        if is_pe_file(file_path):
+            try:
+                scan_result, virus_name = scan_pe_file(file_path)
+                if scan_result and virus_name not in ("Clean", ""):
+                    logging.warning(f"Infected file detected (PE): {file_path} - Virus: {virus_name}")
+                    return True, virus_name
+                logging.info(f"No malware detected in PE file: {file_path}")
+            except PermissionError:
+                logging.error(f"Permission error occurred while scanning PE file: {file_path}")
+            except FileNotFoundError:
+                logging.error(f"PE file not found error occurred while scanning PE file: {file_path}")
+            except Exception as e:
+                logging.error(f"An error occurred while scanning PE file: {file_path}. Error: {str(e)}")
+
+        # Scan TAR files
+        if tarfile.is_tarfile(file_path):
+            try:
+                scan_result, virus_name = scan_tar_file(file_path)
+                if scan_result and virus_name not in ("Clean", "F", ""):
+                    logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
+                    return True, virus_name
+                logging.info(f"No malware detected in TAR file: {file_path}")
+            except PermissionError:
+                logging.error(f"Permission error occurred while scanning TAR file: {file_path}")
+            except FileNotFoundError:
+                logging.error(f"TAR file not found error occurred while scanning TAR file: {file_path}")
+            except Exception as e:
+                logging.error(f"An error occurred while scanning TAR file: {file_path}. Error: {str(e)}")
+
+        # Scan ZIP files
+        if zipfile.is_zipfile(file_path):
+            try:
+                scan_result, virus_name = scan_zip_file(file_path)
+                if scan_result and virus_name not in ("Clean", ""):
+                    logging.warning(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
+                    return True, virus_name
+                logging.info(f"No malware detected in ZIP file: {file_path}")
+            except PermissionError:
+                logging.error(f"Permission error occurred while scanning ZIP file: {file_path}")
+            except FileNotFoundError:
+                logging.error(f"ZIP file not found error occurred while scanning ZIP file: {file_path}")
+            except Exception as e:
+                logging.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {str(e)}")
+
+        # Verify executable signature
+        if is_pe_file(file_path) and verify_executable_signature(file_path):
+            logging.warning(f"File has invalid signature: {file_path}")
+            return True, "Invalid signature"
+
+    except Exception as e:
+        logging.error(f"An error occurred while scanning file: {file_path}. Error: {str(e)}")
+
+    return False, "Clean"
+
         if is_sqlite_file(file_path):
             logging.info(f"Skipping SQLite file: {file_path}")
             return False, "Clean"
@@ -1167,8 +1274,37 @@ except FileNotFoundError:
 except Exception as e:
     print(f"An unexpected error occurred: {e}")
 
+def contains_pe_header(file_path):
+    try:
+        with open(file_path, 'rb') as f:
+            mz_header = f.read(2)
+            if mz_header != b'MZ':
+                return False
+            f.seek(60)
+            pe_offset = int.from_bytes(f.read(4), 'little')
+            f.seek(pe_offset)
+            pe_header = f.read(4)
+            return pe_header == b'PE\x00\x00'
+    except Exception as e:
+        logging.error(f"Error checking PE header: {e}")
+        return False
+
+def is_valid_pe_file(file_path):
+    try:
+        pe = pefile.PE(file_path)
+        return True
+    except pefile.PEFormatError:
+        return False
+
 def scan_and_warn(file_path):
     logging.info(f"Scanning file: {file_path}")
+
+    # Check if the file contains a PE header
+    if contains_pe_header(file_path):
+        if not is_valid_pe_file(file_path):
+            logging.warning(f"File {file_path} contains a PE header but is not a valid PE file. Flagged as broken executable.")
+            return False
+
     is_malicious, virus_name = scan_file_real_time(file_path)
     ransomware_alert(file_path)
     worm_alert(file_path)
@@ -1221,6 +1357,7 @@ def check_startup_directories():
                             logging.info(f"Startup file detected in {directory}: {file}")
                             print(f"Startup file detected in {directory}: {file}")
                             notify_user_startup(file_path, "HEUR:Win32.Startup.Generic.Malware")
+                            scan_and_warn(file_path)
                             alerted_files.append(file_path)
 
 def is_malicious_file(file_path, size_limit_kb):
@@ -1245,6 +1382,7 @@ def check_uefi_directories():
                         logging.warning(f"Malicious file detected: {uefi_path}")
                         print(f"Malicious file detected: {uefi_path}")
                         notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.ScreenLocker.Ransomware.Generic.Malware")
+                        scan_and_warn(file_path)
                         alerted_uefi_files.append(uefi_path)
 
         # Check for any new files in the EFI directory
@@ -1256,6 +1394,7 @@ def check_uefi_directories():
                     logging.warning(f"Unknown file detected: {file_path}")
                     print(f"Unknown file detected: {file_path}")
                     notify_user_uefi(file_path, "HEUR:Win32.Startup.UEFI.Generic.Malware")
+                    scan_and_warn(file_path)
                     alerted_uefi_files.append(file_path)
 
 def has_known_extension(file_path):
@@ -1501,7 +1640,7 @@ def check_critical_directories():
                         logging.info(f"File detected in {directory}: {file}")
                         print(f"File detected in {directory}: {file}")
                         alerted_files.append(file_path)
-                        worm_alert(file_path)
+                        scan_and_warn(file_path)
 
 class ScanAndWarnHandler(FileSystemEventHandler):
     def on_any_event(self, event):
@@ -1584,7 +1723,7 @@ def monitor_user_directory():
                 # If the previous extension is in fileTypes and the final extension is not, raise an alert
                 if previous_extension in fileTypes and final_extension not in fileTypes:
                     logging.info(f"File '{file_path}' has unknown final extension '{final_extension}' and known previous extension '{previous_extension}'")
-                    ransomware_alert(file_path)
+                    scan_and_warn(file_path)
                     return True
                 return False
             except Exception as e:
