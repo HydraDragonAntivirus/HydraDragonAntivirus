@@ -1135,7 +1135,6 @@ def scan_and_warn(file_path):
 def start_monitoring_sandbox():
     sandbox_thread = threading.Thread(target=monitor_sandbox)
     sandbox_thread.start()
-    return sandbox_thread
 
 def monitor_snort_log(log_path):
     if not os.path.exists(log_path):
