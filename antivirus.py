@@ -1479,19 +1479,17 @@ def worm_alert(file_path):
 
             detected_in_syswow64 = os.path.exists(syswow64_dir) and \
                                    os.path.isfile(os.path.join(syswow64_dir, os.path.basename(file_path)))
-            detected_in_system32 = False
+            detected_in_system32 = os.path.exists(system32_dir) and \
+                                   os.path.isfile(os.path.join(system32_dir, os.path.basename(file_path)))
 
-            if detected_in_syswow64:
-                if os.path.exists(system32_dir):
-                    detected_in_system32 = os.path.isfile(os.path.join(system32_dir, os.path.basename(file_path)))
-                    logging.info(f"File '{file_path}' detected in SysWOW64 and checking System32...")
+            worm_detected = detected_in_syswow64 or detected_in_system32
 
-            if main_file_path:
+            if main_file_path and main_file_path != file_path:
                 features_main = extract_numeric_worm_features(main_file_path)
                 similarity_main = calculate_similarity_worm(features_current, features_main)
                 if similarity_main > 0.86:
                     logging.warning(f"Main file '{main_file_path}' is spreading the worm to '{file_path}' with similarity score {similarity_main}")
-                    detected_in_system32 = True
+                    worm_detected = True
 
             for collected_file_path in file_paths:
                 if collected_file_path != file_path:
@@ -1499,11 +1497,11 @@ def worm_alert(file_path):
                     similarity_collected = calculate_similarity_worm(features_current, features_collected)
                     if similarity_collected > 0.86:
                         logging.warning(f"Worm has spread to '{collected_file_path}' with similarity score {similarity_collected}")
-                        detected_in_system32 = True
+                        worm_detected = True
 
             worm_detected_count[file_path] = worm_detected_count.get(file_path, 0) + 1
-            if detected_in_syswow64 and detected_in_system32:
-                logging.warning(f"Worm '{file_path}' detected in both SysWOW64 and System32. Alerting user.")
+            if worm_detected:
+                logging.warning(f"Worm '{file_path}' detected in critical directory. Alerting user.")
                 notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Generic.Malware")
                 worm_alerted_files.append(file_path)
             elif worm_detected_count[file_path] >= 5:
