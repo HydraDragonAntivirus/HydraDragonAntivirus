@@ -1572,6 +1572,36 @@ def monitor_user_directory():
     except Exception as e:
         logging.error(f"Error in monitor_user_directory: {e}")
 
+def detect_new_files():
+    """
+    Detect new files in the main folder and subfolders within sandbox_folder.
+    """
+    # Dictionary to keep track of existing files
+    seen_files = {}
+
+    # Function to scan the directory and update the seen_files dictionary
+    def scan_directory():
+        for root, _, files in os.walk(sandbox_folder):
+            for file in files:
+                file_path = os.path.join(root, file)
+                if os.path.isfile(file_path):
+                    # Store the modification time of the file
+                    file_mod_time = os.path.getmtime(file_path)
+                    if file_path not in seen_files:
+                        seen_files[file_path] = file_mod_time
+                        logging.info(f"New file detected: {file_path}")
+                        print(f"New file detected: {file_path}")
+                        scan_and_warn(file_path)
+                    elif seen_files[file_path] != file_mod_time:
+                        seen_files[file_path] = file_mod_time
+                        logging.info(f"File modified: {file_path}")
+                        print(f"File modified: {file_path}")
+                        scan_and_warn(file_path)
+
+    # Continuously monitor the directory
+    while True:
+        scan_directory()
+
 def perform_sandbox_analysis(file_path):
     global main_file_path
     try:
@@ -1596,6 +1626,7 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=web_protection_observer.start).start()
 
         # Start other sandbox analysis tasks in separate threads
+        threading.Thread(target=detect_new_files).start()
         threading.Thread(target=observer.start).start()
         threading.Thread(target=scan_and_warn, args=(file_path,)).start()
         threading.Thread(target=start_monitoring_sandbox).start()
