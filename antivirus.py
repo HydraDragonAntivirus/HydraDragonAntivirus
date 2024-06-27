@@ -602,15 +602,15 @@ def is_local_ip(ip):
 
 class RealTimeWebProtectionHandler:
     def __init__(self):
-        self.scanned_domains = set()
-        self.scanned_ipv4_addresses = set()
-        self.scanned_ipv6_addresses = set()
+        self.scanned_domains = []
+        self.scanned_ipv4_addresses = []
+        self.scanned_ipv6_addresses = []
 
     def scan_domain(self, domain):
         if domain in self.scanned_domains:
             logging.info(f"Domain {domain} already scanned, skipping.")
             return
-        self.scanned_domains.add(domain)
+        self.scanned_domains.append(domain)
 
         message = f"Scanning domain: {domain}"
         logging.info(message)
@@ -634,12 +634,12 @@ class RealTimeWebProtectionHandler:
             if ip_address in self.scanned_ipv6_addresses:
                 logging.info(f"IPv6 address {ip_address} already scanned, skipping.")
                 return
-            self.scanned_ipv6_addresses.add(ip_address)
+            self.scanned_ipv6_addresses.append(ip_address)
         else:
             if ip_address in self.scanned_ipv4_addresses:
                 logging.info(f"IPv4 address {ip_address} already scanned, skipping.")
                 return
-            self.scanned_ipv4_addresses.add(ip_address)
+            self.scanned_ipv4_addresses.append(ip_address)
 
         if is_local_ip(ip_address):
             message = f"Skipping local IP address: {ip_address}"
@@ -698,7 +698,7 @@ class RealTimeWebProtectionHandler:
                     logging.info(message)
                     print(message)
             if packet[DNS].an:
-                for i in range(packet[DNS].ancount):
+                for i in range(packet[DNS].ancount]):
                     answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
                     self.scan_domain(answer_name)
                     message = f"DNS Answer (IPv6): {answer_name}"
@@ -708,7 +708,6 @@ class RealTimeWebProtectionHandler:
         # Scan IPv6 addresses
         self.scan_ip_address(packet[IPv6].src, is_ipv6=True)
         self.scan_ip_address(packet[IPv6].dst, is_ipv6=True)
-
 
 class RealTimeWebProtectionObserver:
     def __init__(self):
@@ -1016,24 +1015,38 @@ def monitor_sandbox():
         win32file.CloseHandle(hDir)
 
 def process_alert(line):
-    match = alert_regex.search(line)
-    if match:
-        priority = int(match.group(1))
-        src_ip = match.group(2)
-        dst_ip = match.group(3)
-        logging.info(f"Alert detected: Priority {priority}, Source {src_ip}, Destination {dst_ip}")
-        print(f"Alert detected: Priority {priority}, Source {src_ip}, Destination {dst_ip}")
-        
-        if priority == 1:
-            logging.warning(f"Malicious activity detected: {line.strip()}")
-            print(f"Malicious activity detected from {src_ip} to {dst_ip} with priority {priority}")
-            notify_user_for_hips(ip_address=src_ip, dst_ip_address=dst_ip, is_malicious=True)
-            return True
-        elif priority == 2:
-            logging.warning(f"Potential malware detected: {line.strip()}")
-            print(f"Potential malware detected from {src_ip} to {dst_ip} with priority {priority}")
-            notify_user_for_hips(ip_address=src_ip, dst_ip_address=dst_ip)
-            return True
+    try:
+        match = alert_regex.search(line)
+        if match:
+            try:
+                priority = int(match.group(1))
+                src_ip = match.group(2)
+                dst_ip = match.group(3)
+                logging.info(f"Alert detected: Priority {priority}, Source {src_ip}, Destination {dst_ip}")
+                print(f"Alert detected: Priority {priority}, Source {src_ip}, Destination {dst_ip}")
+
+                if priority == 1:
+                    logging.warning(f"Malicious activity detected: {line.strip()}")
+                    print(f"Malicious activity detected from {src_ip} to {dst_ip} with priority {priority}")
+                    try:
+                        notify_user_for_hips(ip_address=src_ip, dst_ip_address=dst_ip, is_malicious=True)
+                    except Exception as e:
+                        logging.error(f"Error notifying user for HIPS (malicious): {e}")
+                    return True
+                elif priority == 2:
+                    logging.warning(f"Potential malware detected: {line.strip()}")
+                    print(f"Potential malware detected from {src_ip} to {dst_ip} with priority {priority}")
+                    try:
+                        notify_user_for_hips(ip_address=src_ip, dst_ip_address=dst_ip)
+                    except Exception as e:
+                        logging.error(f"Error notifying user for HIPS (potential malware): {e}")
+                    return True
+            except Exception as e:
+                logging.error(f"Error processing alert details: {e}")
+                print(f"Error processing alert details: {e}")
+    except Exception as e:
+        logging.error(f"Error matching alert regex: {e}")
+        print(f"Error matching alert regex: {e}")
     return False
 
 def clean_directory(directory_path):
@@ -1160,8 +1173,8 @@ def check_startup_directories():
         defaultbox_programdata_startup_folder
     ]
 
-    # Set to keep track of already alerted files
-    alerted_files = set()
+    # List to keep track of already alerted files
+    alerted_files = []
 
     while True:
         for directory in directories_to_check:
@@ -1173,7 +1186,7 @@ def check_startup_directories():
                             logging.info(f"Startup file detected in {directory}: {file}")
                             print(f"Startup file detected in {directory}: {file}")
                             notify_user_startup(file_path, "HEUR:Win32.Startup.Generic.Malware")
-                            alerted_files.add(file_path)
+                            alerted_files.append(file_path)
 
 def is_malicious_file(file_path, size_limit_kb):
     """ Check if the file is less than the given size limit """
@@ -1181,24 +1194,23 @@ def is_malicious_file(file_path, size_limit_kb):
 
 def check_uefi_directories():
     """ Continuously check the specified UEFI directories for malicious files """
-    alerted_uefi_files = set()
-    known_uefi_files = set(uefi_100kb_paths + uefi_paths)
+    alerted_uefi_files = []
+    known_uefi_files = list(set(uefi_100kb_paths + uefi_paths))  # Convert to list and ensure uniqueness
 
     while True:
         for uefi_path in uefi_paths + uefi_100kb_paths:
-            if os.path.isfile(uefi_path):
-                if uefi_path.endswith(".efi"):
-                    if uefi_path not in alerted_uefi_files:
-                        if uefi_path in uefi_100kb_paths and is_malicious_file(uefi_path, 100):
-                            logging.warning(f"Malicious file detected: {uefi_path}")
-                            print(f"Malicious file detected: {uefi_path}")
-                            notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.SecureBootRecovery.Generic.Malware")
-                            alerted_uefi_files.add(uefi_path)
-                        elif uefi_path in uefi_paths and is_malicious_file(uefi_path, 1024):
-                            logging.warning(f"Malicious file detected: {uefi_path}")
-                            print(f"Malicious file detected: {uefi_path}")
-                            notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.ScreenLocker.Ransomware.Generic.Malware")
-                            alerted_uefi_files.add(uefi_path)
+            if os.path.isfile(uefi_path) and uefi_path.endswith(".efi"):
+                if uefi_path not in alerted_uefi_files:
+                    if uefi_path in uefi_100kb_paths and is_malicious_file(uefi_path, 100):
+                        logging.warning(f"Malicious file detected: {uefi_path}")
+                        print(f"Malicious file detected: {uefi_path}")
+                        notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.SecureBootRecovery.Generic.Malware")
+                        alerted_uefi_files.append(uefi_path)
+                    elif uefi_path in uefi_paths and is_malicious_file(uefi_path, 1024):
+                        logging.warning(f"Malicious file detected: {uefi_path}")
+                        print(f"Malicious file detected: {uefi_path}")
+                        notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.ScreenLocker.Ransomware.Generic.Malware")
+                        alerted_uefi_files.append(uefi_path)
 
         # Check for any new files in the EFI directory
         efi_dir = rf'{sandbox_folder}\drive\X\EFI'
@@ -1209,7 +1221,7 @@ def check_uefi_directories():
                     logging.warning(f"Unknown file detected: {file_path}")
                     print(f"Unknown file detected: {file_path}")
                     notify_user_uefi(file_path, "HEUR:Win32.Startup.UEFI.Generic.Malware")
-                    alerted_uefi_files.add(file_path)
+                    alerted_uefi_files.append(file_path)
 
 def has_known_extension(file_path):
     try:
@@ -1322,7 +1334,7 @@ def ransomware_alert(file_path):
         logging.error(f"Error in ransomware_alert: {e}")
 
 # Global variables for worm detection
-worm_alerted_files = set()
+worm_alerted_files = []
 worm_detected_count = {}
 file_paths = []
 
@@ -1426,11 +1438,11 @@ def worm_alert(file_path):
             if detected_in_syswow64 and detected_in_system32:
                 logging.warning(f"Worm '{file_path}' detected in both SysWOW64 and System32. Alerting user.")
                 notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Generic.Malware")
-                worm_alerted_files.add(file_path)
+                worm_alerted_files.append(file_path)
             elif worm_detected_count[file_path] >= 5:
                 logging.warning(f"Worm '{file_path}' detected under 5 different names in critical directories. Alerting user.")
                 notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Generic.Malware")
-                worm_alerted_files.add(file_path)
+                worm_alerted_files.append(file_path)
         else:
             logging.info(f"File '{file_path}' is not a PE file, skipping worm detection.")
 
@@ -1438,12 +1450,12 @@ def worm_alert(file_path):
         logging.error(f"Error in worm detection for file {file_path}: {e}")
 
 # Function to monitor System32 and SysWOW64 directories
-def check_critical_directories():
+def check_critical_directories(sandbox_folder):
     system32_dir = rf'{sandbox_folder}\drive\C\Windows\System32'
     syswow64_dir = rf'{sandbox_folder}\drive\C\Windows\SysWOW64'
 
     critical_directories = [system32_dir, syswow64_dir]
-    alerted_files = set()
+    alerted_files = []
 
     while True:
         for directory in critical_directories:
@@ -1453,25 +1465,54 @@ def check_critical_directories():
                     if os.path.isfile(file_path) and file_path not in alerted_files:
                         logging.info(f"File detected in {directory}: {file}")
                         print(f"File detected in {directory}: {file}")
-                        file_paths.append(file_path)
+                        alerted_files.append(file_path)
                         worm_alert(file_path)
-                        alerted_files.add(file_path)
 
 class ScanAndWarnHandler(FileSystemEventHandler):
+    def on_any_event(self, event):
+        if event.is_directory:
+            self.process_directory(event.src_path)
+            logging.info(f"Directory event detected: {event.src_path}")
+        else:
+            logging.info(f"Event detected: {event.event_type} for file: {event.src_path}")
+
     def on_created(self, event):
-        if not event.is_directory:
-            self.process(event.src_path)
+        if event.is_directory:
+            self.process_directory(event.src_path)
+            logging.info(f"Directory created: {event.src_path}")
+        else:
+            self.process_file(event.src_path)
+            logging.info(f"File created: {event.src_path}")
 
     def on_modified(self, event):
         if not event.is_directory:
-            self.process(event.src_path)
+            self.process_file(event.src_path)
+            logging.info(f"File modified: {event.src_path}")
 
     def on_moved(self, event):
-        if not event.is_directory:
-            self.process(event.dest_path)
+        if event.is_directory:
+            self.process_directory(event.dest_path)
+            logging.info(f"Directory moved: {event.src_path} to {event.dest_path}")
+        else:
+            self.process_file(event.dest_path)
+            logging.info(f"File moved: {event.src_path} to {event.dest_path}")
 
-    def process(self, file_path):
-        scan_and_warn(file_path)
+    def process_file(self, file_path):
+        try:
+            scan_and_warn(file_path)
+            logging.info(f"Processed file: {file_path}")
+        except Exception as e:
+            logging.error(f"Error processing file {file_path}: {e}")
+
+    def process_directory(self, dir_path):
+        try:
+            for root, _, files in os.walk(dir_path):
+                for file_name in files:
+                    file_path = os.path.join(root, file_name)
+                    self.process_file(file_path)
+            logging.info(f"Processed all files in directory: {dir_path}")
+        except Exception as e:
+            logging.error(f"Error processing directory {dir_path}: {e}")
 
 event_handler = ScanAndWarnHandler()
 observer = Observer()
@@ -1487,11 +1528,9 @@ def run_sandboxie_control():
     except Exception as e:
         logging.error(f"Unexpected error running Sandboxie control: {e}")
 
-def monitor_user_directory():
+def monitor_user_directory(sandbox_folder, fileTypes, ransomware_alert):
     try:
         user_dir = rf'{sandbox_folder}\DefaultBox\user\current'
-        # Convert the fileTypes list to a set for faster lookup
-        known_extensions = set(fileTypes)
 
         # Function to check if a file meets the criteria for ransomware alert
         def check_file(file_path):
@@ -1507,8 +1546,8 @@ def monitor_user_directory():
                 previous_extension = '.' + parts[-2].lower()
                 final_extension = '.' + parts[-1].lower()
 
-                # If the previous extension is known and the final extension is not, raise an alert
-                if previous_extension in known_extensions and final_extension not in known_extensions:
+                # If the previous extension is in fileTypes and the final extension is not, raise an alert
+                if previous_extension in fileTypes and final_extension not in fileTypes:
                     logging.info(f"File '{file_path}' has unknown final extension '{final_extension}' and known previous extension '{previous_extension}'")
                     ransomware_alert(file_path)
                     return True
@@ -1517,7 +1556,7 @@ def monitor_user_directory():
                 logging.error(f"Error checking file '{file_path}': {e}")
                 return False
 
-        alerted_files = set()
+        alerted_files = []
 
         # Continuously monitor the directory
         while True:
@@ -1529,7 +1568,7 @@ def monitor_user_directory():
                             logging.info(f"File detected in {user_dir}: {file}")
                             print(f"File detected in {user_dir}: {file}")
                             if check_file(file_path):
-                                alerted_files.add(file_path)
+                                alerted_files.append(file_path)
     except Exception as e:
         logging.error(f"Error in monitor_user_directory: {e}")
 
