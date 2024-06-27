@@ -11,8 +11,22 @@ if %errorlevel% neq 0 (
 :: Change to the directory of the script
 cd /d %~dp0
 
-:: Set the PATH variable to include ClamAV, Snort, and Sandboxie
-set "PATH=%PATH%;C:\Program Files\ClamAV;C:\Snort\bin;C:\Program Files\Sandboxie"
+echo Setting PATH environment variable...
+
+set "CLAMAV_PATH=C:\Program Files\ClamAV"
+set "SNORT_PATH=C:\Snort\bin"
+set "SANDBOXIE_PATH=C:\Program Files\Sandboxie"
+
+rem Add paths to the system PATH variable
+setx PATH "%PATH%;%CLAMAV_PATH%;%SNORT_PATH%;%SANDBOXIE_PATH%" /M
+
+echo PATH variable updated with ClamAV, Snort, and Sandboxie paths.
+
+:: Create C:\Program Files\ClamAV\database directory if it does not exist
+if not exist "C:\Program Files\ClamAV\database" (
+    mkdir "C:\Program Files\ClamAV\database"
+    echo Created C:\Program Files\ClamAV\database directory.
+)
 
 :: Run freshclam to update virus definitions
 echo Updating ClamAV virus definitions...
@@ -33,16 +47,16 @@ if exist hipsconfig (
     echo hipsconfig directory not found. Please ensure it is in the same directory as this script.
 )
 
-:: Copy specific files from hips to C:\Snort\etc
+:: Copy specific files from hips to C:\Snort\rules
 if exist hips (
     if exist hips\snort2.9.rules (
-        xcopy hips\snort2.9.rules "C:\Snort\etc" /Y
+        xcopy hips\snort2.9.rules "C:\Snort\rules" /Y
     )
     if exist hips\snort2.rules (
-        xcopy hips\snort2.rules "C:\Snort\etc" /Y
+        xcopy hips\snort2.rules "C:\Snort\rules" /Y
     )
     if exist hips\emergingthreats (
-        xcopy hips\emergingthreats\*.* "C:\Snort\etc" /Y
+        xcopy hips\emergingthreats\*.* "C:\Snort\rules" /Y
     )
 ) else (
     echo hips directory not found. Please ensure it is in the same directory as this script.
@@ -64,15 +78,16 @@ if exist requirements.txt (
     echo requirements.txt not found. Please ensure it is in the same directory as this script.
 )
 
-:: Setup MBRFilter
-:: Check system architecture and copy appropriate MBRFilter files
 echo Setting up MBRFilter...
 set "MBRFILTER_DIR=%~dp0\mbrfilter"
+
+rem Assume infdefaultinstall.exe is in the system PATH
+
 if exist "%MBRFILTER_DIR%" (
     if %PROCESSOR_ARCHITECTURE%==AMD64 (
-        xcopy "%MBRFILTER_DIR%\x64\MBRFilter.inf" "%SYSTEMROOT%\System32\DriverStore\FileRepository" /Y
+        infdefaultinstall.exe "%MBRFILTER_DIR%\x64\MBRFilter.inf"
     ) else (
-        xcopy "%MBRFILTER_DIR%\x86\MBRFilter.inf" "%SYSTEMROOT%\System32\DriverStore\FileRepository" /Y
+        infdefaultinstall.exe "%MBRFILTER_DIR%\x86\MBRFilter.inf"
     )
     echo MBRFilter setup completed.
 ) else (

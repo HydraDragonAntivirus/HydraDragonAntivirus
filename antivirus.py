@@ -1445,6 +1445,8 @@ class ScanAndWarnHandler(FileSystemEventHandler):
         scan_and_warn(file_path)
 
 event_handler = ScanAndWarnHandler()
+observer = Observer()
+observer.schedule(event_handler, path=sandbox_folder, recursive=False)
 
 def run_sandboxie_control():
     try:
@@ -1479,14 +1481,8 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=monitor_snort_log, args=(log_path,)).start()
         threading.Thread(target=web_protection_observer.start).start()
 
-        # Initialize Watchdog Observer to monitor file system events
-        observer = Observer()
-        observer.schedule(event_handler, path=sandbox_folder, recursive=False)
-        observer.start()
-        
-        logging.info("File system event monitoring started.")
-
         # Start other sandbox analysis tasks in separate threads
+        threading.Thread(target=observer.start).start()
         threading.Thread(target=scan_and_warn, args=(file_path,)).start()
         threading.Thread(target=start_monitoring_sandbox).start()
         threading.Thread(target=scan_sandbox_folder).start()
@@ -1500,10 +1496,6 @@ def perform_sandbox_analysis(file_path):
 
     except Exception as e:
         logging.error(f"An error occurred during sandbox analysis: {e}")
-
-    finally:
-        observer.stop()
-        observer.join()
 
 def run_sandboxie(file_path):
     try:
