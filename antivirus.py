@@ -567,6 +567,30 @@ def notify_user_for_web(ip_address=None, dst_ip_address=None):
         notification.message = "Phishing or Malicious activity detected"
     notification.send()
 
+def notify_user_for_hips(ip_address=None, dst_ip_address=None, is_malicious=False):
+    notification = Notify()
+    notification.title = "HIPS Alert"
+    if is_malicious:
+        notification.title = "Malicious Activity Detected"
+    
+    if ip_address and dst_ip_address:
+        notification.message = f"Suspicious activity detected:\nIP Addresses involved:\nSource: {ip_address}\nDestination: {dst_ip_address}"
+        if is_malicious:
+            notification.message = f"Malicious activity detected:\nSource: {ip_address}\nDestination: {dst_ip_address}"
+    elif ip_address:
+        notification.message = f"Suspicious activity detected:\nSource IP Address: {ip_address}"
+        if is_malicious:
+            notification.message = f"Malicious activity detected:\nSource IP Address: {ip_address}"
+    elif dst_ip_address:
+        notification.message = f"Suspicious activity detected:\nDestination IP Address: {dst_ip_address}"
+        if is_malicious:
+            notification.message = f"Malicious activity detected:\nDestination IP Address: {dst_ip_address}"
+    else:
+        notification.message = "Suspicious activity detected"
+        if is_malicious:
+            notification.message = "Malicious activity detected"
+    notification.send()
+
 def is_local_ip(ip):
     if re.match(r'^192\.168\.\d{1,3}\.\d{1,3}$', ip):
         return True
@@ -999,10 +1023,16 @@ def process_alert(line):
         dst_ip = match.group(3)
         logging.info(f"Alert detected: Priority {priority}, Source {src_ip}, Destination {dst_ip}")
         print(f"Alert detected: Priority {priority}, Source {src_ip}, Destination {dst_ip}")
-        if priority == 1 or priority == 2:
+        
+        if priority == 1:
+            logging.warning(f"Malicious activity detected: {line.strip()}")
+            print(f"Malicious activity detected from {src_ip} to {dst_ip} with priority {priority}")
+            notify_user_for_hips(ip_address=src_ip, dst_ip_address=dst_ip, is_malicious=True)
+            return True
+        elif priority == 2:
             logging.warning(f"Potential malware detected: {line.strip()}")
             print(f"Potential malware detected from {src_ip} to {dst_ip} with priority {priority}")
-            notify_user_for_web(ip_address=src_ip, dst_ip_address=dst_ip)
+            notify_user_for_hips(ip_address=src_ip, dst_ip_address=dst_ip)
             return True
     return False
 
@@ -1428,6 +1458,37 @@ def check_critical_directories():
                         worm_alert(file_path)
                         alerted_files.add(file_path)
 
+def monitor_user_directory():
+    user_dir = rf'{sandbox_folder}\DefaultBox\user\current'
+    known_extensions = set(fileTypes)  # Assuming fileTypes is a list of known extensions
+
+    def check_file(file_path):
+        parts = os.path.basename(file_path).split('.')
+        if len(parts) < 3:
+            return False
+
+        previous_extension = '.' + parts[-2].lower()
+        final_extension = '.' + parts[-1].lower()
+
+        if previous_extension in known_extensions and final_extension not in known_extensions:
+            logging.info(f"File '{file_path}' has unknown final extension '{final_extension}' and known previous extension '{previous_extension}'")
+            ransomware_alert(file_path)
+            return True
+        return False
+
+    alerted_files = set()
+
+    while True:
+        if os.path.exists(user_dir):
+            for root, _, files in os.walk(user_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    if os.path.isfile(file_path) and file_path not in alerted_files:
+                        logging.info(f"File detected in {user_dir}: {file}")
+                        print(f"File detected in {user_dir}: {file}")
+                        if check_file(file_path):
+                            alerted_files.add(file_path)
+
 class ScanAndWarnHandler(FileSystemEventHandler):
     def on_created(self, event):
         if not event.is_directory:
@@ -1488,6 +1549,7 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=scan_sandbox_folder).start()
         threading.Thread(target=check_startup_directories).start()
         threading.Thread(target=check_critical_directories).start()
+        threading.Thread(target=monitor_user_directory).start()
         threading.Thread(target=check_uefi_directories).start() # Start monitoring UEFI directories for malicious files in a separate thread
         threading.Thread(target=run_sandboxie_control).start()
         threading.Thread(target=run_sandboxie, args=(file_path,)).start()
