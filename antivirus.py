@@ -1450,7 +1450,7 @@ def worm_alert(file_path):
         logging.error(f"Error in worm detection for file {file_path}: {e}")
 
 # Function to monitor System32 and SysWOW64 directories
-def check_critical_directories(sandbox_folder):
+def check_critical_directories():
     system32_dir = rf'{sandbox_folder}\drive\C\Windows\System32'
     syswow64_dir = rf'{sandbox_folder}\drive\C\Windows\SysWOW64'
 
