@@ -591,6 +591,14 @@ def notify_user_for_hips(ip_address=None, dst_ip_address=None, is_malicious=Fals
             notification.message = "Malicious activity detected"
     notification.send()
 
+def notify_user_for_detected_hips_file(file_path, src_ip, alert_line):
+    # Function to send notification for detected HIPS file
+    notification = Notify()
+    notification.title = "HIPS Alert For File"
+    notification.message = f"Malicious file detected by HIPS: {file_path}\nSource IP: {src_ip}\nAlert: {alert_line}"
+    notification.send()
+    print(f"Real-time notification: Detected file {file_path} from {src_ip} due to alert {alert_line}")
+
 def is_local_ip(ip):
     if re.match(r'^192\.168\.\d{1,3}\.\d{1,3}$', ip):
         return True
@@ -1014,6 +1022,33 @@ def monitor_sandbox():
     finally:
         win32file.CloseHandle(hDir)
 
+def convert_ip_to_file(src_ip, dst_ip, alert_line):
+    """
+    Convert IP addresses to associated file paths.
+    This function will only warn the user and simulate the detection of files.
+    """
+    for proc in psutil.process_iter(['pid', 'name', 'exe', 'connections']):
+        try:
+            connections = proc.info['connections']
+            if connections:
+                for conn in connections:
+                    if conn.raddr and (conn.raddr.ip == src_ip or conn.raddr.ip == dst_ip):
+                        file_path = proc.info['exe']
+                        if file_path:
+                            logging.info(f"Warning: Detected file {file_path} associated with IP {src_ip} or {dst_ip}")
+                            print(f"Warning: Detected file {file_path} associated with IP {src_ip} or {dst_ip}")
+                            # Notify the user in a separate thread (independent)
+                            notify_user_real_time_thread = threading.Thread(target=notify_user_for_detected_hips_file, args=(file_path, src_ip, alert_line))
+                            notify_user_real_time_thread.start()
+        except psutil.NoSuchProcess:
+            logging.warning(f"Process no longer exists: {proc.info.get('pid')}")
+        except psutil.AccessDenied:
+            logging.error(f"Access denied to process: {proc.info.get('pid')}")
+        except psutil.ZombieProcess:
+            logging.warning(f"Zombie process encountered: {proc.info.get('pid')}")
+        except Exception as e:
+            logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {e}")
+
 def process_alert(line):
     try:
         match = alert_regex.search(line)
@@ -1032,6 +1067,7 @@ def process_alert(line):
                         notify_user_for_hips(ip_address=src_ip, dst_ip_address=dst_ip, is_malicious=True)
                     except Exception as e:
                         logging.error(f"Error notifying user for HIPS (malicious): {e}")
+                    convert_ip_to_file(src_ip, dst_ip, line.strip())
                     return True
                 elif priority == 2:
                     logging.warning(f"Potential malware detected: {line.strip()}")
@@ -1040,6 +1076,7 @@ def process_alert(line):
                         notify_user_for_hips(ip_address=src_ip, dst_ip_address=dst_ip)
                     except Exception as e:
                         logging.error(f"Error notifying user for HIPS (potential malware): {e}")
+                    convert_ip_to_file(src_ip, dst_ip, line.strip())
                     return True
             except Exception as e:
                 logging.error(f"Error processing alert details: {e}")
@@ -1047,7 +1084,6 @@ def process_alert(line):
     except Exception as e:
         logging.error(f"Error matching alert regex: {e}")
         print(f"Error matching alert regex: {e}")
-    return False
 
 def clean_directory(directory_path):
     for filename in os.listdir(directory_path):
