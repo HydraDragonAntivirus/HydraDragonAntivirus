@@ -1149,7 +1149,7 @@ def start_monitoring_sandbox():
     sandbox_thread = threading.Thread(target=monitor_sandbox)
     sandbox_thread.start()
 
-def monitor_snort_log(log_path):
+def monitor_snort_log():
     if not os.path.exists(log_path):
         open(log_path, 'w').close()  # Create an empty file if it doesn't exist
 
@@ -1622,7 +1622,7 @@ def perform_sandbox_analysis(file_path):
         clean_directory(sandbox_folder)
 
         # Monitor Snort log for new lines and process alerts
-        threading.Thread(target=monitor_snort_log, args=(log_path,)).start()
+        threading.Thread(target=monitor_snort_log).start()
         threading.Thread(target=web_protection_observer.start).start()
 
         # Start other sandbox analysis tasks in separate threads
