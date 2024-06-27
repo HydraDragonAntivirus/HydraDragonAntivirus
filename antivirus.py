@@ -259,7 +259,7 @@ def is_clamd_running():
     return "RUNNING" in result.stdout
  
 def restart_clamd_thread():
-    threading.Thread(target=self.restart_clamd).start()
+    threading.Thread(target=restart_clamd).start()
 
 def restart_clamd():
     if is_clamd_running():
