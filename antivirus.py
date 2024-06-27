@@ -748,7 +748,7 @@ class YaraScanner:
             with open(file_path, 'rb') as file:
                 data = file.read()
                 
-                # Check matches for compiled_rule (assuming compiled_rule is defined somewhere)
+                # Check matches for compiled_rule
                 if compiled_rule:
                     matches = compiled_rule.match(data=data)
                     if matches:
@@ -1458,37 +1458,6 @@ def check_critical_directories():
                         worm_alert(file_path)
                         alerted_files.add(file_path)
 
-def monitor_user_directory():
-    user_dir = rf'{sandbox_folder}\DefaultBox\user\current'
-    known_extensions = set(fileTypes)  # Assuming fileTypes is a list of known extensions
-
-    def check_file(file_path):
-        parts = os.path.basename(file_path).split('.')
-        if len(parts) < 3:
-            return False
-
-        previous_extension = '.' + parts[-2].lower()
-        final_extension = '.' + parts[-1].lower()
-
-        if previous_extension in known_extensions and final_extension not in known_extensions:
-            logging.info(f"File '{file_path}' has unknown final extension '{final_extension}' and known previous extension '{previous_extension}'")
-            ransomware_alert(file_path)
-            return True
-        return False
-
-    alerted_files = set()
-
-    while True:
-        if os.path.exists(user_dir):
-            for root, _, files in os.walk(user_dir):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    if os.path.isfile(file_path) and file_path not in alerted_files:
-                        logging.info(f"File detected in {user_dir}: {file}")
-                        print(f"File detected in {user_dir}: {file}")
-                        if check_file(file_path):
-                            alerted_files.add(file_path)
-
 class ScanAndWarnHandler(FileSystemEventHandler):
     def on_created(self, event):
         if not event.is_directory:
@@ -1518,6 +1487,52 @@ def run_sandboxie_control():
         logging.error(f"Error running Sandboxie control: {e.stderr}")
     except Exception as e:
         logging.error(f"Unexpected error running Sandboxie control: {e}")
+
+def monitor_user_directory():
+    try:
+        user_dir = rf'{sandbox_folder}\DefaultBox\user\current'
+        # Convert the fileTypes list to a set for faster lookup
+        known_extensions = set(fileTypes)
+
+        # Function to check if a file meets the criteria for ransomware alert
+        def check_file(file_path):
+            try:
+                # Split the file name into parts
+                parts = os.path.basename(file_path).split('.')
+                
+                # Check if the file has at least two extensions
+                if len(parts) < 3:
+                    return False
+
+                # Get the previous and final extensions
+                previous_extension = '.' + parts[-2].lower()
+                final_extension = '.' + parts[-1].lower()
+
+                # If the previous extension is known and the final extension is not, raise an alert
+                if previous_extension in known_extensions and final_extension not in known_extensions:
+                    logging.info(f"File '{file_path}' has unknown final extension '{final_extension}' and known previous extension '{previous_extension}'")
+                    ransomware_alert(file_path)
+                    return True
+                return False
+            except Exception as e:
+                logging.error(f"Error checking file '{file_path}': {e}")
+                return False
+
+        alerted_files = set()
+
+        # Continuously monitor the directory
+        while True:
+            if os.path.exists(user_dir):
+                for root, _, files in os.walk(user_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        if os.path.isfile(file_path) and file_path not in alerted_files:
+                            logging.info(f"File detected in {user_dir}: {file}")
+                            print(f"File detected in {user_dir}: {file}")
+                            if check_file(file_path):
+                                alerted_files.add(file_path)
+    except Exception as e:
+        logging.error(f"Error in monitor_user_directory: {e}")
 
 def perform_sandbox_analysis(file_path):
     global main_file_path
