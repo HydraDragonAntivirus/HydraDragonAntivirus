@@ -5,7 +5,7 @@
 <p align="center">
 <img src="assets/HydraDragonAntivirusGUI.png" width= 800px>
 </p>
-Dynamic and Static Analysis for Windows with ClamAV, YARA-X and my machine learning AI module also Snort
+Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X and my machine learning AI module also Snort
 Guide:
 
 # Download Machine Learning Malware And Benign Database
