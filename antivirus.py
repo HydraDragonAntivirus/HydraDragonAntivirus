@@ -305,17 +305,35 @@ def restart_clamd_if_not_running():
         logging.error(f"An error occurred while restarting clamd: {e}")
         print(f"An error occurred while restarting clamd: {e}")
 
-def verify_executable_signature(path):
-    cmd = " " + f'"{path}"'
-    command = "(Get-AuthenticodeSignature" + cmd + ").Status"
-    process = subprocess.run(['Powershell', '-Command', command], stdout=subprocess.PIPE, encoding='cp1254')
-    
-    status = process.stdout.strip()
-    
-    if status in ["HashMismatch", "NotTrusted"]:
-        return True
-    else:
-        return False
+def check_signature(file_path):
+    try:
+        # Command to verify the executable signature status
+        cmd = f'"{file_path}"'
+        verify_command = "(Get-AuthenticodeSignature " + cmd + ").Status"
+        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='cp1254')
+        
+        status = process.stdout.strip()
+        signature_status_issues = status in ["HashMismatch", "NotTrusted"]
+        
+        # Command to check for Microsoft signature if there are no issues
+        if not signature_status_issues:
+            ms_command = f"Get-AuthenticodeSignature '{file_path}' | Format-List"
+            ms_result = subprocess.run(["powershell.exe", "-Command", ms_command], capture_output=True, text=True)
+            has_microsoft_signature = "O=Microsoft Corporation" in ms_result.stdout
+        else:
+            has_microsoft_signature = False
+        
+        return {
+            "has_microsoft_signature": has_microsoft_signature,
+            "signature_status_issues": signature_status_issues
+        }
+    except Exception as e:
+        print(f"An error occurred while checking signature: {e}")
+        logging.error(f"An error occurred while checking signature: {e}")
+        return {
+            "has_microsoft_signature": False,
+            "signature_status_issues": False
+        }
 
 def scan_file_real_time(file_path):
     """Scan file in real-time using multiple engines."""
@@ -331,6 +349,17 @@ def scan_file_real_time(file_path):
         if is_sqlite_file(file_path):
             logging.info(f"Skipping SQLite file: {file_path}")
             return False, "Clean"
+
+        # Check for PE file and signatures
+        if is_pe_file(file_path):
+            signature_check = check_signature(file_path)
+            if signature_check["signature_status_issues"]:
+                logging.warning(f"File has invalid signature: {file_path}")
+                return True, "Invalid signature"
+            elif signature_check["has_microsoft_signature"]:
+                return False, "Microsoft signature"
+            else:
+                logging.info(f"Valid signature detected for file: {file_path}")
 
         # Scan PE files with Static Machine Learning
         if is_pe_file(file_path):
@@ -414,11 +443,6 @@ def scan_file_real_time(file_path):
                 logging.error(f"ZIP file not found error occurred while scanning ZIP file: {file_path}")
             except Exception as e:
                 logging.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {str(e)}")
-
-        # Verify executable signature
-        if is_pe_file(file_path) and verify_executable_signature(file_path):
-            logging.warning(f"File has invalid signature: {file_path}")
-            return True, "Invalid signature"
 
     except Exception as e:
         logging.error(f"An error occurred while scanning file: {file_path}. Error: {str(e)}")
