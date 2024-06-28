@@ -1825,7 +1825,7 @@ def monitor_specific_windows(target_message, related_programs):
                 # Check if related program is in the path of this window
                 for program in related_programs:
                     if program in text:
-                        notify_user_anti_vm(program, "Anti-VM Malware")
+                        notify_user_anti_vm(program, "HEUR:Windows.Trojan.Guloader.C4D9Dd33")
                         logging.warning(f"Detected potential anti-vm malware: {program}")
                         break
                 ctypes.windll.user32.MessageBoxW(0, f'Detected message: {text}', 'Alert', 0)
