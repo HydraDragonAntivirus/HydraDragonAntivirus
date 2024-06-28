@@ -626,12 +626,6 @@ def notify_user(file_path, virus_name):
     notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
-def notify_user_for_text(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Malicious Text Message Alert"
-    notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-
 def notify_user_startup(file_path, virus_name):
     notification = Notify()
     notification.title = "Startup Malware Alert"
@@ -715,12 +709,6 @@ def notify_user_for_detected_hips_file(file_path, src_ip, alert_line):
     notification.send()
     print(f"Real-time HIPS notification: Detected file {file_path} from {src_ip} due to alert {alert_line}")
 
-def notify_user_anti_vm(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Anti-VM Anti-Debug Malware detected"
-    notification.message = f"Potential anti-vm malware detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-
 def notify_user_for_detected_hips_file(file_path, src_ip):
     # Function to send notification for detected HIPS file
     notification = Notify()
@@ -736,6 +724,12 @@ def notify_user_for_detected_hips_file(src_ip):
     notification.message = f"Malicious alert detected by Web related Message: {file_path}\nSource IP: {src_ip}"
     notification.send()
     print(f"Real-time web message notification: Detected file {file_path} from {src_ip}")
+
+def notify_user_anti_vm_no_file_path(virus_name):
+    notification = Notify()
+    notification.title = "Anti-VM Anti-Debug Malware detected"
+    notification.message = f"Potential anti-vm malware detected\nVirus: {virus_name}"
+    notification.send()
 
 def is_local_ip(ip):
     if re.match(r'^192\.168\.\d{1,3}\.\d{1,3}$', ip):
@@ -1934,15 +1928,10 @@ class WindowMonitor:
                 notify_user_for_web_text(domain=text)
                 logging.warning(f"Detected potential web malware from domain: {text}\nFull Text: {text}")
 
-        # Check the main file path directly for malware
-        if main_file_path:
-            is_infected, virus_name = scan_and_warn(main_file_path)
-
-            if is_infected:
-                notify_user_anti_vm(main_file_path, virus_name)
-                logging.warning(f"Detected potential anti-vm malware: {main_file_path} - Virus: {virus_name}")
-            else:
-                logging.info(f"No malware detected in the main file path: {main_file_path}")
+        # Check for anti-VM malware without a specific file path
+        virus_name = "HEUR:Win32.Trojan.Guloader.C4D9Dd33"
+        notify_user_anti_vm_no_file_path(virus_name)
+        logging.warning(f"Detected potential anti-vm malware: {virus_name}")
 
 def perform_sandbox_analysis(file_path):
     global main_file_path
