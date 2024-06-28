@@ -29,6 +29,7 @@ import win32con
 from datetime import datetime, timedelta
 import winreg
 from scapy.all import IP, IPv6, DNS, DNSQR, DNSRR, sniff
+import ctypes
 
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
@@ -676,6 +677,12 @@ def notify_user_for_detected_hips_file(file_path, src_ip, alert_line):
     notification.message = f"Malicious file detected by HIPS: {file_path}\nSource IP: {src_ip}\nAlert: {alert_line}"
     notification.send()
     print(f"Real-time notification: Detected file {file_path} from {src_ip} due to alert {alert_line}")
+
+def notify_user_anti_vm(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Anti-VM Anti-Debug Malware detected"
+    notification.message = f"Potential anti-vm malware detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
 
 def is_local_ip(ip):
     if re.match(r'^192\.168\.\d{1,3}\.\d{1,3}$', ip):
@@ -1677,7 +1684,8 @@ observer.schedule(event_handler, path=sandbox_folder, recursive=False)
 def run_sandboxie_control():
     try:
         logging.info("Running Sandboxie control.")
-        result = subprocess.run(sandboxie_control_path, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        # Include the '/open' argument to open the Sandboxie control window
+        result = subprocess.run([sandboxie_control_path, "/open"], shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         logging.info(f"Sandboxie control output: {result.stdout}")
     except subprocess.CalledProcessError as e:
         logging.error(f"Error running Sandboxie control: {e.stderr}")
@@ -1758,6 +1766,72 @@ def detect_new_files():
     while True:
         scan_directory()
 
+# Constants
+WM_GETTEXT = 0x000D
+WM_GETTEXTLENGTH = 0x000E
+
+# Function to retrieve the text of a window
+def get_window_text(hwnd):
+    length = ctypes.windll.user32.GetWindowTextLengthW(hwnd) + 1
+    buffer = ctypes.create_unicode_buffer(length)
+    ctypes.windll.user32.GetWindowTextW(hwnd, buffer, length)
+    return buffer.value
+
+# Function to retrieve the text from a control
+def get_control_text(hwnd):
+    length = ctypes.windll.user32.SendMessageW(hwnd, WM_GETTEXTLENGTH) + 1
+    buffer = ctypes.create_unicode_buffer(length)
+    ctypes.windll.user32.SendMessageW(hwnd, WM_GETTEXT, length, buffer)
+    return buffer.value
+
+# Function to find all child windows of a given parent window
+def find_child_windows(parent):
+    child_windows = []
+    def enum_child_windows_callback(hwnd, lParam):
+        child_windows.append(hwnd)
+        return True
+
+    EnumChildWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+    ctypes.windll.user32.EnumChildWindows(parent, EnumChildWindowsProc(enum_child_windows_callback), None)
+    return child_windows
+
+# Function to find all windows containing the specified text and their child windows
+def find_windows_with_text(target_text):
+    window_handles = []
+    def enum_windows_callback(hwnd, lParam):
+        if ctypes.windll.user32.IsWindowVisible(hwnd):
+            window_text = get_window_text(hwnd)
+            if target_text in window_text:
+                window_handles.append((hwnd, window_text))
+            else:
+                for child in find_child_windows(hwnd):
+                    control_text = get_control_text(child)
+                    if target_text in control_text:
+                        window_handles.append((child, control_text))
+                        break
+        return True
+
+    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+    ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
+    return window_handles
+
+# Function to monitor specific windows for a target message
+def monitor_specific_windows(target_message, related_programs):
+    try:
+        while True:
+            windows = find_windows_with_text(target_message)
+            for hwnd, text in windows:
+                logging.info(f'Window with text "{text}" found. HWND: {hwnd}')
+                # Check if related program is in the path of this window
+                for program in related_programs:
+                    if program in text:
+                        notify_user_anti_vm(program, "Anti-VM Malware")
+                        logging.warning(f"Detected potential anti-vm malware: {program}")
+                        break
+                ctypes.windll.user32.MessageBoxW(0, f'Detected message: {text}', 'Alert', 0)
+    except Exception as e:
+        logging.error(f"An error occurred during window monitoring: {e}")
+
 def perform_sandbox_analysis(file_path):
     global main_file_path
     try:
@@ -1773,6 +1847,9 @@ def perform_sandbox_analysis(file_path):
 
         # Set main file path globally
         main_file_path = file_path
+
+        # Check if related program is in sandbox_folder or related to main_file_path
+        related_programs = [sandbox_folder, main_file_path]  # List of related paths to check
 
         # Clean sandbox folder
         clean_directory(sandbox_folder)
@@ -1791,6 +1868,7 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=check_critical_directories).start()
         threading.Thread(target=monitor_user_directory).start()
         threading.Thread(target=check_uefi_directories).start() # Start monitoring UEFI directories for malicious files in a separate thread
+        threading.Thread(target=monitor_specific_windows, args=(target_message, related_programs)).start() # Function to monitor specific windows in a separate thread
         threading.Thread(target=run_sandboxie_control).start()
         threading.Thread(target=run_sandboxie, args=(file_path,)).start()
 
