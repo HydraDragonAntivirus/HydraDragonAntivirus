@@ -2049,7 +2049,7 @@ class WindowMonitor:
                 file_path = find_window_with_text_and_file_path(target_message)
                 if file_path is not None:
                     logging.info(f'File path related to window with text "{target_message}" found: {file_path}')
-                    
+
                     # Check if the file has a valid signature
                     if not check_signature_is_valid(file_path):
                         notify_user_anti_vm(file_path, "HEUR:Win32.Trojan.Guloader.C4D9Dd33")
