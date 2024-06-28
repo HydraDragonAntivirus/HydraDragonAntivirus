@@ -337,6 +337,7 @@ def check_signature(file_path):
         process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='cp1254')
         
         status = process.stdout.strip()
+        is_valid = status == "Valid"
         signature_status_issues = status in ["HashMismatch", "NotTrusted"]
         
         # Command to check for Microsoft signature if there are no issues
@@ -348,6 +349,7 @@ def check_signature(file_path):
             has_microsoft_signature = False
         
         return {
+            "is_valid": is_valid,
             "has_microsoft_signature": has_microsoft_signature,
             "signature_status_issues": signature_status_issues
         }
@@ -355,8 +357,28 @@ def check_signature(file_path):
         print(f"An error occurred while checking signature: {e}")
         logging.error(f"An error occurred while checking signature: {e}")
         return {
+            "is_valid": False,
             "has_microsoft_signature": False,
             "signature_status_issues": False
+        }
+
+def check_valid_signature_only(file_path):
+    try:
+        # Command to verify the executable signature status
+        verify_command = f"(Get-AuthenticodeSignature '{file_path}').Status"
+        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='cp1254')
+        
+        status = process.stdout.strip()
+        is_valid = status == "Valid"
+        
+        return {
+            "is_valid": is_valid
+        }
+    except Exception as e:
+        print(f"An error occurred while checking signature: {e}")
+        logging.error(f"An error occurred while checking signature: {e}")
+        return {
+            "is_valid": False
         }
 
 def scan_file_real_time(file_path):
@@ -390,6 +412,8 @@ def scan_file_real_time(file_path):
             is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
             if is_malicious:
                 if benign_score < 0.93:
+                    if signature_check["is_valid"]:
+                        malware_definition = "PUP " + malware_definition
                     logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
                     return True, malware_definition
                 elif benign_score >= 0.93:
@@ -401,6 +425,8 @@ def scan_file_real_time(file_path):
         try:
             result = scan_file_with_clamd(file_path)
             if result not in ("Clean", ""):
+                if signature_check["is_valid"]:
+                    result = "PUP " + result
                 logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
                 return True, result
             logging.info(f"No malware detected by ClamAV in file: {file_path}")
@@ -410,15 +436,13 @@ def scan_file_real_time(file_path):
         # Scan with YARA
         try:
             yara_result = yara_scanner.scan_data(file_path)
-            
             if yara_result is not None and yara_result not in ("Clean", ""):
+                if signature_check["is_valid"]:
+                    yara_result = "PUP " + yara_result
                 logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
-                # Add your GUI-related code here if necessary (e.g., adding items to a list widget)
                 return True, yara_result
-
             logging.info(f"Scanned file with YARA: {file_path} - No viruses detected")
             return False, None
-        
         except Exception as e:
             logging.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {e}")
             return False, None
@@ -428,6 +452,8 @@ def scan_file_real_time(file_path):
             try:
                 scan_result, virus_name = scan_pe_file(file_path)
                 if scan_result and virus_name not in ("Clean", ""):
+                    if signature_check["is_valid"]:
+                        virus_name = "PUP " + virus_name
                     logging.warning(f"Infected file detected (PE): {file_path} - Virus: {virus_name}")
                     return True, virus_name
                 logging.info(f"No malware detected in PE file: {file_path}")
@@ -443,6 +469,8 @@ def scan_file_real_time(file_path):
             try:
                 scan_result, virus_name = scan_tar_file(file_path)
                 if scan_result and virus_name not in ("Clean", "F", ""):
+                    if signature_check["is_valid"]:
+                        virus_name = "PUP " + virus_name
                     logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
                     return True, virus_name
                 logging.info(f"No malware detected in TAR file: {file_path}")
@@ -458,6 +486,8 @@ def scan_file_real_time(file_path):
             try:
                 scan_result, virus_name = scan_zip_file(file_path)
                 if scan_result and virus_name not in ("Clean", ""):
+                    if signature_check["is_valid"]:
+                        virus_name = "PUP " + virus_name
                     logging.warning(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
                     return True, virus_name
                 logging.info(f"No malware detected in ZIP file: {file_path}")
@@ -1101,25 +1131,6 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line):
             logging.warning(f"Zombie process encountered: {proc.info.get('pid')}")
         except Exception as e:
             logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {e}")
-
-def check_valid_signature_only(file_path):
-    try:
-        # Command to verify the executable signature status
-        verify_command = f"(Get-AuthenticodeSignature '{file_path}').Status"
-        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='cp1254')
-        
-        status = process.stdout.strip()
-        is_valid = status == "Valid"
-        
-        return {
-            "is_valid": is_valid
-        }
-    except Exception as e:
-        print(f"An error occurred while checking signature: {e}")
-        logging.error(f"An error occurred while checking signature: {e}")
-        return {
-            "is_valid": False
-        }
 
 def process_alert(line):
     try:
