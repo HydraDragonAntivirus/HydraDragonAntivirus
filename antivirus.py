@@ -1951,6 +1951,11 @@ def detect_new_files():
 WM_GETTEXT = 0x000D
 WM_GETTEXTLENGTH = 0x000E
 
+# Regular expressions for matching IP addresses and domains
+ip_regex = re.compile(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')
+ipv6_regex = re.compile(r'\b(?:[a-fA-F0-9]{1,4}:){7}[a-fA-F0-9]{1,4}\b')
+domain_regex = re.compile(r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b')
+
 # Function to retrieve the text of a window
 def get_window_text(hwnd):
     length = ctypes.windll.user32.GetWindowTextLengthW(hwnd) + 1
@@ -2036,6 +2041,19 @@ def find_windows_with_text():
     ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
     return windows_with_text
 
+# Helper function to check if a string is a valid IP address
+def is_ip_address(text):
+    return any(ip in text for ip in ip_addresses_signatures_data) or any(ipv6 in text for ipv6 in ipv6_addresses_signatures_data)
+
+# Helper function to check if a string is a valid domain
+def is_domain(text):
+    return any(domain in text for domain in domains_signatures_data)
+
+# Helper function to check if an IP address is local
+def is_local_ip(ip):
+    local_ip_ranges = ['10.', '172.16.', '192.168.', '127.']
+    return any(ip.startswith(range) for range in local_ip_ranges)
+
 # Function to monitor specific windows for web-related messages and files
 def monitor_specific_windows_for_web_and_text():
     try:
@@ -2051,31 +2069,21 @@ def monitor_specific_windows_for_web_and_text():
                 # Check against IP and domain signatures only if it's not a generic alert
                 if "HEUR:" not in text:  # Avoid re-checking already flagged alerts
                     is_ip_or_domain = False
-                    for ip in ip_addresses_signatures_data:
-                        if ip in text:
-                            notify_user_for_web_text(ip_address=text)
-                            logging.warning(f"Detected potential web malware from IP: {text}")
-                            is_ip_or_domain = True
-                            break
+
+                    # Check if the text contains an IP address
+                    if is_ip_address(text) and not is_local_ip(text):
+                        notify_user_for_web_text(ip_address=text)
+                        logging.warning(f"Detected potential web malware from IP: {text}\nFull Text: {text}")
+                        is_ip_or_domain = True
+
+                    # Check if the text contains a domain
+                    if not is_ip_or_domain and is_domain(text):
+                        notify_user_for_web_text(domain=text)
+                        logging.warning(f"Detected potential web malware from domain: {text}\nFull Text: {text}")
+                        is_ip_or_domain = True
 
                     if not is_ip_or_domain:
-                        for ipv6 in ipv6_addresses_signatures_data:
-                            if ipv6 in text:
-                                notify_user_for_web_text(ip_address=text)
-                                logging.warning(f"Detected potential web malware from IPv6: {text}")
-                                is_ip_or_domain = True
-                                break
-
-                    if not is_ip_or_domain:
-                        for domain in domains_signatures_data:
-                            if domain in text:
-                                notify_user_for_web_text(domain=text)
-                                logging.warning(f"Detected potential web malware from domain: {text}")
-                                is_ip_or_domain = True
-                                break
-
-                    if not is_ip_or_domain:
-                        logging.info(f"Text '{text}' does not match IP or domain signatures.")
+                        logging.info(f"Text '{text}' does not match IP or domain signatures. Full Text: {text}")
 
                 # Find related file path and check sandbox or main file path relevance
                 file_path = find_window_with_text_and_file_path(text)
