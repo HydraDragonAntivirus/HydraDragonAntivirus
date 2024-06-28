@@ -1902,14 +1902,13 @@ class WindowMonitor:
 
     def process_detected_window_web(self, text):
         # Check against web-related malware indicators
-        if "HEUR:" not in text:  # Avoid re-checking already flagged alerts
-            if contains_ip_address(text) and not is_local_ip(text):
+        if contains_ip_address(text) and not is_local_ip(text):
                 notify_user_for_web_text(ip_address=text)
                 logging.warning(f"Detected potential web malware from IP: {text}\nFull Text: {text}")
-            elif contains_ipv6_address(text):
+        elif contains_ipv6_address(text):
                 notify_user_for_web_text(ip_address=text)
                 logging.warning(f"Detected potential web malware from IPv6: {text}\nFull Text: {text}")
-            elif contains_domain(text):
+        elif contains_domain(text):
                 notify_user_for_web_text(domain=text)
                 logging.warning(f"Detected potential web malware from domain: {text}\nFull Text: {text}")
 
