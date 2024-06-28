@@ -40,6 +40,15 @@ if exist clamavconfig (
     echo clamavconfig directory not found. Please ensure it is in the same directory as this script.
 )
 
+:: Install clamd
+echo Installing clamd...
+clamd --install
+if %errorlevel% equ 0 (
+    echo clamd installed successfully.
+) else (
+    echo Failed to install clamd.
+)
+
 :: Copy files from hipsconfig to C:\Snort\etc
 if exist hipsconfig (
     xcopy hipsconfig\*.* "C:\Snort\etc" /Y
