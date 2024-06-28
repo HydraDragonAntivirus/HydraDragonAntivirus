@@ -1965,6 +1965,16 @@ def get_control_text(hwnd):
     ctypes.windll.user32.SendMessageW(hwnd, WM_GETTEXT, length, buffer)
     return buffer.value
 
+# Function to find all child windows of a given parent window
+def find_child_windows(parent):
+    child_windows = []
+    def enum_child_windows_callback(hwnd, lParam):
+        child_windows.append(hwnd)
+        return True
+    EnumChildWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+    ctypes.windll.user32.EnumChildWindows(parent, EnumChildWindowsProc(enum_child_windows_callback), None)
+    return child_windows
+
 # Function to find a window containing the specified text and return its related file path
 def find_window_with_text_and_file_path(target_text):
     file_path = None
