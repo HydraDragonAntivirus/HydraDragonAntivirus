@@ -1905,18 +1905,16 @@ class WindowMonitor:
                 for hwnd, text in windows:
                     if target_message in text:
                         logging.info(f'Window with target message "{target_message}" found. HWND: {hwnd}')
-                        self.process_detected_window(text)
-                        break
-
-                    logging.info(f'Window with text "{text}" found. HWND: {hwnd}')
-                    self.process_detected_window(text)
-                    break  # Exit the loop after processing one window
+                        self.process_detected_window_classic(text)
+                    else:
+                        logging.info(f'Window with text "{text}" found. HWND: {hwnd}')
+                        self.process_detected_window_web(text)
 
         except Exception as e:
             logging.error(f"An error occurred during window monitoring: {e}")
 
-    def process_detected_window(self, text):
-        # Check against IP and domain signatures
+    def process_detected_window_web(self, text):
+        # Check against web-related malware indicators
         if "HEUR:" not in text:  # Avoid re-checking already flagged alerts
             if contains_ip_address(text) and not is_local_ip(text):
                 notify_user_for_web_text(ip_address=text)
@@ -1928,10 +1926,15 @@ class WindowMonitor:
                 notify_user_for_web_text(domain=text)
                 logging.warning(f"Detected potential web malware from domain: {text}\nFull Text: {text}")
 
-        # Check for anti-VM malware without a specific file path
-        virus_name = "HEUR:Win32.Trojan.Guloader.C4D9Dd33"
-        notify_user_anti_vm_no_file_path(virus_name)
-        logging.warning(f"Detected potential anti-vm malware: {virus_name}")
+    def process_detected_window_classic(self, text):
+        # Check for specific classic indicators and anti-VM malware without a specific file path
+        if contains_ip_address(text) or contains_ipv6_address(text) or contains_domain(text):
+            self.process_detected_window_web(text)  # If it matches web-related indicators, process as such
+        else:
+            # Check for anti-VM malware without a specific file path
+            virus_name = "HEUR:Win32.Trojan.Guloader.C4D9Dd33"
+            notify_user_anti_vm_no_file_path(virus_name)
+            logging.warning(f"Detected potential anti-vm anti-debug malware: {virus_name}")
 
 def perform_sandbox_analysis(file_path):
     global main_file_path
