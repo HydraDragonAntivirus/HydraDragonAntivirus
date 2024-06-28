@@ -1947,7 +1947,6 @@ def detect_new_files():
     while True:
         scan_directory()
 
-
 # Constants
 WM_GETTEXT = 0x000D
 WM_GETTEXTLENGTH = 0x000E
@@ -2099,6 +2098,7 @@ def perform_sandbox_analysis(file_path):
         main_file_path = file_path
 
         target_message = "This program cannot be run under virtual environment or debugging software!"
+    
         # Clean sandbox folder
         clean_directory(sandbox_folder)
 
