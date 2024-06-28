@@ -1947,7 +1947,7 @@ def detect_new_files():
     while True:
         scan_directory()
 
-# Constants
+# Constants for Windows API calls
 WM_GETTEXT = 0x000D
 WM_GETTEXTLENGTH = 0x000E
 
@@ -1965,39 +1965,29 @@ def get_control_text(hwnd):
     ctypes.windll.user32.SendMessageW(hwnd, WM_GETTEXT, length, buffer)
     return buffer.value
 
-# Function to find all child windows of a given parent window
-def find_child_windows(parent):
-    child_windows = []
-    def enum_child_windows_callback(hwnd, lParam):
-        child_windows.append(hwnd)
-        return True
-
-    EnumChildWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
-    ctypes.windll.user32.EnumChildWindows(parent, EnumChildWindowsProc(enum_child_windows_callback), None)
-    return child_windows
-
 # Function to find a window containing the specified text and return its related file path
 def find_window_with_text_and_file_path(target_text):
+    file_path = None
+
     def enum_windows_callback(hwnd, lParam):
+        nonlocal file_path
         if ctypes.windll.user32.IsWindowVisible(hwnd):
             window_text = get_window_text(hwnd)
             if target_text in window_text:
                 file_path = window_text.strip()
                 if os.path.isfile(file_path):
-                    return file_path
-                return None
+                    return False  # Stop enumeration and return the file path
             else:
                 for child in find_child_windows(hwnd):
                     control_text = get_control_text(child)
                     if target_text in control_text:
                         file_path = control_text.strip()
                         if os.path.isfile(file_path):
-                            return file_path
-                        return None
+                            return False  # Stop enumeration and return the file path
         return True
 
     EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
-    file_path = ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
+    ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
     return file_path
 
 # Function to monitor specific windows for a target message and find the related file path
@@ -2021,6 +2011,21 @@ def monitor_specific_windows(target_message):
 
     except Exception as e:
         logging.error(f"An error occurred during window monitoring: {e}")
+
+# Function to find windows containing text and return related file paths
+def find_windows_with_text():
+    windows_with_text = []
+
+    def enum_windows_callback(hwnd, lParam):
+        if ctypes.windll.user32.IsWindowVisible(hwnd):
+            window_text = get_window_text(hwnd).strip()
+            if window_text:
+                windows_with_text.append((hwnd, window_text))
+        return True
+
+    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+    ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
+    return windows_with_text
 
 # Function to monitor specific windows for web-related messages and files
 def monitor_specific_windows_for_web_and_text():
