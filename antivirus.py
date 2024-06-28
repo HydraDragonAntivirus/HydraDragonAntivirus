@@ -2022,15 +2022,27 @@ def find_windows_with_text():
 
 # Helper function to check if a string contains a known IP address
 def contains_ip_address(text):
-    return any(ip in text for ip in ip_addresses_signatures_data) and ip_regex.search(text)
+    for ip in ip_addresses_signatures_data:
+        if ip in text:
+            if ip_regex.search(text):
+                return True
+    return False
 
 # Helper function to check if a string contains a known IPv6 address
 def contains_ipv6_address(text):
-    return any(ipv6 in text for ipv6 in ipv6_addresses_signatures_data) and ipv6_regex.search(text)
+    for ipv6 in ipv6_addresses_signatures_data:
+        if ipv6 in text:
+            if ipv6_regex.search(text):
+                return True
+    return False
 
 # Helper function to check if a string contains a known domain
 def contains_domain(text):
-    return any(domain in text for domain in domains_signatures_data) and domain_regex.search(text)
+    for domain in domains_signatures_data:
+        if domain in text:
+            if domain_regex.search(text):
+                return True
+    return False
 
 # Helper function to check if an IP address is local
 def is_local_ip(ip):
