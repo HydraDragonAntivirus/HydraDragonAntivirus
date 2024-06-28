@@ -2187,6 +2187,8 @@ def perform_sandbox_analysis(file_path):
         # Set main file path globally
         main_file_path = file_path
 
+        window_monitor = WindowMonitor()
+
         # Clean sandbox folder
         clean_directory(sandbox_folder)
 
@@ -2204,7 +2206,7 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=check_critical_directories).start()
         threading.Thread(target=monitor_user_directory).start()
         threading.Thread(target=check_uefi_directories).start() # Start monitoring UEFI directories for malicious files in a separate thread
-        threading.Thread(target=monitor_specific_windows).start() # Function to monitor specific windows in a separate thread
+        threading.Thread(target=window_monitor.monitor_specific_windows).start() # Function to monitor specific windows in a separate thread
         threading.Thread(target=run_sandboxie_control).start()
         threading.Thread(target=run_sandboxie, args=(file_path,)).start()
 
