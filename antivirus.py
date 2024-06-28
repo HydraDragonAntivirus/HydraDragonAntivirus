@@ -1895,7 +1895,6 @@ class WindowMonitor:
                         logging.info(f'Window with target message "{target_message}" found. HWND: {hwnd}')
                         self.process_detected_window_classic(text)
                     else:
-                        logging.info(f'Window with text "{text}" found. HWND: {hwnd}')
                         self.process_detected_window_web(text)
 
         except Exception as e:
