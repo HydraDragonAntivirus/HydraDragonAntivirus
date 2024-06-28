@@ -2098,6 +2098,7 @@ def perform_sandbox_analysis(file_path):
         # Set main file path globally
         main_file_path = file_path
 
+        target_message = "This program cannot be run under virtual environment or debugging software!"
         # Clean sandbox folder
         clean_directory(sandbox_folder)
 
