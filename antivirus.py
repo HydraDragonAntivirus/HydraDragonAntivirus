@@ -2041,13 +2041,17 @@ def find_windows_with_text():
     ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
     return windows_with_text
 
-# Helper function to check if a string is a valid IP address
-def is_ip_address(text):
-    return any(ip in text for ip in ip_addresses_signatures_data) or any(ipv6 in text for ipv6 in ipv6_addresses_signatures_data)
+# Helper function to check if a string contains a known IP address
+def contains_ip_address(text):
+    return any(ip in text for ip in ip_addresses_signatures_data) or bool(ip_regex.search(text))
 
-# Helper function to check if a string is a valid domain
-def is_domain(text):
-    return any(domain in text for domain in domains_signatures_data)
+# Helper function to check if a string contains a known IPv6 address
+def contains_ipv6_address(text):
+    return any(ipv6 in text for ipv6 in ipv6_addresses_signatures_data) or bool(ipv6_regex.search(text))
+
+# Helper function to check if a string contains a known domain
+def contains_domain(text):
+    return any(domain in text for domain in domains_signatures_data) or bool(domain_regex.search(text))
 
 # Helper function to check if an IP address is local
 def is_local_ip(ip):
@@ -2070,14 +2074,18 @@ def monitor_specific_windows_for_web_and_text():
                 if "HEUR:" not in text:  # Avoid re-checking already flagged alerts
                     is_ip_or_domain = False
 
-                    # Check if the text contains an IP address
-                    if is_ip_address(text) and not is_local_ip(text):
+                    # Check if the text contains an IP address or IPv6 address
+                    if contains_ip_address(text) and not is_local_ip(text):
                         notify_user_for_web_text(ip_address=text)
                         logging.warning(f"Detected potential web malware from IP: {text}\nFull Text: {text}")
                         is_ip_or_domain = True
+                    elif contains_ipv6_address(text):
+                        notify_user_for_web_text(ip_address=text)
+                        logging.warning(f"Detected potential web malware from IPv6: {text}\nFull Text: {text}")
+                        is_ip_or_domain = True
 
                     # Check if the text contains a domain
-                    if not is_ip_or_domain and is_domain(text):
+                    if not is_ip_or_domain and contains_domain(text):
                         notify_user_for_web_text(domain=text)
                         logging.warning(f"Detected potential web malware from domain: {text}\nFull Text: {text}")
                         is_ip_or_domain = True
@@ -2108,7 +2116,7 @@ def monitor_specific_windows_for_web_and_text():
                     is_infected, virus_name = scan_and_warn_text(temp_file_path)
                     os.remove(temp_file_path)  # Clean up temporary file
 
-                    if is_infected:
+                    if is_infected and virus_name != "None":
                         virus_name = f"HEUR:{virus_name}"  # Add HEUR: prefix
                         notify_user_for_web_text(f"Detected message: {text}\nVirus: {virus_name}")
                         logging.warning(f"Detected potential malware from message: {text} - Virus: {virus_name}")
