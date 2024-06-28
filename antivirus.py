@@ -626,6 +626,12 @@ def notify_user(file_path, virus_name):
     notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
+def notify_user_for_text(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Malicious Text Message Alert"
+    notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
 def notify_user_startup(file_path, virus_name):
     notification = Notify()
     notification.title = "Startup Malware Alert"
@@ -653,6 +659,20 @@ def notify_user_worm(file_path, virus_name):
 def notify_user_for_web(domain=None, ip_address=None):
     notification = Notify()
     notification.title = "Malware or Phishing Alert"
+    if domain and ip_address:
+        notification.message = f"Phishing or Malicious activity detected:\nDomain: {domain}\nIP Address: {ip_address}"
+    elif domain:
+        notification.message = f"Phishing or Malicious activity detected:\nDomain: {domain}"
+    elif ip_address:
+        notification.message = f"Phishing or Malicious activity detected:\nIP Address: {ip_address}"
+    else:
+        notification.message = "Phishing or Malicious activity detected"
+    notification.send()
+
+# Function to notify user for detected web threats
+def notify_user_for_web_text(domain=None, ip_address=None):
+    notification = Notify()
+    notification.title = "Phishing or Malicious Alert From Text"
     if domain and ip_address:
         notification.message = f"Phishing or Malicious activity detected:\nDomain: {domain}\nIP Address: {ip_address}"
     elif domain:
@@ -1875,6 +1895,50 @@ def monitor_specific_windows(target_message):
     except Exception as e:
         logging.error(f"An error occurred during window monitoring: {e}")
 
+# Function to monitor specific windows for web-related messages and files
+def monitor_specific_windows_for_web_and_text():
+    try:
+        while True:
+            # Create a temporary file for each window message found
+            temp_file_path = None
+
+            # Find all windows with text messages
+            windows = find_windows_with_text()
+            for hwnd, text in windows:
+                logging.info(f'Window with text "{text}" found. HWND: {hwnd}')
+
+                # Check against IP and domain signatures
+                if any(ip in text for ip in ip_addresses_signatures_data):
+                    notify_user_for_web_text(ip_address=text)
+                    logging.warning(f"Detected potential web malware from IP: {text}")
+                elif any(ipv6 in text for ipv6 in ipv6_addresses_signatures_data):
+                    notify_user_for_web_text(ip_address=text)
+                    logging.warning(f"Detected potential web malware from IPv6: {text}")
+                elif any(domain in text for domain in domains_signatures_data):
+                    notify_user_for_web_text(domain=text)
+                    logging.warning(f"Detected potential web malware from domain: {text}")
+
+                # Create a temporary file with the message content
+                with tempfile.NamedTemporaryFile(delete=False, mode='w', encoding='utf-8') as temp_file:
+                    temp_file.write(text)
+                    temp_file_path = temp_file.name
+
+                # Scan the temporary file for malware
+                if temp_file_path:
+                    is_infected, virus_name = scan_file_real_time(temp_file_path)
+                    os.remove(temp_file_path)  # Clean up temporary file
+
+                    if is_infected:
+                        virus_name = f"HEUR:{virus_name}"  # Add HEUR: prefix
+                        notify_user_for_web_text(f"Detected message: {text}\nVirus: {virus_name}")
+                        logging.warning(f"Detected potential malware from message: {text} - Virus: {virus_name}")
+
+                ctypes.windll.user32.MessageBoxW(0, f'Detected message: {text}', 'Alert', 0)
+                break
+
+    except Exception as e:
+        logging.error(f"An error occurred during window monitoring: {e}")
+   
 def perform_sandbox_analysis(file_path):
     global main_file_path
     try:
@@ -1909,6 +1973,7 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=monitor_user_directory).start()
         threading.Thread(target=check_uefi_directories).start() # Start monitoring UEFI directories for malicious files in a separate thread
         threading.Thread(target=monitor_specific_windows, args=(target_message)).start() # Function to monitor specific windows in a separate thread
+        threading.Thread(target=monitor_specific_windows_for_web_and_text).start()
         threading.Thread(target=run_sandboxie_control).start()
         threading.Thread(target=run_sandboxie, args=(file_path,)).start()
 
