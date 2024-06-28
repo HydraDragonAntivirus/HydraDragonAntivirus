@@ -2080,7 +2080,7 @@ class WindowMonitor:
                             is_ip_or_domain = True
 
                         # Check if the text contains a domain
-                        if not is_ip_or_domain and contains_domain(text):
+                        if contains_domain(text):
                             notify_user_for_web_text(domain=text)
                             logging.warning(f"Detected potential web malware from domain: {text}\nFull Text: {text}")
                             is_ip_or_domain = True
@@ -2090,11 +2090,6 @@ class WindowMonitor:
                         elif not is_ip_or_domain and not text:
                             logging.info("No text found, nothing to flag as malware.")
                             continue
-
-                        # Check if domain is already scanned, if not scan and notify
-                        domain = self.extract_domain_from_text(text)
-                        if domain:
-                            self.scan_and_notify_domain(domain)
 
                     # Find related file path and check sandbox or main file path relevance
                     file_path = find_window_with_text_and_file_path(text)
@@ -2129,47 +2124,6 @@ class WindowMonitor:
 
         except Exception as e:
             logging.error(f"An error occurred during window monitoring: {e}")
-
-    def extract_domain_from_text(self, text):
-        # Initialize an empty domain variable
-        domain = None
-        
-        # Search for a domain using the domain_regex
-        match = domain_regex.search(text)
-        if match:
-            domain = match.group(0)
-            
-            # Check if the extracted domain is a subdomain and extract the main domain
-            parts = domain.split(".")
-            if len(parts) >= 2:
-                main_domain = ".".join(parts[-2:])
-                domain = main_domain
-            
-        return domain
-
-    def scan_and_notify_domain(self, domain):
-        if domain in self.scanned_domains:
-            logging.info(f"Domain {domain} already scanned, skipping.")
-            return
-        self.scanned_domains.append(domain)
-
-        message = f"Scanning domain: {domain}"
-        logging.info(message)
-        print(message)
-        
-        parts = domain.split(".")
-        if len(parts) < 3:
-            main_domain = domain
-        else:
-            main_domain = ".".join(parts[-2:])
-
-        for parent_domain in domains_signatures_data:
-            if main_domain == parent_domain or main_domain.endswith(f".{parent_domain}"):
-                message = f"Main domain {main_domain} or its parent domain {parent_domain} matches the signatures."
-                logging.info(message)
-                print(message)
-                notify_user_for_web(domain=main_domain)
-                return
 
 def perform_sandbox_analysis(file_path):
     global main_file_path
