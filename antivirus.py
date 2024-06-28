@@ -1976,21 +1976,21 @@ def find_child_windows(parent):
     return child_windows
 
 # Function to find a window containing the specified text and return its related file path
-def find_window_with_text_and_file_path(target_text):
+def find_window_with_text_and_file_path(target_message):
     file_path = None
 
     def enum_windows_callback(hwnd, lParam):
         nonlocal file_path
         if ctypes.windll.user32.IsWindowVisible(hwnd):
             window_text = get_window_text(hwnd)
-            if target_text in window_text:
+            if target_message in window_text:
                 file_path = window_text.strip()
                 if os.path.isfile(file_path):
                     return False  # Stop enumeration and return the file path
             else:
                 for child in find_child_windows(hwnd):
                     control_text = get_control_text(child)
-                    if target_text in control_text:
+                    if target_message in control_text:
                         file_path = control_text.strip()
                         if os.path.isfile(file_path):
                             return False  # Stop enumeration and return the file path
@@ -2016,7 +2016,6 @@ def monitor_specific_windows(target_message):
                     notify_user_anti_vm_no_file_path("HEUR:Win32.Trojan.Guloader.C4D9Dd33")
                     logging.warning(f"Valid signature detected, but potential issue with: {file_path}")
                 
-                ctypes.windll.user32.MessageBoxW(0, f'Detected message: {target_message}', 'Alert', 0)
                 break
 
     except Exception as e:
@@ -2049,16 +2048,34 @@ def monitor_specific_windows_for_web_and_text():
             for hwnd, text in windows:
                 logging.info(f'Window with text "{text}" found. HWND: {hwnd}')
 
-                # Check against IP and domain signatures
-                if any(ip in text for ip in ip_addresses_signatures_data):
-                    notify_user_for_web_text(ip_address=text)
-                    logging.warning(f"Detected potential web malware from IP: {text}")
-                elif any(ipv6 in text for ipv6 in ipv6_addresses_signatures_data):
-                    notify_user_for_web_text(ip_address=text)
-                    logging.warning(f"Detected potential web malware from IPv6: {text}")
-                elif any(domain in text for domain in domains_signatures_data):
-                    notify_user_for_web_text(domain=text)
-                    logging.warning(f"Detected potential web malware from domain: {text}")
+                # Check against IP and domain signatures only if it's not a generic alert
+                if "HEUR:" not in text:  # Avoid re-checking already flagged alerts
+                    is_ip_or_domain = False
+                    for ip in ip_addresses_signatures_data:
+                        if ip in text:
+                            notify_user_for_web_text(ip_address=text)
+                            logging.warning(f"Detected potential web malware from IP: {text}")
+                            is_ip_or_domain = True
+                            break
+
+                    if not is_ip_or_domain:
+                        for ipv6 in ipv6_addresses_signatures_data:
+                            if ipv6 in text:
+                                notify_user_for_web_text(ip_address=text)
+                                logging.warning(f"Detected potential web malware from IPv6: {text}")
+                                is_ip_or_domain = True
+                                break
+
+                    if not is_ip_or_domain:
+                        for domain in domains_signatures_data:
+                            if domain in text:
+                                notify_user_for_web_text(domain=text)
+                                logging.warning(f"Detected potential web malware from domain: {text}")
+                                is_ip_or_domain = True
+                                break
+
+                    if not is_ip_or_domain:
+                        logging.info(f"Text '{text}' does not match IP or domain signatures.")
 
                 # Find related file path and check sandbox or main file path relevance
                 file_path = find_window_with_text_and_file_path(text)
@@ -2071,7 +2088,6 @@ def monitor_specific_windows_for_web_and_text():
                     else:
                         notify_user_for_web_text("HEUR:Win32.Web.Generic.Malware")
                         logging.warning(f"Valid signature detected, but potential issue with: {text}")
-                    ctypes.windll.user32.MessageBoxW(0, f'Detected message: {text}', 'Alert', 0)
                     break
 
                 # Create a temporary file with the message content
@@ -2090,7 +2106,6 @@ def monitor_specific_windows_for_web_and_text():
                         logging.warning(f"Detected potential malware from message: {text} - Virus: {virus_name}")
                         notify_user_for_text(temp_file_path, virus_name)
 
-                ctypes.windll.user32.MessageBoxW(0, f'Detected message: {text}', 'Alert', 0)
                 break
 
     except Exception as e:
