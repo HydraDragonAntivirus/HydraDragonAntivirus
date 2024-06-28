@@ -330,6 +330,23 @@ def restart_clamd_if_not_running():
         logging.error(f"An error occurred while restarting clamd: {e}")
         print(f"An error occurred while restarting clamd: {e}")
 
+# Function to check the signature of a file
+def check_signature_is_valid(file_path):
+    try:
+        # Command to verify the executable signature status
+        cmd = f'"{file_path}"'
+        verify_command = "(Get-AuthenticodeSignature " + cmd + ").Status"
+        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='cp1254')
+        
+        status = process.stdout.strip()
+        is_valid = status == "Valid"
+        
+        return is_valid
+    except Exception as e:
+        print(f"An error occurred while checking signature: {e}")
+        logging.error(f"An error occurred while checking signature: {e}")
+        return False
+
 def check_signature(file_path):
     try:
         # Command to verify the executable signature status
@@ -682,6 +699,12 @@ def notify_user_anti_vm(file_path, virus_name):
     notification = Notify()
     notification.title = "Anti-VM Anti-Debug Malware detected"
     notification.message = f"Potential anti-vm malware detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_anti_vm_no_file_path(virus_name):
+    notification = Notify()
+    notification.title = "Anti-VM Anti-Debug Malware detected"
+    notification.message = f"Potential anti-vm malware detected\nVirus: {virus_name}"
     notification.send()
 
 def is_local_ip(ip):
@@ -1816,19 +1839,23 @@ def find_windows_with_text(target_text):
     return window_handles
 
 # Function to monitor specific windows for a target message
-def monitor_specific_windows(target_message, related_programs):
+def monitor_specific_windows(target_message):
     try:
         while True:
             windows = find_windows_with_text(target_message)
             for hwnd, text in windows:
                 logging.info(f'Window with text "{text}" found. HWND: {hwnd}')
-                # Check if related program is in the path of this window
-                for program in related_programs:
-                    if program in text:
-                        notify_user_anti_vm(program, "HEUR:Windows.Trojan.Guloader.C4D9Dd33")
-                        logging.warning(f"Detected potential anti-vm malware: {program}")
-                        break
-                ctypes.windll.user32.MessageBoxW(0, f'Detected message: {text}', 'Alert', 0)
+                # Check if the window text contains main_file_path or is related to sandbox_folder
+                if main_file_path in text or os.path.commonpath([os.path.abspath(text), os.path.abspath(sandbox_folder)]) == os.path.abspath(sandbox_folder):
+                    # Check if the file has a valid signature
+                    if not check_signature_is_valid(text):
+                        notify_user_anti_vm(text, "HEUR:Windows.Trojan.Guloader.C4D9Dd33")
+                        logging.warning(f"Detected potential anti-vm malware: {text}")
+                    else:
+                        notify_user_anti_vm_no_file_path("HEUR:Windows.Trojan.Guloader.C4D9Dd33")
+                        logging.warning(f"Valid signature detected, but potential issue with: {text}")
+                    ctypes.windll.user32.MessageBoxW(0, f'Detected message: {text}', 'Alert', 0)
+                    break
     except Exception as e:
         logging.error(f"An error occurred during window monitoring: {e}")
 
@@ -1848,9 +1875,6 @@ def perform_sandbox_analysis(file_path):
         # Set main file path globally
         main_file_path = file_path
 
-        # Check if related program is in sandbox_folder or related to main_file_path
-        related_programs = [sandbox_folder, main_file_path]  # List of related paths to check
-
         # Clean sandbox folder
         clean_directory(sandbox_folder)
 
@@ -1868,7 +1892,7 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=check_critical_directories).start()
         threading.Thread(target=monitor_user_directory).start()
         threading.Thread(target=check_uefi_directories).start() # Start monitoring UEFI directories for malicious files in a separate thread
-        threading.Thread(target=monitor_specific_windows, args=(target_message, related_programs)).start() # Function to monitor specific windows in a separate thread
+        threading.Thread(target=monitor_specific_windows, args=(target_message)).start() # Function to monitor specific windows in a separate thread
         threading.Thread(target=run_sandboxie_control).start()
         threading.Thread(target=run_sandboxie, args=(file_path,)).start()
 
