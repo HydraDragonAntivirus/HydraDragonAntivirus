@@ -521,108 +521,6 @@ def scan_file_real_time(file_path):
 
     return False, "Clean"
 
-def scan_file_real_time_no_valid_signature_check(file_path):
-    """Scan file in real-time using multiple engines."""
-    logging.info(f"Started scanning file: {file_path}")
-
-    try:
-        # Skip scanning if the file is in the script directory
-        if os.path.commonpath([file_path, script_dir]) == script_dir:
-            logging.info(f"Skipping file in script directory: {file_path}")
-            return False, "Clean"
-
-        # Skip scanning if the file is an SQLite file
-        if is_sqlite_file(file_path):
-            logging.info(f"Skipping SQLite file: {file_path}")
-            return False, "Clean"
-
-        # Check for PE file
-        if is_pe_file(file_path):
-            logging.info(f"Checking PE file: {file_path}")
-
-            # Scan PE files with Static Machine Learning
-            is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
-            if is_malicious:
-                if benign_score < 0.93:
-                    logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
-                    return True, malware_definition
-                elif benign_score >= 0.93:
-                    logging.info(f"File is clean based on ML benign score: {file_path}")
-                    return False, "Clean"
-            logging.info(f"No malware detected by Machine Learning in file: {file_path}")
-
-        # Scan with ClamAV
-        try:
-            result = scan_file_with_clamd(file_path)
-            if result not in ("Clean", ""):
-                logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
-                return True, result
-            logging.info(f"No malware detected by ClamAV in file: {file_path}")
-        except Exception as e:
-            logging.error(f"An error occurred while scanning file with ClamAV: {file_path}. Error: {str(e)}")
-
-        # Scan with YARA
-        try:
-            yara_result = yara_scanner.scan_data(file_path)
-            if yara_result is not None and yara_result not in ("Clean", ""):
-                logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
-                return True, yara_result
-            logging.info(f"Scanned file with YARA: {file_path} - No viruses detected")
-            return False, None
-        except Exception as e:
-            logging.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {e}")
-            return False, None
-
-        # Scan PE files
-        if is_pe_file(file_path):
-            try:
-                scan_result, virus_name = scan_pe_file(file_path)
-                if scan_result and virus_name not in ("Clean", ""):
-                    logging.warning(f"Infected file detected (PE): {file_path} - Virus: {virus_name}")
-                    return True, virus_name
-                logging.info(f"No malware detected in PE file: {file_path}")
-            except PermissionError:
-                logging.error(f"Permission error occurred while scanning PE file: {file_path}")
-            except FileNotFoundError:
-                logging.error(f"PE file not found error occurred while scanning PE file: {file_path}")
-            except Exception as e:
-                logging.error(f"An error occurred while scanning PE file: {file_path}. Error: {str(e)}")
-
-        # Scan TAR files
-        if tarfile.is_tarfile(file_path):
-            try:
-                scan_result, virus_name = scan_tar_file(file_path)
-                if scan_result and virus_name not in ("Clean", "F", ""):
-                    logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
-                    return True, virus_name
-                logging.info(f"No malware detected in TAR file: {file_path}")
-            except PermissionError:
-                logging.error(f"Permission error occurred while scanning TAR file: {file_path}")
-            except FileNotFoundError:
-                logging.error(f"TAR file not found error occurred while scanning TAR file: {file_path}")
-            except Exception as e:
-                logging.error(f"An error occurred while scanning TAR file: {file_path}. Error: {str(e)}")
-
-        # Scan ZIP files
-        if zipfile.is_zipfile(file_path):
-            try:
-                scan_result, virus_name = scan_zip_file(file_path)
-                if scan_result and virus_name not in ("Clean", ""):
-                    logging.warning(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
-                    return True, virus_name
-                logging.info(f"No malware detected in ZIP file: {file_path}")
-            except PermissionError:
-                logging.error(f"Permission error occurred while scanning ZIP file: {file_path}")
-            except FileNotFoundError:
-                logging.error(f"ZIP file not found error occurred while scanning ZIP file: {file_path}")
-            except Exception as e:
-                logging.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {str(e)}")
-
-    except Exception as e:
-        logging.error(f"An error occurred while scanning file: {file_path}. Error: {str(e)}")
-
-    return False, "Clean"
-
 def is_pe_file(file_path):
     """Check if the file at the specified path is a Portable Executable (PE) file."""
     if not os.path.exists(file_path):
@@ -1461,26 +1359,6 @@ def scan_and_warn(file_path):
     
     return is_malicious
 
-def scan_and_warn_text(file_path):
-    logging.info(f"Scanning file: {file_path}")
-
-    # Check if the file contains a PE header
-    if contains_pe_header(file_path):
-        if not is_valid_pe_file(file_path):
-            logging.warning(f"File {file_path} contains a PE header but is not a valid PE file. Flagged as broken executable.")
-            return False
-
-    is_malicious, virus_name = scan_file_real_time_no_valid_signature_check(file_path)
-    ransomware_alert(file_path)
-    worm_alert(file_path)
-
-    if is_malicious:
-        logging.warning(f"File {file_path} is malicious. Virus: {virus_name}")
-        notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
-        notify_user_thread.start()
-    
-    return is_malicious
-
 def start_monitoring_sandbox():
     sandbox_thread = threading.Thread(target=monitor_sandbox)
     sandbox_thread.start()
@@ -1965,9 +1843,9 @@ def get_window_text(hwnd):
 
 # Function to get control text
 def get_control_text(hwnd):
-    length = ctypes.windll.user32.SendMessageW(hwnd, 0x000E, 0, 0)  # WM_GETTEXTLENGTH
+    length = ctypes.windll.user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0)  # WM_GETTEXTLENGTH
     buffer = ctypes.create_unicode_buffer(length + 1)
-    ctypes.windll.user32.SendMessageW(hwnd, 0x000D, length + 1, buffer)  # WM_GETTEXT
+    ctypes.windll.user32.SendMessageW(hwnd, WM_GETTEXT, length + 1, buffer)  # WM_GETTEXT
     return buffer.value
 
 # Function to find child windows
@@ -1981,33 +1859,6 @@ def find_child_windows(hwnd):
     EnumChildProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
     ctypes.windll.user32.EnumChildWindows(hwnd, EnumChildProc(enum_child_windows_callback), None)
     return child_windows
-
-# Function to find window with text and return its file path
-def find_window_with_text_and_file_path(target_message):
-    file_path = None
-
-    def enum_windows_callback(hwnd, lParam):
-        nonlocal file_path
-        if ctypes.windll.user32.IsWindowVisible(hwnd):
-            window_text = get_window_text(hwnd)
-            if target_message in window_text:
-                potential_path = window_text.strip()
-                if os.path.isfile(potential_path):
-                    file_path = potential_path
-                    return False  # Stop enumeration and return the file path
-            else:
-                for child in find_child_windows(hwnd):
-                    control_text = get_control_text(child)
-                    if target_message in control_text:
-                        potential_path = control_text.strip()
-                        if os.path.isfile(potential_path):
-                            file_path = potential_path
-                            return False  # Stop enumeration and return the file path
-        return True
-
-    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
-    ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
-    return file_path
 
 # Function to find windows containing text and return related file paths
 def find_windows_with_text():
@@ -2053,6 +1904,7 @@ def is_local_ip(ip):
     local_ip_ranges = ['10.', '172.16.', '192.168.', '127.']
     return any(ip.startswith(range) for range in local_ip_ranges)
 
+# Example class that utilizes the functions above
 class WindowMonitor:
     def __init__(self):
         self.scanned_domains = []
@@ -2062,83 +1914,42 @@ class WindowMonitor:
         try:
             while True:
                 # Monitor for the specific target message
-                file_path = find_window_with_text_and_file_path(target_message)
-                if file_path is not None:
-                    logging.info(f'File path related to window with text "{target_message}" found: {file_path}')
-
-                    # Check if the file has a valid signature
-                    if not check_signature_is_valid(file_path):
-                        notify_user_anti_vm(file_path, "HEUR:Win32.Trojan.Guloader.C4D9Dd33")
-                        logging.warning(f"Detected potential anti-vm malware: {file_path}")
-                    else:
-                        notify_user_anti_vm_no_file_path("HEUR:Win32.Trojan.Guloader.C4D9Dd33")
-                        logging.warning(f"Valid signature detected, but potential issue with: {file_path}")
-                    break
-
-                # Find all windows with text messages
                 windows = find_windows_with_text()
                 for hwnd, text in windows:
-                    if text is not None:
-                        logging.info(f'Window with text "{text}" found. HWND: {hwnd}')
-                        
-                        # Check against IP and domain signatures only if it's not a generic alert
-                        if "HEUR:" not in text:  # Avoid re-checking already flagged alerts
-                            is_ip_or_domain = False
-                            
-                            # Check if the text contains an IP address or IPv6 address
-                            if contains_ip_address(text) is not None and not is_local_ip(text):
-                                notify_user_for_web_text(ip_address=text)
-                                logging.warning(f"Detected potential web malware from IP: {text}\nFull Text: {text}")
-                                is_ip_or_domain = True
-                            elif contains_ipv6_address(text) is not None:
-                                notify_user_for_web_text(ip_address=text)
-                                logging.warning(f"Detected potential web malware from IPv6: {text}\nFull Text: {text}")
-                                is_ip_or_domain = True
-                            
-                            # Check if the text contains a domain
-                            if contains_domain(text) is not None:
-                                notify_user_for_web_text(domain=text)
-                                logging.warning(f"Detected potential web malware from domain: {text}\nFull Text: {text}")
-                                is_ip_or_domain = True
-                         
-                    # Find related file path and check sandbox or main file path relevance
-                    if text is not None:
-                        file_path = find_window_with_text_and_file_path(text)
-                        if file_path is not None:
-                            # Check if the file has a valid signature
-                            if not check_signature_is_valid(file_path):
-                                notify_user_for_web_text(text, "HEUR:Win32.Web.Generic.Malware")
-                                logging.warning(f"Detected potential web malware: {text}")
-                                notify_user_for_text(file_path, "HEUR:Win32.Web.Generic.Malware")
-                            else:
-                                notify_user_for_web_text("HEUR:Win32.Web.Generic.Malware")
-                                logging.warning(f"Valid signature detected, but potential issue with: {text}")
-                            break
-                    
-                    # Create a temporary file with the message content
-                    if text is not None:
-                        with tempfile.NamedTemporaryFile(delete=False, mode='w', encoding='utf-8') as temp_file:
-                            temp_file.write(text)
-                            temp_file_path = temp_file.name
-                    
-                        # Scan the temporary file for malware
-                        if temp_file_path is not None:
-                            is_infected, virus_name = scan_and_warn_text(temp_file_path)
-                            os.remove(temp_file_path)  # Clean up temporary file
-                            
-                            if is_infected and virus_name is not None:
-                                virus_name = f"HEUR:{virus_name}"  # Add HEUR: prefix
-                                notify_user_for_web_text(f"Detected message: {text}\nVirus: {virus_name}")
-                                logging.warning(f"Detected potential malware from message: {text} - Virus: {virus_name}")
-                                notify_user_for_text(temp_file_path, virus_name)
-                            elif is_infected:
-                                notify_user_for_web_text(f"Detected message: {text}\nVirus: Unknown")
-                                logging.warning(f"Detected potential malware from message: {text} - Virus: Unknown")
-                    
+                    if target_message in text:
+                        logging.info(f'Window with target message "{target_message}" found. HWND: {hwnd}')
+                        self.process_detected_window(text)
+                        break
+
+                    logging.info(f'Window with text "{text}" found. HWND: {hwnd}')
+                    self.process_detected_window(text)
                     break  # Exit the loop after processing one window
 
         except Exception as e:
             logging.error(f"An error occurred during window monitoring: {e}")
+
+    def process_detected_window(self, text):
+        # Check against IP and domain signatures
+        if "HEUR:" not in text:  # Avoid re-checking already flagged alerts
+            if contains_ip_address(text) and not is_local_ip(text):
+                notify_user_for_web_text(ip_address=text)
+                logging.warning(f"Detected potential web malware from IP: {text}\nFull Text: {text}")
+            elif contains_ipv6_address(text):
+                notify_user_for_web_text(ip_address=text)
+                logging.warning(f"Detected potential web malware from IPv6: {text}\nFull Text: {text}")
+            elif contains_domain(text):
+                notify_user_for_web_text(domain=text)
+                logging.warning(f"Detected potential web malware from domain: {text}\nFull Text: {text}")
+
+        # Check the main file path directly for malware
+        if main_file_path:
+            is_infected, virus_name = scan_and_warn(main_file_path)
+
+            if is_infected:
+                notify_user_for_web_text(f"Detected message: {text}\nVirus: HEUR:{virus_name}")
+                logging.warning(f"Detected potential malware from main file path: {main_file_path} - Virus: HEUR:{virus_name}")
+            else:
+                logging.info(f"No malware detected in the main file path: {main_file_path}")
 
 def perform_sandbox_analysis(file_path):
     global main_file_path
