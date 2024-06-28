@@ -2022,15 +2022,15 @@ def find_windows_with_text():
 
 # Helper function to check if a string contains a known IP address
 def contains_ip_address(text):
-    return any(ip in text for ip in ip_addresses_signatures_data) or bool(ip_regex.search(text))
+    return any(ip in text for ip in ip_addresses_signatures_data) and ip_regex.search(text)
 
 # Helper function to check if a string contains a known IPv6 address
 def contains_ipv6_address(text):
-    return any(ipv6 in text for ipv6 in ipv6_addresses_signatures_data) or bool(ipv6_regex.search(text))
+    return any(ipv6 in text for ipv6 in ipv6_addresses_signatures_data) and ipv6_regex.search(text)
 
 # Helper function to check if a string contains a known domain
 def contains_domain(text):
-    return any(domain in text for domain in domains_signatures_data) or bool(domain_regex.search(text))
+    return any(domain in text for domain in domains_signatures_data) and domain_regex.search(text)
 
 # Helper function to check if an IP address is local
 def is_local_ip(ip):
@@ -2070,26 +2070,21 @@ class WindowMonitor:
                             is_ip_or_domain = False
                             
                             # Check if the text contains an IP address or IPv6 address
-                            if contains_ip_address(text) and not is_local_ip(text):
+                            if contains_ip_address(text) is not None and not is_local_ip(text):
                                 notify_user_for_web_text(ip_address=text)
                                 logging.warning(f"Detected potential web malware from IP: {text}\nFull Text: {text}")
                                 is_ip_or_domain = True
-                            elif contains_ipv6_address(text):
+                            elif contains_ipv6_address(text) is not None:
                                 notify_user_for_web_text(ip_address=text)
                                 logging.warning(f"Detected potential web malware from IPv6: {text}\nFull Text: {text}")
                                 is_ip_or_domain = True
                             
                             # Check if the text contains a domain
-                            if contains_domain(text):
+                            if contains_domain(text) is not None:
                                 notify_user_for_web_text(domain=text)
                                 logging.warning(f"Detected potential web malware from domain: {text}\nFull Text: {text}")
                                 is_ip_or_domain = True
-                            
-                            if not is_ip_or_domain:
-                                logging.info(f"Text '{text}' does not match IP or domain signatures. Full Text: {text}")
-                        else:
-                            logging.info(f"Generic alert detected: {text}")
-                    
+                         
                     # Find related file path and check sandbox or main file path relevance
                     if text is not None:
                         file_path = find_window_with_text_and_file_path(text)
