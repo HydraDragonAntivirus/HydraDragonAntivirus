@@ -1951,11 +1951,6 @@ def detect_new_files():
 WM_GETTEXT = 0x000D
 WM_GETTEXTLENGTH = 0x000E
 
-# Data for signature detection
-ip_addresses_signatures_data = {"192.168.1.1", "10.0.0.1"}  # Example data
-ipv6_addresses_signatures_data = {"2001:0db8:85a3:0000:0000:8a2e:0370:7334"}  # Example data
-domains_signatures_data = {"example.com", "malicious.com"}  # Example data
-
 # Regular expressions for matching IP addresses and domains
 ip_regex = re.compile(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')
 ipv6_regex = re.compile(r'\b(?:[a-fA-F0-9]{1,4}:){7}[a-fA-F0-9]{1,4}\b')
@@ -2042,89 +2037,139 @@ def is_local_ip(ip):
     local_ip_ranges = ['10.', '172.16.', '192.168.', '127.']
     return any(ip.startswith(range) for range in local_ip_ranges)
 
-# Unified function to monitor specific windows for a target message and web-related content
-def monitor_specific_windows():
-    target_message = "This program cannot be run under virtual environment or debugging software!"
-    try:
-        while True:
-            # Monitor for the specific target message
-            file_path = find_window_with_text_and_file_path(target_message)
-            if file_path:
-                logging.info(f'File path related to window with text "{target_message}" found: {file_path}')
+# Function to monitor specific windows for a target message and web-related content
+class WindowMonitor:
+    def __init__(self):
+        self.scanned_domains = []
 
-                # Check if the file has a valid signature
-                if not check_signature_is_valid(file_path):
-                    notify_user_anti_vm(file_path, "HEUR:Win32.Trojan.Guloader.C4D9Dd33")
-                    logging.warning(f"Detected potential anti-vm malware: {file_path}")
-                else:
-                    notify_user_anti_vm_no_file_path("HEUR:Win32.Trojan.Guloader.C4D9Dd33")
-                    logging.warning(f"Valid signature detected, but potential issue with: {file_path}")
-                break
-
-            # Find all windows with text messages
-            windows = find_windows_with_text()
-            for hwnd, text in windows:
-                logging.info(f'Window with text "{text}" found. HWND: {hwnd}')
-
-                # Check against IP and domain signatures only if it's not a generic alert
-                if "HEUR:" not in text:  # Avoid re-checking already flagged alerts
-                    is_ip_or_domain = False
-
-                    # Check if the text contains an IP address or IPv6 address
-                    if contains_ip_address(text) and not is_local_ip(text):
-                        notify_user_for_web_text(ip_address=text)
-                        logging.warning(f"Detected potential web malware from IP: {text}\nFull Text: {text}")
-                        is_ip_or_domain = True
-                    elif contains_ipv6_address(text):
-                        notify_user_for_web_text(ip_address=text)
-                        logging.warning(f"Detected potential web malware from IPv6: {text}\nFull Text: {text}")
-                        is_ip_or_domain = True
-
-                    # Check if the text contains a domain
-                    if not is_ip_or_domain and contains_domain(text):
-                        notify_user_for_web_text(domain=text)
-                        logging.warning(f"Detected potential web malware from domain: {text}\nFull Text: {text}")
-                        is_ip_or_domain = True
-
-                    if not is_ip_or_domain and text:
-                        logging.info(f"Text '{text}' does not match IP or domain signatures. Full Text: {text}")
-                    elif not is_ip_or_domain and not text:
-                        logging.info("No text found, nothing to flag as malware.")
-                        continue
-
-                # Find related file path and check sandbox or main file path relevance
-                file_path = find_window_with_text_and_file_path(text)
+    def monitor_specific_windows(self):
+        target_message = "This program cannot be run under virtual environment or debugging software!"
+        try:
+            while True:
+                # Monitor for the specific target message
+                file_path = find_window_with_text_and_file_path(target_message)
                 if file_path:
+                    logging.info(f'File path related to window with text "{target_message}" found: {file_path}')
+
                     # Check if the file has a valid signature
                     if not check_signature_is_valid(file_path):
-                        notify_user_for_web_text(text, "HEUR:Win32.Web.Generic.Malware")
-                        logging.warning(f"Detected potential web malware: {text}")
-                        notify_user_for_text(file_path, "HEUR:Win32.Web.Generic.Malware")
+                        notify_user_anti_vm(file_path, "HEUR:Win32.Trojan.Guloader.C4D9Dd33")
+                        logging.warning(f"Detected potential anti-vm malware: {file_path}")
                     else:
-                        notify_user_for_web_text("HEUR:Win32.Web.Generic.Malware")
-                        logging.warning(f"Valid signature detected, but potential issue with: {text}")
+                        notify_user_anti_vm_no_file_path("HEUR:Win32.Trojan.Guloader.C4D9Dd33")
+                        logging.warning(f"Valid signature detected, but potential issue with: {file_path}")
                     break
 
-                # Create a temporary file with the message content
-                with tempfile.NamedTemporaryFile(delete=False, mode='w', encoding='utf-8') as temp_file:
-                    temp_file.write(text)
-                    temp_file_path = temp_file.name
+                # Find all windows with text messages
+                windows = find_windows_with_text()
+                for hwnd, text in windows:
+                    logging.info(f'Window with text "{text}" found. HWND: {hwnd}')
 
-                # Scan the temporary file for malware
-                if temp_file_path:
-                    is_infected, virus_name = scan_and_warn_text(temp_file_path)
-                    os.remove(temp_file_path)  # Clean up temporary file
+                    # Check against IP and domain signatures only if it's not a generic alert
+                    if "HEUR:" not in text:  # Avoid re-checking already flagged alerts
+                        is_ip_or_domain = False
 
-                    if is_infected and virus_name:
-                        virus_name = f"HEUR:{virus_name}"  # Add HEUR: prefix
-                        notify_user_for_web_text(f"Detected message: {text}\nVirus: {virus_name}")
-                        logging.warning(f"Detected potential malware from message: {text} - Virus: {virus_name}")
-                        notify_user_for_text(temp_file_path, virus_name)
+                        # Check if the text contains an IP address or IPv6 address
+                        if contains_ip_address(text) and not is_local_ip(text):
+                            notify_user_for_web_text(ip_address=text)
+                            logging.warning(f"Detected potential web malware from IP: {text}\nFull Text: {text}")
+                            is_ip_or_domain = True
+                        elif contains_ipv6_address(text):
+                            notify_user_for_web_text(ip_address=text)
+                            logging.warning(f"Detected potential web malware from IPv6: {text}\nFull Text: {text}")
+                            is_ip_or_domain = True
 
-                break
+                        # Check if the text contains a domain
+                        if not is_ip_or_domain and contains_domain(text):
+                            notify_user_for_web_text(domain=text)
+                            logging.warning(f"Detected potential web malware from domain: {text}\nFull Text: {text}")
+                            is_ip_or_domain = True
 
-    except Exception as e:
-        logging.error(f"An error occurred during window monitoring: {e}")
+                        if not is_ip_or_domain and text:
+                            logging.info(f"Text '{text}' does not match IP or domain signatures. Full Text: {text}")
+                        elif not is_ip_or_domain and not text:
+                            logging.info("No text found, nothing to flag as malware.")
+                            continue
+
+                        # Check if domain is already scanned, if not scan and notify
+                        domain = self.extract_domain_from_text(text)
+                        if domain:
+                            self.scan_and_notify_domain(domain)
+
+                    # Find related file path and check sandbox or main file path relevance
+                    file_path = find_window_with_text_and_file_path(text)
+                    if file_path:
+                        # Check if the file has a valid signature
+                        if not check_signature_is_valid(file_path):
+                            notify_user_for_web_text(text, "HEUR:Win32.Web.Generic.Malware")
+                            logging.warning(f"Detected potential web malware: {text}")
+                            notify_user_for_text(file_path, "HEUR:Win32.Web.Generic.Malware")
+                        else:
+                            notify_user_for_web_text("HEUR:Win32.Web.Generic.Malware")
+                            logging.warning(f"Valid signature detected, but potential issue with: {text}")
+                        break
+
+                    # Create a temporary file with the message content
+                    with tempfile.NamedTemporaryFile(delete=False, mode='w', encoding='utf-8') as temp_file:
+                        temp_file.write(text)
+                        temp_file_path = temp_file.name
+
+                    # Scan the temporary file for malware
+                    if temp_file_path:
+                        is_infected, virus_name = scan_and_warn_text(temp_file_path)
+                        os.remove(temp_file_path)  # Clean up temporary file
+
+                        if is_infected and virus_name:
+                            virus_name = f"HEUR:{virus_name}"  # Add HEUR: prefix
+                            notify_user_for_web_text(f"Detected message: {text}\nVirus: {virus_name}")
+                            logging.warning(f"Detected potential malware from message: {text} - Virus: {virus_name}")
+                            notify_user_for_text(temp_file_path, virus_name)
+
+                    break
+
+        except Exception as e:
+            logging.error(f"An error occurred during window monitoring: {e}")
+
+    def extract_domain_from_text(self, text):
+        # Initialize an empty domain variable
+        domain = None
+        
+        # Search for a domain using the domain_regex
+        match = domain_regex.search(text)
+        if match:
+            domain = match.group(0)
+            
+            # Check if the extracted domain is a subdomain and extract the main domain
+            parts = domain.split(".")
+            if len(parts) >= 2:
+                main_domain = ".".join(parts[-2:])
+                domain = main_domain
+            
+        return domain
+
+    def scan_and_notify_domain(self, domain):
+        if domain in self.scanned_domains:
+            logging.info(f"Domain {domain} already scanned, skipping.")
+            return
+        self.scanned_domains.append(domain)
+
+        message = f"Scanning domain: {domain}"
+        logging.info(message)
+        print(message)
+        
+        parts = domain.split(".")
+        if len(parts) < 3:
+            main_domain = domain
+        else:
+            main_domain = ".".join(parts[-2:])
+
+        for parent_domain in domains_signatures_data:
+            if main_domain == parent_domain or main_domain.endswith(f".{parent_domain}"):
+                message = f"Main domain {main_domain} or its parent domain {parent_domain} matches the signatures."
+                logging.info(message)
+                print(message)
+                notify_user_for_web(domain=main_domain)
+                return
 
 def perform_sandbox_analysis(file_path):
     global main_file_path
