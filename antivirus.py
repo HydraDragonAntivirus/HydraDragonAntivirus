@@ -1522,15 +1522,21 @@ def worm_alert(file_path):
             logging.info(f"File '{file_path}' is identified as a PE file")
             features_current = extract_numeric_worm_features(file_path)
 
-            system32_dir = rf'{sandbox_folder}\drive\C\Windows\System32'
-            syswow64_dir = rf'{sandbox_folder}\drive\C\Windows\SysWOW64'
+            # Define critical directories
+            critical_directories = [
+                os.path.join(sandbox_folder, 'drive', 'C', 'Windows', 'System32'),
+                os.path.join(sandbox_folder, 'drive', 'C', 'Windows', 'SysWOW64'),
+                os.path.join(sandbox_folder, 'drive', 'C', 'Windows')
+            ]
 
-            detected_in_syswow64 = os.path.exists(syswow64_dir) and \
-                                   os.path.isfile(os.path.join(syswow64_dir, os.path.basename(file_path)))
-            detected_in_system32 = os.path.exists(system32_dir) and \
-                                   os.path.isfile(os.path.join(system32_dir, os.path.basename(file_path)))
+            detected_in_critical_dir = False
 
-            worm_detected = detected_in_syswow64 or detected_in_system32
+            for critical_dir in critical_directories:
+                if os.path.exists(critical_dir) and os.path.isfile(os.path.join(critical_dir, os.path.basename(file_path))):
+                    detected_in_critical_dir = True
+                    break
+
+            worm_detected = detected_in_critical_dir
 
             if main_file_path and main_file_path != file_path:
                 features_main = extract_numeric_worm_features(main_file_path)
@@ -1549,8 +1555,9 @@ def worm_alert(file_path):
 
             worm_detected_count[file_path] = worm_detected_count.get(file_path, 0) + 1
             if worm_detected:
-                logging.warning(f"Worm '{file_path}' detected in critical directory. Alerting user.")
-                notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Generic.Malware")
+                if detected_in_critical_dir:
+                    logging.warning(f"Worm '{file_path}' detected in critical directory. Alerting user.")
+                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Generic.Malware")
                 worm_alerted_files.append(file_path)
             elif worm_detected_count[file_path] >= 5:
                 logging.warning(f"Worm '{file_path}' detected under 5 different names in critical directories. Alerting user.")
