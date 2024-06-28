@@ -273,16 +273,29 @@ def restart_clamd_thread():
     threading.Thread(target=restart_clamd).start()
 
 def restart_clamd():
-    if is_clamd_running():
-        stop_result = subprocess.run(["sc", "stop", "clamd"], capture_output=True, text=True)
-        if stop_result.returncode != 0:
-            QMessageBox.critical(self, "ClamAV", "Failed to stop ClamAV.")
-            return
-    start_result = subprocess.run(["sc", "start", "clamd"], capture_output=True, text=True)
-    if start_result.returncode == 0:
-        QMessageBox.information(self, "ClamAV", "ClamAV restarted successfully.")
-    else:
-        QMessageBox.critical(self, "ClamAV", "Failed to start ClamAV.")
+    try:
+        if is_clamd_running():
+            print("Stopping ClamAV...")
+            stop_result = subprocess.run(["sc", "stop", "clamd"], capture_output=True, text=True)
+            if stop_result.returncode != 0:
+                logging.error("Failed to stop ClamAV.")
+                print("Failed to stop ClamAV.")
+                return False
+            
+        print("Starting ClamAV...")
+        start_result = subprocess.run(["sc", "start", "clamd"], capture_output=True, text=True)
+        if start_result.returncode == 0:
+            logging.info("ClamAV restarted successfully.")
+            print("ClamAV restarted successfully.")
+            return True
+        else:
+            logging.error("Failed to start ClamAV.")
+            print("Failed to start ClamAV.")
+            return False
+    except Exception as e:
+        logging.error(f"An error occurred while restarting ClamAV: {str(e)}")
+        print(f"An error occurred while restarting ClamAV: {str(e)}")
+        return False
 
 def scan_file_with_clamd(file_path):
     """Scan file using clamd."""
