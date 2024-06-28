@@ -721,12 +721,6 @@ def notify_user_anti_vm(file_path, virus_name):
     notification.message = f"Potential anti-vm malware detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
-def notify_user_anti_vm_no_file_path(virus_name):
-    notification = Notify()
-    notification.title = "Anti-VM Anti-Debug Malware detected"
-    notification.message = f"Potential anti-vm malware detected\nVirus: {virus_name}"
-    notification.send()
-
 def notify_user_for_detected_hips_file(file_path, src_ip):
     # Function to send notification for detected HIPS file
     notification = Notify()
@@ -1904,7 +1898,6 @@ def is_local_ip(ip):
     local_ip_ranges = ['10.', '172.16.', '192.168.', '127.']
     return any(ip.startswith(range) for range in local_ip_ranges)
 
-# Example class that utilizes the functions above
 class WindowMonitor:
     def __init__(self):
         self.scanned_domains = []
@@ -1946,8 +1939,8 @@ class WindowMonitor:
             is_infected, virus_name = scan_and_warn(main_file_path)
 
             if is_infected:
-                notify_user_for_web_text(f"Detected message: {text}\nVirus: HEUR:{virus_name}")
-                logging.warning(f"Detected potential malware from main file path: {main_file_path} - Virus: HEUR:{virus_name}")
+                notify_user_anti_vm(main_file_path, virus_name)
+                logging.warning(f"Detected potential anti-vm malware: {main_file_path} - Virus: {virus_name}")
             else:
                 logging.info(f"No malware detected in the main file path: {main_file_path}")
 
