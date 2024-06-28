@@ -2030,6 +2030,65 @@ def monitor_specific_windows_for_web_and_text():
             temp_file_path = None
 
             # Find all windows with text messages
+            windows = find_windows_with_text()  # This needs to be defined based on your actual implementation
+            for hwnd, text in windows:
+                logging.info(f'Window with text "{text}" found. HWND: {hwnd}')
+
+                # Check against IP and domain signatures
+                if any(ip in text for ip in ip_addresses_signatures_data):
+                    notify_user_for_web_text(ip_address=text)
+                    logging.warning(f"Detected potential web malware from IP: {text}")
+                elif any(ipv6 in text for ipv6 in ipv6_addresses_signatures_data):
+                    notify_user_for_web_text(ip_address=text)
+                    logging.warning(f"Detected potential web malware from IPv6: {text}")
+                elif any(domain in text for domain in domains_signatures_data):
+                    notify_user_for_web_text(domain=text)
+                    logging.warning(f"Detected potential web malware from domain: {text}")
+
+                # Find related file path and check sandbox or main file path relevance
+                file_path = find_window_with_text_and_file_path(text)
+                if file_path:
+                    # Check if the file has a valid signature
+                    if not check_signature_is_valid(file_path):
+                        notify_user_for_web_text(text, "HEUR:Win32.Web.Generic.Malware")
+                        logging.warning(f"Detected potential web malware: {text}")
+                        notify_user_for_text(file_path, "HEUR:Win32.Web.Generic.Malware")
+                    else:
+                        notify_user_for_web_text("HEUR:Win32.Web.Browser.Generic.Malware")
+                        logging.warning(f"Valid signature detected, but potential issue with: {text}")
+                    ctypes.windll.user32.MessageBoxW(0, f'Detected message: {text}', 'Alert', 0)
+                    break
+
+                # Create a temporary file with the message content
+                with tempfile.NamedTemporaryFile(delete=False, mode='w', encoding='utf-8') as temp_file:
+                    temp_file.write(text)
+                    temp_file_path = temp_file.name
+
+                # Scan the temporary file for malware
+                if temp_file_path:
+                    is_infected, virus_name = scan_and_warn_text(temp_file_path)
+                    os.remove(temp_file_path)  # Clean up temporary file
+
+                    if is_infected:
+                        virus_name = f"HEUR:{virus_name}"  # Add HEUR: prefix
+                        notify_user_for_web_text(f"Detected message: {text}\nVirus: {virus_name}")
+                        logging.warning(f"Detected potential malware from message: {text} - Virus: {virus_name}")
+                        notify_user_for_text(temp_file_path, virus_name)
+
+                ctypes.windll.user32.MessageBoxW(0, f'Detected message: {text}', 'Alert', 0)
+                break
+
+    except Exception as e:
+        logging.error(f"An error occurred during window monitoring: {e}")
+
+# Function to monitor specific windows for web-related messages and files
+def monitor_specific_windows_for_web_and_text():
+    try:
+        while True:
+            # Create a temporary file for each window message found
+            temp_file_path = None
+
+            # Find all windows with text messages
             windows = find_windows_with_text()
             for hwnd, text in windows:
                 logging.info(f'Window with text "{text}" found. HWND: {hwnd}')
