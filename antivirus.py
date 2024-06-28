@@ -650,15 +650,15 @@ def notify_user_worm(file_path, virus_name):
     notification.message = f"Potential worm detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
-def notify_user_for_web(ip_address=None, dst_ip_address=None):
+def notify_user_for_web(domain=None, ip_address=None):
     notification = Notify()
     notification.title = "Malware or Phishing Alert"
-    if ip_address and dst_ip_address:
-        notification.message = f"Phishing or Malicious activity detected:\nIP Addresses involved:\nSource: {ip_address}\nDestination: {dst_ip_address}"
+    if domain and ip_address:
+        notification.message = f"Phishing or Malicious activity detected:\nDomain: {domain}\nIP Address: {ip_address}"
+    elif domain:
+        notification.message = f"Phishing or Malicious activity detected:\nDomain: {domain}"
     elif ip_address:
         notification.message = f"Phishing or Malicious activity detected:\nIP Address: {ip_address}"
-    elif dst_ip_address:
-        notification.message = f"Phishing or Malicious activity detected:\nIP Address: {dst_ip_address}"
     else:
         notification.message = "Phishing or Malicious activity detected"
     notification.send()
@@ -693,7 +693,7 @@ def notify_user_for_detected_hips_file(file_path, src_ip, alert_line):
     notification.title = "HIPS Alert For File"
     notification.message = f"Malicious file detected by HIPS: {file_path}\nSource IP: {src_ip}\nAlert: {alert_line}"
     notification.send()
-    print(f"Real-time notification: Detected file {file_path} from {src_ip} due to alert {alert_line}")
+    print(f"Real-time HIPS notification: Detected file {file_path} from {src_ip} due to alert {alert_line}")
 
 def notify_user_anti_vm(file_path, virus_name):
     notification = Notify()
@@ -706,6 +706,22 @@ def notify_user_anti_vm_no_file_path(virus_name):
     notification.title = "Anti-VM Anti-Debug Malware detected"
     notification.message = f"Potential anti-vm malware detected\nVirus: {virus_name}"
     notification.send()
+
+def notify_user_for_detected_hips_file(file_path, src_ip):
+    # Function to send notification for detected HIPS file
+    notification = Notify()
+    notification.title = "Web Malware Alert For File"
+    notification.message = f"Malicious file detected by Webr related message: {file_path}\nSource IP: {src_ip}"
+    notification.send()
+    print(f"Real-time web message notification: Detected file {file_path} from {src_ip}")
+
+def notify_user_for_detected_hips_file(src_ip):
+    # Function to send notification for detected HIPS file
+    notification = Notify()
+    notification.title = "Web Malware Alert For File"
+    notification.message = f"Malicious alert detected by Web related Message: {file_path}\nSource IP: {src_ip}"
+    notification.send()
+    print(f"Real-time web message notification: Detected file {file_path} from {src_ip}")
 
 def is_local_ip(ip):
     if re.match(r'^192\.168\.\d{1,3}\.\d{1,3}$', ip):
