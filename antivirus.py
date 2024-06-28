@@ -1849,10 +1849,10 @@ def monitor_specific_windows(target_message):
                 if main_file_path in text or os.path.commonpath([os.path.abspath(text), os.path.abspath(sandbox_folder)]) == os.path.abspath(sandbox_folder):
                     # Check if the file has a valid signature
                     if not check_signature_is_valid(text):
-                        notify_user_anti_vm(text, "HEUR:Windows.Trojan.Guloader.C4D9Dd33")
+                        notify_user_anti_vm(text, "HEUR:Win32.Trojan.Guloader.C4D9Dd33")
                         logging.warning(f"Detected potential anti-vm malware: {text}")
                     else:
-                        notify_user_anti_vm_no_file_path("HEUR:Windows.Trojan.Guloader.C4D9Dd33")
+                        notify_user_anti_vm_no_file_path("HEUR:Win32.Trojan.Guloader.C4D9Dd33")
                         logging.warning(f"Valid signature detected, but potential issue with: {text}")
                     ctypes.windll.user32.MessageBoxW(0, f'Detected message: {text}', 'Alert', 0)
                     break
