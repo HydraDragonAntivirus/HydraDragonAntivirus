@@ -1956,31 +1956,33 @@ ip_regex = re.compile(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')
 ipv6_regex = re.compile(r'\b(?:[a-fA-F0-9]{1,4}:){7}[a-fA-F0-9]{1,4}\b')
 domain_regex = re.compile(r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b')
 
-# Function to retrieve the text of a window
+# Function to get window text
 def get_window_text(hwnd):
-    length = ctypes.windll.user32.GetWindowTextLengthW(hwnd) + 1
-    buffer = ctypes.create_unicode_buffer(length)
-    ctypes.windll.user32.GetWindowTextW(hwnd, buffer, length)
+    length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+    buffer = ctypes.create_unicode_buffer(length + 1)
+    ctypes.windll.user32.GetWindowTextW(hwnd, buffer, length + 1)
     return buffer.value
 
-# Function to retrieve the text from a control
+# Function to get control text
 def get_control_text(hwnd):
-    length = ctypes.windll.user32.SendMessageW(hwnd, WM_GETTEXTLENGTH) + 1
-    buffer = ctypes.create_unicode_buffer(length)
-    ctypes.windll.user32.SendMessageW(hwnd, WM_GETTEXT, length, buffer)
+    length = ctypes.windll.user32.SendMessageW(hwnd, 0x000E, 0, 0)  # WM_GETTEXTLENGTH
+    buffer = ctypes.create_unicode_buffer(length + 1)
+    ctypes.windll.user32.SendMessageW(hwnd, 0x000D, length + 1, buffer)  # WM_GETTEXT
     return buffer.value
 
-# Function to find all child windows of a given parent window
-def find_child_windows(parent):
+# Function to find child windows
+def find_child_windows(hwnd):
     child_windows = []
-    def enum_child_windows_callback(hwnd, lParam):
-        child_windows.append(hwnd)
+
+    def enum_child_windows_callback(child_hwnd, lParam):
+        child_windows.append(child_hwnd)
         return True
-    EnumChildWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
-    ctypes.windll.user32.EnumChildWindows(parent, EnumChildWindowsProc(enum_child_windows_callback), None)
+
+    EnumChildProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+    ctypes.windll.user32.EnumChildWindows(hwnd, EnumChildProc(enum_child_windows_callback), None)
     return child_windows
 
-# Function to find a window containing the specified text and return its related file path
+# Function to find window with text and return its file path
 def find_window_with_text_and_file_path(target_message):
     file_path = None
 
@@ -1989,15 +1991,17 @@ def find_window_with_text_and_file_path(target_message):
         if ctypes.windll.user32.IsWindowVisible(hwnd):
             window_text = get_window_text(hwnd)
             if target_message in window_text:
-                file_path = window_text.strip()
-                if os.path.isfile(file_path):
+                potential_path = window_text.strip()
+                if os.path.isfile(potential_path):
+                    file_path = potential_path
                     return False  # Stop enumeration and return the file path
             else:
                 for child in find_child_windows(hwnd):
                     control_text = get_control_text(child)
                     if target_message in control_text:
-                        file_path = control_text.strip()
-                        if os.path.isfile(file_path):
+                        potential_path = control_text.strip()
+                        if os.path.isfile(potential_path):
+                            file_path = potential_path
                             return False  # Stop enumeration and return the file path
         return True
 
