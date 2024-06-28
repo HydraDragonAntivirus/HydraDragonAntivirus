@@ -652,7 +652,7 @@ def scan_pe_file(file_path):
                                 for r in res.directory.entries:
                                     if hasattr(r, 'data'):
                                         data = pe.get_data(r.data.struct.OffsetToData, r.data.struct.Size)
-                                        scan_result, virus_name = scan_file_real_time(data)
+                                        scan_result, virus_name = scan_and_warn(data)
                                         if scan_result:
                                             virus_names.append(virus_name)
                                             # Return immediately if malware is detected
@@ -672,7 +672,7 @@ def scan_zip_file(file_path):
             for root, _, files in os.walk(temp_dir):
                 for file_name in files:
                     extracted_file_path = os.path.join(root, file_name)
-                    scan_result, virus_name = scan_file_real_time(extracted_file_path)
+                    scan_result, virus_name = scan_and_warn(extracted_file_path)
                     if scan_result:
                         return True, virus_name
     except Exception as e:
@@ -702,7 +702,7 @@ def scan_tar_file(file_path):
             for root, _, files in os.walk(temp_dir):
                 for file_name in files:
                     extracted_file_path = os.path.join(root, file_name)
-                    scan_result, virus_name = scan_file_real_time(extracted_file_path)
+                    scan_result, virus_name = scan_and_Warn(extracted_file_path)
                     if scan_result:
                         return True, virus_name
     except Exception as e:
