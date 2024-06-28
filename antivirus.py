@@ -1083,10 +1083,16 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line):
                     if conn.raddr and (conn.raddr.ip == src_ip or conn.raddr.ip == dst_ip):
                         file_path = proc.info['exe']
                         if file_path:
-                            logging.info(f"Warning: Detected file {file_path} associated with IP {src_ip} or {dst_ip}")
-                            print(f"Warning: Detected file {file_path} associated with IP {src_ip} or {dst_ip}")
-                            # Notify the user directly
-                            notify_user_for_detected_hips_file(file_path, src_ip, alert_line)
+                            logging.info(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip}")
+
+                            signature_info = check_valid_signature_only(file_path)
+                            if not signature_info["is_valid"]:
+                                logging.warning(f"File {file_path} has invalid signature.")
+                                print(f"Warning: Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid signature.")
+                                notify_user_for_detected_hips_file(file_path, src_ip, alert_line)
+                            else:
+                                logging.info(f"File {file_path} has a valid signature and is not flagged as malicious.")
+                                print(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious.")
         except psutil.NoSuchProcess:
             logging.warning(f"Process no longer exists: {proc.info.get('pid')}")
         except psutil.AccessDenied:
@@ -1095,6 +1101,25 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line):
             logging.warning(f"Zombie process encountered: {proc.info.get('pid')}")
         except Exception as e:
             logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {e}")
+
+def check_valid_signature_only(file_path):
+    try:
+        # Command to verify the executable signature status
+        verify_command = f"(Get-AuthenticodeSignature '{file_path}').Status"
+        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='cp1254')
+        
+        status = process.stdout.strip()
+        is_valid = status == "Valid"
+        
+        return {
+            "is_valid": is_valid
+        }
+    except Exception as e:
+        print(f"An error occurred while checking signature: {e}")
+        logging.error(f"An error occurred while checking signature: {e}")
+        return {
+            "is_valid": False
+        }
 
 def process_alert(line):
     try:
