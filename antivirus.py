@@ -255,8 +255,19 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
 
 def is_clamd_running():
     """Check if clamd is running."""
-    result = subprocess.run(['sc', 'query', 'clamd'], capture_output=True, text=True)
-    return "RUNNING" in result.stdout
+    try:
+        result = subprocess.run(['sc', 'query', 'clamd'], capture_output=True, text=True, check=True)
+        if result.returncode == 0:
+            return "RUNNING" in result.stdout
+        else:
+            print(f"sc query clamd failed with return code {result.returncode}")
+            return False
+    except subprocess.CalledProcessError as e:
+        print(f"Error while checking clamd status: {e}")
+        return False
+    except Exception as e:
+        print(f"Unexpected error while checking clamd status: {e}")
+        return False
  
 def restart_clamd_thread():
     threading.Thread(target=restart_clamd).start()
