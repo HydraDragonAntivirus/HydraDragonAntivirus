@@ -1927,14 +1927,10 @@ class WindowMonitor:
                 logging.warning(f"Detected potential web malware from domain: {text}\nFull Text: {text}")
 
     def process_detected_window_classic(self, text):
-        # Check for specific classic indicators and anti-VM malware without a specific file path
-        if contains_ip_address(text) or contains_ipv6_address(text) or contains_domain(text):
-            self.process_detected_window_web(text)  # If it matches web-related indicators, process as such
-        else:
-            # Check for anti-VM malware without a specific file path
-            virus_name = "HEUR:Win32.Trojan.Guloader.C4D9Dd33"
-            notify_user_anti_vm_no_file_path(virus_name)
-            logging.warning(f"Detected potential anti-vm anti-debug malware: {virus_name}")
+        # Check for anti-VM malware without a specific file path
+        virus_name = "HEUR:Win32.Trojan.Guloader.C4D9Dd33"
+        notify_user_anti_vm_no_file_path(virus_name)
+        logging.warning(f"Detected potential anti-vm anti-debug malware: {virus_name}")
 
 def perform_sandbox_analysis(file_path):
     global main_file_path
