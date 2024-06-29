@@ -22,12 +22,6 @@ setx PATH "%PATH%;%CLAMAV_PATH%;%SNORT_PATH%;%SANDBOXIE_PATH%" /M
 
 echo PATH variable updated with ClamAV, Snort, and Sandboxie paths.
 
-:: Create C:\Program Files\ClamAV\database directory if it does not exist
-if not exist "C:\Program Files\ClamAV\database" (
-    mkdir "C:\Program Files\ClamAV\database"
-    echo Created C:\Program Files\ClamAV\database directory.
-)
-
 :: Copy files from clamavconfig to C:\Program Files\ClamAV
 if exist clamavconfig (
     xcopy clamavconfig\*.* "C:\Program Files\ClamAV" /Y
