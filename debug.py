@@ -33,7 +33,7 @@ import ctypes
 
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
-script_dir = "C:\\Program Files\\HydraDragonAntivirus"
+script_dir = os.getcwd()
 # Configure logging
 log_directory = os.path.join(script_dir, "log")
 log_file = os.path.join(log_directory, "antivirus.log")
