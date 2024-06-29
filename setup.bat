@@ -28,17 +28,17 @@ if not exist "C:\Program Files\ClamAV\database" (
     echo Created C:\Program Files\ClamAV\database directory.
 )
 
-:: Run freshclam to update virus definitions
-echo Updating ClamAV virus definitions...
-"C:\Program Files\ClamAV\freshclam.exe"
-echo ClamAV virus definitions updated.
-
 :: Copy files from clamavconfig to C:\Program Files\ClamAV
 if exist clamavconfig (
     xcopy clamavconfig\*.* "C:\Program Files\ClamAV" /Y
 ) else (
     echo clamavconfig directory not found. Please ensure it is in the same directory as this script.
 )
+
+:: Run freshclam to update virus definitions
+echo Updating ClamAV virus definitions...
+"C:\Program Files\ClamAV\freshclam.exe"
+echo ClamAV virus definitions updated.
 
 :: Install clamd
 echo Installing clamd...
