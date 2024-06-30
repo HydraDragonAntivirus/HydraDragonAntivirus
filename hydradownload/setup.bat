@@ -8,8 +8,8 @@ if %errorlevel% neq 0 (
     exit /b
 )
 
-:: Change to the directory of the script
-cd /d %~dp0
+:: Change to the specified working directory
+cd /d "C:\Program Files\HydraDragonAntivirus"
 
 echo Setting PATH environment variable...
 
