@@ -160,46 +160,7 @@ def load_data():
         print(f"Error loading Domains from {DOMAINS_PATH}: {e}")
 
     print("Domain and IPv4 IPv6 signatures loaded successfully!")
-
-def is_mbrfilter_installed():
-    # This function checks the Windows Registry for the presence of MBRFilter.
-    try:
-        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Services\MBRFilter")
-        winreg.CloseKey(key)
-        return True
-    except FileNotFoundError:
-        return False
-    except Exception as e:
-        print(f"Error checking MBRFilter installation: {e}")
-        return False
-
-def setup_mbrfilter():
-    # Check if MBRFilter is already installed
-    if is_mbrfilter_installed():
-        print("MBRFilter is already installed.")
-        return
     
-    # Check system architecture
-    arch = architecture()[0]
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    if arch == '64bit':
-        mbrfilter_path = os.path.join(script_dir, "mbrfilter", "x64", "MBRFilter.inf")
-    else:
-        mbrfilter_path = os.path.join(script_dir, "mbrfilter", "x86", "MBRFilter.inf")
-
-    if os.path.exists(mbrfilter_path):
-        try:
-            # Run infdefaultinstall.exe to setup MBRFilter
-            result = subprocess.run(["infdefaultinstall.exe", mbrfilter_path], capture_output=True, text=True, check=True)
-            print("MBRFilter has been setup successfully.")
-        except subprocess.CalledProcessError as e:
-            error_message = e.stderr if e.stderr else str(e)
-            if "dijital imza" in error_message or "digital signature" in error_message:
-                error_message += "\n\nThe INF file does not contain a digital signature, which is required for 64-bit Windows."
-            print(f"Failed to setup MBRFilter: {error_message}")
-    else:
-        print(f"MBRFilter.inf not found at {mbrfilter_path}.")
-     
 def safe_remove(file_path):
     try:
         os.remove(file_path)
@@ -1260,7 +1221,6 @@ def activate_uefi_drive():
     except subprocess.CalledProcessError as e:
         print(f"Error mounting UEFI drive: {e}")
 
-setup_mbrfilter()
 activate_uefi_drive() # Call the UEFI function
 snort_thread = threading.Thread(target=run_snort)
 snort_thread.start()

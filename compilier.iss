@@ -11,12 +11,11 @@
 #define MyAppAssocKey StringChange(MyAppAssocName, " ", "") + MyAppAssocExt
 
 [Setup]
-; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
-; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
+; AppId should be unique for each application installer
 AppId={{9B4A19B2-69BC-4AD2-8781-BDD85DCEF0C9}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-;AppVerName={#MyAppName} {#MyAppVersion}
+AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
@@ -27,8 +26,6 @@ ChangesAssociations=yes
 DisableProgramGroupPage=yes
 LicenseFile=C:\Users\victim\Documents\HydraDragonAntivirus\LICENSE.md
 InfoBeforeFile=C:\Users\victim\Documents\HydraDragonAntivirus\README.md
-; Uncomment the following line to run in non administrative install mode (install for current user only.)
-;PrivilegesRequired=lowest
 OutputDir=C:\Users\victim\Documents\output
 OutputBaseFilename=HydraDragonAntivirus
 SetupIconFile=C:\Users\victim\Documents\oldstuff\HydraDragonAV.ico
@@ -44,13 +41,12 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "C:\Users\victim\Documents\HydraDragonAntivirus\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "C:\Users\victim\Documents\HydraDragonAntivirus\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "C:\Users\victim\Documents\hydradownload\clamav-1.3.1.win.x64.msi"; DestDir: "{app}"; Flags: ignoreversion
-Source: "C:\Users\victim\Documents\hydradownload\npcap-1.79.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "C:\Users\victim\Documents\hydradownload\Sandboxie-Classic-x64-v5.68.7.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "C:\Users\victim\Documents\hydradownload\Snort_2_9_20_Installer.x64.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "C:\Users\victim\Documents\hydradownload\setup.bat"; DestDir: "{app}"; Flags: ignoreversion
-; NOTE: Don't use "Flags: ignoreversion" on any shared system files
+Source: "C:\Users\victim\Documents\hydradownload\clamav-1.3.1.win.x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydradownload\npcap-1.79.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydradownload\Sandboxie-Classic-x64-v5.68.7.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydradownload\Snort_2_9_20_Installer.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydradownload\setup.bat"; DestDir: "{tmp}"; Flags: deleteafterinstall
+; Note: Don't use "Flags: ignoreversion" on any shared system files
 
 [Registry]
 Root: HKA; Subkey: "Software\Classes\{#MyAppAssocExt}\OpenWithProgids"; ValueType: string; ValueName: "{#MyAppAssocKey}"; ValueData: ""; Flags: uninsdeletevalue
@@ -65,8 +61,8 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
-Filename: "{app}\clamav-1.3.1.win.x64.msi"; Flags: shellexec waituntilterminated
-Filename: "{app}\npcap-1.79.exe"; Flags: shellexec waituntilterminated
-Filename: "{app}\Sandboxie-Classic-x64-v5.68.7.exe"; Flags: shellexec waituntilterminated
-Filename: "{app}\Snort_2_9_20_Installer.x64.exe"; Flags: shellexec waituntilterminated
-Filename: "{app}\setup.bat"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\clamav-1.3.1.win.x64.msi"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\npcap-1.79.exe"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\Sandboxie-Classic-x64-v5.68.7.exe"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\Snort_2_9_20_Installer.x64.exe"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\setup.bat"; Flags: shellexec waituntilterminated
