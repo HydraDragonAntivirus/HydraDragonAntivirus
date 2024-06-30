@@ -72,21 +72,5 @@ if exist database (
     echo database directory not found. Please ensure it is in the same directory as this script.
 )
 
-echo Setting up MBRFilter...
-set "MBRFILTER_DIR=%~dp0\mbrfilter"
-
-rem Assume infdefaultinstall.exe is in the system PATH
-
-if exist "%MBRFILTER_DIR%" (
-    if %PROCESSOR_ARCHITECTURE%==AMD64 (
-        infdefaultinstall.exe "%MBRFILTER_DIR%\x64\MBRFilter.inf"
-    ) else (
-        infdefaultinstall.exe "%MBRFILTER_DIR%\x86\MBRFilter.inf"
-    )
-    echo MBRFilter setup completed.
-) else (
-    echo MBRFilter directory not found. Please ensure it is in the same directory as this script.
-)
-
 echo Setup complete.
 pause
