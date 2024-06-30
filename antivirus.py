@@ -122,18 +122,6 @@ ip_addresses_signatures_data = {}
 ipv6_addresses_signatures_data = {}
 domains_signatures_data = {}
 
-# Additional function to check if a file is an SQLite database
-def is_sqlite_file(file_path):
-    try:
-        with open(file_path, 'rb') as file:
-            header = file.read(16)
-            # SQLite database files have a specific header
-            if header.startswith(b'SQLite format 3'):
-                return True
-    except Exception as e:
-        print(f"Error reading file {file_path}: {e}")
-    return False
-
 def load_data():
     try:
         # Load IPv4 addresses
@@ -368,11 +356,6 @@ def scan_file_real_time(file_path):
         # Skip scanning if the file is in the script directory
         if os.path.commonpath([file_path, script_dir]) == script_dir:
             logging.info(f"Skipping file in script directory: {file_path}")
-            return False, "Clean"
-
-        # Skip scanning if the file is an SQLite file
-        if is_sqlite_file(file_path):
-            logging.info(f"Skipping SQLite file: {file_path}")
             return False, "Clean"
 
         # Check for PE file and signatures
