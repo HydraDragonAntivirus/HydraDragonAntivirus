@@ -11,7 +11,8 @@
 #define MyAppAssocKey StringChange(MyAppAssocName, " ", "") + MyAppAssocExt
 
 [Setup]
-; AppId should be unique for each application installer
+; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
+; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
 AppId={{9B4A19B2-69BC-4AD2-8781-BDD85DCEF0C9}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
@@ -40,7 +41,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "C:\Users\victim\Documents\HydraDragonAntivirus\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "C:\Users\victim\Documents\HydraDragonAntivirus\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "C:\Users\victim\Documents\hydradownload\clamav-1.3.1.win.x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydradownload\npcap-1.79.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydradownload\Sandboxie-Classic-x64-v5.68.7.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
