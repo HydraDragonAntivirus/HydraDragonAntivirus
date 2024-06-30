@@ -49,6 +49,7 @@ Source: "C:\Users\victim\Documents\hydradownload\clamav-1.3.1.win.x64.msi"; Dest
 Source: "C:\Users\victim\Documents\hydradownload\npcap-1.79.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "C:\Users\victim\Documents\hydradownload\Sandboxie-Classic-x64-v5.68.7.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "C:\Users\victim\Documents\hydradownload\Snort_2_9_20_Installer.x64.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "C:\Users\victim\Documents\hydradownload\setup.bat"; DestDir: "{app}"; Flags: ignoreversion
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Registry]
@@ -68,3 +69,4 @@ Filename: "{app}\clamav-1.3.1.win.x64.msi"; Flags: shellexec waituntilterminated
 Filename: "{app}\npcap-1.79.exe"; Flags: shellexec waituntilterminated
 Filename: "{app}\Sandboxie-Classic-x64-v5.68.7.exe"; Flags: shellexec waituntilterminated
 Filename: "{app}\Snort_2_9_20_Installer.x64.exe"; Flags: shellexec waituntilterminated
+Filename: "{app}\setup.bat"; Flags: shellexec waituntilterminated
