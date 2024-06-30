@@ -22,9 +22,10 @@ setx PATH "%PATH%;%CLAMAV_PATH%;%SNORT_PATH%;%SANDBOXIE_PATH%" /M
 
 echo PATH variable updated with ClamAV, Snort, and Sandboxie paths.
 
-:: Copy files from clamavconfig to C:\Program Files\ClamAV
+:: Move files from clamavconfig to C:\Program Files\ClamAV
 if exist clamavconfig (
-    xcopy clamavconfig\*.* "C:\Program Files\ClamAV" /Y
+    move clamavconfig\*.* "C:\Program Files\ClamAV" /Y
+    rmdir /s /q clamavconfig
 ) else (
     echo clamavconfig directory not found. Please ensure it is in the same directory as this script.
 )
@@ -43,31 +44,34 @@ if %errorlevel% equ 0 (
     echo Failed to install clamd.
 )
 
-:: Copy files from hipsconfig to C:\Snort\etc
+:: Move files from hipsconfig to C:\Snort\etc
 if exist hipsconfig (
-    xcopy hipsconfig\*.* "C:\Snort\etc" /Y
+    move hipsconfig\*.* "C:\Snort\etc" /Y
+    rmdir /s /q hipsconfig
 ) else (
     echo hipsconfig directory not found. Please ensure it is in the same directory as this script.
 )
 
-:: Copy specific files from hips to C:\Snort\rules
+:: Move specific files from hips to C:\Snort\rules
 if exist hips (
     if exist hips\snort2.9.rules (
-        xcopy hips\snort2.9.rules "C:\Snort\rules" /Y
+        move hips\snort2.9.rules "C:\Snort\rules" /Y
     )
     if exist hips\snort2.rules (
-        xcopy hips\snort2.rules "C:\Snort\rules" /Y
+        move hips\snort2.rules "C:\Snort\rules" /Y
     )
     if exist hips\emergingthreats (
-        xcopy hips\emergingthreats\*.* "C:\Snort\rules" /Y
+        move hips\emergingthreats\*.* "C:\Snort\rules" /Y
     )
+    rmdir /s /q hips
 ) else (
     echo hips directory not found. Please ensure it is in the same directory as this script.
 )
 
-:: Copy database files to C:\Program Files\ClamAV\database
+:: Move database files to C:\Program Files\ClamAV\database
 if exist database (
-    xcopy database\*.* "C:\Program Files\ClamAV\database" /E /Y
+    move database\*.* "C:\Program Files\ClamAV\database" /E /Y
+    rmdir /s /q database
 ) else (
     echo database directory not found. Please ensure it is in the same directory as this script.
 )
