@@ -61,7 +61,6 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 Filename: "{tmp}\clamav-1.3.1.win.x64.msi"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\npcap-1.79.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\Sandboxie-Classic-x64-v5.68.7.exe"; Flags: shellexec waituntilterminated
