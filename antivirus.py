@@ -1767,32 +1767,51 @@ domain_regex = re.compile(r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b')
 
 # Function to get window text
 def get_window_text(hwnd):
-    length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
-    buffer = ctypes.create_unicode_buffer(length + 1)
-    ctypes.windll.user32.GetWindowTextW(hwnd, buffer, length + 1)
+    """Retrieve the text of a window."""
+    length = ctypes.windll.user32.GetWindowTextLengthW(hwnd) + 1
+    buffer = ctypes.create_unicode_buffer(length)
+    ctypes.windll.user32.GetWindowTextW(hwnd, buffer, length)
     return buffer.value
 
 # Function to get control text
 def get_control_text(hwnd):
-    length = ctypes.windll.user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0)  # WM_GETTEXTLENGTH
-    buffer = ctypes.create_unicode_buffer(length + 1)
-    ctypes.windll.user32.SendMessageW(hwnd, WM_GETTEXT, length + 1, buffer)  # WM_GETTEXT
+    """Retrieve the text from a control."""
+    length = ctypes.windll.user32.SendMessageW(hwnd, WM_GETTEXTLENGTH) + 1
+    buffer = ctypes.create_unicode_buffer(length)
+    ctypes.windll.user32.SendMessageW(hwnd, WM_GETTEXT, length, buffer)
     return buffer.value
 
-# Function to find windows containing text and return related file paths
-def find_windows_with_text():
-    windows_with_text = []
-
-    def enum_windows_callback(hwnd, lParam):
-        if ctypes.windll.user32.IsWindowVisible(hwnd):
-            window_text = get_window_text(hwnd).strip()
-            if window_text:
-                windows_with_text.append((hwnd, window_text))
+def find_child_windows(parent):
+    """Find all child windows of a given parent window."""
+    child_windows = []
+    def enum_child_windows_callback(hwnd, lParam):
+        child_windows.append(hwnd)
         return True
 
+    EnumChildWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+    ctypes.windll.user32.EnumChildWindows(parent, EnumChildWindowsProc(enum_child_windows_callback), None)
+    return child_windows
+
+# Function to find windows containing text and return related file paths
+def find_windows_with_text(target_text):
+    """Find all windows containing the specified text and their child windows."""
+    def enum_windows_callback(hwnd, lParam):
+        if ctypes.windll.user32.IsWindowVisible(hwnd):
+            window_text = get_window_text(hwnd)
+            if target_text in window_text:
+                window_handles.append((hwnd, window_text))
+            else:
+                for child in find_child_windows(hwnd):
+                    control_text = get_control_text(child)
+                    if target_text in control_text:
+                        window_handles.append((child, control_text))
+                        break
+        return True
+
+    window_handles = []
     EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
     ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
-    return windows_with_text
+    return window_handles
 
 # Helper function to check if a string contains a known IP address
 def contains_ip_address(text):
@@ -1828,14 +1847,14 @@ class WindowMonitor:
         self.scanned_domains = []
 
     def monitor_specific_windows(self):
-        target_message = "This program cannot be run under virtual environment or debugging software!"
+        target_message = "This program cannot be run under virtual environment or debugging software"
         try:
             while True:
                 # Monitor for the specific target message
                 windows = find_windows_with_text()
                 for hwnd, text in windows:
                     if target_message in text:
-                        logging.info(f'Window with target message "{target_message}" found. HWND: {hwnd}')
+                        logging.warning(f'Window with target message "{target_message}" found. HWND: {hwnd}')
                         self.process_detected_window_classic(text)
                     else:
                         self.process_detected_window_web(text)
