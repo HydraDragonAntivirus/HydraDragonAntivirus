@@ -1793,12 +1793,12 @@ def find_child_windows(parent):
     return child_windows
 
 # Function to find windows containing text and return related file paths
-def find_windows_with_text(target_text):
+def find_windows_with_text(target_message):
     """Find all windows containing the specified text and their child windows."""
     def enum_windows_callback(hwnd, lParam):
         if ctypes.windll.user32.IsWindowVisible(hwnd):
             window_text = get_window_text(hwnd)
-            if target_text in window_text:
+            if target_message in window_text:
                 window_handles.append((hwnd, window_text))
             else:
                 for child in find_child_windows(hwnd):
@@ -1851,7 +1851,7 @@ class WindowMonitor:
         try:
             while True:
                 # Monitor for the specific target message
-                windows = find_windows_with_text()
+                windows = find_windows_with_text(target_message)
                 for hwnd, text in windows:
                     if target_message in text:
                         logging.warning(f'Window with target message "{target_message}" found. HWND: {hwnd}')
