@@ -12,3 +12,5 @@ Guide:
 - Malware Database: https://mega.nz/file/1CcGTRoQ#Chp5oNpk2ExhcCjrlY1Q_n0w9ToF5ozGdyn5hjfmQdk
 - Benign Database: https://mega.nz/file/wOVmTJTS#qywYEZWYBKmvc8z6CtLNxJh4L9MBcvQIY9Mb7pQapik
 - Notice: Only contains PE files.
+# Notice
+You must create DefaultBox at Sandboxie.
