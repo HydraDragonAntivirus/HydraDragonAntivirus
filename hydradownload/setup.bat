@@ -25,23 +25,11 @@ echo PATH variable updated with ClamAV, Snort, and Sandboxie paths.
 :: Move files from clamavconfig to C:\Program Files\ClamAV
 if exist clamavconfig (
     move clamavconfig\*.* "C:\Program Files\ClamAV" /Y
+    move clamavconfig\freshclam.conf "C:\Program Files\ClamAV" /Y
+    move clamavconfig\clamd.conf "C:\Program Files\ClamAV" /Y
     rmdir /s /q clamavconfig
 ) else (
     echo clamavconfig directory not found. Please ensure it is in the same directory as this script.
-)
-
-:: Run freshclam to update virus definitions
-echo Updating ClamAV virus definitions...
-"C:\Program Files\ClamAV\freshclam.exe"
-echo ClamAV virus definitions updated.
-
-:: Install clamd
-echo Installing clamd...
-clamd --install
-if %errorlevel% equ 0 (
-    echo clamd installed successfully.
-) else (
-    echo Failed to install clamd.
 )
 
 :: Move files from hipsconfig to C:\Snort\etc
@@ -70,10 +58,24 @@ if exist hips (
 
 :: Move database files to C:\Program Files\ClamAV\database
 if exist database (
-    move database\*.* "C:\Program Files\ClamAV\database" /E /Y
+    move database\*.* "C:\Program Files\ClamAV\database" /Y
     rmdir /s /q database
 ) else (
     echo database directory not found. Please ensure it is in the same directory as this script.
+)
+
+:: Run freshclam to update virus definitions
+echo Updating ClamAV virus definitions...
+"C:\Program Files\ClamAV\freshclam.exe"
+echo ClamAV virus definitions updated.
+
+:: Install clamd
+echo Installing clamd...
+"C:\Program Files\ClamAV\clamd.exe" --install
+if %errorlevel% equ 0 (
+    echo clamd installed successfully.
+) else (
+    echo Failed to install clamd.
 )
 
 echo Setup complete.
