@@ -1803,7 +1803,7 @@ def find_windows_with_text(target_message):
             else:
                 for child in find_child_windows(hwnd):
                     control_text = get_control_text(child)
-                    if target_text in control_text:
+                    if target_message in control_text:
                         window_handles.append((child, control_text))
                         break
         return True
