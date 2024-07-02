@@ -655,10 +655,10 @@ def notify_user_for_detected_hips_file(src_ip):
     notification.send()
     print(f"Real-time web message notification: Detected file {file_path} from {src_ip}")
 
-def notify_user_anti_vm_no_file_path(virus_name):
+def notify_user_anti_vm(virus_name):
     notification = Notify()
     notification.title = "Anti-VM Anti-Debug Malware detected"
-    notification.message = f"Potential anti-vm malware detected\nVirus: {virus_name}"
+    notification.message = f"Potential anti-vm malware detected\nVirus: {virus_name}\nFile Path: {main_file_path}"
     notification.send()
 
 def is_local_ip(ip):
@@ -1868,8 +1868,8 @@ class WindowMonitor:
     def process_detected_window_classic(self, text):
         # Check for anti-VM malware without a specific file path
         virus_name = "HEUR:Win32.Trojan.Guloader.C4D9Dd33"
-        notify_user_anti_vm_no_file_path(virus_name)
-        logging.warning(f"Detected potential anti-vm anti-debug malware: {virus_name}")
+        notify_user_anti_vm(virus_name)
+        logging.warning(f"Detected potential anti-vm anti-debug malware: {virus_name} {main_file_path}")
 
 def perform_sandbox_analysis(file_path):
     global main_file_path
