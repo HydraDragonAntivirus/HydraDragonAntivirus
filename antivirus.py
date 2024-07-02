@@ -119,6 +119,7 @@ ip_addresses_path = os.path.join(script_dir, "website", "IP_Addresses.txt")
 ipv6_addresses_path = os.path.join(script_dir, "website", "ipv6.txt")
 domains_path = os.path.join(script_dir, "website", "Domains.txt")
 ip_addresses_signatures_data = {}
+ipv4_whitelist_data = {}
 ipv6_addresses_signatures_data = {}
 domains_signatures_data = {}
 
@@ -134,7 +135,7 @@ def load_data():
             ipv6_addresses = ipv6_file.read().splitlines()
             ipv6_addresses_signatures_data = {ipv6: "" for ipv6 in ipv6_addresses}
 
-        print("IP Addresses (ipv4, ipv6) loaded successfully!")
+        print("IP Addresses (IPv4, IPv6) loaded successfully!")
     except Exception as e:
         print(f"Error loading IP Addresses: {e}")
 
@@ -145,16 +146,17 @@ def load_data():
             domains_signatures_data = {domain: "" for domain in domains}
         print("Domains loaded successfully!")
     except Exception as e:
-        print(f"Error loading Domains from {DOMAINS_PATH}: {e}")
+        print(f"Error loading Domains: {e}")
 
-    print("Domain and IPv4 IPv6 signatures loaded successfully!")
-    
-def safe_remove(file_path):
     try:
-        os.remove(file_path)
-        print(f"File {file_path} deleted successfully.")
+        # Load IPv4 whitelist
+        with open(ipv4_whitelist_path, 'r') as whitelist_file:
+            ipv4_whitelist_data = whitelist_file.read().splitlines()
+        print("IPv4 Whitelist loaded successfully!")
     except Exception as e:
-        print(f"Error deleting file {file_path}: {e}")
+        print(f"Error loading IPv4 Whitelist: {e}")
+
+    print("Domain and IPv4, IPv6, and Whitelist signatures loaded successfully!")
 
 def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     """Scan a file for malicious activity using machine learning."""
@@ -645,27 +647,11 @@ def notify_user_for_hips(ip_address=None, dst_ip_address=None, is_malicious=Fals
             notification.message = "Malicious activity detected"
     notification.send()
 
-def notify_user_for_detected_hips_file(file_path, src_ip, alert_line):
-    # Function to send notification for detected HIPS file
-    notification = Notify()
-    notification.title = "HIPS Alert For File"
-    notification.message = f"Malicious file detected by HIPS: {file_path}\nSource IP: {src_ip}\nAlert: {alert_line}"
-    notification.send()
-    print(f"Real-time HIPS notification: Detected file {file_path} from {src_ip} due to alert {alert_line}")
-
-def notify_user_for_detected_hips_file(file_path, src_ip):
-    # Function to send notification for detected HIPS file
-    notification = Notify()
-    notification.title = "Web Malware Alert For File"
-    notification.message = f"Malicious file detected by Webr related message: {file_path}\nSource IP: {src_ip}"
-    notification.send()
-    print(f"Real-time web message notification: Detected file {file_path} from {src_ip}")
-
 def notify_user_for_detected_hips_file(src_ip):
     # Function to send notification for detected HIPS file
     notification = Notify()
     notification.title = "Web Malware Alert For File"
-    notification.message = f"Malicious alert detected by Web related Message: {file_path}\nSource IP: {src_ip}"
+    notification.message = f"Malicious file detected by Web related Message: {file_path}\nSource IP: {src_ip}"
     notification.send()
     print(f"Real-time web message notification: Detected file {file_path} from {src_ip}")
 
@@ -1140,6 +1126,11 @@ def process_alert(line):
                 dst_ip = match.group(3)
                 logging.info(f"Alert detected: Priority {priority}, Source {src_ip}, Destination {dst_ip}")
                 print(f"Alert detected: Priority {priority}, Source {src_ip}, Destination {dst_ip}")
+                # Check if the source IP is in the IPv4 whitelist
+                if src_ip in ipv4_whitelist_data:
+                    logging.info(f"Source IP {src_ip} is in the whitelist. Ignoring alert.")
+                    print(f"Source IP {src_ip} is in the whitelist. Ignoring alert.")
+                    return False
 
                 if priority == 1:
                     logging.warning(f"Malicious activity detected: {line.strip()}")
