@@ -117,6 +117,7 @@ excluded_rules_dir = os.path.join(script_dir, "excluded")
 excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
 ip_addresses_path = os.path.join(script_dir, "website", "IP_Addresses.txt")
 ipv6_addresses_path = os.path.join(script_dir, "website", "ipv6.txt")
+ipv4_whitelist_path = os.path.join(script_dir, "website", "ipv4whitelist.txt")
 domains_path = os.path.join(script_dir, "website", "Domains.txt")
 ip_addresses_signatures_data = {}
 ipv4_whitelist_data = {}
@@ -1230,12 +1231,15 @@ except yara.Error as e:
     print(f"Error loading precompiled YARA rule: {e}")
 
 try:
+    yaraxtr_yrc_path = os.path.join(yara_folder_path, "yaraxtr.yrc")
+
     # Load the precompiled rule from the .yrc file using yara_x
-    with open(os.path.join(yara_folder_path, "yaraxtr.yrc"), 'rb') as f:
+    with open(yaraxtr_yrc_path, 'rb') as f:
         yaraxtr_rule = yara_x.Rules.deserialize_from(f)
     print("YARA-X Rules Definitions loaded!")
+
 except FileNotFoundError:
-    print("Error: File not found.")
+    print(f"Error: File '{yaraxtr_yrc_path}' not found.")
 except Exception as e:
     print(f"An unexpected error occurred: {e}")
 
