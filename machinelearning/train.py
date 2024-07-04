@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pefile
 from sklearn.ensemble import RandomForestClassifier
+import shutil
 
 sys.modules["sklearn.tree.tree"] = sklearn.tree
 sys.modules["sklearn.ensemble.weight_boosting"] = sklearn.ensemble
@@ -23,7 +24,7 @@ def extract_infos(file_path, rank=None):
     else:
         return {'file_name': file_name}
 
-def extract_numeric_features(file_path, rank=None):
+def extract_numeric_features(file_path, rank=None, is_malicious=False):
     """Extract numeric features of a file using pefile"""
     res = {}
     try:
@@ -61,8 +62,19 @@ def extract_numeric_features(file_path, rank=None):
             res['numeric_tag'] = rank
     except Exception as e:
         print(f"An error occurred while processing {file_path}: {e}")
+        move_to_problematic(file_path, is_malicious)
         
     return res
+
+def move_to_problematic(file_path, is_malicious):
+    if is_malicious:
+        problematic_folder = "problematicfilemalicious"
+    else:
+        problematic_folder = "problematicfile"
+    
+    os.makedirs(problematic_folder, exist_ok=True)
+    shutil.move(file_path, os.path.join(problematic_folder, os.path.basename(file_path)))
+
 def load_malicious_files(folder):
     """Load malicious files and extract their information"""
     files_info = []
@@ -74,7 +86,7 @@ def load_malicious_files(folder):
             if file.endswith('.vir'):
                 file_path = os.path.join(root, file)
                 file_info = extract_infos(file_path, rank=rank)
-                numeric_info = extract_numeric_features(file_path, rank=rank)
+                numeric_info = extract_numeric_features(file_path, rank=rank, is_malicious=True)
                 if file_info:
                     files_info.append(file_info)
                 if numeric_info:
@@ -82,6 +94,7 @@ def load_malicious_files(folder):
                 rank += 1  # Increment rank for next file
                 
     return files_info, numeric_features
+
 def load_benign_files(folder):
     """Load benign files and extract their information"""
     files_info = []
@@ -91,12 +104,13 @@ def load_benign_files(folder):
             file_path = os.path.join(root, file)
             if os.path.isfile(file_path):
                 file_info = extract_infos(file_path, rank=index)
-                numeric_info = extract_numeric_features(file_path, rank=index)
+                numeric_info = extract_numeric_features(file_path, rank=index, is_malicious=False)
                 if file_info:
                     files_info.append(file_info)
                 if numeric_info:
                     numeric_features.append(numeric_info)
     return files_info, numeric_features
+
 def main():
     # Load data
     malicious_files_info, malicious_numeric_features = load_malicious_files('datamaliciousorder')
