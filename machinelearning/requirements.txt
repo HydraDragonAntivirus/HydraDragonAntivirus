@@ -1,3 +1,2 @@
 joblib 
-pandas
 sckit-learn
