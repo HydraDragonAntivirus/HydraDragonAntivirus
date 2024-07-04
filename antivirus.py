@@ -679,7 +679,6 @@ class RealTimeWebProtectionHandler:
 
     def scan_domain(self, domain):
         if domain in self.scanned_domains:
-            logging.info(f"Domain {domain} already scanned, skipping.")
             return
         self.scanned_domains.append(domain)
 
@@ -703,12 +702,10 @@ class RealTimeWebProtectionHandler:
     def scan_ip_address(self, ip_address, is_ipv6=False):
         if is_ipv6:
             if ip_address in self.scanned_ipv6_addresses:
-                logging.info(f"IPv6 address {ip_address} already scanned, skipping.")
                 return
             self.scanned_ipv6_addresses.append(ip_address)
         else:
             if ip_address in self.scanned_ipv4_addresses:
-                logging.info(f"IPv4 address {ip_address} already scanned, skipping.")
                 return
             self.scanned_ipv4_addresses.append(ip_address)
 
