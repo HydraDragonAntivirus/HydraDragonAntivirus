@@ -5,14 +5,7 @@ import os
 import pefile
 import shutil
 import sys
-
-from sklearn.ensemble import RandomForestClassifier
-
-sys.modules["sklearn.tree.tree"] = sklearn.tree
-sys.modules["sklearn.ensemble.weight_boosting"] = sklearn.ensemble
-sys.modules["sklearn.ensemble.forest"] = sklearn.ensemble
-sys.modules["sklearn.svm.classes"] = sklearn.svm
-sys.modules["sklearn.neighbors.classification"] = sklearn.neighbors
+import sklearn
 sys.modules['sklearn.externals.joblib'] = joblib
 
 def calculate_md5(file_path):
@@ -97,6 +90,7 @@ def load_malicious_files(folder):
     files_info = []
     numeric_features = []
     md5_hashes = set()
+    md5_list = []
     rank = 1  # Initialize rank
     
     for root, _, files in os.walk(folder, topdown=True):
@@ -109,6 +103,7 @@ def load_malicious_files(folder):
                     move_to_duplicated(file_path, True)
                     continue
                 md5_hashes.add(file_md5)
+                md5_list.append(file_md5)
                 
                 file_info = extract_infos(file_path, rank=rank)
                 numeric_info = extract_numeric_features(file_path, rank=rank, is_malicious=True)
@@ -118,13 +113,14 @@ def load_malicious_files(folder):
                     numeric_features.append(numeric_info)
                 rank += 1  # Increment rank for next file
                 
-    return files_info, numeric_features
+    return files_info, numeric_features, md5_list
 
 def load_benign_files(folder):
     """Load benign files and extract their information"""
     files_info = []
     numeric_features = []
     md5_hashes = set()
+    md5_list = []
     
     for root, _, files in os.walk(folder, topdown=True):
         for index, file in enumerate(files, start=1):
@@ -136,6 +132,7 @@ def load_benign_files(folder):
                     move_to_duplicated(file_path, False)
                     continue
                 md5_hashes.add(file_md5)
+                md5_list.append(file_md5)
                 
                 file_info = extract_infos(file_path, rank=index)
                 numeric_info = extract_numeric_features(file_path, rank=index, is_malicious=False)
@@ -143,12 +140,12 @@ def load_benign_files(folder):
                     files_info.append(file_info)
                 if numeric_info:
                     numeric_features.append(numeric_info)
-    return files_info, numeric_features
+    return files_info, numeric_features, md5_list
 
 def main():
     # Load data
-    malicious_files_info, malicious_numeric_features = load_malicious_files('datamaliciousorder')
-    benign_files_info, benign_numeric_features = load_benign_files('data2')
+    malicious_files_info, malicious_numeric_features, malicious_md5_list = load_malicious_files('datamaliciousorder')
+    benign_files_info, benign_numeric_features, benign_md5_list = load_benign_files('data2')
 
     # Save malicious file names in JSON
     with open('malicious_file_names.json', 'w') as f:
@@ -161,8 +158,15 @@ def main():
     # Save numeric features for benign files as pickle file
     with open('benign_numeric.pkl', 'wb') as f:
         joblib.dump(benign_numeric_features, f)
+        
+    # Save MD5 hashes for malicious and benign files in JSON
+    with open('malicious_md5_list.json', 'w') as f:
+        json.dump(malicious_md5_list, f)
+        
+    with open('benign_md5_list.json', 'w') as f:
+        json.dump(benign_md5_list, f)
 
-    print("Files information saved in JSON. Numeric features saved separately for malicious and benign files.")
+    print("Files information saved in JSON. Numeric features and MD5 hashes saved separately for malicious and benign files.")
 
 if __name__ == "__main__":
     main()
