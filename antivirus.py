@@ -115,6 +115,7 @@ benign_numeric_features = os.path.join(script_dir, "machinelearning", "benign_nu
 yara_folder_path = os.path.join(script_dir, "yara")
 excluded_rules_dir = os.path.join(script_dir, "excluded")
 excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
+yara_strings_path = os.path.join(yara_folder_path, "yarastrings.txt")
 ip_addresses_path = os.path.join(script_dir, "website", "IP_Addresses.txt")
 ipv6_addresses_path = os.path.join(script_dir, "website", "ipv6.txt")
 ipv4_whitelist_path = os.path.join(script_dir, "website", "ipv4whitelist.txt")
@@ -123,6 +124,25 @@ ip_addresses_signatures_data = {}
 ipv4_whitelist_data = {}
 ipv6_addresses_signatures_data = {}
 domains_signatures_data = {}
+formatted_lines = []
+
+try:
+    with open(yara_strings_path, 'r', encoding='latin-1') as f:
+        content = f.read()
+        lines = content.splitlines()
+
+        for line in lines:
+            if not line.strip().startswith("Rule '") or not line.strip().endswith(":"):
+                formatted_lines.append(line.strip())
+
+    # Print or use formatted_lines as needed
+    for formatted_line in formatted_lines:
+        print(formatted_line)  # Example: Print formatted lines
+
+    print(f"YARA strings loaded and formatted excluding malware names from '{yara_strings_path}'.")
+
+except FileNotFoundError:
+    print(f"YARA strings file '{yara_strings_path}' not found.")
 
 def load_data():
     try:
@@ -660,6 +680,12 @@ def notify_user_anti_vm(virus_name):
     notification = Notify()
     notification.title = "Anti-VM Anti-Debug Malware detected"
     notification.message = f"Potential anti-vm malware detected\nVirus: {virus_name}\nFile Path: {main_file_path}"
+    notification.send()
+
+def notify_user_yara(virus_name):
+    notification = Notify()
+    notification.title = "YARA String Detected In Malware Message"
+    notification.message = f"Potential malware detected by related YARA message:\nVirus: {virus_name}\nFile Path: {main_file_path}"
     notification.send()
 
 def is_local_ip(ip):
@@ -1842,7 +1868,6 @@ class WindowMonitor:
         target_message = "This program cannot be run under virtual environment or debugging software"
         try:
             while True:
-                # Monitor for the specific target message
                 windows = find_windows_with_text(target_message)
                 for hwnd, text in windows:
                     if target_message in text:
@@ -1855,22 +1880,25 @@ class WindowMonitor:
             logging.error(f"An error occurred during window monitoring: {e}")
 
     def process_detected_window_web(self, text):
-        # Check against web-related malware indicators
         if contains_ip_address(text) and not is_local_ip(text):
-                notify_user_for_web_text(ip_address=text)
-                logging.warning(f"Detected potential web malware from IP: {text}\nFull Text: {text}")
+            notify_user_for_web_text(ip_address=text)
+            logging.warning(f"Detected potential web malware from IP: {text}\nFull Text: {text}")
         elif contains_ipv6_address(text):
-                notify_user_for_web_text(ip_address=text)
-                logging.warning(f"Detected potential web malware from IPv6: {text}\nFull Text: {text}")
+            notify_user_for_web_text(ip_address=text)
+            logging.warning(f"Detected potential web malware from IPv6: {text}\nFull Text: {text}")
         elif contains_domain(text):
-                notify_user_for_web_text(domain=text)
-                logging.warning(f"Detected potential web malware from domain: {text}\nFull Text: {text}")
+            notify_user_for_web_text(domain=text)
+            logging.warning(f"Detected potential web malware from domain: {text}\nFull Text: {text}")
 
     def process_detected_window_classic(self, text):
-        # Check for anti-VM malware without a specific file path
         virus_name = "HEUR:Win32.Trojan.Guloader.C4D9Dd33"
         notify_user_anti_vm(virus_name)
         logging.warning(f"Detected potential anti-vm anti-debug malware: {virus_name} {main_file_path}")
+
+    def process_detected_window_yara(self, rule_name):
+        detection_name = f"HEUR:Win32.YARA.{rule_name}"
+        notify_user_yara(detection_name)
+        logging.warning(f"Detected potential malware with YARA string in message: {detection_name}")
 
 def perform_sandbox_analysis(file_path):
     global main_file_path
