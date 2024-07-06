@@ -1555,7 +1555,6 @@ def extract_numeric_worm_features(file_path):
 
     return res
 
-# Worm alert function
 def worm_alert(file_path):
     global main_file_path
     global worm_alerted_files
@@ -1575,16 +1574,18 @@ def worm_alert(file_path):
 
             # Define critical directories
             critical_directories = [
-                os.path.join(sandbox_folder, 'drive', 'C', 'Windows', 'System32'),
-                os.path.join(sandbox_folder, 'drive', 'C', 'Windows', 'SysWOW64'),
                 os.path.join(sandbox_folder, 'drive', 'C', 'Windows')
             ]
 
             detected_in_critical_dir = False
 
             for critical_dir in critical_directories:
-                if os.path.exists(critical_dir) and os.path.isfile(os.path.join(critical_dir, os.path.basename(file_path))):
-                    detected_in_critical_dir = True
+                if os.path.exists(critical_dir):
+                    for root, _, files in os.walk(critical_dir):
+                        if os.path.basename(file_path) in files:
+                            detected_in_critical_dir = True
+                            break
+                if detected_in_critical_dir:
                     break
 
             worm_detected = detected_in_critical_dir
