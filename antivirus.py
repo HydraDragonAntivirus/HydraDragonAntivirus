@@ -30,6 +30,7 @@ from datetime import datetime, timedelta
 import winreg
 from scapy.all import IP, IPv6, DNS, DNSQR, DNSRR, sniff
 import ctypes
+import ipaddress
 
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
@@ -682,20 +683,12 @@ def notify_user_anti_vm(virus_name):
     notification.message = f"Potential anti-vm malware detected\nVirus: {virus_name}\nFile Path: {main_file_path}"
     notification.send()
 
-def notify_user_yara(virus_name):
-    notification = Notify()
-    notification.title = "YARA String Detected In Malware Message"
-    notification.message = f"Potential malware detected by related YARA message:\nVirus: {virus_name}\nFile Path: {main_file_path}"
-    notification.send()
-
 def is_local_ip(ip):
-    if re.match(r'^192\.168\.\d{1,3}\.\d{1,3}$', ip):
-        return True
-    if re.match(r'^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$', ip):
-        return True
-    if re.match(r'^172\.(1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3}$', ip):
-        return True
-    return False
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+        return ip_obj.is_private
+    except ValueError:
+        return False
 
 class RealTimeWebProtectionHandler:
     def __init__(self):
@@ -1800,16 +1793,27 @@ def get_control_text(hwnd):
     ctypes.windll.user32.SendMessageW(hwnd, WM_GETTEXT, length, buffer)
     return buffer.value
 
-def find_child_windows(parent):
-    """Find all child windows of a given parent window."""
-    child_windows = []
-    def enum_child_windows_callback(hwnd, lParam):
-        child_windows.append(hwnd)
+def find_windows_with_text(target_message=None):
+    """Find all windows containing the specified text and their child windows."""
+    def enum_windows_callback(hwnd, lParam):
+        if ctypes.windll.user32.IsWindowVisible(hwnd):
+            window_text = get_window_text(hwnd).lower()
+            if target_message and target_message in window_text:
+                window_handles.append((hwnd, window_text))
+            else:
+                for child in find_child_windows(hwnd):
+                    control_text = get_control_text(child).lower()
+                    if target_message and target_message in control_text:
+                        window_handles.append((child, control_text))
+                        break
+                    elif not target_message:
+                        window_handles.append((child, control_text))
         return True
 
-    EnumChildWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
-    ctypes.windll.user32.EnumChildWindows(parent, EnumChildWindowsProc(enum_child_windows_callback), None)
-    return child_windows
+    window_handles = []
+    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+    ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
+    return window_handles
 
 # Function to find windows containing text and return related file paths
 def find_windows_with_text(target_message):
@@ -1856,29 +1860,41 @@ def contains_domain(text):
                 return True
     return False
 
-# Helper function to check if an IP address is local
-def is_local_ip(ip):
-    local_ip_ranges = ['10.', '172.16.', '192.168.', '127.']
-    return any(ip.startswith(range) for range in local_ip_ranges)
-
 class WindowMonitor:
     def __init__(self):
         self.scanned_domains = []
 
     def monitor_specific_windows(self):
-        target_message = "This program cannot be run under virtual environment or debugging software"
+        target_message_classic = "this program cannot be run under virtual environment or debugging software"
         try:
             while True:
-                windows = find_windows_with_text(target_message)
+                windows = find_windows_with_text()
                 for hwnd, text in windows:
-                    if target_message in text:
-                        logging.warning(f'Window with target message "{target_message}" found. HWND: {hwnd}')
+                    if target_message_classic in text:
+                        logging.warning(f'Window with target message "{target_message_classic}" found. HWND: {hwnd}')
                         self.process_detected_window_classic(text)
+                    elif self.contains_keywords_within_max_distance(text, max_distance=8):
+                        logging.warning(f'Window with ransomware message found. HWND: {hwnd}')
+                        self.process_detected_window_ransom(text)
                     else:
                         self.process_detected_window_web(text)
 
         except Exception as e:
             logging.error(f"An error occurred during window monitoring: {e}")
+
+    def contains_keywords_within_max_distance(self, text, max_distance):
+        words = text.split()
+        your_positions = [i for i, word in enumerate(words) if word == "your"]
+        files_positions = [i for i, word in enumerate(words) if word == "files"]
+        encrypted_positions = [i for i, word in enumerate(words) if word == "encrypted"]
+
+        for yp in your_positions:
+            for fp in files_positions:
+                if 0 < fp - yp <= max_distance:
+                    for ep in encrypted_positions:
+                        if 0 < ep - fp <= max_distance:
+                            return True
+        return False
 
     def process_detected_window_web(self, text):
         if contains_ip_address(text) and not is_local_ip(text):
@@ -1896,10 +1912,10 @@ class WindowMonitor:
         notify_user_anti_vm(virus_name)
         logging.warning(f"Detected potential anti-vm anti-debug malware: {virus_name} {main_file_path}")
 
-    def process_detected_window_yara(self, rule_name):
-        detection_name = f"HEUR:Win32.YARA.{rule_name}"
-        notify_user_yara(detection_name)
-        logging.warning(f"Detected potential malware with YARA string in message: {detection_name}")
+    def process_detected_window_ransom(self, text):
+        virus_name = "HEUR:Win32.Ransomware.Message.Generic"
+        notify_user_ransomware(virus_name)
+        logging.warning(f"Ransomware message detected: {virus_name}\nFull Text: {text}")
 
 def perform_sandbox_analysis(file_path):
     global main_file_path
