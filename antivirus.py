@@ -34,7 +34,10 @@ import ipaddress
 
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
-script_dir = "C:\\Program Files\\HydraDragonAntivirus"
+script_dir = r"C:\Program Files\HydraDragonAntivirus"
+clamd_path = r"C:\Program Files\ClamAV\clamd.exe"
+clamdscan_path = r"C:\Program Files\ClamAV\clamdscan.exe"
+freshclam_path = r"C:\Program Files\ClamAV\freshclam.exe"
 # Configure logging
 log_directory = os.path.join(script_dir, "log")
 log_file = os.path.join(log_directory, "antivirus.log")
@@ -210,7 +213,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
 def is_clamd_running():
     """Check if clamd is running."""
     try:
-        result = subprocess.run(['sc', 'query', 'clamd'], capture_output=True, text=True, check=True)
+        result = subprocess.run(['sc', 'query', clamd_path], capture_output=True, text=True, check=True)
         if result.returncode == 0:
             return "RUNNING" in result.stdout
         else:
@@ -230,14 +233,14 @@ def restart_clamd():
     try:
         if is_clamd_running():
             print("Stopping ClamAV...")
-            stop_result = subprocess.run(["sc", "stop", "clamd"], capture_output=True, text=True)
+            stop_result = subprocess.run(["sc", "stop", clamd_path], capture_output=True, text=True)
             if stop_result.returncode != 0:
                 logging.error("Failed to stop ClamAV.")
                 print("Failed to stop ClamAV.")
                 return False
             
         print("Starting ClamAV...")
-        start_result = subprocess.run(["sc", "start", "clamd"], capture_output=True, text=True)
+        start_result = subprocess.run(["sc", "start", clamd_path], capture_output=True, text=True)
         if start_result.returncode == 0:
             logging.info("ClamAV restarted successfully.")
             print("ClamAV restarted successfully.")
@@ -257,7 +260,7 @@ def scan_file_with_clamd(file_path):
     if not is_clamd_running():
         restart_clamd_thread()  # Start clamd if it's not running
 
-    result = subprocess.run(["clamdscan", file_path], capture_output=True, text=True)
+    result = subprocess.run([clamdscan_path, file_path], capture_output=True, text=True)
     clamd_output = result.stdout
     print(f"Clamdscan output: {clamd_output}")
 
@@ -978,7 +981,7 @@ class AntivirusUI(QWidget):
                         if not all_files_old:
                             break
                     if all_files_old:
-                        result = subprocess.run(["freshclam"], capture_output=True, text=True)
+                        result = subprocess.run([freshclam_path], capture_output=True, text=True)
                         if result.returncode == 0:
                             self.signals.success.emit()
                             restart_clamd_thread()
@@ -996,7 +999,7 @@ class AntivirusUI(QWidget):
         # If neither daily.cvd nor daily.cld exists, run freshclam
         if not file_found:
             print("Neither daily.cvd nor daily.cld files exist. Running freshclam.")
-            result = subprocess.run(["freshclam"], capture_output=True, text=True)
+            result = subprocess.run([freshclam_path], capture_output=True, text=True)
             if result.returncode == 0:
                 self.signals.success.emit()
                 restart_clamd_thread()
@@ -1030,7 +1033,7 @@ uefi_paths = [
     rf'{sandbox_folder}\drive\X\EFI\Microsoft\Boot\memtest.efi',
     rf'{sandbox_folder}\drive\X\EFI\Boot\bootx64.efi'
 ]
-snort_command = ["snort"] + device_args + ["-c", snort_config_path, "-A", "fast"]
+snort_command = ["C:\\Snort\\bin\\snort.exe"] + device_args + ["-c", snort_config_path, "-A", "fast"]
 
 # Custom flags for directory changes
 FILE_NOTIFY_CHANGE_LAST_ACCESS = 0x00000020
@@ -1226,18 +1229,43 @@ try:
 except yara.Error as e:
     print(f"Error loading precompiled YARA rule: {e}")
 
-try:
-    yaraxtr_yrc_path = os.path.join(yara_folder_path, "yaraxtr.yrc")
+yaraxtr_yar_path = os.path.join(yara_folder_path, "yaraxtr.yar")
+yaraxtr_yrc_path = os.path.join(yara_folder_path, "yaraxtr.yrc")
 
+def compile_yara_rule(yara_folder_path):
+    try:
+        # Compile the YARA rule using yara_x
+        with open(yaraxtr_yar_path, 'r', encoding='utf-8') as f:
+            rule = f.read()
+        compiled_rule = yara_x.compile(rule)
+
+        # Serialize the compiled rule to a file
+        with open(yaraxtr_yrc_path, 'wb') as yrc_file:
+            compiled_rule.serialize_into(yrc_file)
+
+        print("Compiled yaraxtr.yar to yaraxtr.yrc")
+        return True
+    except Exception as e:
+        print(f"An error occurred during compilation: {e}")
+        return False
+try:
     # Load the precompiled rule from the .yrc file using yara_x
     with open(yaraxtr_yrc_path, 'rb') as f:
         yaraxtr_rule = yara_x.Rules.deserialize_from(f)
     print("YARA-X Rules Definitions loaded!")
-
-except FileNotFoundError:
-    print(f"Error: File '{yaraxtr_yrc_path}' not found.")
 except Exception as e:
-    print(f"An unexpected error occurred: {e}")
+    print(f"Error loading YARA-X rules: {e}")
+    print("Attempting to compile yaraxtr.yar to yaraxtr.yrc...")
+    if compile_yara_rule(yara_folder_path):
+        try:
+            # Try loading the precompiled rule again after compilation
+            with open(yaraxtr_yrc_path, 'rb') as f:
+                yaraxtr_rule = yara_x.Rules.deserialize_from(f)
+            print("YARA-X Rules Definitions loaded after compilation!")
+        except Exception as e:
+            print(f"Error loading YARA-X rules after compilation: {e}")
+    else:
+        print("Failed to compile yaraxtr.yar to yaraxtr.yrc.")
 
 def contains_pe_header(file_path):
     try:
