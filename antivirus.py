@@ -116,7 +116,6 @@ benign_numeric_features = os.path.join(script_dir, "machinelearning", "benign_nu
 yara_folder_path = os.path.join(script_dir, "yara")
 excluded_rules_dir = os.path.join(script_dir, "excluded")
 excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
-yara_strings_path = os.path.join(yara_folder_path, "yarastrings.txt")
 ip_addresses_path = os.path.join(script_dir, "website", "IP_Addresses.txt")
 ipv6_addresses_path = os.path.join(script_dir, "website", "ipv6.txt")
 ipv4_whitelist_path = os.path.join(script_dir, "website", "ipv4whitelist.txt")
@@ -125,25 +124,6 @@ ip_addresses_signatures_data = {}
 ipv4_whitelist_data = {}
 ipv6_addresses_signatures_data = {}
 domains_signatures_data = {}
-formatted_lines = []
-
-try:
-    with open(yara_strings_path, 'r', encoding='latin-1') as f:
-        content = f.read()
-        lines = content.splitlines()
-
-        for line in lines:
-            if not line.strip().startswith("Rule '") or not line.strip().endswith(":"):
-                formatted_lines.append(line.strip())
-
-    # Print or use formatted_lines as needed
-    for formatted_line in formatted_lines:
-        print(formatted_line)  # Example: Print formatted lines
-
-    print(f"YARA strings loaded and formatted excluding malware names from '{yara_strings_path}'.")
-
-except FileNotFoundError:
-    print(f"YARA strings file '{yara_strings_path}' not found.")
 
 def load_data():
     try:
