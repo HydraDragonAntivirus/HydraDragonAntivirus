@@ -1914,7 +1914,7 @@ class WindowMonitor:
 
     def process_detected_window_ransom(self, text):
         virus_name = "HEUR:Win32.Ransomware.Message.Generic"
-        notify_user_ransomware(virus_name)
+        notify_user_ransomware(main_file_path, virus_name)
         logging.warning(f"Ransomware message detected: {virus_name}\nFull Text: {text}")
 
 def perform_sandbox_analysis(file_path):
