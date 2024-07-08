@@ -1,8 +1,8 @@
 @echo off
 :: Set paths to external tools
 echo Setting PATH environment variables...
-setx HydraDragonAntivirus "C:\Program Files\ClamAV\;C:\Snort\bin\;C:\Program Files\Sandboxie\" /M
-echo PATH variable updated with ClamAV, Snort, and Sandboxie paths.
+setx Path "C:\Program Files\ClamAV\;C:\Snort\bin\;C:\Program Files\Sandboxie\"
+echo Path variable updated with ClamAV, Snort, and Sandboxie paths.
 
 :: Copy files from clamavconfig to C:\Program Files\ClamAV
 if exist "C:\Program Files\HydraDragonAntivirus\clamavconfig" (
