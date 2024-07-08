@@ -63,6 +63,6 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 [Run]
 Filename: "{tmp}\clamav-1.3.1.win.x64.msi"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\npcap-1.79.exe"; Flags: shellexec waituntilterminated
-Filename: "{tmp}\Sandboxie-Classic-x64-v5.69.3.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\Snort_2_9_20_Installer.x64.exe"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\Sandboxie-Classic-x64-v5.69.3.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\setup.bat"; Flags: shellexec waituntilterminated
