@@ -233,14 +233,14 @@ def restart_clamd():
     try:
         if is_clamd_running():
             print("Stopping ClamAV...")
-            stop_result = subprocess.run(["sc", "stop", clamd_path], capture_output=True, text=True)
+            stop_result = subprocess.run(["net", "stop", clamd_path], capture_output=True, text=True)
             if stop_result.returncode != 0:
                 logging.error("Failed to stop ClamAV.")
                 print("Failed to stop ClamAV.")
                 return False
             
         print("Starting ClamAV...")
-        start_result = subprocess.run(["sc", "start", clamd_path], capture_output=True, text=True)
+        start_result = subprocess.run(["net", "start", clamd_path], capture_output=True, text=True)
         if start_result.returncode == 0:
             logging.info("ClamAV restarted successfully.")
             print("ClamAV restarted successfully.")
