@@ -231,7 +231,6 @@ def restart_clamd():
         if stop_result.returncode != 0:
                 logging.error("Failed to stop ClamAV.")
                 print("Failed to stop ClamAV.")
-                return False
             
         print("Starting ClamAV...")
         start_result = subprocess.run(["net", "start", clamd_path], capture_output=True, text=True)
