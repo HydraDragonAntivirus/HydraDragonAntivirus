@@ -666,6 +666,12 @@ def notify_user_anti_vm(virus_name):
     notification.message = f"Potential anti-vm malware detected\nVirus: {virus_name}\nFile Path: {main_file_path}"
     notification.send()
 
+def notify_user_anti_av(virus_name):
+    notification = Notify()
+    notification.title = "Antivirus Disabler Malware detected"
+    notification.message = f"Potential disable-av malware detected\nVirus: {virus_name}\nFile Path: {main_file_path}"
+    notification.send()
+
 def is_local_ip(ip):
     try:
         ip_obj = ipaddress.ip_address(ip)
@@ -1874,6 +1880,7 @@ class WindowMonitor:
 
     def monitor_specific_windows(self):
         target_message_classic = "this program cannot be run under virtual environment or debugging software"
+        target_message_av = "disable your antivirus"
         try:
             while True:
                 windows = find_windows_with_text()
@@ -1881,12 +1888,14 @@ class WindowMonitor:
                     if target_message_classic in text:
                         logging.warning(f'Window with target message "{target_message_classic}" found. HWND: {hwnd}')
                         self.process_detected_window_classic(text)
+                    elif target_message_av in text:
+                        logging.warning(f'Window with target message "{target_message_av}" found. HWND: {hwnd}')
+                        self.process_detected_window_av(text)
                     elif self.contains_keywords_within_max_distance(text, max_distance=8):
                         logging.warning(f'Window with ransomware message found. HWND: {hwnd}')
                         self.process_detected_window_ransom(text)
                     else:
                         self.process_detected_window_web(text)
-
         except Exception as e:
             logging.error(f"An error occurred during window monitoring: {e}")
 
@@ -1916,9 +1925,14 @@ class WindowMonitor:
             logging.warning(f"Detected potential web malware from domain: {text}\nFull Text: {text}")
 
     def process_detected_window_classic(self, text):
-        virus_name = "HEUR:Win32.Trojan.Guloader.C4D9Dd33"
+        virus_name = "HEUR:Win32.Trojan.Guloader.C4D9Dd33.Generic"
         notify_user_anti_vm(virus_name)
         logging.warning(f"Detected potential anti-vm anti-debug malware: {virus_name} {main_file_path}")
+
+    def process_detected_window_av(self, text):
+        virus_name = "HEUR:Win32.Trojan.DisableAV.Generic"
+        notify_user_anti_av(virus_name)
+        logging.warning(f"Detected potential antivirus disable malware: {virus_name}\nFull Text: {text}")
 
     def process_detected_window_ransom(self, text):
         virus_name = "HEUR:Win32.Ransomware.Message.Generic"
