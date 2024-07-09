@@ -123,10 +123,21 @@ ip_addresses_path = os.path.join(script_dir, "website", "IP_Addresses.txt")
 ipv6_addresses_path = os.path.join(script_dir, "website", "ipv6.txt")
 ipv4_whitelist_path = os.path.join(script_dir, "website", "ipv4whitelist.txt")
 domains_path = os.path.join(script_dir, "website", "Domains.txt")
+antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
 ip_addresses_signatures_data = {}
 ipv4_whitelist_data = {}
 ipv6_addresses_signatures_data = {}
 domains_signatures_data = {}
+
+# Function to load antivirus list
+def load_antivirus_list():
+    try:
+        with open(antivirus_list_path, 'r') as antivirus_file:
+            antivirus_domains = antivirus_file.read().splitlines()
+        return antivirus_domains
+    except Exception as e:
+        logging.error(f"Error loading Antivirus domains: {e}")
+        return []
 
 def load_data():
     try:
@@ -567,6 +578,12 @@ def notify_user_ransomware(file_path, virus_name):
     notification.message = f"Potential ransomware detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
+def notify_user_hosts(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Host Hijacker Alert"
+    notification.message = f"Potential host hijacker detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
 def notify_user_worm(file_path, virus_name):
     notification = Notify()
     notification.title = "Worm Alert"
@@ -1000,6 +1017,7 @@ sandboxie_control_path = r"C:\Program Files\Sandboxie\SbieCtrl.exe"
 device_args = [f"-i {i}" for i in range(1, 26)]  # Fixed device arguments
 username = os.getlogin()
 sandbox_folder = rf'C:\Sandbox\{username}\DefaultBox'
+hosts_path = rf'{sandbox_folder}\drive\C\Windows\System32\drivers\etc\hosts'
 
 uefi_100kb_paths = [
     rf'{sandbox_folder}\drive\X\EFI\Microsoft\Boot\SecureBootRecovery.efi'
@@ -1178,6 +1196,7 @@ snort_thread = threading.Thread(target=run_snort)
 snort_thread.start()
 restart_clamd_thread()
 load_data()
+load_antivirus_list()
 # Load excluded rules from text file
 with open(excluded_rules_path, "r") as file:
         excluded_rules = file.read()
@@ -1331,6 +1350,43 @@ def check_startup_directories():
                             scan_and_warn(file_path)
                             alerted_files.append(file_path)
 
+def check_hosts_file_for_blocked_antivirus(hosts_path, antivirus_domains):
+    try:
+        with open(hosts_path, 'r') as hosts_file:
+            hosts_content = hosts_file.read()
+
+        blocked_domains = []
+
+        # Regular expression pattern to match domain or any subdomain
+        domain_patterns = [re.escape(domain) + r'\b' for domain in antivirus_domains]
+        pattern = r'\b(?:' + '|'.join(domain_patterns) + r')\b'
+
+        # Find all matching domains/subdomains in hosts content
+        matches = re.findall(pattern, hosts_content, flags=re.IGNORECASE)
+
+        if matches:
+            blocked_domains = list(set(matches))  # Remove duplicates
+
+        if blocked_domains:
+            logging.warning(f"Malicious hosts file detected: {hosts_path}")
+            print(f"Malicious hosts file detected: {hosts_path}")
+            notify_user_hosts(hosts_path, "HEUR:Trojan.Win32.Hosts.Hijacker.DisableAV.Generic")
+            return True
+        return False
+    except Exception as e:
+        logging.error(f"Error reading hosts file: {e}")
+        return False
+
+# Function to continuously monitor hosts file
+def monitor_hosts_file():
+    # Continuously check the hosts file
+    while True:
+        is_malicious = check_hosts_file_for_blocked_antivirus(hosts_path, antivirus_domains)
+
+        if is_malicious:
+            print("Malicious hosts file detected and flagged.")
+            break  # Stop monitoring after notifying once
+
 def is_malicious_file(file_path, size_limit_kb):
     """ Check if the file is less than the given size limit """
     return os.path.getsize(file_path) < size_limit_kb * 1024
@@ -1348,6 +1404,7 @@ def check_uefi_directories():
                         logging.warning(f"Malicious file detected: {uefi_path}")
                         print(f"Malicious file detected: {uefi_path}")
                         notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.SecureBootRecovery.Generic.Malware")
+                        scan_and_warn(file_path)
                         alerted_uefi_files.append(uefi_path)
                     elif uefi_path in uefi_paths and is_malicious_file(uefi_path, 1024):
                         logging.warning(f"Malicious file detected: {uefi_path}")
@@ -1600,24 +1657,23 @@ def worm_alert(file_path):
     except Exception as e:
         logging.error(f"Error in worm detection for file {file_path}: {e}")
 
-# Function to monitor System32 and SysWOW64 directories
-def check_critical_directories():
-    system32_dir = rf'{sandbox_folder}\drive\C\Windows\System32'
-    syswow64_dir = rf'{sandbox_folder}\drive\C\Windows\SysWOW64'
+# Function to monitor sandbox directory
+def check_sandbox_directory():
 
-    critical_directories = [system32_dir, syswow64_dir]
+    important_directories = [sandbox_folder]
     alerted_files = []
 
     while True:
-        for directory in critical_directories:
+        for directory in important_directories:
             if os.path.exists(directory):
-                for file in os.listdir(directory):
-                    file_path = os.path.join(directory, file)
-                    if os.path.isfile(file_path) and file_path not in alerted_files:
-                        logging.info(f"File detected in {directory}: {file}")
-                        print(f"File detected in {directory}: {file}")
-                        alerted_files.append(file_path)
-                        scan_and_warn(file_path)
+                for root, dirs, files in os.walk(directory):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        if os.path.isfile(file_path) and file_path not in alerted_files:
+                            logging.info(f"File detected in {root}: {file}")
+                            print(f"File detected in {root}: {file}")
+                            alerted_files.append(file_path)
+                            scan_and_warn(file_path)
 
 class ScanAndWarnHandler(FileSystemEventHandler):
     def on_any_event(self, event):
@@ -1943,8 +1999,9 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=start_monitoring_sandbox).start()
         threading.Thread(target=scan_sandbox_folder).start()
         threading.Thread(target=check_startup_directories).start()
-        threading.Thread(target=check_critical_directories).start()
+        threading.Thread(target=check_sandbox_directory).start()
         threading.Thread(target=monitor_user_directory).start()
+        threading.Thread(target=monitor_hosts_file).start()
         threading.Thread(target=check_uefi_directories).start() # Start monitoring UEFI directories for malicious files in a separate thread
         threading.Thread(target=window_monitor.monitor_specific_windows).start() # Function to monitor specific windows in a separate thread
         threading.Thread(target=run_sandboxie_control).start()
