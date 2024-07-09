@@ -213,7 +213,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
 def is_clamd_running():
     """Check if clamd is running."""
     try:
-        result = subprocess.run(['sc', 'query', clamd_path], capture_output=True, text=True, check=True)
+        result = subprocess.run(['sc', 'query','clamd'], capture_output=True, text=True, check=True)
         if result.returncode == 0:
             return "RUNNING" in result.stdout
         else:
