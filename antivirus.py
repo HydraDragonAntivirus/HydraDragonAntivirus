@@ -209,32 +209,15 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     except Exception as e:
         print(f"An error occurred while scanning file {file_path}: {e}")
         return False, malware_definition, nearest_benign_similarity
-
-def is_clamd_running():
-    """Check if clamd is running."""
-    try:
-        result = subprocess.run(['sc', 'query','clamd'], capture_output=True, text=True, check=True)
-        if result.returncode == 0:
-            return "RUNNING" in result.stdout
-        else:
-            print(f"sc query clamd failed with return code {result.returncode}")
-            return False
-    except subprocess.CalledProcessError as e:
-        print(f"Error while checking clamd status: {e}")
-        return False
-    except Exception as e:
-        print(f"Unexpected error while checking clamd status: {e}")
-        return False
  
 def restart_clamd_thread():
     threading.Thread(target=restart_clamd).start()
 
 def restart_clamd():
     try:
-        if is_clamd_running():
-            print("Stopping ClamAV...")
-            stop_result = subprocess.run(["net", "stop", clamd_path], capture_output=True, text=True)
-            if stop_result.returncode != 0:
+        print("Stopping ClamAV...")
+        stop_result = subprocess.run(["net", "stop", clamd_path], capture_output=True, text=True)
+        if stop_result.returncode != 0:
                 logging.error("Failed to stop ClamAV.")
                 print("Failed to stop ClamAV.")
                 return False
@@ -257,9 +240,6 @@ def restart_clamd():
 def scan_file_with_clamd(file_path):
     """Scan file using clamd."""
     file_path = os.path.abspath(file_path)  # Get absolute path
-    if not is_clamd_running():
-        restart_clamd_thread()  # Start clamd if it's not running
-
     result = subprocess.run([clamdscan_path, file_path], capture_output=True, text=True)
     clamd_output = result.stdout
     print(f"Clamdscan output: {clamd_output}")
@@ -277,14 +257,6 @@ def scan_file_with_clamd(file_path):
     else:
         print(f"Unexpected clamdscan output: {clamd_output}")
         return "Clean"
-
-def restart_clamd_if_not_running():
-    try:
-        if not is_clamd_running():
-            restart_clamd_thread()  # Start clamd if it's not running
-    except Exception as e:
-        logging.error(f"An error occurred while restarting clamd: {e}")
-        print(f"An error occurred while restarting clamd: {e}")
 
 # Function to check the signature of a file
 def check_signature_is_valid(file_path):
@@ -1204,7 +1176,7 @@ def activate_uefi_drive():
 activate_uefi_drive() # Call the UEFI function
 snort_thread = threading.Thread(target=run_snort)
 snort_thread.start()
-restart_clamd_if_not_running()
+restart_clamd_thread()
 load_data()
 # Load excluded rules from text file
 with open(excluded_rules_path, "r") as file:
