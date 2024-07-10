@@ -131,6 +131,7 @@ domains_signatures_data = {}
 
 # Function to load antivirus list
 def load_antivirus_list():
+    global antivirus_list_path
     try:
         with open(antivirus_list_path, 'r') as antivirus_file:
             antivirus_domains = antivirus_file.read().splitlines()
@@ -140,26 +141,31 @@ def load_antivirus_list():
         return []
 
 def load_data():
+    global ip_addresses_signatures_data, ipv6_addresses_signatures_data, domains_signatures_data, ipv4_whitelist_data
+    
     try:
         # Load IPv4 addresses
         with open(ip_addresses_path, 'r') as ip_file:
-            ip_addresses = ip_file.read().splitlines()
-            ip_addresses_signatures_data = {ip: "" for ip in ip_addresses}
+            ip_addresses_signatures_data = ip_file.read().splitlines()
 
+        print("IPv4 Addresses loaded successfully!")
+    except Exception as e:
+        print(f"Error loading IPv4 Addresses: {e}")
+
+    try:
         # Load IPv6 addresses
         with open(ipv6_addresses_path, 'r') as ipv6_file:
-            ipv6_addresses = ipv6_file.read().splitlines()
-            ipv6_addresses_signatures_data = {ipv6: "" for ipv6 in ipv6_addresses}
+            ipv6_addresses_signatures_data = ipv6_file.read().splitlines()
 
-        print("IP Addresses (IPv4, IPv6) loaded successfully!")
+        print("IPv6 Addresses loaded successfully!")
     except Exception as e:
-        print(f"Error loading IP Addresses: {e}")
+        print(f"Error loading IPv6 Addresses: {e}")
 
     try:
         # Load domains
         with open(domains_path, 'r') as domains_file:
-            domains = domains_file.read().splitlines()
-            domains_signatures_data = {domain: "" for domain in domains}
+            domains_signatures_data = domains_file.read().splitlines()
+
         print("Domains loaded successfully!")
     except Exception as e:
         print(f"Error loading Domains: {e}")
@@ -168,6 +174,7 @@ def load_data():
         # Load IPv4 whitelist
         with open(ipv4_whitelist_path, 'r') as whitelist_file:
             ipv4_whitelist_data = whitelist_file.read().splitlines()
+
         print("IPv4 Whitelist loaded successfully!")
     except Exception as e:
         print(f"Error loading IPv4 Whitelist: {e}")
@@ -227,13 +234,13 @@ def restart_clamd_thread():
 def restart_clamd():
     try:
         print("Stopping ClamAV...")
-        stop_result = subprocess.run(["net", "stop", clamd_path], capture_output=True, text=True)
+        stop_result = subprocess.run(["net", "stop", 'clamd'], capture_output=True, text=True)
         if stop_result.returncode != 0:
                 logging.error("Failed to stop ClamAV.")
                 print("Failed to stop ClamAV.")
             
         print("Starting ClamAV...")
-        start_result = subprocess.run(["net", "start", clamd_path], capture_output=True, text=True)
+        start_result = subprocess.run(["net", "start", 'clamd'], capture_output=True, text=True)
         if start_result.returncode == 0:
             logging.info("ClamAV restarted successfully.")
             print("ClamAV restarted successfully.")
@@ -681,6 +688,17 @@ class RealTimeWebProtectionHandler:
         message = f"Scanning domain: {domain}"
         logging.info(message)
         print(message)
+
+        # Check if the domain is exactly 'www.com'
+        if domain.lower() == 'www.com':
+            logging.warning(f"Detected domain 'www.com'.")
+            notify_user_for_web(domain=domain)
+            return
+
+        # Remove 'www.' prefix if present, except for 'www.com'
+        if domain.lower().startswith("www.") and not domain.lower().endswith(".com"):
+            domain = domain[4:]
+
         parts = domain.split(".")
         if len(parts) < 3:
             main_domain = domain
@@ -695,83 +713,51 @@ class RealTimeWebProtectionHandler:
                 notify_user_for_web(domain=main_domain)
                 return
 
-    def scan_ip_address(self, ip_address, is_ipv6=False):
-        if is_ipv6:
-            if ip_address in self.scanned_ipv6_addresses:
-                return
+    def scan_ip_address(self, ip_address):
+        if ip_address in self.scanned_ipv6_addresses or ip_address in self.scanned_ipv4_addresses:
+            return
+
+        if ip_address in self.scanned_ipv6_addresses:
             self.scanned_ipv6_addresses.append(ip_address)
+
+            if ip_address in ipv6_addresses_signatures_data:
+                message = f"IPv6 address {ip_address} matches the signatures."
+                logging.info(message)
+                print(message)
+                notify_user_for_web(ip_address=ip_address)
         else:
-            if ip_address in self.scanned_ipv4_addresses:
-                return
             self.scanned_ipv4_addresses.append(ip_address)
 
-        if is_local_ip(ip_address):
-            message = f"Skipping local IP address: {ip_address}"
-            logging.info(message)
-            print(message)
-            return
-        
-        message = f"Scanning IP address: {ip_address}"
-        logging.info(message)
-        print(message)
-        if is_ipv6 and ip_address in ipv6_addresses_signatures_data:
-            message = f"IPv6 address {ip_address} matches the signatures."
-            logging.info(message)
-            print(message)
-            notify_user_for_web(ip_address=ip_address)
-        elif ip_address in ip_addresses_signatures_data:
-            message = f"IPv4 address {ip_address} matches the signatures."
-            logging.info(message)
-            print(message)
-            notify_user_for_web(ip_address=ip_address)
+            if is_local_ip(ip_address):
+                message = f"Skipping local IP address: {ip_address}"
+                logging.info(message)
+                print(message)
+                return
+            
+            if ip_address in ip_addresses_signatures_data:
+                message = f"IPv4 address {ip_address} matches the signatures."
+                logging.info(message)
+                print(message)
+                notify_user_for_web(ip_address=ip_address)
 
     def on_packet_received(self, packet):
-        if IP in packet:
-            self.handle_ipv4(packet)
-        elif IPv6 in packet:
-            self.handle_ipv6(packet)
-
-    def handle_ipv4(self, packet):
         if DNS in packet:
             if packet[DNS].qd:
                 for i in range(packet[DNS].qdcount):
                     query_name = packet[DNSQR][i].qname.decode().rstrip('.')
                     self.scan_domain(query_name)
-                    message = f"DNS Query (IPv4): {query_name}"
+                    message = f"DNS Query: {query_name}"
                     logging.info(message)
                     print(message)
             if packet[DNS].an:
                 for i in range(packet[DNS].ancount):
                     answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
                     self.scan_domain(answer_name)
-                    message = f"DNS Answer (IPv4): {answer_name}"
+                    message = f"DNS Answer: {answer_name}"
                     logging.info(message)
                     print(message)
-
-        # Scan IPv4 addresses
-        self.scan_ip_address(packet[IP].src)
-        self.scan_ip_address(packet[IP].dst)
-
-    def handle_ipv6(self, packet):
-        if DNS in packet:
-            if packet[DNS].qd:
-                for i in range(packet[DNS].qdcount):
-                    query_name = packet[DNSQR][i].qname.decode().rstrip('.')
-                    self.scan_domain(query_name)
-                    message = f"DNS Query (IPv6): {query_name}"
-                    logging.info(message)
-                    print(message)
-            if packet[DNS].an:
-                for i in range(packet[DNS].ancount):
-                    answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
-                    self.scan_domain(answer_name)
-                    message = f"DNS Answer (IPv6): {answer_name}"
-                    logging.info(message)
-                    print(message)
-
-        # Scan IPv6 addresses
-        self.scan_ip_address(packet[IPv6].src, is_ipv6=True)
-        self.scan_ip_address(packet[IPv6].dst, is_ipv6=True)
+                    self.scan_ip_address(packet[IP].src)
+                    self.scan_ip_address(packet[IP].dst)
 
 class RealTimeWebProtectionObserver:
     def __init__(self):
@@ -1349,7 +1335,7 @@ def check_startup_directories():
                             scan_and_warn(file_path)
                             alerted_files.append(file_path)
 
-def check_hosts_file_for_blocked_antivirus(hosts_path, antivirus_domains):
+def check_hosts_file_for_blocked_antivirus():
     try:
         with open(hosts_path, 'r') as hosts_file:
             hosts_content = hosts_file.read()
@@ -1369,7 +1355,7 @@ def check_hosts_file_for_blocked_antivirus(hosts_path, antivirus_domains):
         if blocked_domains:
             logging.warning(f"Malicious hosts file detected: {hosts_path}")
             print(f"Malicious hosts file detected: {hosts_path}")
-            notify_user_hosts(hosts_path, "HEUR:Trojan.Win32.Hosts.Hijacker.DisableAV.Generic")
+            notify_user_hosts(hosts_path, "HEUR:Win32.Trojan.Hosts.Hijacker.DisableAV.Generic")
             return True
         return False
     except Exception as e:
@@ -1380,7 +1366,7 @@ def check_hosts_file_for_blocked_antivirus(hosts_path, antivirus_domains):
 def monitor_hosts_file():
     # Continuously check the hosts file
     while True:
-        is_malicious = check_hosts_file_for_blocked_antivirus(hosts_path, antivirus_domains)
+        is_malicious = check_hosts_file_for_blocked_antivirus()
 
         if is_malicious:
             print("Malicious hosts file detected and flagged.")
@@ -1838,7 +1824,7 @@ def find_windows_with_text(target_message=None):
     """Find all windows containing the specified text and their child windows."""
     def enum_windows_callback(hwnd, lParam):
         if ctypes.windll.user32.IsWindowVisible(hwnd):
-            window_text = get_window_text(hwnd).lower()
+            window_text = get_window_text(hwnd)
             if target_message and target_message in window_text:
                 window_handles.append((hwnd, window_text))
             else:
@@ -1912,6 +1898,7 @@ class WindowMonitor:
             while True:
                 windows = find_windows_with_text()
                 for hwnd, text in windows:
+                    text = text.lower()
                     if target_message_classic in text:
                         logging.warning(f'Window with target message "{target_message_classic}" found. HWND: {hwnd}')
                         self.process_detected_window_classic(text)
