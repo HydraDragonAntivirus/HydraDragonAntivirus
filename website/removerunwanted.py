@@ -1,24 +1,24 @@
-import re
+import re  # Import the regular expression module
 
-# Dosya adları
+# File names
 input_file = 'Domains.txt'
 output_file_filtered = 'DomainsUpdated.txt'
 output_file_unwanted = 'ContainsUnWanted.txt'
 
-# Domains.txt dosyasını aç ve oku
+# Open and read Domains.txt
 with open(input_file, 'r') as file:
     lines = file.readlines()
 
-# Satırları filtrele ve ayır
-filtered_lines = [line for line in lines if '/' not in line]
-unwanted_lines = [line for line in lines if '/' in line]
+# Filter and separate lines
+filtered_lines = [line for line in lines if '/' not in line]  # Lines without '/'
+unwanted_lines = [line for line in lines if '/' in line]      # Lines with '/'
 
-# DomainsUpdated.txt dosyasına yaz
+# Write to DomainsUpdated.txt for filtered lines
 with open(output_file_filtered, 'w') as file:
     file.writelines(filtered_lines)
 
-# ContainsUnWanted.txt dosyasına yaz
+# Write to ContainsUnWanted.txt for lines with '/'
 with open(output_file_unwanted, 'w') as file:
     file.writelines(unwanted_lines)
 
-print("/ karakteri içeren satırlar ContainsUnWanted.txt dosyasına, / karakteri içermeyen satırlar DomainsUpdated.txt dosyasına yazıldı.")
+print("Lines containing '/' have been written to ContainsUnWanted.txt, lines without '/' have been written to DomainsUpdated.txt.")

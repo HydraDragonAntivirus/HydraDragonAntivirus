@@ -658,13 +658,25 @@ def notify_user_for_detected_hips_file(src_ip):
 def notify_user_anti_vm(virus_name):
     notification = Notify()
     notification.title = "Anti-VM Anti-Debug Malware detected"
-    notification.message = f"Potential anti-vm malware detected\nVirus: {virus_name}\nFile Path: {main_file_path}"
+    notification.message = f"Potential Anti-VM malware detected\nVirus: {virus_name}\nFile Path: {main_file_path}"
     notification.send()
 
 def notify_user_anti_av(virus_name):
     notification = Notify()
     notification.title = "Antivirus Disabler Malware detected"
-    notification.message = f"Potential disable-av malware detected\nVirus: {virus_name}\nFile Path: {main_file_path}"
+    notification.message = f"Potential Disable-AV malware detected\nVirus: {virus_name}\nFile Path: {main_file_path}"
+    notification.send()
+
+def notify_user_rogue(virus_name):
+    notification = Notify()
+    notification.title = "Rogue Antivirus Malware detected"
+    notification.message = f"Potential Rogue malware detected\nVirus: {virus_name}\nFile Path: {main_file_path}"
+    notification.send()
+
+def notify_user_fan_made(virus_name):
+    notification = Notify()
+    notification.title = "Fan Made GDI Malware detected"
+    notification.message = f"Potential fan made malware detected\nVirus: {virus_name}\nFile Path: {main_file_path}"
     notification.send()
 
 def is_local_ip(ip):
@@ -717,7 +729,7 @@ class RealTimeWebProtectionHandler:
         if ip_address in self.scanned_ipv6_addresses or ip_address in self.scanned_ipv4_addresses:
             return
 
-        if ip_address in self.scanned_ipv6_addresses:
+        if ':' in ip_address:  # Check if it's an IPv6 address
             self.scanned_ipv6_addresses.append(ip_address)
 
             if ip_address in ipv6_addresses_signatures_data:
@@ -741,7 +753,11 @@ class RealTimeWebProtectionHandler:
                 notify_user_for_web(ip_address=ip_address)
 
     def on_packet_received(self, packet):
-        if DNS in packet:
+        if IP in packet:
+            self.handle_ipv4(packet)
+        elif IPv6 in packet:
+            self.handle_ipv6(packet)
+        elif DNS in packet:
             if packet[DNS].qd:
                 for i in range(packet[DNS].qdcount):
                     query_name = packet[DNSQR][i].qname.decode().rstrip('.')
@@ -756,8 +772,47 @@ class RealTimeWebProtectionHandler:
                     message = f"DNS Answer: {answer_name}"
                     logging.info(message)
                     print(message)
+                    if IP in packet:
+                        self.scan_ip_address(packet[IP].src)
+                        self.scan_ip_address(packet[IP].dst)
+
+    def handle_ipv4(self, packet):
+        if DNS in packet:
+            if packet[DNS].qd:
+                for i in range(packet[DNS].qdcount):
+                    query_name = packet[DNSQR][i].qname.decode().rstrip('.')
+                    self.scan_domain(query_name)
+                    message = f"DNS Query (IPv4): {query_name}"
+                    logging.info(message)
+                    print(message)
+            if packet[DNS].an:
+                for i in range(packet[DNS].ancount):
+                    answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
+                    self.scan_domain(answer_name)
+                    message = f"DNS Answer (IPv4): {answer_name}"
+                    logging.info(message)
+                    print(message)
                     self.scan_ip_address(packet[IP].src)
                     self.scan_ip_address(packet[IP].dst)
+
+    def handle_ipv6(self, packet):
+        if DNS in packet:
+            if packet[DNS].qd:
+                for i in range(packet[DNS].qdcount):
+                    query_name = packet[DNSQR][i].qname.decode().rstrip('.')
+                    self.scan_domain(query_name)
+                    message = f"DNS Query (IPv6): {query_name}"
+                    logging.info(message)
+                    print(message)
+            if packet[DNS].an:
+                for i in range(packet[DNS].ancount):
+                    answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
+                    self.scan_domain(answer_name)
+                    message = f"DNS Answer (IPv6): {answer_name}"
+                    logging.info(message)
+                    print(message)
+                    self.scan_ip_address(packet[IPv6].src)
+                    self.scan_ip_address(packet[IPv6].dst)
 
 class RealTimeWebProtectionObserver:
     def __init__(self):
@@ -999,6 +1054,7 @@ log_folder = r"C:\Snort\log"
 snort_config_path = r"C:\Snort\etc\snort.conf"
 sandboxie_path = r"C:\Program Files\Sandboxie\Start.exe"
 sandboxie_control_path = r"C:\Program Files\Sandboxie\SbieCtrl.exe"
+sbie_ini_path = r"C:\Program Files\Sandboxie\SbieIni.exe"
 device_args = [f"-i {i}" for i in range(1, 26)]  # Fixed device arguments
 username = os.getlogin()
 sandbox_folder = rf'C:\Sandbox\{username}\DefaultBox'
@@ -1148,6 +1204,25 @@ def clean_directory(directory_path):
                 shutil.rmtree(file_path)
         except Exception as e:
             logging.error(f'Failed to delete {file_path}. Reason: {e}')
+
+def create_defaultbox():
+    try:
+        # Create DefaultBox and configure settings
+        subprocess.run([sbie_ini_path, "set", "DefaultBox", "ConfigLevel", "7"], check=True)
+        subprocess.run([sbie_ini_path, "set", "DefaultBox", "Enabled", "y"], check=True)
+        subprocess.run([sbie_ini_path, "set", "DefaultBox", "AutoDelete", "y"], check=True)
+        subprocess.run([sbie_ini_path, "set", "DefaultBox", "BorderColor", "#00FFFF"], check=True)
+        subprocess.run([sbie_ini_path, "set", "DefaultBox", "BoxNameTitle", "y"], check=True)
+        subprocess.run([sbie_ini_path, "set", "DefaultBox", "AutoRecover", "n"], check=True)
+        subprocess.run([sbie_ini_path, "set", "DefaultBox", "ClosedFilePath", "InternetAccessDevices"], check=True)
+        subprocess.run([sbie_ini_path, "set", "DefaultBox", "DropAdminRights", "y"], check=True)
+        
+        # Initialize the sandbox folder by running a command within the sandbox
+        subprocess.run([start_exe_path, "/box:DefaultBox", "cmd.exe", "/c", "echo Sandbox initialized"], check=True)
+        
+        print("DefaultBox created and configured successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error creating DefaultBox: {e}")
 
 def run_snort():    
     try:
@@ -1337,6 +1412,9 @@ def check_startup_directories():
 
 def check_hosts_file_for_blocked_antivirus():
     try:
+        if not os.path.exists(hosts_path):
+            return False
+
         with open(hosts_path, 'r') as hosts_file:
             hosts_content = hosts_file.read()
 
@@ -1824,7 +1902,7 @@ def find_windows_with_text(target_message=None):
     """Find all windows containing the specified text and their child windows."""
     def enum_windows_callback(hwnd, lParam):
         if ctypes.windll.user32.IsWindowVisible(hwnd):
-            window_text = get_window_text(hwnd)
+            window_text = get_window_text(hwnd).lower()
             if target_message and target_message in window_text:
                 window_handles.append((hwnd, window_text))
             else:
@@ -1894,20 +1972,39 @@ class WindowMonitor:
     def monitor_specific_windows(self):
         target_message_classic = "this program cannot be run under virtual environment or debugging software"
         target_message_av = "disable your antivirus"
+        target_message_debugger = "a debugger has been found running in your system please unload it from memory and restart your program"
+        fanmade_messages = [
+            "executed a trojan", "this is the last warning", "the creator of this malware"
+        ]
+        rogue_messages = [
+            "your pc is infected", "your computer is infected", "your system is infected",
+            "windows is infected", "has found viruses on computer", "windows security alert",
+            "pc is at risk", "malicious program has been detected"
+        ]
+        
         try:
             while True:
                 windows = find_windows_with_text()
                 for hwnd, text in windows:
-                    text = text.lower()
+                    text = text.replace(",", "").replace(".", "").replace("!", "")
                     if target_message_classic in text:
-                        logging.warning(f'Window with target message "{target_message_classic}" found. HWND: {hwnd}')
+                        logging.warning(f'Window with Guloader message "{target_message_classic}" found. HWND: {hwnd}')
                         self.process_detected_window_classic(text)
                     elif target_message_av in text:
-                        logging.warning(f'Window with target message "{target_message_av}" found. HWND: {hwnd}')
+                        logging.warning(f'Window with Disable-AV message "{target_message_av}" found. HWND: {hwnd}')
                         self.process_detected_window_av(text)
+                    elif target_message_debugger in text:
+                        logging.warning(f'Window with Themida message "{target_message_debugger}" found. HWND: {hwnd}')
+                        self.process_detected_window_debugger(text)
+                    elif any(fanmade_message in text for fanmade_message in fanmade_messages):
+                        logging.warning(f'Window with FanMade GDI Malware message found. HWND: {hwnd}')
+                        self.process_detected_window_fanmade(text)
                     elif self.contains_keywords_within_max_distance(text, max_distance=8):
-                        logging.warning(f'Window with ransomware message found. HWND: {hwnd}')
+                        logging.warning(f'Window with Ransomware message found. HWND: {hwnd}')
                         self.process_detected_window_ransom(text)
+                    elif any(rogue_message in text for rogue_message in rogue_messages):
+                        logging.warning(f'Window with Rogue message found. HWND: {hwnd}')
+                        self.process_detected_window_rogue(text)
                     else:
                         self.process_detected_window_web(text)
         except Exception as e:
@@ -1941,7 +2038,7 @@ class WindowMonitor:
     def process_detected_window_classic(self, text):
         virus_name = "HEUR:Win32.Trojan.Guloader.C4D9Dd33.Generic"
         notify_user_anti_vm(virus_name)
-        logging.warning(f"Detected potential anti-vm anti-debug malware: {virus_name} {main_file_path}")
+        logging.warning(f"Detected potential anti-vm anti-debug malware: {virus_name}")
 
     def process_detected_window_av(self, text):
         virus_name = "HEUR:Win32.Trojan.DisableAV.Generic"
@@ -1950,8 +2047,23 @@ class WindowMonitor:
 
     def process_detected_window_ransom(self, text):
         virus_name = "HEUR:Win32.Ransomware.Message.Generic"
-        notify_user_ransomware(main_file_path, virus_name)
+        notify_user_ransomware(virus_name)
         logging.warning(f"Ransomware message detected: {virus_name}\nFull Text: {text}")
+
+    def process_detected_window_rogue(self, text):
+        virus_name = "HEUR:Win32.Rogue.AV.Generic"
+        notify_user_rogue(virus_name)
+        logging.warning(f"Rogue antivirus message detected: {virus_name}\nFull Text: {text}")
+
+    def process_detected_window_debugger(self, text):
+        virus_name = "HEUR:Win64.Trojan.MalPack.Themida"
+        notify_user_debugger(virus_name)
+        logging.warning(f"Anti-Debugger detected: {virus_name}\nFull Text: {text}")
+
+    def process_detected_window_fanmade(self, text):
+        virus_name = "HEUR:Win32.Trojan.FanMade.GDI.Malware.Generic"
+        notify_user_fan_made(virus_name)
+        logging.warning(f"FanMade GDI Malware detected: {virus_name}\nFull Text: {text}")
 
 def perform_sandbox_analysis(file_path):
     global main_file_path
@@ -1972,7 +2084,7 @@ def perform_sandbox_analysis(file_path):
         window_monitor = WindowMonitor()
 
         # Clean sandbox folder
-        clean_directory(sandbox_folder)
+        clean_sandboxie_defaultbox(sandbox_folder)
 
         # Monitor Snort log for new lines and process alerts
         threading.Thread(target=monitor_snort_log).start()

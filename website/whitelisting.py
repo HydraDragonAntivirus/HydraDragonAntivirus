@@ -1,63 +1,46 @@
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
-def is_exact_match(domain, whitelist_set):
-    """
-    Check if a given domain exactly matches any domain in the whitelist.
-    """
-    domain = domain.lstrip('.')
-    return domain in whitelist_set
-
-def is_subdomain_match(domain, whitelist_set):
-    """
-    Check if a given domain is a subdomain of any domain in the whitelist.
-    """
-    domain = domain.lstrip('.')
-    for whitelist_domain in whitelist_set:
-        if domain.endswith("." + whitelist_domain):
-            return True
-    return False
+import os
 
 def process_domain(domain, whitelist_set):
     """
-    Check a given domain against the whitelist and return the result.
+    Process a domain to determine if it ends with or exactly matches any domain in the whitelist.
     """
-    if is_exact_match(domain, whitelist_set) or is_subdomain_match(domain, whitelist_set):
-        return domain, True
-    else:
-        return domain, False
+    for whitelist_domain in whitelist_set:
+        if domain.endswith(whitelist_domain) or domain == whitelist_domain:
+            return domain, True
+    return domain, False
 
-def filter_domains(domains_file, whitelist_file, output_file, exact_output_file, max_workers=4):
+def filter_domains(domains_file, whitelist_file, output_file, exact_output_file):
     """
-    Filter domains in Domains.txt based on domains in whitelister.txt.
-    Write exact or subdomain matches to newwhitelist.txt and others to whitelist.txt.
+    Filter domains in Domains.txt based on endswith or exact matches in whitelister.txt.
+    Write matched and unmatched domains to separate files.
     """
     with open(whitelist_file, 'r') as f:
-        whitelist = {line.strip().lstrip('.') for line in f}
+        whitelist = {line.strip() for line in f}
 
     filtered_domains = []
     matched_domains = []
-    progress_lock = threading.Lock()
-    processed_count = 0
+    progress_counter = 0
 
-    def print_progress():
-        nonlocal processed_count
-        with progress_lock:
-            processed_count += 1
-            if processed_count % 100 == 0 or processed_count == total_domains:
-                percentage = (processed_count / total_domains) * 100
-                print(f"Processed: {processed_count}/{total_domains} ({percentage:.2f}%)")
+    def print_progress(total_domains):
+        nonlocal progress_counter
+        with threading.Lock():
+            progress_counter += 1
+            if progress_counter % 1000 == 0 or progress_counter == total_domains:
+                percentage = (progress_counter / total_domains) * 100
+                print(f"Processed: {progress_counter}/{total_domains} ({percentage:.2f}%)")
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    with ThreadPoolExecutor(max_workers=os.cpu_count() * 2) as executor:
         futures = []
         with open(domains_file, 'r') as f:
             domains = [line.strip() for line in f]
-        
+
         total_domains = len(domains)
 
         for domain in domains:
             future = executor.submit(process_domain, domain, whitelist)
-            future.add_done_callback(lambda p: print_progress())
+            future.add_done_callback(lambda p: print_progress(total_domains))
             futures.append(future)
 
         for future in as_completed(futures):
@@ -68,12 +51,10 @@ def filter_domains(domains_file, whitelist_file, output_file, exact_output_file,
                 filtered_domains.append(domain)
 
     with open(output_file, 'w') as f:
-        for domain in filtered_domains:
-            f.write(domain + '\n')
+        f.write("\n".join(filtered_domains) + "\n")
 
     with open(exact_output_file, 'w') as f:
-        for domain in matched_domains:
-            f.write(domain + '\n')
+        f.write("\n".join(matched_domains) + "\n")
 
 # File names
 domains_file = 'Domains.txt'
@@ -82,4 +63,4 @@ output_file = 'whitelist.txt'
 exact_output_file = 'newwhitelist.txt'
 
 # Filter domains
-filter_domains(domains_file, whitelist_file, output_file, exact_output_file, max_workers=8)
+filter_domains(domains_file, whitelist_file, output_file, exact_output_file)
