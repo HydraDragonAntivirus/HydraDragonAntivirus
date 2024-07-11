@@ -1205,7 +1205,7 @@ def clean_directory(directory_path):
         except Exception as e:
             logging.error(f'Failed to delete {file_path}. Reason: {e}')
 
-def create_defaultbox():
+def clean_sandboxie_defaultbox():
     try:
         # Create DefaultBox and configure settings
         subprocess.run([sbie_ini_path, "set", "DefaultBox", "ConfigLevel", "7"], check=True)
