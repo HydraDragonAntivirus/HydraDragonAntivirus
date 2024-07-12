@@ -365,13 +365,24 @@ def scan_file_real_time(file_path):
             else:
                 logging.info(f"Valid signature detected for file: {file_path}")
 
+        # Check for the fake file size
+        if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
+            with open(file_path, 'rb') as file:
+                file_content = file.read()
+                if file_content.count(b'\x00') >= 100 * 1024 * 1024:  # At least 100MB of empty binary strings
+                    logging.warning(f"File {file_path} is flagged as HEUR:FakeSize.Generic")
+                    fake_size = "HEUR:FakeSize.Generic"
+                    if signature_check and signature_check["is_valid"]:
+                        fake_size = "HEUR:PUA.Win32.FakeSize.Generic"
+                    return True, fake_size
+
         # Scan PE files with Static Machine Learning
         if is_pe_file(file_path):
             is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
             if is_malicious:
                 if benign_score < 0.93:
                     if signature_check["is_valid"]:
-                        malware_definition = "PUP " + malware_definition
+                        malware_definition = "PUA " + malware_definition
                     logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
                     return True, malware_definition
                 elif benign_score >= 0.93:
@@ -384,7 +395,7 @@ def scan_file_real_time(file_path):
             result = scan_file_with_clamd(file_path)
             if result not in ("Clean", ""):
                 if signature_check["is_valid"]:
-                    result = "PUP " + result
+                    result = "PUA." + result
                 logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
                 return True, result
             logging.info(f"No malware detected by ClamAV in file: {file_path}")
@@ -396,7 +407,7 @@ def scan_file_real_time(file_path):
             yara_result = yara_scanner.scan_data(file_path)
             if yara_result is not None and yara_result not in ("Clean", ""):
                 if signature_check["is_valid"]:
-                    yara_result = "PUP " + yara_result
+                    yara_result = "PUA." + yara_result
                 logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
                 return True, yara_result
             logging.info(f"Scanned file with YARA: {file_path} - No viruses detected")
@@ -411,7 +422,7 @@ def scan_file_real_time(file_path):
                 scan_result, virus_name = scan_pe_file(file_path)
                 if scan_result and virus_name not in ("Clean", ""):
                     if signature_check["is_valid"]:
-                        virus_name = "PUP " + virus_name
+                        virus_name = "PUA." + virus_name
                     logging.warning(f"Infected file detected (PE): {file_path} - Virus: {virus_name}")
                     return True, virus_name
                 logging.info(f"No malware detected in PE file: {file_path}")
@@ -428,7 +439,7 @@ def scan_file_real_time(file_path):
                 scan_result, virus_name = scan_tar_file(file_path)
                 if scan_result and virus_name not in ("Clean", "F", ""):
                     if signature_check["is_valid"]:
-                        virus_name = "PUP " + virus_name
+                        virus_name = "PUA." + virus_name
                     logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
                     return True, virus_name
                 logging.info(f"No malware detected in TAR file: {file_path}")
@@ -445,7 +456,7 @@ def scan_file_real_time(file_path):
                 scan_result, virus_name = scan_zip_file(file_path)
                 if scan_result and virus_name not in ("Clean", ""):
                     if signature_check["is_valid"]:
-                        virus_name = "PUP " + virus_name
+                        virus_name = "PUA." + virus_name
                     logging.warning(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
                     return True, virus_name
                 logging.info(f"No malware detected in ZIP file: {file_path}")
@@ -564,6 +575,24 @@ def notify_user(file_path, virus_name):
     notification = Notify()
     notification.title = "Malware Alert"
     notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_pua(file_path, virus_name):
+    notification = Notify()
+    notification.title = "PUA Alert"
+    notification.message = f"PUA file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_fake_size(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Fake Size Alert"
+    notification.message = f"Fake size file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_fake_size_pua(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Fake Size PUA Alert"
+    notification.message = f"Fake size PUA file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
 def notify_user_startup(file_path, virus_name):
@@ -1366,8 +1395,20 @@ def scan_and_warn(file_path):
 
     if is_malicious:
         logging.warning(f"File {file_path} is malicious. Virus: {virus_name}")
-        notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
-        notify_user_thread.start()
+
+        # Determine the type of notification to send
+        if virus_name.startswith("PUA."):
+            notify_user_pua_thread = threading.Thread(target=notify_user_pua, args=(file_path, virus_name))
+            notify_user_pua_thread.start()
+        elif virus_name == "HEUR:FakeSize.Generic":
+            notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(file_path, virus_name))
+            notify_user_fake_size_thread.start()
+        elif virus_name == "HEUR:PUA.Win32.FakeSize.Generic":
+            notify_user_fake_size_pua_thread = threading.Thread(target=notify_user_fake_size_pua, args=(file_path, virus_name))
+            notify_user_fake_size_pua_thread.start()
+        else:
+            notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
+            notify_user_thread.start()
     
     return is_malicious
 
