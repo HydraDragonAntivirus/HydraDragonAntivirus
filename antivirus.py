@@ -1285,10 +1285,10 @@ def activate_uefi_drive():
     except subprocess.CalledProcessError as e:
         print(f"Error mounting UEFI drive: {e}")
 
+restart_clamd_thread()
 activate_uefi_drive() # Call the UEFI function
 snort_thread = threading.Thread(target=run_snort)
 snort_thread.start()
-restart_clamd_thread()
 load_data()
 load_antivirus_list()
 # Load excluded rules from text file
