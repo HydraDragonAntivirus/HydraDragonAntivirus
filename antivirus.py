@@ -1234,30 +1234,6 @@ def clean_directory(directory_path):
         except Exception as e:
             logging.error(f'Failed to delete {file_path}. Reason: {e}')
 
-def clean_sandboxie_defaultbox():
-    try:
-        # Create DefaultBox and configure settings
-        subprocess.run([sbie_ini_path, "set", "DefaultBox", "ConfigLevel", "7"], check=True)
-        subprocess.run([sbie_ini_path, "set", "DefaultBox", "Enabled", "y"], check=True)
-        subprocess.run([sbie_ini_path, "set", "DefaultBox", "AutoDelete", "y"], check=True)
-        subprocess.run([sbie_ini_path, "set", "DefaultBox", "BorderColor", "#00FFFF"], check=True)
-        subprocess.run([sbie_ini_path, "set", "DefaultBox", "BoxNameTitle", "y"], check=True)
-        subprocess.run([sbie_ini_path, "set", "DefaultBox", "AutoRecover", "n"], check=True)
-        subprocess.run([sbie_ini_path, "set", "DefaultBox", "ClosedFilePath", "InternetAccessDevices"], check=True)
-        subprocess.run([sbie_ini_path, "set", "DefaultBox", "DropAdminRights", "y"], check=True)
-        
-        print("DefaultBox created and configured successfully.")
-        
-        print("Please wait 30 seconds while we are cleaning DefaultBox.")
-        time.sleep(30)
-
-        # Initialize the sandbox folder by running a command within the sandbox
-        subprocess.run([sandboxie_path, "/box:DefaultBox", "cmd.exe", "/c", "echo Sandbox initialized"], check=True)
-
-        print("DefaultBox cleaning completed.")
-    except subprocess.CalledProcessError as e:
-        print(f"Error creating DefaultBox: {e}")
-
 def run_snort():    
     try:
         clean_directory(log_folder)
@@ -1944,42 +1920,30 @@ def get_control_text(hwnd):
     ctypes.windll.user32.SendMessageW(hwnd, WM_GETTEXT, length, buffer)
     return buffer.value
 
-def find_windows_with_text(target_message=None):
-    """Find all windows containing the specified text and their child windows."""
-    def enum_windows_callback(hwnd, lParam):
-        if ctypes.windll.user32.IsWindowVisible(hwnd):
-            window_text = get_window_text(hwnd).lower()
-            if target_message and target_message in window_text:
-                window_handles.append((hwnd, window_text))
-            else:
-                for child in find_child_windows(hwnd):
-                    control_text = get_control_text(child).lower()
-                    if target_message and target_message in control_text:
-                        window_handles.append((child, control_text))
-                        break
-                    elif not target_message:
-                        window_handles.append((child, control_text))
+# Function to find child windows of a given window
+def find_child_windows(parent_hwnd):
+    """Find all child windows of the given parent window."""
+    child_windows = []
+
+    def enum_child_windows_callback(hwnd, lParam):
+        child_windows.append(hwnd)
         return True
 
-    window_handles = []
-    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
-    ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
-    return window_handles
+    EnumChildWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+    ctypes.windll.user32.EnumChildWindows(parent_hwnd, EnumChildWindowsProc(enum_child_windows_callback), None)
+    
+    return child_windows
 
-# Function to find windows containing text and return related file paths
-def find_windows_with_text(target_message):
-    """Find all windows containing the specified text and their child windows."""
+# Function to find windows containing text
+def find_windows_with_text():
+    """Find all windows and their child windows."""
     def enum_windows_callback(hwnd, lParam):
         if ctypes.windll.user32.IsWindowVisible(hwnd):
             window_text = get_window_text(hwnd)
-            if target_message in window_text:
-                window_handles.append((hwnd, window_text))
-            else:
-                for child in find_child_windows(hwnd):
-                    control_text = get_control_text(child)
-                    if target_message in control_text:
-                        window_handles.append((child, control_text))
-                        break
+            window_handles.append((hwnd, window_text))
+            for child in find_child_windows(hwnd):
+                control_text = get_control_text(child)
+                window_handles.append((child, control_text))
         return True
 
     window_handles = []
@@ -2128,9 +2092,6 @@ def perform_sandbox_analysis(file_path):
         main_file_path = file_path
 
         window_monitor = WindowMonitor()
-
-        # Clean sandbox folder
-        clean_sandboxie_defaultbox()
 
         # Monitor Snort log for new lines and process alerts
         threading.Thread(target=monitor_snort_log).start()
