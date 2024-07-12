@@ -1974,7 +1974,7 @@ class WindowMonitor:
         target_message_av = "disable your antivirus"
         target_message_debugger = "a debugger has been found running in your system please unload it from memory and restart your program"
         fanmade_messages = [
-            "executed a trojan", "this is the last warning", "the creator of this malware"
+            "executed a trojan", "this is the last warning", "creator of this malware", "creator of this trojan", "this is a malware", "considered malware", "destory your computer",  "destory this computer", "execute this malware", "this malware contains",  "contains flashing lights", "run a malware", "run malware"
         ]
         rogue_messages = [
             "your pc is infected", "your computer is infected", "your system is infected",
@@ -1986,7 +1986,7 @@ class WindowMonitor:
             while True:
                 windows = find_windows_with_text()
                 for hwnd, text in windows:
-                    text = text.replace(",", "").replace(".", "").replace("!", "")
+                    text = text.replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "")
                     if target_message_classic in text:
                         logging.warning(f'Window with Guloader message "{target_message_classic}" found. HWND: {hwnd}')
                         self.process_detected_window_classic(text)
