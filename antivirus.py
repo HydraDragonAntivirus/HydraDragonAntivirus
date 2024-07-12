@@ -2032,28 +2032,27 @@ class WindowMonitor:
             while True:
                 windows = find_windows_with_text()
                 for hwnd, text in windows:
-                    text = text.replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "")
-                    text = text.lower()
-                    if target_message_classic in text:
+                    cleaned_text = text.replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "").lower()
+                    if target_message_classic in cleaned_text:
                         logging.warning(f'Window with Guloader message "{target_message_classic}" found. HWND: {hwnd}')
-                        self.process_detected_window_classic(text)
-                    elif target_message_av in text:
+                        self.process_detected_window_classic(cleaned_text)
+                    elif target_message_av in cleaned_text:
                         logging.warning(f'Window with Disable-AV message "{target_message_av}" found. HWND: {hwnd}')
-                        self.process_detected_window_av(text)
-                    elif target_message_debugger in text:
+                        self.process_detected_window_av(cleaned_text)
+                    elif target_message_debugger in cleaned_text:
                         logging.warning(f'Window with Themida message "{target_message_debugger}" found. HWND: {hwnd}')
-                        self.process_detected_window_debugger(text)
-                    elif any(fanmade_message in text for fanmade_message in fanmade_messages):
+                        self.process_detected_window_debugger(cleaned_text)
+                    elif any(fanmade_message in cleaned_text for fanmade_message in fanmade_messages):
                         logging.warning(f'Window with FanMade GDI Malware message found. HWND: {hwnd}')
-                        self.process_detected_window_fanmade(text)
-                    elif self.contains_keywords_within_max_distance(text, max_distance=8):
+                        self.process_detected_window_fanmade(cleaned_text)
+                    elif self.contains_keywords_within_max_distance(cleaned_text, max_distance=8):
                         logging.warning(f'Window with Ransomware message found. HWND: {hwnd}')
-                        self.process_detected_window_ransom(text)
-                    elif any(rogue_message in text for rogue_message in rogue_messages):
+                        self.process_detected_window_ransom(cleaned_text)
+                    elif any(rogue_message in cleaned_text for rogue_message in rogue_messages):
                         logging.warning(f'Window with Rogue message found. HWND: {hwnd}')
-                        self.process_detected_window_rogue(text)
+                        self.process_detected_window_rogue(cleaned_text)
                     else:
-                        self.process_detected_window_web(text)
+                        self.process_detected_window_web(cleaned_text)
         except Exception as e:
             logging.error(f"An error occurred during window monitoring: {e}")
 
