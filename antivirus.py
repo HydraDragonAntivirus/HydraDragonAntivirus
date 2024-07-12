@@ -1365,27 +1365,28 @@ def scan_and_warn(file_path):
             logging.warning(f"File {file_path} contains a PE header but is not a valid PE file. Flagged as broken executable.")
             return False
 
-    is_malicious, virus_name = scan_file_real_time(file_path)
+    is_malicious, virus_names = scan_file_real_time(file_path)  # Ensure scan_file_real_time returns a list of virus names
+
     ransomware_alert(file_path)
     worm_alert(file_path)
 
     if is_malicious:
-        logging.warning(f"File {file_path} is malicious. Virus: {virus_name}")
+        logging.warning(f"File {file_path} is malicious. Viruses: {', '.join(virus_names)}")
 
-        # Determine the type of notification to send
-        if virus_name.startswith("PUA."):
-            notify_user_pua_thread = threading.Thread(target=notify_user_pua, args=(file_path, virus_name))
-            notify_user_pua_thread.start()
-        elif virus_name == "HEUR:FakeSize.Generic":
-            notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(file_path, virus_name))
-            notify_user_fake_size_thread.start()
-        elif virus_name == "HEUR:PUA.Win32.FakeSize.Generic":
-            notify_user_fake_size_pua_thread = threading.Thread(target=notify_user_fake_size_pua, args=(file_path, virus_name))
-            notify_user_fake_size_pua_thread.start()
-        else:
-            notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
-            notify_user_thread.start()
-    
+        for virus_name in virus_names:
+            if virus_name.startswith("PUA."):
+                notify_user_pua_thread = threading.Thread(target=notify_user_pua, args=(file_path, virus_name))
+                notify_user_pua_thread.start()
+            elif virus_name == "HEUR:FakeSize.Generic":
+                notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(file_path, virus_name))
+                notify_user_fake_size_thread.start()
+            elif virus_name == "HEUR:PUA.Win32.FakeSize.Generic":
+                notify_user_fake_size_pua_thread = threading.Thread(target=notify_user_fake_size_pua, args=(file_path, virus_name))
+                notify_user_fake_size_pua_thread.start()
+            else:
+                notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
+                notify_user_thread.start()
+
     return is_malicious
 
 def start_monitoring_sandbox():
