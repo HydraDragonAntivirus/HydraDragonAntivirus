@@ -1974,7 +1974,7 @@ class WindowMonitor:
         target_message_av = "disable your antivirus"
         target_message_debugger = "a debugger has been found running in your system please unload it from memory and restart your program"
         fanmade_messages = [
-            "executed a trojan", "this is the last warning", "creator of this malware", "creator of this trojan", "this is a malware", "considered malware", "destory your computer",  "destory this computer", "execute this malware", "this malware contains",  "contains flashing lights", "run a malware", "run malware"
+            "executed a trojan", "this is the last warning", "creator of this malware", "creator of this trojan", "this is a malware", "considered malware", "destory your computer",  "destory this computer", "execute this malware", "this malware contains",  "contains flashing lights", "run a malware", "run malware", "executed is a malware"
         ]
         rogue_messages = [
             "your pc is infected", "your computer is infected", "your system is infected",
