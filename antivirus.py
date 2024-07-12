@@ -1218,7 +1218,7 @@ def clean_sandboxie_defaultbox():
         subprocess.run([sbie_ini_path, "set", "DefaultBox", "DropAdminRights", "y"], check=True)
         
         # Initialize the sandbox folder by running a command within the sandbox
-        subprocess.run([start_exe_path, "/box:DefaultBox", "cmd.exe", "/c", "echo Sandbox initialized"], check=True)
+        subprocess.run([sandboxie_path, "/box:DefaultBox", "cmd.exe", "/c", "echo Sandbox initialized"], check=True)
         
         print("DefaultBox created and configured successfully.")
     except subprocess.CalledProcessError as e:
@@ -2084,7 +2084,7 @@ def perform_sandbox_analysis(file_path):
         window_monitor = WindowMonitor()
 
         # Clean sandbox folder
-        clean_sandboxie_defaultbox(sandbox_folder)
+        clean_sandboxie_defaultbox()
 
         # Monitor Snort log for new lines and process alerts
         threading.Thread(target=monitor_snort_log).start()
