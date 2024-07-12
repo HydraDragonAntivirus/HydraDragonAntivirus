@@ -1217,10 +1217,15 @@ def clean_sandboxie_defaultbox():
         subprocess.run([sbie_ini_path, "set", "DefaultBox", "ClosedFilePath", "InternetAccessDevices"], check=True)
         subprocess.run([sbie_ini_path, "set", "DefaultBox", "DropAdminRights", "y"], check=True)
         
+        print("DefaultBox created and configured successfully.")
+        
+        print("Please wait 30 seconds while we are cleaning DefaultBox.")
+        time.sleep(30)
+
         # Initialize the sandbox folder by running a command within the sandbox
         subprocess.run([sandboxie_path, "/box:DefaultBox", "cmd.exe", "/c", "echo Sandbox initialized"], check=True)
-        
-        print("DefaultBox created and configured successfully.")
+
+        print("DefaultBox cleaning completed.")
     except subprocess.CalledProcessError as e:
         print(f"Error creating DefaultBox: {e}")
 
@@ -1987,6 +1992,7 @@ class WindowMonitor:
                 windows = find_windows_with_text()
                 for hwnd, text in windows:
                     text = text.replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "")
+                    text = text.lower()
                     if target_message_classic in text:
                         logging.warning(f'Window with Guloader message "{target_message_classic}" found. HWND: {hwnd}')
                         self.process_detected_window_classic(text)

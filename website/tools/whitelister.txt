@@ -1,3 +1,5 @@
+.f-msedge.net
+.azurefd.net
 .azure.com
 .17track.net
 .1drv.com
