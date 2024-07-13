@@ -1,3 +1,4 @@
+.t-msedge.net
 .f-msedge.net
 .azurefd.net
 .azure.com

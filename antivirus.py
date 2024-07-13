@@ -652,28 +652,19 @@ def notify_user_for_web_text(domain=None, ip_address=None):
         notification.message = "Phishing or Malicious activity detected"
     notification.send()
 
-def notify_user_for_hips(ip_address=None, dst_ip_address=None, is_malicious=False):
+def notify_user_for_hips(ip_address=None, dst_ip_address=None):
     notification = Notify()
-    notification.title = "HIPS Alert"
-    if is_malicious:
-        notification.title = "Malicious Activity Detected"
+    notification.title = "Malicious Activity Detected"
     
     if ip_address and dst_ip_address:
-        notification.message = f"Suspicious activity detected:\nIP Addresses involved:\nSource: {ip_address}\nDestination: {dst_ip_address}"
-        if is_malicious:
-            notification.message = f"Malicious activity detected:\nSource: {ip_address}\nDestination: {dst_ip_address}"
+        notification.message = f"Malicious activity detected:\nSource: {ip_address}\nDestination: {dst_ip_address}"
     elif ip_address:
-        notification.message = f"Suspicious activity detected:\nSource IP Address: {ip_address}"
-        if is_malicious:
-            notification.message = f"Malicious activity detected:\nSource IP Address: {ip_address}"
+        notification.message = f"Malicious activity detected:\nSource IP Address: {ip_address}"
     elif dst_ip_address:
-        notification.message = f"Suspicious activity detected:\nDestination IP Address: {dst_ip_address}"
-        if is_malicious:
-            notification.message = f"Malicious activity detected:\nDestination IP Address: {dst_ip_address}"
+        notification.message = f"Malicious activity detected:\nDestination IP Address: {dst_ip_address}"
     else:
-        notification.message = "Suspicious activity detected"
-        if is_malicious:
-            notification.message = "Malicious activity detected"
+        notification.message = "Malicious activity detected"
+    
     notification.send()
 
 def notify_user_for_detected_hips_file(src_ip):
@@ -1202,18 +1193,12 @@ def process_alert(line):
                     logging.warning(f"Malicious activity detected: {line.strip()}")
                     print(f"Malicious activity detected from {src_ip} to {dst_ip} with priority {priority}")
                     try:
-                        notify_user_for_hips(ip_address=src_ip, dst_ip_address=dst_ip, is_malicious=True)
+                        notify_user_for_hips(ip_address=src_ip, dst_ip_address=dst_ip)
                     except Exception as e:
                         logging.error(f"Error notifying user for HIPS (malicious): {e}")
                     convert_ip_to_file(src_ip, dst_ip, line.strip())
                     return True
                 elif priority == 2:
-                    logging.warning(f"Potential malware detected: {line.strip()}")
-                    print(f"Potential malware detected from {src_ip} to {dst_ip} with priority {priority}")
-                    try:
-                        notify_user_for_hips(ip_address=src_ip, dst_ip_address=dst_ip)
-                    except Exception as e:
-                        logging.error(f"Error notifying user for HIPS (potential malware): {e}")
                     convert_ip_to_file(src_ip, dst_ip, line.strip())
                     return True
             except Exception as e:

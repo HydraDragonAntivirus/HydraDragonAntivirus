@@ -1,3 +1,6 @@
+part-0017.t-0009.t-msedge.net
+t-msedge.net
+fbs1-t-msedge.net
 docusignnfiles.azurefd.net
 ceshi-ene5a0bqg4dxgff9.z01.azurefd.net
 fbworkflow04.azurefd.net
