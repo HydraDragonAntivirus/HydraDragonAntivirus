@@ -16,7 +16,7 @@ Dynamic and Static Analysis with Sandboxie for Windows, featuring ClamAV, YARA-X
 - **Password:** infected
 
 ## Guide
-**Notice:** You must create a DefaultBox in Sandboxie by running it once with a random application.  Also, please clean the DefaultBox items each time you scan.
+**Notice:** You must create a DefaultBox in Sandboxie by running it once with a random application.  Also, please clean the DefaultBox items each time you scan. Please don't open the log file while the malware analysis is running, as it may trigger the anti-virus if you didn't remove the log before and the previous sample was detected before.
 
 Please wait 1-2 minutes if you open this application after 6 hours, as it updates ClamAV definitions. It's not well tested. If you find an issue, please create an issue. Antivirus software might be triggered by website signatures because they are not obfuscated, so exclude the `C:\Program Files\HydraDragonAntivirus` folder. Please only use in a VM as you can only use this for deep analysis of a file. There is no fixed analysis time for a file.
 

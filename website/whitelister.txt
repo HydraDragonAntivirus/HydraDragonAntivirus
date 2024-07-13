@@ -1,3 +1,4 @@
+.virustotal.com
 .t-msedge.net
 .f-msedge.net
 .azurefd.net
