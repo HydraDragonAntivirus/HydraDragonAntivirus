@@ -327,6 +327,30 @@ def check_signature(file_path):
             "signature_status_issues": False
         }
 
+def check_valid_signature(file_path):
+    try:
+        # Command to verify the executable signature status
+        verify_command = f"(Get-AuthenticodeSignature '{file_path}').Status"
+        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='cp1254')
+        
+        status = process.stdout.strip()
+        is_valid = status == "Valid"
+        is_invalid_signature = status in ["HashMismatch", "NotTrusted"]
+        
+        return {
+            "is_valid": is_valid,
+            "is_invalid_signature": is_invalid_signature,
+            "status": status
+        }
+    except Exception as e:
+        print(f"An error occurred while checking signature: {e}")
+        logging.error(f"An error occurred while checking signature: {e}")
+        return {
+            "is_valid": False,
+            "is_invalid_signature": False,
+            "status": "Error"
+        }
+
 def check_valid_signature_only(file_path):
     try:
         # Command to verify the executable signature status
@@ -359,10 +383,7 @@ def scan_file_real_time(file_path):
         # Check for PE file and signatures
         if is_pe_file(file_path):
             signature_check = check_signature(file_path)
-            if signature_check["signature_status_issues"]:
-                logging.warning(f"File has invalid signature: {file_path}")
-                return True, "Invalid signature"
-            elif signature_check["has_microsoft_signature"]:
+            if signature_check["has_microsoft_signature"]:
                 return False, "Microsoft signature"
             else:
                 logging.info(f"Valid signature detected for file: {file_path}")
@@ -1092,7 +1113,7 @@ uefi_paths = [
     rf'{sandbox_folder}\drive\X\EFI\Microsoft\Boot\memtest.efi',
     rf'{sandbox_folder}\drive\X\EFI\Boot\bootx64.efi'
 ]
-snort_command = ["C:\\Snort\\bin\\snort.exe"] + device_args + ["-c", snort_config_path, "-A", "fast"]
+snort_command = [r'C:\Snort\bin\snort.exe'] + device_args + ["-c", snort_config_path, "-A", "fast"]
 
 # Custom flags for directory changes
 FILE_NOTIFY_CHANGE_LAST_ACCESS = 0x00000020
@@ -1677,53 +1698,86 @@ def worm_alert(file_path):
     try:
         logging.info(f"Running worm detection for file '{file_path}'")
 
+        # Check if the file is a PE file
         if is_pe_file(file_path):
-            logging.info(f"File '{file_path}' is identified as a PE file")
+            logging.info(f"File '{file_path}' is identified as a PE file. Proceeding with worm detection.")
+
+            # Check if the file has a valid or invalid signature
+            signature_status = check_valid_signature(file_path)
+            if signature_status["is_valid"]:
+                logging.info(f"File '{file_path}' has a valid signature. Skipping worm detection.")
+                return
+            elif signature_status["is_invalid_signature"]:
+                logging.warning(f"File '{file_path}' has issues with its signature. Proceeding with invalid signature detection...")
+                notify_user_invalid(file_path, "Win32.InvalidSignature")
+                worm_alerted_files.append(file_path)
+                return
+            else:
+                logging.warning(f"File '{file_path}' does not have a valid signature. Proceeding with unknown...")
+
             features_current = extract_numeric_worm_features(file_path)
 
-            # Define critical directories
-            critical_directories = [
-                os.path.join(sandbox_folder, 'drive', 'C', 'Windows')
-            ]
+            # Define critical directory
+            critical_directory = os.path.join(sandbox_folder, 'drive', 'C', 'Windows')
 
-            detected_in_critical_dir = False
+            original_file_path = os.path.join(critical_directory, os.path.basename(file_path))
 
-            for critical_dir in critical_directories:
-                if os.path.exists(critical_dir):
-                    for root, _, files in os.walk(critical_dir):
-                        if os.path.basename(file_path) in files:
-                            detected_in_critical_dir = True
-                            break
-                if detected_in_critical_dir:
-                    break
+            if os.path.exists(original_file_path):
+                original_file_size = os.path.getsize(original_file_path)
+                current_file_size = os.path.getsize(file_path)
+                size_difference = abs(current_file_size - original_file_size) / original_file_size
 
-            worm_detected = detected_in_critical_dir
+                original_file_mtime = os.path.getmtime(original_file_path)
+                current_file_mtime = os.path.getmtime(file_path)
+                mtime_difference = abs(current_file_mtime - original_file_mtime)
 
-            if main_file_path and main_file_path != file_path:
-                features_main = extract_numeric_worm_features(main_file_path)
-                similarity_main = calculate_similarity_worm(features_current, features_main)
-                if similarity_main > 0.86:
-                    logging.warning(f"Main file '{main_file_path}' is spreading the worm to '{file_path}' with similarity score {similarity_main}")
-                    worm_detected = True
+                # Check size difference and modification time difference
+                if size_difference > 0.10:
+                    logging.warning(f"File size difference for '{file_path}' exceeds 10%.")
+                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Agnostic.Generic.Malware")
+                    worm_alerted_files.append(file_path)
+                    return
 
-            for collected_file_path in file_paths:
-                if collected_file_path != file_path:
-                    features_collected = extract_numeric_worm_features(collected_file_path)
-                    similarity_collected = calculate_similarity_worm(features_current, features_collected)
-                    if similarity_collected > 0.86:
-                        logging.warning(f"Worm has spread to '{collected_file_path}' with similarity score {similarity_collected}")
+                if mtime_difference > 3600:  # 3600 seconds = 1 hour
+                    logging.warning(f"Modification time difference for '{file_path}' exceeds 1 hour.")
+                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Time.Agnostic.Generic.Malware")
+                    worm_alerted_files.append(file_path)
+                    return
+
+                logging.info(f"File '{file_path}' matches original in '{critical_directory}'. Proceeding with worm detection...")
+
+                # Initialize worm detection flag
+                worm_detected = False
+
+                # Compare with main file
+                if main_file_path and main_file_path != file_path:
+                    features_main = extract_numeric_worm_features(main_file_path)
+                    similarity_main = calculate_similarity_worm(features_current, features_main)
+                    if similarity_main > 0.86:
+                        logging.warning(f"Main file '{main_file_path}' is spreading the worm to '{file_path}' with similarity score {similarity_main}")
                         worm_detected = True
 
-            worm_detected_count[file_path] = worm_detected_count.get(file_path, 0) + 1
-            if worm_detected:
-                if detected_in_critical_dir:
-                    logging.warning(f"Worm '{file_path}' detected in critical directory. Alerting user.")
-                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Generic.Malware")
-                worm_alerted_files.append(file_path)
-            elif worm_detected_count[file_path] >= 5:
-                logging.warning(f"Worm '{file_path}' detected under 5 different names in critical directories. Alerting user.")
-                notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Generic.Malware")
-                worm_alerted_files.append(file_path)
+                # Compare with other collected files
+                for collected_file_path in file_paths:
+                    if collected_file_path != file_path:
+                        features_collected = extract_numeric_worm_features(collected_file_path)
+                        similarity_collected = calculate_similarity_worm(features_current, features_collected)
+                        if similarity_collected > 0.86:
+                            logging.warning(f"Worm has spread to '{collected_file_path}' with similarity score {similarity_collected}")
+                            worm_detected = True
+
+                # Increment detection count
+                worm_detected_count[file_path] = worm_detected_count.get(file_path, 0) + 1
+
+                # Check if worm is detected or count exceeds threshold
+                if worm_detected_count[file_path] >= 5:
+                    logging.warning(f"Worm '{file_path}' detected under 5 different names. Alerting user.")
+                    notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Generic.Malware")
+                    worm_alerted_files.append(file_path)
+
+            else:
+                logging.warning(f"Original file '{original_file_path}' not found in '{critical_directory}'. Skipping worm detection.")
+
         else:
             logging.info(f"File '{file_path}' is not a PE file, skipping worm detection.")
 
