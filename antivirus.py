@@ -1717,18 +1717,20 @@ def worm_alert(file_path):
 
             features_current = extract_numeric_worm_features(file_path)
 
-            # Define critical directory
-            critical_directory = os.path.join(sandbox_folder, 'drive', 'C', 'Windows')
+            # Define critical directory paths
+            critical_directory = os.path.join('C:', 'Windows')
+            sandbox_critical_directory = os.path.join(sandbox_folder, 'drive', 'C', 'Windows')
 
             original_file_path = os.path.join(critical_directory, os.path.basename(file_path))
+            sandbox_file_path = os.path.join(sandbox_critical_directory, os.path.basename(file_path))
 
-            if os.path.exists(original_file_path):
+            if os.path.exists(original_file_path) and os.path.exists(sandbox_file_path):
                 original_file_size = os.path.getsize(original_file_path)
-                current_file_size = os.path.getsize(file_path)
+                current_file_size = os.path.getsize(sandbox_file_path)
                 size_difference = abs(current_file_size - original_file_size) / original_file_size
 
                 original_file_mtime = os.path.getmtime(original_file_path)
-                current_file_mtime = os.path.getmtime(file_path)
+                current_file_mtime = os.path.getmtime(sandbox_file_path)
                 mtime_difference = abs(current_file_mtime - original_file_mtime)
 
                 # Check size difference and modification time difference
@@ -1770,13 +1772,13 @@ def worm_alert(file_path):
                 worm_detected_count[file_path] = worm_detected_count.get(file_path, 0) + 1
 
                 # Check if worm is detected or count exceeds threshold
-                if worm_detected_count[file_path] >= 5:
+                if worm_detected or worm_detected_count[file_path] >= 5:
                     logging.warning(f"Worm '{file_path}' detected under 5 different names. Alerting user.")
                     notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Generic.Malware")
                     worm_alerted_files.append(file_path)
 
             else:
-                logging.warning(f"Original file '{original_file_path}' not found in '{critical_directory}'. Skipping worm detection.")
+                logging.warning(f"Original file '{original_file_path}' or sandbox file '{sandbox_file_path}' not found. Skipping worm detection.")
 
         else:
             logging.info(f"File '{file_path}' is not a PE file, skipping worm detection.")
