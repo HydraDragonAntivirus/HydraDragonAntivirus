@@ -8,4 +8,5 @@ PySide6
 watchdog
 notify-py
 pywin32
+numpy
 scapy # You will also need to download https://npcap.com/#download

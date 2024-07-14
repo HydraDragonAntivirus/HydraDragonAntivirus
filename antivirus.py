@@ -31,6 +31,8 @@ import winreg
 from scapy.all import IP, IPv6, DNS, DNSQR, DNSRR, sniff
 import ctypes
 import ipaddress
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 
 sys.modules['sklearn.externals.joblib'] = joblib
 # Set script directory
@@ -1964,50 +1966,65 @@ def contains_domain(text):
 class WindowMonitor:
     def __init__(self):
         self.scanned_domains = []
+        self.nlp = spacy.load('en_core_web_md')
+        self.known_malware_messages = {
+            "classic": "this program cannot be run under virtual environment or debugging software",
+            "av": "disable your antivirus",
+            "debugger": "a debugger has been found running in your system please unload it from memory and restart your program",
+            "fanmade": [
+                "executed a trojan", "this is the last warning", "creator of this malware", "creator of this trojan", "this is a malware",
+                "considered malware", "destory your computer", "destory this computer", "execute this malware", "this malware contains",
+                "contains flashing lights", "run a malware", "run malware", "executed is a malware", "unusable machine", "makes it unusable",
+                "using this malware,", "this malware can"
+            ],
+            "rogue": [
+                "your pc is infected", "your computer is infected", "your system is infected",
+                "windows is infected", "has found viruses on computer", "windows security alert",
+                "pc is at risk", "malicious program has been detected"
+            ]
+        }
+        self.known_malware_vectors = {key: self.nlp(value).vector for key, value in self.known_malware_messages.items() if isinstance(value, str)}
+        self.known_malware_vectors["fanmade"] = [self.nlp(msg).vector for msg in self.known_malware_messages["fanmade"]]
+        self.known_malware_vectors["rogue"] = [self.nlp(msg).vector for msg in self.known_malware_messages["rogue"]]
 
     def monitor_specific_windows(self):
-        target_message_classic = "this program cannot be run under virtual environment or debugging software"
-        target_message_av = "disable your antivirus"
-        target_message_debugger = "a debugger has been found running in your system please unload it from memory and restart your program"
-        fanmade_messages = [
-            "executed a trojan", "this is the last warning", "creator of this malware", "creator of this trojan", "this is a malware", 
-            "considered malware", "destory your computer",  "destory this computer", "execute this malware", "this malware contains",  
-            "contains flashing lights", "run a malware", "run malware", "executed is a malware", "unusable machine", "makes it unusable",
-            "using this malware," "this malware can"
-        ]
-        rogue_messages = [
-            "your pc is infected", "your computer is infected", "your system is infected",
-            "windows is infected", "has found viruses on computer", "windows security alert",
-            "pc is at risk", "malicious program has been detected"
-        ]
-        
         try:
             while True:
                 windows = find_windows_with_text()
                 for hwnd, text in windows:
-                    cleaned_text = text.replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "").lower()
-                    if target_message_classic in cleaned_text:
-                        logging.warning(f'Window with Guloader message "{target_message_classic}" found. HWND: {hwnd}')
+                    cleaned_text = self.preprocess_text(text)
+                    doc = self.nlp(cleaned_text)
+                    if self.is_similar(doc.vector, "classic"):
+                        logging.warning(f'Window with Guloader message found. HWND: {hwnd}')
                         self.process_detected_window_classic(cleaned_text)
-                    elif target_message_av in cleaned_text:
-                        logging.warning(f'Window with Disable-AV message "{target_message_av}" found. HWND: {hwnd}')
+                    elif self.is_similar(doc.vector, "av"):
+                        logging.warning(f'Window with Disable-AV message found. HWND: {hwnd}')
                         self.process_detected_window_av(cleaned_text)
-                    elif target_message_debugger in cleaned_text:
-                        logging.warning(f'Window with Themida message "{target_message_debugger}" found. HWND: {hwnd}')
+                    elif self.is_similar(doc.vector, "debugger"):
+                        logging.warning(f'Window with Themida message found. HWND: {hwnd}')
                         self.process_detected_window_debugger(cleaned_text)
-                    elif any(fanmade_message in cleaned_text for fanmade_message in fanmade_messages):
+                    elif any(self.is_similar(doc.vector, "fanmade", vec) for vec in self.known_malware_vectors["fanmade"]):
                         logging.warning(f'Window with FanMade GDI Malware message found. HWND: {hwnd}')
                         self.process_detected_window_fanmade(cleaned_text)
                     elif self.contains_keywords_within_max_distance(cleaned_text, max_distance=8):
                         logging.warning(f'Window with Ransomware message found. HWND: {hwnd}')
                         self.process_detected_window_ransom(cleaned_text)
-                    elif any(rogue_message in cleaned_text for rogue_message in rogue_messages):
+                    elif any(self.is_similar(doc.vector, "rogue", vec) for vec in self.known_malware_vectors["rogue"]):
                         logging.warning(f'Window with Rogue message found. HWND: {hwnd}')
                         self.process_detected_window_rogue(cleaned_text)
                     else:
                         self.process_detected_window_web(cleaned_text)
         except Exception as e:
             logging.error(f"An error occurred during window monitoring: {e}")
+
+    def preprocess_text(self, text):
+        return text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "")
+
+    def is_similar(self, text_vector, category, known_vector=None):
+        if known_vector is None:
+            known_vector = self.known_malware_vectors[category]
+        similarity = cosine_similarity([text_vector], [known_vector])
+        return similarity[0][0] > 0.86
 
     def contains_keywords_within_max_distance(self, text, max_distance):
         words = text.split()
