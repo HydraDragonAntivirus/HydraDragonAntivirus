@@ -15,6 +15,12 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - **Notice:** Only contains PE files.
 - **Password:** infected
 
+## Machine Learning Training Guide
+- Install malicious (datamaliciousorder) and benign (data2) database, then install requirements.txt from train.py and just run train.py with the same folder as datamaliciousorder and data2.
+
+## Guide to compiling from source
+- You can compile YARA-X and YARA from the yara folder. The website database is not a complication. See the machine learning training guide to compile machine learning database. To compile antivirus.py install requirements.txt and install nuitkarequirements.txt then use assets/HydraDragonAV.png then use nuitka.txt arguments.txt and change based on your installed folder of HydraDragonAntivirus. After compiling Nuitka, Machine Learning, YARA then look at the compiler.iss and replace the code with your installed environment, you can find other files in repo like hydradownload folder and then compile it. It's done! Now you are ready to release your fork of HydraDragonAntivirus.
+
 ## Guide
 **Notice:** You must create a DefaultBox in Sandboxie by running it once with a random application.  Also, please clean the DefaultBox items each time you scan. Please don't open the log file while the malware analysis is running, as it may trigger the anti-virus if you didn't remove the log before and the previous sample was detected before.
 
