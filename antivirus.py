@@ -33,8 +33,13 @@ import ctypes
 import ipaddress
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
-
+import io
+import spacy
 sys.modules['sklearn.externals.joblib'] = joblib
+# Redirecting standard input, output, and error to use UTF-8 encoding
+sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 # Set script directory
 script_dir = r"C:\Program Files\HydraDragonAntivirus"
 clamd_path = r"C:\Program Files\ClamAV\clamd.exe"
@@ -283,7 +288,7 @@ def check_signature_is_valid(file_path):
         # Command to verify the executable signature status
         cmd = f'"{file_path}"'
         verify_command = "(Get-AuthenticodeSignature " + cmd + ").Status"
-        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='cp1254')
+        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-8')
         
         status = process.stdout.strip()
         is_valid = status == "Valid"
@@ -299,7 +304,7 @@ def check_signature(file_path):
         # Command to verify the executable signature status
         cmd = f'"{file_path}"'
         verify_command = "(Get-AuthenticodeSignature " + cmd + ").Status"
-        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='cp1254')
+        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-8')
         
         status = process.stdout.strip()
         is_valid = status == "Valid"
@@ -331,7 +336,7 @@ def check_valid_signature(file_path):
     try:
         # Command to verify the executable signature status
         verify_command = f"(Get-AuthenticodeSignature '{file_path}').Status"
-        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='cp1254')
+        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-8')
         
         status = process.stdout.strip()
         is_valid = status == "Valid"
@@ -355,7 +360,7 @@ def check_valid_signature_only(file_path):
     try:
         # Command to verify the executable signature status
         verify_command = f"(Get-AuthenticodeSignature '{file_path}').Status"
-        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='cp1254')
+        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-8')
         
         status = process.stdout.strip()
         is_valid = status == "Valid"
@@ -1531,7 +1536,7 @@ def has_known_extension(file_path):
 def is_readable(file_path):
     try:
         logging.info(f"Attempting to read file '{file_path}'")
-        with open(file_path, 'r', encoding='cp1254') as file:
+        with open(file_path, 'r', encoding='utf-8') as file:
             file_data = file.read(1024)
             if file_data:  # Check if file has readable content
                 logging.info(f"File '{file_path}' is readable")
