@@ -88,6 +88,7 @@ PUA.Win.Packer.Pseudosigner-96
 PUA.Win.Packer.PrivateEXEProtector4-6192998-2
 PUA.Win.Packer.InterplaysMveFi-1
 PUA.Win.File.Pemalform-9786668-0
+Win.Packer.MalwareCrypter-6620810-1
 # False positives from SaneSecurity and other 3rd parties
 Sanesecurity.Malware.26368.JsHeur
 Sanesecurity.Malware.26399.JsHeur
