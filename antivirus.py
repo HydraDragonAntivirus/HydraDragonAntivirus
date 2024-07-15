@@ -2028,9 +2028,9 @@ class WindowMonitor:
             "av": "disable your antivirus",
             "debugger": "a debugger has been found running in your system please unload it from memory and restart your program",
             "fanmade": [
-                "executed a trojan", "this is the last warning", "creator of this malware", "creator of this trojan", "this trojan has", "this is a malware",
-                "considered malware", "destory your computer", "destory this computer", "execute this malware", "this malware contains",
-                "contains flashing lights", "run a malware", "run malware", "executed is a malware", "unusable machine", "makes it unusable",
+                "executed a trojan", "this is the last warning", "creator of this malware", "creator of this trojan", "this trojan has", "by this trojan", 
+                "this is a malware", "considered malware", "destory your computer", "destory this computer", "execute this malware", "this malware contains",
+                "contains flashing lights", "run a malware", "run malware", "executed is a malware", "unusable machine", "makes it unusable", "this trojan and",
                 "using this malware,", "this malware can", "gdi malware"
             ],
             "rogue": [
