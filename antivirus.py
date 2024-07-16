@@ -1279,7 +1279,7 @@ try:
     nlp = spacy.load('en_core_web_sm')
 except OSError:
     print('Downloading language model for the spaCy POS tagger\n'
-          "(don't worry, this will only happen once)", file=stderr)
+          "(don't worry, this will only happen once)")
     download('en_core_web_sm')
     nlp = spacy.load('en_core_web_sm')
 
