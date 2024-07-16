@@ -2036,7 +2036,7 @@ class WindowMonitor:
                 "executed a trojan", "this is the last warning", "creator of this malware", "creator of this trojan", "this trojan has", "by this trojan", 
                 "this is a malware", "considered malware", "destory your computer", "destory this computer", "execute this malware", "this malware contains",
                 "contains flashing lights", "run a malware", "run malware", "executed is a malware", "unusable machine", "makes it unusable", "this trojan and",
-                "using this malware,", "this malware can", "gdi malware"
+                "using this malware,", "this malware can", "gdi malware", "win32 trojan specifically"
             ],
             "rogue": [
                 "your pc is infected", "your computer is infected", "your system is infected",
