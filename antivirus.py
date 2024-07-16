@@ -35,6 +35,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 import io
 import spacy
+from spacy.cli import download
 sys.modules['sklearn.externals.joblib'] = joblib
 # Redirecting standard input, output, and error to use latin-1 encoding
 sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='latin-1')
@@ -1274,6 +1275,14 @@ def activate_uefi_drive():
     except subprocess.CalledProcessError as e:
         print(f"Error mounting UEFI drive: {e}")
 
+try:
+    nlp = spacy.load('en_core_web_sm')
+except OSError:
+    print('Downloading language model for the spaCy POS tagger\n'
+          "(don't worry, this will only happen once)", file=stderr)
+    download('en_core_web_sm')
+    nlp = spacy.load('en_core_web_sm')
+
 restart_clamd_thread()
 activate_uefi_drive() # Call the UEFI function
 snort_thread = threading.Thread(target=run_snort)
@@ -2027,7 +2036,6 @@ def contains_domain(text):
 class WindowMonitor:
     def __init__(self):
         self.scanned_domains = []
-        self.nlp = spacy.load('en_core_web_md')
         self.known_malware_messages = {
             "classic": "this program cannot be run under virtual environment or debugging software",
             "av": "disable your antivirus",
@@ -2044,9 +2052,9 @@ class WindowMonitor:
                 "pc is at risk", "malicious program has been detected"
             ]
         }
-        self.known_malware_vectors = {key: self.nlp(value).vector for key, value in self.known_malware_messages.items() if isinstance(value, str)}
-        self.known_malware_vectors["fanmade"] = [self.nlp(msg).vector for msg in self.known_malware_messages["fanmade"]]
-        self.known_malware_vectors["rogue"] = [self.nlp(msg).vector for msg in self.known_malware_messages["rogue"]]
+        self.known_malware_vectors = {key: nlp(value).vector for key, value in self.known_malware_messages.items() if isinstance(value, str)}
+        self.known_malware_vectors["fanmade"] = [nlp(msg).vector for msg in self.known_malware_messages["fanmade"]]
+        self.known_malware_vectors["rogue"] = [nlp(msg).vector for msg in self.known_malware_messages["rogue"]]
 
     def monitor_specific_windows(self):
         try:
@@ -2054,7 +2062,7 @@ class WindowMonitor:
                 windows = find_windows_with_text()
                 for hwnd, text in windows:
                     cleaned_text = self.preprocess_text(text)
-                    doc = self.nlp(cleaned_text)
+                    doc = nlp(cleaned_text)
                     if self.is_similar(doc.vector, "classic"):
                         logging.warning(f'Window with Guloader message found. HWND: {hwnd}')
                         self.process_detected_window_classic(cleaned_text)
