@@ -8,4 +8,5 @@ PySide6
 watchdog
 notify-py
 pywin32
-scapy # You will also need to download https://npcap.com/#download also python -m spacy download en_core_web_md
+scapy # You will also need to download https://npcap.com/#download
+spacy # python -m spacy download en_core_web_md
