@@ -35,12 +35,25 @@ from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 import io
 import spacy
-from spacy.cli import download
+import codecs
 sys.modules['sklearn.externals.joblib'] = joblib
-# Redirecting standard input, output, and error to use UTF-8 encoding
-sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
+types_of_encoding = ["utf-8", "cp1252", "cp850"]
+
+for encoding_type in types_of_encoding:
+    try:
+        sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding=encoding_type)
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding=encoding_type)
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding=encoding_type)
+
+        with codecs.open(filename, encoding=encoding_type, errors='replace') as file:
+            content = file.read()
+            print(f"Successfully read file with encoding: {encoding_type}")
+            print(content)
+            break
+    except Exception as e:
+        print(f"Failed to read file with encoding {encoding_type}: {e}")
+
 # Set script directory
 script_dir = r"C:\Program Files\HydraDragonAntivirus"
 clamd_path = r"C:\Program Files\ClamAV\clamd.exe"
@@ -1278,10 +1291,7 @@ def activate_uefi_drive():
 try:
     nlp = spacy.load('en_core_web_sm')
 except OSError:
-    print('Downloading language model for the spaCy POS tagger\n'
-          "(don't worry, this will only happen once)")
-    download('en_core_web_sm')
-    nlp = spacy.load('en_core_web_sm')
+    print("It seems like en_core_web_sm is not exist at compiled file")
 
 restart_clamd_thread()
 activate_uefi_drive() # Call the UEFI function
