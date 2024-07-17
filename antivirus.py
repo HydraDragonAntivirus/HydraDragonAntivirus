@@ -45,14 +45,10 @@ for encoding_type in types_of_encoding:
         sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding=encoding_type)
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding=encoding_type)
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding=encoding_type)
-
-        with codecs.open(filename, encoding=encoding_type, errors='replace') as file:
-            content = file.read()
-            print(f"Successfully read file with encoding: {encoding_type}")
-            print(content)
-            break
+        print(f"Successfully set encoding to: {encoding_type}")
+        break
     except Exception as e:
-        print(f"Failed to read file with encoding {encoding_type}: {e}")
+        print(f"Failed to set encoding to {encoding_type}: {e}")
 
 # Set script directory
 script_dir = r"C:\Program Files\HydraDragonAntivirus"
