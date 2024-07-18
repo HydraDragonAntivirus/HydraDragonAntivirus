@@ -38,17 +38,23 @@ import spacy
 import codecs
 sys.modules['sklearn.externals.joblib'] = joblib
 
-types_of_encoding = ["utf-8", "cp1252", "cp850"]
+encoding_type = "utf-16"
 
-for encoding_type in types_of_encoding:
-    try:
-        sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding=encoding_type)
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding=encoding_type)
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding=encoding_type)
-        print(f"Successfully set encoding to: {encoding_type}")
-        break
-    except Exception as e:
-        print(f"Failed to set encoding to {encoding_type}: {e}")
+try:
+    sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding=encoding_type)
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding=encoding_type)
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding=encoding_type)
+    print(f"Successfully set encoding to: {encoding_type}")
+except UnicodeDecodeError as ude:
+    print(f"UnicodeDecodeError: Failed to set encoding to {encoding_type}: {ude}")
+except Exception as e:
+    print(f"Failed to set encoding to {encoding_type}: {e}")
+
+# Try loading the spaCy model
+try:
+    nlp = spacy.load('en_core_web_sm')
+except OSError:
+    print("It seems like en_core_web_sm is not exist at compiled file")
 
 # Set script directory
 script_dir = r"C:\Program Files\HydraDragonAntivirus"
@@ -298,7 +304,7 @@ def check_signature_is_valid(file_path):
         # Command to verify the executable signature status
         cmd = f'"{file_path}"'
         verify_command = "(Get-AuthenticodeSignature " + cmd + ").Status"
-        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-8')
+        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-16')
         
         status = process.stdout.strip()
         is_valid = status == "Valid"
@@ -314,7 +320,7 @@ def check_signature(file_path):
         # Command to verify the executable signature status
         cmd = f'"{file_path}"'
         verify_command = "(Get-AuthenticodeSignature " + cmd + ").Status"
-        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-8')
+        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-16')
         
         status = process.stdout.strip()
         is_valid = status == "Valid"
@@ -346,7 +352,7 @@ def check_valid_signature(file_path):
     try:
         # Command to verify the executable signature status
         verify_command = f"(Get-AuthenticodeSignature '{file_path}').Status"
-        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-8')
+        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-16')
         
         status = process.stdout.strip()
         is_valid = status == "Valid"
@@ -370,7 +376,7 @@ def check_valid_signature_only(file_path):
     try:
         # Command to verify the executable signature status
         verify_command = f"(Get-AuthenticodeSignature '{file_path}').Status"
-        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-8')
+        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-16')
         
         status = process.stdout.strip()
         is_valid = status == "Valid"
@@ -1284,11 +1290,6 @@ def activate_uefi_drive():
     except subprocess.CalledProcessError as e:
         print(f"Error mounting UEFI drive: {e}")
 
-try:
-    nlp = spacy.load('en_core_web_sm')
-except OSError:
-    print("It seems like en_core_web_sm is not exist at compiled file")
-
 restart_clamd_thread()
 activate_uefi_drive() # Call the UEFI function
 snort_thread = threading.Thread(target=run_snort)
@@ -1330,7 +1331,7 @@ yaraxtr_yrc_path = os.path.join(yara_folder_path, "yaraxtr.yrc")
 def compile_yara_rule(yara_folder_path):
     try:
         # Compile the YARA rule using yara_x
-        with open(yaraxtr_yar_path, 'r', encoding='utf-8') as f:
+        with open(yaraxtr_yar_path, 'r', encoding='utf-16') as f:
             rule = f.read()
         compiled_rule = yara_x.compile(rule)
 
@@ -1551,7 +1552,7 @@ def has_known_extension(file_path):
 def is_readable(file_path):
     try:
         logging.info(f"Attempting to read file '{file_path}'")
-        with open(file_path, 'r', encoding='utf-8') as file:
+        with open(file_path, 'r', encoding='utf-16') as file:
             file_data = file.read(1024)
             if file_data:  # Check if file has readable content
                 logging.info(f"File '{file_path}' is readable")
