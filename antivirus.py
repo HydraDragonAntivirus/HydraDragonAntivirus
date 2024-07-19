@@ -44,7 +44,7 @@ sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-16')
 sys.stdin = io.TextIOWrapper(sys.stdin.detach(), encoding='utf-16')
 
 # Load the spaCy model globally
-nlp_spacy_lang = spacy.load('en_core_web_md')
+nlp_spacy_lang = spacy.load("en_core_web_md-3.7.1")
 
 # Set script directory
 script_dir = r"C:\Program Files\HydraDragonAntivirus"
