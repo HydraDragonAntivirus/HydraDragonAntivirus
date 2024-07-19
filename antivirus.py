@@ -38,23 +38,13 @@ import spacy
 import codecs
 sys.modules['sklearn.externals.joblib'] = joblib
 
-encoding_type = "utf-16"
+# Set the default encoding to UTF-16 for standard output and input
+sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-16')
+sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-16')
+sys.stdin = io.TextIOWrapper(sys.stdin.detach(), encoding='utf-16')
 
-try:
-    sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding=encoding_type)
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding=encoding_type)
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding=encoding_type)
-    print(f"Successfully set encoding to: {encoding_type}")
-except UnicodeDecodeError as ude:
-    print(f"UnicodeDecodeError: Failed to set encoding to {encoding_type}: {ude}")
-except Exception as e:
-    print(f"Failed to set encoding to {encoding_type}: {e}")
-
-# Try loading the spaCy model
-try:
-    nlp = spacy.load('en_core_web_sm')
-except OSError:
-    print("It seems like en_core_web_sm is not exist at compiled file")
+# Load the spaCy model globally
+nlp_spacy_lang = spacy.load('en_core_web_md')
 
 # Set script directory
 script_dir = r"C:\Program Files\HydraDragonAntivirus"
@@ -2059,9 +2049,9 @@ class WindowMonitor:
                 "pc is at risk", "malicious program has been detected"
             ]
         }
-        self.known_malware_vectors = {key: nlp(value).vector for key, value in self.known_malware_messages.items() if isinstance(value, str)}
-        self.known_malware_vectors["fanmade"] = [nlp(msg).vector for msg in self.known_malware_messages["fanmade"]]
-        self.known_malware_vectors["rogue"] = [nlp(msg).vector for msg in self.known_malware_messages["rogue"]]
+        self.known_malware_vectors = {key: nlp_spacy_lang(value).vector for key, value in self.known_malware_messages.items() if isinstance(value, str)}
+        self.known_malware_vectors["fanmade"] = [nlp_spacy_lang(msg).vector for msg in self.known_malware_messages["fanmade"]]
+        self.known_malware_vectors["rogue"] = [nlp_spacy_lang(msg).vector for msg in self.known_malware_messages["rogue"]]
 
     def monitor_specific_windows(self):
         try:
@@ -2069,7 +2059,7 @@ class WindowMonitor:
                 windows = find_windows_with_text()
                 for hwnd, text in windows:
                     cleaned_text = self.preprocess_text(text)
-                    doc = nlp(cleaned_text)
+                    doc = nlp_spacy_lang(cleaned_text)
                     if self.is_similar(doc.vector, "classic"):
                         logging.warning(f'Window with Guloader message found. HWND: {hwnd}')
                         self.process_detected_window_classic(cleaned_text)
