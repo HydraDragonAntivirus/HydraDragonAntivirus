@@ -47,7 +47,7 @@ sys.stdin = io.TextIOWrapper(sys.stdin.detach(), encoding='utf-16')
 nlp_spacy_lang = spacy.load("en_core_web_md")
 
 # Set script directory
-script_dir = r"C:\Program Files\HydraDragonAntivirus"
+script_dir = os.getcwd()
 clamd_path = r"C:\Program Files\ClamAV\clamd.exe"
 clamdscan_path = r"C:\Program Files\ClamAV\clamdscan.exe"
 freshclam_path = r"C:\Program Files\ClamAV\freshclam.exe"
