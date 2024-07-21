@@ -1,3 +1,5 @@
+.googlehosted.com
+.s-dc-msedge.net
 .virustotal.com
 .t-msedge.net
 .f-msedge.net
