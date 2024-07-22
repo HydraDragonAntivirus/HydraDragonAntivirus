@@ -48,6 +48,11 @@ nlp_spacy_lang = spacy.load("en_core_web_md")
 
 # Set script directory
 script_dir = os.getcwd()
+
+# Define the paths to the ghidra related directories
+decompile_dir = os.path.join(script_dir, "decompile")
+ghidra_projects_dir = os.path.join(script_dir, "ghidra_projects")
+        
 clamd_path = r"C:\Program Files\ClamAV\clamd.exe"
 clamdscan_path = r"C:\Program Files\ClamAV\clamdscan.exe"
 freshclam_path = r"C:\Program Files\ClamAV\freshclam.exe"
@@ -381,23 +386,41 @@ def check_valid_signature_only(file_path):
             "is_valid": False
         }
 
-def scan_file_real_time(file_path):
+def clean_directories():
+    try:
+        # Clean decompile directory if it exists, otherwise create it
+        if os.path.isdir(decompile_dir):
+            shutil.rmtree(decompile_dir)
+            logging.info(f"Successfully cleaned the decompile folder at: {decompile_dir}")
+        else:
+            logging.info(f"Decompile folder does not exist at: {decompile_dir}")
+            os.makedirs(decompile_dir)
+            logging.info(f"Created the decompile folder at: {decompile_dir}")
+        
+        # Clean ghidra_projects directory if it exists, otherwise create it
+        if os.path.isdir(ghidra_projects_dir):
+            shutil.rmtree(ghidra_projects_dir)
+            logging.info(f"Successfully cleaned the ghidra_projects folder at: {ghidra_projects_dir}")
+        else:
+            logging.info(f"Ghidra projects folder does not exist at: {ghidra_projects_dir}")
+            os.makedirs(ghidra_projects_dir)
+            logging.info(f"Created the ghidra_projects folder at: {ghidra_projects_dir}")
+
+    except Exception as e:
+        logging.error(f"An error occurred while cleaning the directories: {e}")
+
+def scan_file_real_time(file_path, pe_file=False):
     """Scan file in real-time using multiple engines."""
     logging.info(f"Started scanning file: {file_path}")
 
     try:
-        # Skip scanning if the file is in the script directory
-        if os.path.commonpath([file_path, script_dir]) == script_dir:
-            logging.info(f"Skipping file in script directory: {file_path}")
-            return False, "Clean"
-
         # Check for PE file and signatures
-        if is_pe_file(file_path):
+        if pe_file:
             signature_check = check_signature(file_path)
             if signature_check["has_microsoft_signature"]:
                 return False, "Microsoft signature"
             else:
-                logging.info(f"Valid signature detected for file: {file_path}")
+                logging.info(f"Valid Microsoft signature detected for file: {file_path}")
 
         # Check for the fake file size
         if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
@@ -411,7 +434,7 @@ def scan_file_real_time(file_path):
                     return True, fake_size
 
         # Scan PE files with Static Machine Learning
-        if is_pe_file(file_path):
+        if pe_file:
             is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
             if is_malicious:
                 if benign_score < 0.93:
@@ -451,7 +474,7 @@ def scan_file_real_time(file_path):
             return False, None
 
         # Scan PE files
-        if is_pe_file(file_path):
+        if pe_file:
             try:
                 scan_result, virus_name = scan_pe_file(file_path)
                 if scan_result and virus_name not in ("Clean", ""):
@@ -568,7 +591,7 @@ def scan_zip_file(file_path):
                     shutil.rmtree(temp_dir)
                     break  # If successful, exit the loop
                 except PermissionError:
-                    logging.warning(f"Permission error while deleting {temp_dir}. Retrying...")
+                    logging.error(f"Permission error while deleting {temp_dir}. Retrying...")
                     time.sleep(1)  # Wait a bit before retrying
                 except Exception as e:
                     logging.error(f"Unexpected error while deleting {temp_dir}: {e}")
@@ -598,7 +621,7 @@ def scan_tar_file(file_path):
                     shutil.rmtree(temp_dir)
                     break  # If successful, exit the loop
                 except PermissionError:
-                    logging.warning(f"Permission error while deleting {temp_dir}. Retrying...")
+                    logging.error(f"Permission error while deleting {temp_dir}. Retrying...")
                     time.sleep(1)  # Wait a bit before retrying
                 except Exception as e:
                     logging.error(f"Unexpected error while deleting {temp_dir}: {e}")
@@ -609,6 +632,12 @@ def notify_user(file_path, virus_name):
     notification = Notify()
     notification.title = "Malware Alert"
     notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_ghidra(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Ghidra Alert"
+    notification.message = f"Malicious decompiled file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
 def notify_user_pua(file_path, virus_name):
@@ -1199,11 +1228,11 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line):
                                 logging.info(f"File {file_path} has a valid signature and is not flagged as malicious.")
                                 print(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious.")
         except psutil.NoSuchProcess:
-            logging.warning(f"Process no longer exists: {proc.info.get('pid')}")
+            logging.error(f"Process no longer exists: {proc.info.get('pid')}")
         except psutil.AccessDenied:
             logging.error(f"Access denied to process: {proc.info.get('pid')}")
         except psutil.ZombieProcess:
-            logging.warning(f"Zombie process encountered: {proc.info.get('pid')}")
+            logging.error(f"Zombie process encountered: {proc.info.get('pid')}")
         except Exception as e:
             logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {e}")
 
@@ -1368,29 +1397,110 @@ def contains_pe_header(file_path):
         logging.error(f"Error checking PE header: {e}")
         return False
 
-def is_valid_pe_file(file_path):
+# List to keep track of existing project names
+existing_projects = []
+
+def get_next_project_name(base_name):
+    """Generate the next available project name with an incremental suffix."""
+    suffix = 1
+    while f"{base_name}_{suffix}" in existing_projects:
+        suffix += 1
+    return f"{base_name}_{suffix}"
+
+def decompile_file(file_path):
+    """Decompile the file using Ghidra."""
+    logging.info(f"Decompiling file: {file_path}")
+
+    # Path to Ghidra's analyzeHeadless.bat
+    analyze_headless_path = os.path.join(script_dir, 'ghidra', 'support', 'analyzeHeadless.bat')
+    project_location = os.path.join(script_dir, 'ghidra_projects')
+
+    # Generate a unique project name
+    base_project_name = 'temporary'
+    project_name = get_next_project_name(base_project_name)
+    existing_projects.append(project_name)
+
+    # Build the command to run analyzeHeadless.bat
+    command = [
+        analyze_headless_path,
+        project_location,
+        project_name,
+        '-import', file_path,
+        '-postScript', 'DecompileAndSave.java',
+        '-scriptPath', os.path.join(script_dir, 'scripts'),
+        '-log', os.path.join(script_dir, 'ghidra_logs', 'analyze.log'),
+        '-deleteProject'
+    ]
+
+    # Run the command
+    result = subprocess.run(command, capture_output=True, text=True)
+
+    if result.returncode == 0:
+        logging.info(f"Decompilation completed successfully for file: {file_path}")
+    else:
+        logging.error(f"Decompilation failed for file: {file_path}. Error: {result.stderr}")
+
+def extract_original_file_path_from_decompiled(file_path):
+    """Extracts the original file path from the decompiled file."""
+    original_file_path = None
     try:
-        pe = pefile.PE(file_path)
-        return True
-    except pefile.PEFormatError:
-        return False
+        with open(file_path, 'r') as file:
+            for line in file:
+                if line.startswith("// Original File:"):
+                    original_file_path = line.strip().split(":", 1)[1].strip()
+                    break
+    except Exception as e:
+        logging.error(f"Error reading decompiled file {file_path}: {e}")
+    return original_file_path
 
 def scan_and_warn(file_path):
     logging.info(f"Scanning file: {file_path}")
 
-    # Check if the file contains a PE header
-    if contains_pe_header(file_path):
-        if not is_valid_pe_file(file_path):
-            logging.warning(f"File {file_path} contains a PE header but is not a valid PE file. Flagged as broken executable.")
+    # Flag to indicate if the file is decompiled
+    is_decompiled = False
+
+    # Check if the file is in the decompile directory and scan
+    if os.path.dirname(file_path) == decompile_dir:
+        logging.info(f"File is in the decompile directory: {file_path}. Scanning file.")
+        is_decompiled = True
+    else:
+        # Skip scanning if the file is in the script directory
+        if os.path.commonpath([file_path, script_dir]) == script_dir:
+            logging.info(f"Skipping file in script directory: {file_path}")
             return False
 
-    is_malicious, virus_names = scan_file_real_time(file_path)  # Ensure scan_file_real_time returns a list of virus names
+    # Check if the file contains a PE header
+    if contains_pe_header(file_path):
+        if not is_pe_file(file_path):
+            logging.warning(f"File {file_path} contains a PE header but is not a valid PE file. Flagged as broken executable.")
+            return False
+        else:
+            # File is a valid PE file, set pe_file to True
+            pe_file = True
+    else:
+        # File does not contain a PE header, set pe_file to False
+        pe_file = False
+
+    if pe_file:
+        decompile_file(file_path)
+        is_decompiled = True
+
+    # Perform real-time scan with pe_file flag
+    is_malicious, virus_names = scan_file_real_time(file_path, pe_file=pe_file)  # Ensure scan_file_real_time returns a list of virus names
 
     ransomware_alert(file_path)
-    worm_alert(file_path)
+    worm_alert(file_path, pe_file=pe_file)
 
     if is_malicious:
         logging.warning(f"File {file_path} is malicious. Viruses: {', '.join(virus_names)}")
+
+        if is_decompiled:
+            original_file_path = extract_original_file_path_from_decompiled(file_path)
+            if original_file_path:
+                notify_user_ghidra_thread = threading.Thread(target=notify_user_ghidra, args=(original_file_path, virus_names))
+                notify_user_ghidra_thread.start()
+            else:
+                logging.error(f"Could not extract original file path from decompiled file: {file_path}")
 
         for virus_name in virus_names:
             if virus_name.startswith("PUA."):
@@ -1549,7 +1659,7 @@ def is_readable(file_path):
                 return True
             return False
     except UnicodeDecodeError:
-        logging.warning(f"UnicodeDecodeError while reading file '{file_path}'")
+        logging.error(f"UnicodeDecodeError while reading file '{file_path}'")
         return False
     except Exception as e:
         logging.error(f"Error reading file {file_path}: {e}")
@@ -1696,7 +1806,7 @@ def extract_numeric_worm_features(file_path):
 
     return res
 
-def worm_alert(file_path):
+def worm_alert(file_path, pe_file=False):
     global main_file_path
     global worm_alerted_files
     global worm_detected_count
@@ -1710,7 +1820,7 @@ def worm_alert(file_path):
         logging.info(f"Running worm detection for file '{file_path}'")
 
         # Check if the file is a PE file
-        if is_pe_file(file_path):
+        if pe_file(file_path):
             logging.info(f"File '{file_path}' is identified as a PE file. Proceeding with worm detection.")
 
             # Check if the file has a valid or invalid signature
@@ -2164,6 +2274,9 @@ def perform_sandbox_analysis(file_path):
         main_file_path = file_path
 
         window_monitor = WindowMonitor()
+ 
+        # Clean up the Ghidra directors
+        threading.Thread(target=clean_directories).start()
 
         # Monitor Snort log for new lines and process alerts
         threading.Thread(target=monitor_snort_log).start()
@@ -2195,11 +2308,24 @@ def run_sandboxie(file_path):
     except subprocess.CalledProcessError as e:
         logging.error(f"Failed to run Sandboxie on {file_path}: {e}")
 
+# List of already scanned files to avoid reprocessing
+scanned_files = []
+
 def scan_sandbox_folder():
-    for root, _, files in os.walk(sandbox_folder):
-        for file in files:
-            file_path = os.path.join(root, file)
-            scan_and_warn(file_path)
+    global scanned_files
+    # Directories to monitor
+    directories_to_scan = [sandbox_folder, decompile_dir]
+
+    while True:
+        for directory in directories_to_scan:
+            for root, _, files in os.walk(directory):
+                for file in files:
+                    file_path = os.path.join(root, file)
+
+                    # Only scan files that haven't been scanned yet
+                    if file_path not in scanned_files:
+                        scan_and_warn(file_path)
+                        scanned_files.append(file_path)
 
 def main():
     try:
