@@ -27,8 +27,11 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 ## Ghidra Source Code
 - I now using 11.1.2: https://ghidra-sre.org/
 
+## Setup
+- Setup file on release HydraDragonAntivirus.exe
+
 ## Logs
-- You must look warnining at logs. They are generally contains malware detections.
+- You must look warnining at logs. They usually contain malware detections. Log file in C:\Program Files\HydraDragonAntivirus\log\antivirus.log
 
 # Prepare environment
 - Create DefaultBox in Sandboxie and create too many files to detect ransomware, finally use UEFI and GPT.
