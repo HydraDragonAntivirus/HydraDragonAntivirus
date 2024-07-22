@@ -1384,16 +1384,20 @@ def decompile_file(file_path):
         '-import', file_path,
         '-postScript', 'DecompileAndSave.java',
         '-scriptPath', os.path.join(script_dir, 'scripts'),
-        '-log', os.path.join(script_dir, 'ghidra_logs', 'analyze.log'),
+        '-log', os.path.join(script_dir, 'ghidra_logs', 'analyze.log')
     ]
 
     # Run the command
     result = subprocess.run(command, capture_output=True, text=True)
 
+    # Check and log the results
     if result.returncode == 0:
         logging.info(f"Decompilation completed successfully for file: {file_path}")
     else:
-        logging.error(f"Decompilation failed for file: {file_path}. Error: {result.stderr}")
+        logging.error(f"Decompilation failed for file: {file_path}.")
+        logging.error(f"Return code: {result.returncode}")
+        logging.error(f"Error output: {result.stderr}")
+        logging.error(f"Standard output: {result.stdout}")
 
 def extract_original_file_path_from_decompiled(file_path):
     """Extracts the original file path from the decompiled file."""
