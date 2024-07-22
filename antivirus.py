@@ -38,10 +38,10 @@ import spacy
 import codecs
 sys.modules['sklearn.externals.joblib'] = joblib
 
-# Set the default encoding to UTF-16 for standard output and input
-sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-16')
-sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-16')
-sys.stdin = io.TextIOWrapper(sys.stdin.detach(), encoding='utf-16')
+# Set the default encoding to UTF-8 for standard output and input
+sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-8')
+sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-8')
+sys.stdin = io.TextIOWrapper(sys.stdin.detach(), encoding='utf-8')
 
 # Load the spaCy model globally
 nlp_spacy_lang = spacy.load("en_core_web_md")
@@ -298,7 +298,7 @@ def check_signature(file_path):
         # Command to verify the executable signature status
         cmd = f'"{file_path}"'
         verify_command = "(Get-AuthenticodeSignature " + cmd + ").Status"
-        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-16')
+        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-8')
 
         status = process.stdout.strip()
         is_valid = status == "Valid"
@@ -1179,8 +1179,6 @@ def process_alert(line):
                 priority = int(match.group(1))
                 src_ip = match.group(2)
                 dst_ip = match.group(3)
-                logging.info(f"Alert detected: Priority {priority}, Source {src_ip}, Destination {dst_ip}")
-                print(f"Alert detected: Priority {priority}, Source {src_ip}, Destination {dst_ip}")
                 # Check if the source IP is in the IPv4 whitelist
                 if src_ip in ipv4_whitelist_data:
                     logging.info(f"Source IP {src_ip} is in the whitelist. Ignoring alert.")
@@ -1285,7 +1283,7 @@ yaraxtr_yrc_path = os.path.join(yara_folder_path, "yaraxtr.yrc")
 def compile_yara_rule(yara_folder_path):
     try:
         # Compile the YARA rule using yara_x
-        with open(yaraxtr_yar_path, 'r', encoding='utf-16') as f:
+        with open(yaraxtr_yar_path, 'r', encoding='utf-8') as f:
             rule = f.read()
         compiled_rule = yara_x.compile(rule)
 
@@ -1342,6 +1340,13 @@ def get_next_project_name(base_name):
         suffix += 1
     return f"{base_name}_{suffix}"
 
+def get_unique_filename(base_path, base_name, extension):
+    """Generate a unique filename with an incremental suffix."""
+    suffix = 1
+    while os.path.exists(f"{base_path}/{base_name}{suffix}.{extension}"):
+        suffix += 1
+    return f"{base_name}{suffix}.{extension}"
+
 def decompile_file(file_path):
     """Decompile the file using Ghidra."""
     logging.info(f"Decompiling file: {file_path}")
@@ -1350,10 +1355,21 @@ def decompile_file(file_path):
     analyze_headless_path = os.path.join(script_dir, 'ghidra', 'support', 'analyzeHeadless.bat')
     project_location = os.path.join(script_dir, 'ghidra_projects')
 
+    # Ensure the project location exists
+    if not os.path.exists(project_location):
+        os.makedirs(project_location)
+
     # Generate a unique project name
     base_project_name = 'temporary'
     project_name = get_next_project_name(base_project_name)
     existing_projects.append(project_name)
+
+    # Determine unique output file name
+    output_dir = os.path.join(script_dir, 'decompile')
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    decompiled_file_name = get_unique_filename(output_dir, 'decompiled_output', 'c')
+    decompiled_file_path = os.path.join(output_dir, decompiled_file_name)
 
     # Build the command to run analyzeHeadless.bat
     command = [
@@ -1367,11 +1383,16 @@ def decompile_file(file_path):
         '-deleteProject'
     ]
 
+    # Set environment variable for output file path
+    env = os.environ.copy()
+    env['DECOMPILED_OUTPUT_PATH'] = decompiled_file_path
+
     # Run the command
-    result = subprocess.run(command, capture_output=True, text=True)
+    result = subprocess.run(command, capture_output=True, text=True, env=env)
 
     if result.returncode == 0:
         logging.info(f"Decompilation completed successfully for file: {file_path}")
+        logging.info(f"Decompiled output saved to: {decompiled_file_path}")
     else:
         logging.error(f"Decompilation failed for file: {file_path}. Error: {result.stderr}")
 
@@ -1601,7 +1622,7 @@ def has_known_extension(file_path):
 def is_readable(file_path):
     try:
         logging.info(f"Attempting to read file '{file_path}'")
-        with open(file_path, 'r', encoding='utf-16') as file:
+        with open(file_path, 'r', encoding='utf-8') as file:
             file_data = file.read(1024)
             if file_data:  # Check if file has readable content
                 logging.info(f"File '{file_path}' is readable")
