@@ -2177,11 +2177,11 @@ class WindowMonitor:
 
     def contains_keywords_within_max_distance(self, text, max_distance):
         words = text.split()
-        your_positions = [i for i, word in enumerate(words) if word == "your"]
+        your_computer_positions = [i for i, word in enumerate(words) if word in {"your", "computer"}]
         files_positions = [i for i, word in enumerate(words) if word == "files"]
         encrypted_positions = [i for i, word in enumerate(words) if word == "encrypted"]
 
-        for yp in your_positions:
+        for yp in your_computer_positions:
             for fp in files_positions:
                 if 0 < fp - yp <= max_distance:
                     for ep in encrypted_positions:
