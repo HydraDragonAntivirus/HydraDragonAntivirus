@@ -293,34 +293,17 @@ def scan_file_with_clamd(file_path):
         print(f"Unexpected clamdscan output: {clamd_output}")
         return "Clean"
 
-# Function to check the signature of a file
-def check_signature_is_valid(file_path):
-    try:
-        # Command to verify the executable signature status
-        cmd = f'"{file_path}"'
-        verify_command = "(Get-AuthenticodeSignature " + cmd + ").Status"
-        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-16')
-        
-        status = process.stdout.strip()
-        is_valid = status == "Valid"
-        
-        return is_valid
-    except Exception as e:
-        print(f"An error occurred while checking signature: {e}")
-        logging.error(f"An error occurred while checking signature: {e}")
-        return False
-
 def check_signature(file_path):
     try:
         # Command to verify the executable signature status
         cmd = f'"{file_path}"'
         verify_command = "(Get-AuthenticodeSignature " + cmd + ").Status"
         process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-16')
-        
+
         status = process.stdout.strip()
         is_valid = status == "Valid"
         signature_status_issues = status in ["HashMismatch", "NotTrusted"]
-        
+
         # Command to check for Microsoft signature if there are no issues
         if not signature_status_issues:
             ms_command = f"Get-AuthenticodeSignature '{file_path}' | Format-List"
@@ -328,34 +311,11 @@ def check_signature(file_path):
             has_microsoft_signature = "O=Microsoft Corporation" in ms_result.stdout
         else:
             has_microsoft_signature = False
-        
+
         return {
             "is_valid": is_valid,
             "has_microsoft_signature": has_microsoft_signature,
-            "signature_status_issues": signature_status_issues
-        }
-    except Exception as e:
-        print(f"An error occurred while checking signature: {e}")
-        logging.error(f"An error occurred while checking signature: {e}")
-        return {
-            "is_valid": False,
-            "has_microsoft_signature": False,
-            "signature_status_issues": False
-        }
-
-def check_valid_signature(file_path):
-    try:
-        # Command to verify the executable signature status
-        verify_command = f"(Get-AuthenticodeSignature '{file_path}').Status"
-        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-16')
-        
-        status = process.stdout.strip()
-        is_valid = status == "Valid"
-        is_invalid_signature = status in ["HashMismatch", "NotTrusted"]
-        
-        return {
-            "is_valid": is_valid,
-            "is_invalid_signature": is_invalid_signature,
+            "signature_status_issues": signature_status_issues,
             "status": status
         }
     except Exception as e:
@@ -363,27 +323,9 @@ def check_valid_signature(file_path):
         logging.error(f"An error occurred while checking signature: {e}")
         return {
             "is_valid": False,
-            "is_invalid_signature": False,
+            "has_microsoft_signature": False,
+            "signature_status_issues": False,
             "status": "Error"
-        }
-
-def check_valid_signature_only(file_path):
-    try:
-        # Command to verify the executable signature status
-        verify_command = f"(Get-AuthenticodeSignature '{file_path}').Status"
-        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-16')
-        
-        status = process.stdout.strip()
-        is_valid = status == "Valid"
-        
-        return {
-            "is_valid": is_valid
-        }
-    except Exception as e:
-        print(f"An error occurred while checking signature: {e}")
-        logging.error(f"An error occurred while checking signature: {e}")
-        return {
-            "is_valid": False
         }
 
 def clean_directories():
@@ -414,13 +356,6 @@ def scan_file_real_time(file_path, pe_file=False):
     logging.info(f"Started scanning file: {file_path}")
 
     try:
-        # Check for PE file and signatures
-        if pe_file:
-            signature_check = check_signature(file_path)
-            if signature_check["has_microsoft_signature"]:
-                return False, "Microsoft signature"
-            else:
-                logging.info(f"Valid Microsoft signature detected for file: {file_path}")
 
         # Check for the fake file size
         if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
@@ -1453,6 +1388,7 @@ def extract_original_file_path_from_decompiled(file_path):
         logging.error(f"Error reading decompiled file {file_path}: {e}")
     return original_file_path
 
+
 def scan_and_warn(file_path):
     logging.info(f"Scanning file: {file_path}")
 
@@ -1485,11 +1421,24 @@ def scan_and_warn(file_path):
         decompile_file(file_path)
         is_decompiled = True
 
+        # Check for PE file and signatures
+        signature_check = check_signature(file_path)
+        if signature_check["has_microsoft_signature"]:
+            logging.info(f"Valid Microsoft signature detected for file: {file_path}")
+            return False
+        elif signature_check["is_valid"]:
+            logging.info(f"File '{file_path}' has a valid signature. Skipping worm detection.")
+        elif signature_check["signature_status_issues"]:
+            logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
+            notify_user_invalid(file_path, "Win32.InvalidSignature")
+            worm_alert(file_path)
+        else:
+            worm_alert(file_path)
+
     # Perform real-time scan with pe_file flag
     is_malicious, virus_names = scan_file_real_time(file_path, pe_file=pe_file)  # Ensure scan_file_real_time returns a list of virus names
 
     ransomware_alert(file_path)
-    worm_alert(file_path, pe_file=pe_file)
 
     if is_malicious:
         logging.warning(f"File {file_path} is malicious. Viruses: {', '.join(virus_names)}")
@@ -1806,7 +1755,7 @@ def extract_numeric_worm_features(file_path):
 
     return res
 
-def worm_alert(file_path, pe_file=False):
+def worm_alert(file_path):
     global main_file_path
     global worm_alerted_files
     global worm_detected_count
@@ -1819,90 +1768,70 @@ def worm_alert(file_path, pe_file=False):
     try:
         logging.info(f"Running worm detection for file '{file_path}'")
 
-        # Check if the file is a PE file
-        if pe_file(file_path):
-            logging.info(f"File '{file_path}' is identified as a PE file. Proceeding with worm detection.")
+        features_current = extract_numeric_worm_features(file_path)
 
-            # Check if the file has a valid or invalid signature
-            signature_status = check_valid_signature(file_path)
-            if signature_status["is_valid"]:
-                logging.info(f"File '{file_path}' has a valid signature. Skipping worm detection.")
-                return
-            elif signature_status["is_invalid_signature"]:
-                logging.warning(f"File '{file_path}' has issues with its signature. Proceeding with invalid signature detection...")
-                notify_user_invalid(file_path, "Win32.InvalidSignature")
+        # Define critical directory paths
+        critical_directory = os.path.join('C:', 'Windows')
+        sandbox_critical_directory = os.path.join(sandbox_folder, 'drive', 'C', 'Windows')
+
+        original_file_path = os.path.join(critical_directory, os.path.basename(file_path))
+        sandbox_file_path = os.path.join(sandbox_critical_directory, os.path.basename(file_path))
+
+        if os.path.exists(original_file_path) and os.path.exists(sandbox_file_path):
+            original_file_size = os.path.getsize(original_file_path)
+            current_file_size = os.path.getsize(sandbox_file_path)
+            size_difference = abs(current_file_size - original_file_size) / original_file_size
+
+            original_file_mtime = os.path.getmtime(original_file_path)
+            current_file_mtime = os.path.getmtime(sandbox_file_path)
+            mtime_difference = abs(current_file_mtime - original_file_mtime)
+
+            # Check size difference and modification time difference
+            if size_difference > 0.10:
+                logging.warning(f"File size difference for '{file_path}' exceeds 10%.")
+                notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Agnostic.Generic.Malware")
                 worm_alerted_files.append(file_path)
                 return
-            else:
-                logging.warning(f"File '{file_path}' does not have a valid signature. Proceeding with unknown...")
 
-            features_current = extract_numeric_worm_features(file_path)
+            if mtime_difference > 3600:  # 3600 seconds = 1 hour
+                logging.warning(f"Modification time difference for '{file_path}' exceeds 1 hour.")
+                notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Time.Agnostic.Generic.Malware")
+                worm_alerted_files.append(file_path)
+                return
 
-            # Define critical directory paths
-            critical_directory = os.path.join('C:', 'Windows')
-            sandbox_critical_directory = os.path.join(sandbox_folder, 'drive', 'C', 'Windows')
+            logging.info(f"File '{file_path}' matches original in '{critical_directory}'. Proceeding with worm detection...")
 
-            original_file_path = os.path.join(critical_directory, os.path.basename(file_path))
-            sandbox_file_path = os.path.join(sandbox_critical_directory, os.path.basename(file_path))
+            # Initialize worm detection flag
+            worm_detected = False
 
-            if os.path.exists(original_file_path) and os.path.exists(sandbox_file_path):
-                original_file_size = os.path.getsize(original_file_path)
-                current_file_size = os.path.getsize(sandbox_file_path)
-                size_difference = abs(current_file_size - original_file_size) / original_file_size
+            # Compare with main file
+            if main_file_path and main_file_path != file_path:
+                features_main = extract_numeric_worm_features(main_file_path)
+                similarity_main = calculate_similarity_worm(features_current, features_main)
+            if similarity_main > 0.86:
+                logging.warning(f"Main file '{main_file_path}' is spreading the worm to '{file_path}' with similarity score {similarity_main}")
+                worm_detected = True
 
-                original_file_mtime = os.path.getmtime(original_file_path)
-                current_file_mtime = os.path.getmtime(sandbox_file_path)
-                mtime_difference = abs(current_file_mtime - original_file_mtime)
-
-                # Check size difference and modification time difference
-                if size_difference > 0.10:
-                    logging.warning(f"File size difference for '{file_path}' exceeds 10%.")
-                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Agnostic.Generic.Malware")
-                    worm_alerted_files.append(file_path)
-                    return
-
-                if mtime_difference > 3600:  # 3600 seconds = 1 hour
-                    logging.warning(f"Modification time difference for '{file_path}' exceeds 1 hour.")
-                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Time.Agnostic.Generic.Malware")
-                    worm_alerted_files.append(file_path)
-                    return
-
-                logging.info(f"File '{file_path}' matches original in '{critical_directory}'. Proceeding with worm detection...")
-
-                # Initialize worm detection flag
-                worm_detected = False
-
-                # Compare with main file
-                if main_file_path and main_file_path != file_path:
-                    features_main = extract_numeric_worm_features(main_file_path)
-                    similarity_main = calculate_similarity_worm(features_current, features_main)
-                    if similarity_main > 0.86:
-                        logging.warning(f"Main file '{main_file_path}' is spreading the worm to '{file_path}' with similarity score {similarity_main}")
+            # Compare with other collected files
+            for collected_file_path in file_paths:
+                if collected_file_path != file_path:
+                    features_collected = extract_numeric_worm_features(collected_file_path)
+                    similarity_collected = calculate_similarity_worm(features_current, features_collected)
+                    if similarity_collected > 0.86:
+                        logging.warning(f"Worm has spread to '{collected_file_path}' with similarity score {similarity_collected}")
                         worm_detected = True
 
-                # Compare with other collected files
-                for collected_file_path in file_paths:
-                    if collected_file_path != file_path:
-                        features_collected = extract_numeric_worm_features(collected_file_path)
-                        similarity_collected = calculate_similarity_worm(features_current, features_collected)
-                        if similarity_collected > 0.86:
-                            logging.warning(f"Worm has spread to '{collected_file_path}' with similarity score {similarity_collected}")
-                            worm_detected = True
+            # Increment detection count
+            worm_detected_count[file_path] = worm_detected_count.get(file_path, 0) + 1
 
-                # Increment detection count
-                worm_detected_count[file_path] = worm_detected_count.get(file_path, 0) + 1
-
-                # Check if worm is detected or count exceeds threshold
-                if worm_detected or worm_detected_count[file_path] >= 5:
-                    logging.warning(f"Worm '{file_path}' detected under 5 different names. Alerting user.")
-                    notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Generic.Malware")
-                    worm_alerted_files.append(file_path)
-
-            else:
-                logging.warning(f"Original file '{original_file_path}' or sandbox file '{sandbox_file_path}' not found. Skipping worm detection.")
+            # Check if worm is detected or count exceeds threshold
+            if worm_detected or worm_detected_count[file_path] >= 5:
+                logging.warning(f"Worm '{file_path}' detected under 5 different names. Alerting user.")
+                notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Generic.Malware")
+                worm_alerted_files.append(file_path)
 
         else:
-            logging.info(f"File '{file_path}' is not a PE file, skipping worm detection.")
+            logging.warning(f"Original file '{original_file_path}' or sandbox file '{sandbox_file_path}' not found. Skipping worm detection.")
 
     except Exception as e:
         logging.error(f"Error in worm detection for file {file_path}: {e}")
