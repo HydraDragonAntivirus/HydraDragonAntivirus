@@ -27,6 +27,9 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 ## Ghidra Source Code
 - I now using 11.1.2: https://ghidra-sre.org/
 
+## Java Development Kit
+- Just look at https://www.oracle.com/java/technologies/downloads/#jdk22-windows
+
 ## Setup
 - Setup file on release HydraDragonAntivirus.exe
 
@@ -47,7 +50,11 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Create DefaultBox in Sandboxie and create too many files to detect ransomware, finally use UEFI and GPT.
 
 ## Guide
-**Notice:** You must create a DefaultBox in Sandboxie by running it once with a random application.  Also, please clean the DefaultBox items each time you scan. Please don't open the log file while the malware analysis is running, as it may trigger the anti-virus if you didn't remove the log before and the previous sample was detected before.
+**Note:** 
+- You need to create a DefaultBox in Sandboxie by running it once with a random application.  Also, please clean the DefaultBox items each time you scan. 
+- Please don't open the log file while the malware analysis is running, as it may trigger the anti-virus if you didn't remove the log before and the previous sample was detected before.
+**Note 2:** 
+- You must run ghidra before you run Hydra Dragon Antivirus.
 
 Please wait 1-2 minutes if you open this application after 6 hours, as it updates ClamAV definitions. It's not well tested. If you find an issue, please create an issue. Antivirus software might be triggered by website signatures because they are not obfuscated, so exclude the `C:\Program Files\HydraDragonAntivirus` folder. Please only use in a VM as you can only use this for deep analysis of a file. There is no fixed analysis time for a file.
 
@@ -67,8 +74,8 @@ Please wait 1-2 minutes if you open this application after 6 hours, as it update
 **Why does my antivirus detect this as malware?**
 - It's a false positive. It's a one-file compiled Nuitka file and contains website signatures without obfuscation. It's a completely open-source product.
 
-**Why is it 700MB+?**
-- Because of website signatures and Ghidra. Website signatures are not very effective but they can detect old viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space.
+**Why is it 800MB+?**
+- Because of website signatures, Ghidra and Java Development Kit. Website signatures are not very effective but they can detect old viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space. Java Development Kit is for Ghidra.
 
 **I get unexpected errors when using compiled YARA-X rules.**
 - I don't usually encounter this problem, please create an issue.
