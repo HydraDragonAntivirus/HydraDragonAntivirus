@@ -31,9 +31,19 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Setup file on release HydraDragonAntivirus.exe
 
 ## Logs
-- You must look warnining at logs. They usually contain malware detections. Log file in C:\Program Files\HydraDragonAntivirus\log\antivirus.log
+- You must look warnining at logs. They usually contain malware detections. Log file in C:\Program Files\HydraDragonAntivirus\log\antivirus.log 
 
-# Prepare environment
+## Ghidra
+- Ghidra: C:\Program Files\HydraDragonAntivirus\ghidra
+- Ghidra log: C:\Program Files\HydraDragonAntivirus\ghidra_logs\analyze.log
+- Ghidra projects : C:\Program Files\HydraDragonAntivirus\ghidra_projects
+- Ghidra scripts: C:\Program Files\HydraDragonAntivirus\scripts
+ 
+ ## IMPORTANT
+ - Any ghidra project will be removed after you restart the program. So be careful!
+- You have to restart the program after the analysis.
+
+## Prepare environment
 - Create DefaultBox in Sandboxie and create too many files to detect ransomware, finally use UEFI and GPT.
 
 ## Guide

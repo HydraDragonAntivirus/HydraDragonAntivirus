@@ -1340,13 +1340,6 @@ def get_next_project_name(base_name):
         suffix += 1
     return f"{base_name}_{suffix}"
 
-def get_unique_filename(base_path, base_name, extension):
-    """Generate a unique filename with an incremental suffix."""
-    suffix = 1
-    while os.path.exists(f"{base_path}/{base_name}{suffix}.{extension}"):
-        suffix += 1
-    return f"{base_name}{suffix}.{extension}"
-
 def decompile_file(file_path):
     """Decompile the file using Ghidra."""
     logging.info(f"Decompiling file: {file_path}")
@@ -1364,13 +1357,6 @@ def decompile_file(file_path):
     project_name = get_next_project_name(base_project_name)
     existing_projects.append(project_name)
 
-    # Determine unique output file name
-    output_dir = os.path.join(script_dir, 'decompile')
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    decompiled_file_name = get_unique_filename(output_dir, 'decompiled_output', 'c')
-    decompiled_file_path = os.path.join(output_dir, decompiled_file_name)
-
     # Build the command to run analyzeHeadless.bat
     command = [
         analyze_headless_path,
@@ -1380,19 +1366,13 @@ def decompile_file(file_path):
         '-postScript', 'DecompileAndSave.java',
         '-scriptPath', os.path.join(script_dir, 'scripts'),
         '-log', os.path.join(script_dir, 'ghidra_logs', 'analyze.log'),
-        '-deleteProject'
     ]
 
-    # Set environment variable for output file path
-    env = os.environ.copy()
-    env['DECOMPILED_OUTPUT_PATH'] = decompiled_file_path
-
     # Run the command
-    result = subprocess.run(command, capture_output=True, text=True, env=env)
+    result = subprocess.run(command, capture_output=True, text=True)
 
     if result.returncode == 0:
         logging.info(f"Decompilation completed successfully for file: {file_path}")
-        logging.info(f"Decompiled output saved to: {decompiled_file_path}")
     else:
         logging.error(f"Decompilation failed for file: {file_path}. Error: {result.stderr}")
 
@@ -1408,7 +1388,6 @@ def extract_original_file_path_from_decompiled(file_path):
     except Exception as e:
         logging.error(f"Error reading decompiled file {file_path}: {e}")
     return original_file_path
-
 
 def scan_and_warn(file_path):
     logging.info(f"Scanning file: {file_path}")
