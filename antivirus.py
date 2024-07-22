@@ -1426,80 +1426,84 @@ def extract_original_file_path_from_decompiled(file_path):
 def scan_and_warn(file_path):
     logging.info(f"Scanning file: {file_path}")
 
-    # Flag to indicate if the file is decompiled
-    is_decompiled = False
+    try:
+        # Flag to indicate if the file is decompiled
+        is_decompiled = False
 
-    # Check if the file is in the decompile directory and scan
-    if os.path.dirname(file_path) == decompile_dir:
-        logging.info(f"File is in the decompile directory: {file_path}. Scanning file.")
-        is_decompiled = True
-    else:
-        # Skip scanning if the file is in the script directory
-        if os.path.commonpath([file_path, script_dir]) == script_dir:
-            logging.info(f"Skipping file in script directory: {file_path}")
-            return False
-
-    # Check if the file contains a PE header
-    if contains_pe_header(file_path):
-        if not is_pe_file(file_path):
-            logging.warning(f"File {file_path} contains a PE header but is not a valid PE file. Flagged as broken executable.")
-            return False
+        # Check if the file is in the decompile directory and scan
+        if os.path.dirname(file_path) == decompile_dir:
+            logging.info(f"File is in the decompile directory: {file_path}. Scanning file.")
+            is_decompiled = True
         else:
-            # File is a valid PE file, set pe_file to True
-            pe_file = True
-    else:
-        # File does not contain a PE header, set pe_file to False
-        pe_file = False
+            # Skip scanning if the file is in the script directory
+            if os.path.commonpath([file_path, script_dir]) == script_dir:
+                logging.info(f"Skipping file in script directory: {file_path}")
+                return False
 
-    if pe_file:
-        decompile_file(file_path)
-        is_decompiled = True
-
-        # Check for PE file and signatures
-        signature_check = check_signature(file_path)
-        if signature_check["has_microsoft_signature"]:
-            logging.info(f"Valid Microsoft signature detected for file: {file_path}")
-            return False
-        elif signature_check["is_valid"]:
-            logging.info(f"File '{file_path}' has a valid signature. Skipping worm detection.")
-        elif signature_check["signature_status_issues"]:
-            logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
-            notify_user_invalid(file_path, "Win32.InvalidSignature")
-            worm_alert(file_path)
+        # Check if the file contains a PE header
+        if contains_pe_header(file_path):
+            if not is_pe_file(file_path):
+                logging.warning(f"File {file_path} contains a PE header but is not a valid PE file. Flagged as broken executable.")
+                return False
+            else:
+                # File is a valid PE file, set pe_file to True
+                pe_file = True
         else:
-            worm_alert(file_path)
+            # File does not contain a PE header, set pe_file to False
+            pe_file = False
 
-    # Perform real-time scan with pe_file flag
-    is_malicious, virus_names = scan_file_real_time(file_path, pe_file=pe_file)  # Ensure scan_file_real_time returns a list of virus names
+        if pe_file:
+            decompile_file(file_path)
+            is_decompiled = True
 
-    ransomware_alert(file_path)
-
-    if is_malicious:
-        logging.warning(f"File {file_path} is malicious. Viruses: {', '.join(virus_names)}")
-
-        if is_decompiled:
-            original_file_path = extract_original_file_path_from_decompiled(file_path)
-            if original_file_path:
-                notify_user_ghidra_thread = threading.Thread(target=notify_user_ghidra, args=(original_file_path, virus_names))
-                notify_user_ghidra_thread.start()
+            # Check for PE file and signatures
+            signature_check = check_signature(file_path)
+            if signature_check["has_microsoft_signature"]:
+                logging.info(f"Valid Microsoft signature detected for file: {file_path}")
+                return False
+            elif signature_check["is_valid"]:
+                logging.info(f"File '{file_path}' has a valid signature. Skipping worm detection.")
+            elif signature_check["signature_status_issues"]:
+                logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
+                notify_user_invalid(file_path, "Win32.InvalidSignature")
+                worm_alert(file_path)
             else:
-                logging.error(f"Could not extract original file path from decompiled file: {file_path}")
+                worm_alert(file_path)
 
-        for virus_name in virus_names:
-            if virus_name.startswith("PUA."):
-                notify_user_pua_thread = threading.Thread(target=notify_user_pua, args=(file_path, virus_name))
-                notify_user_pua_thread.start()
-            elif virus_name == "HEUR:FakeSize.Generic":
-                notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(file_path, virus_name))
-                notify_user_fake_size_thread.start()
-            elif virus_name == "HEUR:PUA.Win32.FakeSize.Generic":
-                notify_user_fake_size_pua_thread = threading.Thread(target=notify_user_fake_size_pua, args=(file_path, virus_name))
-                notify_user_fake_size_pua_thread.start()
-            else:
-                notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
-                notify_user_thread.start()
+        # Perform real-time scan with pe_file flag
+        is_malicious, virus_names = scan_file_real_time(file_path, pe_file=pe_file)  # Ensure scan_file_real_time returns a list of virus names
 
-    return is_malicious
+        ransomware_alert(file_path)
+
+        if is_malicious:
+            logging.warning(f"File {file_path} is malicious. Viruses: {', '.join(virus_names)}")
+
+            if is_decompiled:
+                original_file_path = extract_original_file_path_from_decompiled(file_path)
+                if original_file_path:
+                    notify_user_ghidra_thread = threading.Thread(target=notify_user_ghidra, args=(original_file_path, virus_names))
+                    notify_user_ghidra_thread.start()
+                else:
+                    logging.error(f"Could not extract original file path from decompiled file: {file_path}")
+
+            for virus_name in virus_names:
+                if virus_name.startswith("PUA."):
+                    notify_user_pua_thread = threading.Thread(target=notify_user_pua, args=(file_path, virus_name))
+                    notify_user_pua_thread.start()
+                elif virus_name == "HEUR:FakeSize.Generic":
+                    notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(file_path, virus_name))
+                    notify_user_fake_size_thread.start()
+                elif virus_name == "HEUR:PUA.Win32.FakeSize.Generic":
+                    notify_user_fake_size_pua_thread = threading.Thread(target=notify_user_fake_size_pua, args=(file_path, virus_name))
+                    notify_user_fake_size_pua_thread.start()
+                else:
+                    notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
+                    notify_user_thread.start()
+
+        return is_malicious
+
+    except Exception as e:
+        logging.error(f"Error scanning file {file_path}: {e}")
 
 def start_monitoring_sandbox():
     sandbox_thread = threading.Thread(target=monitor_sandbox)
@@ -1512,13 +1516,16 @@ def monitor_snort_log():
     with open(log_path, 'r') as log_file:
         log_file.seek(0, os.SEEK_END)  # Move to the end of the file
         while True:
-            line = log_file.readline()
-            if not line:
-                continue
-            process_alert(line)
+            try:
+                line = log_file.readline()
+                if not line:
+                    continue
+                process_alert(line)
+            except Exception as e:
+                print(f"Error processing line: {e}")
 
-# Main function to monitor startup directories
 def check_startup_directories():
+    """Monitor startup directories for new files and handle them."""
     # Define the paths to check
     defaultbox_user_startup_folder = rf'{sandbox_folder}\user\current\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup'
     defaultbox_programdata_startup_folder = rf'{sandbox_folder}\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup'
@@ -1533,17 +1540,20 @@ def check_startup_directories():
     alerted_files = []
 
     while True:
-        for directory in directories_to_check:
-            if os.path.exists(directory):
-                for file in os.listdir(directory):
-                    file_path = os.path.join(directory, file)
-                    if os.path.isfile(file_path):
-                        if file_path not in alerted_files:
-                            logging.info(f"Startup file detected in {directory}: {file}")
-                            print(f"Startup file detected in {directory}: {file}")
-                            notify_user_startup(file_path, "HEUR:Win32.Startup.Generic.Malware")
-                            scan_and_warn(file_path)
-                            alerted_files.append(file_path)
+        try:
+            for directory in directories_to_check:
+                if os.path.exists(directory):
+                    for file in os.listdir(directory):
+                        file_path = os.path.join(directory, file)
+                        if os.path.isfile(file_path):
+                            if file_path not in alerted_files:
+                                logging.info(f"Startup file detected in {directory}: {file}")
+                                print(f"Startup file detected in {directory}: {file}")
+                                notify_user_startup(file_path, "HEUR:Win32.Startup.Generic.Malware")
+                                scan_and_warn(file_path)
+                                alerted_files.append(file_path)
+        except Exception as e:
+            logging.error(f"An error occurred while checking startup directories: {e}")
 
 def check_hosts_file_for_blocked_antivirus():
     try:
