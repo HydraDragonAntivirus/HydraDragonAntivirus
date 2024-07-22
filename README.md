@@ -57,8 +57,8 @@ Please wait 1-2 minutes if you open this application after 6 hours, as it update
 **Why does my antivirus detect this as malware?**
 - It's a false positive. It's a one-file compiled Nuitka file and contains website signatures without obfuscation. It's a completely open-source product.
 
-**Why is it 300MB?**
-- Because of website signatures. They are not very effective but can detect old viruses. If you want, I can remove them.
+**Why is it 700MB?**
+- Because of website signatures and Ghidra. Website signatures are not very effective but they can detect old viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space.
 
 **I get unexpected errors when using compiled YARA-X rules.**
 - I don't usually encounter this problem, please create an issue.
