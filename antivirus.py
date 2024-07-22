@@ -328,6 +328,25 @@ def check_signature(file_path):
             "status": "Error"
         }
 
+def check_valid_signature_only(file_path):
+    try:
+        # Command to verify the executable signature status
+        verify_command = f"(Get-AuthenticodeSignature '{file_path}').Status"
+        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-16')
+        
+        status = process.stdout.strip()
+        is_valid = status == "Valid"
+        
+        return {
+            "is_valid": is_valid
+        }
+    except Exception as e:
+        print(f"An error occurred while checking signature: {e}")
+        logging.error(f"An error occurred while checking signature: {e}")
+        return {
+            "is_valid": False
+        }
+
 def clean_directories():
     try:
         # Clean decompile directory if it exists, otherwise create it
