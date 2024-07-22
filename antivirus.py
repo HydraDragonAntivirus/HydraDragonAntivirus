@@ -1354,50 +1354,61 @@ existing_projects = []
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
-    suffix = 1
-    while f"{base_name}_{suffix}" in existing_projects:
-        suffix += 1
-    return f"{base_name}_{suffix}"
+    try:
+        suffix = 1
+        while f"{base_name}_{suffix}" in existing_projects:
+            suffix += 1
+        return f"{base_name}_{suffix}"
+    except Exception as e:
+        logging.error(f"An error occurred while generating project name: {e}")
 
 def decompile_file(file_path):
     """Decompile the file using Ghidra."""
-    logging.info(f"Decompiling file: {file_path}")
+    try:
+        logging.info(f"Decompiling file: {file_path}")
 
-    # Path to Ghidra's analyzeHeadless.bat
-    analyze_headless_path = os.path.join(script_dir, 'ghidra', 'support', 'analyzeHeadless.bat')
-    project_location = os.path.join(script_dir, 'ghidra_projects')
+        # Path to Ghidra's analyzeHeadless.bat
+        analyze_headless_path = os.path.join(script_dir, 'ghidra', 'support', 'analyzeHeadless.bat')
+        project_location = os.path.join(script_dir, 'ghidra_projects')
 
-    # Ensure the project location exists
-    if not os.path.exists(project_location):
-        os.makedirs(project_location)
+        # Ensure the project location exists
+        if not os.path.exists(project_location):
+            os.makedirs(project_location)
 
-    # Generate a unique project name
-    base_project_name = 'temporary'
-    project_name = get_next_project_name(base_project_name)
-    existing_projects.append(project_name)
+        # Generate a unique project name
+        base_project_name = 'temporary'
+        try:
+            project_name = get_next_project_name(base_project_name)
+        except Exception as e:
+            logging.error(f"Failed to generate project name: {e}")
+            return  # Exit the function if project name generation fails
 
-    # Build the command to run analyzeHeadless.bat
-    command = [
-        analyze_headless_path,
-        project_location,
-        project_name,
-        '-import', file_path,
-        '-postScript', 'DecompileAndSave.java',
-        '-scriptPath', os.path.join(script_dir, 'scripts'),
-        '-log', os.path.join(script_dir, 'ghidra_logs', 'analyze.log')
-    ]
+        existing_projects.append(project_name)
 
-    # Run the command
-    result = subprocess.run(command, capture_output=True, text=True)
+        # Build the command to run analyzeHeadless.bat
+        command = [
+            analyze_headless_path,
+            project_location,
+            project_name,
+            '-import', file_path,
+            '-postScript', 'DecompileAndSave.java',
+            '-scriptPath', os.path.join(script_dir, 'scripts'),
+            '-log', os.path.join(script_dir, 'ghidra_logs', 'analyze.log')
+        ]
 
-    # Check and log the results
-    if result.returncode == 0:
-        logging.info(f"Decompilation completed successfully for file: {file_path}")
-    else:
-        logging.error(f"Decompilation failed for file: {file_path}.")
-        logging.error(f"Return code: {result.returncode}")
-        logging.error(f"Error output: {result.stderr}")
-        logging.error(f"Standard output: {result.stdout}")
+        # Run the command
+        result = subprocess.run(command, capture_output=True, text=True)
+
+        # Check and log the results
+        if result.returncode == 0:
+            logging.info(f"Decompilation completed successfully for file: {file_path}")
+        else:
+            logging.error(f"Decompilation failed for file: {file_path}.")
+            logging.error(f"Return code: {result.returncode}")
+            logging.error(f"Error output: {result.stderr}")
+            logging.error(f"Standard output: {result.stdout}")
+    except Exception as e:
+        logging.error(f"An error occurred during decompilation: {e}")
 
 def extract_original_file_path_from_decompiled(file_path):
     """Extracts the original file path from the decompiled file."""
