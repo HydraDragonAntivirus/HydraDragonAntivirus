@@ -52,7 +52,8 @@ script_dir = os.getcwd()
 # Define the paths to the ghidra related directories
 decompile_dir = os.path.join(script_dir, "decompile")
 ghidra_projects_dir = os.path.join(script_dir, "ghidra_projects")
-        
+ghidra_logs_dir = os.path.join(script_dir, "ghidra_logs")
+ghidra_scripts_dir = os.path.join(script_dir, "scripts")
 clamd_path = r"C:\Program Files\ClamAV\clamd.exe"
 clamdscan_path = r"C:\Program Files\ClamAV\clamdscan.exe"
 freshclam_path = r"C:\Program Files\ClamAV\freshclam.exe"
@@ -355,8 +356,8 @@ def clean_directories():
             logging.info(f"Successfully cleaned the decompile folder at: {decompile_dir}")
         else:
             logging.info(f"Decompile folder does not exist at: {decompile_dir}")
-            os.makedirs(decompile_dir)
-            logging.info(f"Created the decompile folder at: {decompile_dir}")
+        os.makedirs(decompile_dir)
+        logging.info(f"Created the decompile folder at: {decompile_dir}")
         
         # Clean ghidra_projects directory if it exists, otherwise create it
         if os.path.isdir(ghidra_projects_dir):
@@ -364,8 +365,15 @@ def clean_directories():
             logging.info(f"Successfully cleaned the ghidra_projects folder at: {ghidra_projects_dir}")
         else:
             logging.info(f"Ghidra projects folder does not exist at: {ghidra_projects_dir}")
-            os.makedirs(ghidra_projects_dir)
-            logging.info(f"Created the ghidra_projects folder at: {ghidra_projects_dir}")
+        os.makedirs(ghidra_projects_dir)
+        logging.info(f"Created the ghidra_projects folder at: {ghidra_projects_dir}")
+
+        # Check if ghidra_logs directory exists, create if not
+        if not os.path.isdir(ghidra_logs_dir):
+            os.makedirs(ghidra_logs_dir)
+            logging.info(f"Created the ghidra_logs folder at: {ghidra_logs_dir}")
+        else:
+            logging.info(f"Ghidra logs folder exists at: {ghidra_logs_dir}")
 
     except Exception as e:
         logging.error(f"An error occurred while cleaning the directories: {e}")
@@ -1392,8 +1400,8 @@ def decompile_file(file_path):
             project_name,
             '-import', file_path,
             '-postScript', 'DecompileAndSave.java',
-            '-scriptPath', os.path.join(script_dir, 'scripts'),
-            '-log', os.path.join(script_dir, 'ghidra_logs', 'analyze.log')
+            '-scriptPath', ghidra_scripts_dir,
+            '-log', os.path.join(ghidra_logs_dir, 'analyze.log')
         ]
 
         # Run the command
