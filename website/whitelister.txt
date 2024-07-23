@@ -1,3 +1,9 @@
+.wac-msedge.net
+.spov-msedge.net
+.spo-msedge.net
+.msedge.net
+.e-msedge.net
+.c-msedge.net
 .b-msedge.net
 googlehosted.com
 .s-dc-msedge.net
