@@ -1,3 +1,6 @@
+cnamehlb.apr-52dd2-0.edgecastdns.net
+bg.apr-52dd2-0503.edgecastdns.net
+trafficfabrik-delivery2.ed3b.edgecastdns.net
 media-analytics-upload-usher.cqloud.com
 edge-cg-cg-edge-55555-mid-ewr01.cbs-measurements.us-east.dns.qwilted-cds.cqloud.com
 ctr-prd.cbs-measurements.qwilted-cds.cqloud.com

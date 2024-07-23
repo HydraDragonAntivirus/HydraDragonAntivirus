@@ -1,3 +1,4 @@
+.edgecastdns.net
 .cqloud.com
 .wac-msedge.net
 .spov-msedge.net
