@@ -62,7 +62,10 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 **Note 3:**
 - You will need to rebuild DefaultBox after deleting the contents of Sandboxie. To do this, please run notepad or something in sandboxie. Otherwise monitor_sandbox will return an error.
 
-**Note 4:**
+**Note 4:**.
+- Allow Java on the Windows firewall, as it'll decompile the PE file.
+
+**Note 5:**
 - Please wait 1-2 minutes if you open this application after 6 hours, as it updates ClamAV definitions. It's not well tested. If you find an issue, please create an issue. Antivirus software might be triggered by website signatures because they are not obfuscated, so exclude the `C:\Program Files\HydraDragonAntivirus` folder. Please only use in a VM as you can only use this for deep analysis of a file. There is no fixed analysis time for a file.
 
 ## Internet Access In Sandboxie
