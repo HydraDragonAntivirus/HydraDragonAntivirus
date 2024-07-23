@@ -1261,10 +1261,10 @@ def activate_uefi_drive():
     except subprocess.CalledProcessError as e:
         print(f"Error mounting UEFI drive: {e}")
 
+threading.Thread(target=run_snort).start()
 restart_clamd_thread()
+clean_directories()
 activate_uefi_drive() # Call the UEFI function
-snort_thread = threading.Thread(target=run_snort)
-snort_thread.start()
 load_data()
 load_antivirus_list()
 # Load excluded rules from text file
@@ -1506,8 +1506,7 @@ def scan_and_warn(file_path):
         logging.error(f"Error scanning file {file_path}: {e}")
 
 def start_monitoring_sandbox():
-    sandbox_thread = threading.Thread(target=monitor_sandbox)
-    sandbox_thread.start()
+    threading.Thread(target=monitor_sandbox).start()
 
 def monitor_snort_log():
     if not os.path.exists(log_path):
@@ -2247,9 +2246,6 @@ def perform_sandbox_analysis(file_path):
         main_file_path = file_path
 
         window_monitor = WindowMonitor()
- 
-        # Clean up the Ghidra directors
-        threading.Thread(target=clean_directories).start()
 
         # Monitor Snort log for new lines and process alerts
         threading.Thread(target=monitor_snort_log).start()

@@ -38,6 +38,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 
 ## Ghidra
 - Ghidra: C:\Program Files\HydraDragonAntivirus\ghidra
+- Ghidra Run: C:\Program Files\HydraDragonAntivirus\ghidra\ghidraRun.bat
 - Ghidra log: C:\Program Files\HydraDragonAntivirus\ghidra_logs\analyze.log
 - Ghidra projects : C:\Program Files\HydraDragonAntivirus\ghidra_projects
 - Ghidra scripts: C:\Program Files\HydraDragonAntivirus\scripts
