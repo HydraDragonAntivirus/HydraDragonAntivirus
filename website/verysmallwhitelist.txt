@@ -1,3 +1,6 @@
+media-analytics-upload-usher.cqloud.com
+edge-cg-cg-edge-55555-mid-ewr01.cbs-measurements.us-east.dns.qwilted-cds.cqloud.com
+ctr-prd.cbs-measurements.qwilted-cds.cqloud.com
 googlehosted.com
 ghs.googlehosted.com
 base.googlehosted.com
