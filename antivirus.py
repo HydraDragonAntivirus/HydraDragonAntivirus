@@ -596,6 +596,12 @@ def notify_user(file_path, virus_name):
     notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
+def notify_user_invalid(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Invalid signature Alert"
+    notification.message = f"Invalid signature file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
 def notify_user_ghidra(file_path, virus_name):
     notification = Notify()
     notification.title = "Ghidra Alert"
