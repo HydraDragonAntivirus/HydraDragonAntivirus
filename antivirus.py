@@ -1560,8 +1560,8 @@ def check_startup_directories():
                         file_path = os.path.join(directory, file)
                         if os.path.isfile(file_path):
                             if file_path not in alerted_files:
-                                logging.warning(f"Startup file detected in {directory}: {file}")
-                                print(f"Startup file detected in {directory}: {file}")
+                                logging.warning(f"Suspicious startup file detected in {directory}: {file}")
+                                print(f"Suspicious startup file detected in {directory}: {file}")
                                 notify_user_startup(file_path, "HEUR:Win32.Startup.Generic.Malware")
                                 scan_and_warn(file_path)
                                 alerted_files.append(file_path)
