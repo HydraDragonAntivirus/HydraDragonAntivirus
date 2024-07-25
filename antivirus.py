@@ -1444,6 +1444,13 @@ def scan_and_warn(file_path):
         # Flag to indicate if the file is decompiled
         is_decompiled = False
 
+        # Initialize signature_check with a default value
+        signature_check = {
+            "has_microsoft_signature": False,
+            "is_valid": False,
+            "signature_status_issues": False
+        }
+
         # Check if the file is in the decompile directory and scan
         if os.path.dirname(file_path) == decompile_dir:
             logging.info(f"File is in the decompile directory: {file_path}. Scanning file.")
