@@ -85,7 +85,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - It's a false positive. It's a one-file compiled Nuitka file and contains website signatures without obfuscation. It's a completely open-source product.
 
 **Why is it 800MB+?**
-- Because of website signatures, Ghidra and Java Development Kit. Website signatures are not very effective but they can detect old viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space. Java Development Kit is for Ghidra.
+- Because of website signatures, Ghidra and Java Development Kit. Website signatures are not very effective but they can detect new viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space. Java Development Kit is for Ghidra.
 
 **I get unexpected errors when using compiled YARA-X rules.**
 - I don't usually encounter this problem, please create an issue.
