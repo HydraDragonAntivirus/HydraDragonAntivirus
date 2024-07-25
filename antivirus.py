@@ -1493,6 +1493,7 @@ def scan_and_warn(file_path):
 
         # Perform real-time scan with pe_file flag
         is_malicious, virus_names = scan_file_real_time(file_path, signature_check, pe_file=pe_file)
+
         ransomware_alert(file_path)
 
         if is_malicious:
