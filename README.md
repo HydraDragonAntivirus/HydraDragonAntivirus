@@ -66,7 +66,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Allow Java on the Windows firewall, as it'll decompile the PE file.
 
 **Note 5:**
-- Please wait 5 minutes if you open this application after 6 hours, as it updates ClamAV definitions.  Wait until you receive an update message. It's not well tested. If you find an issue, please create an issue. Antivirus software might be triggered by website signatures because they are not obfuscated, so exclude the `C:\Program Files\HydraDragonAntivirus` folder. Please only use in a VM as you can only use this for deep analysis of a file. There is no fixed analysis time for a file.
+- The update can take up to 5 minutes or more and will happen if you open this application after 6 hours as it updates ClamAV definitions. Wait until you receive an update message. It's not well tested. If you find an issue, please create an issue. Antivirus software might be triggered by website signatures because they are not obfuscated, so exclude the `C:\Program Files\HydraDragonAntivirus` folder. Please only use in a VM as you can only use this for deep analysis of a file. There is no fixed analysis time for a file.
 
 ## Internet Access In Sandboxie
 - HIPS detection shouldn't work if you don't open the Internet in Sandboxie. To enable it go to: Sandbox -> DefaultBox -> Sandbox Settings -> Restrictions -> Internet Access -> Click "BLock All Programs" then click "Allow All Programs" then save it and you're done!.  https://sandboxie-plus.com/sandboxie/restrictionssettings/
@@ -85,7 +85,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - It's a false positive. It's a one-file compiled Nuitka file and contains website signatures without obfuscation. It's a completely open-source product.
 
 **Why is it 800MB+?**
-- Because of website signatures, Ghidra and Java Development Kit. Website signatures are not very effective but they can detect new viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space. Java Development Kit is for Ghidra.
+- Because of website signatures, Ghidra and Java Development Kit. Website signatures are not very effective but they can detect old viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space. Java Development Kit is for Ghidra.
 
 **I get unexpected errors when using compiled YARA-X rules.**
 - I don't usually encounter this problem, please create an issue.
