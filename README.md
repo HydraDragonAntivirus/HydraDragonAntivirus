@@ -60,7 +60,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - You must run ghidra before you run Hydra Dragon Antivirus. To run ghidra, simply open this file:  C:\Program Files\HydraDragonAntivirus\ghidra\ghidraRun.bat
 
 **Note 3:**
-- You will need to rebuild DefaultBox after deleting the contents of Sandboxie. To do this, please run notepad or something in sandboxie. Otherwise monitor_sandbox will return an error.
+- You will need to rebuild DefaultBox after deleting the contents of Sandboxie. To do this, please run notepad (empty text file) or something in sandboxie. Otherwise monitor_sandbox will return an error.
 
 **Note 4:**.
 - Allow Java on the Windows firewall, as it'll decompile the PE file.
