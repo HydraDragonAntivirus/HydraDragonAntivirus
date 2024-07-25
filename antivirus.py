@@ -1492,34 +1492,34 @@ def scan_and_warn(file_path):
                 worm_alert(file_path)
 
         # Perform real-time scan with pe_file flag
-        is_malicious, virus_names = scan_file_real_time(file_path, signature_check, pe_file=pe_file)  # Ensure scan_file_real_time returns a list of virus names
-
+        is_malicious, virus_names = scan_file_real_time(file_path, signature_check, pe_file=pe_file)
         ransomware_alert(file_path)
 
         if is_malicious:
-            logging.warning(f"File {file_path} is malicious. Viruses: {', '.join(virus_names)}")
+            # Concatenate multiple virus names into a single string without delimiters
+            virus_name = ''.join(virus_names)
+            logging.warning(f"File {file_path} is malicious. Virus: {virus_name}")
 
             if is_decompiled:
                 original_file_path = extract_original_file_path_from_decompiled(file_path)
                 if original_file_path:
-                    notify_user_ghidra_thread = threading.Thread(target=notify_user_ghidra, args=(original_file_path, virus_names))
+                    notify_user_ghidra_thread = threading.Thread(target=notify_user_ghidra, args=(original_file_path, virus_name))
                     notify_user_ghidra_thread.start()
                 else:
                     logging.error(f"Could not extract original file path from decompiled file: {file_path}")
 
-            for virus_name in virus_names:
-                if virus_name.startswith("PUA."):
-                    notify_user_pua_thread = threading.Thread(target=notify_user_pua, args=(file_path, virus_name))
-                    notify_user_pua_thread.start()
-                elif virus_name == "HEUR:FakeSize.Generic":
-                    notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(file_path, virus_name))
-                    notify_user_fake_size_thread.start()
-                elif virus_name == "HEUR:PUA.Win32.FakeSize.Generic":
-                    notify_user_fake_size_pua_thread = threading.Thread(target=notify_user_fake_size_pua, args=(file_path, virus_name))
-                    notify_user_fake_size_pua_thread.start()
-                else:
-                    notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
-                    notify_user_thread.start()
+            if virus_name.startswith("PUA."):
+                notify_user_pua_thread = threading.Thread(target=notify_user_pua, args=(file_path, virus_name))
+                notify_user_pua_thread.start()
+            elif virus_name == "HEUR:FakeSize.Generic":
+                notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(file_path, virus_name))
+                notify_user_fake_size_thread.start()
+            elif virus_name == "HEUR:PUA.Win32.FakeSize.Generic":
+                notify_user_fake_size_pua_thread = threading.Thread(target=notify_user_fake_size_pua, args=(file_path, virus_name))
+                notify_user_fake_size_pua_thread.start()
+            else:
+                notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
+                notify_user_thread.start()
 
         return is_malicious
 
