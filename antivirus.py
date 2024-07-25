@@ -378,7 +378,7 @@ def clean_directories():
     except Exception as e:
         logging.error(f"An error occurred while cleaning the directories: {e}")
 
-def scan_file_real_time(file_path, pe_file=False):
+def scan_file_real_time(file_path, signature_check, pe_file=False):
     """Scan file in real-time using multiple engines."""
     logging.info(f"Started scanning file: {file_path}")
 
@@ -1485,7 +1485,7 @@ def scan_and_warn(file_path):
                 worm_alert(file_path)
 
         # Perform real-time scan with pe_file flag
-        is_malicious, virus_names = scan_file_real_time(file_path, pe_file=pe_file)  # Ensure scan_file_real_time returns a list of virus names
+        is_malicious, virus_names = scan_file_real_time(file_path, signature_check, pe_file=pe_file)  # Ensure scan_file_real_time returns a list of virus names
 
         ransomware_alert(file_path)
 
