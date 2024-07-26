@@ -642,6 +642,17 @@ def notify_user_for_detected_koadic_command(file_path, cmdline, virus_name):
     )
     notification.send()
 
+def notify_user_for_detected_fodhelper_command(file_path, cmdline, virus_name):
+    notification = Notify()
+    notification.title = "Fodhelper UAC Bypass Alert"
+    notification.message = (
+        f"Potential Fodhelper UAC Bypass command detected:\n"
+        f"File Path: {file_path}\n"
+        f"Command Line: {' '.join(cmdline)}\n"
+        f"Threat: {virus_name}"
+    )
+    notification.send()
+
 def notify_user_for_detected_taskkill_command(file_path, cmdline, virus_name):
     notification = Notify()
     notification.title = "Multiple Taskkill Command Alert"
@@ -1302,7 +1313,7 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line):
 def heuristics_of_commandline():
     """
     Continuously monitor processes for specific command lines and capture Wi-Fi passwords, shadow copy deletion commands,
-    copying files to startup via PowerShell, multiple taskkill commands, and Koadic rootkit commands.
+    copying files to startup via PowerShell, multiple taskkill commands, Koadic rootkit commands, and Fodhelper UAC Bypass commands.
     """
     wifi_commands = ['netsh wlan show profile']
     shadow_copy_command = 'Get-WmiObject Win32_Shadowcopy | ForEach-Object {$_.Delete();}'
@@ -1310,11 +1321,16 @@ def heuristics_of_commandline():
     wmic_command = 'wmic shadowcopy delete'
     copy_to_startup_command = 'copy-item *\\roaming\\microsoft\\windows\\start menu\\programs\\startup*'
     taskkill_command = 'taskkill /f'
-
+    
     # Koadic specific command line patterns
     koadic_command_patterns = [
         '*chcp 437 & schtasks /query /tn K0adic*',
         '*chcp 437 & schtasks /create /tn K0adic*'
+    ]
+
+    # Fodhelper UAC Bypass command line patterns
+    fodhelper_command_patterns = [
+        '*reg add*hkcu\\software\\classes\\ms-settings\\shell\\open\\command*'
     ]
 
     wifi_command_doc = nlp_spacy_lang(wifi_commands[0])
@@ -1325,6 +1341,7 @@ def heuristics_of_commandline():
     taskkill_command_doc = nlp_spacy_lang(taskkill_command)
     
     koadic_command_docs = [nlp_spacy_lang(pattern) for pattern in koadic_command_patterns]
+    fodhelper_command_docs = [nlp_spacy_lang(pattern) for pattern in fodhelper_command_patterns]
     
     while True:
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
@@ -1386,6 +1403,15 @@ def heuristics_of_commandline():
                             logging.warning(f"Potential Koadic post exploitation rootkit command detected: {cmdline_text} (similarity: {koadic_similarity})")
                             print(f"Warning: Potential Koadic post exploitation rootkit command detected: {cmdline_text} (similarity: {koadic_similarity})")
                             notify_user_for_detected_koadic_command(file_path, cmdline_text, "HEUR:Koadic.Rootkit.Command")
+
+                    # Check for Fodhelper UAC Bypass commands
+                    for fodhelper_command_doc in fodhelper_command_docs:
+                        fodhelper_similarity = fodhelper_command_doc.similarity(cmdline_doc)
+                        if fodhelper_similarity >= 0.86:
+                            file_path = proc.info.get('exe', 'Unknown')
+                            logging.warning(f"Potential Fodhelper UAC Bypass command detected: {cmdline_text} (similarity: {fodhelper_similarity})")
+                            print(f"Warning: Potential Fodhelper UAC Bypass command detected: {cmdline_text} (similarity: {fodhelper_similarity})")
+                            notify_user_for_detected_fodhelper_command(file_path, cmdline_text, "HEUR:Fodhelper.UAC.Bypass.Command")
 
             except psutil.NoSuchProcess:
                 logging.error(f"Process no longer exists: {proc.info.get('pid')}")
