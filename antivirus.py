@@ -643,6 +643,17 @@ def notify_user_for_detected_ransomware_command(file_path, cmdline, virus_name, 
     )
     notification.send()
 
+def notify_user_for_detected_taskkill_command(file_path, cmdline, virus_name):
+    notification = Notify()
+    notification.title = "Multiple Taskkill Command Alert"
+    notification.message = (
+        f"Potential multiple taskkill commands detected:\n"
+        f"File Path: {file_path}\n"
+        f"Command Line: {' '.join(cmdline)}\n"
+        f"Threat: {virus_name}"
+    )
+    notification.send()
+
 def notify_user_invalid(file_path, virus_name):
     notification = Notify()
     notification.title = "Invalid signature Alert"
@@ -1274,19 +1285,22 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line):
 
 def heuristics_of_commandline():
     """
-    Continuously monitor processes for specific command lines and capture Wi-Fi passwords, shadow copy deletion commands, and copying files to startup via PowerShell.
+    Continuously monitor processes for specific command lines and capture Wi-Fi passwords, shadow copy deletion commands,
+    copying files to startup via PowerShell, and multiple taskkill commands.
     """
     wifi_commands = ['netsh wlan show profile']
     shadow_copy_command = 'Get-WmiObject Win32_Shadowcopy | ForEach-Object {$_.Delete();}'
     shadow_copy_command_base64 = 'RwBlAHQALQBXAG0AaQBPAGIAagBlAGMAdAAgAFcAaQBuADMAMgBfAFMAaABoAGQAbwB3AGMAbwBwAHkAIAB8ACAARgBvAHIARQBhAGMAaAAtAE8AYgBqAGUAYwB0ACAAewAkAF8ALgBEAGUAbABlAHQAZQAoACkAOwB9AA=='
     wmic_command = 'wmic shadowcopy delete'
     copy_to_startup_command = 'copy-item *\\roaming\\microsoft\\windows\\start menu\\programs\\startup*'
-    
+    taskkill_command = 'taskkill /f'
+
     wifi_command_doc = nlp_spacy_lang(wifi_commands[0])
     shadow_copy_command_doc = nlp_spacy_lang(shadow_copy_command)
     shadow_copy_command_base64_doc = nlp_spacy_lang(shadow_copy_command_base64)
     wmic_command_doc = nlp_spacy_lang(wmic_command)
     copy_to_startup_command_doc = nlp_spacy_lang(copy_to_startup_command)
+    taskkill_command_doc = nlp_spacy_lang(taskkill_command)
     
     while True:
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
@@ -1301,6 +1315,7 @@ def heuristics_of_commandline():
                     shadow_copy_base64_similarity = shadow_copy_command_base64_doc.similarity(cmdline_doc)
                     wmic_similarity = wmic_command_doc.similarity(cmdline_doc)
                     copy_to_startup_similarity = copy_to_startup_command_doc.similarity(cmdline_doc)
+                    taskkill_similarity = taskkill_command_doc.similarity(cmdline_doc)
                     
                     if wifi_similarity >= 0.86:
                         file_path = proc.info.get('exe', 'Unknown')
@@ -1331,6 +1346,13 @@ def heuristics_of_commandline():
                         logging.warning(f"Potential file copy to startup command detected: {cmdline_text} (similarity: {copy_to_startup_similarity})")
                         print(f"Warning: Potential file copy to startup command detected: {cmdline_text} (similarity: {copy_to_startup_similarity})")
                         notify_user_for_detected_copy_to_startup_command(file_path, cmdline_text, "HEUR:Win32.CopyToStartup.PowerShell")
+                    
+                    # Check for multiple taskkill commands
+                    if cmdline_text.count(taskkill_command) >= 7:
+                        file_path = proc.info.get('exe', 'Unknown')
+                        logging.warning(f"Potential multiple taskkill commands detected: {cmdline_text} (count: {cmdline_text.count(taskkill_command)})")
+                        print(f"Warning: Potential multiple taskkill commands detected: {cmdline_text} (count: {cmdline_text.count(taskkill_command)})")
+                        notify_user_for_detected_taskkill_command(file_path, cmdline_text, "HEUR:Win32.Kill.Multiple.Processes")
             except psutil.NoSuchProcess:
                 logging.error(f"Process no longer exists: {proc.info.get('pid')}")
             except psutil.AccessDenied:
