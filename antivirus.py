@@ -618,6 +618,29 @@ def notify_user_for_detected_wifi_command(file_path, cmdline, virus_name):
     )
     notification.send()
 
+def notify_user_for_detected_ransomware_command(file_path, cmdline, virus_name, base64=False):
+    notification = Notify()
+    notification.title = "Ransomware Shadow Copy Deletion Alert"
+    base64_text = " (Base64)" if base64 else ""
+    notification.message = (
+        f"Potential ransomware shadow copy deletion command detected:\n"
+        f"File Path: {file_path}\n"
+        f"Command Line: {' '.join(cmdline)}\n"
+        f"Threat: {virus_name}{base64_text}"
+    )
+    notification.send()
+
+def notify_user_for_detected_ransomware_command_wmic(file_path, cmdline, virus_name):
+    notification = Notify()
+    notification.title = "Ransomware Shadow Copy Deletion Alert"
+    notification.message = (
+        f"Potential WMIC shadow copy deletion command detected:\n"
+        f"File Path: {file_path}\n"
+        f"Command Line: {' '.join(cmdline)}\n"
+        f"Threat: {virus_name}"
+    )
+    notification.send()
+    
 def notify_user_invalid(file_path, virus_name):
     notification = Notify()
     notification.title = "Invalid signature Alert"
@@ -1247,20 +1270,56 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line):
         except Exception as e:
             logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {e}")
 
-def capture_wifi_passwords():
+def heuristics_of_commandline():
     """
-    Continuously capture Wi-Fi passwords by monitoring processes for specific command lines.
+    Continuously monitor processes for specific command lines and capture Wi-Fi passwords and shadow copy deletion commands.
     """
     wifi_commands = ['netsh wlan show profile']
+    shadow_copy_command = 'Get-WmiObject Win32_Shadowcopy | ForEach-Object {$_.Delete();}'
+    shadow_copy_command_base64 = 'RwBlAHQALQBXAG0AaQBPAGIAagBlAGMAdAAgAFcAaQBuADMAMgBfAFMAaABoAGQAbwB3AGMAbwBwAHkAIAB8ACAARgBvAHIARQBhAGMAaAAtAE8AYgBqAGUAYwB0ACAAewAkAF8ALgBEAGUAbABlAHQAZQAoACkAOwB9AA=='
+    wmic_command = 'wmic shadowcopy delete'
+    
+    wifi_command_doc = nlp_spacy_lang(wifi_commands[0])
+    shadow_copy_command_doc = nlp_spacy_lang(shadow_copy_command)
+    shadow_copy_command_base64_doc = nlp_spacy_lang(shadow_copy_command_base64)
+    wmic_command_doc = nlp_spacy_lang(wmic_command)
+    
     while True:
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
             try:
                 cmdline = proc.info['cmdline']
-                if any(command in ' '.join(cmdline) for command in wifi_commands):
-                    file_path = proc.info.get('exe', 'Unknown')
-                    logging.warning(f"Potential Wi-Fi password capture command detected: {cmdline}")
-                    print(f"Warning: Potential Wi-Fi password capture command detected: {cmdline}")
-                    notify_user_for_detected_wifi_command(file_path, cmdline, "HEUR:Win32.Wi-Fi.Password.Stealer.Generic")
+                if cmdline:
+                    cmdline_text = ' '.join(cmdline)
+                    cmdline_doc = nlp_spacy_lang(cmdline_text)
+                    
+                    wifi_similarity = wifi_command_doc.similarity(cmdline_doc)
+                    shadow_copy_similarity = shadow_copy_command_doc.similarity(cmdline_doc)
+                    shadow_copy_base64_similarity = shadow_copy_command_base64_doc.similarity(cmdline_doc)
+                    wmic_similarity = wmic_command_doc.similarity(cmdline_doc)
+                    
+                    if wifi_similarity >= 0.86:
+                        file_path = proc.info.get('exe', 'Unknown')
+                        logging.warning(f"Potential Wi-Fi password capture command detected: {cmdline_text} (similarity: {wifi_similarity})")
+                        print(f"Warning: Potential Wi-Fi password capture command detected: {cmdline_text} (similarity: {wifi_similarity})")
+                        notify_user_for_detected_wifi_command(file_path, cmdline_text, "HEUR:Win32.Wi-Fi.Password.Stealer.Generic")
+                    
+                    if shadow_copy_similarity >= 0.86:
+                        file_path = proc.info.get('exe', 'Unknown')
+                        logging.warning(f"Potential shadow copy deletion command detected: {cmdline_text} (similarity: {shadow_copy_similarity})")
+                        print(f"Warning: Potential shadow copy deletion command detected: {cmdline_text} (similarity: {shadow_copy_similarity})")
+                        notify_user_for_detected_ransomware_command(file_path, cmdline_text, "HEUR:Win32.Ransom.ShadowCopy.PowerShell")
+                    
+                    if shadow_copy_base64_similarity >= 0.86:
+                        file_path = proc.info.get('exe', 'Unknown')
+                        logging.warning(f"Potential Base64 shadow copy deletion command detected: {cmdline_text} (similarity: {shadow_copy_base64_similarity})")
+                        print(f"Warning: Potential Base64 shadow copy deletion command detected: {cmdline_text} (similarity: {shadow_copy_base64_similarity})")
+                        notify_user_for_detected_ransomware_command(file_path, cmdline_text, "HEUR:Win32.Ransom.ShadowCopy.Base64.PowerShell", base64=True)
+
+                    if wmic_similarity >= 0.86:
+                        file_path = proc.info.get('exe', 'Unknown')
+                        logging.warning(f"Potential WMIC shadow copy deletion command detected: {cmdline_text} (similarity: {wmic_similarity})")
+                        print(f"Warning: Potential WMIC shadow copy deletion command detected: {cmdline_text} (similarity: {wmic_similarity})")
+                        notify_user_for_detected_ransomware_command_wmic(file_path, cmdline_text, "HEUR:Win32.Ransom.ShadowCopy.WMIC")
             except psutil.NoSuchProcess:
                 logging.error(f"Process no longer exists: {proc.info.get('pid')}")
             except psutil.AccessDenied:
@@ -1269,7 +1328,7 @@ def capture_wifi_passwords():
                 logging.error(f"Zombie process encountered: {proc.info.get('pid')}")
             except Exception as e:
                 logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {e}")
-            
+
 def process_alert(line):
     try:
         match = alert_regex.search(line)
@@ -1647,9 +1706,16 @@ def check_startup_directories():
                         file_path = os.path.join(directory, file)
                         if os.path.isfile(file_path):
                             if file_path not in alerted_files:
+                                if file_path.endswith('.wll'):
+                                    malware_type = "HEUR:Win32.Startup.DLLwithWLL.Generic.Malware"
+                                elif file_path.endswith(('.vbs', '.js', '.jse', '.bat', '.url', '.cmd', '.hta', '.ps1', '.wsf')):
+                                    malware_type = "HEUR:Win32.Startup.Script.Generic.Malware"
+                                else:
+                                    malware_type = "HEUR:Win32.Startup.Generic.Malware"
+                                
                                 logging.warning(f"Suspicious startup file detected in {directory}: {file}")
                                 print(f"Suspicious startup file detected in {directory}: {file}")
-                                notify_user_startup(file_path, "HEUR:Win32.Startup.Generic.Malware")
+                                notify_user_startup(file_path, malware_type)
                                 scan_and_warn(file_path)
                                 alerted_files.append(file_path)
         except Exception as e:
@@ -1836,7 +1902,7 @@ def ransomware_alert(file_path):
 
             # Notify user if the detection count reaches the threshold
             if ransomware_detection_count >= 10:
-                notify_user_ransomware(main_file_path, "HEUR:Win32.Ransomware.Generic")
+                notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.Generic")
                 has_warned_ransomware = True
                 logging.warning(f"User has been notified about potential ransomware in {main_file_path}")
                 print(f"User has been notified about potential ransomware in {main_file_path}")
@@ -2311,7 +2377,7 @@ class WindowMonitor:
         logging.warning(f"Detected potential antivirus disable malware: {virus_name}\nFull Text: {text}")
 
     def process_detected_window_ransom(self, text):
-        virus_name = "HEUR:Win32.Ransomware.Message.Generic"
+        virus_name = "HEUR:Win32.Ransom.Message.Generic"
         notify_user_ransomware(virus_name)
         logging.warning(f"Ransomware message detected: {virus_name}\nFull Text: {text}")
 
@@ -2377,7 +2443,7 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=scan_and_warn, args=(file_path,)).start()
         threading.Thread(target=start_monitoring_sandbox).start()
         threading.Thread(target=scan_sandbox_folder).start()
-        threading.Thread(target=capture_wifi_passwords).start()
+        threading.Thread(target=heuristics_of_commandline).start()
         threading.Thread(target=check_startup_directories).start()
         threading.Thread(target=check_sandbox_directory).start()
         threading.Thread(target=monitor_user_directory).start()
