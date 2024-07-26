@@ -596,6 +596,17 @@ def notify_user(file_path, virus_name):
     notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
+def notify_user_for_detected_fake_system_file(file_path, file_name, virus_name):
+    notification = Notify()
+    notification.title = "Fake System File Alert"
+    notification.message = (
+        f"Fake system file detected:\n"
+        f"File Path: {file_path}\n"
+        f"File Name: {file_name}\n"
+        f"Threat: {virus_name}"
+    )
+    notification.send()
+
 def notify_user_for_detected_wifi_command(file_path, cmdline, virus_name):
     notification = Notify()
     notification.title = "Wi-Fi Password Capture Alert"
@@ -1121,6 +1132,7 @@ device_args = [f"-i {i}" for i in range(1, 26)]  # Fixed device arguments
 username = os.getlogin()
 sandbox_folder = rf'C:\Sandbox\{username}\DefaultBox'
 hosts_path = rf'{sandbox_folder}\drive\C\Windows\System32\drivers\etc\hosts'
+main_drive_path = rf'{sandbox_folder}\drive\C'
 
 uefi_100kb_paths = [
     rf'{sandbox_folder}\drive\X\EFI\Microsoft\Boot\SecureBootRecovery.efi'
@@ -1141,6 +1153,26 @@ FILE_NOTIFY_CHANGE_EA = 0x00000080
 FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
+
+fake_system_files = [
+    'svchost.exe',
+    'rundll32.exe',
+    'powershell.exe',
+    'regsvr32.exe',
+    'spoolsv.exe',
+    'lsass.exe',
+    'smss.exe',
+    'csrss.exe',
+    'conhost.exe',
+    'wininit.exe',
+    'winlogon.exe',
+    'taskhost.exe',
+    'taskmgr.exe',
+    'runtimebroker.exe',
+    'smartscreen.exe',
+    'dllhost.exe',
+    'services.exe'
+]
 
 def monitor_sandbox():
     hDir = win32file.CreateFile(
@@ -1177,6 +1209,12 @@ def monitor_sandbox():
                 pathToScan = os.path.join(sandbox_folder, file)
                 print(pathToScan)
                 scan_and_warn(pathToScan)
+                if os.path.abspath(pathToScan).startswith(main_drive_path):
+                    file_name = os.path.basename(pathToScan)
+                    if file_name in fake_system_files:
+                        logging.warning(f"Fake system file detected: {pathToScan}")
+                        print(f"Warning: Fake system file detected: {pathToScan}")
+                        notify_user_for_detected_fake_system_file(pathToScan, file_name, "HEUR:Win32.FakeSystemFile.Dropper.Generic")
     except Exception as e:
         print("An error occurred at monitor_sandbox:", e)
         logging.error(f"An error occurred at monitor_sandbox: {e}")
@@ -2289,6 +2327,25 @@ class WindowMonitor:
         notify_user_fan_made(virus_name)
         logging.warning(f"FanMade GDI Malware detected: {virus_name}\nFull Text: {text}")
 
+# List of already scanned files to avoid reprocessing
+scanned_files = []
+
+def scan_sandbox_folder():
+    global scanned_files
+    # Directories to monitor
+    directories_to_scan = [sandbox_folder, decompile_dir]
+
+    while True:
+        for directory in directories_to_scan:
+            for root, _, files in os.walk(directory):
+                for file in files:
+                    file_path = os.path.join(root, file)
+
+                    # Only scan files that haven't been scanned yet
+                    if file_path not in scanned_files:
+                        scan_and_warn(file_path)
+                        scanned_files.append(file_path)
+
 def perform_sandbox_analysis(file_path):
     global main_file_path
     try:
@@ -2337,25 +2394,6 @@ def run_sandboxie(file_path):
         subprocess.run([sandboxie_path, '/box:DefaultBox', file_path], check=True)
     except subprocess.CalledProcessError as e:
         logging.error(f"Failed to run Sandboxie on {file_path}: {e}")
-
-# List of already scanned files to avoid reprocessing
-scanned_files = []
-
-def scan_sandbox_folder():
-    global scanned_files
-    # Directories to monitor
-    directories_to_scan = [sandbox_folder, decompile_dir]
-
-    while True:
-        for directory in directories_to_scan:
-            for root, _, files in os.walk(directory):
-                for file in files:
-                    file_path = os.path.join(root, file)
-
-                    # Only scan files that haven't been scanned yet
-                    if file_path not in scanned_files:
-                        scan_and_warn(file_path)
-                        scanned_files.append(file_path)
 
 def main():
     try:
