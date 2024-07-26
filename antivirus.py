@@ -1315,7 +1315,7 @@ def heuristics_of_commandline():
     Continuously monitor processes for specific command lines and capture Wi-Fi passwords, shadow copy deletion commands,
     copying files to startup via PowerShell, multiple taskkill commands, Koadic rootkit commands, and Fodhelper UAC Bypass commands.
     """
-    wifi_commands = ['netsh wlan show profile']
+    wifi_commands = 'netsh wlan show profile'
     shadow_copy_command = 'Get-WmiObject Win32_Shadowcopy | ForEach-Object {$_.Delete();}'
     shadow_copy_command_base64 = 'RwBlAHQALQBXAG0AaQBPAGIAagBlAGMAdAAgAFcAaQBuADMAMgBfAFMAaABoAGQAbwB3AGMAbwBwAHkAIAB8ACAARgBvAHIARQBhAGMAaAAtAE8AYgBqAGUAYwB0ACAAewAkAF8ALgBEAGUAbABlAHQAZQAoACkAOwB9AA=='
     wmic_command = 'wmic shadowcopy delete'
@@ -1333,7 +1333,7 @@ def heuristics_of_commandline():
         '*reg add*hkcu\\software\\classes\\ms-settings\\shell\\open\\command*'
     ]
 
-    wifi_command_doc = nlp_spacy_lang(wifi_commands[0])
+    wifi_command_doc = nlp_spacy_lang(wifi_commands)
     shadow_copy_command_doc = nlp_spacy_lang(shadow_copy_command)
     shadow_copy_command_base64_doc = nlp_spacy_lang(shadow_copy_command_base64)
     wmic_command_doc = nlp_spacy_lang(wmic_command)
