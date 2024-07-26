@@ -618,18 +618,6 @@ def notify_user_for_detected_wifi_command(file_path, cmdline, virus_name):
     )
     notification.send()
 
-def notify_user_for_detected_ransomware_command(file_path, cmdline, virus_name, base64=False):
-    notification = Notify()
-    notification.title = "Ransomware Shadow Copy Deletion Alert"
-    base64_text = " (Base64)" if base64 else ""
-    notification.message = (
-        f"Potential ransomware shadow copy deletion command detected:\n"
-        f"File Path: {file_path}\n"
-        f"Command Line: {' '.join(cmdline)}\n"
-        f"Threat: {virus_name}{base64_text}"
-    )
-    notification.send()
-
 def notify_user_for_detected_ransomware_command(file_path, cmdline, virus_name, base64=False, source=None):
     notification = Notify()
     notification.title = "Ransomware Shadow Copy Deletion Alert"
@@ -643,6 +631,17 @@ def notify_user_for_detected_ransomware_command(file_path, cmdline, virus_name, 
     )
     notification.send()
 
+def notify_user_for_detected_koadic_command(file_path, cmdline, virus_name):
+    notification = Notify()
+    notification.title = "Koadic Rootkit Alert"
+    notification.message = (
+        f"Potential Koadic post exploitation rootkit command detected:\n"
+        f"File Path: {file_path}\n"
+        f"Command Line: {' '.join(cmdline)}\n"
+        f"Threat: {virus_name}"
+    )
+    notification.send()
+
 def notify_user_for_detected_taskkill_command(file_path, cmdline, virus_name):
     notification = Notify()
     notification.title = "Multiple Taskkill Command Alert"
@@ -650,6 +649,16 @@ def notify_user_for_detected_taskkill_command(file_path, cmdline, virus_name):
         f"Potential multiple taskkill commands detected:\n"
         f"File Path: {file_path}\n"
         f"Command Line: {' '.join(cmdline)}\n"
+        f"Threat: {virus_name}"
+    )
+    notification.send()
+
+def notify_user_for_detected_rootkit(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Rootkit Detection Alert"
+    notification.message = (
+        f"Potential rootkit file detected:\n"
+        f"File Path: {file_path}\n"
         f"Threat: {virus_name}"
     )
     notification.send()
@@ -1168,7 +1177,14 @@ device_args = [f"-i {i}" for i in range(1, 26)]  # Fixed device arguments
 username = os.getlogin()
 sandbox_folder = rf'C:\Sandbox\{username}\DefaultBox'
 hosts_path = rf'{sandbox_folder}\drive\C\Windows\System32\drivers\etc\hosts'
+drivers_path = rf'{sandbox_folder}\drive\C\Windows\System32\drivers'
 main_drive_path = rf'{sandbox_folder}\drive\C'
+
+# Define the list of known rootkit filenames
+known_rootkit_files = [
+    'MoriyaStreamWatchmen.sys',
+    # Add more rootkit filenames here if needed
+]
 
 uefi_100kb_paths = [
     rf'{sandbox_folder}\drive\X\EFI\Microsoft\Boot\SecureBootRecovery.efi'
@@ -1286,7 +1302,7 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line):
 def heuristics_of_commandline():
     """
     Continuously monitor processes for specific command lines and capture Wi-Fi passwords, shadow copy deletion commands,
-    copying files to startup via PowerShell, and multiple taskkill commands.
+    copying files to startup via PowerShell, multiple taskkill commands, and Koadic rootkit commands.
     """
     wifi_commands = ['netsh wlan show profile']
     shadow_copy_command = 'Get-WmiObject Win32_Shadowcopy | ForEach-Object {$_.Delete();}'
@@ -1295,12 +1311,20 @@ def heuristics_of_commandline():
     copy_to_startup_command = 'copy-item *\\roaming\\microsoft\\windows\\start menu\\programs\\startup*'
     taskkill_command = 'taskkill /f'
 
+    # Koadic specific command line patterns
+    koadic_command_patterns = [
+        '*chcp 437 & schtasks /query /tn K0adic*',
+        '*chcp 437 & schtasks /create /tn K0adic*'
+    ]
+
     wifi_command_doc = nlp_spacy_lang(wifi_commands[0])
     shadow_copy_command_doc = nlp_spacy_lang(shadow_copy_command)
     shadow_copy_command_base64_doc = nlp_spacy_lang(shadow_copy_command_base64)
     wmic_command_doc = nlp_spacy_lang(wmic_command)
     copy_to_startup_command_doc = nlp_spacy_lang(copy_to_startup_command)
     taskkill_command_doc = nlp_spacy_lang(taskkill_command)
+    
+    koadic_command_docs = [nlp_spacy_lang(pattern) for pattern in koadic_command_patterns]
     
     while True:
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
@@ -1353,6 +1377,16 @@ def heuristics_of_commandline():
                         logging.warning(f"Potential multiple taskkill commands detected: {cmdline_text} (count: {cmdline_text.count(taskkill_command)})")
                         print(f"Warning: Potential multiple taskkill commands detected: {cmdline_text} (count: {cmdline_text.count(taskkill_command)})")
                         notify_user_for_detected_taskkill_command(file_path, cmdline_text, "HEUR:Win32.Kill.Multiple.Processes")
+
+                    # Check for Koadic rootkit commands
+                    for koadic_command_doc in koadic_command_docs:
+                        koadic_similarity = koadic_command_doc.similarity(cmdline_doc)
+                        if koadic_similarity >= 0.86:
+                            file_path = proc.info.get('exe', 'Unknown')
+                            logging.warning(f"Potential Koadic post exploitation rootkit command detected: {cmdline_text} (similarity: {koadic_similarity})")
+                            print(f"Warning: Potential Koadic post exploitation rootkit command detected: {cmdline_text} (similarity: {koadic_similarity})")
+                            notify_user_for_detected_koadic_command(file_path, cmdline_text, "HEUR:Koadic.Rootkit.Command")
+
             except psutil.NoSuchProcess:
                 logging.error(f"Process no longer exists: {proc.info.get('pid')}")
             except psutil.AccessDenied:
@@ -1613,6 +1647,14 @@ def scan_and_warn(file_path):
             "signature_status_issues": False
         }
 
+        # Extract the file name
+        file_name = os.path.basename(file_path)
+
+        # Check if the file is a known rootkit file
+        if file_name in known_rootkit_files:
+            logging.warning(f"Detected potential rootkit file: {file_path}")
+            notify_user_for_detected_rootkit(file_path, f"HEUR:Rootkit.{file_name}")
+
         # Check if the file is in the decompile directory and scan
         if os.path.dirname(file_path) == decompile_dir:
             logging.info(f"File is in the decompile directory: {file_path}. Scanning file.")
@@ -1641,8 +1683,6 @@ def scan_and_warn(file_path):
 
             # Check for PE file and signatures
             signature_check = check_signature(file_path)
-
-            file_name = os.path.basename(file_path)
 
             if signature_check["has_microsoft_signature"]:
                 logging.info(f"Valid Microsoft signature detected for file: {file_path}")
