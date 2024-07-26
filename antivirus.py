@@ -596,6 +596,17 @@ def notify_user(file_path, virus_name):
     notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
+def notify_user_for_detected_wifi_command(file_path, cmdline, virus_name):
+    notification = Notify()
+    notification.title = "Wi-Fi Password Capture Alert"
+    notification.message = (
+        f"Potential Wi-Fi password capture command detected:\n"
+        f"File Path: {file_path}\n"
+        f"Command Line: {' '.join(cmdline)}\n"
+        f"Threat: {virus_name}"
+    )
+    notification.send()
+
 def notify_user_invalid(file_path, virus_name):
     notification = Notify()
     notification.title = "Invalid signature Alert"
@@ -1204,6 +1215,29 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line):
         except Exception as e:
             logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {e}")
 
+def capture_wifi_passwords():
+    """
+    Continuously capture Wi-Fi passwords by monitoring processes for specific command lines.
+    """
+    wifi_commands = ['netsh wlan show profile']
+    while True:
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                cmdline = proc.info['cmdline']
+                if any(command in ' '.join(cmdline) for command in wifi_commands):
+                    file_path = proc.info.get('exe', 'Unknown')
+                    logging.warning(f"Potential Wi-Fi password capture command detected: {cmdline}")
+                    print(f"Warning: Potential Wi-Fi password capture command detected: {cmdline}")
+                    notify_user_for_detected_wifi_command(file_path, cmdline, "HEUR:Win32.Wi-Fi.Password.Stealer.Generic")
+            except psutil.NoSuchProcess:
+                logging.error(f"Process no longer exists: {proc.info.get('pid')}")
+            except psutil.AccessDenied:
+                logging.error(f"Access denied to process: {proc.info.get('pid')}")
+            except psutil.ZombieProcess:
+                logging.error(f"Zombie process encountered: {proc.info.get('pid')}")
+            except Exception as e:
+                logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {e}")
+            
 def process_alert(line):
     try:
         match = alert_regex.search(line)
@@ -2283,6 +2317,7 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=scan_and_warn, args=(file_path,)).start()
         threading.Thread(target=start_monitoring_sandbox).start()
         threading.Thread(target=scan_sandbox_folder).start()
+        threading.Thread(target=capture_wifi_passwords).start()
         threading.Thread(target=check_startup_directories).start()
         threading.Thread(target=check_sandbox_directory).start()
         threading.Thread(target=monitor_user_directory).start()
