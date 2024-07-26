@@ -1212,9 +1212,14 @@ def monitor_sandbox():
                 if os.path.abspath(pathToScan).startswith(main_drive_path):
                     file_name = os.path.basename(pathToScan)
                     if file_name in fake_system_files:
-                        logging.warning(f"Fake system file detected: {pathToScan}")
-                        print(f"Warning: Fake system file detected: {pathToScan}")
-                        notify_user_for_detected_fake_system_file(pathToScan, file_name, "HEUR:Win32.FakeSystemFile.Dropper.Generic")
+                        signature_info = check_valid_signature_only(pathToScan)
+                        if not signature_info["is_valid"]:
+                            logging.warning(f"Fake system file detected with invalid signature: {pathToScan}")
+                            print(f"Warning: Fake system file detected with invalid signature: {pathToScan}")
+                            notify_user_for_detected_fake_system_file(pathToScan, file_name, "HEUR:Win32.FakeSystemFile.Dropper.Generic")
+                        else:
+                            logging.info(f"Fake system file detected with valid signature: {pathToScan}")
+                            print(f"Fake system file detected with valid signature: {pathToScan}")
     except Exception as e:
         print("An error occurred at monitor_sandbox:", e)
         logging.error(f"An error occurred at monitor_sandbox: {e}")
