@@ -1,0 +1,2493 @@
+Title: Add file from suspicious location to autostart registry
+
+Title: AntiVM
+
+Title: AppLocker Bypass via Regsvr32
+
+Title: Antivirus Exploitation Framework Detection
+
+Title: Antivirus Password Dumper Detection
+
+Title: Antivirus PrinterNightmare CVE-2021-34527 Exploit Detection
+
+Title: Antivirus Ransomware Detection
+
+Title: bitsadmin download and execute
+
+Title: Capture Wi-Fi password
+
+Title: Check external IP via Powershell
+
+Title: Copy file to startup via Powershell
+
+Title: Copy itself to suspicious location via type command 
+
+Title: Credwiz util dropped by mshta for dll sideloading
+
+Title: DarkGate
+
+Title: Decode DLL Via Certutil
+
+Title: Decode strings from lnk via findstr.exe
+
+Title: Delete Shadow Copy Via Powershell
+
+Title: Delete shadow copy via WMIC
+
+Title: Dot net compiler compiles file from suspicious location
+
+Title: Invoke-Obfuscation VAR++ LAUNCHER OBFUSCATION
+CommandLine: id: 8e4cf0e5-aa5d-4dc3-beff-dc26917744a9
+CommandLine: attack.exfiltration
+CommandLine: attack.t1048
+
+Title: Drops a DLL with WLL extension to the startup
+
+Title: Drops fake system file at system root drive
+
+Title: Drops script at startup location
+
+Title: EQNEDT32.EXE connecting to internet 
+
+Title: Execute DLL with spoofed extension
+
+Title: Execute dll with txt extension from temp location 
+
+Title: Execute Scriptlet from internet Via Regsvr32
+
+Title: Execute Scriptlet Via Regsvr32
+
+Title: Execute Script with spoofed extension
+
+Title: Exe Launched By ReflectiveLoader Dll
+
+Title: File Dropped By EQNEDT32EXE
+
+Title: APT29 2018 Phishing Campaign File Indicators
+
+Title: CVE-2021-1675 Print Spooler Exploitation Filename Pattern
+
+Title: CVE-2021-31979 CVE-2021-33771 Exploits by Sourgum
+
+Title: InstallerFileTakeOver LPE CVE-2021-41379 File Create Event
+
+Title: SNAKE Malware Kernel Driver File Indicator
+
+Title: Moriya Rootkit File Created
+
+Title: Fodhelper UAC Bypass
+
+Title: Geofenced Ru
+
+Title: Get2 Downloader
+
+Title: Get antivirus details via WMIC query
+
+Title: Hide copy and delete itself
+
+Title: IcedID Downloader
+
+Title: Malicious DLL Load By Compromised 3CXDesktopApp
+
+Title: FoggyWeb Backdoor DLL Loading
+
+Title: Kill multiple process
+
+Title: Koadic post exploitation rootkit
+
+Title: LimeRAT
+
+Title: Possible Coin Miner CPU Priority Param
+
+Title: Webshell Remote Command Execution
+
+Title: Sudo Privilege Escalation CVE-2019-14287 - Builtin
+
+Title: To detect log4shell
+
+Title: MedusaLocker
+
+Title: ms-msdt for RCE CVE-2022-30190
+
+Title: MSBuild execute suspicous task
+
+Title: MSBuild Launched By Scr
+
+Title: Mshta Download Pastebin
+
+Title: msiexec download and execute
+
+Title: NanoCore
+
+Title: NetWire
+
+Title: Linux Reverse Shell Indicator
+
+Title: Large domain name request
+
+Title: Office product drops executable at suspicious location
+
+Title: Office product drops script at suspicious location
+
+Title: ONENOTE drops suspicious file
+
+Title: Turla Group Named Pipes
+
+Title: Powershell add exclusion path, extension and process
+
+Title: Powershell adding suspicious path to exclusion list
+
+Title: Powershell create lnk in startup
+
+Title: Powershell Decrypt And Execute Base64 Data
+
+Title: Powershell delayed execution via ping command
+
+Title: Powershell download and execute file  
+
+Title: Powershell Download and Execute IEX
+
+Title: Powershell download and load assembly 
+
+Title: Powershell download file and shellexecute
+
+Title: Powershell download file from base64 url
+
+Title: Powershell downloading file from url shortener site
+
+Title: Powershell download payload from hardcoded c2 list
+
+Title: Powershell drops NetSupport RAT client
+
+Title: Powershell execute code from registry
+
+Title: Powershell IEX Download In Base64
+
+Title: Powershell Launched By Winword
+
+Title: Powershell launch regsvr32
+
+Title: Powershell launch wmic via class
+
+Title: Powershell launch wscript
+
+Title: Powershell load assembly from internet
+
+Title: Powershell load assembly from registry
+
+Title: powershell registry execution via wmic
+
+Title: Powershell run code from registry
+
+Title: Powershell sleep and launch executable
+
+Title: UNC4841 - Potential SEASPY Execution
+
+Title: APT27 - Emissary Panda Activity
+
+Title: APT29 2018 Phishing Campaign CommandLine Indicators
+
+Title: APT31 Judgement Panda Activity
+
+Title: Potential Russian APT Credential Theft Activity
+
+Title: Equation Group DLL_U Export Function Load
+
+Title: EvilNum APT Golden Chickens Deployment Via OCX Files
+
+Title: Greenbug Espionage Group Indicators
+
+Title: HAFNIUM Exchange Exploitation Activity
+
+Title: Lazarus Group Activity
+
+Title: Mint Sandstorm - AsperaFaspex Suspicious Process Execution
+
+Title: Mint Sandstorm - ManageEngine Suspicious Process Execution
+
+Title: OilRig APT Activity
+
+Title: REvil Kaseya Incident Malware Patterns
+
+Title: Turla Group Lateral Movement
+
+Title: Turla Group Commands May 2020
+
+Title: UNC2452 PowerShell Pattern
+
+Title: Winnti Malware HK University Campaign
+
+Title: Winnti Pipemon Characteristics
+
+Title: ZxShell Malware
+
+Title: Exploit for CVE-2015-1641
+
+Title: Droppers Exploiting CVE-2017-11882
+
+Title: Exploit for CVE-2017-8759
+
+Title: Exploiting CVE-2019-1388
+
+Title: DNS RCE CVE-2020-1350
+
+Title: Serv-U Exploitation CVE-2021-35211 by DEV-0322
+
+Title: Potential CVE-2021-41379 Exploitation Attempt
+
+Title: Potential SystemNightmare Exploitation Attempt
+
+Title: Potential SMB Relay Attack Tool Execution
+
+Title: HackTool - Rubeus Execution
+
+Title: HackTool - SafetyKatz Execution
+
+Title: HackTool - SecurityXploded Execution
+
+Title: HackTool - SharpUp PrivEsc Tool Execution
+
+Title: HackTool - Sliver C2 Implant Activity Pattern
+
+Title: HackTool - SysmonEOP Execution
+
+Title: HackTool - Windows Credential Editor (WCE) Execution
+
+Title: Potential Credential Dumping Via LSASS Process Clone
+
+Title: COLDSTEEL RAT Cleanup Command Execution
+
+Title: COLDSTEEL RAT Service Persistence Execution
+
+Title: Potential Conti Ransomware Activity
+
+Title: DarkSide Ransomware Pattern
+
+Title: Potential Dridex Activity
+
+Title: Potential Dtrack RAT Activity
+
+Title: Elise Backdoor Activity
+
+Title: Potential Emotet Rundll32 Execution
+
+Title: Griffon Malware Attack Pattern
+
+Title: LockerGoga Ransomware Activity
+
+Title: Potential Maze Ransomware Activity
+
+Title: NotPetya Ransomware Activity
+
+Title: Qakbot Rundll32 Exports Execution
+
+Title: Qakbot Rundll32 Fake DLL Extension Execution
+
+Title: Potential QBot Activity
+
+Title: Rorschach Ransomware Execution Activity
+
+Title: WannaCry Ransomware Activity
+
+Title: Suspicious Child Process Of Veeam Dabatase
+
+Title: Suspicious PowerShell Mailbox Export to Share
+
+Title: Renamed Whoami Execution
+
+Title: Suspicious Double Extension File Execution
+
+Title: DumpStack.log Defender Evasion
+
+Title: TrustedPath UAC Bypass Pattern
+
+Title: WMI Backdoor Exchange Transport Agent
+
+Title: BabyShark Agent Pattern
+
+Title: Chafer Malware URL Pattern
+
+Title: CobaltStrike Malformed UAs in Malleable Profiles
+
+Title: OWASSRF Exploitation Attempt Using Public POC - Proxy
+
+Title: Potential CVE-2023-36884 Exploitation Pattern
+
+Title: iOS Implant URL Pattern
+
+Title: Small Sieve Malware Potential C2 Communication
+
+Title: PwnDrp Access
+
+Title: Ursnif Malware C2 URL Pattern
+
+Title: Quasar
+
+Title: ReflectiveLoader
+
+Title: RegAsm connects to smtp port
+
+Title: Register dll at autostart location via regsvr32
+
+Title: Register DLL with spoofed extension
+
+Title: Register Jar In Run Key
+
+Title: Register Wscript In Run Key
+CommandLine: https://www.fortinet.com/blog/threat-research/new-netwire-rat-variant-spread-by-phishing
+CommandLine: https://resources.infosecinstitute.com/topic/netwire-malware-what-it-is-how-it-works-and-how-to-prevent-it-malware-spotlight/
+CommandLine: https://unit42.paloaltonetworks.com/guloader-installing-netwire-rat/
+CommandLine: https://blogs.blackberry.com/en/2021/09/threat-thursday-netwire-rat-is-coming-down-the-line
+CommandLine: https://app.any.run/tasks/41ecdbde-4997-4301-a350-0270448b4c8f/
+CommandLine: attack.defense_evasion
+CommandLine: attack.t1112
+
+Title: Leviathan Registry Key Activity
+
+Title: OceanLotus Registry Activity
+
+Title: OilRig APT Registry Persistence
+
+Title: Pandemic Registry Key
+
+Title: Windows Credential Editor Registry
+
+Title: Registry Entries For Azorult Malware
+
+Title: FlowCloud Malware
+
+Title: PrinterNightmare Mimikatz Driver Name
+
+Title: Potential Credential Dumping Via LSASS SilentProcessExit Technique
+
+Title: Security Support Provider (SSP) Added to LSA Configuration
+
+Title: Sticky Key Like Backdoor Usage - Registry
+
+Title: CobaltStrike Service Installations in Registry
+
+Title: CVE-2021-31979 CVE-2021-33771 Exploits
+
+Title: Remcos
+
+Title: Renamed MSHTA launching html
+
+Title: Rename system process and copy to suspicious location
+
+Title: RMSRemoteAdmin
+
+Title: Run CertUtil from suspicious location
+
+Title: rundll32 launch mshta and run script from internet
+
+Title: rundll32 run dll from internet
+
+Title: Application Bypass with RunDLL32 and DllRegisterServer Function
+
+Title: Ryuk
+
+Title: Schedule binary from dotnet directory
+
+Title: Schedule CERTUTIL windows binary
+
+Title: Schedule REGSVR windows binary
+
+Title: Schedule script as task
+
+Title: Schedule script from internet via mshta
+
+Title: Schedule system process
+
+Title: Scheduled temp file as task from temp location
+
+Title: Schedule VBS From Appdata
+
+Title: Set autostart key via New-ItemProperty Cmdlet  
+
+Title: Set custom UserAgent and download file via Powershell 
+
+Title: Shedule hidden powershell script
+
+Title: Shedule powershell with encoded command parameter
+
+Title: AntiVM
+CommandLine: '*.downloadfile([system.text.encoding]::ascii.getstring([system.convert]::frombase64string(*'
+CommandLine: '*bitsadmin /transfer*http*start %APPDATA%*'
+CommandLine: '*/transfer*http*.dll&& rundll32*'
+CommandLine: '*powershell*start-bitstransfer*start-process*'
+CommandLine: https://www.slideshare.net/heirhabarov/hunting-for-credentials-dumping-in-windows-environment
+CommandLine: https://blog.talosintelligence.com/2017/05/wannacry.html
+CommandLine: https://securingtomorrow.mcafee.com/other-blogs/mcafee-labs/new-teslacrypt-ransomware-arrives-via-spam/
+CommandLine: https://www.bleepingcomputer.com/news/security/why-everyone-should-disable-vssadmin-exe-now/
+CommandLine: https://www.hybrid-analysis.com/sample/ed01ebfbc9eb5bbea545af4d01bf5f1071661840480439c6e5babe8e080e41aa?environmentId=100
+CommandLine: https://github.com/Neo23x0/Raccine#the-process
+CommandLine: https://github.com/Neo23x0/Raccine/blob/main/yara/gen_ransomware_command_lines.yar
+CommandLine: https://redcanary.com/blog/intelligence-insights-october-2021/
+CommandLine: attack.defense_evasion
+CommandLine: attack.impact
+CommandLine: attack.t1070
+CommandLine: attack.t1490
+CommandLine: '\powershell.exe'
+CommandLine: '\wmic.exe'
+CommandLine: '\vssadmin.exe'
+CommandLine: '\diskshadow.exe'
+CommandLine: shadow  # will match "delete shadows" and "shadowcopy delete" and "shadowstorage"
+CommandLine: delete
+CommandLine: '\wbadmin.exe'
+CommandLine: delete
+CommandLine: catalog
+CommandLine: quiet # will match -quiet or /quiet
+CommandLine: resize
+CommandLine: shadowstorage
+CommandLine: unbounded
+CommandLine: '*powershell*api.ipify.org*'
+CommandLine: '*findstr /b /i *.lnk*'
+CommandLine: '*powershell*RwBlAHQALQBXAG0AaQBPAGIAagBlAGMAdAAgAFcAaQBuADMAMgBfAFMAaABhAGQAbwB3AGMAbwBwAHkAIAB8ACAARgBvAHIARQBhAGMAaAAtAE8AYgBqAGUAYwB0ACAAewAkAF8ALgBEAGUAbABlAHQAZQAoACkAOwB9AA==*'
+CommandLine: '*R2V0LVVJQ3VsdHVyZSkuTmFtZSAtbWF0Y2ggIkNOfFJPfFJVfFVBfEJZI*'
+CommandLine: '*attrib +s +h *timeout /t *del /f /q*'
+CommandLine: '*cmd*type*>*\AppData*'
+CommandLine: https://en.wikipedia.org/wiki/Hooking
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowhookexe
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-unhookwindowshookex
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-callnexthookex
+CommandLine: attack.persistence
+CommandLine: attack.t1179
+CommandLine: malware.generic
+CommandLine: 'SetWindowsHookExA'
+CommandLine: 'SetWindowsHookExW'
+CommandLine: 'UnhookWindowsHookEx'
+CommandLine: 'CallNextHookEx'
+CommandLine: '*cmd*taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*'
+CommandLine: name: Bitsadmin Download (cmd)
+CommandLine: windows
+CommandLine: name: Bitsadmin Download (PowerShell)
+CommandLine: windows
+CommandLine: name: Persist, Download, & Execute
+CommandLine: windows
+CommandLine: name: Bits download using destktopimgdownldr.exe (cmd)
+CommandLine: windows
+CommandLine: '*ping -n * & powershell.exe -executionpolicy bypass -noninteractive -windowstyle hidden*'
+CommandLine: https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1490/T1490.md
+CommandLine: https://github.com/SigmaHQ/sigma/blob/master/rules/windows/process_creation/win_shadow_copies_deletion.yml
+CommandLine: https://www.fortinet.com/blog/threat-research/stomping-shadow-copies-a-second-look-into-deletion-methods
+CommandLine: attack.impact
+CommandLine: attack.t1490
+CommandLine: 'Get-WmiObject'
+CommandLine: ' Win32_Shadowcopy'
+CommandLine: 'Delete()'
+CommandLine: 'Remove-WmiObject'
+
+Title: AntiVM
+CommandLine: '*.downloadfile([system.text.encoding]::ascii.getstring([system.convert]::frombase64string(*'
+CommandLine: '*bitsadmin /transfer*http*start %APPDATA%*'
+CommandLine: '*/transfer*http*.dll&& rundll32*'
+CommandLine: '*powershell*start-bitstransfer*start-process*'
+CommandLine: https://www.slideshare.net/heirhabarov/hunting-for-credentials-dumping-in-windows-environment
+CommandLine: https://blog.talosintelligence.com/2017/05/wannacry.html
+CommandLine: https://securingtomorrow.mcafee.com/other-blogs/mcafee-labs/new-teslacrypt-ransomware-arrives-via-spam/
+CommandLine: https://www.bleepingcomputer.com/news/security/why-everyone-should-disable-vssadmin-exe-now/
+CommandLine: https://www.hybrid-analysis.com/sample/ed01ebfbc9eb5bbea545af4d01bf5f1071661840480439c6e5babe8e080e41aa?environmentId=100
+CommandLine: https://github.com/Neo23x0/Raccine#the-process
+CommandLine: https://github.com/Neo23x0/Raccine/blob/main/yara/gen_ransomware_command_lines.yar
+CommandLine: https://redcanary.com/blog/intelligence-insights-october-2021/
+CommandLine: attack.defense_evasion
+CommandLine: attack.impact
+CommandLine: attack.t1070
+CommandLine: attack.t1490
+CommandLine: '\powershell.exe'
+CommandLine: '\wmic.exe'
+CommandLine: '\vssadmin.exe'
+CommandLine: '\diskshadow.exe'
+CommandLine: shadow  # will match "delete shadows" and "shadowcopy delete" and "shadowstorage"
+CommandLine: delete
+CommandLine: '\wbadmin.exe'
+CommandLine: delete
+CommandLine: catalog
+CommandLine: quiet # will match -quiet or /quiet
+CommandLine: resize
+CommandLine: shadowstorage
+CommandLine: unbounded
+CommandLine: '*powershell*api.ipify.org*'
+CommandLine: '*findstr /b /i *.lnk*'
+CommandLine: '*powershell*RwBlAHQALQBXAG0AaQBPAGIAagBlAGMAdAAgAFcAaQBuADMAMgBfAFMAaABhAGQAbwB3AGMAbwBwAHkAIAB8ACAARgBvAHIARQBhAGMAaAAtAE8AYgBqAGUAYwB0ACAAewAkAF8ALgBEAGUAbABlAHQAZQAoACkAOwB9AA==*'
+CommandLine: '*R2V0LVVJQ3VsdHVyZSkuTmFtZSAtbWF0Y2ggIkNOfFJPfFJVfFVBfEJZI*'
+CommandLine: '*attrib +s +h *timeout /t *del /f /q*'
+CommandLine: '*cmd*type*>*\AppData*'
+CommandLine: https://en.wikipedia.org/wiki/Hooking
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowhookexe
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-unhookwindowshookex
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-callnexthookex
+CommandLine: attack.persistence
+CommandLine: attack.t1179
+CommandLine: malware.generic
+CommandLine: 'SetWindowsHookExA'
+CommandLine: 'SetWindowsHookExW'
+CommandLine: 'UnhookWindowsHookEx'
+CommandLine: 'CallNextHookEx'
+CommandLine: '*cmd*taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*'
+CommandLine: name: Bitsadmin Download (cmd)
+CommandLine: windows
+CommandLine: name: Bitsadmin Download (PowerShell)
+CommandLine: windows
+CommandLine: name: Persist, Download, & Execute
+CommandLine: windows
+CommandLine: name: Bits download using destktopimgdownldr.exe (cmd)
+CommandLine: windows
+CommandLine: '*ping -n * & powershell.exe -executionpolicy bypass -noninteractive -windowstyle hidden*'
+CommandLine: https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1490/T1490.md
+CommandLine: https://github.com/SigmaHQ/sigma/blob/master/rules/windows/process_creation/win_shadow_copies_deletion.yml
+CommandLine: https://www.fortinet.com/blog/threat-research/stomping-shadow-copies-a-second-look-into-deletion-methods
+CommandLine: attack.impact
+CommandLine: attack.t1490
+CommandLine: 'Get-WmiObject'
+CommandLine: ' Win32_Shadowcopy'
+CommandLine: 'Delete()'
+CommandLine: 'Remove-WmiObject'
+
+Title: AntiVM
+CommandLine: '*.downloadfile([system.text.encoding]::ascii.getstring([system.convert]::frombase64string(*'
+CommandLine: '*bitsadmin /transfer*http*start %APPDATA%*'
+CommandLine: '*/transfer*http*.dll&& rundll32*'
+CommandLine: '*powershell*start-bitstransfer*start-process*'
+CommandLine: https://www.slideshare.net/heirhabarov/hunting-for-credentials-dumping-in-windows-environment
+CommandLine: https://blog.talosintelligence.com/2017/05/wannacry.html
+CommandLine: https://securingtomorrow.mcafee.com/other-blogs/mcafee-labs/new-teslacrypt-ransomware-arrives-via-spam/
+CommandLine: https://www.bleepingcomputer.com/news/security/why-everyone-should-disable-vssadmin-exe-now/
+CommandLine: https://www.hybrid-analysis.com/sample/ed01ebfbc9eb5bbea545af4d01bf5f1071661840480439c6e5babe8e080e41aa?environmentId=100
+CommandLine: https://github.com/Neo23x0/Raccine#the-process
+CommandLine: https://github.com/Neo23x0/Raccine/blob/main/yara/gen_ransomware_command_lines.yar
+CommandLine: https://redcanary.com/blog/intelligence-insights-october-2021/
+CommandLine: attack.defense_evasion
+CommandLine: attack.impact
+CommandLine: attack.t1070
+CommandLine: attack.t1490
+CommandLine: '\powershell.exe'
+CommandLine: '\wmic.exe'
+CommandLine: '\vssadmin.exe'
+CommandLine: '\diskshadow.exe'
+CommandLine: shadow  # will match "delete shadows" and "shadowcopy delete" and "shadowstorage"
+CommandLine: delete
+CommandLine: '\wbadmin.exe'
+CommandLine: delete
+CommandLine: catalog
+CommandLine: quiet # will match -quiet or /quiet
+CommandLine: resize
+CommandLine: shadowstorage
+CommandLine: unbounded
+CommandLine: '*powershell*api.ipify.org*'
+CommandLine: '*findstr /b /i *.lnk*'
+CommandLine: '*powershell*RwBlAHQALQBXAG0AaQBPAGIAagBlAGMAdAAgAFcAaQBuADMAMgBfAFMAaABhAGQAbwB3AGMAbwBwAHkAIAB8ACAARgBvAHIARQBhAGMAaAAtAE8AYgBqAGUAYwB0ACAAewAkAF8ALgBEAGUAbABlAHQAZQAoACkAOwB9AA==*'
+CommandLine: '*R2V0LVVJQ3VsdHVyZSkuTmFtZSAtbWF0Y2ggIkNOfFJPfFJVfFVBfEJZI*'
+CommandLine: '*attrib +s +h *timeout /t *del /f /q*'
+CommandLine: '*cmd*type*>*\AppData*'
+CommandLine: https://en.wikipedia.org/wiki/Hooking
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowhookexe
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-unhookwindowshookex
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-callnexthookex
+CommandLine: attack.persistence
+CommandLine: attack.t1179
+CommandLine: malware.generic
+CommandLine: 'SetWindowsHookExA'
+CommandLine: 'SetWindowsHookExW'
+CommandLine: 'UnhookWindowsHookEx'
+CommandLine: 'CallNextHookEx'
+CommandLine: '*cmd*taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*'
+CommandLine: name: Bitsadmin Download (cmd)
+CommandLine: windows
+CommandLine: name: Bitsadmin Download (PowerShell)
+CommandLine: windows
+CommandLine: name: Persist, Download, & Execute
+CommandLine: windows
+CommandLine: name: Bits download using destktopimgdownldr.exe (cmd)
+CommandLine: windows
+CommandLine: '*ping -n * & powershell.exe -executionpolicy bypass -noninteractive -windowstyle hidden*'
+CommandLine: https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1490/T1490.md
+CommandLine: https://github.com/SigmaHQ/sigma/blob/master/rules/windows/process_creation/win_shadow_copies_deletion.yml
+CommandLine: https://www.fortinet.com/blog/threat-research/stomping-shadow-copies-a-second-look-into-deletion-methods
+CommandLine: attack.impact
+CommandLine: attack.t1490
+CommandLine: 'Get-WmiObject'
+CommandLine: ' Win32_Shadowcopy'
+CommandLine: 'Delete()'
+CommandLine: 'Remove-WmiObject'
+
+Title: AntiVM
+CommandLine: '*.downloadfile([system.text.encoding]::ascii.getstring([system.convert]::frombase64string(*'
+CommandLine: '*bitsadmin /transfer*http*start %APPDATA%*'
+CommandLine: '*/transfer*http*.dll&& rundll32*'
+CommandLine: '*powershell*start-bitstransfer*start-process*'
+CommandLine: https://www.slideshare.net/heirhabarov/hunting-for-credentials-dumping-in-windows-environment
+CommandLine: https://blog.talosintelligence.com/2017/05/wannacry.html
+CommandLine: https://securingtomorrow.mcafee.com/other-blogs/mcafee-labs/new-teslacrypt-ransomware-arrives-via-spam/
+CommandLine: https://www.bleepingcomputer.com/news/security/why-everyone-should-disable-vssadmin-exe-now/
+CommandLine: https://www.hybrid-analysis.com/sample/ed01ebfbc9eb5bbea545af4d01bf5f1071661840480439c6e5babe8e080e41aa?environmentId=100
+CommandLine: https://github.com/Neo23x0/Raccine#the-process
+CommandLine: https://github.com/Neo23x0/Raccine/blob/main/yara/gen_ransomware_command_lines.yar
+CommandLine: https://redcanary.com/blog/intelligence-insights-october-2021/
+CommandLine: attack.defense_evasion
+CommandLine: attack.impact
+CommandLine: attack.t1070
+CommandLine: attack.t1490
+CommandLine: '\powershell.exe'
+CommandLine: '\wmic.exe'
+CommandLine: '\vssadmin.exe'
+CommandLine: '\diskshadow.exe'
+CommandLine: shadow  # will match "delete shadows" and "shadowcopy delete" and "shadowstorage"
+CommandLine: delete
+CommandLine: '\wbadmin.exe'
+CommandLine: delete
+CommandLine: catalog
+CommandLine: quiet # will match -quiet or /quiet
+CommandLine: resize
+CommandLine: shadowstorage
+CommandLine: unbounded
+CommandLine: '*powershell*api.ipify.org*'
+CommandLine: '*findstr /b /i *.lnk*'
+CommandLine: '*powershell*RwBlAHQALQBXAG0AaQBPAGIAagBlAGMAdAAgAFcAaQBuADMAMgBfAFMAaABhAGQAbwB3AGMAbwBwAHkAIAB8ACAARgBvAHIARQBhAGMAaAAtAE8AYgBqAGUAYwB0ACAAewAkAF8ALgBEAGUAbABlAHQAZQAoACkAOwB9AA==*'
+CommandLine: '*R2V0LVVJQ3VsdHVyZSkuTmFtZSAtbWF0Y2ggIkNOfFJPfFJVfFVBfEJZI*'
+CommandLine: '*attrib +s +h *timeout /t *del /f /q*'
+CommandLine: '*cmd*type*>*\AppData*'
+CommandLine: https://en.wikipedia.org/wiki/Hooking
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowhookexe
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-unhookwindowshookex
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-callnexthookex
+CommandLine: attack.persistence
+CommandLine: attack.t1179
+CommandLine: malware.generic
+CommandLine: 'SetWindowsHookExA'
+CommandLine: 'SetWindowsHookExW'
+CommandLine: 'UnhookWindowsHookEx'
+CommandLine: 'CallNextHookEx'
+CommandLine: '*cmd*taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*'
+CommandLine: name: Bitsadmin Download (cmd)
+CommandLine: windows
+CommandLine: name: Bitsadmin Download (PowerShell)
+CommandLine: windows
+CommandLine: name: Persist, Download, & Execute
+CommandLine: windows
+CommandLine: name: Bits download using destktopimgdownldr.exe (cmd)
+CommandLine: windows
+CommandLine: '*ping -n * & powershell.exe -executionpolicy bypass -noninteractive -windowstyle hidden*'
+CommandLine: https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1490/T1490.md
+CommandLine: https://github.com/SigmaHQ/sigma/blob/master/rules/windows/process_creation/win_shadow_copies_deletion.yml
+CommandLine: https://www.fortinet.com/blog/threat-research/stomping-shadow-copies-a-second-look-into-deletion-methods
+CommandLine: attack.impact
+CommandLine: attack.t1490
+CommandLine: 'Get-WmiObject'
+CommandLine: ' Win32_Shadowcopy'
+CommandLine: 'Delete()'
+CommandLine: 'Remove-WmiObject'
+
+Title: AntiVM
+CommandLine: '*.downloadfile([system.text.encoding]::ascii.getstring([system.convert]::frombase64string(*'
+CommandLine: '*bitsadmin /transfer*http*start %APPDATA%*'
+CommandLine: '*/transfer*http*.dll&& rundll32*'
+CommandLine: '*powershell*start-bitstransfer*start-process*'
+CommandLine: https://www.slideshare.net/heirhabarov/hunting-for-credentials-dumping-in-windows-environment
+CommandLine: https://blog.talosintelligence.com/2017/05/wannacry.html
+CommandLine: https://securingtomorrow.mcafee.com/other-blogs/mcafee-labs/new-teslacrypt-ransomware-arrives-via-spam/
+CommandLine: https://www.bleepingcomputer.com/news/security/why-everyone-should-disable-vssadmin-exe-now/
+CommandLine: https://www.hybrid-analysis.com/sample/ed01ebfbc9eb5bbea545af4d01bf5f1071661840480439c6e5babe8e080e41aa?environmentId=100
+CommandLine: https://github.com/Neo23x0/Raccine#the-process
+CommandLine: https://github.com/Neo23x0/Raccine/blob/main/yara/gen_ransomware_command_lines.yar
+CommandLine: https://redcanary.com/blog/intelligence-insights-october-2021/
+CommandLine: attack.defense_evasion
+CommandLine: attack.impact
+CommandLine: attack.t1070
+CommandLine: attack.t1490
+CommandLine: '\powershell.exe'
+CommandLine: '\wmic.exe'
+CommandLine: '\vssadmin.exe'
+CommandLine: '\diskshadow.exe'
+CommandLine: shadow  # will match "delete shadows" and "shadowcopy delete" and "shadowstorage"
+CommandLine: delete
+CommandLine: '\wbadmin.exe'
+CommandLine: delete
+CommandLine: catalog
+CommandLine: quiet # will match -quiet or /quiet
+CommandLine: resize
+CommandLine: shadowstorage
+CommandLine: unbounded
+CommandLine: '*powershell*api.ipify.org*'
+CommandLine: '*findstr /b /i *.lnk*'
+CommandLine: '*powershell*RwBlAHQALQBXAG0AaQBPAGIAagBlAGMAdAAgAFcAaQBuADMAMgBfAFMAaABhAGQAbwB3AGMAbwBwAHkAIAB8ACAARgBvAHIARQBhAGMAaAAtAE8AYgBqAGUAYwB0ACAAewAkAF8ALgBEAGUAbABlAHQAZQAoACkAOwB9AA==*'
+CommandLine: '*R2V0LVVJQ3VsdHVyZSkuTmFtZSAtbWF0Y2ggIkNOfFJPfFJVfFVBfEJZI*'
+CommandLine: '*attrib +s +h *timeout /t *del /f /q*'
+CommandLine: '*cmd*type*>*\AppData*'
+CommandLine: https://en.wikipedia.org/wiki/Hooking
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowhookexe
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-unhookwindowshookex
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-callnexthookex
+CommandLine: attack.persistence
+CommandLine: attack.t1179
+CommandLine: malware.generic
+CommandLine: 'SetWindowsHookExA'
+CommandLine: 'SetWindowsHookExW'
+CommandLine: 'UnhookWindowsHookEx'
+CommandLine: 'CallNextHookEx'
+CommandLine: '*cmd*taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*'
+CommandLine: name: Bitsadmin Download (cmd)
+CommandLine: windows
+CommandLine: name: Bitsadmin Download (PowerShell)
+CommandLine: windows
+CommandLine: name: Persist, Download, & Execute
+CommandLine: windows
+CommandLine: name: Bits download using destktopimgdownldr.exe (cmd)
+CommandLine: windows
+CommandLine: '*ping -n * & powershell.exe -executionpolicy bypass -noninteractive -windowstyle hidden*'
+CommandLine: https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1490/T1490.md
+CommandLine: https://github.com/SigmaHQ/sigma/blob/master/rules/windows/process_creation/win_shadow_copies_deletion.yml
+CommandLine: https://www.fortinet.com/blog/threat-research/stomping-shadow-copies-a-second-look-into-deletion-methods
+CommandLine: attack.impact
+CommandLine: attack.t1490
+CommandLine: 'Get-WmiObject'
+CommandLine: ' Win32_Shadowcopy'
+CommandLine: 'Delete()'
+CommandLine: 'Remove-WmiObject'
+
+Title: AntiVM
+CommandLine: '*.downloadfile([system.text.encoding]::ascii.getstring([system.convert]::frombase64string(*'
+CommandLine: '*bitsadmin /transfer*http*start %APPDATA%*'
+CommandLine: '*/transfer*http*.dll&& rundll32*'
+CommandLine: '*powershell*start-bitstransfer*start-process*'
+CommandLine: https://www.slideshare.net/heirhabarov/hunting-for-credentials-dumping-in-windows-environment
+CommandLine: https://blog.talosintelligence.com/2017/05/wannacry.html
+CommandLine: https://securingtomorrow.mcafee.com/other-blogs/mcafee-labs/new-teslacrypt-ransomware-arrives-via-spam/
+CommandLine: https://www.bleepingcomputer.com/news/security/why-everyone-should-disable-vssadmin-exe-now/
+CommandLine: https://www.hybrid-analysis.com/sample/ed01ebfbc9eb5bbea545af4d01bf5f1071661840480439c6e5babe8e080e41aa?environmentId=100
+CommandLine: https://github.com/Neo23x0/Raccine#the-process
+CommandLine: https://github.com/Neo23x0/Raccine/blob/main/yara/gen_ransomware_command_lines.yar
+CommandLine: https://redcanary.com/blog/intelligence-insights-october-2021/
+CommandLine: attack.defense_evasion
+CommandLine: attack.impact
+CommandLine: attack.t1070
+CommandLine: attack.t1490
+CommandLine: '\powershell.exe'
+CommandLine: '\wmic.exe'
+CommandLine: '\vssadmin.exe'
+CommandLine: '\diskshadow.exe'
+CommandLine: shadow  # will match "delete shadows" and "shadowcopy delete" and "shadowstorage"
+CommandLine: delete
+CommandLine: '\wbadmin.exe'
+CommandLine: delete
+CommandLine: catalog
+CommandLine: quiet # will match -quiet or /quiet
+CommandLine: resize
+CommandLine: shadowstorage
+CommandLine: unbounded
+CommandLine: '*powershell*api.ipify.org*'
+CommandLine: '*findstr /b /i *.lnk*'
+CommandLine: '*powershell*RwBlAHQALQBXAG0AaQBPAGIAagBlAGMAdAAgAFcAaQBuADMAMgBfAFMAaABhAGQAbwB3AGMAbwBwAHkAIAB8ACAARgBvAHIARQBhAGMAaAAtAE8AYgBqAGUAYwB0ACAAewAkAF8ALgBEAGUAbABlAHQAZQAoACkAOwB9AA==*'
+CommandLine: '*R2V0LVVJQ3VsdHVyZSkuTmFtZSAtbWF0Y2ggIkNOfFJPfFJVfFVBfEJZI*'
+CommandLine: '*attrib +s +h *timeout /t *del /f /q*'
+CommandLine: '*cmd*type*>*\AppData*'
+CommandLine: https://en.wikipedia.org/wiki/Hooking
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowhookexe
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-unhookwindowshookex
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-callnexthookex
+CommandLine: attack.persistence
+CommandLine: attack.t1179
+CommandLine: malware.generic
+CommandLine: 'SetWindowsHookExA'
+CommandLine: 'SetWindowsHookExW'
+CommandLine: 'UnhookWindowsHookEx'
+CommandLine: 'CallNextHookEx'
+CommandLine: '*cmd*taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*'
+CommandLine: name: Bitsadmin Download (cmd)
+CommandLine: windows
+CommandLine: name: Bitsadmin Download (PowerShell)
+CommandLine: windows
+CommandLine: name: Persist, Download, & Execute
+CommandLine: windows
+CommandLine: name: Bits download using destktopimgdownldr.exe (cmd)
+CommandLine: windows
+CommandLine: '*ping -n * & powershell.exe -executionpolicy bypass -noninteractive -windowstyle hidden*'
+CommandLine: https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1490/T1490.md
+CommandLine: https://github.com/SigmaHQ/sigma/blob/master/rules/windows/process_creation/win_shadow_copies_deletion.yml
+CommandLine: https://www.fortinet.com/blog/threat-research/stomping-shadow-copies-a-second-look-into-deletion-methods
+CommandLine: attack.impact
+CommandLine: attack.t1490
+CommandLine: 'Get-WmiObject'
+CommandLine: ' Win32_Shadowcopy'
+CommandLine: 'Delete()'
+CommandLine: 'Remove-WmiObject'
+
+Title: AntiVM
+CommandLine: '*.downloadfile([system.text.encoding]::ascii.getstring([system.convert]::frombase64string(*'
+CommandLine: '*bitsadmin /transfer*http*start %APPDATA%*'
+CommandLine: '*/transfer*http*.dll&& rundll32*'
+CommandLine: '*powershell*start-bitstransfer*start-process*'
+CommandLine: https://www.slideshare.net/heirhabarov/hunting-for-credentials-dumping-in-windows-environment
+CommandLine: https://blog.talosintelligence.com/2017/05/wannacry.html
+CommandLine: https://securingtomorrow.mcafee.com/other-blogs/mcafee-labs/new-teslacrypt-ransomware-arrives-via-spam/
+CommandLine: https://www.bleepingcomputer.com/news/security/why-everyone-should-disable-vssadmin-exe-now/
+CommandLine: https://www.hybrid-analysis.com/sample/ed01ebfbc9eb5bbea545af4d01bf5f1071661840480439c6e5babe8e080e41aa?environmentId=100
+CommandLine: https://github.com/Neo23x0/Raccine#the-process
+CommandLine: https://github.com/Neo23x0/Raccine/blob/main/yara/gen_ransomware_command_lines.yar
+CommandLine: https://redcanary.com/blog/intelligence-insights-october-2021/
+CommandLine: attack.defense_evasion
+CommandLine: attack.impact
+CommandLine: attack.t1070
+CommandLine: attack.t1490
+CommandLine: '\powershell.exe'
+CommandLine: '\wmic.exe'
+CommandLine: '\vssadmin.exe'
+CommandLine: '\diskshadow.exe'
+CommandLine: shadow  # will match "delete shadows" and "shadowcopy delete" and "shadowstorage"
+CommandLine: delete
+CommandLine: '\wbadmin.exe'
+CommandLine: delete
+CommandLine: catalog
+CommandLine: quiet # will match -quiet or /quiet
+CommandLine: resize
+CommandLine: shadowstorage
+CommandLine: unbounded
+CommandLine: '*powershell*api.ipify.org*'
+CommandLine: '*findstr /b /i *.lnk*'
+CommandLine: '*powershell*RwBlAHQALQBXAG0AaQBPAGIAagBlAGMAdAAgAFcAaQBuADMAMgBfAFMAaABhAGQAbwB3AGMAbwBwAHkAIAB8ACAARgBvAHIARQBhAGMAaAAtAE8AYgBqAGUAYwB0ACAAewAkAF8ALgBEAGUAbABlAHQAZQAoACkAOwB9AA==*'
+CommandLine: '*R2V0LVVJQ3VsdHVyZSkuTmFtZSAtbWF0Y2ggIkNOfFJPfFJVfFVBfEJZI*'
+CommandLine: '*attrib +s +h *timeout /t *del /f /q*'
+CommandLine: '*cmd*type*>*\AppData*'
+CommandLine: https://en.wikipedia.org/wiki/Hooking
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowhookexe
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-unhookwindowshookex
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-callnexthookex
+CommandLine: attack.persistence
+CommandLine: attack.t1179
+CommandLine: malware.generic
+CommandLine: 'SetWindowsHookExA'
+CommandLine: 'SetWindowsHookExW'
+CommandLine: 'UnhookWindowsHookEx'
+CommandLine: 'CallNextHookEx'
+CommandLine: '*cmd*taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*'
+CommandLine: name: Bitsadmin Download (cmd)
+CommandLine: windows
+CommandLine: name: Bitsadmin Download (PowerShell)
+CommandLine: windows
+CommandLine: name: Persist, Download, & Execute
+CommandLine: windows
+CommandLine: name: Bits download using destktopimgdownldr.exe (cmd)
+CommandLine: windows
+CommandLine: '*ping -n * & powershell.exe -executionpolicy bypass -noninteractive -windowstyle hidden*'
+CommandLine: https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1490/T1490.md
+CommandLine: https://github.com/SigmaHQ/sigma/blob/master/rules/windows/process_creation/win_shadow_copies_deletion.yml
+CommandLine: https://www.fortinet.com/blog/threat-research/stomping-shadow-copies-a-second-look-into-deletion-methods
+CommandLine: attack.impact
+CommandLine: attack.t1490
+CommandLine: 'Get-WmiObject'
+CommandLine: ' Win32_Shadowcopy'
+CommandLine: 'Delete()'
+CommandLine: 'Remove-WmiObject'
+
+Title: AntiVM
+CommandLine: '*.downloadfile([system.text.encoding]::ascii.getstring([system.convert]::frombase64string(*'
+CommandLine: '*bitsadmin /transfer*http*start %APPDATA%*'
+CommandLine: '*/transfer*http*.dll&& rundll32*'
+CommandLine: '*powershell*start-bitstransfer*start-process*'
+CommandLine: https://www.slideshare.net/heirhabarov/hunting-for-credentials-dumping-in-windows-environment
+CommandLine: https://blog.talosintelligence.com/2017/05/wannacry.html
+CommandLine: https://securingtomorrow.mcafee.com/other-blogs/mcafee-labs/new-teslacrypt-ransomware-arrives-via-spam/
+CommandLine: https://www.bleepingcomputer.com/news/security/why-everyone-should-disable-vssadmin-exe-now/
+CommandLine: https://www.hybrid-analysis.com/sample/ed01ebfbc9eb5bbea545af4d01bf5f1071661840480439c6e5babe8e080e41aa?environmentId=100
+CommandLine: https://github.com/Neo23x0/Raccine#the-process
+CommandLine: https://github.com/Neo23x0/Raccine/blob/main/yara/gen_ransomware_command_lines.yar
+CommandLine: https://redcanary.com/blog/intelligence-insights-october-2021/
+CommandLine: attack.defense_evasion
+CommandLine: attack.impact
+CommandLine: attack.t1070
+CommandLine: attack.t1490
+CommandLine: '\powershell.exe'
+CommandLine: '\wmic.exe'
+CommandLine: '\vssadmin.exe'
+CommandLine: '\diskshadow.exe'
+CommandLine: shadow  # will match "delete shadows" and "shadowcopy delete" and "shadowstorage"
+CommandLine: delete
+CommandLine: '\wbadmin.exe'
+CommandLine: delete
+CommandLine: catalog
+CommandLine: quiet # will match -quiet or /quiet
+CommandLine: resize
+CommandLine: shadowstorage
+CommandLine: unbounded
+CommandLine: '*powershell*api.ipify.org*'
+CommandLine: '*findstr /b /i *.lnk*'
+CommandLine: '*powershell*RwBlAHQALQBXAG0AaQBPAGIAagBlAGMAdAAgAFcAaQBuADMAMgBfAFMAaABhAGQAbwB3AGMAbwBwAHkAIAB8ACAARgBvAHIARQBhAGMAaAAtAE8AYgBqAGUAYwB0ACAAewAkAF8ALgBEAGUAbABlAHQAZQAoACkAOwB9AA==*'
+CommandLine: '*R2V0LVVJQ3VsdHVyZSkuTmFtZSAtbWF0Y2ggIkNOfFJPfFJVfFVBfEJZI*'
+CommandLine: '*attrib +s +h *timeout /t *del /f /q*'
+CommandLine: '*cmd*type*>*\AppData*'
+CommandLine: https://en.wikipedia.org/wiki/Hooking
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowhookexe
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-unhookwindowshookex
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-callnexthookex
+CommandLine: attack.persistence
+CommandLine: attack.t1179
+CommandLine: malware.generic
+CommandLine: 'SetWindowsHookExA'
+CommandLine: 'SetWindowsHookExW'
+CommandLine: 'UnhookWindowsHookEx'
+CommandLine: 'CallNextHookEx'
+CommandLine: '*cmd*taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*'
+CommandLine: name: Bitsadmin Download (cmd)
+CommandLine: windows
+CommandLine: name: Bitsadmin Download (PowerShell)
+CommandLine: windows
+CommandLine: name: Persist, Download, & Execute
+CommandLine: windows
+CommandLine: name: Bits download using destktopimgdownldr.exe (cmd)
+CommandLine: windows
+CommandLine: '*ping -n * & powershell.exe -executionpolicy bypass -noninteractive -windowstyle hidden*'
+CommandLine: https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1490/T1490.md
+CommandLine: https://github.com/SigmaHQ/sigma/blob/master/rules/windows/process_creation/win_shadow_copies_deletion.yml
+CommandLine: https://www.fortinet.com/blog/threat-research/stomping-shadow-copies-a-second-look-into-deletion-methods
+CommandLine: attack.impact
+CommandLine: attack.t1490
+CommandLine: 'Get-WmiObject'
+CommandLine: ' Win32_Shadowcopy'
+CommandLine: 'Delete()'
+CommandLine: 'Remove-WmiObject'
+
+Title: AntiVM
+CommandLine: '*.downloadfile([system.text.encoding]::ascii.getstring([system.convert]::frombase64string(*'
+CommandLine: '*bitsadmin /transfer*http*start %APPDATA%*'
+CommandLine: '*/transfer*http*.dll&& rundll32*'
+CommandLine: '*powershell*start-bitstransfer*start-process*'
+CommandLine: https://www.slideshare.net/heirhabarov/hunting-for-credentials-dumping-in-windows-environment
+CommandLine: https://blog.talosintelligence.com/2017/05/wannacry.html
+CommandLine: https://securingtomorrow.mcafee.com/other-blogs/mcafee-labs/new-teslacrypt-ransomware-arrives-via-spam/
+CommandLine: https://www.bleepingcomputer.com/news/security/why-everyone-should-disable-vssadmin-exe-now/
+CommandLine: https://www.hybrid-analysis.com/sample/ed01ebfbc9eb5bbea545af4d01bf5f1071661840480439c6e5babe8e080e41aa?environmentId=100
+CommandLine: https://github.com/Neo23x0/Raccine#the-process
+CommandLine: https://github.com/Neo23x0/Raccine/blob/main/yara/gen_ransomware_command_lines.yar
+CommandLine: https://redcanary.com/blog/intelligence-insights-october-2021/
+CommandLine: attack.defense_evasion
+CommandLine: attack.impact
+CommandLine: attack.t1070
+CommandLine: attack.t1490
+CommandLine: '\powershell.exe'
+CommandLine: '\wmic.exe'
+CommandLine: '\vssadmin.exe'
+CommandLine: '\diskshadow.exe'
+CommandLine: shadow  # will match "delete shadows" and "shadowcopy delete" and "shadowstorage"
+CommandLine: delete
+CommandLine: '\wbadmin.exe'
+CommandLine: delete
+CommandLine: catalog
+CommandLine: quiet # will match -quiet or /quiet
+CommandLine: resize
+CommandLine: shadowstorage
+CommandLine: unbounded
+CommandLine: '*powershell*api.ipify.org*'
+CommandLine: '*findstr /b /i *.lnk*'
+CommandLine: '*powershell*RwBlAHQALQBXAG0AaQBPAGIAagBlAGMAdAAgAFcAaQBuADMAMgBfAFMAaABhAGQAbwB3AGMAbwBwAHkAIAB8ACAARgBvAHIARQBhAGMAaAAtAE8AYgBqAGUAYwB0ACAAewAkAF8ALgBEAGUAbABlAHQAZQAoACkAOwB9AA==*'
+CommandLine: '*R2V0LVVJQ3VsdHVyZSkuTmFtZSAtbWF0Y2ggIkNOfFJPfFJVfFVBfEJZI*'
+CommandLine: '*attrib +s +h *timeout /t *del /f /q*'
+CommandLine: '*cmd*type*>*\AppData*'
+CommandLine: https://en.wikipedia.org/wiki/Hooking
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowhookexe
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-unhookwindowshookex
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-callnexthookex
+CommandLine: attack.persistence
+CommandLine: attack.t1179
+CommandLine: malware.generic
+CommandLine: 'SetWindowsHookExA'
+CommandLine: 'SetWindowsHookExW'
+CommandLine: 'UnhookWindowsHookEx'
+CommandLine: 'CallNextHookEx'
+CommandLine: '*cmd*taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*'
+CommandLine: name: Bitsadmin Download (cmd)
+CommandLine: windows
+CommandLine: name: Bitsadmin Download (PowerShell)
+CommandLine: windows
+CommandLine: name: Persist, Download, & Execute
+CommandLine: windows
+CommandLine: name: Bits download using destktopimgdownldr.exe (cmd)
+CommandLine: windows
+CommandLine: '*ping -n * & powershell.exe -executionpolicy bypass -noninteractive -windowstyle hidden*'
+CommandLine: https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1490/T1490.md
+CommandLine: https://github.com/SigmaHQ/sigma/blob/master/rules/windows/process_creation/win_shadow_copies_deletion.yml
+CommandLine: https://www.fortinet.com/blog/threat-research/stomping-shadow-copies-a-second-look-into-deletion-methods
+CommandLine: attack.impact
+CommandLine: attack.t1490
+CommandLine: 'Get-WmiObject'
+CommandLine: ' Win32_Shadowcopy'
+CommandLine: 'Delete()'
+CommandLine: 'Remove-WmiObject'
+
+Title: AntiVM
+CommandLine: '*.downloadfile([system.text.encoding]::ascii.getstring([system.convert]::frombase64string(*'
+CommandLine: '*bitsadmin /transfer*http*start %APPDATA%*'
+CommandLine: '*/transfer*http*.dll&& rundll32*'
+CommandLine: '*powershell*start-bitstransfer*start-process*'
+CommandLine: https://www.slideshare.net/heirhabarov/hunting-for-credentials-dumping-in-windows-environment
+CommandLine: https://blog.talosintelligence.com/2017/05/wannacry.html
+CommandLine: https://securingtomorrow.mcafee.com/other-blogs/mcafee-labs/new-teslacrypt-ransomware-arrives-via-spam/
+CommandLine: https://www.bleepingcomputer.com/news/security/why-everyone-should-disable-vssadmin-exe-now/
+CommandLine: https://www.hybrid-analysis.com/sample/ed01ebfbc9eb5bbea545af4d01bf5f1071661840480439c6e5babe8e080e41aa?environmentId=100
+CommandLine: https://github.com/Neo23x0/Raccine#the-process
+CommandLine: https://github.com/Neo23x0/Raccine/blob/main/yara/gen_ransomware_command_lines.yar
+CommandLine: https://redcanary.com/blog/intelligence-insights-october-2021/
+CommandLine: attack.defense_evasion
+CommandLine: attack.impact
+CommandLine: attack.t1070
+CommandLine: attack.t1490
+CommandLine: '\powershell.exe'
+CommandLine: '\wmic.exe'
+CommandLine: '\vssadmin.exe'
+CommandLine: '\diskshadow.exe'
+CommandLine: shadow  # will match "delete shadows" and "shadowcopy delete" and "shadowstorage"
+CommandLine: delete
+CommandLine: '\wbadmin.exe'
+CommandLine: delete
+CommandLine: catalog
+CommandLine: quiet # will match -quiet or /quiet
+CommandLine: resize
+CommandLine: shadowstorage
+CommandLine: unbounded
+CommandLine: '*powershell*api.ipify.org*'
+CommandLine: '*findstr /b /i *.lnk*'
+CommandLine: '*powershell*RwBlAHQALQBXAG0AaQBPAGIAagBlAGMAdAAgAFcAaQBuADMAMgBfAFMAaABhAGQAbwB3AGMAbwBwAHkAIAB8ACAARgBvAHIARQBhAGMAaAAtAE8AYgBqAGUAYwB0ACAAewAkAF8ALgBEAGUAbABlAHQAZQAoACkAOwB9AA==*'
+CommandLine: '*R2V0LVVJQ3VsdHVyZSkuTmFtZSAtbWF0Y2ggIkNOfFJPfFJVfFVBfEJZI*'
+CommandLine: '*attrib +s +h *timeout /t *del /f /q*'
+CommandLine: '*cmd*type*>*\AppData*'
+CommandLine: https://en.wikipedia.org/wiki/Hooking
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowhookexe
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-unhookwindowshookex
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-callnexthookex
+CommandLine: attack.persistence
+CommandLine: attack.t1179
+CommandLine: malware.generic
+CommandLine: 'SetWindowsHookExA'
+CommandLine: 'SetWindowsHookExW'
+CommandLine: 'UnhookWindowsHookEx'
+CommandLine: 'CallNextHookEx'
+CommandLine: '*cmd*taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*'
+CommandLine: name: Bitsadmin Download (cmd)
+CommandLine: windows
+CommandLine: name: Bitsadmin Download (PowerShell)
+CommandLine: windows
+CommandLine: name: Persist, Download, & Execute
+CommandLine: windows
+CommandLine: name: Bits download using destktopimgdownldr.exe (cmd)
+CommandLine: windows
+CommandLine: '*ping -n * & powershell.exe -executionpolicy bypass -noninteractive -windowstyle hidden*'
+CommandLine: https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1490/T1490.md
+CommandLine: https://github.com/SigmaHQ/sigma/blob/master/rules/windows/process_creation/win_shadow_copies_deletion.yml
+CommandLine: https://www.fortinet.com/blog/threat-research/stomping-shadow-copies-a-second-look-into-deletion-methods
+CommandLine: attack.impact
+CommandLine: attack.t1490
+CommandLine: 'Get-WmiObject'
+CommandLine: ' Win32_Shadowcopy'
+CommandLine: 'Delete()'
+CommandLine: 'Remove-WmiObject'
+
+Title: AntiVM
+CommandLine: '*.downloadfile([system.text.encoding]::ascii.getstring([system.convert]::frombase64string(*'
+CommandLine: '*bitsadmin /transfer*http*start %APPDATA%*'
+CommandLine: '*/transfer*http*.dll&& rundll32*'
+CommandLine: '*powershell*start-bitstransfer*start-process*'
+CommandLine: https://www.slideshare.net/heirhabarov/hunting-for-credentials-dumping-in-windows-environment
+CommandLine: https://blog.talosintelligence.com/2017/05/wannacry.html
+CommandLine: https://securingtomorrow.mcafee.com/other-blogs/mcafee-labs/new-teslacrypt-ransomware-arrives-via-spam/
+CommandLine: https://www.bleepingcomputer.com/news/security/why-everyone-should-disable-vssadmin-exe-now/
+CommandLine: https://www.hybrid-analysis.com/sample/ed01ebfbc9eb5bbea545af4d01bf5f1071661840480439c6e5babe8e080e41aa?environmentId=100
+CommandLine: https://github.com/Neo23x0/Raccine#the-process
+CommandLine: https://github.com/Neo23x0/Raccine/blob/main/yara/gen_ransomware_command_lines.yar
+CommandLine: https://redcanary.com/blog/intelligence-insights-october-2021/
+CommandLine: attack.defense_evasion
+CommandLine: attack.impact
+CommandLine: attack.t1070
+CommandLine: attack.t1490
+CommandLine: '\powershell.exe'
+CommandLine: '\wmic.exe'
+CommandLine: '\vssadmin.exe'
+CommandLine: '\diskshadow.exe'
+CommandLine: shadow  # will match "delete shadows" and "shadowcopy delete" and "shadowstorage"
+CommandLine: delete
+CommandLine: '\wbadmin.exe'
+CommandLine: delete
+CommandLine: catalog
+CommandLine: quiet # will match -quiet or /quiet
+CommandLine: resize
+CommandLine: shadowstorage
+CommandLine: unbounded
+CommandLine: '*powershell*api.ipify.org*'
+CommandLine: '*findstr /b /i *.lnk*'
+CommandLine: '*powershell*RwBlAHQALQBXAG0AaQBPAGIAagBlAGMAdAAgAFcAaQBuADMAMgBfAFMAaABhAGQAbwB3AGMAbwBwAHkAIAB8ACAARgBvAHIARQBhAGMAaAAtAE8AYgBqAGUAYwB0ACAAewAkAF8ALgBEAGUAbABlAHQAZQAoACkAOwB9AA==*'
+CommandLine: '*R2V0LVVJQ3VsdHVyZSkuTmFtZSAtbWF0Y2ggIkNOfFJPfFJVfFVBfEJZI*'
+CommandLine: '*attrib +s +h *timeout /t *del /f /q*'
+CommandLine: '*cmd*type*>*\AppData*'
+CommandLine: https://en.wikipedia.org/wiki/Hooking
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowhookexe
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-unhookwindowshookex
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-callnexthookex
+CommandLine: attack.persistence
+CommandLine: attack.t1179
+CommandLine: malware.generic
+CommandLine: 'SetWindowsHookExA'
+CommandLine: 'SetWindowsHookExW'
+CommandLine: 'UnhookWindowsHookEx'
+CommandLine: 'CallNextHookEx'
+CommandLine: '*cmd*taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*'
+CommandLine: name: Bitsadmin Download (cmd)
+CommandLine: windows
+CommandLine: name: Bitsadmin Download (PowerShell)
+CommandLine: windows
+CommandLine: name: Persist, Download, & Execute
+CommandLine: windows
+CommandLine: name: Bits download using destktopimgdownldr.exe (cmd)
+CommandLine: windows
+CommandLine: '*ping -n * & powershell.exe -executionpolicy bypass -noninteractive -windowstyle hidden*'
+CommandLine: https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1490/T1490.md
+CommandLine: https://github.com/SigmaHQ/sigma/blob/master/rules/windows/process_creation/win_shadow_copies_deletion.yml
+CommandLine: https://www.fortinet.com/blog/threat-research/stomping-shadow-copies-a-second-look-into-deletion-methods
+CommandLine: attack.impact
+CommandLine: attack.t1490
+CommandLine: 'Get-WmiObject'
+CommandLine: ' Win32_Shadowcopy'
+CommandLine: 'Delete()'
+CommandLine: 'Remove-WmiObject'
+
+Title: AntiVM
+CommandLine: '*.downloadfile([system.text.encoding]::ascii.getstring([system.convert]::frombase64string(*'
+CommandLine: '*bitsadmin /transfer*http*start %APPDATA%*'
+CommandLine: '*/transfer*http*.dll&& rundll32*'
+CommandLine: '*powershell*start-bitstransfer*start-process*'
+CommandLine: https://www.slideshare.net/heirhabarov/hunting-for-credentials-dumping-in-windows-environment
+CommandLine: https://blog.talosintelligence.com/2017/05/wannacry.html
+CommandLine: https://securingtomorrow.mcafee.com/other-blogs/mcafee-labs/new-teslacrypt-ransomware-arrives-via-spam/
+CommandLine: https://www.bleepingcomputer.com/news/security/why-everyone-should-disable-vssadmin-exe-now/
+CommandLine: https://www.hybrid-analysis.com/sample/ed01ebfbc9eb5bbea545af4d01bf5f1071661840480439c6e5babe8e080e41aa?environmentId=100
+CommandLine: https://github.com/Neo23x0/Raccine#the-process
+CommandLine: https://github.com/Neo23x0/Raccine/blob/main/yara/gen_ransomware_command_lines.yar
+CommandLine: https://redcanary.com/blog/intelligence-insights-october-2021/
+CommandLine: attack.defense_evasion
+CommandLine: attack.impact
+CommandLine: attack.t1070
+CommandLine: attack.t1490
+CommandLine: '\powershell.exe'
+CommandLine: '\wmic.exe'
+CommandLine: '\vssadmin.exe'
+CommandLine: '\diskshadow.exe'
+CommandLine: shadow  # will match "delete shadows" and "shadowcopy delete" and "shadowstorage"
+CommandLine: delete
+CommandLine: '\wbadmin.exe'
+CommandLine: delete
+CommandLine: catalog
+CommandLine: quiet # will match -quiet or /quiet
+CommandLine: resize
+CommandLine: shadowstorage
+CommandLine: unbounded
+CommandLine: '*powershell*api.ipify.org*'
+CommandLine: '*findstr /b /i *.lnk*'
+CommandLine: '*powershell*RwBlAHQALQBXAG0AaQBPAGIAagBlAGMAdAAgAFcAaQBuADMAMgBfAFMAaABhAGQAbwB3AGMAbwBwAHkAIAB8ACAARgBvAHIARQBhAGMAaAAtAE8AYgBqAGUAYwB0ACAAewAkAF8ALgBEAGUAbABlAHQAZQAoACkAOwB9AA==*'
+CommandLine: '*R2V0LVVJQ3VsdHVyZSkuTmFtZSAtbWF0Y2ggIkNOfFJPfFJVfFVBfEJZI*'
+CommandLine: '*attrib +s +h *timeout /t *del /f /q*'
+CommandLine: '*cmd*type*>*\AppData*'
+CommandLine: https://en.wikipedia.org/wiki/Hooking
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowhookexe
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-unhookwindowshookex
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-callnexthookex
+CommandLine: attack.persistence
+CommandLine: attack.t1179
+CommandLine: malware.generic
+CommandLine: 'SetWindowsHookExA'
+CommandLine: 'SetWindowsHookExW'
+CommandLine: 'UnhookWindowsHookEx'
+CommandLine: 'CallNextHookEx'
+CommandLine: '*cmd*taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*'
+CommandLine: name: Bitsadmin Download (cmd)
+CommandLine: windows
+CommandLine: name: Bitsadmin Download (PowerShell)
+CommandLine: windows
+CommandLine: name: Persist, Download, & Execute
+CommandLine: windows
+CommandLine: name: Bits download using destktopimgdownldr.exe (cmd)
+CommandLine: windows
+CommandLine: '*ping -n * & powershell.exe -executionpolicy bypass -noninteractive -windowstyle hidden*'
+CommandLine: https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1490/T1490.md
+CommandLine: https://github.com/SigmaHQ/sigma/blob/master/rules/windows/process_creation/win_shadow_copies_deletion.yml
+CommandLine: https://www.fortinet.com/blog/threat-research/stomping-shadow-copies-a-second-look-into-deletion-methods
+CommandLine: attack.impact
+CommandLine: attack.t1490
+CommandLine: 'Get-WmiObject'
+CommandLine: ' Win32_Shadowcopy'
+CommandLine: 'Delete()'
+CommandLine: 'Remove-WmiObject'
+
+Title: AntiVM
+CommandLine: '*.downloadfile([system.text.encoding]::ascii.getstring([system.convert]::frombase64string(*'
+CommandLine: '*bitsadmin /transfer*http*start %APPDATA%*'
+CommandLine: '*/transfer*http*.dll&& rundll32*'
+CommandLine: '*powershell*start-bitstransfer*start-process*'
+CommandLine: https://www.slideshare.net/heirhabarov/hunting-for-credentials-dumping-in-windows-environment
+CommandLine: https://blog.talosintelligence.com/2017/05/wannacry.html
+CommandLine: https://securingtomorrow.mcafee.com/other-blogs/mcafee-labs/new-teslacrypt-ransomware-arrives-via-spam/
+CommandLine: https://www.bleepingcomputer.com/news/security/why-everyone-should-disable-vssadmin-exe-now/
+CommandLine: https://www.hybrid-analysis.com/sample/ed01ebfbc9eb5bbea545af4d01bf5f1071661840480439c6e5babe8e080e41aa?environmentId=100
+CommandLine: https://github.com/Neo23x0/Raccine#the-process
+CommandLine: https://github.com/Neo23x0/Raccine/blob/main/yara/gen_ransomware_command_lines.yar
+CommandLine: https://redcanary.com/blog/intelligence-insights-october-2021/
+CommandLine: attack.defense_evasion
+CommandLine: attack.impact
+CommandLine: attack.t1070
+CommandLine: attack.t1490
+CommandLine: '\powershell.exe'
+CommandLine: '\wmic.exe'
+CommandLine: '\vssadmin.exe'
+CommandLine: '\diskshadow.exe'
+CommandLine: shadow  # will match "delete shadows" and "shadowcopy delete" and "shadowstorage"
+CommandLine: delete
+CommandLine: '\wbadmin.exe'
+CommandLine: delete
+CommandLine: catalog
+CommandLine: quiet # will match -quiet or /quiet
+CommandLine: resize
+CommandLine: shadowstorage
+CommandLine: unbounded
+CommandLine: '*powershell*api.ipify.org*'
+CommandLine: '*findstr /b /i *.lnk*'
+CommandLine: '*powershell*RwBlAHQALQBXAG0AaQBPAGIAagBlAGMAdAAgAFcAaQBuADMAMgBfAFMAaABhAGQAbwB3AGMAbwBwAHkAIAB8ACAARgBvAHIARQBhAGMAaAAtAE8AYgBqAGUAYwB0ACAAewAkAF8ALgBEAGUAbABlAHQAZQAoACkAOwB9AA==*'
+CommandLine: '*R2V0LVVJQ3VsdHVyZSkuTmFtZSAtbWF0Y2ggIkNOfFJPfFJVfFVBfEJZI*'
+CommandLine: '*attrib +s +h *timeout /t *del /f /q*'
+CommandLine: '*cmd*type*>*\AppData*'
+CommandLine: https://en.wikipedia.org/wiki/Hooking
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowhookexe
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-unhookwindowshookex
+CommandLine: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-callnexthookex
+CommandLine: attack.persistence
+CommandLine: attack.t1179
+CommandLine: malware.generic
+CommandLine: 'SetWindowsHookExA'
+CommandLine: 'SetWindowsHookExW'
+CommandLine: 'UnhookWindowsHookEx'
+CommandLine: 'CallNextHookEx'
+CommandLine: '*cmd*taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*& taskkill /f*'
+CommandLine: name: Bitsadmin Download (cmd)
+CommandLine: windows
+CommandLine: name: Bitsadmin Download (PowerShell)
+CommandLine: windows
+CommandLine: name: Persist, Download, & Execute
+CommandLine: windows
+CommandLine: name: Bits download using destktopimgdownldr.exe (cmd)
+CommandLine: windows
+CommandLine: '*ping -n * & powershell.exe -executionpolicy bypass -noninteractive -windowstyle hidden*'
+CommandLine: https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1490/T1490.md
+CommandLine: https://github.com/SigmaHQ/sigma/blob/master/rules/windows/process_creation/win_shadow_copies_deletion.yml
+CommandLine: https://www.fortinet.com/blog/threat-research/stomping-shadow-copies-a-second-look-into-deletion-methods
+CommandLine: attack.impact
+CommandLine: attack.t1490
+CommandLine: 'Get-WmiObject'
+CommandLine: ' Win32_Shadowcopy'
+CommandLine: 'Delete()'
+CommandLine: 'Remove-WmiObject'
+
+Title: Defense evasion via process reimaging
+CommandLine: '*rundll32*.html,DllRegisterServer*'
+CommandLine: '*rundll32*.htm,DllRegisterServer*'
+CommandLine: '*rundll32*.txt,DllRegisterServer*'
+CommandLine: '*rundll32*.png,DllRegisterServer*'
+CommandLine: '*rundll32*.jpeg,DllRegisterServer*'
+CommandLine: '*rundll32*.jpg,DllRegisterServer*'
+CommandLine: '*regsvr32 c:\programdata\\*.pdf*'
+CommandLine: '*regsvr32 c:\programdata\\*.txt*'
+CommandLine: '*regsvr32 c:\users\public\\*.pdf*'
+CommandLine: '*regsvr32 c:\users\public\\*.txt*'
+CommandLine: '*cmd*net stop*& net stop*& net stop*& net stop*& net stop*& net stop*& net stop*'
+CommandLine: '*reg add*hkcu\software\classes\ms-settings\shell\open\command*'
+CommandLine: name: Bypass UAC using Event Viewer (cmd)
+CommandLine: windows
+CommandLine: name: Bypass UAC using Event Viewer (PowerShell)
+CommandLine: windows
+CommandLine: name: Bypass UAC using Fodhelper
+CommandLine: windows
+CommandLine: name: Bypass UAC using Fodhelper - PowerShell
+CommandLine: windows
+CommandLine: name: Bypass UAC using ComputerDefaults (PowerShell)
+CommandLine: windows
+CommandLine: name: Bypass UAC by Mocking Trusted Directories
+CommandLine: windows
+CommandLine: name: Bypass UAC using sdclt DelegateExecute
+CommandLine: windows
+CommandLine: https://github.com/SigPloiter/SigPloit
+CommandLine: attack.T1189
+CommandLine: attack.T1190
+CommandLine: attack.T1201
+CommandLine: attack.T1562
+CommandLine: attack.T1573
+CommandLine: attack.TA0002
+CommandLine: attack.TA0003
+CommandLine: attack.TA0007
+CommandLine: attack.TA0008
+CommandLine: endpoint
+CommandLine: network
+CommandLine: Image:
+CommandLine: '*SigPloit*'
+CommandLine: OriginalFileName:
+CommandLine: '*SigPloit*'
+CommandLine: CurrentDirectory:
+CommandLine: '*SigPloit*'
+CommandLine: ParentImage:
+CommandLine: '*SigPloit*'
+CommandLine: ParentCommandLine:
+CommandLine: '*SigPloit*'
+CommandLine: TargetFilename:
+CommandLine: '*SigPloit*'
+CommandLine: Signature:
+CommandLine: '*SigPloit*'
+CommandLine: signature:
+CommandLine: '*SigPloit*'
+CommandLine: ImageLoaded:
+CommandLine: '*SigPloit*'
+CommandLine: Company:
+CommandLine: '*SigPloit*'
+CommandLine: Description:
+CommandLine: '*SigPloit*'
+CommandLine: description:
+CommandLine: '*SigPloit*'
+CommandLine: CommandLine:
+CommandLine: '*SigPloit*'
+CommandLine: SourceImage:
+CommandLine: '*SigPloit*'
+CommandLine: TargetImage:
+CommandLine: '*SigPloit*'
+CommandLine: CallTrace:
+CommandLine: '*SigPloit*'
+CommandLine: TargetObject:
+CommandLine: '*SigPloit*'
+CommandLine: Details:
+CommandLine: '*SigPloit*'
+CommandLine: PipeName:
+CommandLine: '*SigPloit*'
+CommandLine: Consumer:
+CommandLine: '*SigPloit*'
+CommandLine: Destination:
+CommandLine: '*SigPloit*'
+CommandLine: Name:
+CommandLine: '*SigPloit*'
+CommandLine: Query:
+CommandLine: '*SigPloit*'
+CommandLine: NewName:
+CommandLine: '*SigPloit*'
+CommandLine: StartAddress:
+CommandLine: '*SigPloit*'
+CommandLine: StartModule:
+CommandLine: '*SigPloit*'
+CommandLine: StartFunction:
+CommandLine: '*SigPloit*'
+CommandLine: SourceHostname:
+CommandLine: '*SigPloit*'
+CommandLine: Device:
+CommandLine: '*SigPloit*'
+CommandLine: file_name:
+CommandLine: '*SigPloit*'
+CommandLine: file_path:
+CommandLine: '*SigPloit*'
+CommandLine: process:
+CommandLine: '*SigPloit*'
+CommandLine: original_file_name:
+CommandLine: '*SigPloit*'
+CommandLine: parent_process:
+CommandLine: '*SigPloit*'
+CommandLine: process_path:
+CommandLine: '*SigPloit*'
+CommandLine: service_path:
+CommandLine: '*SigPloit*'
+CommandLine: registry_path:
+CommandLine: '*SigPloit*'
+CommandLine: registry_value_data:
+CommandLine: '*SigPloit*'
+CommandLine: registry_value_name:
+CommandLine: '*SigPloit*'
+CommandLine: ContextInfo:
+CommandLine: '*SigPloit*'
+CommandLine: Payload:
+CommandLine: '*SigPloit*'
+CommandLine: ScriptBlockText:
+CommandLine: '*SigPloit*'
+CommandLine: ServerName:
+CommandLine: '*SigPloit*'
+CommandLine: TransportName:
+CommandLine: '*SigPloit*'
+CommandLine: NewProcessName:
+CommandLine: '*SigPloit*'
+CommandLine: ParentProcessName:
+CommandLine: '*SigPloit*'
+CommandLine: Application:
+CommandLine: '*SigPloit*'
+CommandLine: Product Name:
+CommandLine: '*SigPloit*'
+CommandLine: Threat Name:
+CommandLine: '*SigPloit*'
+CommandLine: Process Name:
+CommandLine: '*SigPloit*'
+CommandLine: Path:
+CommandLine: '*SigPloit*'
+CommandLine: ImagePath:
+CommandLine: '*SigPloit*'
+CommandLine: ServiceName:
+CommandLine: '*SigPloit*'
+CommandLine: ProcessPath:
+CommandLine: '*SigPloit*'
+CommandLine: AppName:
+CommandLine: '*SigPloit*'
+CommandLine: AppPath:
+CommandLine: '*SigPloit*'
+CommandLine: ModulePath:
+CommandLine: '*SigPloit*'
+CommandLine: registry.data.strings:
+CommandLine: '*SigPloit*'
+CommandLine: registry.path:
+CommandLine: '*SigPloit*'
+CommandLine: registry.value:
+CommandLine: '*SigPloit*'
+CommandLine: process.args:
+CommandLine: '*SigPloit*'
+CommandLine: process.command_line:
+CommandLine: '*SigPloit*'
+CommandLine: process.env_vars:
+CommandLine: '*SigPloit*'
+CommandLine: process.io.text:
+CommandLine: '*SigPloit*'
+CommandLine: process.executable:
+CommandLine: '*SigPloit*'
+CommandLine: process.name:
+CommandLine: '*SigPloit*'
+CommandLine: process.title:
+CommandLine: '*SigPloit*'
+CommandLine: pe.company:
+CommandLine: '*SigPloit*'
+CommandLine: pe.description:
+CommandLine: '*SigPloit*'
+CommandLine: pe.original_file_name:
+CommandLine: '*SigPloit*'
+CommandLine: pe.product:
+CommandLine: '*SigPloit*'
+CommandLine: os.full:
+CommandLine: '*SigPloit*'
+CommandLine: host.hostname:
+CommandLine: '*SigPloit*'
+CommandLine: file.fork_name:
+CommandLine: '*SigPloit*'
+CommandLine: file.name:
+CommandLine: '*SigPloit*'
+CommandLine: file.path:
+CommandLine: '*SigPloit*'
+CommandLine: file.target_path:
+CommandLine: '*SigPloit*'
+CommandLine: email.attachments.file.name:
+CommandLine: '*SigPloit*'
+CommandLine: email.subject:
+CommandLine: '*SigPloit*'
+CommandLine: dll.path:
+CommandLine: '*SigPloit*'
+CommandLine: device.model.name:
+CommandLine: '*SigPloit*'
+CommandLine: container.image.name:
+CommandLine: '*SigPloit*'
+CommandLine: container.name:
+CommandLine: '*SigPloit*'
+CommandLine: object:
+CommandLine: '*SigPloit*'
+CommandLine: url:
+CommandLine: '*SigPloit*'
+CommandLine: dest_url:
+CommandLine: '*SigPloit*'
+CommandLine: uri:
+CommandLine: '*SigPloit*'
+CommandLine: uri_query:
+CommandLine: '*SigPloit*'
+CommandLine: query:
+CommandLine: '*SigPloit*'
+CommandLine: url_domain:
+CommandLine: '*SigPloit*'
+CommandLine: uri_path:
+CommandLine: '*SigPloit*'
+CommandLine: domain:
+CommandLine: '*SigPloit*'
+CommandLine: QueryName:
+CommandLine: '*SigPloit*'
+CommandLine: QueryResults:
+CommandLine: '*SigPloit*'
+CommandLine: DestinationHostname:
+CommandLine: '*SigPloit*'
+CommandLine: DestinationIp:
+CommandLine: '*SigPloit*'
+CommandLine: http_referrer:
+CommandLine: '*SigPloit*'
+CommandLine: http_referrer_domain:
+CommandLine: '*SigPloit*'
+CommandLine: http_user_agent:
+CommandLine: '*SigPloit*'
+CommandLine: dest_nt_host:
+CommandLine: '*SigPloit*'
+CommandLine: sender:
+CommandLine: '*SigPloit*'
+CommandLine: recipient:
+CommandLine: '*SigPloit*'
+CommandLine: orig_recipient:
+CommandLine: '*SigPloit*'
+CommandLine: subject:
+CommandLine: '*SigPloit*'
+CommandLine: url.domain:
+CommandLine: '*SigPloit*'
+CommandLine: url.full:
+CommandLine: '*SigPloit*'
+CommandLine: url.original:
+CommandLine: '*SigPloit*'
+CommandLine: url.query:
+CommandLine: '*SigPloit*'
+CommandLine: user_agent.original:
+CommandLine: '*SigPloit*'
+CommandLine: network.application:
+CommandLine: '*SigPloit*'
+CommandLine: http.request.body.content:
+CommandLine: '*SigPloit*'
+CommandLine: http.request.referrer:
+CommandLine: '*SigPloit*'
+CommandLine: email.from.address:
+CommandLine: '*SigPloit*'
+CommandLine: dns.question.name:
+CommandLine: '*SigPloit*'
+CommandLine: destination.domain:
+CommandLine: '*SigPloit*'
+
+Title: Defense evasion via process reimaging
+CommandLine: '*rundll32*.html,DllRegisterServer*'
+CommandLine: '*rundll32*.htm,DllRegisterServer*'
+CommandLine: '*rundll32*.txt,DllRegisterServer*'
+CommandLine: '*rundll32*.png,DllRegisterServer*'
+CommandLine: '*rundll32*.jpeg,DllRegisterServer*'
+CommandLine: '*rundll32*.jpg,DllRegisterServer*'
+CommandLine: '*regsvr32 c:\programdata\\*.pdf*'
+CommandLine: '*regsvr32 c:\programdata\\*.txt*'
+CommandLine: '*regsvr32 c:\users\public\\*.pdf*'
+CommandLine: '*regsvr32 c:\users\public\\*.txt*'
+CommandLine: '*cmd*net stop*& net stop*& net stop*& net stop*& net stop*& net stop*& net stop*'
+CommandLine: '*reg add*hkcu\software\classes\ms-settings\shell\open\command*'
+CommandLine: name: Bypass UAC using Event Viewer (cmd)
+CommandLine: windows
+CommandLine: name: Bypass UAC using Event Viewer (PowerShell)
+CommandLine: windows
+CommandLine: name: Bypass UAC using Fodhelper
+CommandLine: windows
+CommandLine: name: Bypass UAC using Fodhelper - PowerShell
+CommandLine: windows
+CommandLine: name: Bypass UAC using ComputerDefaults (PowerShell)
+CommandLine: windows
+CommandLine: name: Bypass UAC by Mocking Trusted Directories
+CommandLine: windows
+CommandLine: name: Bypass UAC using sdclt DelegateExecute
+CommandLine: windows
+CommandLine: https://github.com/SigPloiter/SigPloit
+CommandLine: attack.T1189
+CommandLine: attack.T1190
+CommandLine: attack.T1201
+CommandLine: attack.T1562
+CommandLine: attack.T1573
+CommandLine: attack.TA0002
+CommandLine: attack.TA0003
+CommandLine: attack.TA0007
+CommandLine: attack.TA0008
+CommandLine: endpoint
+CommandLine: network
+CommandLine: Image:
+CommandLine: '*SigPloit*'
+CommandLine: OriginalFileName:
+CommandLine: '*SigPloit*'
+CommandLine: CurrentDirectory:
+CommandLine: '*SigPloit*'
+CommandLine: ParentImage:
+CommandLine: '*SigPloit*'
+CommandLine: ParentCommandLine:
+CommandLine: '*SigPloit*'
+CommandLine: TargetFilename:
+CommandLine: '*SigPloit*'
+CommandLine: Signature:
+CommandLine: '*SigPloit*'
+CommandLine: signature:
+CommandLine: '*SigPloit*'
+CommandLine: ImageLoaded:
+CommandLine: '*SigPloit*'
+CommandLine: Company:
+CommandLine: '*SigPloit*'
+CommandLine: Description:
+CommandLine: '*SigPloit*'
+CommandLine: description:
+CommandLine: '*SigPloit*'
+CommandLine: CommandLine:
+CommandLine: '*SigPloit*'
+CommandLine: SourceImage:
+CommandLine: '*SigPloit*'
+CommandLine: TargetImage:
+CommandLine: '*SigPloit*'
+CommandLine: CallTrace:
+CommandLine: '*SigPloit*'
+CommandLine: TargetObject:
+CommandLine: '*SigPloit*'
+CommandLine: Details:
+CommandLine: '*SigPloit*'
+CommandLine: PipeName:
+CommandLine: '*SigPloit*'
+CommandLine: Consumer:
+CommandLine: '*SigPloit*'
+CommandLine: Destination:
+CommandLine: '*SigPloit*'
+CommandLine: Name:
+CommandLine: '*SigPloit*'
+CommandLine: Query:
+CommandLine: '*SigPloit*'
+CommandLine: NewName:
+CommandLine: '*SigPloit*'
+CommandLine: StartAddress:
+CommandLine: '*SigPloit*'
+CommandLine: StartModule:
+CommandLine: '*SigPloit*'
+CommandLine: StartFunction:
+CommandLine: '*SigPloit*'
+CommandLine: SourceHostname:
+CommandLine: '*SigPloit*'
+CommandLine: Device:
+CommandLine: '*SigPloit*'
+CommandLine: file_name:
+CommandLine: '*SigPloit*'
+CommandLine: file_path:
+CommandLine: '*SigPloit*'
+CommandLine: process:
+CommandLine: '*SigPloit*'
+CommandLine: original_file_name:
+CommandLine: '*SigPloit*'
+CommandLine: parent_process:
+CommandLine: '*SigPloit*'
+CommandLine: process_path:
+CommandLine: '*SigPloit*'
+CommandLine: service_path:
+CommandLine: '*SigPloit*'
+CommandLine: registry_path:
+CommandLine: '*SigPloit*'
+CommandLine: registry_value_data:
+CommandLine: '*SigPloit*'
+CommandLine: registry_value_name:
+CommandLine: '*SigPloit*'
+CommandLine: ContextInfo:
+CommandLine: '*SigPloit*'
+CommandLine: Payload:
+CommandLine: '*SigPloit*'
+CommandLine: ScriptBlockText:
+CommandLine: '*SigPloit*'
+CommandLine: ServerName:
+CommandLine: '*SigPloit*'
+CommandLine: TransportName:
+CommandLine: '*SigPloit*'
+CommandLine: NewProcessName:
+CommandLine: '*SigPloit*'
+CommandLine: ParentProcessName:
+CommandLine: '*SigPloit*'
+CommandLine: Application:
+CommandLine: '*SigPloit*'
+CommandLine: Product Name:
+CommandLine: '*SigPloit*'
+CommandLine: Threat Name:
+CommandLine: '*SigPloit*'
+CommandLine: Process Name:
+CommandLine: '*SigPloit*'
+CommandLine: Path:
+CommandLine: '*SigPloit*'
+CommandLine: ImagePath:
+CommandLine: '*SigPloit*'
+CommandLine: ServiceName:
+CommandLine: '*SigPloit*'
+CommandLine: ProcessPath:
+CommandLine: '*SigPloit*'
+CommandLine: AppName:
+CommandLine: '*SigPloit*'
+CommandLine: AppPath:
+CommandLine: '*SigPloit*'
+CommandLine: ModulePath:
+CommandLine: '*SigPloit*'
+CommandLine: registry.data.strings:
+CommandLine: '*SigPloit*'
+CommandLine: registry.path:
+CommandLine: '*SigPloit*'
+CommandLine: registry.value:
+CommandLine: '*SigPloit*'
+CommandLine: process.args:
+CommandLine: '*SigPloit*'
+CommandLine: process.command_line:
+CommandLine: '*SigPloit*'
+CommandLine: process.env_vars:
+CommandLine: '*SigPloit*'
+CommandLine: process.io.text:
+CommandLine: '*SigPloit*'
+CommandLine: process.executable:
+CommandLine: '*SigPloit*'
+CommandLine: process.name:
+CommandLine: '*SigPloit*'
+CommandLine: process.title:
+CommandLine: '*SigPloit*'
+CommandLine: pe.company:
+CommandLine: '*SigPloit*'
+CommandLine: pe.description:
+CommandLine: '*SigPloit*'
+CommandLine: pe.original_file_name:
+CommandLine: '*SigPloit*'
+CommandLine: pe.product:
+CommandLine: '*SigPloit*'
+CommandLine: os.full:
+CommandLine: '*SigPloit*'
+CommandLine: host.hostname:
+CommandLine: '*SigPloit*'
+CommandLine: file.fork_name:
+CommandLine: '*SigPloit*'
+CommandLine: file.name:
+CommandLine: '*SigPloit*'
+CommandLine: file.path:
+CommandLine: '*SigPloit*'
+CommandLine: file.target_path:
+CommandLine: '*SigPloit*'
+CommandLine: email.attachments.file.name:
+CommandLine: '*SigPloit*'
+CommandLine: email.subject:
+CommandLine: '*SigPloit*'
+CommandLine: dll.path:
+CommandLine: '*SigPloit*'
+CommandLine: device.model.name:
+CommandLine: '*SigPloit*'
+CommandLine: container.image.name:
+CommandLine: '*SigPloit*'
+CommandLine: container.name:
+CommandLine: '*SigPloit*'
+CommandLine: object:
+CommandLine: '*SigPloit*'
+CommandLine: url:
+CommandLine: '*SigPloit*'
+CommandLine: dest_url:
+CommandLine: '*SigPloit*'
+CommandLine: uri:
+CommandLine: '*SigPloit*'
+CommandLine: uri_query:
+CommandLine: '*SigPloit*'
+CommandLine: query:
+CommandLine: '*SigPloit*'
+CommandLine: url_domain:
+CommandLine: '*SigPloit*'
+CommandLine: uri_path:
+CommandLine: '*SigPloit*'
+CommandLine: domain:
+CommandLine: '*SigPloit*'
+CommandLine: QueryName:
+CommandLine: '*SigPloit*'
+CommandLine: QueryResults:
+CommandLine: '*SigPloit*'
+CommandLine: DestinationHostname:
+CommandLine: '*SigPloit*'
+CommandLine: DestinationIp:
+CommandLine: '*SigPloit*'
+CommandLine: http_referrer:
+CommandLine: '*SigPloit*'
+CommandLine: http_referrer_domain:
+CommandLine: '*SigPloit*'
+CommandLine: http_user_agent:
+CommandLine: '*SigPloit*'
+CommandLine: dest_nt_host:
+CommandLine: '*SigPloit*'
+CommandLine: sender:
+CommandLine: '*SigPloit*'
+CommandLine: recipient:
+CommandLine: '*SigPloit*'
+CommandLine: orig_recipient:
+CommandLine: '*SigPloit*'
+CommandLine: subject:
+CommandLine: '*SigPloit*'
+CommandLine: url.domain:
+CommandLine: '*SigPloit*'
+CommandLine: url.full:
+CommandLine: '*SigPloit*'
+CommandLine: url.original:
+CommandLine: '*SigPloit*'
+CommandLine: url.query:
+CommandLine: '*SigPloit*'
+CommandLine: user_agent.original:
+CommandLine: '*SigPloit*'
+CommandLine: network.application:
+CommandLine: '*SigPloit*'
+CommandLine: http.request.body.content:
+CommandLine: '*SigPloit*'
+CommandLine: http.request.referrer:
+CommandLine: '*SigPloit*'
+CommandLine: email.from.address:
+CommandLine: '*SigPloit*'
+CommandLine: dns.question.name:
+CommandLine: '*SigPloit*'
+CommandLine: destination.domain:
+CommandLine: '*SigPloit*'
+
+Title: Defense evasion via process reimaging
+CommandLine: '*rundll32*.html,DllRegisterServer*'
+CommandLine: '*rundll32*.htm,DllRegisterServer*'
+CommandLine: '*rundll32*.txt,DllRegisterServer*'
+CommandLine: '*rundll32*.png,DllRegisterServer*'
+CommandLine: '*rundll32*.jpeg,DllRegisterServer*'
+CommandLine: '*rundll32*.jpg,DllRegisterServer*'
+CommandLine: '*regsvr32 c:\programdata\\*.pdf*'
+CommandLine: '*regsvr32 c:\programdata\\*.txt*'
+CommandLine: '*regsvr32 c:\users\public\\*.pdf*'
+CommandLine: '*regsvr32 c:\users\public\\*.txt*'
+CommandLine: '*cmd*net stop*& net stop*& net stop*& net stop*& net stop*& net stop*& net stop*'
+CommandLine: '*reg add*hkcu\software\classes\ms-settings\shell\open\command*'
+CommandLine: name: Bypass UAC using Event Viewer (cmd)
+CommandLine: windows
+CommandLine: name: Bypass UAC using Event Viewer (PowerShell)
+CommandLine: windows
+CommandLine: name: Bypass UAC using Fodhelper
+CommandLine: windows
+CommandLine: name: Bypass UAC using Fodhelper - PowerShell
+CommandLine: windows
+CommandLine: name: Bypass UAC using ComputerDefaults (PowerShell)
+CommandLine: windows
+CommandLine: name: Bypass UAC by Mocking Trusted Directories
+CommandLine: windows
+CommandLine: name: Bypass UAC using sdclt DelegateExecute
+CommandLine: windows
+CommandLine: https://github.com/SigPloiter/SigPloit
+CommandLine: attack.T1189
+CommandLine: attack.T1190
+CommandLine: attack.T1201
+CommandLine: attack.T1562
+CommandLine: attack.T1573
+CommandLine: attack.TA0002
+CommandLine: attack.TA0003
+CommandLine: attack.TA0007
+CommandLine: attack.TA0008
+CommandLine: endpoint
+CommandLine: network
+CommandLine: Image:
+CommandLine: '*SigPloit*'
+CommandLine: OriginalFileName:
+CommandLine: '*SigPloit*'
+CommandLine: CurrentDirectory:
+CommandLine: '*SigPloit*'
+CommandLine: ParentImage:
+CommandLine: '*SigPloit*'
+CommandLine: ParentCommandLine:
+CommandLine: '*SigPloit*'
+CommandLine: TargetFilename:
+CommandLine: '*SigPloit*'
+CommandLine: Signature:
+CommandLine: '*SigPloit*'
+CommandLine: signature:
+CommandLine: '*SigPloit*'
+CommandLine: ImageLoaded:
+CommandLine: '*SigPloit*'
+CommandLine: Company:
+CommandLine: '*SigPloit*'
+CommandLine: Description:
+CommandLine: '*SigPloit*'
+CommandLine: description:
+CommandLine: '*SigPloit*'
+CommandLine: CommandLine:
+CommandLine: '*SigPloit*'
+CommandLine: SourceImage:
+CommandLine: '*SigPloit*'
+CommandLine: TargetImage:
+CommandLine: '*SigPloit*'
+CommandLine: CallTrace:
+CommandLine: '*SigPloit*'
+CommandLine: TargetObject:
+CommandLine: '*SigPloit*'
+CommandLine: Details:
+CommandLine: '*SigPloit*'
+CommandLine: PipeName:
+CommandLine: '*SigPloit*'
+CommandLine: Consumer:
+CommandLine: '*SigPloit*'
+CommandLine: Destination:
+CommandLine: '*SigPloit*'
+CommandLine: Name:
+CommandLine: '*SigPloit*'
+CommandLine: Query:
+CommandLine: '*SigPloit*'
+CommandLine: NewName:
+CommandLine: '*SigPloit*'
+CommandLine: StartAddress:
+CommandLine: '*SigPloit*'
+CommandLine: StartModule:
+CommandLine: '*SigPloit*'
+CommandLine: StartFunction:
+CommandLine: '*SigPloit*'
+CommandLine: SourceHostname:
+CommandLine: '*SigPloit*'
+CommandLine: Device:
+CommandLine: '*SigPloit*'
+CommandLine: file_name:
+CommandLine: '*SigPloit*'
+CommandLine: file_path:
+CommandLine: '*SigPloit*'
+CommandLine: process:
+CommandLine: '*SigPloit*'
+CommandLine: original_file_name:
+CommandLine: '*SigPloit*'
+CommandLine: parent_process:
+CommandLine: '*SigPloit*'
+CommandLine: process_path:
+CommandLine: '*SigPloit*'
+CommandLine: service_path:
+CommandLine: '*SigPloit*'
+CommandLine: registry_path:
+CommandLine: '*SigPloit*'
+CommandLine: registry_value_data:
+CommandLine: '*SigPloit*'
+CommandLine: registry_value_name:
+CommandLine: '*SigPloit*'
+CommandLine: ContextInfo:
+CommandLine: '*SigPloit*'
+CommandLine: Payload:
+CommandLine: '*SigPloit*'
+CommandLine: ScriptBlockText:
+CommandLine: '*SigPloit*'
+CommandLine: ServerName:
+CommandLine: '*SigPloit*'
+CommandLine: TransportName:
+CommandLine: '*SigPloit*'
+CommandLine: NewProcessName:
+CommandLine: '*SigPloit*'
+CommandLine: ParentProcessName:
+CommandLine: '*SigPloit*'
+CommandLine: Application:
+CommandLine: '*SigPloit*'
+CommandLine: Product Name:
+CommandLine: '*SigPloit*'
+CommandLine: Threat Name:
+CommandLine: '*SigPloit*'
+CommandLine: Process Name:
+CommandLine: '*SigPloit*'
+CommandLine: Path:
+CommandLine: '*SigPloit*'
+CommandLine: ImagePath:
+CommandLine: '*SigPloit*'
+CommandLine: ServiceName:
+CommandLine: '*SigPloit*'
+CommandLine: ProcessPath:
+CommandLine: '*SigPloit*'
+CommandLine: AppName:
+CommandLine: '*SigPloit*'
+CommandLine: AppPath:
+CommandLine: '*SigPloit*'
+CommandLine: ModulePath:
+CommandLine: '*SigPloit*'
+CommandLine: registry.data.strings:
+CommandLine: '*SigPloit*'
+CommandLine: registry.path:
+CommandLine: '*SigPloit*'
+CommandLine: registry.value:
+CommandLine: '*SigPloit*'
+CommandLine: process.args:
+CommandLine: '*SigPloit*'
+CommandLine: process.command_line:
+CommandLine: '*SigPloit*'
+CommandLine: process.env_vars:
+CommandLine: '*SigPloit*'
+CommandLine: process.io.text:
+CommandLine: '*SigPloit*'
+CommandLine: process.executable:
+CommandLine: '*SigPloit*'
+CommandLine: process.name:
+CommandLine: '*SigPloit*'
+CommandLine: process.title:
+CommandLine: '*SigPloit*'
+CommandLine: pe.company:
+CommandLine: '*SigPloit*'
+CommandLine: pe.description:
+CommandLine: '*SigPloit*'
+CommandLine: pe.original_file_name:
+CommandLine: '*SigPloit*'
+CommandLine: pe.product:
+CommandLine: '*SigPloit*'
+CommandLine: os.full:
+CommandLine: '*SigPloit*'
+CommandLine: host.hostname:
+CommandLine: '*SigPloit*'
+CommandLine: file.fork_name:
+CommandLine: '*SigPloit*'
+CommandLine: file.name:
+CommandLine: '*SigPloit*'
+CommandLine: file.path:
+CommandLine: '*SigPloit*'
+CommandLine: file.target_path:
+CommandLine: '*SigPloit*'
+CommandLine: email.attachments.file.name:
+CommandLine: '*SigPloit*'
+CommandLine: email.subject:
+CommandLine: '*SigPloit*'
+CommandLine: dll.path:
+CommandLine: '*SigPloit*'
+CommandLine: device.model.name:
+CommandLine: '*SigPloit*'
+CommandLine: container.image.name:
+CommandLine: '*SigPloit*'
+CommandLine: container.name:
+CommandLine: '*SigPloit*'
+CommandLine: object:
+CommandLine: '*SigPloit*'
+CommandLine: url:
+CommandLine: '*SigPloit*'
+CommandLine: dest_url:
+CommandLine: '*SigPloit*'
+CommandLine: uri:
+CommandLine: '*SigPloit*'
+CommandLine: uri_query:
+CommandLine: '*SigPloit*'
+CommandLine: query:
+CommandLine: '*SigPloit*'
+CommandLine: url_domain:
+CommandLine: '*SigPloit*'
+CommandLine: uri_path:
+CommandLine: '*SigPloit*'
+CommandLine: domain:
+CommandLine: '*SigPloit*'
+CommandLine: QueryName:
+CommandLine: '*SigPloit*'
+CommandLine: QueryResults:
+CommandLine: '*SigPloit*'
+CommandLine: DestinationHostname:
+CommandLine: '*SigPloit*'
+CommandLine: DestinationIp:
+CommandLine: '*SigPloit*'
+CommandLine: http_referrer:
+CommandLine: '*SigPloit*'
+CommandLine: http_referrer_domain:
+CommandLine: '*SigPloit*'
+CommandLine: http_user_agent:
+CommandLine: '*SigPloit*'
+CommandLine: dest_nt_host:
+CommandLine: '*SigPloit*'
+CommandLine: sender:
+CommandLine: '*SigPloit*'
+CommandLine: recipient:
+CommandLine: '*SigPloit*'
+CommandLine: orig_recipient:
+CommandLine: '*SigPloit*'
+CommandLine: subject:
+CommandLine: '*SigPloit*'
+CommandLine: url.domain:
+CommandLine: '*SigPloit*'
+CommandLine: url.full:
+CommandLine: '*SigPloit*'
+CommandLine: url.original:
+CommandLine: '*SigPloit*'
+CommandLine: url.query:
+CommandLine: '*SigPloit*'
+CommandLine: user_agent.original:
+CommandLine: '*SigPloit*'
+CommandLine: network.application:
+CommandLine: '*SigPloit*'
+CommandLine: http.request.body.content:
+CommandLine: '*SigPloit*'
+CommandLine: http.request.referrer:
+CommandLine: '*SigPloit*'
+CommandLine: email.from.address:
+CommandLine: '*SigPloit*'
+CommandLine: dns.question.name:
+CommandLine: '*SigPloit*'
+CommandLine: destination.domain:
+CommandLine: '*SigPloit*'
+
+Title: Defense evasion via process reimaging
+CommandLine: '*rundll32*.html,DllRegisterServer*'
+CommandLine: '*rundll32*.htm,DllRegisterServer*'
+CommandLine: '*rundll32*.txt,DllRegisterServer*'
+CommandLine: '*rundll32*.png,DllRegisterServer*'
+CommandLine: '*rundll32*.jpeg,DllRegisterServer*'
+CommandLine: '*rundll32*.jpg,DllRegisterServer*'
+CommandLine: '*regsvr32 c:\programdata\\*.pdf*'
+CommandLine: '*regsvr32 c:\programdata\\*.txt*'
+CommandLine: '*regsvr32 c:\users\public\\*.pdf*'
+CommandLine: '*regsvr32 c:\users\public\\*.txt*'
+CommandLine: '*cmd*net stop*& net stop*& net stop*& net stop*& net stop*& net stop*& net stop*'
+CommandLine: '*reg add*hkcu\software\classes\ms-settings\shell\open\command*'
+CommandLine: name: Bypass UAC using Event Viewer (cmd)
+CommandLine: windows
+CommandLine: name: Bypass UAC using Event Viewer (PowerShell)
+CommandLine: windows
+CommandLine: name: Bypass UAC using Fodhelper
+CommandLine: windows
+CommandLine: name: Bypass UAC using Fodhelper - PowerShell
+CommandLine: windows
+CommandLine: name: Bypass UAC using ComputerDefaults (PowerShell)
+CommandLine: windows
+CommandLine: name: Bypass UAC by Mocking Trusted Directories
+CommandLine: windows
+CommandLine: name: Bypass UAC using sdclt DelegateExecute
+CommandLine: windows
+CommandLine: https://github.com/SigPloiter/SigPloit
+CommandLine: attack.T1189
+CommandLine: attack.T1190
+CommandLine: attack.T1201
+CommandLine: attack.T1562
+CommandLine: attack.T1573
+CommandLine: attack.TA0002
+CommandLine: attack.TA0003
+CommandLine: attack.TA0007
+CommandLine: attack.TA0008
+CommandLine: endpoint
+CommandLine: network
+CommandLine: Image:
+CommandLine: '*SigPloit*'
+CommandLine: OriginalFileName:
+CommandLine: '*SigPloit*'
+CommandLine: CurrentDirectory:
+CommandLine: '*SigPloit*'
+CommandLine: ParentImage:
+CommandLine: '*SigPloit*'
+CommandLine: ParentCommandLine:
+CommandLine: '*SigPloit*'
+CommandLine: TargetFilename:
+CommandLine: '*SigPloit*'
+CommandLine: Signature:
+CommandLine: '*SigPloit*'
+CommandLine: signature:
+CommandLine: '*SigPloit*'
+CommandLine: ImageLoaded:
+CommandLine: '*SigPloit*'
+CommandLine: Company:
+CommandLine: '*SigPloit*'
+CommandLine: Description:
+CommandLine: '*SigPloit*'
+CommandLine: description:
+CommandLine: '*SigPloit*'
+CommandLine: CommandLine:
+CommandLine: '*SigPloit*'
+CommandLine: SourceImage:
+CommandLine: '*SigPloit*'
+CommandLine: TargetImage:
+CommandLine: '*SigPloit*'
+CommandLine: CallTrace:
+CommandLine: '*SigPloit*'
+CommandLine: TargetObject:
+CommandLine: '*SigPloit*'
+CommandLine: Details:
+CommandLine: '*SigPloit*'
+CommandLine: PipeName:
+CommandLine: '*SigPloit*'
+CommandLine: Consumer:
+CommandLine: '*SigPloit*'
+CommandLine: Destination:
+CommandLine: '*SigPloit*'
+CommandLine: Name:
+CommandLine: '*SigPloit*'
+CommandLine: Query:
+CommandLine: '*SigPloit*'
+CommandLine: NewName:
+CommandLine: '*SigPloit*'
+CommandLine: StartAddress:
+CommandLine: '*SigPloit*'
+CommandLine: StartModule:
+CommandLine: '*SigPloit*'
+CommandLine: StartFunction:
+CommandLine: '*SigPloit*'
+CommandLine: SourceHostname:
+CommandLine: '*SigPloit*'
+CommandLine: Device:
+CommandLine: '*SigPloit*'
+CommandLine: file_name:
+CommandLine: '*SigPloit*'
+CommandLine: file_path:
+CommandLine: '*SigPloit*'
+CommandLine: process:
+CommandLine: '*SigPloit*'
+CommandLine: original_file_name:
+CommandLine: '*SigPloit*'
+CommandLine: parent_process:
+CommandLine: '*SigPloit*'
+CommandLine: process_path:
+CommandLine: '*SigPloit*'
+CommandLine: service_path:
+CommandLine: '*SigPloit*'
+CommandLine: registry_path:
+CommandLine: '*SigPloit*'
+CommandLine: registry_value_data:
+CommandLine: '*SigPloit*'
+CommandLine: registry_value_name:
+CommandLine: '*SigPloit*'
+CommandLine: ContextInfo:
+CommandLine: '*SigPloit*'
+CommandLine: Payload:
+CommandLine: '*SigPloit*'
+CommandLine: ScriptBlockText:
+CommandLine: '*SigPloit*'
+CommandLine: ServerName:
+CommandLine: '*SigPloit*'
+CommandLine: TransportName:
+CommandLine: '*SigPloit*'
+CommandLine: NewProcessName:
+CommandLine: '*SigPloit*'
+CommandLine: ParentProcessName:
+CommandLine: '*SigPloit*'
+CommandLine: Application:
+CommandLine: '*SigPloit*'
+CommandLine: Product Name:
+CommandLine: '*SigPloit*'
+CommandLine: Threat Name:
+CommandLine: '*SigPloit*'
+CommandLine: Process Name:
+CommandLine: '*SigPloit*'
+CommandLine: Path:
+CommandLine: '*SigPloit*'
+CommandLine: ImagePath:
+CommandLine: '*SigPloit*'
+CommandLine: ServiceName:
+CommandLine: '*SigPloit*'
+CommandLine: ProcessPath:
+CommandLine: '*SigPloit*'
+CommandLine: AppName:
+CommandLine: '*SigPloit*'
+CommandLine: AppPath:
+CommandLine: '*SigPloit*'
+CommandLine: ModulePath:
+CommandLine: '*SigPloit*'
+CommandLine: registry.data.strings:
+CommandLine: '*SigPloit*'
+CommandLine: registry.path:
+CommandLine: '*SigPloit*'
+CommandLine: registry.value:
+CommandLine: '*SigPloit*'
+CommandLine: process.args:
+CommandLine: '*SigPloit*'
+CommandLine: process.command_line:
+CommandLine: '*SigPloit*'
+CommandLine: process.env_vars:
+CommandLine: '*SigPloit*'
+CommandLine: process.io.text:
+CommandLine: '*SigPloit*'
+CommandLine: process.executable:
+CommandLine: '*SigPloit*'
+CommandLine: process.name:
+CommandLine: '*SigPloit*'
+CommandLine: process.title:
+CommandLine: '*SigPloit*'
+CommandLine: pe.company:
+CommandLine: '*SigPloit*'
+CommandLine: pe.description:
+CommandLine: '*SigPloit*'
+CommandLine: pe.original_file_name:
+CommandLine: '*SigPloit*'
+CommandLine: pe.product:
+CommandLine: '*SigPloit*'
+CommandLine: os.full:
+CommandLine: '*SigPloit*'
+CommandLine: host.hostname:
+CommandLine: '*SigPloit*'
+CommandLine: file.fork_name:
+CommandLine: '*SigPloit*'
+CommandLine: file.name:
+CommandLine: '*SigPloit*'
+CommandLine: file.path:
+CommandLine: '*SigPloit*'
+CommandLine: file.target_path:
+CommandLine: '*SigPloit*'
+CommandLine: email.attachments.file.name:
+CommandLine: '*SigPloit*'
+CommandLine: email.subject:
+CommandLine: '*SigPloit*'
+CommandLine: dll.path:
+CommandLine: '*SigPloit*'
+CommandLine: device.model.name:
+CommandLine: '*SigPloit*'
+CommandLine: container.image.name:
+CommandLine: '*SigPloit*'
+CommandLine: container.name:
+CommandLine: '*SigPloit*'
+CommandLine: object:
+CommandLine: '*SigPloit*'
+CommandLine: url:
+CommandLine: '*SigPloit*'
+CommandLine: dest_url:
+CommandLine: '*SigPloit*'
+CommandLine: uri:
+CommandLine: '*SigPloit*'
+CommandLine: uri_query:
+CommandLine: '*SigPloit*'
+CommandLine: query:
+CommandLine: '*SigPloit*'
+CommandLine: url_domain:
+CommandLine: '*SigPloit*'
+CommandLine: uri_path:
+CommandLine: '*SigPloit*'
+CommandLine: domain:
+CommandLine: '*SigPloit*'
+CommandLine: QueryName:
+CommandLine: '*SigPloit*'
+CommandLine: QueryResults:
+CommandLine: '*SigPloit*'
+CommandLine: DestinationHostname:
+CommandLine: '*SigPloit*'
+CommandLine: DestinationIp:
+CommandLine: '*SigPloit*'
+CommandLine: http_referrer:
+CommandLine: '*SigPloit*'
+CommandLine: http_referrer_domain:
+CommandLine: '*SigPloit*'
+CommandLine: http_user_agent:
+CommandLine: '*SigPloit*'
+CommandLine: dest_nt_host:
+CommandLine: '*SigPloit*'
+CommandLine: sender:
+CommandLine: '*SigPloit*'
+CommandLine: recipient:
+CommandLine: '*SigPloit*'
+CommandLine: orig_recipient:
+CommandLine: '*SigPloit*'
+CommandLine: subject:
+CommandLine: '*SigPloit*'
+CommandLine: url.domain:
+CommandLine: '*SigPloit*'
+CommandLine: url.full:
+CommandLine: '*SigPloit*'
+CommandLine: url.original:
+CommandLine: '*SigPloit*'
+CommandLine: url.query:
+CommandLine: '*SigPloit*'
+CommandLine: user_agent.original:
+CommandLine: '*SigPloit*'
+CommandLine: network.application:
+CommandLine: '*SigPloit*'
+CommandLine: http.request.body.content:
+CommandLine: '*SigPloit*'
+CommandLine: http.request.referrer:
+CommandLine: '*SigPloit*'
+CommandLine: email.from.address:
+CommandLine: '*SigPloit*'
+CommandLine: dns.question.name:
+CommandLine: '*SigPloit*'
+CommandLine: destination.domain:
+CommandLine: '*SigPloit*'
+
+Title: Sodinokibi
+
+Title: Steal Google chrome login data
+
+Title: Stop multiple services
+
+Title: VjW0rm
+
+Title: Wake-On-Lan
+
+Title: CVE-2010-5278 Exploitation Attempt
+
+Title: Fortinet CVE-2018-13379 Exploitation
+
+Title: Oracle WebLogic Exploit
+
+Title: Pulse Secure Attack CVE-2019-11510
+
+Title: Citrix Netscaler Attack CVE-2019-19781
+
+Title: Confluence Exploitation CVE-2019-3398
+
+Title: CVE-2020-0688 Exchange Exploitation via Web Log
+
+Title: CVE-2020-10148 SolarWinds Orion API Auth Bypass
+
+Title: CVE-2020-5902 F5 BIG-IP Exploitation Attempt
+
+Title: Citrix ADS Exploitation CVE-2020-8193 CVE-2020-8195
+
+Title: Arcadyan Router Exploitations
+
+Title: Oracle WebLogic Exploit CVE-2021-2109
+
+Title: Fortinet CVE-2021-22123 Exploitation
+
+Title: ProxyLogon Reset Virtual Directories Based On IIS Log
+
+Title: Exchange Exploitation CVE-2021-28480
+
+Title: CVE-2021-33766 Exchange ProxyToken Exploitation
+
+Title: CVE-2021-40539 Zoho ManageEngine ADSelfService Plus Exploit
+
+Title: Grafana Path Traversal Exploitation CVE-2021-43798
+
+Title: OWASSRF Exploitation Attempt Using Public POC - Webserver
+
+Title: Successful Exchange ProxyShell Attack
+
+Title: Solarwinds SUPERNOVA Webshell Access
+
+Title: Winword Drops Script In Startup
+
+Title: Disable Windows Defender Credential Guard
+CommandLine: 'SetValue'
+CommandLine: 'AddValue'
+
+Title: CVE-2021-1675 Print Spooler Exploitation
+
+Title: Malicious Service Installations
+CommandLine: https://bczyz1.github.io/2021/01/30/psexec.html
+CommandLine: attack.lateral_movement
+CommandLine: attack.t1021.002
+CommandLine: attack.t1570
+CommandLine: attack.execution
+CommandLine: attack.t1569.002
+
+Title: Impacket AtExec Suspicious Registry Modification
+CommandLine: 'SetValue'
+CommandLine: 'AddValue'
+
+Title: Diamond Sleet APT Scheduled Task Creation
+
+Title: OilRig APT Schedule Task Persistence - Security
+
+Title: CVE-2021-1675 Print Spooler Exploitation IPC Access
+
+Title: CVE-2023-23397 Exploitation Attempt
+
+Title: OilRig APT Schedule Task Persistence - System
+
+Title: Turla PNG Dropper Service
+
+Title: Goofy Guineapig Backdoor Service Creation
+
+Title: SNAKE Malware Service Persistence
+
+Title: Wmic download via msiexec
+
+Title: Wmic Launch Msiexec
+
+Title: wmic launch powershell and execute encrypted script
+
+Title: Wmic Launch regsvr32
+
+Title: WMIC launch script from xsl file
+
+Title: Wscript download file into temp location from wordpress site
+
+Title: WScript Launched By Powershell
+
+Title: DLL ServerLevelPluginDll command installation
+
+Title: DLL ServerLevelPluginDll registration ("serverlevelplugindll" feature abuse)
+CommandLine: https://medium.com/@esnesenon/feature-not-bug-dnsadmin-to-dc-compromise-in-one-line-a0f779b8dc83
+CommandLine: https://medium.com/r3d-buck3t/escalating-privileges-with-dnsadmins-group-active-directory-6f7adbc7005b
+CommandLine: https://medium.com/techzap/dns-admin-privesc-in-active-directory-ad-windows-ecc7ed5a21a2
+CommandLine: https://phackt.com/dnsadmins-group-exploitation-write-permissions
+CommandLine: http://www.labofapenetrationtester.com/2017/05/abusing-dnsadmins-privilege-for-escalation-in-active-directory.html
+CommandLine: https://www.ired.team/offensive-security-experiments/active-directory-kerberos-abuse/from-dnsadmins-to-system-to-domain-compromise
+CommandLine: http://www.labofapenetrationtester.com/2017/05/abusing-dnsadmins-privilege-for-escalation-in-active-directory.html
+CommandLine: https://lolbas-project.github.io/lolbas/Binaries/Dnscmd/
+CommandLine: https://blog.3or.de/hunting-dns-server-level-plugin-dll-injection.html
+CommandLine: attack.persistence
+CommandLine: attack.t1574.002
+
+Title: DLL ServerLevelPluginDll registration ("serverlevelplugindll" feature abuse)
+CommandLine: https://medium.com/@esnesenon/feature-not-bug-dnsadmin-to-dc-compromise-in-one-line-a0f779b8dc83
+CommandLine: https://medium.com/r3d-buck3t/escalating-privileges-with-dnsadmins-group-active-directory-6f7adbc7005b
+CommandLine: https://medium.com/techzap/dns-admin-privesc-in-active-directory-ad-windows-ecc7ed5a21a2
+CommandLine: https://phackt.com/dnsadmins-group-exploitation-write-permissions
+CommandLine: http://www.labofapenetrationtester.com/2017/05/abusing-dnsadmins-privilege-for-escalation-in-active-directory.html
+CommandLine: https://www.ired.team/offensive-security-experiments/active-directory-kerberos-abuse/from-dnsadmins-to-system-to-domain-compromise
+CommandLine: http://www.labofapenetrationtester.com/2017/05/abusing-dnsadmins-privilege-for-escalation-in-active-directory.html
+CommandLine: https://lolbas-project.github.io/lolbas/Binaries/Dnscmd/
+CommandLine: https://blog.3or.de/hunting-dns-server-level-plugin-dll-injection.html
+CommandLine: attack.persistence
+CommandLine: attack.t1574.002
+
