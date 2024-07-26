@@ -630,17 +630,19 @@ def notify_user_for_detected_ransomware_command(file_path, cmdline, virus_name, 
     )
     notification.send()
 
-def notify_user_for_detected_ransomware_command_wmic(file_path, cmdline, virus_name):
+def notify_user_for_detected_ransomware_command(file_path, cmdline, virus_name, base64=False, source=None):
     notification = Notify()
     notification.title = "Ransomware Shadow Copy Deletion Alert"
+    base64_text = " (Base64 encoded)" if base64 else ""
+    source_text = f" via {source}" if source else ""
     notification.message = (
-        f"Potential WMIC shadow copy deletion command detected:\n"
+        f"Potential ransomware shadow copy deletion command detected{source_text}:\n"
         f"File Path: {file_path}\n"
         f"Command Line: {' '.join(cmdline)}\n"
-        f"Threat: {virus_name}"
+        f"Threat: {virus_name}{base64_text}"
     )
     notification.send()
-    
+
 def notify_user_invalid(file_path, virus_name):
     notification = Notify()
     notification.title = "Invalid signature Alert"
@@ -1272,17 +1274,19 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line):
 
 def heuristics_of_commandline():
     """
-    Continuously monitor processes for specific command lines and capture Wi-Fi passwords and shadow copy deletion commands.
+    Continuously monitor processes for specific command lines and capture Wi-Fi passwords, shadow copy deletion commands, and copying files to startup via PowerShell.
     """
     wifi_commands = ['netsh wlan show profile']
     shadow_copy_command = 'Get-WmiObject Win32_Shadowcopy | ForEach-Object {$_.Delete();}'
     shadow_copy_command_base64 = 'RwBlAHQALQBXAG0AaQBPAGIAagBlAGMAdAAgAFcAaQBuADMAMgBfAFMAaABoAGQAbwB3AGMAbwBwAHkAIAB8ACAARgBvAHIARQBhAGMAaAAtAE8AYgBqAGUAYwB0ACAAewAkAF8ALgBEAGUAbABlAHQAZQAoACkAOwB9AA=='
     wmic_command = 'wmic shadowcopy delete'
+    copy_to_startup_command = 'copy-item *\\roaming\\microsoft\\windows\\start menu\\programs\\startup*'
     
     wifi_command_doc = nlp_spacy_lang(wifi_commands[0])
     shadow_copy_command_doc = nlp_spacy_lang(shadow_copy_command)
     shadow_copy_command_base64_doc = nlp_spacy_lang(shadow_copy_command_base64)
     wmic_command_doc = nlp_spacy_lang(wmic_command)
+    copy_to_startup_command_doc = nlp_spacy_lang(copy_to_startup_command)
     
     while True:
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
@@ -1296,6 +1300,7 @@ def heuristics_of_commandline():
                     shadow_copy_similarity = shadow_copy_command_doc.similarity(cmdline_doc)
                     shadow_copy_base64_similarity = shadow_copy_command_base64_doc.similarity(cmdline_doc)
                     wmic_similarity = wmic_command_doc.similarity(cmdline_doc)
+                    copy_to_startup_similarity = copy_to_startup_command_doc.similarity(cmdline_doc)
                     
                     if wifi_similarity >= 0.86:
                         file_path = proc.info.get('exe', 'Unknown')
@@ -1307,19 +1312,25 @@ def heuristics_of_commandline():
                         file_path = proc.info.get('exe', 'Unknown')
                         logging.warning(f"Potential shadow copy deletion command detected: {cmdline_text} (similarity: {shadow_copy_similarity})")
                         print(f"Warning: Potential shadow copy deletion command detected: {cmdline_text} (similarity: {shadow_copy_similarity})")
-                        notify_user_for_detected_ransomware_command(file_path, cmdline_text, "HEUR:Win32.Ransom.ShadowCopy.PowerShell")
+                        notify_user_for_detected_ransomware_command(file_path, cmdline_text, "HEUR:Win32.Ransom.ShadowCopy.PowerShell", source="PowerShell")
                     
                     if shadow_copy_base64_similarity >= 0.86:
                         file_path = proc.info.get('exe', 'Unknown')
                         logging.warning(f"Potential Base64 shadow copy deletion command detected: {cmdline_text} (similarity: {shadow_copy_base64_similarity})")
                         print(f"Warning: Potential Base64 shadow copy deletion command detected: {cmdline_text} (similarity: {shadow_copy_base64_similarity})")
-                        notify_user_for_detected_ransomware_command(file_path, cmdline_text, "HEUR:Win32.Ransom.ShadowCopy.Base64.PowerShell", base64=True)
+                        notify_user_for_detected_ransomware_command(file_path, cmdline_text, "HEUR:Win32.Ransom.ShadowCopy.Base64.PowerShell", base64=True, source="PowerShell")
 
                     if wmic_similarity >= 0.86:
                         file_path = proc.info.get('exe', 'Unknown')
                         logging.warning(f"Potential WMIC shadow copy deletion command detected: {cmdline_text} (similarity: {wmic_similarity})")
                         print(f"Warning: Potential WMIC shadow copy deletion command detected: {cmdline_text} (similarity: {wmic_similarity})")
-                        notify_user_for_detected_ransomware_command_wmic(file_path, cmdline_text, "HEUR:Win32.Ransom.ShadowCopy.WMIC")
+                        notify_user_for_detected_ransomware_command(file_path, cmdline_text, "HEUR:Win32.Ransom.ShadowCopy.WMIC", source="WMIC")
+
+                    if copy_to_startup_similarity >= 0.86:
+                        file_path = proc.info.get('exe', 'Unknown')
+                        logging.warning(f"Potential file copy to startup command detected: {cmdline_text} (similarity: {copy_to_startup_similarity})")
+                        print(f"Warning: Potential file copy to startup command detected: {cmdline_text} (similarity: {copy_to_startup_similarity})")
+                        notify_user_for_detected_copy_to_startup_command(file_path, cmdline_text, "HEUR:Win32.CopyToStartup.PowerShell")
             except psutil.NoSuchProcess:
                 logging.error(f"Process no longer exists: {proc.info.get('pid')}")
             except psutil.AccessDenied:
