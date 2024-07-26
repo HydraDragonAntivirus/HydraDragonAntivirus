@@ -1209,17 +1209,6 @@ def monitor_sandbox():
                 pathToScan = os.path.join(sandbox_folder, file)
                 print(pathToScan)
                 scan_and_warn(pathToScan)
-                if os.path.abspath(pathToScan).startswith(main_drive_path):
-                    file_name = os.path.basename(pathToScan)
-                    if file_name in fake_system_files:
-                        signature_info = check_valid_signature_only(pathToScan)
-                        if not signature_info["is_valid"]:
-                            logging.warning(f"Fake system file detected with invalid signature: {pathToScan}")
-                            print(f"Warning: Fake system file detected with invalid signature: {pathToScan}")
-                            notify_user_for_detected_fake_system_file(pathToScan, file_name, "HEUR:Win32.FakeSystemFile.Dropper.Generic")
-                        else:
-                            logging.info(f"Fake system file detected with valid signature: {pathToScan}")
-                            print(f"Fake system file detected with valid signature: {pathToScan}")
     except Exception as e:
         print("An error occurred at monitor_sandbox:", e)
         logging.error(f"An error occurred at monitor_sandbox: {e}")
@@ -1560,6 +1549,9 @@ def scan_and_warn(file_path):
 
             # Check for PE file and signatures
             signature_check = check_signature(file_path)
+
+            file_name = os.path.basename(file_path)
+
             if signature_check["has_microsoft_signature"]:
                 logging.info(f"Valid Microsoft signature detected for file: {file_path}")
                 return False
@@ -1571,6 +1563,12 @@ def scan_and_warn(file_path):
                 worm_alert(file_path)
             else:
                 worm_alert(file_path)
+
+            # Check for fake system files after signature validation
+            if file_name in fake_system_files and os.path.abspath(file_path).startswith(main_drive_path):
+                if contains_pe_header(file_path) and is_pe_file(file_path) and not signature_check["is_valid"]:
+                    logging.warning(f"Detected fake system file: {file_path}")
+                    notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.Generic")
 
         # Perform real-time scan with pe_file flag
         is_malicious, virus_names = scan_file_real_time(file_path, signature_check, pe_file=pe_file)
