@@ -79,10 +79,10 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Just run the shortcut from the desktop, then run advanced dynamic and static analysis on a file.
 
 **How good is it?**
-- It's very good at static analysis, better than Dr.Web and Comodo, but Norton and Kaspersky are better than my product at static analysis. In dynamic analysis, it is excellent at detecting unknown malware and clearly better than ClamAV in static analysis. ClamAV doesn't have dynamic analysis. It's the best Turkish and open-source malware analysis product but it's very aggressive.
+- It's very good at static analysis, better than Dr.Web and Comodo, but Norton and Kaspersky are better than my product at static analysis. In dynamic analysis, it is excellent at detecting unknown malware and clearly better than ClamAV in static analysis. ClamAV doesn't have dynamic analysis. It's the best Turkish and open source malware analysis product but it's very aggressive.
 
 **Why does my antivirus detect this as malware?**
-- It's a false positive. It's a one-file compiled Nuitka file and contains website signatures without obfuscation. It's a completely open-source product.
+- It's a false positive. It's a one-file compiled Nuitka file and contains the website, HIPS signatures without obfuscation. It's a fully open source product.
 
 **Why is it 800MB+?**
 - Because of website signatures, Ghidra and Java Development Kit. Website signatures are not very effective but they can detect old viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space. Java Development Kit is for Ghidra.
