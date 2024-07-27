@@ -1396,6 +1396,7 @@ def heuristics_of_commandline():
         'findstr avgui.exe',
         'findstr nswscsvc.exe',
         'findstr sophoshealth.exe'
+        'findstr antivirus.exe'
     ]
 
     wifi_command_doc = nlp_spacy_lang(wifi_commands)
