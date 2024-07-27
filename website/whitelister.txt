@@ -1,3 +1,5 @@
+.dnsbycomodo.com
+.comodo.com
 .adsensecustomsearchads.com
 .edgecastdns.net
 .cqloud.com
