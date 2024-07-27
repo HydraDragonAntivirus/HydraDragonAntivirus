@@ -1,0 +1,24 @@
+title: Search for Antivirus process
+status: experimental
+description: Search for Antivirus process
+author: Joe Security
+date: 2024-04-01
+id: 200118
+threatname:
+behaviorgroup: 7
+classification: 8
+mitreattack: 
+
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        CommandLine:
+            - 'findstr*avastui.exe*'
+            - 'findstr*avgui.exe*'
+            - 'findstr*nswscsvc.exe*'
+            - 'findstr*sophoshealth.exe*'
+            
+    condition: selection
+level: critical

@@ -684,6 +684,17 @@ def notify_user_for_detected_rootkit(file_path, virus_name):
     )
     notification.send()
 
+def notify_user_for_detected_antivirus_process(file_path, cmdline, virus_name):
+    notification = Notify()
+    notification.title = "Antivirus Process Search Command Alert"
+    notification.message = (
+        f"Potential antivirus process search command detected:\n"
+        f"File Path: {file_path}\n"
+        f"Command Line: {' '.join(cmdline)}\n"
+        f"Threat: {virus_name}"
+    )
+    notification.send()
+
 def notify_user_invalid(file_path, virus_name):
     notification = Notify()
     notification.title = "Invalid signature Alert"
@@ -1358,7 +1369,8 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line):
 def heuristics_of_commandline():
     """
     Continuously monitor processes for specific command lines and capture Wi-Fi passwords, shadow copy deletion commands,
-    copying files to startup via PowerShell, multiple taskkill commands, Koadic rootkit commands, and Fodhelper UAC Bypass commands.
+    copying files to startup via PowerShell, multiple taskkill commands, Koadic rootkit commands, Fodhelper UAC Bypass commands,
+    and antivirus process searches.
     """
     wifi_commands = 'netsh wlan show profile'
     shadow_copy_command = 'Get-WmiObject Win32_Shadowcopy | ForEach-Object {$_.Delete();}'
@@ -1375,7 +1387,15 @@ def heuristics_of_commandline():
 
     # Fodhelper UAC Bypass command line patterns
     fodhelper_command_patterns = [
-        '*reg add*hkcu\\software\\classes\\ms-settings\\shell\\open\\command*'
+        '*reg add hkcu\\software\\classes\\ms-settings\\shell\\open\\command'
+    ]
+    
+    # Antivirus process search command line patterns
+    antivirus_search_patterns = [
+        'findstr avastui.exe',
+        'findstr avgui.exe',
+        'findstr nswscsvc.exe',
+        'findstr sophoshealth.exe'
     ]
 
     wifi_command_doc = nlp_spacy_lang(wifi_commands)
@@ -1387,6 +1407,7 @@ def heuristics_of_commandline():
     
     koadic_command_docs = [nlp_spacy_lang(pattern) for pattern in koadic_command_patterns]
     fodhelper_command_docs = [nlp_spacy_lang(pattern) for pattern in fodhelper_command_patterns]
+    antivirus_search_docs = [nlp_spacy_lang(pattern) for pattern in antivirus_search_patterns]
     
     while True:
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
@@ -1457,6 +1478,15 @@ def heuristics_of_commandline():
                             logging.warning(f"Potential Fodhelper UAC Bypass command detected: {cmdline_text} (similarity: {fodhelper_similarity})")
                             print(f"Warning: Potential Fodhelper UAC Bypass command detected: {cmdline_text} (similarity: {fodhelper_similarity})")
                             notify_user_for_detected_fodhelper_command(file_path, cmdline_text, "HEUR:Fodhelper.UAC.Bypass.Command")
+                    
+                    # Check for antivirus process search commands
+                    for antivirus_search_doc in antivirus_search_docs:
+                        antivirus_similarity = antivirus_search_doc.similarity(cmdline_doc)
+                        if antivirus_similarity >= 0.86:
+                            file_path = proc.info.get('exe', 'Unknown')
+                            logging.warning(f"Potential antivirus process search command detected: {cmdline_text} (similarity: {antivirus_similarity})")
+                            print(f"Warning: Potential antivirus process search command detected: {cmdline_text} (similarity: {antivirus_similarity})")
+                            notify_user_for_detected_antivirus_process(file_path, cmdline_text, "HEUR:Antivirus.Process.Search.Command")
 
             except psutil.NoSuchProcess:
                 logging.error(f"Process no longer exists: {proc.info.get('pid')}")
