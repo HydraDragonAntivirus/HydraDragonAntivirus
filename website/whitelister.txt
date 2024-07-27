@@ -1,3 +1,4 @@
+.readme.io
 .dnsbycomodo.com
 .comodo.com
 .adsensecustomsearchads.com

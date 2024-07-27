@@ -1,3 +1,4 @@
+metrics.readme.io
 td.security.comodo.com
 antivirus.comodo.com
 fls6.security.comodo.com
