@@ -1376,13 +1376,13 @@ def heuristics_of_commandline():
     shadow_copy_command = 'Get-WmiObject Win32_Shadowcopy | ForEach-Object {$_.Delete();}'
     shadow_copy_command_base64 = 'RwBlAHQALQBXAG0AaQBPAGIAagBlAGMAdAAgAFcAaQBuADMAMgBfAFMAaABoAGQAbwB3AGMAbwBwAHkAIAB8ACAARgBvAHIARQBhAGMAaAAtAE8AYgBqAGUAYwB0ACAAewAkAF8ALgBEAGUAbABlAHQAZQAoACkAOwB9AA=='
     wmic_command = 'wmic shadowcopy delete'
-    copy_to_startup_command = 'copy-item *\\roaming\\microsoft\\windows\\start menu\\programs\\startup*'
+    copy_to_startup_command = 'copy-item \\roaming\\microsoft\\windows\\start menu\\programs\\startup'
     taskkill_command = 'taskkill /f'
     
     # Koadic specific command line patterns
     koadic_command_patterns = [
-        '*chcp 437 & schtasks /query /tn K0adic*',
-        '*chcp 437 & schtasks /create /tn K0adic*'
+        'chcp 437 & schtasks /query /tn K0adic',
+        'chcp 437 & schtasks /create /tn K0adic'
     ]
 
     # Fodhelper UAC Bypass command line patterns
