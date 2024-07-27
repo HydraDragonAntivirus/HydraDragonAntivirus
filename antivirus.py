@@ -36,6 +36,7 @@ import numpy as np
 import io
 import spacy
 import codecs
+import csv
 sys.modules['sklearn.externals.joblib'] = joblib
 
 # Set the default encoding to UTF-8 for standard output and input
@@ -142,6 +143,7 @@ ip_addresses_path = os.path.join(script_dir, "website", "IP_Addresses.txt")
 ipv6_addresses_path = os.path.join(script_dir, "website", "ipv6.txt")
 ipv4_whitelist_path = os.path.join(script_dir, "website", "ipv4whitelist.txt")
 domains_path = os.path.join(script_dir, "website", "Domains.txt")
+urlhaus_path = os.path.join(script_dir, "website", "urlhaus.txt")
 antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
 ip_addresses_signatures_data = {}
 ipv4_whitelist_data = {}
@@ -159,14 +161,14 @@ def load_antivirus_list():
         logging.error(f"Error loading Antivirus domains: {e}")
         return []
 
+
 def load_data():
-    global ip_addresses_signatures_data, ipv6_addresses_signatures_data, domains_signatures_data, ipv4_whitelist_data
+    global ip_addresses_signatures_data, ipv6_addresses_signatures_data, domains_signatures_data, ipv4_whitelist_data, urlhaus_data
     
     try:
         # Load IPv4 addresses
         with open(ip_addresses_path, 'r') as ip_file:
             ip_addresses_signatures_data = ip_file.read().splitlines()
-
         print("IPv4 Addresses loaded successfully!")
     except Exception as e:
         print(f"Error loading IPv4 Addresses: {e}")
@@ -175,7 +177,6 @@ def load_data():
         # Load IPv6 addresses
         with open(ipv6_addresses_path, 'r') as ipv6_file:
             ipv6_addresses_signatures_data = ipv6_file.read().splitlines()
-
         print("IPv6 Addresses loaded successfully!")
     except Exception as e:
         print(f"Error loading IPv6 Addresses: {e}")
@@ -184,7 +185,6 @@ def load_data():
         # Load domains
         with open(domains_path, 'r') as domains_file:
             domains_signatures_data = domains_file.read().splitlines()
-
         print("Domains loaded successfully!")
     except Exception as e:
         print(f"Error loading Domains: {e}")
@@ -193,12 +193,22 @@ def load_data():
         # Load IPv4 whitelist
         with open(ipv4_whitelist_path, 'r') as whitelist_file:
             ipv4_whitelist_data = whitelist_file.read().splitlines()
-
         print("IPv4 Whitelist loaded successfully!")
     except Exception as e:
         print(f"Error loading IPv4 Whitelist: {e}")
 
-    print("Domain and IPv4, IPv6, and Whitelist signatures loaded successfully!")
+    try:
+        # Load URLhaus data
+        urlhaus_data = []
+        with open(urlhaus_path, 'r') as urlhaus_file:
+            reader = csv.DictReader(urlhaus_file)
+            for row in reader:
+                urlhaus_data.append(row)
+        print("URLhaus data loaded successfully!")
+    except Exception as e:
+        print(f"Error loading URLhaus data: {e}")
+
+    print("Domain, IPv4, IPv6, Whitelist, and URLhaus signatures loaded successfully!")
 
 def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     """Scan a file for malicious activity using machine learning."""
@@ -734,15 +744,23 @@ def notify_user_worm(file_path, virus_name):
     notification.message = f"Potential worm detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
-def notify_user_for_web(domain=None, ip_address=None):
+def notify_user_for_web(domain=None, ip_address=None, url=None):
     notification = Notify()
     notification.title = "Malware or Phishing Alert"
-    if domain and ip_address:
+    if domain and ip_address and url:
+        notification.message = f"Phishing or Malicious activity detected:\nDomain: {domain}\nIP Address: {ip_address}\nURL: {url}"
+    elif domain and ip_address:
         notification.message = f"Phishing or Malicious activity detected:\nDomain: {domain}\nIP Address: {ip_address}"
+    elif domain and url:
+        notification.message = f"Phishing or Malicious activity detected:\nDomain: {domain}\nURL: {url}"
+    elif ip_address and url:
+        notification.message = f"Phishing or Malicious activity detected:\nIP Address: {ip_address}\nURL: {url}"
     elif domain:
         notification.message = f"Phishing or Malicious activity detected:\nDomain: {domain}"
     elif ip_address:
         notification.message = f"Phishing or Malicious activity detected:\nIP Address: {ip_address}"
+    elif url:
+        notification.message = f"Phishing or Malicious activity detected:\nURL: {url}"
     else:
         notification.message = "Phishing or Malicious activity detected"
     notification.send()
@@ -820,6 +838,7 @@ class RealTimeWebProtectionHandler:
         self.scanned_domains = []
         self.scanned_ipv4_addresses = []
         self.scanned_ipv6_addresses = []
+        self.scanned_urls = []
 
     def scan_domain(self, domain):
         if domain in self.scanned_domains:
@@ -881,6 +900,29 @@ class RealTimeWebProtectionHandler:
                 print(message)
                 notify_user_for_web(ip_address=ip_address)
 
+    def scan_url(self, url):
+        if url in self.scanned_urls:
+            return
+        self.scanned_urls.append(url)
+
+        for entry in urlhaus_data:
+            if entry['url'] in url:
+                message = (
+                    f"URL {url} matches the URLhaus signatures.\n"
+                    f"ID: {entry['id']}\n"
+                    f"Date Added: {entry['dateadded']}\n"
+                    f"URL Status: {entry['url_status']}\n"
+                    f"Last Online: {entry['last_online']}\n"
+                    f"Threat: {entry['threat']}\n"
+                    f"Tags: {entry['tags']}\n"
+                    f"URLhaus Link: {entry['urlhaus_link']}\n"
+                    f"Reporter: {entry['reporter']}"
+                )
+                logging.info(message)
+                print(message)
+                notify_user_for_web(url=url)
+                return
+
     def on_packet_received(self, packet):
         if IP in packet:
             self.handle_ipv4(packet)
@@ -904,6 +946,9 @@ class RealTimeWebProtectionHandler:
                     if IP in packet:
                         self.scan_ip_address(packet[IP].src)
                         self.scan_ip_address(packet[IP].dst)
+                    if TCP in packet or UDP in packet:
+                        url = f"{packet[IP].src}:{packet[IP].dport}"
+                        self.scan_url(url)
 
     def handle_ipv4(self, packet):
         if DNS in packet:
@@ -2306,6 +2351,7 @@ WM_GETTEXTLENGTH = 0x000E
 ip_regex = re.compile(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')
 ipv6_regex = re.compile(r'\b(?:[a-fA-F0-9]{1,4}:){7}[a-fA-F0-9]{1,4}\b')
 domain_regex = re.compile(r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b')
+url_regex = re.compile(r'\b(?:https?://|www\.)[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/[^\s]*)?\b')
 
 # Function to get window text
 def get_window_text(hwnd):
@@ -2426,6 +2472,11 @@ class WindowMonitor:
                     elif any(self.is_similar(doc.vector, "rogue", vec) for vec in self.known_malware_vectors["rogue"]):
                         logging.warning(f'Window with Rogue message found. HWND: {hwnd}')
                         self.process_detected_window_rogue(cleaned_text)
+                    elif contains_url(cleaned_text):
+                        url = url_regex.search(cleaned_text).group(0)
+                        ip_address_in_url = extract_ip_from_url(url)
+                        logging.warning(f'Window with potential web malware from URL: {url}\nFull Text: {cleaned_text}')
+                        self.process_detected_window_web(cleaned_text, url=url, ip_address=ip_address_in_url)
                     else:
                         self.process_detected_window_web(cleaned_text)
         except Exception as e:
@@ -2454,16 +2505,19 @@ class WindowMonitor:
                             return True
         return False
 
-    def process_detected_window_web(self, text):
+    def process_detected_window_web(self, text, url=None, ip_address=None):
         if contains_ip_address(text) and not is_local_ip(text):
-            notify_user_for_web_text(ip_address=text)
+            notify_user_for_web_text(ip_address=text, url=url)
             logging.warning(f"Detected potential web malware from IP: {text}\nFull Text: {text}")
         elif contains_ipv6_address(text):
-            notify_user_for_web_text(ip_address=text)
+            notify_user_for_web_text(ip_address=text, url=url)
             logging.warning(f"Detected potential web malware from IPv6: {text}\nFull Text: {text}")
         elif contains_domain(text):
-            notify_user_for_web_text(domain=text)
+            notify_user_for_web_text(domain=text, url=url)
             logging.warning(f"Detected potential web malware from domain: {text}\nFull Text: {text}")
+        elif url:
+            notify_user_for_web_text(url=url, ip_address=ip_address)
+            logging.warning(f"Detected potential web malware from URL: {url}\nFull Text: {text}")
 
     def process_detected_window_classic(self, text):
         virus_name = "HEUR:Win32.Trojan.Guloader.C4D9Dd33.Generic"
