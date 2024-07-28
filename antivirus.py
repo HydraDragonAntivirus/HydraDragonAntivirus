@@ -2323,6 +2323,14 @@ def contains_domain(text):
                 return True
     return False
 
+# Helper function to check if a string contains a known URL
+def contains_url(text):
+    for url in urls_signatures_data:
+        if url in text:
+            if url_regex.search(text):
+                return True
+    return False
+
 class Monitor:
     def __init__(self):
         self.scanned_domains = []

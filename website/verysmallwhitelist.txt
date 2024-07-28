@@ -1,3 +1,5 @@
+static.exosrv.com.riil1na.belugacdn.com
+promo.badoink.com.i.belugacdn.com
 metrics.readme.io
 td.security.comodo.com
 antivirus.comodo.com
