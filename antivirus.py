@@ -149,6 +149,7 @@ ip_addresses_signatures_data = {}
 ipv4_whitelist_data = {}
 ipv6_addresses_signatures_data = {}
 domains_signatures_data = {}
+urlhaus_data = {}
 
 # Function to load antivirus list
 def load_antivirus_list():
@@ -879,7 +880,7 @@ class RealTimeWebProtectionHandler:
         for parent_domain in domains_signatures_data:
             if main_domain == parent_domain or main_domain.endswith(f".{parent_domain}"):
                 message = f"Main domain {main_domain} or its parent domain {parent_domain} matches the signatures."
-                logging.info(message)
+                logging.warning(message)
                 print(message)
                 notify_user_for_web(domain=main_domain)
                 return
@@ -893,7 +894,7 @@ class RealTimeWebProtectionHandler:
 
             if ip_address in ipv6_addresses_signatures_data:
                 message = f"IPv6 address {ip_address} matches the signatures."
-                logging.info(message)
+                logging.warning(message)
                 print(message)
                 notify_user_for_web(ip_address=ip_address)
         else:
@@ -907,7 +908,7 @@ class RealTimeWebProtectionHandler:
             
             if ip_address in ip_addresses_signatures_data:
                 message = f"IPv4 address {ip_address} matches the signatures."
-                logging.info(message)
+                logging.warning(message)
                 print(message)
                 notify_user_for_web(ip_address=ip_address)
 
@@ -929,7 +930,7 @@ class RealTimeWebProtectionHandler:
                     f"URLhaus Link: {entry['urlhaus_link']}\n"
                     f"Reporter: {entry['reporter']}"
                 )
-                logging.info(message)
+                logging.warning(message)
                 print(message)
                 notify_user_for_web(url=url)
                 return
@@ -2323,12 +2324,24 @@ def contains_domain(text):
                 return True
     return False
 
-# Helper function to check if a string contains a known URL
+# Helper function to check if a string contains a known URL from urlhaus_data
 def contains_url(text):
-    for url in urls_signatures_data:
-        if url in text:
-            if url_regex.search(text):
-                return True
+    for entry in urlhaus_data:
+        if entry['url'] in text:
+            message = (
+                f"URL {entry['url']} matches the URLhaus signatures.\n"
+                f"ID: {entry['id']}\n"
+                f"Date Added: {entry['dateadded']}\n"
+                f"URL Status: {entry['url_status']}\n"
+                f"Last Online: {entry['last_online']}\n"
+                f"Threat: {entry['threat']}\n"
+                f"Tags: {entry['tags']}\n"
+                f"URLhaus Link: {entry['urlhaus_link']}\n"
+                f"Reporter: {entry['reporter']}"
+            )
+            logging.warning(message)
+            print(message)
+            return True
     return False
 
 class Monitor:
