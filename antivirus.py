@@ -28,7 +28,7 @@ import win32file
 import win32con
 from datetime import datetime, timedelta
 import winreg
-from scapy.all import IP, IPv6, DNS, DNSQR, DNSRR, sniff
+from scapy.all import IP, IPv6, DNS, DNSQR, DNSRR, snifn
 import ctypes
 import ipaddress
 from sklearn.metrics.pairwise import cosine_similarity
@@ -2353,7 +2353,7 @@ class Monitor:
             "debugger": "a debugger has been found running in your system please unload it from memory and restart your program",
             "fanmade": [
                 "executed a trojan", "this is the last warning", "creator of this malware", "creator of this trojan", "this trojan has", "by this trojan", 
-                "this is a malware", "considered malware", "destory your computer", "destory this computer", "execute this malware", "this malware contains",
+                "this is a malware", "considered malware", "destroy your computer", "destroy this computer", "execute this malware", "this malware contains",
                 "contains flashing lights", "run a malware", "run malware", "executed is a malware", "unusable machine", "makes it unusable", "this trojan and",
                 "using this malware,", "this malware can", "gdi malware", "win32 trojan specifically"
             ],
@@ -2411,8 +2411,10 @@ class Monitor:
     def is_similar(self, text_vector, category, known_vector=None):
         if known_vector is None:
             known_vector = self.known_malware_vectors[category]
-        similarity = cosine_similarity([text_vector], [known_vector])
-        return similarity[0][0] > 0.86
+        if known_vector and len(known_vector) > 0 and text_vector.any():
+            similarity = cosine_similarity([text_vector], [known_vector])
+            return similarity[0][0] > 0.86
+        return False
 
     def contains_keywords_within_max_distance(self, text, max_distance):
         words = text.split()
@@ -2453,7 +2455,7 @@ class Monitor:
         logging.warning(f"Detected potential anti-AV malware: {virus_name} from {source} {hwnd}")
 
     def process_detected_text_ransom(self, text, source, hwnd=None):
-        virus_name = "HEUR:Win32.Ransom.Generic"
+        virus_name = "HEUR:Win32.Ransom.Message.Generic"
         notify_user_ransomware(virus_name)
         logging.warning(f"Detected potential ransomware: {virus_name} from {source} {hwnd}")
 
@@ -2480,14 +2482,14 @@ class Monitor:
     def process_detected_command_ransom_shadowcopy(self, text, source, hwnd=None):
         virus_name = "HEUR:Win32.Ransom.ShadowCopy.PowerShell"
         notify_user_for_detected_ransomware_command(source, text, virus_name)
-        logging.warning(f"Detected potential shadow copy deletion command: {text} from {source} {hwnd}")
+        logging.warning(f"Detected potential ransomware shadow copy deletion command: {text} from {source} {hwnd}")
 
     def process_detected_command_ransom_shadowcopy_base64(self, text, source, hwnd=None):
         virus_name = "HEUR:Win32.Ransom.ShadowCopy.Base64.PowerShell"
-        notify_user_for_detected_ransomware_command(source, text, virus_name, base64=True)
-        logging.warning(f"Detected potential Base64 shadow copy deletion command: {text} from {source} {hwnd}")
+        notify_user_for_detected_ransomware_command(source, text, virus_name)
+        logging.warning(f"Detected potential ransomware shadow copy deletion base64 command: {text} from {source} {hwnd}")
 
-    def process_detected_command_ransom_shadowcopy_wmic(self, text, source, hwnd=None):
+    def process_detected_command_wmic_shadowcopy(self, text, source, hwnd=None):
         virus_name = "HEUR:Win32.Ransom.ShadowCopy.WMIC"
         notify_user_for_detected_ransomware_command_wmic(source, text, virus_name)
         logging.warning(f"Detected potential WMIC shadow copy deletion command: {text} from {source} {hwnd}")
@@ -2495,102 +2497,132 @@ class Monitor:
     def process_detected_command_copy_to_startup(self, text, source, hwnd=None):
         virus_name = "HEUR:Win32.CopyToStartup.PowerShell"
         notify_user_for_detected_copy_to_startup_command(source, text, virus_name)
-        logging.warning(f"Detected potential file copy to startup command: {text} from {source} {hwnd}")
+        logging.warning(f"Detected potential command copying files to startup: {text} from {source} {hwnd}")
 
     def process_detected_command_taskkill(self, text, source, hwnd=None):
-        virus_name = "HEUR:Win32.Kill.Multiple.Processes"
+        virus_name = "HEUR:Win32.Multiple.TaskKill.Command"
         notify_user_for_detected_taskkill_command(source, text, virus_name)
-        logging.warning(f"Detected potential multiple taskkill commands: {text} from {source} {hwnd}")
+        logging.warning(f"Detected potential taskkill command: {text} from {source} {hwnd}")
 
     def process_detected_command_koadic(self, text, source, hwnd=None):
-        virus_name = "HEUR:Koadic.Rootkit.Command"
+        virus_name = "HEUR:Win32.Rootkit.Koadic..Command"
         notify_user_for_detected_koadic_command(source, text, virus_name)
-        logging.warning(f"Detected potential Koadic post exploitation rootkit command: {text} from {source} {hwnd}")
+        logging.warning(f"Detected potential Koadic command: {text} from {source} {hwnd}")
 
     def process_detected_command_fodhelper(self, text, source, hwnd=None):
-        virus_name = "HEUR:Fodhelper.UAC.Bypass.Command"
+        virus_name = "HEUR:Win32.UACBypass.FodHelper.Command"
         notify_user_for_detected_fodhelper_command(source, text, virus_name)
-        logging.warning(f"Detected potential Fodhelper UAC Bypass command: {text} from {source} {hwnd}")
+        logging.warning(f"Detected potential fodhelper command: {text} from {source} {hwnd}")
 
-    def process_detected_command_antivirus_search(self, text, source, hwnd=None):
+    def process_detected_command_antivirus_process(self, text, source, hwnd=None):
         virus_name = "HEUR:Antivirus.Process.Search.Command"
         notify_user_for_detected_antivirus_process(source, text, virus_name)
         logging.warning(f"Detected potential antivirus process search command: {text} from {source} {hwnd}")
 
-    def check_text(self, text, source, hwnd=None):
-        cleaned_text = self.preprocess_text(text)
-        doc = nlp_spacy_lang(cleaned_text)
-
-        # Checking for known malware messages
-        if self.is_similar(doc.vector, "classic"):
-            self.process_detected_text_classic(cleaned_text, source, hwnd)
-        elif self.is_similar(doc.vector, "av"):
-            self.process_detected_text_av(cleaned_text, source, hwnd)
-        elif self.is_similar(doc.vector, "debugger"):
-            self.process_detected_text_debugger(cleaned_text, source, hwnd)
-        elif any(self.is_similar(doc.vector, "fanmade", vector) for vector in self.known_malware_vectors["fanmade"]):
-            self.process_detected_text_fanmade(cleaned_text, source, hwnd)
-        elif any(self.is_similar(doc.vector, "rogue", vector) for vector in self.known_malware_vectors["rogue"]):
-            self.process_detected_text_rogue(cleaned_text, source, hwnd)
-        elif self.contains_keywords_within_max_distance(cleaned_text, 3):
-            self.process_detected_text_ransom(cleaned_text, source, hwnd)
-        elif contains_url(cleaned_text):
-            url = url_regex.search(cleaned_text).group()
-            self.process_detected_window_web(cleaned_text, url=url)
-        else:
-            # Checking for known commandline heuristics
-            wifi_command_doc = nlp_spacy_lang(self.wifi_commands)
-            shadow_copy_command_doc = nlp_spacy_lang(self.shadow_copy_command)
-            shadow_copy_command_base64_doc = nlp_spacy_lang(self.shadow_copy_command_base64)
-            wmic_command_doc = nlp_spacy_lang(self.wmic_command)
-            copy_to_startup_command_doc = nlp_spacy_lang(self.copy_to_startup_command)
-            taskkill_command_doc = nlp_spacy_lang(self.taskkill_command)
-            
-            koadic_command_docs = [nlp_spacy_lang(pattern) for pattern in self.koadic_command_patterns]
-            fodhelper_command_docs = [nlp_spacy_lang(pattern) for pattern in self.fodhelper_command_patterns]
-            antivirus_search_docs = [nlp_spacy_lang(pattern) for pattern in self.antivirus_search_patterns]
-
-            wifi_similarity = wifi_command_doc.similarity(doc)
-            shadow_copy_similarity = shadow_copy_command_doc.similarity(doc)
-            shadow_copy_base64_similarity = shadow_copy_command_base64_doc.similarity(doc)
-            wmic_similarity = wmic_command_doc.similarity(doc)
-            copy_to_startup_similarity = copy_to_startup_command_doc.similarity(doc)
-            taskkill_similarity = taskkill_command_doc.similarity(doc)
-
-            if wifi_similarity >= 0.86:
-                self.process_detected_command_wifi(cleaned_text, source, hwnd)
-            if shadow_copy_similarity >= 0.86:
-                self.process_detected_command_ransom_shadowcopy(cleaned_text, source, hwnd)
-            if shadow_copy_base64_similarity >= 0.86:
-                self.process_detected_command_ransom_shadowcopy_base64(cleaned_text, source, hwnd)
-            if wmic_similarity >= 0.86:
-                self.process_detected_command_ransom_shadowcopy_wmic(cleaned_text, source, hwnd)
-            if copy_to_startup_similarity >= 0.86:
-                self.process_detected_command_copy_to_startup(cleaned_text, source, hwnd)
-            if cleaned_text.count(self.taskkill_command) >= 7:
-                self.process_detected_command_taskkill(cleaned_text, source, hwnd)
-            for koadic_command_doc in koadic_command_docs:
-                koadic_similarity = koadic_command_doc.similarity(doc)
-                if koadic_similarity >= 0.86:
-                    self.process_detected_command_koadic(cleaned_text, source, hwnd)
-            for fodhelper_command_doc in fodhelper_command_docs:
-                fodhelper_similarity = fodhelper_command_doc.similarity(doc)
-                if fodhelper_similarity >= 0.86:
-                    self.process_detected_command_fodhelper(cleaned_text, source, hwnd)
-            for antivirus_search_doc in antivirus_search_docs:
-                antivirus_similarity = antivirus_search_doc.similarity(doc)
-                if antivirus_similarity >= 0.86:
-                    self.process_detected_command_antivirus_search(cleaned_text, source, hwnd)
-            else:
-                logging.info(f"No known malware detected from {source} {hwnd}\nFull Text: {cleaned_text}")
-
     def heuristics_of_commandline(self):
+        commandlines = self.get_command_lines()
+        taskkill_count = sum(1 for cmd in commandlines if self.taskkill_command in cmd)
+
+        for cmd in commandlines:
+            if self.wifi_commands in cmd:
+                self.process_detected_command_wifi(cmd, source="commandline")
+
+            if self.shadow_copy_command in cmd:
+                self.process_detected_command_ransom_shadowcopy(cmd, source="commandline")
+
+            if self.shadow_copy_command_base64 in cmd:
+                self.process_detected_command_ransom_shadowcopy_base64(cmd, source="commandline")
+
+            if self.wmic_command in cmd:
+                self.process_detected_command_wmic_shadowcopy(cmd, source="commandline")
+
+            if self.copy_to_startup_command in cmd:
+                self.process_detected_command_copy_to_startup(cmd, source="commandline")
+
+            if taskkill_count >= 7 and self.taskkill_command in cmd:
+                self.process_detected_command_taskkill(cmd, source="commandline")
+
+            for pattern in self.koadic_command_patterns:
+                if pattern in cmd:
+                    self.process_detected_command_koadic(cmd, source="commandline")
+
+            for pattern in self.fodhelper_command_patterns:
+                if pattern in cmd:
+                    self.process_detected_command_fodhelper(cmd, source="commandline")
+
+            for pattern in self.antivirus_search_patterns:
+                if pattern in cmd:
+                    self.process_detected_command_antivirus_process(cmd, source="commandline")
+
+    def check_text(self, text, source, hwnd=None):
+        preprocessed_text = self.preprocess_text(text)
+        doc = nlp_spacy_lang(preprocessed_text)
+        text_vector = doc.vector
+
+        if text_vector.any():
+            if self.is_similar(text_vector, "classic"):
+                self.process_detected_text_classic(text, source, hwnd)
+                return
+
+            if self.is_similar(text_vector, "av"):
+                self.process_detected_text_av(text, source, hwnd)
+                return
+
+            if self.contains_keywords_within_max_distance(preprocessed_text, max_distance=10):
+                self.process_detected_text_ransom(preprocessed_text, source, hwnd)
+                return
+
+            if self.is_similar(text_vector, "debugger"):
+                self.process_detected_text_debugger(text, source, hwnd)
+                return
+
+            for known_vector in self.known_malware_vectors["fanmade"]:
+                if self.is_similar(text_vector, "fanmade", known_vector):
+                    self.process_detected_text_fanmade(text, source, hwnd)
+                    return
+
+            for known_vector in self.known_malware_vectors["rogue"]:
+                if self.is_similar(text_vector, "rogue", known_vector):
+                    self.process_detected_text_rogue(text, source, hwnd)
+                    return
+
+        if self.wifi_commands in text:
+            self.process_detected_command_wifi(text, source, hwnd)
+
+        if self.shadow_copy_command in text:
+            self.process_detected_command_ransom_shadowcopy(text, source, hwnd)
+
+        if self.shadow_copy_command_base64 in text:
+            self.process_detected_command_ransom_shadowcopy_base64(text, source, hwnd)
+
+        if self.wmic_command in text:
+            self.process_detected_command_wmic_shadowcopy(text, source, hwnd)
+
+        if self.copy_to_startup_command in text:
+            self.process_detected_command_copy_to_startup(text, source, hwnd)
+
+        taskkill_count = text.lower().count(self.taskkill_command)
+        if taskkill_count >= 7:
+            self.process_detected_command_taskkill(text, source, hwnd)
+
+        for pattern in self.koadic_command_patterns:
+            if pattern in text:
+                self.process_detected_command_koadic(text, source, hwnd)
+
+        for pattern in self.fodhelper_command_patterns:
+            if pattern in text:
+                self.process_detected_command_fodhelper(text, source, hwnd)
+
+        for pattern in self.antivirus_search_patterns:
+            if pattern in text:
+                self.process_detected_command_antivirus_process(text, source, hwnd)
+
+    def get_command_lines(self):
+        commandlines = []
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
             try:
-                cmdline = proc.info['cmdline']
-                if cmdline:
-                    cmdline_text = ' '.join(cmdline)
-                    self.check_text(cmdline_text, source="commandline")
+                if proc.info['cmdline']:
+                    commandlines.append(" ".join(proc.info['cmdline']))
             except psutil.NoSuchProcess:
                 logging.error(f"Process no longer exists: {proc.info.get('pid')}")
             except psutil.AccessDenied:
@@ -2599,6 +2631,7 @@ class Monitor:
                 logging.error(f"Zombie process encountered: {proc.info.get('pid')}")
             except Exception as e:
                 logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {e}")
+        return commandlines
 
 # List of already scanned files to avoid reprocessing
 scanned_files = []
