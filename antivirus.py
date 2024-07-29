@@ -2364,7 +2364,7 @@ class Monitor:
             "rogue": [
                 "your pc is infected", "your computer is infected", "your system is infected",
                 "windows is infected", "has found viruses on computer", "windows security alert",
-                "pc is at risk", "malicious program has been detected"
+                "pc is at risk", "malicious program has been detected", "warning virus detected"
             ]
         }
         self.known_malware_vectors = {key: nlp_spacy_lang(value).vector for key, value in self.known_malware_messages.items() if isinstance(value, str)}
