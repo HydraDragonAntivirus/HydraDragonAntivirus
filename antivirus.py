@@ -696,6 +696,75 @@ def notify_user_for_detected_antivirus_process(file_path, cmdline, virus_name):
     )
     notification.send()
 
+# Function to notify user for detected command scheduling temp file as task
+def notify_user_for_detected_schtasks_command(file_path, cmdline, virus_name):
+    notification = Notify()
+    notification.title = "Task Scheduler Temp File Alert"
+    notification.message = (
+        f"Potential schtasks command scheduling temp file as task detected:\n"
+        f"File Path: {file_path}\n"
+        f"Command Line: {' '.join(cmdline)}\n"
+        f"Threat: {virus_name}"
+    )
+    notification.send()
+
+# Function to notify user for detected debugger-related malware
+def notify_user_debugger(virus_name):
+    notification = Notify()
+    notification.title = "Themida-packed Malware detected"
+    notification.message = f"Potential Themida-packed malware detected\nVirus: {virus_name}"
+    notification.send()
+
+# Function to notify user for detected Wi-Fi password capture command
+def notify_user_for_detected_wifi_command(file_path, cmdline, virus_name):
+    notification = Notify()
+    notification.title = "Wi-Fi Password Capture Alert"
+    notification.message = (
+        f"Potential Wi-Fi password capture command detected:\n"
+        f"File Path: {file_path}\n"
+        f"Command Line: {' '.join(cmdline)}\n"
+        f"Threat: {virus_name}"
+    )
+    notification.send()
+
+# Function to notify user for detected ransomware shadow copy deletion command
+def notify_user_for_detected_ransomware_command(file_path, cmdline, virus_name, base64=False, source=None):
+    notification = Notify()
+    notification.title = "Ransomware Shadow Copy Deletion Alert"
+    base64_text = " (Base64 encoded)" if base64 else ""
+    source_text = f" via {source}" if source else ""
+    notification.message = (
+        f"Potential ransomware shadow copy deletion command detected{source_text}:\n"
+        f"File Path: {file_path}\n"
+        f"Command Line: {' '.join(cmdline)}\n"
+        f"Threat: {virus_name}{base64_text}"
+    )
+    notification.send()
+
+# Function to notify user for detected WMIC shadow copy deletion command
+def notify_user_for_detected_ransomware_command_wmic(file_path, cmdline, virus_name):
+    notification = Notify()
+    notification.title = "WMIC Shadow Copy Deletion Alert"
+    notification.message = (
+        f"Potential WMIC shadow copy deletion command detected:\n"
+        f"File Path: {file_path}\n"
+        f"Command Line: {' '.join(cmdline)}\n"
+        f"Threat: {virus_name}"
+    )
+    notification.send()
+
+# Function to notify user for detected command copying files to startup directory
+def notify_user_for_detected_startup_command(file_path, cmdline, virus_name):
+    notification = Notify()
+    notification.title = "Copy to Startup Directory Alert"
+    notification.message = (
+        f"Potential command for copying files to startup directory detected:\n"
+        f"File Path: {file_path}\n"
+        f"Command Line: {' '.join(cmdline)}\n"
+        f"Threat: {virus_name}"
+    )
+    notification.send()
+
 def notify_user_invalid(file_path, virus_name):
     notification = Notify()
     notification.title = "Invalid signature Alert"
@@ -787,6 +856,8 @@ def notify_user_for_web_text(domain=None, ip_address=None):
         notification.message = f"Phishing or Malicious activity detected:\nDomain: {domain}"
     elif ip_address:
         notification.message = f"Phishing or Malicious activity detected:\nIP Address: {ip_address}"
+    elif url:
+        notification.message = f"Phishing or Malicious activity detected:\nURL: {url}"
     else:
         notification.message = "Phishing or Malicious activity detected"
     notification.send()
@@ -2379,6 +2450,7 @@ class Monitor:
         self.wmic_command = 'wmic shadowcopy delete'
         self.copy_to_startup_command = 'copy-item \\roaming\\microsoft\\windows\\start menu\\programs\\startup'
         self.taskkill_command = 'taskkill /f'
+        self.schtasks_command = 'schtasks*/create*/xml*\\temp\\*.tmp'
         
         self.koadic_command_patterns = [
             'chcp 437 & schtasks /query /tn K0adic',
@@ -2386,7 +2458,7 @@ class Monitor:
         ]
         
         self.fodhelper_command_patterns = [
-            '*reg add hkcu\\software\\classes\\ms-settings\\shell\\open\\command'
+            'reg add hkcu\\software\\classes\\ms-settings\\shell\\open\\command'
         ]
         
         self.antivirus_search_patterns = [
@@ -2396,6 +2468,8 @@ class Monitor:
             'findstr sophoshealth.exe',
             'findstr antivirus.exe'
         ]
+        
+        self.taskkill_count = 0
 
     def monitor(self):
         try:
@@ -2403,10 +2477,12 @@ class Monitor:
                 # Checking window texts
                 windows = find_windows_with_text()
                 for hwnd, text in windows:
-                    self.check_text(text, source="window", hwnd=hwnd)
+                    self.check_text_or_command(text, source="window", hwnd=hwnd)
                 
                 # Checking command line heuristics
-                self.heuristics_of_commandline()
+                command_lines = capture_command_lines()
+                for command in command_lines:
+                    self.check_text_or_command(command, source="command line")
                     
         except Exception as e:
             logging.error(f"An error occurred during monitoring: {e}")
@@ -2438,17 +2514,17 @@ class Monitor:
                             return True
         return False
 
-    def process_detected_window_web(self, text, url=None, ip_address=None):
-        if contains_ip_address(text) and not is_local_ip(text):
-            notify_user_for_web_text(ip_address=text, url=url)
+    def process_detected_window_web(self, text, url=None, ip_address=None, ipv6_address=None, domain=None):
+        if ip_address:
+            notify_user_for_web_text(ip_address=text)
             logging.warning(f"Detected potential web malware from IP: {text}\nFull Text: {text}")
-        elif contains_ipv6_address(text):
-            notify_user_for_web_text(ip_address=text, url=url)
+        if ipv6_address:
+            notify_user_for_web_text(ip_address=ipv6_address)
             logging.warning(f"Detected potential web malware from IPv6: {text}\nFull Text: {text}")
-        elif contains_domain(text):
-            notify_user_for_web_text(domain=text, url=url)
+        if domain:
+            notify_user_for_web_text(domain=text)
             logging.warning(f"Detected potential web malware from domain: {text}\nFull Text: {text}")
-        elif url:
+        if url:
             notify_user_for_web_text(url=url, ip_address=ip_address)
             logging.warning(f"Detected potential web malware from URL: {url}\nFull Text: {text}")
 
@@ -2483,86 +2559,91 @@ class Monitor:
         logging.warning(f"Detected potential fan-made GDI malware: {virus_name}\nFull Text: {text} from {source} {hwnd}")
 
     def process_detected_command_wifi(self, text, source, hwnd=None):
-        virus_name = "HEUR:Win32.Wi-Fi.Password.Stealer.Generic"
+        virus_name = "HEUR:Win32.Password.Stealer.Wi-Fi.Generic"
         notify_user_for_detected_wifi_command(source, text, virus_name)
         logging.warning(f"Detected potential Wi-Fi password capture command: {text} from {source} {hwnd}")
 
     def process_detected_command_ransom_shadowcopy(self, text, source, hwnd=None):
-        virus_name = "HEUR:Win32.Ransom.ShadowCopy.PowerShell"
+        virus_name = "HEUR:Win32.Ransom.ShadowCopy.PowerShell.Generic"
         notify_user_for_detected_ransomware_command(source, text, virus_name)
         logging.warning(f"Detected potential ransomware shadow copy deletion command: {text} from {source} {hwnd}")
 
     def process_detected_command_ransom_shadowcopy_base64(self, text, source, hwnd=None):
-        virus_name = "HEUR:Win32.Ransom.ShadowCopy.Base64.PowerShell"
+        virus_name = "HEUR:Win32.Ransom.ShadowCopy.PowerShell.Base64.Generic"
         notify_user_for_detected_ransomware_command(source, text, virus_name)
         logging.warning(f"Detected potential ransomware shadow copy deletion base64 command: {text} from {source} {hwnd}")
 
     def process_detected_command_wmic_shadowcopy(self, text, source, hwnd=None):
-        virus_name = "HEUR:Win32.Ransom.ShadowCopy.WMIC"
+        virus_name = "HEUR:Win32.Ransom.ShadowCopy.WMIC.Generic"
         notify_user_for_detected_ransomware_command_wmic(source, text, virus_name)
-        logging.warning(f"Detected potential WMIC shadow copy deletion command: {text} from {source} {hwnd}")
+        logging.warning(f"Detected potential ransomware WMIC shadow copy deletion command: {text} from {source} {hwnd}")
 
     def process_detected_command_copy_to_startup(self, text, source, hwnd=None):
-        virus_name = "HEUR:Win32.Startup.FileCopy.PowerShell"
-        notify_user_for_detected_copy_to_startup_command(source, text, virus_name)
-        logging.warning(f"Detected potential file copy to startup directory command: {text} from {source} {hwnd}")
+        virus_name = "HEUR:Win32.PowerShell.Copy.To.Startup.Generic"
+        notify_user_for_detected_startup_command(source, text, virus_name)
+        logging.warning(f"Detected potential command for copying files to startup directory: {text} from {source} {hwnd}")
 
-    def process_detected_command_taskkill(self, text, source, hwnd=None):
-        virus_name = "HEUR:Win32.Taskkill.Generic"
-        notify_user_for_detected_taskkill_command(source, text, virus_name)
-        logging.warning(f"Detected potential harmful taskkill command: {text} from {source} {hwnd}")
-
-    def process_detected_command_schtasks(self, text, source, hwnd=None):
-        virus_name = "HEUR:Win32.Schtasks.Generic"
+    def process_detected_command_schtasks_temp(self, text, source, hwnd=None):
+        virus_name = "HEUR:Win32.TaskScheduler.TempFile.Generic"
         notify_user_for_detected_schtasks_command(source, text, virus_name)
-        logging.warning(f"Detected potential harmful schtasks command: {text} from {source} {hwnd}")
+        logging.warning(f"Detected potential schtasks command scheduling temp file as task: {text} from {source} {hwnd}")
 
-    def check_text(self, text, source, hwnd=None):
-        text = self.preprocess_text(text)
-        text_vector = nlp_spacy_lang(text).vector
+    def check_text_or_command(self, text, source, hwnd=None):
+        preprocessed_text = self.preprocess_text(text)
+        text_vector = nlp_spacy_lang(preprocessed_text).vector
 
-        for category, known_vector in self.known_malware_vectors.items():
-            if category == "fanmade" or category == "rogue":
-                for sub_vector in known_vector:
-                    if self.is_similar(text_vector, category, sub_vector):
-                        self.process_detected_text_fanmade(text, source, hwnd) if category == "fanmade" else self.process_detected_text_rogue(text, source, hwnd)
-                        return
-            else:
-                if self.is_similar(text_vector, category):
-                    if category == "classic":
-                        self.process_detected_text_classic(text, source, hwnd)
-                    elif category == "av":
-                        self.process_detected_text_av(text, source, hwnd)
-                    elif category == "debugger":
-                        self.process_detected_text_debugger(text, source, hwnd)
-                    return
+        # Check for known malware messages
+        if any(self.is_similar(text_vector, "classic") for _ in range(1)):
+            self.process_detected_text_classic(text, source, hwnd)
+        elif any(self.is_similar(text_vector, "av") for _ in range(1)):
+            self.process_detected_text_av(text, source, hwnd)
+        elif any(self.is_similar(text_vector, "rogue") for _ in range(1)):
+            self.process_detected_text_rogue(text, source, hwnd)
+        elif any(self.is_similar(text_vector, "debugger") for _ in range(1)):
+            self.process_detected_text_debugger(text, source, hwnd)
+        elif any(self.is_similar(text_vector, "fanmade", fan_vector) for fan_vector in self.known_malware_vectors.get("fanmade", [])):
+            self.process_detected_text_fanmade(text, source, hwnd)
 
-        if self.contains_keywords_within_max_distance(text, 5):
+        # Ransomware keyword check
+        if any(self.contains_keywords_within_max_distance(preprocessed_text, 3) for _ in range(1)):
             self.process_detected_text_ransom(text, source, hwnd)
 
-        if source == "web":
-            self.process_detected_window_web(text)
+        # Command pattern checks
+        if any(cmd in preprocessed_text for cmd in self.wifi_commands.split()):
+            self.process_detected_command_wifi(preprocessed_text, source, hwnd)
+        if any(cmd in preprocessed_text for cmd in self.shadow_copy_command.split()):
+            self.process_detected_command_ransom_shadowcopy(preprocessed_text, source, hwnd)
+        if any(cmd in preprocessed_text for cmd in self.shadow_copy_command_base64.split()):
+            self.process_detected_command_ransom_shadowcopy_base64(preprocessed_text, source, hwnd)
+        if any(cmd in preprocessed_text for cmd in self.wmic_command.split()):
+            self.process_detected_command_wmic_shadowcopy(preprocessed_text, source, hwnd)
+        if any(cmd in preprocessed_text for cmd in self.copy_to_startup_command.split()):
+            self.process_detected_command_copy_to_startup(preprocessed_text, source, hwnd)
+        if any(cmd in preprocessed_text for cmd in self.koadic_command_patterns):
+            self.process_detected_command_wifi(preprocessed_text, source, hwnd)
+        if any(cmd in preprocessed_text for cmd in self.fodhelper_command_patterns):
+            self.process_detected_command_copy_to_startup(preprocessed_text, source, hwnd)
+        if any(cmd in preprocessed_text for cmd in self.taskkill_command.split()):
+            self.taskkill_count += 1
+            if self.taskkill_count >= 7:
+                virus_name = "HEUR:Win32.Multiple.TaskKill.Generic"
+                notify_user_for_detected_taskkill_command(source, preprocessed_text, virus_name)
+                logging.warning(f"Detected multiple taskkill commands: {preprocessed_text} from {source} {hwnd}")
+                self.taskkill_count = 0  # Reset count after detection
+        if any(av_search in preprocessed_text for av_search in self.antivirus_search_patterns):
+            self.process_detected_command_copy_to_startup(preprocessed_text, source, hwnd)
+        if any(cmd in preprocessed_text for cmd in self.schtasks_command.split()):
+            self.process_detected_command_schtasks_temp(preprocessed_text, source, hwnd)
 
-    def heuristics_of_commandline(self):
-        for cmdline in get_active_commandlines():
-            if self.shadow_copy_command in cmdline:
-                self.process_detected_command_ransom_shadowcopy(cmdline, "commandline")
-            elif self.shadow_copy_command_base64 in cmdline:
-                self.process_detected_command_ransom_shadowcopy_base64(cmdline, "commandline")
-            elif self.wmic_command in cmdline:
-                self.process_detected_command_wmic_shadowcopy(cmdline, "commandline")
-            elif self.copy_to_startup_command in cmdline:
-                self.process_detected_command_copy_to_startup(cmdline, "commandline")
-            elif any(cmd in cmdline for cmd in self.antivirus_search_patterns):
-                self.process_detected_command_taskkill(cmdline, "commandline")
-            elif any(cmd in cmdline for cmd in self.koadic_command_patterns):
-                self.process_detected_command_schtasks(cmdline, "commandline")
-            elif any(cmd in cmdline for cmd in self.fodhelper_command_patterns):
-                self.process_detected_command_schtasks(cmdline, "commandline")
-            elif self.wifi_commands in cmdline:
-                self.process_detected_command_wifi(cmdline, "commandline")
-            elif 'schtasks*/create*/xml*\temp\\*.tmp' in cmdline:
-                self.process_detected_command_schtasks(cmdline, "commandline")
+        # URL, IP, and Domain checks
+        if any(contains_url(preprocessed_text) for _ in range(1)):
+            self.process_detected_window_web(preprocessed_text, url=preprocessed_text)
+        if any(contains_ip_address(preprocessed_text) and not is_local_ip(preprocessed_text) for _ in range(1)):
+            self.process_detected_window_web(preprocessed_text, ip_address=preprocessed_text)
+        if any(contains_ipv6_address(preprocessed_text) for _ in range(1)):
+            self.process_detected_window_web(preprocessed_text, ip_address=preprocessed_text)
+        if any(contains_domain(preprocessed_text) for _ in range(1)):
+            self.process_detected_window_web(preprocessed_text, domain=preprocessed_text)
 
 # List of already scanned files to avoid reprocessing
 scanned_files = []
