@@ -46,6 +46,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
  ## IMPORTANT
  - Any ghidra project will be removed after you restart the program. So be careful!
 - You have to restart the program after the analysis.
+- Please don't share your IP in the logs.
 
 ## Prepare environment
 - Create DefaultBox in Sandboxie and create too many files to detect ransomware, finally use UEFI and GPT.

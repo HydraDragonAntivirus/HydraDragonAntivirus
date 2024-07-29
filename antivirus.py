@@ -891,6 +891,8 @@ class RealTimeWebProtectionHandler:
 
         if ':' in ip_address:  # Check if it's an IPv6 address
             self.scanned_ipv6_addresses.append(ip_address)
+            message = f"Scanning IPv6 address: {ip_address}"
+            logging.info(message)
 
             if ip_address in ipv6_addresses_signatures_data:
                 message = f"IPv6 address {ip_address} matches the signatures."
@@ -899,6 +901,8 @@ class RealTimeWebProtectionHandler:
                 notify_user_for_web(ip_address=ip_address)
         else:
             self.scanned_ipv4_addresses.append(ip_address)
+            message = f"Scanning IPv4 address: {ip_address}"
+            logging.info(message)
 
             if is_local_ip(ip_address):
                 message = f"Skipping local IP address: {ip_address}"
