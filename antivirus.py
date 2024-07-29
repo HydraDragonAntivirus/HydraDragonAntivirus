@@ -2417,7 +2417,9 @@ class Monitor:
     def is_similar(self, text_vector, category, known_vector=None):
         if known_vector is None:
             known_vector = self.known_malware_vectors[category]
-        if known_vector and len(known_vector) > 0 and text_vector.size > 0:
+        if isinstance(known_vector, list):  # Handle list of vectors
+            return any(cosine_similarity([text_vector], [kv])[0][0] > 0.86 for kv in known_vector)
+        if known_vector.size > 0 and text_vector.size > 0:
             similarity = cosine_similarity([text_vector], [known_vector])
             return similarity[0][0] > 0.86
         return False
@@ -2543,7 +2545,7 @@ class Monitor:
 
     def heuristics_of_commandline(self):
         for cmdline in get_active_commandlines():
-            if any(cmd in cmdline for cmd in [self.shadow_copy_command, self.shadow_copy_command_base64]):
+            if self.shadow_copy_command in cmdline:
                 self.process_detected_command_ransom_shadowcopy(cmdline, "commandline")
             elif self.shadow_copy_command_base64 in cmdline:
                 self.process_detected_command_ransom_shadowcopy_base64(cmdline, "commandline")
