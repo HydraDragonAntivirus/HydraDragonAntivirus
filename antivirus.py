@@ -28,7 +28,7 @@ import win32file
 import win32con
 from datetime import datetime, timedelta
 import winreg
-from scapy.all import IP, IPv6, DNS, DNSQR, DNSRR, snifn
+from scapy.all import IP, IPv6, DNS, DNSQR, DNSRR, sniff
 import ctypes
 import ipaddress
 from sklearn.metrics.pairwise import cosine_similarity
