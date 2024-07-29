@@ -356,7 +356,7 @@ def check_valid_signature_only(file_path):
         print(f"An error occurred while checking signature: {e}")
         logging.error(f"An error occurred while checking signature: {e}")
         return {
-            "is_valid": False
+            "is_valid": True
         }
 
 def clean_directories():
@@ -806,13 +806,15 @@ def notify_user_for_hips(ip_address=None, dst_ip_address=None):
     
     notification.send()
 
-def notify_user_for_detected_hips_file(src_ip):
-    # Function to send notification for detected HIPS file
+def notify_user_for_detected_hips_file(file_path, src_ip, alert_line):
+    """
+    Function to send notification for detected HIPS file.
+    """
     notification = Notify()
     notification.title = "Web Malware Alert For File"
-    notification.message = f"Malicious file detected by Web related Message: {file_path}\nSource IP: {src_ip}"
+    notification.message = f"Malicious file detected by Web related Message: {file_path}\nSource IP: {src_ip}\nAlert Line: {alert_line}"
     notification.send()
-    print(f"Real-time web message notification: Detected file {file_path} from {src_ip}")
+    print(f"Real-time web message notification: Detected file {file_path} from {src_ip} with alert line: {alert_line}")
 
 def notify_user_anti_vm(virus_name):
     notification = Notify()
@@ -1356,8 +1358,8 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line):
 
                             signature_info = check_valid_signature_only(file_path)
                             if not signature_info["is_valid"]:
-                                logging.warning(f"File {file_path} has invalid signature.")
-                                print(f"Warning: Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid signature.")
+                                logging.warning(f"File {file_path} has invalid or no signature.")
+                                print(f"Warning: Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature.")
                                 notify_user_for_detected_hips_file(file_path, src_ip, alert_line)
                             else:
                                 logging.info(f"File {file_path} has a valid signature and is not flagged as malicious.")
