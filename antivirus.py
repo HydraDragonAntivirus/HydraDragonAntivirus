@@ -2462,12 +2462,8 @@ class Monitor:
             try:
                 if proc.info['cmdline']:
                     command_lines.append(" ".join(proc.info['cmdline']))
-            except psutil.NoSuchProcess:
-                logging.error(f"Process no longer exists: {proc.info.get('pid')}")
-            except psutil.AccessDenied:
-                logging.error(f"Access denied to process: {proc.info.get('pid')}")
-            except psutil.ZombieProcess:
-                logging.error(f"Zombie process encountered: {proc.info.get('pid')}")
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
+                logging.error(f"Process error: {e}")
             except Exception as e:
                 logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {e}")
         return command_lines
@@ -2491,25 +2487,14 @@ class Monitor:
     def preprocess_text(self, text):
         return text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "")
 
-    def is_similar(self, text, category):
+    def calculate_similarity_text(self, text1, text2):
         try:
-            doc = nlp_spacy_lang(text)  # Process the input text
-            similarity_threshold = 0.86  # Define a threshold for similarity
-            
-            if category in self.known_malware_messages:
-                known_messages = self.known_malware_messages[category]
-                
-                # If there are multiple known messages (like in "fanmade" or "rogue"), check against each
-                if isinstance(known_messages, list):
-                    return any(doc.similarity(nlp_spacy_lang(msg)) > similarity_threshold for msg in known_messages)
-                else:
-                    return doc.similarity(nlp_spacy_lang(known_messages)) > similarity_threshold
-            else:
-                logging.warning(f"Unknown category: {category}")
-                return False
+            doc1 = nlp_spacy_lang(text1)
+            doc2 = nlp_spacy_lang(text2)
+            return doc1.similarity(doc2)
         except Exception as e:
-            logging.error(f"Error during similarity check for category '{category}': {e}")
-            return False
+            logging.error(f"Error during similarity calculation: {e}")
+            return 0.0
 
     def contains_keywords_within_max_distance(self, text, max_distance):
         words = text.split()
@@ -2612,17 +2597,38 @@ class Monitor:
             return
 
         try:
-            # Check for known malware messages
-            if self.is_similar(preprocessed_text, "classic"):
-                self.process_detected_text_classic(text, source, hwnd)
-            elif self.is_similar(preprocessed_text, "av"):
-                self.process_detected_text_av(text, source, hwnd)
-            elif self.is_similar(preprocessed_text, "rogue"):
-                self.process_detected_text_rogue(text, source, hwnd)
-            elif self.is_similar(preprocessed_text, "debugger"):
-                self.process_detected_text_debugger(text, source, hwnd)
-            elif self.is_similar(preprocessed_text, "fanmade"):
-                self.process_detected_text_fanmade(text, source, hwnd)
+            # Calculate similarity with known patterns
+            for category, patterns in self.known_malware_messages.items():
+                if isinstance(patterns, list):
+                    for pattern in patterns:
+                        similarity = self.calculate_similarity_text(preprocessed_text, pattern)
+                        if similarity > 0.7:  # Threshold for similarity
+                            if category == "classic":
+                                self.process_detected_text_classic(text, source, hwnd)
+                            elif category == "av":
+                                self.process_detected_text_av(text, source, hwnd)
+                            elif category == "debugger":
+                                self.process_detected_text_debugger(text, source, hwnd)
+                            elif category == "fanmade":
+                                self.process_detected_text_fanmade(text, source, hwnd)
+                            elif category == "rogue":
+                                self.process_detected_text_rogue(text, source, hwnd)
+                            return  # Exit after finding a match
+                else:
+                    similarity = self.calculate_similarity_text(preprocessed_text, patterns)
+                    if similarity > 0.7:  # Threshold for similarity
+                        if category == "classic":
+                            self.process_detected_text_classic(text, source, hwnd)
+                        elif category == "av":
+                            self.process_detected_text_av(text, source, hwnd)
+                        elif category == "debugger":
+                            self.process_detected_text_debugger(text, source, hwnd)
+                        elif category == "fanmade":
+                            self.process_detected_text_fanmade(text, source, hwnd)
+                        elif category == "rogue":
+                            self.process_detected_text_rogue(text, source, hwnd)
+                        return  # Exit after finding a match
+        
         except Exception as e:
             logging.error(f"Error during malware message detection: {e}")
 
@@ -2635,26 +2641,26 @@ class Monitor:
 
         try:
             # Command pattern checks
-            if self.is_similar(preprocessed_text, "wifi_commands"):
+            if self.calculate_similarity_text(preprocessed_text, self.wifi_commands) > 0.8:
                 self.process_detected_command_wifi(preprocessed_text, source, hwnd)
-            if self.is_similar(preprocessed_text, "shadow_copy_command"):
+            if self.calculate_similarity_text(preprocessed_text, self.shadow_copy_command) > 0.8:
                 self.process_detected_command_ransom_shadowcopy(preprocessed_text, source, hwnd)
-            if self.is_similar(preprocessed_text, "shadow_copy_command_base64"):
+            if self.calculate_similarity_text(preprocessed_text, self.shadow_copy_command_base64) > 0.8:
                 self.process_detected_command_ransom_shadowcopy_base64(preprocessed_text, source, hwnd)
-            if self.is_similar(preprocessed_text, "wmic_command"):
+            if self.calculate_similarity_text(preprocessed_text, self.wmic_command) > 0.8:
                 self.process_detected_command_wmic_shadowcopy(preprocessed_text, source, hwnd)
-            if self.is_similar(preprocessed_text, "copy_to_startup_command"):
+            if self.calculate_similarity_text(preprocessed_text, self.copy_to_startup_command) > 0.8:
                 self.process_detected_command_copy_to_startup(preprocessed_text, source, hwnd)
             
             for cmd in self.koadic_command_patterns:
-                if self.is_similar(preprocessed_text, cmd):
+                if self.calculate_similarity_text(preprocessed_text, cmd) > 0.8:
                     self.process_detected_command_rooktit_koadic(preprocessed_text, source, hwnd)
             
             for cmd in self.fodhelper_command_patterns:
-                if self.is_similar(preprocessed_text, cmd):
+                if self.calculate_similarity_text(preprocessed_text, cmd) > 0.8:
                     self.process_detected_command_copy_to_startup(preprocessed_text, source, hwnd)
             
-            if self.is_similar(preprocessed_text, self.taskkill_command):
+            if self.calculate_similarity_text(preprocessed_text, self.taskkill_command) > 0.8:
                 self.taskkill_count += 1
                 if self.taskkill_count >= 7:
                     virus_name = "HEUR:Win32.Multiple.TaskKill.Generic"
@@ -2667,10 +2673,10 @@ class Monitor:
         try:
             # Antivirus search and schtasks command checks
             for av_search in self.antivirus_search_patterns:
-                if self.is_similar(preprocessed_text, av_search):
+                if self.calculate_similarity(preprocessed_text, av_search) > 0.7:
                     self.process_detected_command_copy_to_startup(preprocessed_text, source, hwnd)
             
-            if self.is_similar(preprocessed_text, self.schtasks_command):
+            if self.calculate_similarity(preprocessed_text, self.schtasks_command) > 0.7:
                 self.process_detected_command_schtasks_temp(preprocessed_text, source, hwnd)
         except Exception as e:
             logging.error(f"Error during antivirus search and schtasks command checks: {e}")
