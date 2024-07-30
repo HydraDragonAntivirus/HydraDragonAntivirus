@@ -2471,6 +2471,22 @@ class Monitor:
         
         self.taskkill_count = 0
 
+    def capture_command_lines(self):
+        command_lines = []
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                if proc.info['cmdline']:
+                    command_lines.append(" ".join(proc.info['cmdline']))
+            except psutil.NoSuchProcess:
+                logging.error(f"Process no longer exists: {proc.info.get('pid')}")
+            except psutil.AccessDenied:
+                logging.error(f"Access denied to process: {proc.info.get('pid')}")
+            except psutil.ZombieProcess:
+                logging.error(f"Zombie process encountered: {proc.info.get('pid')}")
+            except Exception as e:
+                logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {e}")
+        return command_lines
+
     def monitor(self):
         try:
             while True:
@@ -2480,7 +2496,7 @@ class Monitor:
                     self.check_text_or_command(text, source="window", hwnd=hwnd)
                 
                 # Checking command line heuristics
-                command_lines = capture_command_lines()
+                command_lines = self.capture_command_lines()
                 for command in command_lines:
                     self.check_text_or_command(command, source="command line")
                     
