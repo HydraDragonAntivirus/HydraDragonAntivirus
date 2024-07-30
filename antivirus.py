@@ -2566,7 +2566,7 @@ class Monitor:
     def process_detected_command_wifi(self, text, source, hwnd=None):
         virus_name = "HEUR:Win32.Password.Stealer.Wi-Fi.Generic"
         notify_user_for_detected_wifi_command(source, text, virus_name)
-        logging.warning(f"Detected potential Wi-Fi command: {text} from {source} {hwnd}")
+        logging.warning(f"Detected potential Wi-Fi passowrd capture command: {text} from {source} {hwnd}")
 
     def process_detected_command_ransom_shadowcopy(self, text, source, hwnd=None):
         virus_name = "HEUR:Win32.Ransom.ShadowCopy.Generic"
@@ -2586,12 +2586,12 @@ class Monitor:
     def process_detected_command_copy_to_startup(self, text, source, hwnd=None):
         virus_name = "HEUR:Win32.Autostartup.Generic"
         notify_user_for_detected_startup_command(source, text, virus_name)
-        logging.warning(f"Detected potential copy to startup command: {text} from {source} {hwnd}")
+        logging.warning(f"Detected potential harmful copy to startup command: {text} from {source} {hwnd}")
 
     def process_detected_command_schtasks_temp(self, text, source, hwnd=None):
         virus_name = "HEUR:Win32.Scheduler.MaliciousTask.Generic"
         notify_user_for_detected_schtasks_command(source, text, virus_name)
-        logging.warning(f"Detected potential schtasks command: {text} from {source} {hwnd}")
+        logging.warning(f"Detected potential harmful schtasks command: {text} from {source} {hwnd}")
     
     def check_text_or_command(self, text, source, hwnd=None):
         preprocessed_text = self.preprocess_text(text)
