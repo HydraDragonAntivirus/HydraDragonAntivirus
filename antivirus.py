@@ -2579,20 +2579,25 @@ class Monitor:
         logging.warning(f"Detected potential shadowcopy deletion command (Base64): {text} from {source} {hwnd}")
 
     def process_detected_command_wmic_shadowcopy(self, text, source, hwnd=None):
-        virus_name = "HEUR:Win32.Ransom.Wmic.ShadowCopy.Generic"
+        virus_name = "HEUR:Win32.Ransom.ShadowCopy.WMIC.Generic"
         notify_user_for_detected_shadowcopy_command(source, text, virus_name)
         logging.warning(f"Detected potential shadowcopy deletion command (WMIC): {text} from {source} {hwnd}")
 
     def process_detected_command_copy_to_startup(self, text, source, hwnd=None):
-        virus_name = "HEUR:Win32.Autostartup.Generic"
+        virus_name = "HEUR:Win32.PowerShell.Copy.To.Startup.Generic"
         notify_user_for_detected_startup_command(source, text, virus_name)
-        logging.warning(f"Detected potential harmful copy to startup command: {text} from {source} {hwnd}")
+        logging.warning(f"Detected potential harmful copy to startup with powershell command: {text} from {source} {hwnd}")
 
     def process_detected_command_schtasks_temp(self, text, source, hwnd=None):
-        virus_name = "HEUR:Win32.Scheduler.MaliciousTask.Generic"
+        virus_name = "HEUR:Win32.TaskScheduler.TempFile.Generic"
         notify_user_for_detected_schtasks_command(source, text, virus_name)
         logging.warning(f"Detected potential harmful schtasks command: {text} from {source} {hwnd}")
-    
+
+    def process_detected_command_rooktit_koadic(self, text, source, hwnd=None):
+        virus_name = "HEUR:Win32.Rootkit.Koadic.Generic"
+        notify_user_for_detected_koadic_command(source, text, virus_name)
+        logging.warning(f"Detected potential koadic rootkit command: {text} from {source} {hwnd}")
+
     def check_text_or_command(self, text, source, hwnd=None):
         preprocessed_text = self.preprocess_text(text)
         text_vector = nlp_spacy_lang(preprocessed_text).vector
@@ -2626,7 +2631,7 @@ class Monitor:
             self.process_detected_command_copy_to_startup(preprocessed_text, source, hwnd)
         for cmd in self.koadic_command_patterns:
             if cmd in preprocessed_text:
-                self.process_detected_command_wifi(preprocessed_text, source, hwnd)
+                self.process_detected_command_rootkit_koadic(preprocessed_text, source, hwnd)
         for cmd in self.fodhelper_command_patterns:
             if cmd in preprocessed_text:
                 self.process_detected_command_copy_to_startup(preprocessed_text, source, hwnd)
