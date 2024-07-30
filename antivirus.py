@@ -2505,18 +2505,30 @@ class Monitor:
             return similarity > 0.86
         return False
 
+    def preprocess_and_vectorize_keywords(self, keywords):
+        return [nlp_spacy_lang(keyword).vector for keyword in keywords]
+
     def contains_keywords_within_max_distance(self, text, max_distance):
         words = text.split()
-        your_computer_positions = [i for i, word in enumerate(words) if word in {"your", "computer"}]
-        files_positions = [i for i, word in enumerate(words) if word == "files"]
-        encrypted_positions = [i for i, word in enumerate(words) if word == "encrypted"]
+        keyword_vectors = self.preprocess_and_vectorize_keywords(["your", "computer", "files", "encrypted"])
+        
+        text_vector = nlp_spacy_lang(text).vector
 
-        for yp in your_computer_positions:
-            for fp in files_positions:
+        # Create vectors for positions of keywords
+        positions = {
+            "your_computer": [i for i, word in enumerate(words) if word in {"your", "computer"}],
+            "files": [i for i, word in enumerate(words) if word == "files"],
+            "encrypted": [i for i, word in enumerate(words) if word == "encrypted"]
+        }
+        
+        for yp in positions["your_computer"]:
+            for fp in positions["files"]:
                 if 0 < fp - yp <= max_distance:
-                    for ep in encrypted_positions:
+                    for ep in positions["encrypted"]:
                         if 0 < ep - fp <= max_distance:
-                            return True
+                            # Check if any keyword vector is similar
+                            if any(self.is_similar(text_vector, "ransomware_keywords", kv) for kv in keyword_vectors):
+                                return True
         return False
 
     def process_detected_window_web(self, text, url=None, ip_address=None, ipv6_address=None, domain=None):
@@ -2608,9 +2620,9 @@ class Monitor:
 
         try:
             # Check for known malware messages
-            for category in self.known_malware_messages.keys():
+            for category, known_vectors in self.known_malware_vectors.items():
                 try:
-                    if self.is_similar(text_vector, category):
+                    if self.is_similar(text_vector, category, known_vectors):
                         process_method = getattr(self, f"process_detected_text_{category}", None)
                         if process_method:
                             process_method(text, source, hwnd)
@@ -2621,7 +2633,7 @@ class Monitor:
             logging.error(f"Error during malware message detection: {e}")
 
         try:
-            # Ransomware keyword check
+            # Ransomware keyword check using is_similar
             if self.contains_keywords_within_max_distance(preprocessed_text, 3):
                 try:
                     self.process_detected_text_ransom(text, source, hwnd)
@@ -2643,7 +2655,7 @@ class Monitor:
 
             for cmd_pattern, process_method in command_patterns:
                 try:
-                    if cmd_pattern in preprocessed_text:
+                    if self.is_similar(text_vector, 'command', [nlp_spacy_lang(cmd_pattern).vector]):
                         process_method(preprocessed_text, source, hwnd)
                 except Exception as e:
                     logging.error(f"Error processing command pattern '{cmd_pattern}': {e}")
@@ -2651,14 +2663,14 @@ class Monitor:
             # Koadic and fodhelper command checks
             try:
                 for cmd in self.koadic_command_patterns:
-                    if cmd in preprocessed_text:
+                    if self.is_similar(text_vector, 'command', [nlp_spacy_lang(cmd).vector]):
                         self.process_detected_command_rootkit_koadic(preprocessed_text, source, hwnd)
             except Exception as e:
                 logging.error(f"Error processing 'koadic_command_patterns': {e}")
 
             try:
                 for cmd in self.fodhelper_command_patterns:
-                    if cmd in preprocessed_text:
+                    if self.is_similar(text_vector, 'command', [nlp_spacy_lang(cmd).vector]):
                         self.process_detected_command_copy_to_startup(preprocessed_text, source, hwnd)
             except Exception as e:
                 logging.error(f"Error processing 'fodhelper_command_patterns': {e}")
@@ -2666,14 +2678,14 @@ class Monitor:
             # Antivirus search patterns check
             try:
                 for av_search in self.antivirus_search_patterns:
-                    if av_search in preprocessed_text:
+                    if self.is_similar(text_vector, 'command', [nlp_spacy_lang(av_search).vector]):
                         self.process_detected_command_copy_to_startup(preprocessed_text, source, hwnd)
             except Exception as e:
                 logging.error(f"Error processing 'antivirus_search_patterns': {e}")
 
             # Taskkill command check
             try:
-                if self.taskkill_command in preprocessed_text:
+                if self.is_similar(text_vector, 'command', [nlp_spacy_lang(self.taskkill_command).vector]):
                     self.taskkill_count += 1
                     if self.taskkill_count >= 7:
                         virus_name = "HEUR:Win32.Multiple.TaskKill.Generic"
@@ -2688,29 +2700,18 @@ class Monitor:
 
         try:
             # URL, IP, and Domain checks
-            try:
-                if contains_url(preprocessed_text):
-                    self.process_detected_window_web(preprocessed_text, url=preprocessed_text)
-            except Exception as e:
-                logging.error(f"Error processing URL detection: {e}")
+            url_patterns = [contains_url(preprocessed_text)]
+            ip_patterns = [contains_ip_address(preprocessed_text) and not is_local_ip(preprocessed_text)]
+            ipv6_patterns = [contains_ipv6_address(preprocessed_text)]
+            domain_patterns = [contains_domain(preprocessed_text)]
 
-            try:
-                if contains_ip_address(preprocessed_text) and not is_local_ip(preprocessed_text):
-                    self.process_detected_window_web(preprocessed_text, ip_address=preprocessed_text)
-            except Exception as e:
-                logging.error(f"Error processing IP address detection: {e}")
-
-            try:
-                if contains_ipv6_address(preprocessed_text):
-                    self.process_detected_window_web(preprocessed_text, ip_address=preprocessed_text)
-            except Exception as e:
-                logging.error(f"Error processing IPv6 address detection: {e}")
-
-            try:
-                if contains_domain(preprocessed_text):
-                    self.process_detected_window_web(preprocessed_text, domain=preprocessed_text)
-            except Exception as e:
-                logging.error(f"Error processing domain detection: {e}")
+            for pattern, process_method in zip(url_patterns + ip_patterns + ipv6_patterns + domain_patterns,
+                                                [self.process_detected_window_web] * (len(url_patterns) + len(ip_patterns) + len(ipv6_patterns) + len(domain_patterns))):
+                try:
+                    if pattern:
+                        process_method(preprocessed_text, url=preprocessed_text)
+                except Exception as e:
+                    logging.error(f"Error processing URL/IP/Domain detection: {e}")
 
         except Exception as e:
             logging.error(f"Error during URL, IP, and Domain checks: {e}")
