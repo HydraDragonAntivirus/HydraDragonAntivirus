@@ -2505,30 +2505,18 @@ class Monitor:
             return similarity > 0.86
         return False
 
-    def preprocess_and_vectorize_keywords(self, keywords):
-        return [nlp_spacy_lang(keyword).vector for keyword in keywords]
-
     def contains_keywords_within_max_distance(self, text, max_distance):
         words = text.split()
-        keyword_vectors = self.preprocess_and_vectorize_keywords(["your", "computer", "files", "encrypted"])
-        
-        text_vector = nlp_spacy_lang(text).vector
+        your_computer_positions = [i for i, word in enumerate(words) if word in {"your", "computer"}]
+        files_positions = [i for i, word in enumerate(words) if word == "files"]
+        encrypted_positions = [i for i, word in enumerate(words) if word == "encrypted"]
 
-        # Create vectors for positions of keywords
-        positions = {
-            "your_computer": [i for i, word in enumerate(words) if word in {"your", "computer"}],
-            "files": [i for i, word in enumerate(words) if word == "files"],
-            "encrypted": [i for i, word in enumerate(words) if word == "encrypted"]
-        }
-        
-        for yp in positions["your_computer"]:
-            for fp in positions["files"]:
+        for yp in your_computer_positions:
+            for fp in files_positions:
                 if 0 < fp - yp <= max_distance:
-                    for ep in positions["encrypted"]:
+                    for ep in encrypted_positions:
                         if 0 < ep - fp <= max_distance:
-                            # Check if any keyword vector is similar
-                            if any(self.is_similar(text_vector, "ransomware_keywords", kv) for kv in keyword_vectors):
-                                return True
+                            return True
         return False
 
     def process_detected_window_web(self, text, url=None, ip_address=None, ipv6_address=None, domain=None):
@@ -2577,38 +2565,38 @@ class Monitor:
 
     def process_detected_command_wifi(self, text, source, hwnd=None):
         virus_name = "HEUR:Win32.Password.Stealer.Wi-Fi.Generic"
-        notify_user_wifi_command(virus_name)
-        logging.warning(f"Detected potential Wi-Fi stealing command: {virus_name}\nCommand: {text} from {source} {hwnd}")
+        notify_user_for_detected_wifi_command(source, text, virus_name)
+        logging.warning(f"Detected potential Wi-Fi passowrd capture command: {text} from {source} {hwnd}")
 
     def process_detected_command_ransom_shadowcopy(self, text, source, hwnd=None):
         virus_name = "HEUR:Win32.Ransom.ShadowCopy.Generic"
-        notify_user_shadow_copy_command(virus_name)
-        logging.warning(f"Detected potential ransomware command: {virus_name}\nCommand: {text} from {source} {hwnd}")
+        notify_user_for_detected_shadowcopy_command(source, text, virus_name)
+        logging.warning(f"Detected potential shadowcopy deletion command: {text} from {source} {hwnd}")
 
     def process_detected_command_ransom_shadowcopy_base64(self, text, source, hwnd=None):
         virus_name = "HEUR:Win32.Ransom.ShadowCopy.Base64.Generic"
-        notify_user_shadow_copy_command_base64(virus_name)
-        logging.warning(f"Detected potential ransomware command in Base64: {virus_name}\nCommand: {text} from {source} {hwnd}")
+        notify_user_for_detected_shadowcopy_command(source, text, virus_name)
+        logging.warning(f"Detected potential shadowcopy deletion command (Base64): {text} from {source} {hwnd}")
 
     def process_detected_command_wmic_shadowcopy(self, text, source, hwnd=None):
-        virus_name = "HEUR:Win32.Ransom.WmicShadowCopy.Generic"
-        notify_user_wmic_shadow_copy(virus_name)
-        logging.warning(f"Detected potential WMIC shadow copy deletion command: {virus_name}\nCommand: {text} from {source} {hwnd}")
+        virus_name = "HEUR:Win32.Ransom.ShadowCopy.WMIC.Generic"
+        notify_user_for_detected_shadowcopy_command(source, text, virus_name)
+        logging.warning(f"Detected potential shadowcopy deletion command (WMIC): {text} from {source} {hwnd}")
 
     def process_detected_command_copy_to_startup(self, text, source, hwnd=None):
-        virus_name = "HEUR:Win32.Startup.Injection.Generic"
-        notify_user_copy_to_startup(virus_name)
-        logging.warning(f"Detected potential startup injection command: {virus_name}\nCommand: {text} from {source} {hwnd}")
-
-    def process_detected_command_rootkit_koadic(self, text, source, hwnd=None):
-        virus_name = "HEUR:Win32.Rootkit.Koadic.Generic"
-        notify_user_koadic_rootkit(virus_name)
-        logging.warning(f"Detected potential Koadic rootkit command: {virus_name}\nCommand: {text} from {source} {hwnd}")
+        virus_name = "HEUR:Win32.PowerShell.Injection.Startup.Generic"
+        notify_user_for_detected_startup_command(source, text, virus_name)
+        logging.warning(f"Detected potential harmful copy to startup with powershell command: {text} from {source} {hwnd}")
 
     def process_detected_command_schtasks_temp(self, text, source, hwnd=None):
-        virus_name = "HEUR:Win32.Schtasks.TemporaryFile.Generic"
-        notify_user_schtasks_temp(virus_name)
-        logging.warning(f"Detected potential schtasks temporary file command: {virus_name}\nCommand: {text} from {source} {hwnd}")
+        virus_name = "HEUR:Win32.TaskScheduler.TempFile.Generic"
+        notify_user_for_detected_schtasks_command(source, text, virus_name)
+        logging.warning(f"Detected potential schtasks command scheduling temp file as task: {text} from {source} {hwnd}")
+
+    def process_detected_command_rooktit_koadic(self, text, source, hwnd=None):
+        virus_name = "HEUR:Win32.Rootkit.Koadic.Generic"
+        notify_user_for_detected_koadic_command(source, text, virus_name)
+        logging.warning(f"Detected potential koadic rootkit command: {text} from {source} {hwnd}")
 
     def check_text_or_command(self, text, source, hwnd=None):
         try:
@@ -2620,72 +2608,96 @@ class Monitor:
 
         try:
             # Check for known malware messages
-            for category, known_vectors in self.known_malware_vectors.items():
-                try:
-                    if self.is_similar(text_vector, category, known_vectors):
-                        process_method = getattr(self, f"process_detected_text_{category}", None)
-                        if process_method:
-                            process_method(text, source, hwnd)
-                except Exception as e:
-                    logging.error(f"Error processing '{category}' malware: {e}")
+            try:
+                if self.is_similar(text_vector, "classic"):
+                    self.process_detected_text_classic(text, source, hwnd)
+            except Exception as e:
+                logging.error(f"Error processing 'classic' malware: {e}")
 
+            try:
+                if self.is_similar(text_vector, "av"):
+                    self.process_detected_text_av(text, source, hwnd)
+            except Exception as e:
+                logging.error(f"Error processing 'av' malware: {e}")
+
+            try:
+                if self.is_similar(text_vector, "rogue"):
+                    self.process_detected_text_rogue(text, source, hwnd)
+            except Exception as e:
+                logging.error(f"Error processing 'rogue' malware: {e}")
+
+            try:
+                if self.is_similar(text_vector, "debugger"):
+                    self.process_detected_text_debugger(text, source, hwnd)
+            except Exception as e:
+                logging.error(f"Error processing 'debugger' malware: {e}")
+
+            try:
+                if self.is_similar(text_vector, "fanmade"):
+                    self.process_detected_text_fanmade(text, source, hwnd)
+            except Exception as e:
+                logging.error(f"Error processing 'fanmade' malware: {e}")
         except Exception as e:
             logging.error(f"Error during malware message detection: {e}")
 
         try:
-            # Ransomware keyword check using is_similar
-            if self.contains_keywords_within_max_distance(preprocessed_text, 3):
-                try:
+            # Ransomware keyword check
+            try:
+                if self.contains_keywords_within_max_distance(preprocessed_text, 3):
                     self.process_detected_text_ransom(text, source, hwnd)
-                except Exception as e:
-                    logging.error(f"Error during ransomware keyword check: {e}")
+            except Exception as e:
+                logging.error(f"Error during ransomware keyword check: {e}")
         except Exception as e:
             logging.error(f"Error during ransomware keyword check: {e}")
 
         try:
             # Command pattern checks
-            command_patterns = [
-                (self.wifi_commands, self.process_detected_command_wifi),
-                (self.shadow_copy_command, self.process_detected_command_ransom_shadowcopy),
-                (self.shadow_copy_command_base64, self.process_detected_command_ransom_shadowcopy_base64),
-                (self.wmic_command, self.process_detected_command_wmic_shadowcopy),
-                (self.copy_to_startup_command, self.process_detected_command_copy_to_startup),
-                (self.schtasks_command, self.process_detected_command_schtasks_temp),
-            ]
+            try:
+                if self.wifi_commands in preprocessed_text:
+                    self.process_detected_command_wifi(preprocessed_text, source, hwnd)
+            except Exception as e:
+                logging.error(f"Error processing 'wifi_commands': {e}")
 
-            for cmd_pattern, process_method in command_patterns:
-                try:
-                    if self.is_similar(text_vector, 'command', [nlp_spacy_lang(cmd_pattern).vector]):
-                        process_method(preprocessed_text, source, hwnd)
-                except Exception as e:
-                    logging.error(f"Error processing command pattern '{cmd_pattern}': {e}")
+            try:
+                if self.shadow_copy_command in preprocessed_text:
+                    self.process_detected_command_ransom_shadowcopy(preprocessed_text, source, hwnd)
+            except Exception as e:
+                logging.error(f"Error processing 'shadow_copy_command': {e}")
 
-            # Koadic and fodhelper command checks
+            try:
+                if self.shadow_copy_command_base64 in preprocessed_text:
+                    self.process_detected_command_ransom_shadowcopy_base64(preprocessed_text, source, hwnd)
+            except Exception as e:
+                logging.error(f"Error processing 'shadow_copy_command_base64': {e}")
+
+            try:
+                if self.wmic_command in preprocessed_text:
+                    self.process_detected_command_wmic_shadowcopy(preprocessed_text, source, hwnd)
+            except Exception as e:
+                logging.error(f"Error processing 'wmic_command': {e}")
+
+            try:
+                if self.copy_to_startup_command in preprocessed_text:
+                    self.process_detected_command_copy_to_startup(preprocessed_text, source, hwnd)
+            except Exception as e:
+                logging.error(f"Error processing 'copy_to_startup_command': {e}")
+
             try:
                 for cmd in self.koadic_command_patterns:
-                    if self.is_similar(text_vector, 'command', [nlp_spacy_lang(cmd).vector]):
+                    if cmd in preprocessed_text:
                         self.process_detected_command_rootkit_koadic(preprocessed_text, source, hwnd)
             except Exception as e:
                 logging.error(f"Error processing 'koadic_command_patterns': {e}")
 
             try:
                 for cmd in self.fodhelper_command_patterns:
-                    if self.is_similar(text_vector, 'command', [nlp_spacy_lang(cmd).vector]):
+                    if cmd in preprocessed_text:
                         self.process_detected_command_copy_to_startup(preprocessed_text, source, hwnd)
             except Exception as e:
                 logging.error(f"Error processing 'fodhelper_command_patterns': {e}")
 
-            # Antivirus search patterns check
             try:
-                for av_search in self.antivirus_search_patterns:
-                    if self.is_similar(text_vector, 'command', [nlp_spacy_lang(av_search).vector]):
-                        self.process_detected_command_copy_to_startup(preprocessed_text, source, hwnd)
-            except Exception as e:
-                logging.error(f"Error processing 'antivirus_search_patterns': {e}")
-
-            # Taskkill command check
-            try:
-                if self.is_similar(text_vector, 'command', [nlp_spacy_lang(self.taskkill_command).vector]):
+                if self.taskkill_command in preprocessed_text:
                     self.taskkill_count += 1
                     if self.taskkill_count >= 7:
                         virus_name = "HEUR:Win32.Multiple.TaskKill.Generic"
@@ -2699,19 +2711,48 @@ class Monitor:
             logging.error(f"Error during command pattern checks: {e}")
 
         try:
-            # URL, IP, and Domain checks
-            url_patterns = [contains_url(preprocessed_text)]
-            ip_patterns = [contains_ip_address(preprocessed_text) and not is_local_ip(preprocessed_text)]
-            ipv6_patterns = [contains_ipv6_address(preprocessed_text)]
-            domain_patterns = [contains_domain(preprocessed_text)]
+            # Antivirus search and schtasks command checks
+            try:
+                for av_search in self.antivirus_search_patterns:
+                    if av_search in preprocessed_text:
+                        self.process_detected_command_copy_to_startup(preprocessed_text, source, hwnd)
+            except Exception as e:
+                logging.error(f"Error processing 'antivirus_search_patterns': {e}")
 
-            for pattern, process_method in zip(url_patterns + ip_patterns + ipv6_patterns + domain_patterns,
-                                                [self.process_detected_window_web] * (len(url_patterns) + len(ip_patterns) + len(ipv6_patterns) + len(domain_patterns))):
-                try:
-                    if pattern:
-                        process_method(preprocessed_text, url=preprocessed_text)
-                except Exception as e:
-                    logging.error(f"Error processing URL/IP/Domain detection: {e}")
+            try:
+                if self.schtasks_command in preprocessed_text:
+                    self.process_detected_command_schtasks_temp(preprocessed_text, source, hwnd)
+            except Exception as e:
+                logging.error(f"Error processing 'schtasks_command': {e}")
+
+        except Exception as e:
+            logging.error(f"Error during antivirus search and schtasks command checks: {e}")
+
+        try:
+            # URL, IP, and Domain checks
+            try:
+                if contains_url(preprocessed_text):
+                    self.process_detected_window_web(preprocessed_text, url=preprocessed_text)
+            except Exception as e:
+                logging.error(f"Error processing URL detection: {e}")
+
+            try:
+                if contains_ip_address(preprocessed_text) and not is_local_ip(preprocessed_text):
+                    self.process_detected_window_web(preprocessed_text, ip_address=preprocessed_text)
+            except Exception as e:
+                logging.error(f"Error processing IP address detection: {e}")
+
+            try:
+                if contains_ipv6_address(preprocessed_text):
+                    self.process_detected_window_web(preprocessed_text, ip_address=preprocessed_text)
+            except Exception as e:
+                logging.error(f"Error processing IPv6 address detection: {e}")
+
+            try:
+                if contains_domain(preprocessed_text):
+                    self.process_detected_window_web(preprocessed_text, domain=preprocessed_text)
+            except Exception as e:
+                logging.error(f"Error processing domain detection: {e}")
 
         except Exception as e:
             logging.error(f"Error during URL, IP, and Domain checks: {e}")
