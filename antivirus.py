@@ -2495,6 +2495,16 @@ class Monitor:
     def preprocess_text(self, text):
         return text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "")
 
+    def is_similar(self, text_vector, category, known_vector=None):
+        if known_vector is None:
+            known_vector = self.known_malware_vectors[category]
+        if isinstance(known_vector, list):  # Handle list of vectors
+            return any(cosine_similarity([text_vector], [kv])[0][0] > 0.86 for kv in known_vector)
+        if known_vector.size > 0 and text_vector.size > 0:
+            similarity = cosine_similarity([text_vector], [known_vector])[0][0]
+            return similarity > 0.86
+        return False
+
     def contains_keywords_within_max_distance(self, text, max_distance):
         words = text.split()
         your_computer_positions = [i for i, word in enumerate(words) if word in {"your", "computer"}]
@@ -2574,7 +2584,7 @@ class Monitor:
         logging.warning(f"Detected potential shadowcopy deletion command (WMIC): {text} from {source} {hwnd}")
 
     def process_detected_command_copy_to_startup(self, text, source, hwnd=None):
-        virus_name = "HEUR:Win32.Startup.PowerShell.Injection..Generic"
+        virus_name = "HEUR:Win32.Startup.PowerShell.Injection.Generic"
         notify_user_for_detected_startup_command(source, text, virus_name)
         logging.warning(f"Detected potential harmful copy to startup with powershell command: {text} from {source} {hwnd}")
 
