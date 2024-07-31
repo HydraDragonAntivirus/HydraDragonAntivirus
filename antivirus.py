@@ -2518,6 +2518,19 @@ class Monitor:
         logging.warning(f"Notification: {message}")
         Notify.send(virus_name, message, command_line, file_path, hwnd)
 
+    def monitor(self):
+        try:
+            while True:
+                windows = self.find_windows_with_text()
+                for hwnd, text in windows:
+                    self.process_detected_text(text, "window", hwnd)
+
+                command_lines = self.capture_command_lines()
+                for command_line in command_lines:
+                    self.process_detected_command(command_line)
+        except Exception as e:
+            logging.error(f"Unexpected error in monitor loop: {e}")
+
 # List of already scanned files to avoid reprocessing
 scanned_files = []
 
