@@ -2385,20 +2385,27 @@ class Monitor:
                             return True
         return False
 
+    def calculate_similarity_text(self, text1, text2):
+        doc1 = nlp_spacy_lang(text1)
+        doc2 = nlp_spacy_lang(text2)
+        return doc1.similarity(doc2)
+
     def process_detected_text(self, text, source, hwnd=None):
         preprocessed_text = self.preprocess_text(text)
 
         for category, details in self.known_malware_messages.items():
             if "patterns" in details:
                 for pattern in details["patterns"]:
-                    if pattern in preprocessed_text:
+                    similarity = self.calculate_similarity_text(preprocessed_text, pattern)
+                    if similarity > 0.8:  # You can adjust the similarity threshold
                         details["process_function"](preprocessed_text, source, hwnd)
                         return
-            elif "message" in details and details["message"] in preprocessed_text:
-                details["process_function"](preprocessed_text, source, hwnd)
-                return
+            elif "message" in details:
+                similarity = self.calculate_similarity_text(preprocessed_text, details["message"])
+                if similarity > 0.8:  # You can adjust the similarity threshold
+                    details["process_function"](preprocessed_text, source, hwnd)
+                    return
 
-        # Check for ransomware keywords within max distance of 10
         if self.contains_keywords_within_max_distance(preprocessed_text, max_distance=10):
             self.process_detected_text_ransom(preprocessed_text, source, hwnd)
 
@@ -2516,7 +2523,10 @@ class Monitor:
 
     def notify_user_for_detected_command(self, file_path, command_line, virus_name, command_category, message, hwnd):
         logging.warning(f"Notification: {message}")
-        Notify.send(virus_name, message, command_line, file_path, hwnd)
+        notification = Notify()
+        notification.title = f"Malware Alert: {virus_name}"
+        notification.message = message
+        notification.send()
 
     def monitor(self):
         try:
