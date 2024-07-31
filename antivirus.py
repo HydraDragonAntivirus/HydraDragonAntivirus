@@ -2491,7 +2491,11 @@ class Monitor:
         try:
             doc1 = nlp_spacy_lang(text1)
             doc2 = nlp_spacy_lang(text2)
-            return doc1.similarity(doc2)
+            if doc1.vector_norm and doc2.vector_norm:  # Check if vectors are not empty
+                return doc1.similarity(doc2)
+            else:
+                logging.warning("One or both texts are empty or contain no recognizable tokens.")
+                return 0.0
         except Exception as e:
             logging.error(f"Error during similarity calculation: {e}")
             return 0.0
@@ -2673,10 +2677,10 @@ class Monitor:
         try:
             # Antivirus search and schtasks command checks
             for av_search in self.antivirus_search_patterns:
-                if self.calculate_similarity(preprocessed_text, av_search) > 0.7:
+                if self.calculate_similarity_text(preprocessed_text, av_search) > 0.7:
                     self.process_detected_command_copy_to_startup(preprocessed_text, source, hwnd)
             
-            if self.calculate_similarity(preprocessed_text, self.schtasks_command) > 0.7:
+            if self.calculate_similarity_text(preprocessed_text, self.schtasks_command) > 0.7:
                 self.process_detected_command_schtasks_temp(preprocessed_text, source, hwnd)
         except Exception as e:
             logging.error(f"Error during antivirus search and schtasks command checks: {e}")
