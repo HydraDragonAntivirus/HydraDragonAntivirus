@@ -2333,7 +2333,7 @@ class Monitor:
                         'chcp 437 & schtasks /create /tn K0adic'
                     ],
                     "virus_name": "HEUR:Win32.Rootkit.Koadic.Generic",
-                    "process_function": self.process_detected_command_rooktit_koadic
+                    "process_function": self.process_detected_command_rootkit_koadic
                 },
                 "fodhelper": {
                     "patterns": [
