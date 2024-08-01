@@ -2519,7 +2519,7 @@ class Monitor:
             while True:
                 windows = find_windows_with_text()
                 for hwnd, text in windows:
-                    self.process_detected(text, "window", hwnd)
+                    self.process_detected(text, hwnd=hwnd)
 
                 command_lines = self.capture_command_lines()
                 for command_line, executable_path in command_lines:
