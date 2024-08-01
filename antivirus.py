@@ -305,6 +305,7 @@ def scan_file_with_clamd(file_path):
         print(f"Unexpected clamdscan output: {clamd_output}")
         return "Clean"
 
+# Function to check the signature of a file
 def check_signature(file_path):
     try:
         # Command to verify the executable signature status
