@@ -314,8 +314,8 @@ def check_signature(file_path):
         process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-8')
 
         status = process.stdout.strip()
-        is_valid = status == "Valid"
-        signature_status_issues = status in ["HashMismatch", "NotTrusted"]
+        is_valid = "Valid" in status
+        signature_status_issues = "HashMismatch" in status or "NotTrusted" in status
 
         # Command to check for Microsoft signature if there are no issues
         if not signature_status_issues:
