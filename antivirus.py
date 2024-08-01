@@ -331,6 +331,7 @@ def check_signature(file_path):
             "status": status
         }
     except Exception as e:
+        print(f"An error occurred while checking signature: {e}")
         logging.error(f"An error occurred while checking signature: {e}")
         return {
             "is_valid": False,
