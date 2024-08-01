@@ -328,7 +328,6 @@ def check_signature(file_path):
             "is_valid": is_valid,
             "has_microsoft_signature": has_microsoft_signature,
             "signature_status_issues": signature_status_issues,
-            "status": status
         }
     except Exception as e:
         print(f"An error occurred while checking signature: {e}")
@@ -337,7 +336,6 @@ def check_signature(file_path):
             "is_valid": False,
             "has_microsoft_signature": False,
             "signature_status_issues": False,
-            "status": "Error"
         }
 
 def check_valid_signature_only(file_path):
