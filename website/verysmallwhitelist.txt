@@ -1,3 +1,10 @@
+windowsupdate.s.llnwi.net
+tradecraft.s.llnwi.net
+cedexis-1.s.llnwi.net
+rsgames.s.llnwi.net
+s.llnwi.net
+beacon.s.llnwi.nez
+radecraft.s.llnwi.net
 static.exosrv.com.riil1na.belugacdn.com
 promo.badoink.com.i.belugacdn.com
 metrics.readme.io
