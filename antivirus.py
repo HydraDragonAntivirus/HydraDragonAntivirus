@@ -393,17 +393,6 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
 
     try:
 
-        # Check for the fake file size
-        if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
-            with open(file_path, 'rb') as file:
-                file_content = file.read()
-                if file_content.count(b'\x00') >= 100 * 1024 * 1024:  # At least 100MB of empty binary strings
-                    logging.warning(f"File {file_path} is flagged as HEUR:FakeSize.Generic")
-                    fake_size = "HEUR:FakeSize.Generic"
-                    if signature_check and signature_check["is_valid"]:
-                        fake_size = "HEUR:PUA.Win32.FakeSize.Generic"
-                    return True, fake_size
-
         # Scan PE files with Static Machine Learning
         if pe_file:
             is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
@@ -1535,6 +1524,18 @@ def scan_and_warn(file_path):
         # Extract the file name
         file_name = os.path.basename(file_path)
 
+        # Check for the fake file size
+        if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
+            with open(file_path, 'rb') as file:
+                file_content = file.read()
+                if file_content.count(b'\x00') >= 100 * 1024 * 1024:  # At least 100MB of empty binary strings
+                    logging.warning(f"File {file_path} is flagged as HEUR:FakeSize.Generic")
+                    fake_size = "HEUR:FakeSize.Generic"
+                    if signature_check and signature_check["is_valid"]:
+                        fake_size = "HEUR:PUA.Win32.FakeSize.Generic"
+                    notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(file_path, fake_size))
+                    notify_user_fake_size_thread.start()
+
         # Check if the file is a known rootkit file
         if file_name in known_rootkit_files:
             logging.warning(f"Detected potential rootkit file: {file_path}")
@@ -1612,12 +1613,6 @@ def scan_and_warn(file_path):
             if virus_name.startswith("PUA."):
                 notify_user_pua_thread = threading.Thread(target=notify_user_pua, args=(file_path, virus_name))
                 notify_user_pua_thread.start()
-            elif virus_name == "HEUR:FakeSize.Generic":
-                notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(file_path, virus_name))
-                notify_user_fake_size_thread.start()
-            elif virus_name == "HEUR:PUA.Win32.FakeSize.Generic":
-                notify_user_fake_size_pua_thread = threading.Thread(target=notify_user_fake_size_pua, args=(file_path, virus_name))
-                notify_user_fake_size_pua_thread.start()
             else:
                 notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
                 notify_user_thread.start()
@@ -1626,6 +1621,7 @@ def scan_and_warn(file_path):
 
     except Exception as e:
         logging.error(f"Error scanning file {file_path}: {e}")
+        return False
 
 def start_monitoring_sandbox():
     threading.Thread(target=monitor_sandbox).start()
