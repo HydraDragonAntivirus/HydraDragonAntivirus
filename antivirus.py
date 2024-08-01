@@ -2517,7 +2517,7 @@ class Monitor:
     def monitor(self):
         try:
             while True:
-                windows = find_windows_with_text()  # Replace with actual function to get windows with text
+                windows = find_windows_with_text()
                 for hwnd, text in windows:
                     self.process_detected(text, "window", hwnd)
 
