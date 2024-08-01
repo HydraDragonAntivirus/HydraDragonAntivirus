@@ -393,7 +393,6 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
     logging.info(f"Started scanning file: {file_path}")
 
     try:
-
         # Scan PE files with Static Machine Learning
         if pe_file:
             is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
