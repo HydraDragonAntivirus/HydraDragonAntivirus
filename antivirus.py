@@ -2395,7 +2395,7 @@ class Monitor:
     def notify_user_for_detected_command(self, file_path, command_line, virus_name, command_category, message, hwnd):
         logging.warning(f"Notification: {message}")
         notification = Notify()
-        notification.title = f"Malware Alert: {virus_name}"
+        notification.title = f"Malware Message Alert"
         notification.message = message
         notification.send()
 
