@@ -1491,21 +1491,17 @@ def decompile_file(file_path):
         logging.error(f"An error occurred during decompilation: {e}")
 
 def extract_original_file_path_from_decompiled(file_path):
-    """Extracts the original file path from the decompiled file and corrects the path format."""
-    original_file_path = None
     try:
         with open(file_path, 'r') as file:
             for line in file:
                 if line.startswith("// Original file:"):
-                    original_file_path = line.strip().split(":", 1)[1].strip()
-                    # Correct the path format
-                    if original_file_path.startswith("/"):
-                        parts = original_file_path.split("/", 2)
-                        original_file_path = f"{parts[1].upper()}:\{parts[2].replace('/', '\\')}"
-                    break
+                    parts = line.split(':', 2)
+                    original_file_path = rf"{parts[1].upper()}:\{parts[2].replace('/', '\\')}"
+                    return original_file_path.strip()
+        return None
     except Exception as e:
-        logging.error(f"Error reading decompiled file {file_path}: {e}")
-    return original_file_path
+        print(f"An error occurred while extracting the original file path: {e}")
+        return None
 
 def scan_and_warn(file_path):
     logging.info(f"Scanning file: {file_path}")
