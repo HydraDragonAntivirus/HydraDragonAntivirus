@@ -333,12 +333,7 @@ def check_signature(file_path):
     except Exception as e:
         print(f"An error occurred while checking signature: {e}")
         logging.error(f"An error occurred while checking signature: {e}")
-        return {
-            "is_valid": False,
-            "has_microsoft_signature": False,
-            "signature_status_issues": False,
-            "status": "Error"
-        }
+        return None  # Change to return None on error
 
 def check_valid_signature_only(file_path):
     try:
@@ -1570,6 +1565,10 @@ def scan_and_warn(file_path):
 
             # Check for PE file and signatures
             signature_check = check_signature(file_path)
+
+            if signature_check is None:
+                logging.error(f"check_signature returned None for file: {file_path}")
+                return False
 
             if signature_check["has_microsoft_signature"]:
                 logging.info(f"Valid Microsoft signature detected for file: {file_path}")
