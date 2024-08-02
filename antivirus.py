@@ -311,7 +311,7 @@ def check_signature(file_path):
         # Command to verify the executable signature status
         cmd = f'"{file_path}"'
         verify_command = "(Get-AuthenticodeSignature " + cmd + ").Status"
-        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-8')
+        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE)
 
         status = process.stdout.strip()
         is_valid = "Valid" in status
@@ -343,19 +343,19 @@ def check_valid_signature_only(file_path):
     try:
         # Command to verify the executable signature status
         verify_command = f"(Get-AuthenticodeSignature '{file_path}').Status"
-        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, encoding='utf-8')
+        process = subprocess.run(['powershell.exe', '-Command', verify_command], capture_output=True, text=True)
         
         status = process.stdout.strip()
-        is_valid = status == "Valid"
+        is_valid = "Valid" in status
         
         return {
             "is_valid": is_valid
         }
     except Exception as e:
-        print(f"An error occurred while checking signature: {e}")
-        logging.error(f"An error occurred while checking signature: {e}")
+        print(f"An error occurred while verifying a valid signature: {e}")
+        logging.error(f"An error occurred while verifying a valid signature: {e}")
         return {
-            "is_valid": True
+            "is_valid": False
         }
 
 def clean_directories():
@@ -1382,7 +1382,7 @@ yaraxtr_yrc_path = os.path.join(yara_folder_path, "yaraxtr.yrc")
 def compile_yara_rule(yara_folder_path):
     try:
         # Compile the YARA rule using yara_x
-        with open(yaraxtr_yar_path, 'r', encoding='utf-8') as f:
+        with open(yaraxtr_yar_path, 'r') as f:
             rule = f.read()
         compiled_rule = yara_x.compile(rule)
 
@@ -1765,7 +1765,7 @@ def has_known_extension(file_path):
 def is_readable(file_path):
     try:
         logging.info(f"Attempting to read file '{file_path}'")
-        with open(file_path, 'r', encoding='utf-8') as file:
+        with open(file_path, 'r') as file:
             file_data = file.read(1024)
             if file_data:  # Check if file has readable content
                 logging.info(f"File '{file_path}' is readable")
