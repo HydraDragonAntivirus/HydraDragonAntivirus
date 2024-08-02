@@ -1930,42 +1930,13 @@ def worm_alert(file_path):
     try:
         logging.info(f"Running worm detection for file '{file_path}'")
 
-        features_current = extract_numeric_worm_features(file_path)
-
-        # Define critical directory paths
+        # Define directory paths
+        main_drive_path = rf'{sandbox_folder}\drive\C'
         critical_directory = os.path.join('C:', 'Windows')
         sandbox_critical_directory = os.path.join(sandbox_folder, 'drive', 'C', 'Windows')
 
-        original_file_path = os.path.join(critical_directory, os.path.basename(file_path))
-        sandbox_file_path = os.path.join(sandbox_critical_directory, os.path.basename(file_path))
-
-        if os.path.exists(original_file_path) and os.path.exists(sandbox_file_path):
-            original_file_size = os.path.getsize(original_file_path)
-            current_file_size = os.path.getsize(sandbox_file_path)
-            size_difference = abs(current_file_size - original_file_size) / original_file_size
-
-            original_file_mtime = os.path.getmtime(original_file_path)
-            current_file_mtime = os.path.getmtime(sandbox_file_path)
-            mtime_difference = abs(current_file_mtime - original_file_mtime)
-
-            # Check size difference and modification time difference
-            if size_difference > 0.10:
-                logging.warning(f"File size difference for '{file_path}' exceeds 10%.")
-                notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Agnostic.Generic.Malware")
-                worm_alerted_files.append(file_path)
-                return
-
-            if mtime_difference > 3600:  # 3600 seconds = 1 hour
-                logging.warning(f"Modification time difference for '{file_path}' exceeds 1 hour.")
-                notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Time.Agnostic.Generic.Malware")
-                worm_alerted_files.append(file_path)
-                return
-
-            logging.info(f"File '{file_path}' matches original in '{critical_directory}'. Proceeding with worm detection...")
-        else:
-            logging.info(f"Original file '{original_file_path}' or sandbox file '{sandbox_file_path}' not found. Proceeding with worm detection based on collected features.")
-
-        # Initialize worm detection flag
+        # Extract features and initialize worm detection flag
+        features_current = extract_numeric_worm_features(file_path)
         worm_detected = False
 
         # Compare with main file
@@ -1973,7 +1944,7 @@ def worm_alert(file_path):
             features_main = extract_numeric_worm_features(main_file_path)
             similarity_main = calculate_similarity_worm(features_current, features_main)
             if similarity_main > 0.86:
-                logging.warning(f"Main file '{main_file_path}' is spreading the worm to '{file_path}' with similarity score {similarity_main}")
+                logging.warning(f"The main file '{main_file_path}' is distributing a potential worm to '{file_path}' with similarity score {similarity_main}")
                 worm_detected = True
 
         # Compare with other collected files
@@ -1982,17 +1953,78 @@ def worm_alert(file_path):
                 features_collected = extract_numeric_worm_features(collected_file_path)
                 similarity_collected = calculate_similarity_worm(features_current, features_collected)
                 if similarity_collected > 0.86:
-                    logging.warning(f"Worm has spread to '{collected_file_path}' with similarity score {similarity_collected}")
+                    logging.warning(f"Potential worm has spread to '{collected_file_path}' with similarity score {similarity_collected}")
                     worm_detected = True
 
         # Increment detection count
         worm_detected_count[file_path] = worm_detected_count.get(file_path, 0) + 1
 
-        # Check if worm is detected or count exceeds threshold
-        if worm_detected or worm_detected_count[file_path] >= 5:
-            logging.warning(f"Worm '{file_path}' detected under 5 different names. Alerting user.")
-            notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Generic.Malware")
-            worm_alerted_files.append(file_path)
+        # Determine notification type and handle accordingly
+        if file_path.startswith(main_drive_path) or file_path.startswith(critical_directory) or file_path.startswith(sandbox_critical_directory):
+            original_file_path = os.path.join(critical_directory, os.path.basename(file_path))
+            sandbox_file_path = os.path.join(sandbox_critical_directory, os.path.basename(file_path))
+
+            if os.path.exists(original_file_path) and os.path.exists(sandbox_file_path):
+                original_file_size = os.path.getsize(original_file_path)
+                current_file_size = os.path.getsize(sandbox_file_path)
+                size_difference = abs(current_file_size - original_file_size) / original_file_size
+
+                original_file_mtime = os.path.getmtime(original_file_path)
+                current_file_mtime = os.path.getmtime(sandbox_file_path)
+                mtime_difference = abs(current_file_mtime - original_file_mtime)
+
+                # Check size difference and modification time difference
+                if size_difference > 0.10:
+                    logging.warning(f"File size difference for '{file_path}' exceeds 10%.")
+                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Agnostic.Generic.Malware")
+                    worm_alerted_files.append(file_path)
+
+                if mtime_difference > 3600:  # 3600 seconds = 1 hour
+                    logging.warning(f"Modification time difference for '{file_path}' exceeds 1 hour.")
+                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Time.Agnostic.Generic.Malware")
+                    worm_alerted_files.append(file_path)
+
+                # Continue with worm detection after critical directory checks
+                worm_detected = False
+
+                # Compare with main file again
+                if main_file_path and main_file_path != file_path:
+                    features_main = extract_numeric_worm_features(main_file_path)
+                    similarity_main = calculate_similarity_worm(features_current, features_main)
+                    if similarity_main > 0.86:
+                        logging.warning(f"Main file '{main_file_path}' is spreading the worm to '{file_path}' with similarity score {similarity_main}")
+                        worm_detected = True
+
+                # Compare with other collected files
+                for collected_file_path in file_paths:
+                    if collected_file_path != file_path:
+                        features_collected = extract_numeric_worm_features(collected_file_path)
+                        similarity_collected = calculate_similarity_worm(features_current, features_collected)
+                        if similarity_collected > 0.86:
+                            logging.warning(f"Worm has spread to '{collected_file_path}' with similarity score {similarity_collected}")
+                            worm_detected = True
+
+                # Check if worm is detected or count exceeds threshold
+                if worm_detected or worm_detected_count[file_path] >= 5:
+                    logging.warning(f"Worm '{file_path}' detected under 5 different names. Alerting user.")
+                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Classic.Generic.Malware")
+                    worm_alerted_files.append(file_path)
+
+            else:
+                logging.info(f"Original file '{original_file_path}' or sandbox file '{sandbox_file_path}' not found. Proceeding with worm detection based on collected features.")
+
+        else:
+            if worm_detected_count[file_path] >= 5:
+                logging.warning(f"Worm '{file_path}' detected under 5 different names. Alerting user.")
+                notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Generic.Malware")
+                worm_alerted_files.append(file_path)
+
+                # Flag all occurrences of this file in collected files
+                for collected_file_path in file_paths:
+                    if collected_file_path != file_path:
+                        logging.info(f"Flagging previously detected file '{collected_file_path}' as well.")
+                        notify_user_worm(collected_file_path, "HEUR:Win32.Worm.Classic.Generic.Malware")
+                        worm_alerted_files.append(collected_file_path)
 
     except Exception as e:
         logging.error(f"Error in worm detection for file {file_path}: {e}")
