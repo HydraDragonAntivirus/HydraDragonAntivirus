@@ -1700,6 +1700,11 @@ def check_hosts_file_for_blocked_antivirus():
             print(f"Malicious hosts file detected: {hosts_path}")
             notify_user_hosts(hosts_path, "HEUR:Win32.Trojan.Hosts.Hijacker.DisableAV.Generic")
             return True
+        else:
+            logging.warning(f"Suspicious hosts file detected: {hosts_path}")
+            print(f"Suspicious hosts file detected: {hosts_path}")
+            notify_user_hosts(hosts_path, "HEUR:Win32.Trojan.Hosts.Hijacker.Generic")
+            return True
         return False
     except Exception as e:
         logging.error(f"Error reading hosts file: {e}")
