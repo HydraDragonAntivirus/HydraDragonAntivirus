@@ -1962,38 +1962,37 @@ def worm_alert(file_path):
                 return
 
             logging.info(f"File '{file_path}' matches original in '{critical_directory}'. Proceeding with worm detection...")
+        else:
+            logging.info(f"Original file '{original_file_path}' or sandbox file '{sandbox_file_path}' not found. Proceeding with worm detection based on collected features.")
 
-            # Initialize worm detection flag
-            worm_detected = False
+        # Initialize worm detection flag
+        worm_detected = False
 
-            # Compare with main file
-            if main_file_path and main_file_path != file_path:
-                features_main = extract_numeric_worm_features(main_file_path)
-                similarity_main = calculate_similarity_worm(features_current, features_main)
+        # Compare with main file
+        if main_file_path and main_file_path != file_path:
+            features_main = extract_numeric_worm_features(main_file_path)
+            similarity_main = calculate_similarity_worm(features_current, features_main)
             if similarity_main > 0.86:
                 logging.warning(f"Main file '{main_file_path}' is spreading the worm to '{file_path}' with similarity score {similarity_main}")
                 worm_detected = True
 
-            # Compare with other collected files
-            for collected_file_path in file_paths:
-                if collected_file_path != file_path:
-                    features_collected = extract_numeric_worm_features(collected_file_path)
-                    similarity_collected = calculate_similarity_worm(features_current, features_collected)
-                    if similarity_collected > 0.86:
-                        logging.warning(f"Worm has spread to '{collected_file_path}' with similarity score {similarity_collected}")
-                        worm_detected = True
+        # Compare with other collected files
+        for collected_file_path in file_paths:
+            if collected_file_path != file_path:
+                features_collected = extract_numeric_worm_features(collected_file_path)
+                similarity_collected = calculate_similarity_worm(features_current, features_collected)
+                if similarity_collected > 0.86:
+                    logging.warning(f"Worm has spread to '{collected_file_path}' with similarity score {similarity_collected}")
+                    worm_detected = True
 
-            # Increment detection count
-            worm_detected_count[file_path] = worm_detected_count.get(file_path, 0) + 1
+        # Increment detection count
+        worm_detected_count[file_path] = worm_detected_count.get(file_path, 0) + 1
 
-            # Check if worm is detected or count exceeds threshold
-            if worm_detected or worm_detected_count[file_path] >= 5:
-                logging.warning(f"Worm '{file_path}' detected under 5 different names. Alerting user.")
-                notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Generic.Malware")
-                worm_alerted_files.append(file_path)
-
-        else:
-            logging.warning(f"Original file '{original_file_path}' or sandbox file '{sandbox_file_path}' not found. Skipping worm detection.")
+        # Check if worm is detected or count exceeds threshold
+        if worm_detected or worm_detected_count[file_path] >= 5:
+            logging.warning(f"Worm '{file_path}' detected under 5 different names. Alerting user.")
+            notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Generic.Malware")
+            worm_alerted_files.append(file_path)
 
     except Exception as e:
         logging.error(f"Error in worm detection for file {file_path}: {e}")
