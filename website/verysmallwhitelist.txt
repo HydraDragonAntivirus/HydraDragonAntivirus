@@ -1,3 +1,5 @@
+api.archive-digger.com
+images.archive-digger.com
 default.exp-tas.com
 windowsupdate.s.llnwi.net
 tradecraft.s.llnwi.net
