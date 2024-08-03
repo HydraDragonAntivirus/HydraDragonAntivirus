@@ -2314,7 +2314,7 @@ class Monitor:
             "commands": {
                 "wifi": {
                     "command": 'netsh wlan show profile',
-                    "virus_name": "HEUR:Win32.Password.Stealer.Wi-Fi.Generic",
+                    "virus_name": "HEUR:Win32.Trojan.Password.Stealer.Wi-Fi.Generic",
                     "process_function": self.process_detected_command_wifi
                 },
                 "shadowcopy": {
