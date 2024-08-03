@@ -1985,8 +1985,14 @@ def worm_alert(file_path):
 
             if worm_detected or worm_detected_count[file_path] >= 5:
                 logging.warning(f"Worm '{file_path}' detected under 5 different names or as potential worm. Alerting user.")
-                notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Generic.Malware")
                 worm_alerted_files.append(file_path)
+                notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Generic.Malware")
+
+                # Notify for all files that have reached the detection threshold
+                for detected_file in worm_detected_count:
+                    if worm_detected_count[detected_file] >= 5 and detected_file not in worm_alerted_files:
+                        notify_user_worm(detected_file, "HEUR:Win32.Worm.Classic.Generic.Malware")
+                        worm_alerted_files.append(detected_file)
 
     except Exception as e:
         logging.error(f"Error in worm detection for file {file_path}: {e}")
