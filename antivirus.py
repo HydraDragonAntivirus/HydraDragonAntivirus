@@ -311,7 +311,7 @@ def check_signature(file_path):
         # Command to verify the executable signature status
         cmd = f'"{file_path}"'
         verify_command = "(Get-AuthenticodeSignature " + cmd + ").Status"
-        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE)
+        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, text=True)
 
         status = process.stdout.strip()
         is_valid = "Valid" in status
@@ -1984,9 +1984,10 @@ def worm_alert(file_path):
             worm_detected_count[file_path] = worm_detected_count.get(file_path, 0) + 1
 
             if worm_detected or worm_detected_count[file_path] >= 5:
-                logging.warning(f"Worm '{file_path}' detected under 5 different names or as potential worm. Alerting user.")
-                worm_alerted_files.append(file_path)
-                notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Generic.Malware")
+                if file_path not in worm_alerted_files:
+                    logging.warning(f"Worm '{file_path}' detected under 5 different names or as potential worm. Alerting user.")
+                    notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Generic.Malware")
+                    worm_alerted_files.append(file_path)
 
                 # Notify for all files that have reached the detection threshold
                 for detected_file in worm_detected_count:
