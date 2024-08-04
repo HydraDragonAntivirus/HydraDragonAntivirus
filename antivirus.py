@@ -937,30 +937,37 @@ class YaraScanner:
     def scan_data(self, file_path):
         matched_rules = []
 
-        if os.path.exists(file_path):
-            with open(file_path, 'rb') as file:
-                data = file.read()
-                
-                # Check matches for compiled_rule
-                if compiled_rule:
-                    matches = compiled_rule.match(data=data)
-                    if matches:
-                        for match in matches:
-                            if match.rule not in excluded_rules:
-                                matched_rules.append(match.rule)
-                            else:
-                                logging.info(f"Rule {match.rule} is excluded.")
-                
-                # Check matches for yaraxtr_rule (loaded with yara_x)
-                if yaraxtr_rule:
-                    scanner = yara_x.Scanner(yaraxtr_rule)
-                    results = scanner.scan(data=data)
-                    if results.matching_rules:
-                        for rule in results.matching_rules:
-                            if hasattr(rule, 'identifier') and rule.identifier not in excluded_rules:
-                                matched_rules.append(rule.identifier)
-                            else:
-                                logging.info(f"Rule {rule.identifier} is excluded.")
+        if not os.path.exists(file_path):
+            logging.error(f"File not found during YARA scan: {file_path}")
+            return None
+
+        with open(file_path, 'rb') as file:
+            data = file.read()
+
+            # Check matches for compiled_rule
+            if compiled_rule:
+                matches = compiled_rule.match(data=data)
+                if matches:
+                    for match in matches:
+                        if match.rule not in excluded_rules:
+                            matched_rules.append(match.rule)
+                        else:
+                            logging.info(f"Rule {match.rule} is excluded.")
+            else:
+                logging.warning("compiled_rule is not defined.")
+
+            # Check matches for yaraxtr_rule (loaded with yara_x)
+            if yaraxtr_rule:
+                scanner = yara_x.Scanner(yaraxtr_rule)
+                results = scanner.scan(data=data)
+                if results.matching_rules:
+                    for rule in results.matching_rules:
+                        if hasattr(rule, 'identifier') and rule.identifier not in excluded_rules:
+                            matched_rules.append(rule.identifier)
+                        else:
+                            logging.info(f"Rule {rule.identifier} is excluded.")
+            else:
+                logging.warning("yaraxtr_rule is not defined.")
 
         # Return matched rules as the yara_result if not empty, otherwise return None
         return matched_rules if matched_rules else None
@@ -2478,15 +2485,23 @@ class Monitor:
     def process_detected(self, input_string, file_path=None, hwnd=None):
         preprocessed_input = self.preprocess_text(input_string)
 
-        # Perform YARA scan on the file if file_path is provided
+        # Convert input_string to a temporary file if file_path is not provided
         yara_matches = None
-        if file_path:
+        if not file_path:
+            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                temp_file.write(input_string.encode('utf-8'))
+                temp_file_path = temp_file.name
+            try:
+                yara_matches = self.yara_scanner.scan_data(temp_file_path)
+            finally:
+                os.remove(temp_file_path)
+        else:
             yara_matches = self.yara_scanner.scan_data(file_path)
-        
+
         # Check for YARA matches
         if yara_matches:
             logging.warning(f"YARA matches found: {yara_matches}")
-            self.notify_user_for_detected_command(f"YARA matches found: {yara_matches} in file: {file_path}")
+            self.notify_user_for_detected_command(f"YARA matches found: {yara_matches} in file: {file_path or temp_file_path}")
 
         # Process the input_string for known malware messages
         for category, details in self.known_malware_messages.items():
