@@ -1395,6 +1395,7 @@ def compile_yara_rule(yara_folder_path):
     except Exception as e:
         print(f"An error occurred during compilation: {e}")
         return False
+
 try:
     # Load the precompiled rule from the .yrc file using yara_x
     with open(yaraxtr_yrc_path, 'rb') as f:
@@ -1403,6 +1404,7 @@ try:
 except Exception as e:
     print(f"Error loading YARA-X rules: {e}")
     print("Attempting to compile yaraxtr.yar to yaraxtr.yrc...")
+
     if compile_yara_rule(yara_folder_path):
         try:
             # Try loading the precompiled rule again after compilation
