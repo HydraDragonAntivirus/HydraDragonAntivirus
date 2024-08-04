@@ -2477,7 +2477,18 @@ class Monitor:
 
     def process_detected(self, input_string, file_path=None, hwnd=None):
         preprocessed_input = self.preprocess_text(input_string)
+
+        # Perform YARA scan on the file if file_path is provided
+        yara_matches = None
+        if file_path:
+            yara_matches = self.yara_scanner.scan_data(file_path)
         
+        # Check for YARA matches
+        if yara_matches:
+            logging.warning(f"YARA matches found: {yara_matches}")
+            self.notify_user_for_detected_command(f"YARA matches found: {yara_matches} in file: {file_path}")
+
+        # Process the input_string for known malware messages
         for category, details in self.known_malware_messages.items():
             if "patterns" in details:
                 for pattern in details["patterns"]:
