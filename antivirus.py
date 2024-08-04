@@ -1376,25 +1376,7 @@ try:
 except yara.Error as e:
     print(f"Error loading precompiled YARA rule: {e}")
 
-yaraxtr_yar_path = os.path.join(yara_folder_path, "yaraxtr.yar")
 yaraxtr_yrc_path = os.path.join(yara_folder_path, "yaraxtr.yrc")
-
-def compile_yara_rule(yara_folder_path):
-    try:
-        # Compile the YARA rule using yara_x
-        with open(yaraxtr_yar_path, 'r') as f:
-            rule = f.read()
-        compiled_rule = yara_x.compile(rule)
-
-        # Serialize the compiled rule to a file
-        with open(yaraxtr_yrc_path, 'wb') as yrc_file:
-            compiled_rule.serialize_into(yrc_file)
-
-        print("Compiled yaraxtr.yar to yaraxtr.yrc")
-        return True
-    except Exception as e:
-        print(f"An error occurred during compilation: {e}")
-        return False
 
 try:
     # Load the precompiled rule from the .yrc file using yara_x
@@ -1403,18 +1385,6 @@ try:
     print("YARA-X Rules Definitions loaded!")
 except Exception as e:
     print(f"Error loading YARA-X rules: {e}")
-    print("Attempting to compile yaraxtr.yar to yaraxtr.yrc...")
-
-    if compile_yara_rule(yara_folder_path):
-        try:
-            # Try loading the precompiled rule again after compilation
-            with open(yaraxtr_yrc_path, 'rb') as f:
-                yaraxtr_rule = yara_x.Rules.deserialize_from(f)
-            print("YARA-X Rules Definitions loaded after compilation!")
-        except Exception as e:
-            print(f"Error loading YARA-X rules after compilation: {e}")
-    else:
-        print("Failed to compile yaraxtr.yar to yaraxtr.yrc.")
 
 def contains_pe_header(file_path):
     try:

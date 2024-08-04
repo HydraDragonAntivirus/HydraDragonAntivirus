@@ -1,0 +1,3 @@
+b-cdn.net
+azurewebsites.net
+kuaishou.com
