@@ -153,7 +153,7 @@ urlhaus_data = {}
 
 # Function to load antivirus list
 def load_antivirus_list():
-    global antivirus_list_path
+    global anntivirus_domains
     try:
         with open(antivirus_list_path, 'r') as antivirus_file:
             antivirus_domains = antivirus_file.read().splitlines()
