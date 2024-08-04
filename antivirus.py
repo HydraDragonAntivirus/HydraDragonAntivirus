@@ -2290,7 +2290,7 @@ class Monitor:
                     "process_function": self.process_detected_command_wifi
                 },
                 "shadowcopy": {
-                    "command": 'Get-WmiObject Win32_Shadowcopy | ForEach-Object {$_.Delete();}',
+                    "command": 'get-wmiobject win32_shadowcopy | foreach-object {$_.delete();}',
                     "virus_name": "HEUR:Win32.Ransom.ShadowCopy.Generic",
                     "process_function": self.process_detected_command_ransom_shadowcopy
                 },
@@ -2316,8 +2316,8 @@ class Monitor:
                 },
                 "koadic": {
                     "patterns": [
-                        'chcp 437 & schtasks /query /tn K0adic',
-                        'chcp 437 & schtasks /create /tn K0adic'
+                        'chcp 437 & schtasks /query /tn k0adic',
+                        'chcp 437 & schtasks /create /tn k0adic'
                     ],
                     "virus_name": "HEUR:Win32.Rootkit.Koadic.Generic",
                     "process_function": self.process_detected_command_rootkit_koadic
@@ -2509,6 +2509,8 @@ class Monitor:
 
                 command_lines = self.capture_command_lines()
                 for command_line, executable_path in command_lines:
+                    # Convert command_line to lowercase
+                    command_line_lower = command_line.lower()
                     self.process_detected(command_line, file_path=executable_path)
         except Exception as e:
             logging.error(f"Unexpected error in monitor loop: {e}")
