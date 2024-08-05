@@ -48,6 +48,10 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - You have to restart the program after the analysis.
 - Please don't share your IP in the logs.
 
+## Discord Community Server
+
+- Here is the server link: https://discord.gg/jNtANEXJ
+
 ## Prepare environment
 - Create DefaultBox in Sandboxie and create too many files to detect ransomware, finally use UEFI and GPT.
 
