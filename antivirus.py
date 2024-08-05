@@ -1076,7 +1076,7 @@ class AntivirusUI(QWidget):
         self.analysis_thread.start()
 
     def show_success_message(self):
-        QMessageBox.information(self, "Update Definitions", "Antivirus definitions updated successfully.")
+        QMessageBox.information(self, "Update Definitions", "AntiVirus definitions updated successfully and ClamAV has been restarted.")
 
     def show_failure_message(self):
         QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
@@ -1132,8 +1132,8 @@ class AntivirusUI(QWidget):
             print("Neither daily.cvd nor daily.cld files exist. Running freshclam.")
             result = subprocess.run([freshclam_path], capture_output=True, text=True)
             if result.returncode == 0:
-                self.signals.success.emit()
                 restart_clamd_thread()
+                self.signals.success.emit()
             else:
                 self.signals.failure.emit()
                 print(f"freshclam failed with output: {result.stdout}\n{result.stderr}")
