@@ -11,3 +11,5 @@ so.com
 sinaedge.com
 alikunlun.com
 mediago.io
+adservrs.com
+avplayer.com
