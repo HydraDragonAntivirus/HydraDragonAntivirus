@@ -2492,11 +2492,11 @@ class Monitor:
                 temp_file.write(input_string.encode('utf-8'))
                 temp_file_path = temp_file.name
             try:
-                yara_matches = self.yara_scanner.scan_data(temp_file_path)
+                yara_matches = yara_scanner.scan_data(temp_file_path)
             finally:
                 os.remove(temp_file_path)
         else:
-            yara_matches = self.yara_scanner.scan_data(file_path)
+            yara_matches = yara_scanner.scan_data(file_path)
 
         # Check for YARA matches
         if yara_matches:
