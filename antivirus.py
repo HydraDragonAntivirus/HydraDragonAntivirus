@@ -1512,7 +1512,7 @@ def scan_and_warn(file_path):
                 return False
 
             if is_pe_file(file_path):
-                logging.warning(f"File {file_path} is valid PE file.")
+                logging.info(f"File {file_path} is valid PE file.")
                 return True
             else:
                 # File is a valid PE file, set pe_file to True
