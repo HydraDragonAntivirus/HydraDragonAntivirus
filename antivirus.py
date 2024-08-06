@@ -1393,21 +1393,6 @@ try:
 except Exception as e:
     print(f"Error loading YARA-X rules: {e}")
 
-def contains_pe_header(file_path):
-    try:
-        with open(file_path, 'rb') as f:
-            mz_header = f.read(2)
-            if mz_header != b'MZ':
-                return False
-            f.seek(60)
-            pe_offset = int.from_bytes(f.read(4), 'little')
-            f.seek(pe_offset)
-            pe_header = f.read(4)
-            return pe_header == b'PE\x00\x00'
-    except Exception as e:
-        logging.error(f"Error checking PE header: {e}")
-        return False
-
 # List to keep track of existing project names
 existing_projects = []
 
@@ -1526,17 +1511,12 @@ def scan_and_warn(file_path):
                 logging.info(f"Skipping file in script directory: {file_path}")
                 return False
 
-        # Check if the file contains a PE header
-        if contains_pe_header(file_path):
-            if not is_pe_file(file_path):
-                logging.warning(f"File {file_path} contains a PE header but is not a valid PE file. Flagged as broken executable.")
-                return False
+            if is_pe_file(file_path):
+                logging.warning(f"File {file_path} is valid PE file.")
+                return True
             else:
                 # File is a valid PE file, set pe_file to True
-                pe_file = True
-        else:
-            # File does not contain a PE header, set pe_file to False
-            pe_file = False
+                pe_file = False
 
         if pe_file:
             decompile_file(file_path)
@@ -1563,7 +1543,7 @@ def scan_and_warn(file_path):
 
             # Check for fake system files after signature validation
             if file_name in fake_system_files and os.path.abspath(file_path).startswith(main_drive_path):
-                if contains_pe_header(file_path) and is_pe_file(file_path) and not signature_check["is_valid"]:
+                if pe_file and not signature_check["is_valid"]:
                     logging.warning(f"Detected fake system file: {file_path}")
                     notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.Generic")
 
