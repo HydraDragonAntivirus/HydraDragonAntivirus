@@ -1266,7 +1266,7 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line):
                                 print(f"Warning: Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature.")
                                 notify_user_for_detected_hips_file(file_path, src_ip, alert_line)
                             else:
-                                logging.info(f"File {file_path} has a valid signature and is not flagged as malicious.")
+                                logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious")
                                 print(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious.")
         except psutil.NoSuchProcess:
             logging.error(f"Process no longer exists: {proc.info.get('pid')}")
