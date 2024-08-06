@@ -1,3 +1,4 @@
+services.bingapis.com
 servx.opamarketplace.com
 api.archive-digger.com
 images.archive-digger.com
