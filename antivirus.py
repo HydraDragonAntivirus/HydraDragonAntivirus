@@ -18,7 +18,7 @@ import yara
 import yara_x
 import psutil
 from notifypy import Notify
-import logging
+import loggingf
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from watchdog.observers import Observer
@@ -1262,7 +1262,7 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line):
 
                             signature_info = check_valid_signature_only(file_path)
                             if not signature_info["is_valid"]:
-                                logging.warning(f"File {file_path} has invalid or no signature.")
+                                logging.warning(f"Warning: Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature.")
                                 print(f"Warning: Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature.")
                                 notify_user_for_detected_hips_file(file_path, src_ip, alert_line)
                             else:
