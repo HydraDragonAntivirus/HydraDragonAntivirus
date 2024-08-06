@@ -645,10 +645,11 @@ def notify_user_fake_size_pua(file_path, virus_name):
     notification.message = f"Fake size PUA file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
-def notify_user_startup(file_path, virus_name):
+def notify_user_startup(file_path, message):
+    """Notify the user about suspicious or malicious startup files."""
     notification = Notify()
-    notification.title = "Startup Malware Alert"
-    notification.message = f"Suspicious startup file detected: {file_path}\nVirus: {virus_name}"
+    notification.title = "Startup File Alert"
+    notification.message = message
     notification.send()
 
 def notify_user_uefi(file_path, virus_name):
@@ -727,15 +728,15 @@ def notify_user_for_hips(ip_address=None, dst_ip_address=None):
     
     notification.send()
 
-def notify_user_for_detected_hips_file(file_path, src_ip, alert_line):
+def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
     """
     Function to send notification for detected HIPS file.
     """
     notification = Notify()
     notification.title = "Web Malware Alert For File"
-    notification.message = f"Malicious file detected by Web related Message: {file_path}\nSource IP: {src_ip}\nAlert Line: {alert_line}"
+    notification.message = f"{status} file detected by Web related Message: {file_path}\nSource IP: {src_ip}\nAlert Line: {alert_line}"
     notification.send()
-    print(f"Real-time web message notification: Detected file {file_path} from {src_ip} with alert line: {alert_line}")
+    print(f"Real-time web message notification: Detected {status} file {file_path} from {src_ip} with alert line: {alert_line}")
 
 def is_local_ip(ip):
     try:
@@ -1245,7 +1246,7 @@ def monitor_sandbox():
     finally:
         win32file.CloseHandle(hDir)
 
-def convert_ip_to_file(src_ip, dst_ip, alert_line):
+def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
     """
     Convert IP addresses to associated file paths.
     This function will only warn the user and simulate the detection of files.
@@ -1264,7 +1265,7 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line):
                             if not signature_info["is_valid"]:
                                 logging.warning(f"Warning: Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature.")
                                 print(f"Warning: Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature.")
-                                notify_user_for_detected_hips_file(file_path, src_ip, alert_line)
+                                notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status)
                             else:
                                 logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious")
                                 print(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious.")
@@ -1298,10 +1299,10 @@ def process_alert(line):
                         notify_user_for_hips(ip_address=src_ip, dst_ip_address=dst_ip)
                     except Exception as e:
                         logging.error(f"Error notifying user for HIPS (malicious): {e}")
-                    convert_ip_to_file(src_ip, dst_ip, line.strip())
+                    convert_ip_to_file(src_ip, dst_ip, line.strip(), "Malicious")
                     return True
                 elif priority == 2:
-                    convert_ip_to_file(src_ip, dst_ip, line.strip())
+                    convert_ip_to_file(src_ip, dst_ip, line.strip(), "Suspicious")
                     return True
             except Exception as e:
                 logging.error(f"Error processing alert details: {e}")
@@ -1617,20 +1618,22 @@ def check_startup_directories():
                 if os.path.exists(directory):
                     for file in os.listdir(directory):
                         file_path = os.path.join(directory, file)
-                        if os.path.isfile(file_path):
-                            if file_path not in alerted_files:
-                                if file_path.endswith('.wll'):
-                                    malware_type = "HEUR:Win32.Startup.DLLwithWLL.Generic.Malware"
-                                elif file_path.endswith(('.vbs', '.js', '.jse', '.bat', '.url', '.cmd', '.hta', '.ps1', '.wsf')):
-                                    malware_type = "HEUR:Win32.Startup.Script.Generic.Malware"
-                                else:
-                                    malware_type = "HEUR:Win32.Startup.Generic.Malware"
-                                
-                                logging.warning(f"Suspicious startup file detected in {directory}: {file}")
-                                print(f"Suspicious startup file detected in {directory}: {file}")
-                                notify_user_startup(file_path, malware_type)
-                                scan_and_warn(file_path)
-                                alerted_files.append(file_path)
+                        if os.path.isfile(file_path) and file_path not in alerted_files:
+                            if file_path.endswith('.wll') and is_pe_file(file_path):
+                                malware_type = "HEUR:Win32.Startup.DLLwithWLL.Generic.Malware"
+                                message = f"Confirmed DLL malware detected: {file_path}\nVirus: {malware_type}"
+                            elif file_path.endswith(('.vbs', '.js', '.jse', '.bat', '.url', '.cmd', '.hta', '.ps1', '.wsf')):
+                                malware_type = "HEUR:Win32.Startup.Script.Generic.Malware"
+                                message = f"Confirmed script malware detected: {file_path}\nVirus: {malware_type}"
+                            else:
+                                malware_type = "HEUR:Win32.Startup.Generic.Malware"
+                                message = f"Suspicious startup file detected: {file_path}"
+
+                            logging.warning(f"Suspicious or malicious startup file detected in {directory}: {file}")
+                            print(f"Suspicious or malicious startup file detected in {directory}: {file}")
+                            notify_user_startup(file_path, message)
+                            scan_and_warn(file_path)
+                            alerted_files.append(file_path)
         except Exception as e:
             logging.error(f"An error occurred while checking startup directories: {e}")
 
