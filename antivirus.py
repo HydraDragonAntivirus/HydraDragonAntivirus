@@ -18,7 +18,7 @@ import yara
 import yara_x
 import psutil
 from notifypy import Notify
-import loggingf
+import logging
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from watchdog.observers import Observer
