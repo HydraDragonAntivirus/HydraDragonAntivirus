@@ -1,3 +1,6 @@
+entry.avira.net
+sentry.avira.net
+erspeak.avira-update.com
 services.bingapis.com
 servx.opamarketplace.com
 api.archive-digger.com

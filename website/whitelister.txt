@@ -1,3 +1,5 @@
+.avira-update.com
+.avira.net
 .chatgpt.com
 .bingapis.com
 .reallyfreegeoip.org
