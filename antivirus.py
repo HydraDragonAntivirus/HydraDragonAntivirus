@@ -1257,12 +1257,12 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
 
                             signature_info = check_valid_signature_only(file_path)
                             if not signature_info["is_valid"]:
-                                logging.warning(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature.")
-                                print(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature.")
+                                logging.warning(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature. Alert Line: {alert_line}")
+                                print(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature. Alert Line: {alert_line}")
                                 notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status)
                             else:
-                                logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious")
-                                print(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious.")
+                                logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious. Alert Line: {alert_line}")
+                                print(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious. Alert Line: {alert_line}")
         except psutil.NoSuchProcess:
             logging.error(f"Process no longer exists: {proc.info.get('pid')}")
         except psutil.AccessDenied:
