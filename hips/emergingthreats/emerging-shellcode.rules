@@ -2,7 +2,7 @@
 #
 # This distribution may contain rules under two different licenses. 
 #
-#  Rules with sids 100000000 through 100000908 are under the GPLv2.
+#  Rules with sids 1 through 3464, and 100000000 through 100000908 are under the GPLv2.
 #  A copy of that license is available at http://www.gnu.org/licenses/gpl-2.0.html
 #
 #  Rules with sids 2000000 through 2799999 are from Emerging Threats and are covered under the BSD License 
@@ -36,7 +36,7 @@
 #
 #
 
-# This Ruleset is EmergingThreats Open No-GPL optimized for snort-2.9.0-enhanced.
+# This Ruleset is EmergingThreats Open optimized for snort-2.9.0-enhanced.
 
 #alert tcp any any -> any any (msg:"ET SHELLCODE Bindshell2 Decoder Shellcode"; flow:established; content:"|53 53 53 53 53 43 53 43 53 FF D0 66 68|"; content:"|66 53 89 E1 95 68 A4 1A|"; distance:0; classtype:shellcode-detect; sid:2009246; rev:3; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
 
@@ -266,6 +266,7 @@ alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Common %
 
 #alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Unescape Variable %u Shellcode"; flow:established,to_client; content:"= unescape|28|"; nocase; content:"%u"; nocase; within:3; content:"%u"; nocase; within:6; pcre:"/var\x20[a-z,0-9]{1,30}\x20\x3D\x20unescape\x28.\x25u[a-f,0-9]{2,4}\x25u[a-f,0-9]{2,4}/i"; reference:url,www.symantec.com/avcenter/reference/evolving.shell.code.pdf; classtype:shellcode-detect; sid:2012534; rev:1; metadata:created_at 2011_03_22, updated_at 2011_03_22;)
 
+alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE AIX NOOP"; content:"O|FF FB 82|O|FF FB 82|O|FF FB 82|O|FF FB 82|"; fast_pattern:only; classtype:shellcode-detect; sid:2100640; rev:8; metadata:created_at 2010_09_23, updated_at 2011_06_02;)
 
 alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Javascript Split String Unicode Heap Spray Attempt"; flow:established,to_client; content:"|22|u|22 20|+|20 22|0|22 20|+|20 22|"; content:"|22 20|+|20 22|"; distance:1; within:5; pcre:"/\x220\x22\x20\x2B\x20\x22[a-d]\x22\x20\x2B\x20\x22/smi"; classtype:shellcode-detect; sid:2012925; rev:1; metadata:created_at 2011_06_02, updated_at 2011_06_02;)
 
@@ -289,25 +290,25 @@ alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Possible
 
 #alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE JavaScript Redefinition of a HeapLib Object - Likely Malicious Heap Spray Attempt"; flow:established,to_client; content:"heap|2E|"; nocase; fast_pattern:only; pcre:"/var\x20[^\n\r]*\x3D[^\n\r]*heap\x2E/smi"; classtype:shellcode-detect; sid:2013148; rev:2; metadata:created_at 2011_06_30, updated_at 2011_07_06;)
 
-alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Hex Obfuscated JavaScript Heap Spray 0b0b0b0b"; flow:established,to_client; content:"|5C|x0b|5C|x0b|5C|x0b|5C|x0b"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013268; rev:1; metadata:created_at 2011_07_14, updated_at 2011_07_14;)
+alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Hex Obfuscated JavaScript Heap Spray 0b0b0b0b"; flow:established,to_client; content:"|5C|x0b|5C|x0b|5C|x0b|5C|x0b"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013268; rev:1; metadata:created_at 2011_07_14, updated_at 2011_07_14, mitre_tactic_id TA0005, mitre_tactic_name Defense_Evasion, mitre_technique_id T1027, mitre_technique_name Obfuscated_Files_or_Information;)
 
-alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Hex Obfuscated JavaScript Heap Spray 0c0c0c0c"; flow:established,to_client; content:"|5C|x0c|5C|x0c|5C|x0c|5C|x0c"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013269; rev:1; metadata:created_at 2011_07_14, updated_at 2011_07_14;)
+alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Hex Obfuscated JavaScript Heap Spray 0c0c0c0c"; flow:established,to_client; content:"|5C|x0c|5C|x0c|5C|x0c|5C|x0c"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013269; rev:1; metadata:created_at 2011_07_14, updated_at 2011_07_14, mitre_tactic_id TA0005, mitre_tactic_name Defense_Evasion, mitre_technique_id T1027, mitre_technique_name Obfuscated_Files_or_Information;)
 
-alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Hex Obfuscated JavaScript Heap Spray 0d0d0d0d"; flow:established,to_client; content:"|5C|x0d|5C|x0d|5C|x0d|5C|x0d"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013270; rev:1; metadata:created_at 2011_07_14, updated_at 2011_07_14;)
+alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Hex Obfuscated JavaScript Heap Spray 0d0d0d0d"; flow:established,to_client; content:"|5C|x0d|5C|x0d|5C|x0d|5C|x0d"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013270; rev:1; metadata:created_at 2011_07_14, updated_at 2011_07_14, mitre_tactic_id TA0005, mitre_tactic_name Defense_Evasion, mitre_technique_id T1027, mitre_technique_name Obfuscated_Files_or_Information;)
 
-alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Hex Obfuscated JavaScript NOP SLED"; flow:established,to_client; content:"|5C|x90|5C|x90|5C|x90|5C|x90"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013271; rev:1; metadata:created_at 2011_07_14, tag possible_exploitation, updated_at 2011_07_14;)
+alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Hex Obfuscated JavaScript NOP SLED"; flow:established,to_client; content:"|5C|x90|5C|x90|5C|x90|5C|x90"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013271; rev:1; metadata:created_at 2011_07_14, tag possible_exploitation, updated_at 2011_07_14, mitre_tactic_id TA0005, mitre_tactic_name Defense_Evasion, mitre_technique_id T1027, mitre_technique_name Obfuscated_Files_or_Information;)
 
-alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Double BackSlash Hex Obfuscated JavaScript Heap Spray 0a0a0a0a"; flow:established,to_client; content:"|5C 5C|x0a|5C 5C|x0a|5C 5C|x0a|5C 5C|x0a"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013274; rev:1; metadata:created_at 2011_07_14, updated_at 2011_07_14;)
+alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Double BackSlash Hex Obfuscated JavaScript Heap Spray 0a0a0a0a"; flow:established,to_client; content:"|5C 5C|x0a|5C 5C|x0a|5C 5C|x0a|5C 5C|x0a"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013274; rev:1; metadata:created_at 2011_07_14, updated_at 2011_07_14, mitre_tactic_id TA0005, mitre_tactic_name Defense_Evasion, mitre_technique_id T1027, mitre_technique_name Obfuscated_Files_or_Information;)
 
-alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Double BackSlash Hex Obfuscated JavaScript Heap Spray 0b0b0b0b"; flow:established,to_client; content:"|5C 5C|x0b|5C 5C|x0b|5C 5C|x0b|5C 5C|x0b"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013275; rev:1; metadata:created_at 2011_07_14, updated_at 2011_07_14;)
+alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Double BackSlash Hex Obfuscated JavaScript Heap Spray 0b0b0b0b"; flow:established,to_client; content:"|5C 5C|x0b|5C 5C|x0b|5C 5C|x0b|5C 5C|x0b"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013275; rev:1; metadata:created_at 2011_07_14, updated_at 2011_07_14, mitre_tactic_id TA0005, mitre_tactic_name Defense_Evasion, mitre_technique_id T1027, mitre_technique_name Obfuscated_Files_or_Information;)
 
-alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Double BackSlash Hex Obfuscated JavaScript Heap Spray 0c0c0c0c"; flow:established,to_client; content:"|5C 5C|x0c|5C 5C|x0c|5C 5C|x0c|5C 5C|x0c"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013276; rev:1; metadata:created_at 2011_07_14, updated_at 2011_07_14;)
+alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Double BackSlash Hex Obfuscated JavaScript Heap Spray 0c0c0c0c"; flow:established,to_client; content:"|5C 5C|x0c|5C 5C|x0c|5C 5C|x0c|5C 5C|x0c"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013276; rev:1; metadata:created_at 2011_07_14, updated_at 2011_07_14, mitre_tactic_id TA0005, mitre_tactic_name Defense_Evasion, mitre_technique_id T1027, mitre_technique_name Obfuscated_Files_or_Information;)
 
-alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Double BackSlash Hex Obfuscated JavaScript Heap Spray 0d0d0d0d"; flow:established,to_client; content:"|5C 5C|x0d|5C 5C|x0d|5C 5C|x0d|5C 5C|x0d"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013277; rev:1; metadata:created_at 2011_07_14, updated_at 2011_07_14;)
+alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Double BackSlash Hex Obfuscated JavaScript Heap Spray 0d0d0d0d"; flow:established,to_client; content:"|5C 5C|x0d|5C 5C|x0d|5C 5C|x0d|5C 5C|x0d"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013277; rev:1; metadata:created_at 2011_07_14, updated_at 2011_07_14, mitre_tactic_id TA0005, mitre_tactic_name Defense_Evasion, mitre_technique_id T1027, mitre_technique_name Obfuscated_Files_or_Information;)
 
-alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Double BackSlash Hex Obfuscated JavaScript NOP SLED"; flow:established,to_client; content:"|5C 5C|x90|5C 5C|x90|5C 5C|x90|5C 5C|x90"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013278; rev:1; metadata:created_at 2011_07_14, tag possible_exploitation, updated_at 2011_07_14;)
+alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Double BackSlash Hex Obfuscated JavaScript NOP SLED"; flow:established,to_client; content:"|5C 5C|x90|5C 5C|x90|5C 5C|x90|5C 5C|x90"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013278; rev:1; metadata:created_at 2011_07_14, tag possible_exploitation, updated_at 2011_07_14, mitre_tactic_id TA0005, mitre_tactic_name Defense_Evasion, mitre_technique_id T1027, mitre_technique_name Obfuscated_Files_or_Information;)
 
-alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Double BackSlash Hex Obfuscated JavaScript Heap Spray 41414141"; flow:established,to_client; content:"|5C 5C|x41|5C 5C|x41|5C 5C|x41|5C 5C|x41"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013279; rev:2; metadata:created_at 2011_07_14, updated_at 2011_07_14;)
+alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Double BackSlash Hex Obfuscated JavaScript Heap Spray 41414141"; flow:established,to_client; content:"|5C 5C|x41|5C 5C|x41|5C 5C|x41|5C 5C|x41"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013279; rev:2; metadata:created_at 2011_07_14, updated_at 2011_07_14, mitre_tactic_id TA0005, mitre_tactic_name Defense_Evasion, mitre_technique_id T1027, mitre_technique_name Obfuscated_Files_or_Information;)
 
 #alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Unicode UTF-8 Heap Spray Attempt"; flow:established,to_client; content:"u0"; nocase; content:"u0"; nocase; distance:1; within:2; content:"u0"; nocase; distance:1; within:2; content:"u0"; nocase; distance:1; within:2; pcre:"/u0[a-d]u0[a-d]u0[a-d]u0[a-d]/smi"; classtype:shellcode-detect; sid:2013319; rev:1; metadata:created_at 2011_07_27, updated_at 2011_07_27;)
 
@@ -315,23 +316,41 @@ alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Double B
 
 #alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Possible Unescape %u Shellcode/Heap Spray"; flow:established,to_client; content:"unescape"; nocase; content:"%u"; nocase; distance:0; content:"%u"; nocase; within:6; pcre:"/unescape.+\x25u[0-9,a-f]{2,4}\x25u[0-9,a-f]{2,4}/smi"; reference:url,www.w3schools.com/jsref/jsref_unescape.asp; reference:url,isc.sans.org/diary.html?storyid=7906; reference:url,isc.sans.org/diary.html?storyid=7903; reference:url,malzilla.sourceforge.net/tutorial01/index.html; classtype:shellcode-detect; sid:2011346; rev:7; metadata:created_at 2010_09_28, updated_at 2011_10_12;)
 
+alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE x86 0x71FB7BAB NOOP unicode"; content:"q|00 FB 00|{|00 AB 00|q|00 FB 00|{|00 AB 00|q|00 FB 00|{|00 AB 00|q|00 FB 00|{|00 AB 00|"; fast_pattern:only; classtype:shellcode-detect; sid:2102313; rev:4; metadata:created_at 2010_09_23, updated_at 2012_01_16;)
 
+alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE x86 0x71FB7BAB NOOP"; content:"q|FB|{|AB|q|FB|{|AB|q|FB|{|AB|q|FB|{|AB|"; fast_pattern:only; classtype:shellcode-detect; sid:2102312; rev:4; metadata:created_at 2010_09_23, updated_at 2012_01_16;)
 
+#alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE SGI NOOP"; content:"|03 E0 F8|%|03 E0 F8|%|03 E0 F8|%|03 E0 F8|%"; fast_pattern:only; reference:arachnids,356; classtype:shellcode-detect; sid:2100638; rev:7; metadata:created_at 2010_09_23, updated_at 2012_08_21;)
 
+alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE SGI NOOP"; content:"|24 0F 12|4|24 0F 12|4|24 0F 12|4|24 0F 12|4"; fast_pattern:only; reference:arachnids,357; classtype:shellcode-detect; sid:2100639; rev:7; metadata:created_at 2010_09_23, updated_at 2012_08_21;)
 
+alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE Digital UNIX NOOP"; content:"G|FF 04 1F|G|FF 04 1F|G|FF 04 1F|G|FF 04 1F|"; fast_pattern:only; reference:arachnids,352; classtype:shellcode-detect; sid:2100641; rev:8; metadata:created_at 2010_09_23, updated_at 2012_08_21;)
 
+alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE HP-UX NOOP"; content:"|08|!|02 80 08|!|02 80 08|!|02 80 08|!|02 80|"; fast_pattern:only; reference:arachnids,358; classtype:shellcode-detect; sid:2100642; rev:8; metadata:created_at 2010_09_23, updated_at 2012_08_21;)
 
+alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE HP-UX NOOP"; content:"|0B|9|02 80 0B|9|02 80 0B|9|02 80 0B|9|02 80|"; fast_pattern:only; reference:arachnids,359; classtype:shellcode-detect; sid:2100643; rev:9; metadata:created_at 2010_09_23, updated_at 2012_08_21;)
 
+alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE sparc NOOP"; content:"|13 C0 1C A6 13 C0 1C A6 13 C0 1C A6 13 C0 1C A6|"; fast_pattern:only; reference:arachnids,345; classtype:shellcode-detect; sid:2100644; rev:7; metadata:created_at 2010_09_23, updated_at 2012_08_21;)
 
+alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE sparc NOOP"; content:"|80 1C|@|11 80 1C|@|11 80 1C|@|11 80 1C|@|11|"; fast_pattern:only; reference:arachnids,353; classtype:shellcode-detect; sid:2100645; rev:7; metadata:created_at 2010_09_23, updated_at 2012_08_21;)
 
+alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE sparc NOOP"; content:"|A6 1C C0 13 A6 1C C0 13 A6 1C C0 13 A6 1C C0 13|"; fast_pattern:only; reference:arachnids,355; classtype:shellcode-detect; sid:2100646; rev:7; metadata:created_at 2010_09_23, updated_at 2012_08_21;)
 
+alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE sparc setuid 0"; content:"|82 10| |17 91 D0| |08|"; fast_pattern:only; reference:arachnids,282; classtype:system-call-detect; sid:2100647; rev:8; metadata:created_at 2010_09_23, updated_at 2012_08_21;)
 
+#alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE x86 setgid 0"; content:"|B0 B5 CD 80|"; fast_pattern:only; reference:arachnids,284; classtype:system-call-detect; sid:2100649; rev:10; metadata:created_at 2010_09_23, updated_at 2012_08_21;)
 
+#alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE x86 setuid 0"; content:"|B0 17 CD 80|"; fast_pattern:only; reference:arachnids,436; classtype:system-call-detect; sid:2100650; rev:10; metadata:created_at 2010_09_23, updated_at 2012_08_21;)
 
+alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE Linux shellcode"; content:"|90 90 90 E8 C0 FF FF FF|/bin/sh"; fast_pattern:only; reference:arachnids,343; classtype:shellcode-detect; sid:2100652; rev:11; metadata:created_at 2010_09_23, updated_at 2012_08_21;)
 
+alert tcp $EXTERNAL_NET any -> $SQL_SERVERS 1433 (msg:"GPL SHELLCODE MSSQL shellcode attempt"; flow:to_server,established; content:"9 |D0 00 92 01 C2 00|R|00|U|00|9 |EC 00|"; fast_pattern:only; classtype:shellcode-detect; sid:2100691; rev:8; metadata:created_at 2010_09_23, updated_at 2012_09_12;)
 
+alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE x86 0xEB0C NOOP"; content:"|EB 0C EB 0C EB 0C EB 0C EB 0C EB 0C EB 0C EB 0C|"; fast_pattern:only; classtype:shellcode-detect; sid:2101424; rev:8; metadata:created_at 2010_09_23, updated_at 2012_09_12;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 22 (msg:"GPL SHELLCODE ssh CRC32 overflow /bin/sh"; flow:to_server,established; content:"/bin/sh"; fast_pattern:only; reference:bugtraq,2347; reference:cve,2001-0144; reference:cve,2001-0572; classtype:shellcode-detect; sid:2101324; rev:8; metadata:created_at 2010_09_23, updated_at 2012_09_12;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 22 (msg:"GPL SHELLCODE ssh CRC32 overflow NOOP"; flow:to_server,established; content:"|90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90|"; reference:bugtraq,2347; reference:cve,2001-0144; reference:cve,2001-0572; classtype:shellcode-detect; sid:2101326; rev:7; metadata:created_at 2010_09_23, updated_at 2012_09_12;)
 
 alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Possible Backslash Escaped UTF-8 0c0c Heap Spray"; flow:established,to_client; file_data; content:"|5C|0c|5C|0c"; nocase; distance:0; classtype:bad-unknown; sid:2016714; rev:1; metadata:created_at 2013_04_04, updated_at 2013_04_04;)
 
@@ -339,8 +358,11 @@ alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Possible
 
 alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Possible UTF-16 u9090 NOP SLED"; file_data; flow:established,to_client; content:"|5c|u9090|5c|"; nocase; pcre:"/^[a-f0-9]{4}/Ri"; reference:url,cansecwest.com/slides07/csw07-nazario.pdf; reference:url,www.sophos.com/security/technical-papers/malware_with_your_mocha.html; reference:url,www.windowsecurity.com/articles/Obfuscated-Shellcode-Part1.html; classtype:shellcode-detect; sid:2017345; rev:3; metadata:created_at 2013_08_19, tag possible_exploitation, updated_at 2013_08_19;)
 
+#alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE x86 NOOP"; content:"|90 90 90 90 90 90 90 90 90 90 90 90 90 90|"; depth:128; reference:arachnids,181; classtype:shellcode-detect; sid:2100648; rev:8; metadata:created_at 2010_09_23, updated_at 2014_10_30;)
 
+#alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE x86 0x90 unicode NOOP"; content:"|90 00 90 00 90 00 90 00 90 00|"; classtype:shellcode-detect; sid:2100653; rev:10; metadata:created_at 2010_09_23, updated_at 2014_10_30;)
 
+#alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE x86 0x90 NOOP unicode"; content:"|90 00 90 00 90 00 90 00 90 00 90 00 90 00 90 00|"; fast_pattern:only; classtype:shellcode-detect; sid:2102314; rev:5; metadata:created_at 2010_09_23, updated_at 2016_09_09;)
 
 alert ip $EXTERNAL_NET any -> $HOME_NET any (msg:"ET SHELLCODE Linux/x86-64 - Polymorphic Flush IPTables Shellcode"; content:"|6a 52 58 99 52 66 68 2d 46 54 5b 52 48 b9 69 70 74 61 62 6c 65 73 51 d0 e0 28 c8 48 b9 2f 2f 73 62 69 6e 2f 2f 51 54 5f 52 53 57 54 5e 0f 05|"; fast_pattern:only; reference:url,a41l4.blogspot.ca/2017/03/polyflushiptables1434.html; classtype:shellcode-detect; sid:2024057; rev:1; metadata:affected_product Linux, attack_target Client_and_Server, created_at 2017_03_15, deployment Perimeter, performance_impact Low, signature_severity Critical, updated_at 2017_03_15;)
 
@@ -350,11 +372,13 @@ alert ip $EXTERNAL_NET any -> $HOME_NET any (msg:"ET SHELLCODE Linux/x86-64 - Re
 
 #alert udp $EXTERNAL_NET any -> $HOME_NET any (msg:"ET SHELLCODE Possible Call with No Offset UDP Shellcode"; content:"|E8 00 00 00 00 8F|"; fast_pattern:only; reference:url,community.rsa.com/community/products/netwitness/blog/2012/08/22/network-detection-of-x86-buffer-overflow-shellcode; classtype:shellcode-detect; sid:2012089; rev:3; metadata:created_at 2010_12_23, updated_at 2017_09_08;)
 
-#alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Hex Obfuscated JavaScript Heap Spray 41414141"; flow:established,to_client; content:"|5C|x41|5C|x41|5C|x41|5C|x41"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013273; rev:2; metadata:created_at 2011_07_14, updated_at 2017_09_08;)
+#alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Hex Obfuscated JavaScript Heap Spray 41414141"; flow:established,to_client; content:"|5C|x41|5C|x41|5C|x41|5C|x41"; nocase; fast_pattern:only; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2013273; rev:2; metadata:created_at 2011_07_14, updated_at 2017_09_08, mitre_tactic_id TA0005, mitre_tactic_name Defense_Evasion, mitre_technique_id T1027, mitre_technique_name Obfuscated_Files_or_Information;)
 
 #alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Possible Backslash Escaped UTF-16 0c0c Heap Spray"; flow:established,to_client; file_data; content:"|5C|0c0c"; nocase; distance:0; classtype:bad-unknown; sid:2016715; rev:2; metadata:created_at 2013_04_04, updated_at 2017_09_08;)
 
+#alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE x86 stealth NOOP"; content:"|EB 02 EB 02 EB 02|"; fast_pattern:only; reference:arachnids,291; classtype:shellcode-detect; sid:2100651; rev:11; metadata:created_at 2010_09_23, updated_at 2017_09_08;)
 
+#alert ip $EXTERNAL_NET $SHELLCODE_PORTS -> $HOME_NET any (msg:"GPL SHELLCODE x86 inc ebx NOOP"; content:"CCCCCCCCCCCCCCCCCCCCCCCC"; classtype:shellcode-detect; sid:2101390; rev:9; metadata:created_at 2010_09_23, updated_at 2017_09_08;)
 
 alert ip $EXTERNAL_NET any -> $HOME_NET any (msg:"ET SHELLCODE Execve(/bin/sh) Shellcode"; content:"|31 c0 50 68 2f 2f 73 68 68 2f 62 69 6e 89 e3 50 53 89 e1 b0 0b cd 80|"; classtype:shellcode-detect; sid:2025695; rev:1; metadata:affected_product Linux, attack_target Server, created_at 2018_07_13, deployment Perimeter, performance_impact Low, updated_at 2018_07_13;)
 
@@ -378,7 +402,7 @@ alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Possible
 
 alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Possible Backslash Unicode Heap Spray Attempt"; flow:established,to_client; content:"|5C|u0"; nocase; content:"|5C|u0"; distance:1; within:4; pcre:"/\x5Cu0[a-d](\x5Cu0|0)[a-d]/\x5Cu0[a-d](\x5Cu0|0)[a-d]/i"; reference:url,www.darkreading.com/security/vulnerabilities/221901428/index.html; classtype:shellcode-detect; sid:2012970; rev:2; metadata:created_at 2011_06_09, performance_impact Significant, updated_at 2024_04_09;)
 
-alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Unescape Hex Obfuscated Content"; flow:established,to_client; content:"unescape|28|"; fast_pattern; content:"|5C|x"; distance:1; within:2; content:"|5C|x"; distance:2; within:2; content:"|5C|x"; distance:2; within:2; content:"|5C|x"; distance:2; within:2; pcre:"/unescape\x28(\x22|\x27)\x5Cx[a-f,0-9]{2}\x5Cx[a-f,0-9]{2}\x5Cx[a-f,0-9]{2}/smi"; classtype:shellcode-detect; sid:2013272; rev:3; metadata:created_at 2011_07_14, performance_impact Significant, updated_at 2024_04_09;)
+alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Unescape Hex Obfuscated Content"; flow:established,to_client; content:"unescape|28|"; fast_pattern; content:"|5C|x"; distance:1; within:2; content:"|5C|x"; distance:2; within:2; content:"|5C|x"; distance:2; within:2; content:"|5C|x"; distance:2; within:2; pcre:"/unescape\x28(\x22|\x27)\x5Cx[a-f,0-9]{2}\x5Cx[a-f,0-9]{2}\x5Cx[a-f,0-9]{2}/smi"; classtype:shellcode-detect; sid:2013272; rev:3; metadata:created_at 2011_07_14, performance_impact Significant, updated_at 2024_04_09, mitre_tactic_id TA0005, mitre_tactic_name Defense_Evasion, mitre_technique_id T1027, mitre_technique_name Obfuscated_Files_or_Information;)
 
 alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SHELLCODE Possible Unescape Encoded Content With Split String Obfuscation"; flow:established,to_client; content:"unescape|28 22|"; content:!"|29|"; within:100; content:"|22| +|0a|"; fast_pattern; within:80; content:"|22| +|0a|"; within:80; content:"|22| "; within:80; content:"|22| +|0a|"; within:80; reference:url,cansecwest.com/slides07/csw07-nazario.pdf; reference:url,www.sophos.com/security/technical-papers/malware_with_your_mocha.html; classtype:shellcode-detect; sid:2012196; rev:2; metadata:created_at 2011_01_17, performance_impact Significant, updated_at 2024_04_09;)
 

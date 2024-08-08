@@ -2,7 +2,7 @@
 #
 # This distribution may contain rules under two different licenses. 
 #
-#  Rules with sids 100000000 through 100000908 are under the GPLv2.
+#  Rules with sids 1 through 3464, and 100000000 through 100000908 are under the GPLv2.
 #  A copy of that license is available at http://www.gnu.org/licenses/gpl-2.0.html
 #
 #  Rules with sids 2000000 through 2799999 are from Emerging Threats and are covered under the BSD License 
@@ -36,7 +36,7 @@
 #
 #
 
-# This Ruleset is EmergingThreats Open No-GPL optimized for snort-2.9.0-enhanced.
+# This Ruleset is EmergingThreats Open optimized for snort-2.9.0-enhanced.
 
 #alert tcp $HOME_NET any -> $EXTERNAL_NET 6112 (msg:"ET GAMES Battle.net Starcraft login"; flow:established,to_server; content:"|FF 50|"; depth:2; content:"RATS"; offset:12; depth:12; classtype:policy-violation; sid:2002101; rev:6; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
 
@@ -174,8 +174,9 @@ alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET GAMES Blizzard Dow
 
 alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET GAMES Nintendo Wii User-Agent"; flow:established,to_server; content:"(Nintendo Wii"; http_header; reference:url,www.useragentstring.com/pages/Opera/; classtype:policy-violation; sid:2014718; rev:2; metadata:created_at 2012_05_08, updated_at 2012_05_23;)
 
+#alert udp $EXTERNAL_NET any -> $HOME_NET 7787 (msg:"GPL GAMES Unreal Tournament secure overflow attempt"; content:"|5C|secure|5C|"; nocase; pcre:"/\x5csecure\x5c[^\x00]{50}/smi"; reference:bugtraq,10570; reference:cve,2004-0608; classtype:misc-attack; sid:2103080; rev:3; metadata:created_at 2010_09_23, updated_at 2012_07_30;)
 
-#alert udp any any -> $HOME_NET 27901 (msg:"ET GAMES Alien Arena 7.30 Remote Code Execution Attempt"; content:"print|0A 5C|"; isdataat:257,relative; pcre:"/\x5C[^\x5C\x00]{257}/"; reference:url,www.packetstormsecurity.org/0910-advisories/alienarena-exec.txt; classtype:misc-attack; sid:2010156; rev:6; metadata:created_at 2010_07_30, updated_at 2013_05_02;)
+#alert udp any any -> $HOME_NET 27901 (msg:"ET GAMES Alien Arena 7.30 Remote Code Execution Attempt"; content:"print|0A 5C|"; isdataat:257,relative; pcre:"/\x5C[^\x5C\x00]{257}/"; reference:url,www.packetstormsecurity.org/0910-advisories/alienarena-exec.txt; classtype:misc-attack; sid:2010156; rev:6; metadata:created_at 2010_07_30, updated_at 2013_05_02, mitre_tactic_id TA0001, mitre_tactic_name Initial_Access, mitre_technique_id T1190, mitre_technique_name Exploit_Public_Facing_Application;)
 
 #alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET GAMES PunkBuster Server webkey Buffer Overflow"; flow:established,to_server; content:"/pbsvweb"; nocase; http_uri; content:"webkey="; nocase; isdataat:500,relative; content:!"|0A|"; within:500; content:!"&"; within:500; reference:url,aluigi.altervista.org/adv/pbwebbof-adv.txt; classtype:attempted-admin; sid:2002947; rev:6; metadata:created_at 2010_07_30, confidence High, updated_at 2013_06_06;)
 

@@ -2,7 +2,7 @@
 #
 # This distribution may contain rules under two different licenses. 
 #
-#  Rules with sids 100000000 through 100000908 are under the GPLv2.
+#  Rules with sids 1 through 3464, and 100000000 through 100000908 are under the GPLv2.
 #  A copy of that license is available at http://www.gnu.org/licenses/gpl-2.0.html
 #
 #  Rules with sids 2000000 through 2799999 are from Emerging Threats and are covered under the BSD License 
@@ -36,7 +36,7 @@
 #
 #
 
-# This Ruleset is EmergingThreats Open No-GPL optimized for snort-2.9.0-enhanced.
+# This Ruleset is EmergingThreats Open optimized for snort-2.9.0-enhanced.
 
 #alert tcp $EXTERNAL_NET any -> $HOME_NET 25 (msg:"ET SMTP Potential Exim HeaderX with run exploit attempt"; flow:established,to_server; content:"|0d 0a|HeaderX|3a 20|"; nocase; content:"run{"; distance:0; reference:url,www.exim.org/lurker/message/20101207.215955.bb32d4f2.en.html; reference:url,eclists.org/fulldisclosure/2010/Dec/221; classtype:attempted-admin; sid:2012054; rev:3; metadata:created_at 2010_12_15, updated_at 2010_12_15;)
 
@@ -46,18 +46,31 @@ alert tcp $EXTERNAL_NET 25 -> $HOME_NET any (msg:"ET SMTP Robtex.com Block Messa
 
 alert tcp $EXTERNAL_NET 25 -> $HOME_NET any (msg:"ET SMTP Abuseat.org Block Message"; flow:established,from_server; content:"abuseat.org"; classtype:not-suspicious; sid:2012982; rev:3; metadata:created_at 2011_06_10, updated_at 2011_10_12;)
 
+alert tcp $SMTP_SERVERS 25 -> $EXTERNAL_NET any (msg:"GPL SMTP AUTH LOGON brute force attempt"; flow:from_server,established; content:"Authentication unsuccessful"; offset:54; nocase; threshold:type threshold, track by_dst, count 5, seconds 60; classtype:suspicious-login; sid:2102275; rev:3; metadata:created_at 2010_09_23, updated_at 2012_01_16;)
 
+#alert tcp $EXTERNAL_NET any -> $SMTP_SERVERS 25 (msg:"GPL SMTP MAIL FROM overflow attempt"; flow:to_server,established; content:"MAIL FROM"; nocase; isdataat:260; content:!"|0A|"; within:256; reference:bugtraq,10290; reference:bugtraq,7506; reference:cve,2004-0399; reference:url,www.guninski.com/exim1.html; classtype:attempted-admin; sid:2102590; rev:5; metadata:created_at 2010_09_23, updated_at 2012_01_31;)
 
+#alert tcp $SMTP_SERVERS 25 -> $EXTERNAL_NET any (msg:"GPL SMTP SMTP relaying denied"; flow:established,from_server; content:"550 5.7.1"; depth:70; reference:arachnids,249; reference:url,mail-abuse.org/tsi/ar-fix.html; classtype:misc-activity; sid:2100567; rev:12; metadata:created_at 2010_09_23, updated_at 2012_07_27;)
 
+#alert tcp $HOME_NET any -> $EXTERNAL_NET 25 (msg:"GPL SMTP OUTBOUND bad file attachment"; flow:to_server,established; content:"Content-Disposition|3A|"; nocase; content:"filename"; distance:0; pcre:"/filename\s*=\s*.*?\.(?=[abcdehijlmnoprsvwx])(a(d[ep]|s[dfx])|c([ho]m|li|md|pp)|d(iz|ll|ot)|e(m[fl]|xe)|h(lp|sq|ta)|jse?|m(d[abew]|s[ip])|p(p[st]|if|[lm]|ot)|r(eg|tf)|s(cr|[hy]s|wf)|v(b[es]?|cf|xd)|w(m[dfsz]|p[dmsz]|s[cfh])|xl[tw]|bat|ini|lnk|nws|ocx)[\x27\x22\n\r\s]/iR"; classtype:suspicious-filename-detect; sid:2100721; rev:10; metadata:created_at 2010_09_23, updated_at 2012_07_27;)
 
+alert tcp $EXTERNAL_NET any -> $SMTP_SERVERS 25 (msg:"GPL SMTP RCPT TO overflow"; flow:to_server,established; content:"rcpt to|3A|"; nocase; isdataat:300,relative; pcre:"/^RCPT TO\x3a\s[^\n]{300}/ism"; reference:bugtraq,2283; reference:bugtraq,9696; reference:cve,2001-0260; classtype:attempted-admin; sid:2100654; rev:15; metadata:created_at 2010_09_23, cve CVE_2001_0260, updated_at 2012_07_27;)
 
+#alert tcp $EXTERNAL_NET any -> $SMTP_SERVERS 25 (msg:"GPL SMTP ehlo cybercop attempt"; flow:to_server,established; content:"ehlo cybercop|0A|quit|0A|"; reference:arachnids,372; classtype:protocol-command-decode; sid:2100631; rev:7; metadata:created_at 2010_09_23, updated_at 2012_07_27;)
 
+#alert tcp $EXTERNAL_NET any -> $SMTP_SERVERS 25 (msg:"GPL SMTP expn *@"; flow:to_server,established; content:"expn"; nocase; content:"*@"; pcre:"/^expn\s+\*@/smi"; reference:cve,1999-1200; classtype:misc-attack; sid:2101450; rev:6; metadata:created_at 2010_09_23, updated_at 2012_07_27;)
 
+#alert tcp $EXTERNAL_NET any -> $SMTP_SERVERS 25 (msg:"GPL SMTP expn cybercop attempt"; flow:to_server,established; content:"expn cybercop"; reference:arachnids,371; classtype:protocol-command-decode; sid:2100632; rev:6; metadata:created_at 2010_09_23, updated_at 2012_07_27;)
 
+alert tcp $EXTERNAL_NET any -> $SMTP_SERVERS 25 (msg:"GPL SMTP expn decode"; flow:to_server,established; content:"expn"; nocase; content:"decode"; nocase; pcre:"/^expn\s+decode/smi"; reference:arachnids,32; reference:cve,1999-0096; reference:nessus,10248; classtype:attempted-recon; sid:2100659; rev:10; metadata:created_at 2010_09_23, cve CVE_1999_0096, updated_at 2012_07_27;)
 
+alert tcp $EXTERNAL_NET any -> $SMTP_SERVERS 25 (msg:"GPL SMTP expn root"; flow:to_server,established; content:"expn"; nocase; content:"root"; fast_pattern; distance:0; nocase; pcre:"/^expn\s+root/smi"; reference:arachnids,31; reference:cve,1999-0531; reference:nessus,10249; classtype:attempted-recon; sid:2100660; rev:13; metadata:created_at 2010_09_23, cve CVE_1999_0531, updated_at 2012_07_27;)
 
+alert tcp $EXTERNAL_NET any -> $SMTP_SERVERS 25 (msg:"GPL SMTP vrfy decode"; flow:to_server,established; content:"vrfy"; nocase; content:"decode"; distance:1; nocase; pcre:"/^vrfy\s+decode/smi"; reference:arachnids,373; reference:bugtraq,10248; reference:cve,1999-0096; classtype:attempted-recon; sid:2100672; rev:10; metadata:created_at 2010_09_23, cve CVE_1999_0096, updated_at 2012_07_27;)
 
+alert tcp $EXTERNAL_NET any -> $SMTP_SERVERS 25 (msg:"GPL SMTP vrfy root"; flow:to_server,established; content:"vrfy"; nocase; content:"root"; distance:1; nocase; pcre:"/^vrfy\s+root/smi"; classtype:attempted-recon; sid:2101446; rev:7; metadata:created_at 2010_09_23, updated_at 2012_07_27;)
 
+alert tcp $EXTERNAL_NET any -> $SMTP_SERVERS 25 (msg:"GPL SMTP EXPN overflow attempt"; flow:to_server,established; content:"EXPN"; nocase; isdataat:255,relative; content:!"|0a|"; within:255; pcre:"/^EXPN[^\n]{255}/smi"; reference:bugtraq,6991; reference:bugtraq,7230; reference:cve,2002-1337; reference:cve,2003-0161; classtype:attempted-admin; sid:2102259; rev:9; metadata:created_at 2010_09_23, cve CVE_2002_1337, updated_at 2013_05_02;)
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET any (msg:"ET SMTP EXE - ZIP file with .pif filename inside"; flow:established; content:"|0D 0A 0D 0A|UmFyI"; pcre:"/^[A-Za-z0-9\/\+\x0D\x0A]+?(LnBpZ|5waW|ucGlm)/R"; classtype:bad-unknown; sid:2018144; rev:1; metadata:created_at 2014_02_15, updated_at 2014_02_15;)
 

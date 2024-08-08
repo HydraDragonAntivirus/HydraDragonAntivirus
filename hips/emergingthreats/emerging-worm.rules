@@ -2,7 +2,7 @@
 #
 # This distribution may contain rules under two different licenses. 
 #
-#  Rules with sids 100000000 through 100000908 are under the GPLv2.
+#  Rules with sids 1 through 3464, and 100000000 through 100000908 are under the GPLv2.
 #  A copy of that license is available at http://www.gnu.org/licenses/gpl-2.0.html
 #
 #  Rules with sids 2000000 through 2799999 are from Emerging Threats and are covered under the BSD License 
@@ -36,7 +36,7 @@
 #
 #
 
-# This Ruleset is EmergingThreats Open No-GPL optimized for snort-2.9.0-enhanced.
+# This Ruleset is EmergingThreats Open optimized for snort-2.9.0-enhanced.
 
 #alert tcp $HOME_NET any -> !$SQL_SERVERS 3306 (msg:"ET WORM Potential MySQL bot scanning for SQL server"; flags:S,12; reference:url,isc.sans.org/diary.php?date=2005-01-27; classtype:trojan-activity; sid:2001689; rev:8; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
 
@@ -56,6 +56,7 @@ alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET WORM Win32.Socks.s
 
 alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET WORM Possible Worm Sohanad.Z or Other Infection Request for setting.nql"; flow:established,to_server; content:"/setting.nql"; nocase; http_uri; reference:md5,a70aad8f27957702febfa162556dc5b5; classtype:trojan-activity; sid:2012201; rev:1; metadata:created_at 2011_01_17, updated_at 2011_01_17;)
 
+alert udp $HOME_NET any -> $EXTERNAL_NET 1434 (msg:"GPL WORM Slammer Worm propagation attempt OUTBOUND"; content:"|04|"; depth:1; content:"|81 F1 03 01 04 9B 81 F1|"; content:"sock"; content:"send"; reference:bugtraq,5310; reference:bugtraq,5311; reference:cve,2002-0649; reference:nessus,11214; reference:url,vil.nai.com/vil/content/v_99992.htm; classtype:misc-attack; sid:2102004; rev:8; metadata:created_at 2010_09_23, cve CVE_2002_0649, updated_at 2011_04_21;)
 
 alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET WORM Rimecud Worm checkin"; flow:established,to_server; content:"GET"; http_method; content:"User-Agent|3a| Mozilla/3.0 (compatible|3b| Indy Library)"; http_header; content:"/taskx.txt"; http_uri; fast_pattern; reference:md5,9623efa133415d19c941ef92a4f921fc; classtype:trojan-activity; sid:2012739; rev:1; metadata:created_at 2011_04_29, updated_at 2011_04_29;)
 
@@ -63,6 +64,7 @@ alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET WORM Rimecud Worm 
 
 alert tcp $HOME_NET any -> $EXTERNAL_NET 15000:30000 (msg:"ET WORM W32/Rimecud wg.txt Checkin"; flow:established,to_server; content:"GET /wg.txt"; depth:11; reference:md5,a89f7289d5cce821a194542e90026082; reference:md5,fd56ce176889d4fbe588760a1da6462b; reference:url,www.microsoft.com/security/portal/Threat/Encyclopedia/Entry.aspx?Name=Worm%3AWin32%2FRimecud; classtype:trojan-activity; sid:2014402; rev:1; metadata:created_at 2012_03_20, updated_at 2012_03_20;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 3127:3198 (msg:"GPL WORM mydoom.a backdoor upload/execute attempt"; flow:to_server,established; content:"|85 13|<|9E A2|"; depth:5; classtype:trojan-activity; sid:2103272; rev:3; metadata:created_at 2010_09_23, updated_at 2012_09_12;)
 
 alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"ET WORM W32/Njw0rm CnC Beacon"; flow:established,to_server; content:"lv0njxq80"; depth:9; content:"njxq80"; distance:0; reference:url,www.fireeye.com/blog/technical/malware-research/2013/08/njw0rm-brother-from-the-same-mother.html; reference:md5,4c60493b14c666c56db163203e819272; reference:md5,b0e1d20accd9a2ed29cdacb803e4a89d; classtype:trojan-activity; sid:2017404; rev:3; metadata:attack_target Client_Endpoint, created_at 2013_08_31, deployment Perimeter, signature_severity Major, tag c2, updated_at 2013_08_31, mitre_tactic_id TA0011, mitre_tactic_name Command_And_Control, mitre_technique_id T1041, mitre_technique_name Exfiltration_Over_C2_Channel;)
 

@@ -2,7 +2,7 @@
 #
 # This distribution may contain rules under two different licenses. 
 #
-#  Rules with sids 100000000 through 100000908 are under the GPLv2.
+#  Rules with sids 1 through 3464, and 100000000 through 100000908 are under the GPLv2.
 #  A copy of that license is available at http://www.gnu.org/licenses/gpl-2.0.html
 #
 #  Rules with sids 2000000 through 2799999 are from Emerging Threats and are covered under the BSD License 
@@ -36,7 +36,7 @@
 #
 #
 
-# This Ruleset is EmergingThreats Open No-GPL optimized for snort-2.9.0-enhanced.
+# This Ruleset is EmergingThreats Open optimized for snort-2.9.0-enhanced.
 
 #alert udp any 53 -> $DNS_SERVERS any (msg:"ET DNS Excessive DNS Responses with 1 or more RR's (100+ in 10 seconds) - possible Cache Poisoning Attempt"; byte_test:2,>,0,6; byte_test:2,>,0,10; threshold: type both, track by_src, count 100, seconds 10; classtype:bad-unknown; sid:2008446; rev:9; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
 
@@ -44,10 +44,15 @@
 
 #alert udp any 53 -> $HOME_NET any (msg:"ET DNS Query Responses with 3 RR's set (50+ in 2 seconds) - possible NS RR Cache Poisoning Attempt"; content: "|85 00 00 01 00 01 00 01|"; offset: 2; depth:8; threshold: type both, track by_src,count 50, seconds 2; reference:url,infosec20.blogspot.com/2008/07/kaminsky-dns-cache-poisoning-poc.html; classtype:bad-unknown; sid:2008447; rev:7; metadata:created_at 2010_07_30, updated_at 2010_10_15;)
 
+alert udp $EXTERNAL_NET any -> $HOME_NET 53 (msg:"GPL DNS zone transfer UDP"; content:"|00 00 FC|"; offset:14; reference:cve,1999-0532; reference:nessus,10595; classtype:attempted-recon; sid:2101948; rev:8; metadata:created_at 2010_09_23, cve CVE_1999_0532, updated_at 2011_06_22;)
 
+alert udp $EXTERNAL_NET any -> $HOME_NET 53 (msg:"GPL DNS named version attempt"; content:"|07|version"; offset:12; nocase; content:"|04|bind|00|"; offset:12; nocase; reference:nessus,10028; classtype:attempted-recon; sid:2101616; rev:9; metadata:created_at 2010_09_23, updated_at 2011_06_22;)
 
+alert udp $EXTERNAL_NET any -> $HOME_NET 53 (msg:"GPL DNS named iquery attempt"; content:"|09 80 00 00 00 01 00 00 00 00|"; depth:16; offset:2; reference:bugtraq,134; reference:cve,1999-0009; reference:url,www.rfc-editor.org/rfc/rfc1035.txt; classtype:attempted-recon; sid:2100252; rev:9; metadata:created_at 2010_09_23, cve CVE_1999_0009, updated_at 2011_06_22;)
 
+alert udp $EXTERNAL_NET any -> $HOME_NET 53 (msg:"GPL DNS named authors attempt"; content:"|07|authors"; offset:12; nocase; content:"|04|bind|00|"; offset:12; nocase; reference:nessus,10728; classtype:attempted-recon; sid:2100256; rev:8; metadata:created_at 2010_09_23, updated_at 2011_06_22;)
 
+#alert udp $EXTERNAL_NET any -> $HOME_NET 53 (msg:"GPL DNS UDP inverse query overflow"; byte_test:1,<,16,2; byte_test:1,&,8,2; isdataat:400; reference:bugtraq,134; reference:cve,1999-0009; classtype:attempted-admin; sid:2103154; rev:3; metadata:created_at 2010_09_23, updated_at 2011_12_01;)
 
 #alert udp $DNS_SERVERS 53 -> any any (msg:"ET DNS Standard query response, Format error"; pcre:"/^..[\x81\x82\x83\x84\x85\x86\x87]\x81/"; classtype:not-suspicious; sid:2001116; rev:6; metadata:created_at 2010_07_30, updated_at 2012_02_21;)
 
@@ -59,14 +64,23 @@
 
 #alert udp any 53 -> $HOME_NET any (msg:"ET DNS Excessive NXDOMAIN responses - Possible DNS Backscatter or Domain Generation Algorithm Lookups"; byte_test:1,&,128,2; byte_test:1,&,1,3; byte_test:1,&,2,3; threshold: type both, track by_src, count 50, seconds 10; classtype:bad-unknown; sid:2008470; rev:6; metadata:created_at 2010_07_30, updated_at 2012_03_08;)
 
+alert tcp $EXTERNAL_NET any -> $HOME_NET 53 (msg:"GPL DNS named version attempt"; flow:to_server,established; content:"|07|version"; offset:12; nocase; content:"|04|bind|00|"; offset:12; nocase; reference:arachnids,278; reference:nessus,10028; classtype:attempted-recon; sid:2100257; rev:10; metadata:created_at 2010_09_23, updated_at 2012_03_20;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 53 (msg:"GPL DNS TCP inverse query overflow"; flow:to_server,established; byte_test:1,<,16,4; byte_test:1,&,8,4; isdataat:400; reference:bugtraq,134; reference:cve,1999-0009; classtype:attempted-admin; sid:2103153; rev:3; metadata:created_at 2010_09_23, updated_at 2012_07_30;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 53 (msg:"GPL DNS zone transfer TCP"; flow:to_server,established; content:"|00 00 FC|"; offset:15; reference:arachnids,212; reference:cve,1999-0532; reference:nessus,10595; classtype:attempted-recon; sid:2100255; rev:14; metadata:created_at 2010_09_23, updated_at 2012_07_30;)
 
+#alert udp $EXTERNAL_NET 53 -> $HOME_NET any (msg:"GPL DNS SPOOF query response PTR with TTL of 1 min. and no authority"; content:"|85 80 00 01 00 01 00 00 00 00|"; content:"|C0 0C 00 0C 00 01 00 00 00|<|00 0F|"; classtype:bad-unknown; sid:2100253; rev:5; metadata:created_at 2010_09_23, updated_at 2012_07_30;)
 
+alert tcp $EXTERNAL_NET any -> $HOME_NET 53 (msg:"GPL DNS named authors attempt"; flow:to_server,established; content:"|07|authors"; offset:12; nocase; content:"|04|bind|00|"; offset:12; nocase; reference:arachnids,480; reference:nessus,10728; classtype:attempted-recon; sid:2101435; rev:8; metadata:created_at 2010_09_23, updated_at 2012_07_30;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 53 (msg:"GPL DNS named overflow attempt"; flow:to_server,established; content:"|CD 80 E8 D7 FF FF FF|/bin/sh"; reference:url,www.cert.org/advisories/CA-1998-05.html; classtype:attempted-admin; sid:2100261; rev:7; metadata:created_at 2010_09_23, updated_at 2012_07_30;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 53 (msg:"GPL DNS named overflow ADM"; flow:to_server,established; content:"thisissometempspaceforthesockinaddrinyeahyeahiknowthisislamebutanywaywhocareshorizongotitworkingsoalliscool"; reference:bugtraq,788; reference:cve,1999-0833; classtype:attempted-admin; sid:2100259; rev:8; metadata:created_at 2010_09_23, updated_at 2012_07_30;)
 
+#alert udp $EXTERNAL_NET 53 -> $HOME_NET any (msg:"GPL DNS SPOOF query response with TTL of 1 min. and no authority"; content:"|81 80 00 01 00 01 00 00 00 00|"; content:"|C0 0C 00 01 00 01 00 00 00|<|00 04|"; classtype:bad-unknown; sid:2100254; rev:5; metadata:created_at 2010_09_23, updated_at 2012_07_30;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 53 (msg:"GPL DNS EXPLOIT named 8.2->8.2.1"; flow:to_server,established; content:"../../../"; reference:bugtraq,788; reference:cve,1999-0833; classtype:attempted-admin; sid:2100258; rev:7; metadata:created_at 2010_09_23, updated_at 2012_07_30;)
 
 alert udp $HOME_NET any -> any 53 (msg:"ET DNS APT_NGO_wuaclt C2 Domain micorsofts.net"; content:"|0a|micorsofts|03|net|00|"; nocase; fast_pattern:only; threshold: type limit, track by_src, count 1, seconds 300; reference:url,labs.alienvault.com; classtype:bad-unknown; sid:2016569; rev:3; metadata:created_at 2013_03_14, updated_at 2013_03_14;)
 
@@ -84,6 +98,8 @@ alert udp $HOME_NET any -> any 53 (msg:"ET DNS Query for .to TLD"; content:"|01|
 
 alert udp $HOME_NET any -> any 53 (msg:"ET DNS Query for .cc TLD"; content:"|01|"; offset:2; depth:1; content:"|00 01 00 00 00 00 00|"; distance:1; within:7; content:"|02|cc|00|"; distance:0; fast_pattern; classtype:bad-unknown; sid:2027758; rev:2; metadata:affected_product Any, attack_target Client_Endpoint, created_at 2019_07_26, deployment Perimeter, signature_severity Minor, updated_at 2019_07_26;)
 
+alert udp ![$SMTP_SERVERS,$DNS_SERVERS] any -> $DNS_SERVERS 53 (msg:"ET DNS DNS Lookup for localhost.DOMAIN.TLD"; content:"|01|"; offset:2; depth:1; content:"|00 01 00 00 00 00 00|"; distance:1; within:7; content:"|09|localhost"; fast_pattern; nocase; classtype:bad-unknown; sid:2011802; rev:4; metadata:created_at 2010_10_13, updated_at 2019_08_28;)
+
 alert udp $HOME_NET any -> any 53 (msg:"ET DNS Hiloti DNS CnC Channel Successful Install Message"; content:"|01|"; offset:2; depth:1; content:"|00 01 00 00 00 00 00|"; distance:1; within:7; content:"|05|empty"; nocase; distance:0; content:"|0C|explorer_exe"; nocase; distance:0; reference:url,sign.kaffenews.com/?p=104; reference:url,blog.fortinet.com/hiloti-the-botmaster-of-disguise/; classtype:bad-unknown; sid:2011911; rev:3; metadata:created_at 2010_11_09, updated_at 2019_08_28;)
 
 alert udp $HOME_NET any -> any 53 (msg:"ET DNS DNS Query for Suspicious .ch.vu Domain"; content:"|01|"; offset:2; depth:1; content:"|00 01 00 00 00 00 00|"; distance:1; within:7; content:"|02|ch|02|vu"; fast_pattern; nocase; distance:0; reference:url,google.com/safebrowsing/diagnostic?site=ch.vu; classtype:bad-unknown; sid:2014285; rev:5; metadata:created_at 2012_02_28, updated_at 2019_08_28;)
@@ -91,8 +107,6 @@ alert udp $HOME_NET any -> any 53 (msg:"ET DNS DNS Query for Suspicious .ch.vu D
 alert udp $HOME_NET any -> any 53 (msg:"ET DNS Query for a Suspicious *.upas.su domain"; content:"|01|"; offset:2; depth:1; content:"|00 01 00 00 00 00 00|"; distance:1; within:7; content:"|04|upas|02|su|00|"; fast_pattern; nocase; distance:0; classtype:bad-unknown; sid:2015550; rev:2; metadata:created_at 2012_07_31, updated_at 2019_08_28;)
 
 alert udp $HOME_NET any -> any 53 (msg:"ET DNS Query to a *.top domain - Likely Hostile"; content:"|01|"; offset:2; depth:1; content:"|00 01 00 00 00 00 00|"; distance:1; within:7; content:"|03|top|00|"; fast_pattern; nocase; distance:0; threshold:type limit, track by_src, count 1, seconds 30; reference:url,www.symantec.com/connect/blogs/shady-tld-research-gdn-and-our-2016-wrap; reference:url,www.spamhaus.org/statistics/tlds/; classtype:bad-unknown; sid:2023883; rev:2; metadata:affected_product Windows_XP_Vista_7_8_10_Server_32_64_Bit, attack_target Client_Endpoint, created_at 2017_02_07, deployment Perimeter, signature_severity Major, updated_at 2019_08_28;)
-
-alert udp $HOME_NET !9987 -> $EXTERNAL_NET 53 (msg:"ET DNS Non-DNS or Non-Compliant DNS traffic on DNS port Opcode 6 or 7 set"; content:!"7PYqwfzt"; depth:8; content:!"r6fnvWj8"; depth:8; byte_test:1,!&,64,2; byte_test:1,&,32,2; byte_test:1,&,16,2; threshold: type limit, count 1, seconds 120, track by_dst; reference:md5,a56ec0f9bd46f921f65e4f6e598e5ed0; reference:url,vrt-blog.snort.org/2008/08/checking-multiple-bits-in-flag-field_29.html; classtype:policy-violation; sid:2014701; rev:14; metadata:created_at 2012_05_04, updated_at 2022_04_18;)
 
 alert udp any 53 -> $HOME_NET any (msg:"ET DNS Reply Sinkhole - sinkhole.cert.pl 148.81.111.111"; content:"|00 01 00 01|"; content:"|00 04 94 51 6f 6f|"; distance:4; within:6; classtype:trojan-activity; sid:2016413; rev:5; metadata:created_at 2013_02_15, updated_at 2022_07_13;)
 
@@ -113,8 +127,6 @@ alert udp any 53 -> $HOME_NET any (msg:"ET DNS Reply Sinkhole - Georgia Tech (2)
 #alert udp $HOME_NET any -> any 53 (msg:"ET DNS DNS Query for Suspicious .com.cn Domain"; content:"|01 00 00 01 00 00 00 00 00 00|"; depth:10; offset:2; content:"|03|com|02|cn|00|"; fast_pattern; nocase; distance:0; reference:url,sign.kaffenews.com/?p=104; classtype:bad-unknown; sid:2011408; rev:4; metadata:created_at 2010_09_28, updated_at 2022_07_15;)
 
 #alert udp $HOME_NET any -> any 53 (msg:"ET DNS DNS Query for Suspicious .co.kr Domain"; content:"|01 00 00 01 00 00 00 00 00 00|"; depth:10; offset:2; content:"|02|co|02|kr|00|"; fast_pattern; nocase; distance:0; reference:url,sign.kaffenews.com/?p=104; classtype:bad-unknown; sid:2011411; rev:4; metadata:created_at 2010_09_28, updated_at 2022_07_15;)
-
-alert udp $HOME_NET any -> any 53 (msg:"ET DNS Non-DNS or Non-Compliant DNS traffic on DNS port Opcode 8 through 15 set"; content:!"7PYqwfzt"; depth:8; content:!"r6fnvWj8"; depth:8; byte_test:1,&,64,2; threshold: type limit, count 1, seconds 120, track by_dst; reference:md5,a56ec0f9bd46f921f65e4f6e598e5ed0; reference:url,vrt-blog.snort.org/2008/08/checking-multiple-bits-in-flag-field_29.html; classtype:policy-violation; sid:2014702; rev:11; metadata:created_at 2012_05_04, performance_impact Significant, updated_at 2022_07_15;)
 
 #alert udp $HOME_NET any -> any 53 (msg:"ET DNS Non-DNS or Non-Compliant DNS traffic on DNS port Reserved Bit Set"; content:!"7PYqwfzt"; depth:8; content:!"r6fnvWj8"; depth:8; byte_test:1,&,64,3; threshold: type limit, count 1, seconds 120, track by_dst; reference:md5,a56ec0f9bd46f921f65e4f6e598e5ed0; reference:url,vrt-blog.snort.org/2008/08/checking-multiple-bits-in-flag-field_29.html; classtype:policy-violation; sid:2014703; rev:12; metadata:created_at 2012_05_04, performance_impact Significant, updated_at 2022_11_03;)
 
@@ -187,4 +199,8 @@ alert udp $HOME_NET any -> any 53 (msg:"ET DNS Query to a *.pw domain - Likely H
 #alert udp $HOME_NET any -> any 53 (msg:"ET DNS Query for Suspicious .nl.ai Domain"; content:"|01|"; offset:2; depth:1; content:"|00 01 00 00 00 00 00|"; distance:1; within:7; content:"|02|nl|02|ai"; fast_pattern; nocase; distance:0; classtype:bad-unknown; sid:2013861; rev:4; metadata:created_at 2011_11_07, deprecation_reason Age, updated_at 2024_04_09, reviewed_at 2024_04_09;)
 
 #alert udp $HOME_NET any -> any 53 (msg:"ET DNS Query for Suspicious .xe.cx Domain"; content:"|01|"; offset:2; depth:1; content:"|00 01 00 00 00 00 00|"; distance:1; within:7; content:"|02|xe|02|cx"; fast_pattern; nocase; distance:0; classtype:bad-unknown; sid:2013862; rev:4; metadata:created_at 2011_11_07, deprecation_reason Age, updated_at 2024_04_09, reviewed_at 2024_04_09;)
+
+#alert udp $HOME_NET !9987 -> $EXTERNAL_NET 53 (msg:"ET DNS Non-DNS or Non-Compliant DNS traffic on DNS port Opcode 6 or 7 set"; content:!"7PYqwfzt"; depth:8; content:!"r6fnvWj8"; depth:8; byte_test:1,!&,64,2; byte_test:1,&,32,2; byte_test:1,&,16,2; threshold: type limit, count 1, seconds 120, track by_dst; reference:md5,a56ec0f9bd46f921f65e4f6e598e5ed0; reference:url,vrt-blog.snort.org/2008/08/checking-multiple-bits-in-flag-field_29.html; classtype:policy-violation; sid:2014701; rev:15; metadata:created_at 2012_05_04, deprecation_reason Performance, updated_at 2024_07_02;)
+
+#alert udp $HOME_NET any -> any 53 (msg:"ET DNS Non-DNS or Non-Compliant DNS traffic on DNS port Opcode 8 through 15 set"; content:!"7PYqwfzt"; depth:8; content:!"r6fnvWj8"; depth:8; byte_test:1,&,64,2; threshold: type limit, count 1, seconds 120, track by_dst; reference:md5,a56ec0f9bd46f921f65e4f6e598e5ed0; reference:url,vrt-blog.snort.org/2008/08/checking-multiple-bits-in-flag-field_29.html; classtype:policy-violation; sid:2014702; rev:12; metadata:created_at 2012_05_04, deprecation_reason Performance, performance_impact Significant, updated_at 2024_07_02;)
 

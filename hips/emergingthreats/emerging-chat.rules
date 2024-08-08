@@ -2,7 +2,7 @@
 #
 # This distribution may contain rules under two different licenses. 
 #
-#  Rules with sids 100000000 through 100000908 are under the GPLv2.
+#  Rules with sids 1 through 3464, and 100000000 through 100000908 are under the GPLv2.
 #  A copy of that license is available at http://www.gnu.org/licenses/gpl-2.0.html
 #
 #  Rules with sids 2000000 through 2799999 are from Emerging Threats and are covered under the BSD License 
@@ -36,7 +36,7 @@
 #
 #
 
-# This Ruleset is EmergingThreats Open No-GPL optimized for snort-2.9.0-enhanced.
+# This Ruleset is EmergingThreats Open optimized for snort-2.9.0-enhanced.
 
 alert tcp $HOME_NET any -> $EXTERNAL_NET 5222 (msg:"ET CHAT Facebook Chat using XMPP"; flow:to_server,established; content:"chat.facebook.com"; nocase; content:"jabber|3A|client"; nocase; distance:9; within:13; threshold: type limit, track by_src, count 1, seconds 60; reference:url,www.facebook.com/sitetour/chat.php; classtype:policy-violation; sid:2010819; rev:4; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
 
@@ -128,11 +128,17 @@ alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET CHAT Gadu-Gadu IM 
 
 alert tcp $HOME_NET any <> $EXTERNAL_NET any (msg:"ET CHAT General MSN Chat Activity"; flow: established; content:"Content-Type|3A|"; http_header; content:"application/x-msn-messenger"; http_header; reference:url,www.hypothetic.org/docs/msn/general/http_examples.php; classtype:policy-violation; sid:2009375; rev:3; metadata:created_at 2010_07_30, updated_at 2010_10_05;)
 
+alert tcp $HOME_NET any -> $EXTERNAL_NET 1863 (msg:"GPL CHAT MSN user search"; flow:to_server,established; content:"CAL "; depth:4; nocase; classtype:policy-violation; sid:2101990; rev:2; metadata:created_at 2010_09_23, updated_at 2011_04_21;)
 
+alert tcp $HOME_NET any -> $EXTERNAL_NET 1863 (msg:"GPL CHAT MSN login attempt"; flow:to_server,established; content:"USR "; depth:4; nocase; content:" TWN "; distance:1; nocase; threshold:type limit, track by_src, count 1, seconds 60; classtype:policy-violation; sid:2101991; rev:3; metadata:created_at 2010_09_23, updated_at 2011_04_21;)
 
+alert tcp $HOME_NET any -> $EXTERNAL_NET 1863 (msg:"GPL CHAT MSN outbound file transfer request"; flow:established; content:"MSG "; depth:4; content:"Content-Type|3A| application/x-msnmsgrp2p"; nocase; content:"INVITE"; distance:0; nocase; classtype:policy-violation; sid:2101986; rev:7; metadata:created_at 2010_09_23, updated_at 2011_04_21;)
 
+alert tcp $EXTERNAL_NET 1863 -> $HOME_NET any (msg:"GPL CHAT MSN outbound file transfer accept"; flow:established; content:"MSG "; depth:4; content:"Content-Type|3A| application/x-msnmsgrp2p"; distance:0; nocase; content:"MSNSLP/1.0 200 OK"; distance:0; nocase; classtype:policy-violation; sid:2101988; rev:6; metadata:created_at 2010_09_23, updated_at 2011_04_21;)
 
+alert tcp $EXTERNAL_NET 1863 -> $HOME_NET any (msg:"GPL CHAT MSN outbound file transfer rejected"; flow:established; content:"MSG "; depth:4; content:"Content-Type|3A| application/x-msnmsgrp2p"; distance:0; nocase; content:"MSNSLP/1.0 603 Decline"; distance:0; nocase; classtype:policy-violation; sid:2101989; rev:7; metadata:created_at 2010_09_23, updated_at 2011_04_21;)
 
+alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"GPL CHAT ICQ access"; flow:to_server,established; content:"User-Agent|3A|ICQ"; classtype:policy-violation; sid:2100541; rev:12; metadata:created_at 2010_09_23, updated_at 2011_09_21;)
 
 alert tcp any any -> any 6666:7000 (msg:"ET CHAT IRC USER command"; flow:to_server,established; content:"USER|20|"; nocase; depth:5; content:"|203a|"; within:40; content:"|0a|"; within:40; flowbits:set,is_proto_irc; classtype:misc-activity; sid:2002023; rev:15; metadata:created_at 2010_07_30, updated_at 2011_10_21;)
 
@@ -144,17 +150,29 @@ alert tcp any any -> any 6666:7000 (msg:"ET CHAT IRC PRIVMSG command"; flow:esta
 
 alert tcp any 6666:7000 -> any any (msg:"ET CHAT IRC PING command"; flow:from_server,established; content:"PING|20|"; depth:5; flowbits:set,is_proto_irc; classtype:misc-activity; sid:2002027; rev:15; metadata:created_at 2010_07_30, updated_at 2011_10_21;)
 
+alert tcp $HOME_NET any -> $EXTERNAL_NET 6666:7000 (msg:"GPL CHAT IRC DCC chat request"; flow:to_server,established; content:"PRIVMSG "; depth:8; nocase; content:" |3A|.DCC CHAT chat"; nocase; flowbits:set,is_proto_irc; classtype:policy-violation; sid:2101640; rev:10; metadata:created_at 2010_09_23, updated_at 2011_10_21;)
 
+alert tcp $HOME_NET any -> $EXTERNAL_NET 6666:7000 (msg:"GPL CHAT IRC DCC file transfer request"; flow:to_server,established; content:"PRIVMSG "; depth:8; nocase; content:" |3A|.DCC SEND"; nocase; flowbits:set,is_proto_irc; classtype:policy-violation; sid:2101639; rev:11; metadata:created_at 2010_09_23, updated_at 2011_10_21;)
 
+alert tcp $EXTERNAL_NET 5050 -> $HOME_NET any (msg:"GPL CHAT Yahoo IM successful chat join"; flow:from_server,established; content:"YMSG"; depth:4; nocase; content:"|00 98|"; depth:2; offset:10; classtype:policy-violation; sid:2102458; rev:5; metadata:created_at 2010_09_23, updated_at 2012_06_01;)
 
+alert tcp $HOME_NET any -> $EXTERNAL_NET 5100 (msg:"GPL CHAT Yahoo IM conference request"; flow:to_server,established; content:"<R"; depth:2; pcre:"/^\x3c(REQIMG|RVWCFG)\x3e/ism"; classtype:policy-violation; sid:2102460; rev:5; metadata:created_at 2010_09_23, updated_at 2012_09_01;)
 
+alert tcp $HOME_NET any -> $EXTERNAL_NET 5050 (msg:"GPL CHAT Yahoo IM ping"; flow:to_server,established; content:"YMSG"; depth:4; nocase; content:"|00 12|"; depth:2; offset:10; classtype:policy-violation; sid:2102452; rev:5; metadata:created_at 2010_09_23, updated_at 2012_09_01;)
 
+alert tcp $HOME_NET any -> $EXTERNAL_NET 5050 (msg:"GPL CHAT Yahoo IM conference offer invitation"; flow:to_server,established; content:"YMSG"; depth:4; nocase; content:"|00|P"; depth:2; offset:10; classtype:policy-violation; sid:2102459; rev:5; metadata:created_at 2010_09_23, updated_at 2012_09_01;)
 
+alert tcp $HOME_NET any -> $EXTERNAL_NET 5050 (msg:"GPL CHAT Yahoo IM conference message"; flow:to_server,established; content:"YMSG"; depth:4; nocase; content:"|00 1D|"; depth:2; offset:10; classtype:policy-violation; sid:2102455; rev:4; metadata:created_at 2010_09_23, updated_at 2012_09_01;)
 
+alert tcp $EXTERNAL_NET 5100 -> $HOME_NET any (msg:"GPL CHAT Yahoo IM conference watch"; flow:from_server,established; content:"|0D 00 05 00|"; depth:4; classtype:policy-violation; sid:2102461; rev:5; metadata:created_at 2010_09_23, updated_at 2012_09_01;)
 
+alert tcp $EXTERNAL_NET 5050 -> $HOME_NET any (msg:"GPL CHAT Yahoo Messenger File Transfer Receive Request"; flow:established; content:"YMSG"; depth:4; content:"|00|M"; depth:2; offset:10; classtype:policy-violation; sid:2102456; rev:5; metadata:created_at 2010_09_23, updated_at 2012_09_01;)
 
+alert tcp $EXTERNAL_NET 5050 -> $HOME_NET any (msg:"GPL CHAT Yahoo IM voicechat"; flow:from_server,established; content:"YMSG"; depth:4; nocase; content:"|00|J"; depth:2; offset:10; classtype:policy-violation; sid:2102451; rev:4; metadata:created_at 2010_09_23, updated_at 2012_09_01;)
 
+alert tcp $EXTERNAL_NET 5050 -> $HOME_NET any (msg:"GPL CHAT Yahoo IM conference logon success"; flow:from_server,established; content:"YMSG"; depth:4; nocase; content:"|00 19|"; depth:2; offset:10; classtype:policy-violation; sid:2102454; rev:4; metadata:created_at 2010_09_23, updated_at 2012_09_01;)
 
+alert tcp $EXTERNAL_NET 5050 -> $HOME_NET any (msg:"GPL CHAT Yahoo IM conference invitation"; flow:from_server,established; content:"YMSG"; depth:4; nocase; content:"|00 18|"; depth:2; offset:10; classtype:policy-violation; sid:2102453; rev:4; metadata:created_at 2010_09_23, updated_at 2012_09_01;)
 
 alert tcp any any -> any 6666:7000 (msg:"ET CHAT IRC USER Likely bot with 0 0 colon checkin"; flow:to_server,established; content:"USER|20|"; nocase; content:" 0 0 |3a|"; within:40; content:"|0a|"; within:40; flowbits:set,is_proto_irc; classtype:misc-activity; sid:2025066; rev:1; metadata:created_at 2013_07_13, updated_at 2013_07_13;)
 
@@ -166,17 +184,27 @@ alert tcp $HOME_NET any <> $EXTERNAL_NET any (msg:"ET CHAT Yahoo IM file transfe
 
 #alert udp $HOME_NET 1024:65535 -> $EXTERNAL_NET 33033 (msg:"ET CHAT Skype Bootstrap Node (udp)"; threshold: type both, count 5, track by_src, seconds 120; reference:url,www1.cs.columbia.edu/~library/TR-repository/reports/reports-2004/cucs-039-04.pdf; classtype:policy-violation; sid:2003022; rev:5; metadata:created_at 2010_07_30, updated_at 2014_09_06;)
 
+alert tcp $HOME_NET any -> $EXTERNAL_NET 5222 (msg:"GPL CHAT Jabber/Google Talk Outoing Message"; flow:to_server,established; content:"<message"; nocase; reference:url,www.google.com/talk/; classtype:policy-violation; sid:2100233; rev:3; metadata:created_at 2010_09_23, updated_at 2014_10_28;)
 
+alert tcp $HOME_NET any -> $EXTERNAL_NET 5222 (msg:"GPL CHAT Jabber/Google Talk Outgoing Traffic"; flow:to_server,established; content:"<stream"; nocase; reference:url,www.google.com/talk/; classtype:not-suspicious; sid:2100230; rev:3; metadata:created_at 2010_09_23, updated_at 2014_10_28;)
 
+#alert tcp $HOME_NET any -> $EXTERNAL_NET 5222 (msg:"GPL CHAT Jabber/Google Talk Outgoing Auth"; flow:to_server,established; content:"<auth"; nocase; reference:url,www.google.com/talk/; classtype:policy-violation; sid:2100231; rev:3; metadata:created_at 2010_09_23, updated_at 2014_10_28;)
 
+#alert tcp $HOME_NET any -> $EXTERNAL_NET 5222 (msg:"GPL CHAT Jabber/Google Talk Log Out"; flow:to_server,established; content:"</stream"; nocase; reference:url,www.google.com/talk/; classtype:policy-violation; sid:2100234; rev:3; metadata:created_at 2010_09_23, updated_at 2014_10_28;)
 
+alert tcp $HOME_NET any -> $EXTERNAL_NET 5222 (msg:"GPL CHAT Google Talk Startup"; flow: established,to_server; content:"google.com"; nocase; content:"jabber|3A|client"; nocase; threshold: type limit, track by_src, count 1, seconds 300; classtype:policy-violation; sid:2100877; rev:3; metadata:created_at 2010_09_23, updated_at 2014_10_28;)
 
+alert tcp $HOME_NET any -> $EXTERNAL_NET 5222 (msg:"GPL CHAT Google Talk Logon"; flow:to_server,established; content:"<stream|3a|stream to=\"gmail.com\""; nocase; reference:url,www.google.com/talk/; classtype:policy-violation; sid:2100232; rev:4; metadata:created_at 2010_09_23, updated_at 2014_10_28;)
 
+alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"GPL CHAT Google Talk Version Check"; flow: established,to_server; content:"/googletalk/google-talk-versioncheck.txt?"; http_uri; nocase; classtype:policy-violation; sid:2100876; rev:4; metadata:created_at 2010_09_23, updated_at 2014_10_28;)
 
+alert tcp $EXTERNAL_NET 5222 -> $HOME_NET any (msg:"GPL CHAT Jabber/Google Talk Logon Success"; flow:to_client,established; content:"<success"; nocase; reference:url,www.google.com/talk/; classtype:policy-violation; sid:2100235; rev:3; metadata:created_at 2010_09_23, updated_at 2014_10_28;)
 
+alert tcp $EXTERNAL_NET 5222 -> $HOME_NET any (msg:"GPL CHAT Jabber/Google Talk Incoming Message"; flow:to_client,established; content:"<message"; nocase; reference:url,www.google.com/talk/; classtype:policy-violation; sid:2100236; rev:3; metadata:created_at 2010_09_23, updated_at 2014_10_28;)
 
 alert tcp $EXTERNAL_NET 8074 -> $HOME_NET any (msg:"ET CHAT GaduGadu Chat Server Welcome Packet"; flow:established,from_server; dsize:12; content:"|01 00 00 00|"; depth:4; flowbits:set,ET.gadu.welcome; reference:url,piotr.trzcionkowski.pl/default.asp?load=/programy/pppgg_protokol.html; classtype:policy-violation; sid:2008297; rev:5; metadata:created_at 2010_07_30, updated_at 2017_12_11;)
 
+alert tcp $HOME_NET any -> $EXTERNAL_NET 6666:7000 (msg:"GPL CHAT IRC Channel join"; flow:to_server,established; content:"JOIN|20 3a 20 23|"; fast_pattern:only; nocase; flowbits:set,is_proto_irc; classtype:policy-violation; sid:2101729; rev:11; metadata:created_at 2010_09_23, updated_at 2021_07_07;)
 
 alert tcp any any -> any 6666:7000 (msg:"ET CHAT IRC PONG response"; flow:established,to_server; content:"PONG|20|"; depth:5; flowbits:set,is_proto_irc; classtype:misc-activity; sid:2002028; rev:19; metadata:created_at 2010_07_30, updated_at 2022_05_03;)
 

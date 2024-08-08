@@ -2,7 +2,7 @@
 #
 # This distribution may contain rules under two different licenses. 
 #
-#  Rules with sids 100000000 through 100000908 are under the GPLv2.
+#  Rules with sids 1 through 3464, and 100000000 through 100000908 are under the GPLv2.
 #  A copy of that license is available at http://www.gnu.org/licenses/gpl-2.0.html
 #
 #  Rules with sids 2000000 through 2799999 are from Emerging Threats and are covered under the BSD License 
@@ -36,12 +36,17 @@
 #
 #
 
-# This Ruleset is EmergingThreats Open No-GPL optimized for snort-2.9.0-enhanced.
+# This Ruleset is EmergingThreats Open optimized for snort-2.9.0-enhanced.
 
+alert tcp $TELNET_SERVERS 23 -> $EXTERNAL_NET any (msg:"GPL TELNET TELNET login failed"; flow:from_server,established; content:"Login failed"; fast_pattern:only; nocase; classtype:bad-unknown; sid:2100492; rev:11; metadata:created_at 2010_09_23, updated_at 2012_08_21;)
 
+#alert tcp $TELNET_SERVERS 23 -> $EXTERNAL_NET any (msg:"GPL TELNET TELNET access"; flow:from_server,established; content:"|FF FD|"; rawbytes; content:"|FF FD|"; distance:0; rawbytes; content:"|FF FD|"; distance:0; rawbytes; reference:arachnids,08; reference:cve,1999-0619; reference:nessus,10280; classtype:not-suspicious; sid:2100716; rev:14; metadata:created_at 2010_09_23, updated_at 2012_09_12;)
 
+alert tcp $TELNET_SERVERS 23 -> $EXTERNAL_NET any (msg:"GPL TELNET Telnet Root not on console"; flow:from_server,established; content:"not on system console"; fast_pattern:only; nocase; reference:arachnids,365; classtype:bad-unknown; sid:2100717; rev:9; metadata:created_at 2010_09_23, updated_at 2012_09_12;)
 
+alert tcp $TELNET_SERVERS 23 -> $EXTERNAL_NET any (msg:"GPL TELNET root login"; flow:from_server,established; content:"login|3A| root"; fast_pattern:only; classtype:suspicious-login; sid:2100719; rev:9; metadata:created_at 2010_09_23, updated_at 2012_09_12;)
 
+alert tcp $HOME_NET 23 -> $EXTERNAL_NET any (msg:"GPL TELNET Bad Login"; flow:from_server,established; content:"Login incorrect"; fast_pattern:only; nocase; classtype:bad-unknown; sid:2101251; rev:11; metadata:created_at 2010_09_23, updated_at 2015_04_06;)
 
 alert tcp $HOME_NET 23 -> $EXTERNAL_NET any (msg:"ET TELNET External Telnet Attempt To Cisco Device With No Telnet Password Set (Automatically Dissalowed Until Password Set)"; flow:from_server; content:"Password required, but none set"; depth:31; classtype:attempted-admin; sid:2008860; rev:4; metadata:created_at 2010_07_30, updated_at 2015_04_15;)
 

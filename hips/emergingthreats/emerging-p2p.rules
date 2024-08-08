@@ -2,7 +2,7 @@
 #
 # This distribution may contain rules under two different licenses. 
 #
-#  Rules with sids 100000000 through 100000908 are under the GPLv2.
+#  Rules with sids 1 through 3464, and 100000000 through 100000908 are under the GPLv2.
 #  A copy of that license is available at http://www.gnu.org/licenses/gpl-2.0.html
 #
 #  Rules with sids 2000000 through 2799999 are from Emerging Threats and are covered under the BSD License 
@@ -36,7 +36,7 @@
 #
 #
 
-# This Ruleset is EmergingThreats Open No-GPL optimized for snort-2.9.0-enhanced.
+# This Ruleset is EmergingThreats Open optimized for snort-2.9.0-enhanced.
 
 alert tcp $HOME_NET 1024: -> $EXTERNAL_NET 1024: (msg:"ET P2P Ares Server Connection"; flow:established,to_server; dsize:<70; content:"r|be|bloop|00|dV"; content:"Ares|00 0a|"; distance:16; reference:url,aresgalaxy.sourceforge.net; classtype:policy-violation; sid:2008591; rev:3; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
 
@@ -194,23 +194,31 @@ alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET P2P BTWebClient UA
 
 alert tcp $EXTERNAL_NET 1024: -> $HOME_NET any (msg:"ET P2P Ocelot BitTorrent Server in Use"; flow:established,from_server; content:"HTTP/1.1 200 |0d 0a|Server|3a| Ocelot "; depth:30; classtype:policy-violation; sid:2012467; rev:4; metadata:created_at 2011_03_10, updated_at 2011_03_11;)
 
+#alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"GPL P2P Fastrack kazaa/morpheus traffic"; flow:to_server,established; content:"GET "; depth:4; content:"UserAgent|3A| KazaaClient"; reference:url,www.kazaa.com; classtype:policy-violation; sid:2101699; rev:11; metadata:created_at 2010_09_23, updated_at 2011_06_08;)
 
 alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET P2P Bittorrent P2P Client User-Agent (Deluge 1.x.x)"; flow:to_server,established; content:"User-Agent|3a| Deluge "; http_header; reference:url,deluge-torrent.org; classtype:policy-violation; sid:2011704; rev:5; metadata:created_at 2010_07_30, updated_at 2011_10_19;)
 
 alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET P2P p2p Related User-Agent (eChanblard)"; flow:to_server,established; content:"User-Agent|3a| eChanblard|0d 0a|"; http_header; classtype:trojan-activity; sid:2011232; rev:7; metadata:created_at 2010_07_30, updated_at 2011_12_20;)
 
+alert tcp $HOME_NET any -> $EXTERNAL_NET 6881:6889 (msg:"GPL P2P BitTorrent transfer"; flow:to_server,established; content:"|13|BitTorrent protocol"; depth:20; classtype:policy-violation; sid:2102181; rev:3; metadata:created_at 2010_09_23, updated_at 2012_01_16;)
 
+alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"GPL P2P BitTorrent announce request"; flow:to_server,established; content:"GET /announce"; depth:13; content:"info_hash="; distance:0; content:"event=started"; distance:0; classtype:policy-violation; sid:2102180; rev:4; metadata:created_at 2010_09_23, updated_at 2012_01_16;)
 
 alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET P2P Bittorrent P2P Client User-Agent (Enhanced CTorrent 3.x)"; flow:to_server,established; content:"User-Agent|3a| Enhanced-CTorrent"; fast_pattern:11,18; http_header; reference:url,www.rahul.net/dholmes/ctorrent; classtype:policy-violation; sid:2011703; rev:6; metadata:created_at 2010_07_30, updated_at 2012_01_18;)
 
 alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET P2P Bittorrent P2P Client User-Agent (Opera/10.x)"; flow:to_server,established; content:"User-Agent|3a| Opera BitTorrent, Opera/"; fast_pattern:11,15; http_header; reference:url,www.opera.com; classtype:policy-violation; sid:2011701; rev:5; metadata:created_at 2010_07_30, updated_at 2012_01_18;)
 
+#alert tcp $EXTERNAL_NET 6666:6669 -> $HOME_NET any (msg:"GPL P2P eMule buffer overflow attempt"; flow:to_client,established; content:"PRIVMSG"; nocase; content:"|01|SENDLINK|7c|"; distance:0; pcre:"/^PRIVMSG\s+[^\s]+\s+\x3a\s*\x01SENDLINK\x7c[^\x7c]{69}/smi"; reference:bugtraq,10039; reference:nessus,12233; classtype:attempted-user; sid:2102584; rev:5; metadata:created_at 2010_09_23, confidence High, updated_at 2012_01_31;)
 
+alert tcp any 4711 -> $HOME_NET any (msg:"GPL P2P eDonkey server response"; flow:established,from_server; content:"Server|3A| eMule"; reference:url,www.emule-project.net; classtype:policy-violation; sid:2102587; rev:4; metadata:created_at 2010_09_23, updated_at 2012_01_31;)
 
 alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"ET P2P QVOD P2P Sharing Traffic detected (tcp)"; flow:established,from_client; content:"POST /service HTTP/1"; depth:20; content:"|13|QVOD protocol|00 00 00 00 00 00 00 00 00 00 00 00 00 00|"; classtype:policy-violation; sid:2014459; rev:1; metadata:created_at 2012_04_03, updated_at 2012_04_03;)
 
+alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"GPL P2P GNUTella client request"; flow:to_server,established; content:"GNUTELLA OK"; depth:40; classtype:policy-violation; sid:2100557; rev:7; metadata:created_at 2010_09_23, updated_at 2012_07_30;)
 
+alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"GPL P2P GNUTella client request"; flow:to_server,established; content:"GNUTELLA"; depth:8; classtype:policy-violation; sid:2101432; rev:7; metadata:created_at 2010_09_23, updated_at 2012_07_30;)
 
+#alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"GPL P2P Outbound GNUTella client request"; flow:to_server,established; content:"GNUTELLA CONNECT"; depth:40; classtype:policy-violation; sid:2100556; rev:6; metadata:created_at 2010_09_23, updated_at 2012_07_30;)
 
 #alert udp $HOME_NET any -> any 53 (msg:"ET P2P Possible Bittorrent Activity - Multiple DNS Queries For tracker hosts"; content:"|01 00 00 01 00 00 00 00 00 00|"; depth:10; offset:2; content:"|07|tracker"; fast_pattern; distance:0; threshold: type both, count 3, seconds 10, track by_src; classtype:policy-violation; sid:2016662; rev:3; metadata:created_at 2013_03_26, updated_at 2013_03_26;)
 

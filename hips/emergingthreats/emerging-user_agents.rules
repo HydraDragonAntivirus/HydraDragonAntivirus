@@ -2,7 +2,7 @@
 #
 # This distribution may contain rules under two different licenses. 
 #
-#  Rules with sids 100000000 through 100000908 are under the GPLv2.
+#  Rules with sids 1 through 3464, and 100000000 through 100000908 are under the GPLv2.
 #  A copy of that license is available at http://www.gnu.org/licenses/gpl-2.0.html
 #
 #  Rules with sids 2000000 through 2799999 are from Emerging Threats and are covered under the BSD License 
@@ -36,7 +36,7 @@
 #
 #
 
-# This Ruleset is EmergingThreats Open No-GPL optimized for snort-2.9.0-enhanced.
+# This Ruleset is EmergingThreats Open optimized for snort-2.9.0-enhanced.
 
 alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET USER_AGENTS Suspicious User Agent (_)"; flow:to_server,established; content:"User-Agent|3a| _|0d 0a|"; http_header; classtype:trojan-activity; sid:2007942; rev:6; metadata:created_at 2010_07_30, updated_at 2010_08_05;)
 
@@ -127,8 +127,6 @@ alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET USER_AGENTS Suspic
 alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET USER_AGENTS SideStep User-Agent"; flow: to_server,established; content:" SideStep"; http_header; fast_pattern:only; pcre:"/User-Agent\:[^\n]+SideStep/iH"; reference:url,github.com/chetan51/sidestep/; classtype:misc-activity; sid:2002078; rev:31; metadata:attack_target Client_Endpoint, created_at 2010_07_30, deployment Perimeter, performance_impact Low, signature_severity Minor, tag User_Agent, updated_at 2017_01_20;)
 
 alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET USER_AGENTS User-Agent (Unknown)"; flow:to_server,established; content:"User-Agent|3a| Unknown|0d 0a|"; http_header; classtype:trojan-activity; sid:2007991; rev:7; metadata:created_at 2010_07_30, updated_at 2017_09_13;)
-
-alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET USER_AGENTS Go HTTP Client User-Agent"; flow:established,to_server; content:"User-Agent|3a 20|Go-http-client|0d 0a|"; nocase; http_header; fast_pattern; classtype:misc-activity; sid:2024897; rev:2; metadata:attack_target Client_Endpoint, created_at 2017_10_23, deployment Perimeter, signature_severity Major, updated_at 2017_10_23;)
 
 alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET USER_AGENTS Metafisher/Goldun User-Agent (z)"; flow:to_server,established; content:"User-Agent|3a| z|0d 0a|"; http_header; classtype:trojan-activity; sid:2002874; rev:12; metadata:created_at 2010_07_30, updated_at 2017_10_30;)
 
@@ -584,7 +582,9 @@ alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET USER_AGENTS Suspic
 
 alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET USER_AGENTS Suspicious User-Agent (dBrowser CallGetResponse)"; flow:to_server,established; threshold:type limit, count 2, track by_src, seconds 300; content:"User-Agent|3a 20|dBrowser"; http_header; depth:20; content:"CallGetResponse:"; fast_pattern; http_header; distance:3; within:16; pcre:"/^User\x2dAgent\x3a\x20dBrowser\x20\d\x20CallGetResponse\x3a\d/H"; reference:md5,e09ad59bff10bd4b730ee643809ec9a7; classtype:trojan-activity; sid:2034948; rev:2; metadata:affected_product Windows_XP_Vista_7_8_10_Server_32_64_Bit, attack_target Client_Endpoint, created_at 2022_01_19, deployment Perimeter, signature_severity Minor, updated_at 2022_01_19, reviewed_at 2024_05_07;)
 
-alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET USER_AGENTS Suspicious User-Agent (example/1.0)"; flow:to_server,established; content:"User-Agent|3a 20|example/1.0|0d 0a|"; http_header; reference:url,cybereason.com/blog/strifewater-rat-iranian-apt-moses-staff-adds-new-trojan-to-ransomware-operations; classtype:bad-unknown; sid:2035032; rev:2; metadata:affected_product Windows_XP_Vista_7_8_10_Server_32_64_Bit, attack_target Client_Endpoint, created_at 2022_02_01, deployment Perimeter, signature_severity Minor, updated_at 2022_02_07;)
+alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET USER_AGENTS websocket-sharp User-Agent Observed"; flow:established,to_server; content:"User-Agent|3a 20|websocket-sharp/"; fast_pattern; http_header; reference:url,github.com/sta/websocket-sharp; classtype:bad-unknown; sid:2053849; rev:1; metadata:affected_product Windows_XP_Vista_7_8_10_Server_32_64_Bit, affected_product Windows_11, attack_target Client_Endpoint, tls_state TLSDecrypt, created_at 2022_02_01, deployment Perimeter, performance_impact Low, confidence High, signature_severity Informational, updated_at 2024_06_25, former_sid 2851038;)
+
+alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET USER_AGENTS Suspicious User-Agent (example/1.0)"; flow:to_server,established; content:"User-Agent|3a 20|example/1.0|0d 0a|"; http_header; reference:url,cybereason.com/blog/strifewater-rat-iranian-apt-moses-staff-adds-new-trojan-to-ransomware-operations; classtype:bad-unknown; sid:2035032; rev:2; metadata:affected_product Windows_XP_Vista_7_8_10_Server_32_64_Bit, attack_target Client_Endpoint, created_at 2022_02_01, deployment Perimeter, signature_severity Minor, updated_at 2022_02_07, reviewed_at 2024_06_26;)
 
 alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET USER_AGENTS Suspcious LeakIX User-Agent (l9explore)"; flow:established,to_server; content:"User-Agent|3a 20|l9explore"; fast_pattern; http_header; reference:url,ithub.com/LeakIX/l9format; classtype:bad-unknown; sid:2035314; rev:1; metadata:affected_product Linux, attack_target Server, created_at 2022_02_28, deployment Perimeter, signature_severity Minor, updated_at 2022_02_28;)
 
@@ -657,4 +657,6 @@ alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET USER_AGENTS Observ
 #alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET USER_AGENTS Suspicious User-Agent Beginning with digits - Likely spyware/trojan"; flow:established,to_server; content:"User-Agent|3a| "; http_header; content:!"User-Agent|3a| Mozilla/"; http_header; pcre:"/\x0d\x0aUser-Agent\: \d+/H"; content:!"liveupdate.symantecliveupdate.com|0d 0a|"; http_header; classtype:trojan-activity; sid:2010697; rev:9; metadata:affected_product Any, attack_target Client_Endpoint, created_at 2010_07_30, deployment Perimeter, deprecation_reason Performance, performance_impact Significant, signature_severity Major, tag User_Agent, updated_at 2024_02_27;)
 
 #alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET USER_AGENTS Microsoft Edge on Windows 10 SET"; flow:established,to_server; content:"User-Agent|3a 20|"; http_header; content:"Windows NT 10."; http_header; distance:0; content:"Edge/12."; http_header; distance:0; fast_pattern; flowbits:set,ET_EDGE_UA; flowbits:noalert; classtype:misc-activity; sid:2023197; rev:5; metadata:affected_product Microsoft_Edge_Browser, created_at 2016_09_13, deployment Perimeter, deprecation_reason Relevance, performance_impact Low, signature_severity Informational, tag User_Agent, updated_at 2024_04_25;)
+
+alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET USER_AGENTS Go HTTP Client User-Agent"; flow:established,to_server; content:"User-Agent|3a 20|Go-http-client|0d 0a|"; nocase; http_header; fast_pattern; classtype:misc-activity; sid:2024897; rev:3; metadata:attack_target Client_Endpoint, created_at 2017_10_23, deployment Perimeter, confidence High, signature_severity Informational, updated_at 2024_06_13;)
 

@@ -2,7 +2,7 @@
 #
 # This distribution may contain rules under two different licenses. 
 #
-#  Rules with sids 100000000 through 100000908 are under the GPLv2.
+#  Rules with sids 1 through 3464, and 100000000 through 100000908 are under the GPLv2.
 #  A copy of that license is available at http://www.gnu.org/licenses/gpl-2.0.html
 #
 #  Rules with sids 2000000 through 2799999 are from Emerging Threats and are covered under the BSD License 
@@ -36,7 +36,7 @@
 #
 #
 
-# This Ruleset is EmergingThreats Open No-GPL optimized for snort-2.9.0-enhanced.
+# This Ruleset is EmergingThreats Open optimized for snort-2.9.0-enhanced.
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET any (msg:"ET SCAN Amap TCP Service Scan Detected"; flow:to_server; flags:PA; content:"service|3A|thc|3A 2F 2F|"; depth:105; content:"service|3A|thc"; within:40; reference:url,freeworld.thc.org/thc-amap/; classtype:attempted-recon; sid:2010371; rev:2; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
 
@@ -82,7 +82,7 @@ alert tcp $EXTERNAL_NET any -> $HOME_NET 2555 (msg:"ET SCAN External to Internal
 
 alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN DavTest WebDav Vulnerability Scanner Default User Agent Detected"; flow:established,to_server; content:"User-Agent|3a| DAV.pm/v"; http_header; reference:url,www.darknet.org.uk/2010/04/davtest-webdav-vulerability-scanning-scanner-tool/; reference:url,code.google.com/p/davtest/; classtype:attempted-recon; sid:2011089; rev:4; metadata:created_at 2010_07_30, updated_at 2010_08_01;)
 
-alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Mini MySqlatOr SQL Injection Scanner"; flow:to_server,established; content:"User-Agent|3a| prog.CustomCrawler"; http_header; reference:url,www.scrt.ch/pages_en/minimysqlator.html; classtype:attempted-recon; sid:2008729; rev:6; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_08_01;)
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Mini MySqlatOr SQL Injection Scanner"; flow:to_server,established; content:"User-Agent|3a| prog.CustomCrawler"; http_header; reference:url,www.scrt.ch/pages_en/minimysqlator.html; classtype:attempted-recon; sid:2008729; rev:6; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_08_01, mitre_tactic_id TA0001, mitre_tactic_name Initial_Access, mitre_technique_id T1190, mitre_technique_name Exploit_Public_Facing_Application;)
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN Nmap Scripting Engine User-Agent Detected (Nmap NSE)"; flow:to_server,established; content:"User-Agent|3a| Nmap NSE"; http_header; classtype:web-application-attack; sid:2009359; rev:4; metadata:created_at 2010_07_30, updated_at 2010_08_01;)
 
@@ -184,13 +184,13 @@ alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN Medusa User-A
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN WebHack Control Center User-Agent Inbound (WHCC/)"; flow:to_server,established; content:"WHCC"; http_header; fast_pattern:only; nocase; pcre:"/^User-Agent\x3a[^\n]+WHCC/Hmi"; reference:url,www.governmentsecurity.org/forum/index.php?showtopic=5112&pid=28561&mode=threaded&start=; classtype:trojan-activity; sid:2003924; rev:13; metadata:created_at 2010_07_30, updated_at 2010_11_01;)
 
-alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Absinthe SQL Injection Tool HTTP Header Detected"; flow:established,to_server; content:"User-Agent|3A| Absinthe"; fast_pattern:only; http_header; nocase; reference:url,0x90.org/releases/absinthe; classtype:attempted-recon; sid:2009555; rev:7; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_11_04;)
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Absinthe SQL Injection Tool HTTP Header Detected"; flow:established,to_server; content:"User-Agent|3A| Absinthe"; fast_pattern:only; http_header; nocase; reference:url,0x90.org/releases/absinthe; classtype:attempted-recon; sid:2009555; rev:7; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_11_04, mitre_tactic_id TA0001, mitre_tactic_name Initial_Access, mitre_technique_id T1190, mitre_technique_name Exploit_Public_Facing_Application;)
 
 alert udp $EXTERNAL_NET any -> $HOME_NET any (msg:"ET SCAN Amap UDP Service Scan Detected"; dsize:<135; content:"THCTHCTHCTHCTHC|20 20 20|"; fast_pattern:only; reference:url,freeworld.thc.org/thc-amap/; classtype:attempted-recon; sid:2010372; rev:5; metadata:created_at 2010_07_30, updated_at 2010_11_04;)
 
-alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Possible Mysqloit Operating System Fingerprint/SQL Injection Test Scan Detected"; flow:established,to_server; content:"+UNION+select+'BENCHMARK(10000000,SHA1(1))"; http_uri; fast_pattern:only; reference:url,code.google.com/p/mysqloit/; classtype:attempted-recon; sid:2009883; rev:6; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_11_04;)
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Possible Mysqloit Operating System Fingerprint/SQL Injection Test Scan Detected"; flow:established,to_server; content:"+UNION+select+'BENCHMARK(10000000,SHA1(1))"; http_uri; fast_pattern:only; reference:url,code.google.com/p/mysqloit/; classtype:attempted-recon; sid:2009883; rev:6; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_11_04, mitre_tactic_id TA0001, mitre_tactic_name Initial_Access, mitre_technique_id T1190, mitre_technique_name Exploit_Public_Facing_Application;)
 
-alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Default Mysqloit User Agent Detected - Mysql Injection Takover Tool"; flow:established,to_server; content:"User-Agent|3a| Mysqloit"; fast_pattern:only; http_header; reference:url,code.google.com/p/mysqloit/; classtype:attempted-recon; sid:2009882; rev:5; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_11_04;)
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Default Mysqloit User Agent Detected - Mysql Injection Takover Tool"; flow:established,to_server; content:"User-Agent|3a| Mysqloit"; fast_pattern:only; http_header; reference:url,code.google.com/p/mysqloit/; classtype:attempted-recon; sid:2009882; rev:5; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_11_04, mitre_tactic_id TA0001, mitre_tactic_name Initial_Access, mitre_technique_id T1190, mitre_technique_name Exploit_Public_Facing_Application;)
 
 alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Grabber.py Web Scan Detected"; flow:to_server,established; content:"User-Agent|3a| Grabber"; fast_pattern:only; http_header; reference:url,rgaucher.info/beta/grabber/; classtype:attempted-recon; sid:2009483; rev:5; metadata:created_at 2010_07_30, updated_at 2010_11_04;)
 
@@ -198,15 +198,15 @@ alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Grabber.p
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN DirBuster Web App Scan in Progress"; flow:to_server,established; content:"User-Agent|3a| DirBuster"; fast_pattern:only; http_header; reference:url,owasp.org; classtype:web-application-attack; sid:2008186; rev:5; metadata:created_at 2010_07_30, updated_at 2010_11_04;)
 
-alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN bsqlbf Brute Force SQL Injection"; flow:established,to_server; content:"User-Agent|3a| bsqlbf"; fast_pattern:only; http_header; nocase; reference:url,code.google.com/p/bsqlbf-v2/; classtype:web-application-activity; sid:2008362; rev:6; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_11_04;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN bsqlbf Brute Force SQL Injection"; flow:established,to_server; content:"User-Agent|3a| bsqlbf"; fast_pattern:only; http_header; nocase; reference:url,code.google.com/p/bsqlbf-v2/; classtype:web-application-activity; sid:2008362; rev:6; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_11_04, mitre_tactic_id TA0001, mitre_tactic_name Initial_Access, mitre_technique_id T1190, mitre_technique_name Exploit_Public_Facing_Application;)
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN Watchfire AppScan Web App Vulnerability Scanner"; flow:established,to_server; content:"/appscan_fingerprint/mac_address"; fast_pattern:only; nocase; http_uri; reference:url,www.watchfire.com/products/appscan/default.aspx; classtype:attempted-recon; sid:2008311; rev:6; metadata:created_at 2010_07_30, updated_at 2010_11_04;)
 
-#alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN pangolin SQL injection tool"; flow:established,to_server; content:"User-Agent|3a| pangolin"; fast_pattern:only; http_header; reference:url,www.lifedork.net/pangolin-best-sql-injection-tool.html; classtype:web-application-activity; sid:2010343; rev:6; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_11_04;)
+#alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN pangolin SQL injection tool"; flow:established,to_server; content:"User-Agent|3a| pangolin"; fast_pattern:only; http_header; reference:url,www.lifedork.net/pangolin-best-sql-injection-tool.html; classtype:web-application-activity; sid:2010343; rev:6; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_11_04, mitre_tactic_id TA0001, mitre_tactic_name Initial_Access, mitre_technique_id T1190, mitre_technique_name Exploit_Public_Facing_Application;)
 
-alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN SQL Injection Attempt (Agent uil2pn)"; flow:to_server,established; content:"User-Agent|3a| uil2pn|0d 0a|"; fast_pattern:only; http_header; reference:url,www.prevx.com/filenames/89385984947861762-X1/UIL2PN.EXE.html; classtype:web-application-attack; sid:2010215; rev:6; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_11_04;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN SQL Injection Attempt (Agent uil2pn)"; flow:to_server,established; content:"User-Agent|3a| uil2pn|0d 0a|"; fast_pattern:only; http_header; reference:url,www.prevx.com/filenames/89385984947861762-X1/UIL2PN.EXE.html; classtype:web-application-attack; sid:2010215; rev:6; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_11_04, mitre_tactic_id TA0001, mitre_tactic_name Initial_Access, mitre_technique_id T1190, mitre_technique_name Exploit_Public_Facing_Application;)
 
-alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN SQL Power Injector SQL Injection User Agent Detected"; flow:to_server,established; content:"User-Agent|3a| SQL Power Injector"; fast_pattern:only; http_header; content:"Security tool (Make sure it is used with the administrator consent)"; reference:url,www.sqlpowerinjector.com/index.htm; reference:url,en.wikipedia.org/wiki/Sql_injection; classtype:attempted-recon; sid:2009769; rev:5; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_11_04;)
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN SQL Power Injector SQL Injection User Agent Detected"; flow:to_server,established; content:"User-Agent|3a| SQL Power Injector"; fast_pattern:only; http_header; content:"Security tool (Make sure it is used with the administrator consent)"; reference:url,www.sqlpowerinjector.com/index.htm; reference:url,en.wikipedia.org/wiki/Sql_injection; classtype:attempted-recon; sid:2009769; rev:5; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2010_11_04, mitre_tactic_id TA0001, mitre_tactic_name Initial_Access, mitre_technique_id T1190, mitre_technique_name Exploit_Public_Facing_Application;)
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN Tomcat admin-admin login credentials"; flow:to_server,established; content:"/manager/html"; fast_pattern:only; nocase; http_uri; content:"Authorization|3a| Basic YWRtaW46YWRtaW4="; http_header; flowbits:set,ET.Tomcat.login.attempt; reference:url,tomcat.apache.org; classtype:attempted-admin; sid:2009217; rev:9; metadata:created_at 2010_07_30, updated_at 2010_11_04;)
 
@@ -244,10 +244,11 @@ alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Asp-Audit
 
 alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Inspathx Path Disclosure Scan"; flow:established,to_server; content:"GET"; http_method; content:"varhttp|3A|/"; http_uri; nocase; content:"wwwhttp|3A|/"; http_uri; nocase; content:"htmlhttp|3A|/"; http_uri; nocase; threshold:type limit, count 1, seconds 30, track by_src; reference:url,code.google.com/p/inspathx/; reference:url,www.darknet.org.uk/2010/09/inspathx-tool-for-finding-path-disclosure-vulnerabilities/; classtype:attempted-recon; sid:2011809; rev:4; metadata:created_at 2010_10_13, updated_at 2011_01_20;)
 
-alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN Havij SQL Injection Tool User-Agent Inbound"; flow:established,to_server; content:"|29| Havij|0d 0a|Connection|3a| "; http_header; reference:url,itsecteam.com/en/projects/project1.htm; classtype:web-application-attack; sid:2012606; rev:2; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2011_03_31, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2011_03_31;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN Havij SQL Injection Tool User-Agent Inbound"; flow:established,to_server; content:"|29| Havij|0d 0a|Connection|3a| "; http_header; reference:url,itsecteam.com/en/projects/project1.htm; classtype:web-application-attack; sid:2012606; rev:2; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2011_03_31, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2011_03_31, mitre_tactic_id TA0001, mitre_tactic_name Initial_Access, mitre_technique_id T1190, mitre_technique_name Exploit_Public_Facing_Application;)
 
-alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET SCAN Havij SQL Injection Tool User-Agent Outbound"; flow:established,to_server; content:"|29| Havij|0d 0a|Connection|3a| "; http_header; reference:url,itsecteam.com/en/projects/project1.htm; classtype:web-application-attack; sid:2011924; rev:2; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_11_12, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2011_03_31;)
+alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET SCAN Havij SQL Injection Tool User-Agent Outbound"; flow:established,to_server; content:"|29| Havij|0d 0a|Connection|3a| "; http_header; reference:url,itsecteam.com/en/projects/project1.htm; classtype:web-application-attack; sid:2011924; rev:2; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_11_12, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2011_03_31, mitre_tactic_id TA0001, mitre_tactic_name Initial_Access, mitre_technique_id T1190, mitre_technique_name Exploit_Public_Facing_Application;)
 
+alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN SolarWinds IP scan attempt"; icode:0; itype:8; content:"SolarWinds.Net"; nocase; classtype:network-scan; sid:2101918; rev:7; metadata:created_at 2010_09_23, updated_at 2011_04_26;)
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN OpenVAS User-Agent Inbound"; flow:established,to_server; content:"User-Agent|3A| "; http_header; content:"OpenVAS"; http_header; fast_pattern; within:100; reference:url,openvas.org; classtype:attempted-recon; sid:2012726; rev:4; metadata:created_at 2011_04_26, updated_at 2011_04_26;)
 
@@ -259,24 +260,35 @@ alert tcp $EXTERNAL_NET any -> $HOME_NET 143 (msg:"ET SCAN Rapid IMAP Connection
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET 993 (msg:"ET SCAN Rapid IMAPS Connections - Possible Brute Force Attack"; flags: S,12; threshold: type both, track by_src, count 30, seconds 60; classtype:misc-activity; sid:2002995; rev:9; metadata:created_at 2010_07_30, updated_at 2011_05_23;)
 
-alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Sqlmap SQL Injection Scan"; flow:to_server,established; content:"User-Agent|3a| sqlmap"; fast_pattern:only; http_header; detection_filter:track by_dst, count 4, seconds 20; reference:url,sqlmap.sourceforge.net; classtype:attempted-recon; sid:2008538; rev:8; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2011_05_25;)
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Sqlmap SQL Injection Scan"; flow:to_server,established; content:"User-Agent|3a| sqlmap"; fast_pattern:only; http_header; detection_filter:track by_dst, count 4, seconds 20; reference:url,sqlmap.sourceforge.net; classtype:attempted-recon; sid:2008538; rev:8; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2011_05_25, mitre_tactic_id TA0001, mitre_tactic_name Initial_Access, mitre_technique_id T1190, mitre_technique_name Exploit_Public_Facing_Application;)
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN Suspicious User-Agent inbound (bot)"; flow:to_server,established; content:"User-Agent|3a| bot/"; fast_pattern:only; http_header; nocase; threshold: type limit, count 3, seconds 300, track by_src; classtype:trojan-activity; sid:2008228; rev:10; metadata:affected_product Any, attack_target Client_Endpoint, created_at 2010_07_30, deployment Perimeter, signature_severity Major, tag User_Agent, updated_at 2011_05_26;)
 
+#alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN Broadscan Smurf Scanner"; dsize:4; icmp_id:0; icmp_seq:0; itype:8; classtype:attempted-recon; sid:2100478; rev:4; metadata:created_at 2010_09_23, updated_at 2011_06_02;)
 
+alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN ISS Pinger"; itype:8; content:"ISSPNGRQ"; depth:32; reference:arachnids,158; classtype:attempted-recon; sid:2100465; rev:4; metadata:created_at 2010_09_23, updated_at 2011_06_02;)
 
+alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN PING CyberKit 2.2 Windows"; itype:8; content:"|AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA|"; depth:32; reference:arachnids,154; classtype:misc-activity; sid:2100483; rev:6; metadata:created_at 2010_09_23, updated_at 2011_06_02;)
 
+alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN PING Delphi-Piette Windows"; itype:8; content:"Pinging from Del"; depth:32; reference:arachnids,155; classtype:misc-activity; sid:2100372; rev:8; metadata:created_at 2010_09_23, updated_at 2011_06_02;)
 
+#alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN PING NMAP"; dsize:0; itype:8; reference:arachnids,162; classtype:attempted-recon; sid:2100469; rev:4; metadata:created_at 2010_09_23, updated_at 2011_06_02;)
 
+alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN PING Sniffer Pro/NetXRay network scan"; itype:8; content:"Cinco Network, Inc."; depth:32; classtype:misc-activity; sid:2100484; rev:5; metadata:created_at 2010_09_23, updated_at 2011_06_02;)
 
+#alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN icmpenum v1.1.1"; dsize:0; icmp_id:666 ; icmp_seq:0; id:666; itype:8; reference:arachnids,450; classtype:attempted-recon; sid:2100471; rev:4; metadata:created_at 2010_09_23, updated_at 2011_06_02;)
 
+alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN superscan echo"; dsize:8; itype:8; content:"|00 00 00 00 00 00 00 00|"; classtype:attempted-recon; sid:2100474; rev:5; metadata:created_at 2010_09_23, updated_at 2011_06_02;)
 
+alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN webtrends scanner"; icode:0; itype:8; content:"|00 00 00 00|EEEEEEEEEEEE"; reference:arachnids,307; classtype:attempted-recon; sid:2100476; rev:5; metadata:created_at 2010_09_23, updated_at 2011_06_02;)
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN ZmEu Scanner User-Agent Inbound"; flow:established,to_server; content:"User-Agent|3a| ZmEu"; http_header; classtype:trojan-activity; sid:2012936; rev:1; metadata:created_at 2011_06_07, updated_at 2011_06_07;)
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN Internal Dummy Connection User-Agent Inbound"; flow:established,to_server; content:"User-Agent|3a| "; http_header; content:"(internal dummy connection)"; http_header; within:100; classtype:trojan-activity; sid:2012937; rev:1; metadata:created_at 2011_06_07, updated_at 2011_06_07;)
 
+alert tcp $EXTERNAL_NET any -> $HOME_NET 22 (msg:"GPL SCAN SSH Version map attempt"; flow:to_server,established; content:"Version_Mapper"; fast_pattern:only; nocase; classtype:network-scan; sid:2101638; rev:7; metadata:created_at 2010_09_23, updated_at 2011_06_08;)
 
+#alert udp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN Webtrends Scanner UDP Probe"; content:"|0A|help|0A|quite|0A|"; classtype:attempted-recon; sid:2100637; rev:4; metadata:created_at 2010_09_23, updated_at 2011_06_22;)
 
 alert tcp any any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN DominoHunter Security Scan in Progress"; flow:established,to_server; content:"User-Agent|3a| DominoHunter"; nocase; http_header; reference:url,packetstormsecurity.org/files/31653/DominoHunter-0.92.zip.html; classtype:web-application-attack; sid:2013171; rev:1; metadata:created_at 2011_07_02, updated_at 2011_07_02;)
 
@@ -288,6 +300,7 @@ alert tcp any any -> $HOME_NET 21 (msg:"ET SCAN Nessus FTP Scan detected (ftp_an
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ET SCAN Nessus FTP Scan detected (ftp_writeable_directories.nasl)"; flow:to_server,established; content:"MKD"; nocase; depth:3; content:"Nessus"; nocase; reference:url,www.nessus.org/plugins/index.php?view=single&id=19782; reference:url,osvdb.org/show/osvdb/76; classtype:attempted-recon; sid:2013264; rev:1; metadata:created_at 2011_07_13, updated_at 2011_07_13;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 79 (msg:"GPL SCAN Finger Version Query"; flow:to_server,established; content:"version"; classtype:attempted-recon; sid:2101541; rev:6; metadata:created_at 2010_09_23, updated_at 2011_07_19;)
 
 #alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN Potential muieblackcat scanner double-URI and HTTP library"; flow:established,to_server; content:"GET //"; depth:6; fast_pattern; content:"HTTP/1.1|0d 0a|Accept|3a| */*|0d 0a|Accept-Language|3a| en-us|0d 0a|Accept-Encoding|3a| gzip, deflate|0d 0a|Host|3a| "; http_header; content:"|0d 0a|Connection|3a| Close|0d 0a 0d 0a|"; http_header; distance:0; classtype:attempted-recon; sid:2013116; rev:5; metadata:created_at 2011_06_24, updated_at 2011_07_28;)
 
@@ -295,7 +308,9 @@ alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Toata Sca
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN Kingcope KillApache.pl Apache mod_deflate DoS attempt"; flow:established,to_server; content:"Range|3a|bytes=0-,5-0,5-1,5-2,5-3,5-4,5-5,5-6,5-7,5-8,5-9,5-10,5-11,5-12,5-13,5-14"; http_header; fast_pattern:only; reference:url,seclists.org/fulldisclosure/2011/Aug/175; classtype:attempted-dos; sid:2013472; rev:2; metadata:created_at 2011_08_26, updated_at 2011_08_26;)
 
+#alert ip any any <> 127.0.0.0/8 any (msg:"GPL SCAN loopback traffic";  reference:url,rr.sans.org/firewall/egress.php; classtype:bad-unknown; sid:2100528; rev:6; metadata:created_at 2010_09_23, updated_at 2011_09_21;)
 
+#alert ip any any -> any any (msg:"GPL SCAN same SRC/DST"; sameip; reference:bugtraq,2666; reference:cve,1999-0016; reference:url,www.cert.org/advisories/CA-1997-28.html; classtype:bad-unknown; sid:2100527; rev:9; metadata:created_at 2010_09_23, updated_at 2011_09_21;)
 
 alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN NMAP SQL Spider Scan"; flow:established,to_server; content:"GET"; http_method; content:" OR sqlspider"; http_uri; reference:url,nmap.org/nsedoc/scripts/sql-injection.html; classtype:web-application-attack; sid:2013778; rev:1; metadata:created_at 2011_10_19, updated_at 2011_10_19;)
 
@@ -307,19 +322,31 @@ alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Apache mo
 
 alert udp $EXTERNAL_NET any -> $HOME_NET 5060 (msg:"ET SCAN Modified Sipvicious Sundayddr Scanner (sipsscuser)"; content:"From|3A 20 22|sipsscuser|22|"; fast_pattern:only; threshold: type limit, count 1, seconds 60, track by_src; reference:url,code.google.com/p/sipvicious/; reference:url,blog.sipvicious.org/; reference:url,honeynet.org.au/?q=sunday_scanner; classtype:attempted-recon; sid:2012204; rev:4; metadata:created_at 2011_01_20, updated_at 2011_10_26;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 79 (msg:"GPL SCAN Finger . query"; flow:to_server,established; content:"."; reference:arachnids,130; reference:cve,1999-0198; reference:nessus,10072; classtype:attempted-recon; sid:2100333; rev:10; metadata:created_at 2010_09_23, updated_at 2011_12_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 79 (msg:"GPL SCAN Finger / execution attempt"; flow:to_server,established; content:"/"; pcre:"/^\x2f/smi"; reference:cve,1999-0612; reference:cve,2000-0915; classtype:attempted-recon; sid:2103151; rev:5; metadata:created_at 2010_09_23, updated_at 2011_12_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 79 (msg:"GPL SCAN Finger 0 Query"; flow:to_server,established; content:"0"; reference:arachnids,131; reference:arachnids,378; reference:cve,1999-0197; reference:nessus,10069; classtype:attempted-recon; sid:2100332; rev:10; metadata:created_at 2010_09_23, updated_at 2011_12_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 79 (msg:"GPL SCAN Finger Account Enumeration Attempt"; flow:to_server,established; content:"a b c d e f"; nocase; reference:nessus,10788; classtype:attempted-recon; sid:2100321; rev:7; metadata:created_at 2010_09_23, updated_at 2011_12_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 79 (msg:"GPL SCAN cybercop query"; flow:to_server,established; content:"|0A|     "; depth:10; reference:arachnids,132; reference:cve,1999-0612; classtype:attempted-recon; sid:2100331; rev:11; metadata:created_at 2010_09_23, updated_at 2011_12_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 79 (msg:"GPL SCAN cybercop redirection"; dsize:11; flow:to_server,established; content:"@localhost|0A|"; reference:arachnids,11; classtype:attempted-recon; sid:2100329; rev:9; metadata:created_at 2010_09_23, updated_at 2011_12_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 79 (msg:"GPL SCAN Finger Null Request"; flow:to_server,established; content:"|00|"; reference:arachnids,377; classtype:attempted-recon; sid:2100324; rev:7; metadata:created_at 2010_09_23, updated_at 2011_12_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 79 (msg:"GPL SCAN Finger Probe 0 Attempt"; flow:to_server,established; content:"0"; reference:arachnids,378; classtype:attempted-recon; sid:2100325; rev:6; metadata:created_at 2010_09_23, updated_at 2011_12_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 79 (msg:"GPL SCAN Finger Redirection Attempt"; flow:to_server,established; content:"@"; reference:arachnids,251; reference:cve,1999-0105; reference:nessus,10073; classtype:attempted-recon; sid:2100330; rev:11; metadata:created_at 2010_09_23, updated_at 2011_12_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 79 (msg:"GPL SCAN Finger Root Query"; flow:to_server,established; content:"root"; reference:arachnids,376; classtype:attempted-recon; sid:2100323; rev:7; metadata:created_at 2010_09_23, updated_at 2011_12_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 79 (msg:"GPL SCAN Finger Search Query"; flow:to_server,established; content:"search"; reference:arachnids,375; reference:cve,1999-0259; classtype:attempted-recon; sid:2100322; rev:12; metadata:created_at 2010_09_23, updated_at 2011_12_01;)
 
+alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"GPL SCAN adm scan"; flow:to_server,established; content:"PASS ddd@|0A|"; reference:arachnids,332; classtype:suspicious-login; sid:2100353; rev:7; metadata:created_at 2010_09_23, updated_at 2011_12_01;)
 
-alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN SQLix SQL Injection Vector Scan"; flow:established,to_server; content:"GET"; http_method; content:"myVAR=1234"; http_header; fast_pattern; content:"Windows 98"; distance:36; within:120; http_header; reference:url,www.owasp.org/index.php/Category%3aOWASP_SQLiX_Project; classtype:attempted-recon; sid:2008654; rev:7; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2011_12_08;)
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN SQLix SQL Injection Vector Scan"; flow:established,to_server; content:"GET"; http_method; content:"myVAR=1234"; http_header; fast_pattern; content:"Windows 98"; distance:36; within:120; http_header; reference:url,www.owasp.org/index.php/Category%3aOWASP_SQLiX_Project; classtype:attempted-recon; sid:2008654; rev:7; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2011_12_08, mitre_tactic_id TA0001, mitre_tactic_name Initial_Access, mitre_technique_id T1190, mitre_technique_name Exploit_Public_Facing_Application;)
 
 #alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Gootkit Scanner User-Agent Inbound"; flow:established,to_server; content:"Gootkit auto-rooter scanner"; http_header; classtype:web-application-attack; sid:2014022; rev:1; metadata:created_at 2011_12_13, updated_at 2011_12_13;)
 
@@ -339,6 +366,7 @@ alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS 8080 (msg:"ET SCAN Tomcat Auth Brut
 
 alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS 8080 (msg:"ET SCAN Tomcat Auth Brute Force attempt (admin)"; flow:to_server,established; content:"Authorization|3a| Basic YWRtaW46"; fast_pattern:15,14; http_header; threshold: type threshold, track by_src, count 5, seconds 30; classtype:web-application-attack; sid:2008453; rev:9; metadata:created_at 2010_07_30, updated_at 2012_01_18;)
 
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"GPL SCAN nessus 2.x 404 probe"; flow:to_server,established; content:"/NessusTest"; http_uri; nocase; reference:nessus,10386; classtype:attempted-recon; sid:2102585; rev:2; metadata:created_at 2010_09_23, updated_at 2012_01_31;)
 
 #alert udp $HOME_NET 137 -> $EXTERNAL_NET any (msg:"ET SCAN NBTStat Query Response to External Destination, Possible Windows Network Enumeration"; content:"|20 43 4b 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 00 00 21|"; depth:55; reference:url,technet.microsoft.com/en-us/library/cc940106.aspx; classtype:attempted-recon; sid:2009768; rev:6; metadata:created_at 2010_07_30, updated_at 2012_02_01;)
 
@@ -360,23 +388,41 @@ alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN w3af User
 
 alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN HTExploit Method"; flow:established,to_server; content:"POTATO "; depth:7; reference:url,www.mkit.com.ar/labs/htexploit/download.php; classtype:trojan-activity; sid:2015552; rev:1; metadata:created_at 2012_07_31, updated_at 2012_07_31;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN NULL"; flow:stateless; ack:0; flags:0; seq:0; reference:arachnids,4; classtype:attempted-recon; sid:2100623; rev:7; metadata:created_at 2010_09_23, updated_at 2012_08_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN XMAS"; flow:stateless; flags:SRAFPU,12; reference:arachnids,144; classtype:attempted-recon; sid:2100625; rev:8; metadata:created_at 2010_09_23, updated_at 2012_08_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN cybercop os PA12 attempt"; flow:stateless; flags:PA12; content:"AAAAAAAAAAAAAAAA"; depth:16; reference:arachnids,149; classtype:attempted-recon; sid:2100626; rev:9; metadata:created_at 2010_09_23, updated_at 2012_08_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN cybercop os SFU12 probe"; flow:stateless; ack:0; flags:SFU12; content:"AAAAAAAAAAAAAAAA"; depth:16; reference:arachnids,150; classtype:attempted-recon; sid:2100627; rev:9; metadata:created_at 2010_09_23, updated_at 2012_08_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN nmap TCP"; ack:0; flags:A,12; flow:stateless; reference:arachnids,28; classtype:attempted-recon; sid:2100628; rev:8; metadata:created_at 2010_09_23, updated_at 2012_08_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN nmap XMAS"; flow:stateless; flags:FPU,12; reference:arachnids,30; classtype:attempted-recon; sid:2101228; rev:8; metadata:created_at 2010_09_23, updated_at 2012_08_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN nmap fingerprint attempt"; flags:SFPU; flow:stateless; reference:arachnids,05; classtype:attempted-recon; sid:2100629; rev:7; metadata:created_at 2010_09_23, updated_at 2012_08_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"GPL SCAN sensepost.exe command shell attempt"; flow:to_server,established; content:"/sensepost.exe"; http_uri; nocase; reference:nessus,11003; classtype:web-application-activity; sid:2100989; rev:13; metadata:created_at 2010_09_23, updated_at 2012_08_01;)
 
+#alert tcp $EXTERNAL_NET 10101 -> $HOME_NET any (msg:"GPL SCAN myscan"; flow:stateless; ack:0; flags:S; ttl:>220; reference:arachnids,439; classtype:attempted-recon; sid:2100613; rev:7; metadata:created_at 2010_09_23, updated_at 2012_08_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN SYN FIN"; flow:stateless; flags:SF,12; reference:arachnids,198; classtype:attempted-recon; sid:2100624; rev:8; metadata:created_at 2010_09_23, updated_at 2012_08_01;)
 
+#alert udp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN rusers query UDP"; content:"|00 01 86 A2|"; depth:4; offset:12; content:"|00 00 00 02|"; within:4; distance:4; content:"|00 00 00 00|"; depth:4; offset:4; reference:cve,1999-0626; classtype:attempted-recon; sid:2100612; rev:7; metadata:created_at 2010_09_23, updated_at 2012_08_01;)
 
+alert tcp $EXTERNAL_NET any -> $HOME_NET 22 (msg:"GPL SCAN ssh-research-scanner"; flow:to_server,established; content:"|00 00 00|`|00 00 00 00 00 00 00 00 01 00 00 00|"; fast_pattern:only; classtype:attempted-recon; sid:2100617; rev:6; metadata:created_at 2010_09_23, updated_at 2012_08_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"GPL SCAN NetGear router default password login attempt admin/password"; flow:to_server,established; content:"Authorization|3A|"; http_header; nocase; content:"YWRtaW46cGFzc3dvcmQ"; http_header; distance:0; pcre:"/^Authorization\x3a\s*Basic\s+YWRtaW46cGFzc3dvcmQ/smi"; reference:nessus,11737; classtype:default-login-attempt; sid:2102230; rev:9; metadata:created_at 2010_09_23, updated_at 2012_08_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"GPL SCAN cybercop os probe"; flow:stateless; ack:0; flags:SFP; content:"AAAAAAAAAAAAAAAA"; depth:16; reference:arachnids,145; classtype:attempted-recon; sid:2101133; rev:13; metadata:created_at 2010_09_23, updated_at 2012_08_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"GPL SCAN whisker HEAD/./"; flow:to_server,established; content:"HEAD/./"; reference:url,www.wiretrip.net/rfp/pages/whitepapers/whiskerids.html; classtype:attempted-recon; sid:2101139; rev:8; metadata:created_at 2010_09_23, updated_at 2012_08_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"GPL SCAN cybercop scan"; flow:to_server,established; content:"/cybercop"; http_uri; nocase; reference:arachnids,374; classtype:web-application-activity; sid:2101099; rev:8; metadata:created_at 2010_09_23, updated_at 2012_08_01;)
 
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"GPL SCAN nessus 1.X 404 probe"; flow:to_server,established; content:"/nessus_is_probing_you_"; http_uri; reference:arachnids,301; classtype:web-application-attack; sid:2101102; rev:10; metadata:created_at 2010_09_23, updated_at 2012_08_01;)
 
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 80 (msg:"GPL SCAN cybercop os probe"; flow:stateless; dsize:0; flags:SF12; reference:arachnids,146; classtype:attempted-recon; sid:2100619; rev:7; metadata:created_at 2010_09_23, updated_at 2012_08_01;)
 
 alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET SCAN Brutus Scan Outbound"; flow:established,to_server; content:"Brutus/AET"; http_header; classtype:attempted-recon; sid:2015702; rev:1; metadata:created_at 2012_09_17, updated_at 2012_09_17;)
 
@@ -392,6 +438,7 @@ alert tcp $EXTERNAL_NET any -> $SQL_SERVERS 3306 (msg:"ET SCAN MYSQL MySQL Remot
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN GET with HTML tag in start of URI seen with PHPMyAdmin scanning"; flow:established,to_server; content:"<title>"; http_uri; depth:7; content:"GET"; http_method; classtype:web-application-attack; sid:2016222; rev:1; metadata:created_at 2013_01_16, updated_at 2013_01_16;)
 
+#alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"GPL SCAN Nemesis v1.1 Echo"; dsize:20; icmp_id:0; icmp_seq:0; itype:8; content:"|00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00|"; reference:arachnids,449; classtype:attempted-recon; sid:2100467; rev:5; metadata:created_at 2010_09_23, updated_at 2013_04_11;)
 
 #alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Arachni Web Scan"; flow:established,to_server; content:"/Arachni-"; http_uri; threshold: type limit, track by_src, seconds 60, count 1; reference:url,www.arachni-scanner.com/; classtype:attempted-recon; sid:2017142; rev:1; metadata:created_at 2013_07_13, updated_at 2013_07_13;)
 
@@ -408,8 +455,6 @@ alert udp $EXTERNAL_NET any -> $HOME_NET 5060 (msg:"ET SCAN SipCLI VOIP Scan"; c
 #alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN HTTP OPTIONS invalid method case"; flow:established,to_server; content:"options"; http_method; nocase; content:!"OPTIONS"; http_method; reference:url,www.w3.org/Protocols/rfc2616/rfc2616-sec9.html; classtype:bad-unknown; sid:2011034; rev:5; metadata:created_at 2010_07_30, updated_at 2013_07_22;)
 
 alert tcp $HOME_NET any -> any any (msg:"ET SCAN NETWORK Outgoing Masscan detected"; flow:established,to_server; content:"User-Agent|3A| masscan/"; http_header; reference:url,blog.erratasec.com/2013/10/that-dlink-bug-masscan.html; reference:url,blog.erratasec.com/2013/09/masscan-entire-internet-in-3-minutes.html; classtype:network-scan; sid:2017615; rev:2; metadata:created_at 2013_10_18, updated_at 2013_10_18;)
-
-alert tcp any any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN NETWORK Incoming Masscan detected"; flow:established,to_server; content:"User-Agent|3A| masscan/"; http_header; reference:url,blog.erratasec.com/2013/10/that-dlink-bug-masscan.html; reference:url,blog.erratasec.com/2013/09/masscan-entire-internet-in-3-minutes.html; classtype:network-scan; sid:2017616; rev:2; metadata:created_at 2013_10_18, updated_at 2013_10_18;)
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN FOCA uri"; flow:established,to_server; content:"GET"; http_method; content:"/*F0C4~1*/foca.aspx?aspxerrorpath=/"; http_uri; fast_pattern:only; content:!"Referer|3a 20|"; http_header; content:!"Accept|3a 20|"; http_header; content:!"Connection|3a 20|"; http_header; reference:url,blog.bannasties.com/2013/08/vulnerability-scans/; classtype:attempted-recon; sid:2017950; rev:2; metadata:created_at 2014_01_10, updated_at 2014_01_10;)
 
@@ -445,7 +490,7 @@ alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN SQLNinja 
 
 alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Grendel Web Scan - Default User Agent Detected"; flow:to_server,established; content:"User-Agent|3a| Mozilla/5.0 (compatible|3b| Grendel-Scan"; fast_pattern:37,12; http_header; nocase; content:"http|3a|//www.grendel-scan.com"; http_header; nocase; threshold: type limit, track by_dst, count 1, seconds 60; reference:url,www.grendel-scan.com; classtype:attempted-recon; sid:2009480; rev:9; metadata:created_at 2010_07_30, updated_at 2014_08_27;)
 
-alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN WITOOL SQL Injection Scan"; flow:to_server,established; content:"union+select"; http_raw_uri; content:"select+user"; http_raw_uri; content:"User-Agent|3a| Mozilla/4.0 (compatible|3b| MSIE 6.0|3b| Windows NT 5.0|3b| MyIE2"; fast_pattern:48,20; http_header; threshold: type threshold, track by_dst, count 2, seconds 30; reference:url,witool.sourceforge.net/; classtype:attempted-recon; sid:2009833; rev:11; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2014_08_27;)
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN WITOOL SQL Injection Scan"; flow:to_server,established; content:"union+select"; http_raw_uri; content:"select+user"; http_raw_uri; content:"User-Agent|3a| Mozilla/4.0 (compatible|3b| MSIE 6.0|3b| Windows NT 5.0|3b| MyIE2"; fast_pattern:48,20; http_header; threshold: type threshold, track by_dst, count 2, seconds 30; reference:url,witool.sourceforge.net/; classtype:attempted-recon; sid:2009833; rev:11; metadata:affected_product Web_Server_Applications, attack_target Web_Server, created_at 2010_07_30, deployment Datacenter, signature_severity Major, tag SQL_Injection, updated_at 2014_08_27, mitre_tactic_id TA0001, mitre_tactic_name Initial_Access, mitre_technique_id T1190, mitre_technique_name Exploit_Public_Facing_Application;)
 
 #alert tcp any any -> any any (msg:"ET SCAN Malformed Packet SYN FIN"; flags:SF; classtype:bad-unknown; sid:2011367; rev:2; metadata:created_at 2010_09_28, updated_at 2014_08_31;)
 
@@ -487,7 +532,7 @@ alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN Arachni Scann
 
 alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Possible Scanning for Vulnerable JBoss"; flow:established,to_server; content:"POST"; http_method; content:"/invoker/"; http_uri; depth:9; content:"servlet/"; http_uri; content:"Content-Type|3a 20|application/x-java-serialized-object|3b 0d 0a|"; http_header; content:"org.jboss.invocation.MarshalledValue"; http_client_body; reference:url,blog.imperva.com/2015/12/zero-day-attack-strikes-again-java-zero-day-vulnerability-cve-2015-4852-tracked-by-imperva.html; classtype:web-application-attack; sid:2022240; rev:1; metadata:created_at 2015_12_09, updated_at 2015_12_09;)
 
-alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN COMMIX Command injection scan attempt"; flow:to_server,established; content:"|55 73 65 72 2d 41 67 65 6e 74 3a 20 63 6f 6d 6d 69 78|"; fast_pattern:only; http_header; threshold: type limit, count 1, seconds 60, track by_src; reference:url,github.com/stasinopoulos/commix/blob/master/README.md; classtype:web-application-activity; sid:2022243; rev:1; metadata:created_at 2015_12_11, updated_at 2015_12_11;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN COMMIX Command injection scan attempt"; flow:to_server,established; content:"|55 73 65 72 2d 41 67 65 6e 74 3a 20 63 6f 6d 6d 69 78|"; fast_pattern:only; http_header; threshold: type limit, count 1, seconds 60, track by_src; reference:url,github.com/stasinopoulos/commix/blob/master/README.md; classtype:web-application-activity; sid:2022243; rev:1; metadata:created_at 2015_12_11, updated_at 2015_12_11, mitre_tactic_id TA0008, mitre_tactic_name Lateral_Movement, mitre_technique_id T1210, mitre_technique_name Exploitation_Of_Remote_Services;)
 
 alert tcp $HTTP_SERVERS $HTTP_PORTS -> $EXTERNAL_NET any (msg:"ET SCAN Possible WordPress xmlrpc.php BruteForce in Progress - Response"; flow:established,from_server; flowbits:isset,ET.XMLRPC.PHP; file_data; content:"<name>faultCode</name>"; content:"<int>403</int>"; content:"<string>Incorrect username or password.</string>"; threshold:type both, track by_src, count 5, seconds 120; reference:url,isc.sans.edu/diary/+WordPress+brute+force+attack+via+wp.getUsersBlogs/18427; classtype:attempted-admin; sid:2018755; rev:3; metadata:affected_product Wordpress, affected_product Wordpress_Plugins, attack_target Web_Server, created_at 2014_07_23, deployment Datacenter, signature_severity Major, tag Wordpress, updated_at 2016_01_29;)
 
@@ -507,10 +552,6 @@ alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"ET SCAN ICMP Delphi Likely P
 
 alert tcp $HOME_NET 3306 -> $EXTERNAL_NET any (msg:"ET SCAN Multiple MySQL Login Failures Possible Brute Force Attempt"; flow:from_server,established; dsize:<251; byte_test:1,<,0xfb,0,little; content:"|ff 15 04 23 32 38 30 30 30|"; offset:4; threshold: type threshold, track by_src, count 5, seconds 120; classtype:attempted-recon; sid:2010494; rev:5; metadata:created_at 2010_07_30, updated_at 2017_05_11;)
 
-alert tcp $HOME_NET any -> any 445 (msg:"ET SCAN Behavioral Unusual Port 445 traffic Potential Scan or Infection"; flags: S,12; threshold: type both, track by_src, count 70 , seconds 60; classtype:misc-activity; sid:2001569; rev:14; metadata:created_at 2010_07_30, updated_at 2017_05_11;)
-
-alert tcp $HOME_NET any -> any 139 (msg:"ET SCAN Behavioral Unusual Port 139 traffic Potential Scan or Infection"; flags: S,12; threshold: type both, track by_src, count 70 , seconds 60; classtype:misc-activity; sid:2001579; rev:14; metadata:created_at 2010_07_30, updated_at 2017_05_11;)
-
 alert tcp $HOME_NET any -> any 137 (msg:"ET SCAN Behavioral Unusual Port 137 traffic Potential Scan or Infection"; flags: S,12; threshold: type both, track by_src, count 70 , seconds 60; classtype:misc-activity; sid:2001580; rev:14; metadata:created_at 2010_07_30, updated_at 2017_05_11;)
 
 alert tcp $HOME_NET any -> any 135 (msg:"ET SCAN Behavioral Unusual Port 135 traffic Potential Scan or Infection"; flags: S,12; threshold: type both, track by_src, count 70 , seconds 60; classtype:misc-activity; sid:2001581; rev:14; metadata:created_at 2010_07_30, updated_at 2017_05_11;)
@@ -521,7 +562,7 @@ alert tcp $HOME_NET any -> any 1433 (msg:"ET SCAN Behavioral Unusual Port 1433 t
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET 3389 (msg:"ET SCAN Behavioral Unusually fast Terminal Server Traffic Potential Scan or Infection (Inbound)"; flags: S,12; threshold: type both, track by_src, count 20, seconds 360; classtype:network-scan; sid:2001972; rev:19; metadata:created_at 2010_07_30, updated_at 2023_11_14;)
 
-alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Suspicious User-Agent Containing SQL Inject/ion Likely SQL Injection Scanner"; flow:established,to_server; content:"User-Agent|3A|"; http_header; content:"SQL"; http_header; nocase; content:"Inject"; http_header; fast_pattern:only; nocase; pcre:"/^User-Agent\x3A[^\n]+sql[^\n]+inject/Hmi"; reference:url,www.owasp.org/index.php/SQL_Injection; classtype:attempted-recon; sid:2010087; rev:10; metadata:affected_product Web_Server_Applications, affected_product Any, attack_target Client_Endpoint, created_at 2010_07_30, deployment Perimeter, deployment Datacenter, signature_severity Major, tag SQL_Injection, tag User_Agent, updated_at 2017_05_11;)
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Suspicious User-Agent Containing SQL Inject/ion Likely SQL Injection Scanner"; flow:established,to_server; content:"User-Agent|3A|"; http_header; content:"SQL"; http_header; nocase; content:"Inject"; http_header; fast_pattern:only; nocase; pcre:"/^User-Agent\x3A[^\n]+sql[^\n]+inject/Hmi"; reference:url,www.owasp.org/index.php/SQL_Injection; classtype:attempted-recon; sid:2010087; rev:10; metadata:affected_product Web_Server_Applications, affected_product Any, attack_target Client_Endpoint, created_at 2010_07_30, deployment Perimeter, deployment Datacenter, signature_severity Major, tag SQL_Injection, tag User_Agent, updated_at 2017_05_11, mitre_tactic_id TA0001, mitre_tactic_name Initial_Access, mitre_technique_id T1190, mitre_technique_name Exploit_Public_Facing_Application;)
 
 alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS (msg:"ET SCAN Suspicious User-Agent Containing Web Scan/er Likely Web Scanner"; flow:established,to_server; content:"User|2D|Agent|3A|"; http_header; content:"web"; http_header; nocase; content:"scan"; http_header; fast_pattern:only; nocase; pcre:"/^User-Agent\x3A[^\n]+web[^\n]+scan/Hmi"; classtype:attempted-recon; sid:2010088; rev:8; metadata:affected_product Any, attack_target Client_Endpoint, created_at 2010_07_30, deployment Perimeter, signature_severity Major, tag User_Agent, updated_at 2017_05_11;)
 
@@ -534,8 +575,6 @@ alert tcp $HOME_NET any -> $EXTERNAL_NET 3389 (msg:"ET SCAN Behavioral Unusually
 alert tcp $HOME_NET any -> any any (msg:"ET SCAN Possible Nmap User-Agent Observed"; flow:to_server,established; content:"User-Agent|3a|"; http_header; content:"|20|Nmap"; http_header; fast_pattern; distance:0; classtype:web-application-attack; sid:2024364; rev:3; metadata:affected_product Any, attack_target Client_and_Server, created_at 2017_06_08, deployment Perimeter, performance_impact Low, signature_severity Informational, updated_at 2017_06_13, reviewed_at 2024_05_06;)
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET 5432 (msg:"ET SCAN Suspicious inbound to PostgreSQL port 5432"; flow:to_server; flags:S; threshold: type limit, count 5, seconds 60, track by_src; classtype:bad-unknown; sid:2010939; rev:3; metadata:created_at 2010_07_30, updated_at 2018_03_27;)
-
-alert tcp $EXTERNAL_NET any -> $HOME_NET 4333 (msg:"ET SCAN Suspicious inbound to mSQL port 4333"; flow:to_server; flags:S; threshold: type limit, count 5, seconds 60, track by_src; classtype:bad-unknown; sid:2010938; rev:3; metadata:created_at 2010_07_30, updated_at 2018_03_27;)
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET 3306 (msg:"ET SCAN Suspicious inbound to mySQL port 3306"; flow:to_server; flags:S; threshold: type limit, count 5, seconds 60, track by_src; classtype:bad-unknown; sid:2010937; rev:3; metadata:created_at 2010_07_30, updated_at 2018_03_27;)
 
@@ -716,4 +755,12 @@ alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET SCAN OpenVASVT RCE
 alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SCAN OpenVASVT RCE Test String in HTTP Request Inbound M2"; flow:established,to_server; content:"T3BlblZBU1ZUIFJDRSBUZXN0"; http_uri; threshold:type limit, track by_src, count 1, seconds 60; reference:url,github.com/greenbone/openvas-scanner/blob/622e205327ea374d1ccbb3b0e8dcb3fe5c1bb87d/nasl/nasl_http.c#L120; classtype:bad-unknown; sid:2052821; rev:1; metadata:attack_target Client_Endpoint, created_at 2024_05_22, deployment Perimeter, signature_severity Major, updated_at 2024_05_22;)
 
 alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET SCAN OpenVASVT RCE Test String in HTTP Request Inbound M3"; flow:established,to_server; content:"T3BlblZBU1ZUIFJDRSBUZXN0"; http_header; threshold:type limit, track by_src, count 1, seconds 60; reference:url,github.com/greenbone/openvas-scanner/blob/622e205327ea374d1ccbb3b0e8dcb3fe5c1bb87d/nasl/nasl_http.c#L120; classtype:bad-unknown; sid:2052822; rev:1; metadata:attack_target Client_Endpoint, created_at 2024_05_22, deployment Perimeter, signature_severity Major, updated_at 2024_05_22;)
+
+#alert tcp $HOME_NET any -> any 139 (msg:"ET SCAN Behavioral Unusual Port 139 traffic Potential Scan or Infection"; flags: S,12; threshold: type both, track by_src, count 70 , seconds 60; classtype:misc-activity; sid:2001579; rev:15; metadata:created_at 2010_07_30, deprecation_reason Performance, updated_at 2024_07_02;)
+
+#alert tcp $HOME_NET any -> any 445 (msg:"ET SCAN Behavioral Unusual Port 445 traffic Potential Scan or Infection"; flags: S,12; threshold: type both, track by_src, count 70 , seconds 60; classtype:misc-activity; sid:2001569; rev:15; metadata:created_at 2010_07_30, deprecation_reason Performance, updated_at 2024_07_02;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 4333 (msg:"ET SCAN Suspicious inbound to mSQL port 4333"; flow:to_server; flags:S; threshold: type limit, count 5, seconds 60, track by_src; classtype:bad-unknown; sid:2010938; rev:4; metadata:created_at 2010_07_30, deprecation_reason Performance, updated_at 2024_07_02;)
+
+alert tcp any any -> $HOME_NET $HTTP_PORTS (msg:"ET SCAN NETWORK Incoming Masscan detected"; flow:established,to_server; content:"User-Agent|3A 20|"; http_header; content:"masscan/"; http_header; depth:13; fast_pattern; reference:url,blog.erratasec.com/2013/10/that-dlink-bug-masscan.html; reference:url,blog.erratasec.com/2013/09/masscan-entire-internet-in-3-minutes.html; classtype:network-scan; sid:2017616; rev:3; metadata:created_at 2013_10_18, updated_at 2024_07_23;)
 

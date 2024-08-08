@@ -2,7 +2,7 @@
 #
 # This distribution may contain rules under two different licenses. 
 #
-#  Rules with sids 100000000 through 100000908 are under the GPLv2.
+#  Rules with sids 1 through 3464, and 100000000 through 100000908 are under the GPLv2.
 #  A copy of that license is available at http://www.gnu.org/licenses/gpl-2.0.html
 #
 #  Rules with sids 2000000 through 2799999 are from Emerging Threats and are covered under the BSD License 
@@ -36,7 +36,7 @@
 #
 #
 
-# This Ruleset is EmergingThreats Open No-GPL optimized for snort-2.9.0-enhanced.
+# This Ruleset is EmergingThreats Open optimized for snort-2.9.0-enhanced.
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET 5060 (msg:"ET VOIP INVITE Message Flood TCP"; flow:established,to_server; content:"INVITE"; depth:6; threshold: type both , track by_src, count 100, seconds 60; classtype:attempted-dos; sid:2003192; rev:4; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
 
@@ -64,9 +64,13 @@ alert udp $EXTERNAL_NET any -> $HOME_NET 5060 (msg:"ET VOIP Possible Inbound VOI
 
 alert udp $EXTERNAL_NET any -> $HOME_NET 5060 (msg:"ET VOIP Possible Modified Sipvicious OPTIONS Scan"; content:"OPTIONS "; depth:8; content:"ccxllrlflgig|22|<sip|3A|100"; nocase; distance:0; reference:url,code.google.com/p/sipvicious/; reference:url,blog.sipvicious.org/; classtype:attempted-recon; sid:2011422; rev:2; metadata:created_at 2010_09_28, updated_at 2011_03_01;)
 
+alert ip any any -> any 5060 (msg:"GPL VOIP SIP INVITE message flooding"; content:"INVITE"; depth:6; threshold: type both, track by_src, count 100, seconds 60; classtype:attempted-dos; sid:2100158; rev:4; metadata:created_at 2010_09_23, updated_at 2014_10_30;)
 
+alert ip any any -> any 5060 (msg:"GPL VOIP SIP 407 Proxy Authentication Required Flood"; content:"SIP/2.0 407 Proxy Authentication Required"; depth:42; threshold: type both, track by_src, count 100, seconds 60; classtype:attempted-dos; sid:2100163; rev:4; metadata:created_at 2010_09_23, updated_at 2014_10_30;)
 
+alert udp $EXTERNAL_NET any -> $HOME_NET 5060 (msg:"GPL VOIP EXPLOIT SIP UDP Softphone overflow attempt"; content:"|3B|branch|3D|"; content:"a|3D|"; pcre:"/^a\x3D[^\n]{1000,}/smi"; reference:bugtraq,16213; reference:cve,2006-0189; classtype:misc-attack; sid:2100223; rev:2; metadata:created_at 2010_09_23, cve CVE_2006_0189, updated_at 2014_10_30;)
 
+alert ip any 5060 -> any any (msg:"GPL VOIP SIP 401 Unauthorized Flood"; content:"SIP/2.0 401 Unauthorized"; depth:24; threshold: type both, track by_dst, count 100, seconds 60; classtype:attempted-dos; sid:2100162; rev:5; metadata:created_at 2010_09_23, updated_at 2014_11_06;)
 
 alert tcp $EXTERNAL_NET any -> $HOME_NET 1720 (msg:"ET VOIP Possible Misuse Call from Cisco ooh323"; flow:to_server,established; content:"|28 06|cisco|00|"; offset:14; depth:8; content:"|b8 00 00 27 05|ooh323|06|"; distance:0; within:60; reference:url,videonationsltd.co.uk/2015/04/h-323-cisco-spam-calls/; classtype:misc-attack; sid:2021066; rev:1; metadata:created_at 2015_05_07, updated_at 2015_05_07;)
 

@@ -2,7 +2,7 @@
 #
 # This distribution may contain rules under two different licenses. 
 #
-#  Rules with sids 100000000 through 100000908 are under the GPLv2.
+#  Rules with sids 1 through 3464, and 100000000 through 100000908 are under the GPLv2.
 #  A copy of that license is available at http://www.gnu.org/licenses/gpl-2.0.html
 #
 #  Rules with sids 2000000 through 2799999 are from Emerging Threats and are covered under the BSD License 
@@ -36,7 +36,7 @@
 #
 #
 
-# This Ruleset is EmergingThreats Open No-GPL optimized for snort-2.9.0-enhanced.
+# This Ruleset is EmergingThreats Open optimized for snort-2.9.0-enhanced.
 
 #alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"ET INAPPROPRIATE Kiddy Porn preteen"; flow: from_server,established; content:"preteen"; nocase; threshold: type threshold, track by_dst,count 5, seconds 360; classtype:policy-violation; sid:2001346; rev:8; metadata:created_at 2010_07_30, updated_at 2010_07_30;)
 
@@ -70,12 +70,21 @@
 
 #alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET INAPPROPRIATE Google Image Search, Safe Mode Off"; flow:established,to_server; content:"&safe=off"; http_uri; content:"|0d 0a|Host|3a| images.google.com|0d 0a|"; http_header; classtype:policy-violation; sid:2002925; rev:5; metadata:created_at 2010_07_30, updated_at 2010_08_12;)
 
+#alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"GPL INAPPROPRIATE alt.binaries.pictures.tinygirls"; flow:to_client,established; content:"alt.binaries.pictures.tinygirls"; nocase; classtype:policy-violation; sid:2101837; rev:5; metadata:created_at 2010_09_23, updated_at 2011_10_12;)
 
+#alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"GPL INAPPROPRIATE anal sex"; flow:to_client,established; content:"anal sex"; nocase; classtype:policy-violation; sid:2101317; rev:8; metadata:created_at 2010_09_23, updated_at 2011_10_12;)
 
+#alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"GPL INAPPROPRIATE fuck fuck fuck"; flow:to_client,established; content:"fuck fuck fuck"; nocase; classtype:policy-violation; sid:2101316; rev:8; metadata:created_at 2010_09_23, updated_at 2011_10_12;)
 
+#alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"GPL INAPPROPRIATE hardcore anal"; flow:to_client,established; content:"hardcore anal"; nocase; classtype:policy-violation; sid:2101311; rev:8; metadata:created_at 2010_09_23, updated_at 2011_10_12;)
 
+#alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"GPL INAPPROPRIATE hardcore rape"; flow:to_client,established; content:"hardcore rape"; nocase; classtype:policy-violation; sid:2101318; rev:8; metadata:created_at 2010_09_23, updated_at 2011_10_12;)
 
+#alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"GPL INAPPROPRIATE hot young sex"; flow:to_client,established; content:"hot young sex"; nocase; classtype:policy-violation; sid:2101315; rev:8; metadata:created_at 2010_09_23, updated_at 2011_10_12;)
 
+#alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"GPL INAPPROPRIATE naked lesbians"; flow:to_client,established; content:"naked lesbians"; nocase; classtype:policy-violation; sid:2101833; rev:5; metadata:created_at 2010_09_23, updated_at 2011_10_12;)
 
+#alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"GPL INAPPROPRIATE up skirt"; flow:to_client,established; content:"up skirt"; fast_pattern:only; nocase; classtype:policy-violation; sid:2101313; rev:10; metadata:created_at 2010_09_23, updated_at 2011_10_12;)
 
+#alert tcp $EXTERNAL_NET $HTTP_PORTS -> $HOME_NET any (msg:"GPL INAPPROPRIATE fuck movies"; flow:to_client,established; content:"fuck movies"; nocase; classtype:policy-violation; sid:2101320; rev:9; metadata:created_at 2010_09_23, updated_at 2022_09_21;)
 
