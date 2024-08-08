@@ -252,10 +252,6 @@ alert tcp any any -> $HOME_NET [139,445] (msg:"ET POLICY RemoteControlX rctrlx s
 
 #alert tcp $EXTERNAL_NET any -> $HOME_NET 25 (msg:"ET POLICY Possible Reference to Al Qaeda Propaganda Theme (Al-Wala' Wal Bara) SMTP"; flow: to_client,established; content:"Al-Wala' Wal Bara"; nocase; threshold: type threshold, track by_dst,count 5, seconds 360; classtype:policy-violation; sid:2010591; rev:4; metadata:created_at 2010_07_30, updated_at 2010_09_13;)
 
-alert tcp !$SMTP_SERVERS any -> !$HOME_NET 25 (msg:"ET POLICY Outbound Multiple Non-SMTP Server Emails"; flow:established; content:"mail from|3a|"; nocase; threshold: type threshold, track by_src, count 10, seconds 120; classtype:misc-activity; sid:2000328; rev:12; metadata:created_at 2010_07_30, updated_at 2010_09_21;)
-
-alert tcp !$HOME_NET any -> $HOME_NET 25 (msg:"ET POLICY Inbound Frequent Emails - Possible Spambot Inbound"; flow:established; content:"mail from|3a|"; nocase; threshold: type threshold, track by_src, count 10, seconds 60; classtype:misc-activity; sid:2002087; rev:10; metadata:created_at 2010_07_30, updated_at 2010_09_21;)
-
 #alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET POLICY Yahoo Mail Message Send"; flow:to_server,established; content:"/ym/Compose"; http_uri; nocase; classtype:policy-violation; sid:2000044; rev:11; metadata:created_at 2010_07_30, updated_at 2010_09_21;)
 
 #alert tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"ET POLICY Yahoo Mail General Page View"; flow:to_server,established; content:"/ym/login"; http_uri; nocase; content:".rand="; nocase; classtype:policy-violation; sid:2000341; rev:10; metadata:created_at 2010_07_30, updated_at 2010_09_21;)

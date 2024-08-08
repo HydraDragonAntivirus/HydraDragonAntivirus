@@ -98,8 +98,6 @@ alert udp $HOME_NET any -> any 53 (msg:"ET DNS Query for .to TLD"; content:"|01|
 
 alert udp $HOME_NET any -> any 53 (msg:"ET DNS Query for .cc TLD"; content:"|01|"; offset:2; depth:1; content:"|00 01 00 00 00 00 00|"; distance:1; within:7; content:"|02|cc|00|"; distance:0; fast_pattern; classtype:bad-unknown; sid:2027758; rev:2; metadata:affected_product Any, attack_target Client_Endpoint, created_at 2019_07_26, deployment Perimeter, signature_severity Minor, updated_at 2019_07_26;)
 
-alert udp ![$SMTP_SERVERS,$DNS_SERVERS] any -> $DNS_SERVERS 53 (msg:"ET DNS DNS Lookup for localhost.DOMAIN.TLD"; content:"|01|"; offset:2; depth:1; content:"|00 01 00 00 00 00 00|"; distance:1; within:7; content:"|09|localhost"; fast_pattern; nocase; classtype:bad-unknown; sid:2011802; rev:4; metadata:created_at 2010_10_13, updated_at 2019_08_28;)
-
 alert udp $HOME_NET any -> any 53 (msg:"ET DNS Hiloti DNS CnC Channel Successful Install Message"; content:"|01|"; offset:2; depth:1; content:"|00 01 00 00 00 00 00|"; distance:1; within:7; content:"|05|empty"; nocase; distance:0; content:"|0C|explorer_exe"; nocase; distance:0; reference:url,sign.kaffenews.com/?p=104; reference:url,blog.fortinet.com/hiloti-the-botmaster-of-disguise/; classtype:bad-unknown; sid:2011911; rev:3; metadata:created_at 2010_11_09, updated_at 2019_08_28;)
 
 alert udp $HOME_NET any -> any 53 (msg:"ET DNS DNS Query for Suspicious .ch.vu Domain"; content:"|01|"; offset:2; depth:1; content:"|00 01 00 00 00 00 00|"; distance:1; within:7; content:"|02|ch|02|vu"; fast_pattern; nocase; distance:0; reference:url,google.com/safebrowsing/diagnostic?site=ch.vu; classtype:bad-unknown; sid:2014285; rev:5; metadata:created_at 2012_02_28, updated_at 2019_08_28;)
