@@ -149,6 +149,7 @@ ditekSHen.MALWARE.Win.Ransomware.Epsilon
 inv.exe.sigs.InterServer.net.SHA256.20371
 vhxtdQ.sigs.InterServer.net.SHA256.21881
 winnow.trojan.ts.shipping.51
+TwinWave.EvilJS.AXONestedFunction.20230731
 # False positives YARA
 UPX
 with_sqlite
