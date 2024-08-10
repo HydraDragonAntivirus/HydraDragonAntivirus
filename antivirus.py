@@ -28,7 +28,7 @@ import win32file
 import win32con
 from datetime import datetime, timedelta
 import winreg
-from scapy.all import IP, IPv6, DNS, DNSQR, DNSRR, sniff
+from scapy.all import IP, IPv6, DNS, DNSQR, DNSRR, TCP, UDP, sniff
 import ctypes
 import ipaddress
 from sklearn.metrics.pairwise import cosine_similarity
@@ -673,38 +673,21 @@ def notify_user_worm(file_path, virus_name):
 def notify_user_for_web(domain=None, ip_address=None, url=None):
     notification = Notify()
     notification.title = "Malware or Phishing Alert"
-    if domain and ip_address and url:
-        notification.message = f"Phishing or Malicious activity detected:\nDomain: {domain}\nIP Address: {ip_address}\nURL: {url}"
-    elif domain and ip_address:
-        notification.message = f"Phishing or Malicious activity detected:\nDomain: {domain}\nIP Address: {ip_address}"
-    elif domain and url:
-        notification.message = f"Phishing or Malicious activity detected:\nDomain: {domain}\nURL: {url}"
-    elif ip_address and url:
-        notification.message = f"Phishing or Malicious activity detected:\nIP Address: {ip_address}\nURL: {url}"
-    elif domain:
-        notification.message = f"Phishing or Malicious activity detected:\nDomain: {domain}"
-    elif ip_address:
-        notification.message = f"Phishing or Malicious activity detected:\nIP Address: {ip_address}"
-    elif url:
-        notification.message = f"Phishing or Malicious activity detected:\nURL: {url}"
+    
+    # Build the notification message dynamically
+    message_parts = []
+    if domain:
+        message_parts.append(f"Domain: {domain}")
+    if ip_address:
+        message_parts.append(f"IP Address: {ip_address}")
+    if url:
+        message_parts.append(f"URL: {url}")
+    
+    if message_parts:
+        notification.message = f"Phishing or Malicious activity detected:\n" + "\n".join(message_parts)
     else:
         notification.message = "Phishing or Malicious activity detected"
-    notification.send()
-
-# Function to notify user for detected web threats
-def notify_user_for_web_text(domain=None, ip_address=None):
-    notification = Notify()
-    notification.title = "Phishing or Malicious Alert From Text"
-    if domain and ip_address:
-        notification.message = f"Phishing or Malicious activity detected:\nDomain: {domain}\nIP Address: {ip_address}"
-    elif domain:
-        notification.message = f"Phishing or Malicious activity detected:\nDomain: {domain}"
-    elif ip_address:
-        notification.message = f"Phishing or Malicious activity detected:\nIP Address: {ip_address}"
-    elif url:
-        notification.message = f"Phishing or Malicious activity detected:\nURL: {url}"
-    else:
-        notification.message = "Phishing or Malicious activity detected"
+    
     notification.send()
 
 def notify_user_for_hips(ip_address=None, dst_ip_address=None):
@@ -739,97 +722,119 @@ def is_local_ip(ip):
     except ValueError:
         return False
 
+# Regular expressions for matching IP addresses, IPv6 addresses, domains, and URLs
+ip_regex = re.compile(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')
+ipv6_regex = re.compile(r'\b(?:[a-fA-F0-9]{1,4}:){7}[a-fA-F0-9]{1,4}\b')
+domain_regex = re.compile(r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b')
+url_regex = re.compile(r'\b(?:https?://|www\.)[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/[^\s]*)?\b')
+
 class RealTimeWebProtectionHandler:
     def __init__(self):
         self.scanned_domains = []
         self.scanned_ipv4_addresses = []
         self.scanned_ipv6_addresses = []
         self.scanned_urls = []
+        self.domain_ip_to_file_map = {}
+
+    def is_related_to_critical_paths(self, file_path):
+        return file_path.startswith(sandboxie_folder) or file_path.startswith(main_file_path)
+
+    def map_domain_ip_to_file(self, entity):
+        return self.domain_ip_to_file_map.get(entity)
+
+    def handle_detection(self, entity_type, entity_value):
+        file_path = self.map_domain_ip_to_file(entity_value)
+        notify_info = {'domain': None, 'ip_address': None, 'url': None}
+        
+        if file_path and self.is_related_to_critical_paths(file_path):
+            message = f"{entity_type.capitalize()} {entity_value} is related to a critical path: {file_path}"
+            logging.warning(message)
+            print(message)  # Print the message
+            notify_info[entity_type] = entity_value
+        else:
+            message = f"{entity_type.capitalize()} {entity_value} is not related to critical paths."
+            logging.info(message)
+            print(message)  # Print the message
+        
+        # Only send notification if there is relevant information
+        if any(notify_info.values()):
+            notify_user_for_web(**notify_info)
+
+    def scan_content(self, content):
+        # Extract and scan IP addresses
+        ip_addresses = ip_regex.findall(content)
+        for ip in ip_addresses:
+            self.scan_ip_address(ip)
+
+        # Extract and scan IPv6 addresses
+        ipv6_addresses = ipv6_regex.findall(content)
+        for ipv6 in ipv6_addresses:
+            self.scan_ip_address(ipv6)
+
+        # Extract and scan domains
+        domains = domain_regex.findall(content)
+        for domain in domains:
+            self.scan_domain(domain)
+
+        # Extract and scan URLs
+        urls = url_regex.findall(content)
+        for url in urls:
+            self.scan_url(url)
 
     def scan_domain(self, domain):
         if domain in self.scanned_domains:
             return
         self.scanned_domains.append(domain)
-
         message = f"Scanning domain: {domain}"
         logging.info(message)
-        print(message)
+        print(message)  # Print the message
 
-        # Check if the domain is exactly 'www.com'
         if domain.lower() == 'www.com':
-            logging.warning(f"Detected domain 'www.com'.")
-            notify_user_for_web(domain=domain)
+            self.handle_detection('domain', domain)
             return
 
-        # Remove 'www.' prefix if present, except for 'www.com'
         if domain.lower().startswith("www.") and not domain.lower().endswith(".com"):
             domain = domain[4:]
 
         parts = domain.split(".")
-        if len(parts) < 3:
-            main_domain = domain
-        else:
-            main_domain = ".".join(parts[-2:])
+        main_domain = domain if len(parts) < 3 else ".".join(parts[-2:])
 
         for parent_domain in domains_signatures_data:
             if main_domain == parent_domain or main_domain.endswith(f".{parent_domain}"):
-                message = f"Main domain {main_domain} or its parent domain {parent_domain} matches the signatures."
-                logging.warning(message)
-                print(message)
-                notify_user_for_web(domain=main_domain)
+                self.handle_detection('domain', main_domain)
                 return
 
     def scan_ip_address(self, ip_address):
         if ip_address in self.scanned_ipv6_addresses or ip_address in self.scanned_ipv4_addresses:
             return
 
-        if ':' in ip_address:  # Check if it's an IPv6 address
+        if ':' in ip_address:  # IPv6 address
             self.scanned_ipv6_addresses.append(ip_address)
             message = f"Scanning IPv6 address: {ip_address}"
             logging.info(message)
-
-            if ip_address in ipv6_addresses_signatures_data:
-                message = f"IPv6 address {ip_address} matches the signatures."
-                logging.warning(message)
-                print(message)
-                notify_user_for_web(ip_address=ip_address)
-        else:
+            print(message)  # Print the message
+            self.handle_detection('ip_address', ip_address)
+        else:  # IPv4 address
             self.scanned_ipv4_addresses.append(ip_address)
             message = f"Scanning IPv4 address: {ip_address}"
             logging.info(message)
-
+            print(message)  # Print the message
             if is_local_ip(ip_address):
                 message = f"Skipping local IP address: {ip_address}"
                 logging.info(message)
-                print(message)
+                print(message)  # Print the message
                 return
-            
-            if ip_address in ip_addresses_signatures_data:
-                message = f"IPv4 address {ip_address} matches the signatures."
-                logging.warning(message)
-                print(message)
-                notify_user_for_web(ip_address=ip_address)
+            self.handle_detection('ip_address', ip_address)
 
     def scan_url(self, url):
         if url in self.scanned_urls:
             return
         self.scanned_urls.append(url)
-
         for entry in urlhaus_data:
             if entry['url'] in url:
-                message = (
-                    f"URL {url} matches the URLhaus signatures.\n"
-                    f"ID: {entry['id']}\n"
-                    f"Date Added: {entry['dateadded']}\n"
-                    f"URL Status: {entry['url_status']}\n"
-                    f"Last Online: {entry['last_online']}\n"
-                    f"Threat: {entry['threat']}\n"
-                    f"Tags: {entry['tags']}\n"
-                    f"URLhaus Link: {entry['urlhaus_link']}\n"
-                    f"Reporter: {entry['reporter']}"
-                )
+                message = f"URL {url} matches the URLhaus signatures."
                 logging.warning(message)
-                print(message)
+                print(message)  # Print the message
                 notify_user_for_web(url=url)
                 return
 
@@ -845,14 +850,14 @@ class RealTimeWebProtectionHandler:
                     self.scan_domain(query_name)
                     message = f"DNS Query: {query_name}"
                     logging.info(message)
-                    print(message)
+                    print(message)  # Print the message
             if packet[DNS].an:
                 for i in range(packet[DNS].ancount):
                     answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
                     self.scan_domain(answer_name)
                     message = f"DNS Answer: {answer_name}"
                     logging.info(message)
-                    print(message)
+                    print(message)  # Print the message
                     if IP in packet:
                         self.scan_ip_address(packet[IP].src)
                         self.scan_ip_address(packet[IP].dst)
@@ -868,33 +873,33 @@ class RealTimeWebProtectionHandler:
                     self.scan_domain(query_name)
                     message = f"DNS Query (IPv4): {query_name}"
                     logging.info(message)
-                    print(message)
+                    print(message)  # Print the message
             if packet[DNS].an:
                 for i in range(packet[DNS].ancount):
                     answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
                     self.scan_domain(answer_name)
                     message = f"DNS Answer (IPv4): {answer_name}"
                     logging.info(message)
-                    print(message)
+                    print(message)  # Print the message
                     self.scan_ip_address(packet[IP].src)
                     self.scan_ip_address(packet[IP].dst)
 
     def handle_ipv6(self, packet):
         if DNS in packet:
             if packet[DNS].qd:
-                for i in range(packet[DNS].qdcount):
+                for i in range(packet[DNS].qdcount()):
                     query_name = packet[DNSQR][i].qname.decode().rstrip('.')
                     self.scan_domain(query_name)
                     message = f"DNS Query (IPv6): {query_name}"
                     logging.info(message)
-                    print(message)
+                    print(message)  # Print the message
             if packet[DNS].an:
-                for i in range(packet[DNS].ancount):
+                for i in range(packet[DNS].ancount()):
                     answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
                     self.scan_domain(answer_name)
                     message = f"DNS Answer (IPv6): {answer_name}"
                     logging.info(message)
-                    print(message)
+                    print(message)  # Print the message
                     self.scan_ip_address(packet[IPv6].src)
                     self.scan_ip_address(packet[IPv6].dst)
 
@@ -910,14 +915,6 @@ class RealTimeWebProtectionObserver:
             self.thread.start()
             self.is_started = True
             message = "Real-time web protection observer started"
-            logging.info(message)
-            print(message)
-
-    def stop(self):
-        if self.is_started:
-            self.thread.join()  # Wait for the thread to finish
-            self.is_started = False
-            message = "Real-time web protection observer stopped"
             logging.info(message)
             print(message)
 
@@ -1148,10 +1145,10 @@ sandboxie_control_path = r"C:\Program Files\Sandboxie\SbieCtrl.exe"
 sbie_ini_path = r"C:\Program Files\Sandboxie\SbieIni.exe"
 device_args = [f"-i {i}" for i in range(1, 26)]  # Fixed device arguments
 username = os.getlogin()
-sandbox_folder = rf'C:\Sandbox\{username}\DefaultBox'
-hosts_path = rf'{sandbox_folder}\drive\C\Windows\System32\drivers\etc\hosts'
-drivers_path = rf'{sandbox_folder}\drive\C\Windows\System32\drivers'
-main_drive_path = rf'{sandbox_folder}\drive\C'
+sandboxie_folder = rf'C:\Sandbox\{username}\DefaultBox'
+hosts_path = rf'{sandboxie_folder}\drive\C\Windows\System32\drivers\etc\hosts'
+drivers_path = rf'{sandboxie_folder}\drive\C\Windows\System32\drivers'
+main_drive_path = rf'{sandboxie_folder}\drive\C'
 
 # Define the list of known rootkit filenames
 known_rootkit_files = [
@@ -1160,14 +1157,14 @@ known_rootkit_files = [
 ]
 
 uefi_100kb_paths = [
-    rf'{sandbox_folder}\drive\X\EFI\Microsoft\Boot\SecureBootRecovery.efi'
+    rf'{sandboxie_folder}\drive\X\EFI\Microsoft\Boot\SecureBootRecovery.efi'
 ]
 
 uefi_paths = [
-    rf'{sandbox_folder}\drive\X\EFI\Microsoft\Boot\bootmgfw.efi',
-    rf'{sandbox_folder}\drive\X\EFI\Microsoft\Boot\bootmgr.efi',
-    rf'{sandbox_folder}\drive\X\EFI\Microsoft\Boot\memtest.efi',
-    rf'{sandbox_folder}\drive\X\EFI\Boot\bootx64.efi'
+    rf'{sandboxie_folder}\drive\X\EFI\Microsoft\Boot\bootmgfw.efi',
+    rf'{sandboxie_folder}\drive\X\EFI\Microsoft\Boot\bootmgr.efi',
+    rf'{sandboxie_folder}\drive\X\EFI\Microsoft\Boot\memtest.efi',
+    rf'{sandboxie_folder}\drive\X\EFI\Boot\bootx64.efi'
 ]
 snort_command = [r'C:\Snort\bin\snort.exe'] + device_args + ["-c", snort_config_path, "-A", "fast"]
 
@@ -1201,7 +1198,7 @@ fake_system_files = [
 
 def monitor_sandbox():
     hDir = win32file.CreateFile(
-        sandbox_folder,
+        sandboxie_folder,
         1,
         win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
         None,
@@ -1231,7 +1228,7 @@ def monitor_sandbox():
                 None
             )
             for action, file in results:
-                pathToScan = os.path.join(sandbox_folder, file)
+                pathToScan = os.path.join(sandboxie_folder, file)
                 print(pathToScan)
                 scan_and_warn(pathToScan)
     except Exception as e:
@@ -1256,7 +1253,7 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
                             logging.info(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip}")
 
                             # Only proceed with files in the Sandboxie folder or the main file path
-                            if sandbox_folder.lower() not in file_path.lower() and file_path.lower() != main_file_path.lower():
+                            if sandboxie_folder.lower() not in file_path.lower() and file_path.lower() != main_file_path.lower():
                                 logging.info(f"File {file_path} is not located in the monitored directories. Skipping...")
                                 continue
 
@@ -1600,8 +1597,8 @@ def monitor_snort_log():
 def check_startup_directories():
     """Monitor startup directories for new files and handle them."""
     # Define the paths to check
-    defaultbox_user_startup_folder = rf'{sandbox_folder}\user\current\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup'
-    defaultbox_programdata_startup_folder = rf'{sandbox_folder}\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup'
+    defaultbox_user_startup_folder = rf'{sandboxie_folder}\user\current\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup'
+    defaultbox_programdata_startup_folder = rf'{sandboxie_folder}\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup'
 
     # List of directories to check
     directories_to_check = [
@@ -1709,7 +1706,7 @@ def check_uefi_directories():
                         alerted_uefi_files.append(uefi_path)
 
         # Check for any new files in the EFI directory
-        efi_dir = rf'{sandbox_folder}\drive\X\EFI'
+        efi_dir = rf'{sandboxie_folder}\drive\X\EFI'
         for root, dirs, files in os.walk(efi_dir):
             for file in files:
                 file_path = os.path.join(root, file)
@@ -1898,9 +1895,9 @@ def worm_alert(file_path):
         logging.info(f"Running worm detection for file '{file_path}'")
 
         # Define directory paths
-        main_drive_path = rf'{sandbox_folder}\drive\C'
+        main_drive_path = rf'{sandboxie_folder}\drive\C'
         critical_directory = os.path.join('C:', 'Windows')
-        sandbox_critical_directory = os.path.join(sandbox_folder, 'drive', 'C', 'Windows')
+        sandbox_critical_directory = os.path.join(sandboxie_folder, 'drive', 'C', 'Windows')
 
         # Extract features
         features_current = extract_numeric_worm_features(file_path)
@@ -1984,7 +1981,7 @@ def check_worm_similarity(file_path, features_current):
 # Function to monitor sandbox directory
 def check_sandbox_directory():
 
-    important_directories = [sandbox_folder]
+    important_directories = [sandboxie_folder]
     alerted_files = []
 
     while True:
@@ -2047,7 +2044,7 @@ class ScanAndWarnHandler(FileSystemEventHandler):
 
 event_handler = ScanAndWarnHandler()
 observer = Observer()
-observer.schedule(event_handler, path=sandbox_folder, recursive=False)
+observer.schedule(event_handler, path=sandboxie_folder, recursive=False)
 
 def run_sandboxie_control():
     try:
@@ -2062,7 +2059,7 @@ def run_sandboxie_control():
 
 def monitor_user_directory():
     try:
-        user_dir = rf'{sandbox_folder}\DefaultBox\user\current'
+        user_dir = rf'{sandboxie_folder}\DefaultBox\user\current'
 
         # Function to check if a file meets the criteria for ransomware alert
         def check_file(file_path):
@@ -2106,14 +2103,14 @@ def monitor_user_directory():
 
 def detect_new_files():
     """
-    Detect new files in the main folder and subfolders within sandbox_folder.
+    Detect new files in the main folder and subfolders within sandboxie_folder.
     """
     # Dictionary to keep track of existing files
     seen_files = {}
 
     # Function to scan the directory and update the seen_files dictionary
     def scan_directory():
-        for root, _, files in os.walk(sandbox_folder):
+        for root, _, files in os.walk(sandboxie_folder):
             for file in files:
                 file_path = os.path.join(root, file)
                 if os.path.isfile(file_path):
@@ -2137,12 +2134,6 @@ def detect_new_files():
 # Constants for Windows API calls
 WM_GETTEXT = 0x000D
 WM_GETTEXTLENGTH = 0x000E
-
-# Regular expressions for matching IP addresses and domains
-ip_regex = re.compile(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')
-ipv6_regex = re.compile(r'\b(?:[a-fA-F0-9]{1,4}:){7}[a-fA-F0-9]{1,4}\b')
-domain_regex = re.compile(r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b')
-url_regex = re.compile(r'\b(?:https?://|www\.)[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/[^\s]*)?\b')
 
 # Function to get window text
 def get_window_text(hwnd):
@@ -2217,22 +2208,26 @@ def contains_domain(text):
 
 # Helper function to check if a string contains a known URL from urlhaus_data
 def contains_url(text):
-    for entry in urlhaus_data:
-        if entry['url'] in text:
-            message = (
-                f"URL {entry['url']} matches the URLhaus signatures.\n"
-                f"ID: {entry['id']}\n"
-                f"Date Added: {entry['dateadded']}\n"
-                f"URL Status: {entry['url_status']}\n"
-                f"Last Online: {entry['last_online']}\n"
-                f"Threat: {entry['threat']}\n"
-                f"Tags: {entry['tags']}\n"
-                f"URLhaus Link: {entry['urlhaus_link']}\n"
-                f"Reporter: {entry['reporter']}"
-            )
-            logging.warning(message)
-            print(message)
-            return True
+    # Extract all URLs from the text using the URL regex
+    extracted_urls = url_regex.findall(text)
+    
+    for url in extracted_urls:
+        for entry in urlhaus_data:
+            if entry['url'] in url:
+                message = (
+                    f"URL {url} matches the URLhaus signatures.\n"
+                    f"ID: {entry['id']}\n"
+                    f"Date Added: {entry['dateadded']}\n"
+                    f"URL Status: {entry['url_status']}\n"
+                    f"Last Online: {entry['last_online']}\n"
+                    f"Threat: {entry['threat']}\n"
+                    f"Tags: {entry['tags']}\n"
+                    f"URLhaus Link: {entry['urlhaus_link']}\n"
+                    f"Reporter: {entry['reporter']}"
+                )
+                logging.warning(message)
+                print(message)
+                return True
     return False
 
 class Monitor:
@@ -2470,6 +2465,7 @@ class Monitor:
 
         # Convert input_string to a temporary file if file_path is not provided
         yara_matches = None
+        temp_file_path = None
         if not file_path:
             with tempfile.NamedTemporaryFile(delete=False) as temp_file:
                 temp_file.write(input_string.encode('utf-8'))
@@ -2483,8 +2479,14 @@ class Monitor:
 
         # Check for YARA matches
         if yara_matches:
-            logging.warning(f"YARA matches found: {yara_matches}")
-            self.notify_user_for_detected_command(f"YARA matches found: {yara_matches} in file: {file_path or temp_file_path}")
+            # Check if the file path is related to the main file path or under the Sandboxie folder
+            if file_path and (main_file_path in file_path or file_path.startswith(sandboxie_folder)):
+                logging.warning(f"YARA matches found: {yara_matches} in file: {file_path or temp_file_path}")
+                self.notify_user_for_detected_command(f"YARA matches found: {yara_matches} in file: {file_path or temp_file_path}")
+            else:
+                logging.info(f"YARA matches found, but the file is unrelated: {file_path or temp_file_path}")
+        else:
+            logging.info("No YARA matches found.")
 
         # Process the input_string for known malware messages
         for category, details in self.known_malware_messages.items():
@@ -2527,10 +2529,10 @@ class Monitor:
 # List of already scanned files to avoid reprocessing
 scanned_files = []
 
-def scan_sandbox_folder():
+def scan_sandboxie_folder():
     global scanned_files
     # Directories to monitor
-    directories_to_scan = [sandbox_folder, decompile_dir]
+    directories_to_scan = [sandboxie_folder, decompile_dir]
 
     while True:
         for directory in directories_to_scan:
@@ -2570,7 +2572,7 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=observer.start).start()
         threading.Thread(target=scan_and_warn, args=(file_path,)).start()
         threading.Thread(target=start_monitoring_sandbox).start()
-        threading.Thread(target=scan_sandbox_folder).start()
+        threading.Thread(target=scan_sandboxie_folder).start()
         threading.Thread(target=check_startup_directories).start()
         threading.Thread(target=check_sandbox_directory).start()
         threading.Thread(target=monitor_user_directory).start()
