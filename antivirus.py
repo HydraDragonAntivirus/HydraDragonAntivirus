@@ -737,7 +737,8 @@ class RealTimeWebProtectionHandler:
         self.domain_ip_to_file_map = {}
 
     def is_related_to_critical_paths(self, file_path):
-        return file_path.startswith(sandboxie_folder) or file_path.startswith(main_file_path)
+        # Check if file path starts with the sandbox folder or matches the main file path
+        return (file_path.startswith(sandboxie_folder) or file_path == main_file_path)
 
     def map_domain_ip_to_file(self, entity):
         return self.domain_ip_to_file_map.get(entity)
@@ -749,37 +750,15 @@ class RealTimeWebProtectionHandler:
         if file_path and self.is_related_to_critical_paths(file_path):
             message = f"{entity_type.capitalize()} {entity_value} is related to a critical path: {file_path}"
             logging.warning(message)
-            print(message)  # Print the message
+            print(message)
             notify_info[entity_type] = entity_value
         else:
             message = f"{entity_type.capitalize()} {entity_value} is not related to critical paths."
             logging.info(message)
-            print(message)  # Print the message
+            print(message)
         
-        # Only send notification if there is relevant information
         if any(notify_info.values()):
             notify_user_for_web(**notify_info)
-
-    def scan_content(self, content):
-        # Extract and scan IP addresses
-        ip_addresses = ip_regex.findall(content)
-        for ip in ip_addresses:
-            self.scan_ip_address(ip)
-
-        # Extract and scan IPv6 addresses
-        ipv6_addresses = ipv6_regex.findall(content)
-        for ipv6 in ipv6_addresses:
-            self.scan_ip_address(ipv6)
-
-        # Extract and scan domains
-        domains = domain_regex.findall(content)
-        for domain in domains:
-            self.scan_domain(domain)
-
-        # Extract and scan URLs
-        urls = url_regex.findall(content)
-        for url in urls:
-            self.scan_url(url)
 
     def scan_domain(self, domain):
         if domain in self.scanned_domains:
@@ -787,7 +766,7 @@ class RealTimeWebProtectionHandler:
         self.scanned_domains.append(domain)
         message = f"Scanning domain: {domain}"
         logging.info(message)
-        print(message)  # Print the message
+        print(message)
 
         if domain.lower() == 'www.com':
             self.handle_detection('domain', domain)
@@ -812,17 +791,17 @@ class RealTimeWebProtectionHandler:
             self.scanned_ipv6_addresses.append(ip_address)
             message = f"Scanning IPv6 address: {ip_address}"
             logging.info(message)
-            print(message)  # Print the message
+            print(message)
             self.handle_detection('ip_address', ip_address)
         else:  # IPv4 address
             self.scanned_ipv4_addresses.append(ip_address)
             message = f"Scanning IPv4 address: {ip_address}"
             logging.info(message)
-            print(message)  # Print the message
+            print(message)
             if is_local_ip(ip_address):
                 message = f"Skipping local IP address: {ip_address}"
                 logging.info(message)
-                print(message)  # Print the message
+                print(message)
                 return
             self.handle_detection('ip_address', ip_address)
 
@@ -834,7 +813,7 @@ class RealTimeWebProtectionHandler:
             if entry['url'] in url:
                 message = f"URL {url} matches the URLhaus signatures."
                 logging.warning(message)
-                print(message)  # Print the message
+                print(message)
                 notify_user_for_web(url=url)
                 return
 
@@ -850,14 +829,14 @@ class RealTimeWebProtectionHandler:
                     self.scan_domain(query_name)
                     message = f"DNS Query: {query_name}"
                     logging.info(message)
-                    print(message)  # Print the message
+                    print(message)
             if packet[DNS].an:
                 for i in range(packet[DNS].ancount):
                     answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
                     self.scan_domain(answer_name)
                     message = f"DNS Answer: {answer_name}"
                     logging.info(message)
-                    print(message)  # Print the message
+                    print(message)
                     if IP in packet:
                         self.scan_ip_address(packet[IP].src)
                         self.scan_ip_address(packet[IP].dst)
@@ -873,14 +852,14 @@ class RealTimeWebProtectionHandler:
                     self.scan_domain(query_name)
                     message = f"DNS Query (IPv4): {query_name}"
                     logging.info(message)
-                    print(message)  # Print the message
+                    print(message)
             if packet[DNS].an:
                 for i in range(packet[DNS].ancount):
                     answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
                     self.scan_domain(answer_name)
                     message = f"DNS Answer (IPv4): {answer_name}"
                     logging.info(message)
-                    print(message)  # Print the message
+                    print(message)
                     self.scan_ip_address(packet[IP].src)
                     self.scan_ip_address(packet[IP].dst)
 
@@ -892,14 +871,14 @@ class RealTimeWebProtectionHandler:
                     self.scan_domain(query_name)
                     message = f"DNS Query (IPv6): {query_name}"
                     logging.info(message)
-                    print(message)  # Print the message
+                    print(message)
             if packet[DNS].an:
                 for i in range(packet[DNS].ancount()):
                     answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
                     self.scan_domain(answer_name)
                     message = f"DNS Answer (IPv6): {answer_name}"
                     logging.info(message)
-                    print(message)  # Print the message
+                    print(message)
                     self.scan_ip_address(packet[IPv6].src)
                     self.scan_ip_address(packet[IPv6].dst)
 
