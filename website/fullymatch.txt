@@ -1,3 +1,5 @@
+yastatic.com
+yastatic.net
 chatgpt.com
 bingapis.com
 reallyfreegeoip.org

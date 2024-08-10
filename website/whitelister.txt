@@ -1,3 +1,5 @@
+.yastatic.com
+.yastatic.net
 .avira-update.com
 .avira.net
 .chatgpt.com
