@@ -55,7 +55,8 @@ decompile_dir = os.path.join(script_dir, "decompile")
 ghidra_projects_dir = os.path.join(script_dir, "ghidra_projects")
 ghidra_logs_dir = os.path.join(script_dir, "ghidra_logs")
 ghidra_scripts_dir = os.path.join(script_dir, "scripts")
-clamd_path = r"C:\Program Files\ClamAV\clamd.exe"
+clamav_path = r"C:\Program Files\ClamAV"
+clamd_dir = r"C:\Program Files\ClamAV\clamd.exe"
 clamdscan_path = r"C:\Program Files\ClamAV\clamdscan.exe"
 freshclam_path = r"C:\Program Files\ClamAV\freshclam.exe"
 # Configure logging
@@ -1255,6 +1256,14 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
                         if file_path:
                             logging.info(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip}")
 
+                            # Check which trusted directory the file is related to and skip if true
+                            if script_dir.lower() in file_path.lower():
+                                logging.info(f"File {file_path} is located in the trusted script directory ({script_dir}). Skipping...")
+                                continue
+                            elif clamav_dir.lower() in file_path.lower():
+                                logging.info(f"File {file_path} is located in the trusted ClamAV directory ({clamav_dir}). Skipping...")
+                                continue
+
                             signature_info = check_valid_signature_only(file_path)
                             if not signature_info["is_valid"]:
                                 logging.warning(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature. Alert Line: {alert_line}")
@@ -1263,6 +1272,7 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
                             else:
                                 logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious. Alert Line: {alert_line}")
                                 print(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious. Alert Line: {alert_line}")
+
         except psutil.NoSuchProcess:
             logging.error(f"Process no longer exists: {proc.info.get('pid')}")
         except psutil.AccessDenied:
