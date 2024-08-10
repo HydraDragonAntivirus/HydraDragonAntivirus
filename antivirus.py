@@ -55,7 +55,6 @@ decompile_dir = os.path.join(script_dir, "decompile")
 ghidra_projects_dir = os.path.join(script_dir, "ghidra_projects")
 ghidra_logs_dir = os.path.join(script_dir, "ghidra_logs")
 ghidra_scripts_dir = os.path.join(script_dir, "scripts")
-clamav_path = r"C:\Program Files\ClamAV"
 clamd_dir = r"C:\Program Files\ClamAV\clamd.exe"
 clamdscan_path = r"C:\Program Files\ClamAV\clamdscan.exe"
 freshclam_path = r"C:\Program Files\ClamAV\freshclam.exe"
@@ -1256,12 +1255,9 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
                         if file_path:
                             logging.info(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip}")
 
-                            # Check which trusted directory the file is related to and skip if true
-                            if script_dir.lower() in file_path.lower():
-                                logging.info(f"File {file_path} is located in the trusted script directory ({script_dir}). Skipping...")
-                                continue
-                            elif clamav_dir.lower() in file_path.lower():
-                                logging.info(f"File {file_path} is located in the trusted ClamAV directory ({clamav_dir}). Skipping...")
+                            # Only proceed with files in the Sandboxie folder or the main file path
+                            if sandbox_folder.lower() not in file_path.lower() and file_path.lower() != main_file_path.lower():
+                                logging.info(f"File {file_path} is not located in the monitored directories. Skipping...")
                                 continue
 
                             signature_info = check_valid_signature_only(file_path)
