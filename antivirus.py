@@ -670,7 +670,7 @@ def notify_user_worm(file_path, virus_name):
     notification.message = f"Potential worm detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
-def notify_user_for_web(domain=None, ip_address=None, url=None):
+def notify_user_for_web(domain=None, ip_address=None, url=None, file_path=None):
     notification = Notify()
     notification.title = "Malware or Phishing Alert"
     
@@ -682,6 +682,8 @@ def notify_user_for_web(domain=None, ip_address=None, url=None):
         message_parts.append(f"IP Address: {ip_address}")
     if url:
         message_parts.append(f"URL: {url}")
+    if file_path:
+        message_parts.append(f"File Path: {file_path}")
     
     if message_parts:
         notification.message = f"Phishing or Malicious activity detected:\n" + "\n".join(message_parts)
@@ -738,20 +740,21 @@ class RealTimeWebProtectionHandler:
 
     def is_related_to_critical_paths(self, file_path):
         # Check if file path starts with the sandbox folder or matches the main file path
-        return (file_path.startswith(sandboxie_folder) or file_path == main_file_path)
+        return file_path.startswith(sandboxie_folder) or file_path == main_file_path
 
     def map_domain_ip_to_file(self, entity):
         return self.domain_ip_to_file_map.get(entity)
 
     def handle_detection(self, entity_type, entity_value):
         file_path = self.map_domain_ip_to_file(entity_value)
-        notify_info = {'domain': None, 'ip_address': None, 'url': None}
-        
+        notify_info = {'domain': None, 'ip_address': None, 'url': None, 'file_path': None}
+
         if file_path and self.is_related_to_critical_paths(file_path):
             message = f"{entity_type.capitalize()} {entity_value} is related to a critical path: {file_path}"
             logging.warning(message)
             print(message)
             notify_info[entity_type] = entity_value
+            notify_info['file_path'] = file_path  # Add file_path to notification info
         else:
             message = f"{entity_type.capitalize()} {entity_value} is not related to critical paths."
             logging.info(message)
@@ -814,8 +817,6 @@ class RealTimeWebProtectionHandler:
                 message = f"URL {url} matches the URLhaus signatures."
                 logging.warning(message)
                 print(message)
-                notify_user_for_web(url=url)
-                return
 
     def on_packet_received(self, packet):
         if IP in packet:
@@ -898,8 +899,7 @@ class RealTimeWebProtectionObserver:
             print(message)
 
     def start_sniffing(self):
-        # Define a custom filter to exclude localhost and local IPs
-        filter_expression = f"(tcp or udp)"
+        filter_expression = "(tcp or udp)"
         sniff(filter=filter_expression, prn=self.handler.on_packet_received, store=0)
 
 web_protection_observer = RealTimeWebProtectionObserver()
