@@ -739,7 +739,7 @@ class RealTimeWebProtectionHandler:
         self.domain_ip_to_file_map = {}
 
     def is_related_to_critical_paths(self, file_path):
-        # Check if file path starts with the sandbox folder or matches the main file path
+        # Check if file path starts with the sandboxie folder or matches the main file path
         return file_path.startswith(sandboxie_folder) or file_path == main_file_path
 
     def map_domain_ip_to_file(self, entity):
