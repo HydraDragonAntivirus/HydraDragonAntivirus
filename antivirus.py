@@ -756,7 +756,10 @@ class RealTimeWebProtectionHandler:
             notify_info[entity_type] = entity_value
             notify_info['file_path'] = file_path  # Add file_path to notification info
         else:
-            message = f"{entity_type.capitalize()} {entity_value} is not related to critical paths."
+            if file_path:
+                message = f"{entity_type.capitalize()} {entity_value} is not related to critical paths but associated with file path: {file_path}"
+            else:
+                message = f"{entity_type.capitalize()} {entity_value} is not related to critical paths and has no associated file path."
             logging.info(message)
             print(message)
         
