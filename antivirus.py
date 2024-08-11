@@ -2459,16 +2459,23 @@ class Monitor:
         else:
             yara_matches = yara_scanner.scan_data(file_path)
 
-        # Check for YARA matches
+        # Log and notify about the YARA matches
         if yara_matches:
-            # Check if the file path is related to the main file path or under the Sandboxie folder
-            if file_path and (main_file_path in file_path or file_path.startswith(sandboxie_folder)):
-                logging.warning(f"YARA matches found: {yara_matches} in file: {file_path or temp_file_path}")
-                self.notify_user_for_detected_command(f"YARA matches found: {yara_matches} in file: {file_path or temp_file_path}")
-            else:
-                logging.info(f"YARA matches found, but the file is unrelated: {file_path or temp_file_path}")
+            if file_path:  # If an actual file path was provided
+                if main_file_path in file_path and file_path.startswith(sandboxie_folder):
+                    logging.warning(f"YARA matches found: {yara_matches} in file: {file_path}")
+                    self.notify_user_for_detected_command(f"YARA matches found: {yara_matches} in file: {file_path}")
+                else:
+                    logging.info(f"YARA matches found, but the file is unrelated: {file_path}")
+            else:  # If a temporary file path was used
+                logging.warning(f"YARA matches found: {yara_matches} in file: {temp_file_path}")
+                self.notify_user_for_detected_command(f"YARA matches found: {yara_matches} in file: {temp_file_path}")
         else:
-            logging.info("No YARA matches found.")
+            # Log the absence of YARA matches along with the file paths
+            if file_path:
+                logging.info(f"No YARA matches found in file: {file_path}")
+            if temp_file_path:
+                logging.info(f"No YARA matches found in temporary file: {temp_file_path}")
 
         # Process the input_string for known malware messages
         for category, details in self.known_malware_messages.items():
@@ -2492,6 +2499,8 @@ class Monitor:
         # Adding ransomware check
         if self.contains_keywords_within_max_distance(preprocessed_input, max_distance=10):
             self.process_detected_text_ransom(preprocessed_input, file_path, hwnd)
+
+        logging.info("Finished processing detection (process_detected).")
 
     def monitor(self):
         try:
