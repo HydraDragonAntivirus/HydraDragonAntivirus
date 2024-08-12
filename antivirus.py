@@ -1470,28 +1470,6 @@ def scan_and_warn(file_path):
         # Extract the file name
         file_name = os.path.basename(file_path)
 
-        # Check for RLO charact in the file name
-        if ",\u202E" in file_name:  # Comma followed by RLO character
-            if signaer after a commature_check["is_valid"]:
-                rlo_flag = "HEUR:SIG.RLO.Suspicious.Name.Generic"
-            else:
-                rlo_flag = "HEUR:RLO.Suspicious.Name.Generic"
-            logging.warning(f"File {file_path} is flagged as {rlo_flag}")
-            notify_user_rlo_thread = threading.Thread(target=notify_user, args=(file_path, rlo_flag))
-            notify_user_rlo_thread.start()
-
-        # Check for the fake file size
-        if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
-            with open(file_path, 'rb') as file:
-                file_content = file.read()
-                if file_content.count(b'\x00') >= 100 * 1024 * 1024:  # At least 100MB of empty binary strings
-                    logging.warning(f"File {file_path} is flagged as HEUR:FakeSize.Generic")
-                    fake_size = "HEUR:FakeSize.Generic"
-                    if signature_check and signature_check["is_valid"]:
-                        fake_size = "HEUR:SIG.Win32.FakeSize.Generic"
-                    notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(file_path, fake_size))
-                    notify_user_fake_size_thread.start()
-
         # Check if the file is a known rootkit file
         if file_name in known_rootkit_files:
             logging.warning(f"Detected potential rootkit file: {file_path}")
@@ -1547,6 +1525,28 @@ def scan_and_warn(file_path):
         is_malicious, virus_names = scan_file_real_time(file_path, signature_check, pe_file=pe_file)
 
         ransomware_alert(file_path)
+
+        # Check for RLO charact in the file name
+        if ",\u202E" in file_name:  # Comma followed by RLO character
+            if signature_check["is_valid"]:
+                rlo_flag = "HEUR:SIG.RLO.Suspicious.Name.Generic"
+            else:
+                rlo_flag = "HEUR:RLO.Suspicious.Name.Generic"
+            logging.warning(f"File {file_path} is flagged as {rlo_flag}")
+            notify_user_rlo_thread = threading.Thread(target=notify_user, args=(file_path, rlo_flag))
+            notify_user_rlo_thread.start()
+
+        # Check for the fake file size
+        if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
+            with open(file_path, 'rb') as file:
+                file_content = file.read()
+                if file_content.count(b'\x00') >= 100 * 1024 * 1024:  # At least 100MB of empty binary strings
+                    logging.warning(f"File {file_path} is flagged as HEUR:FakeSize.Generic")
+                    fake_size = "HEUR:FakeSize.Generic"
+                    if signature_check and signature_check["is_valid"]:
+                        fake_size = "HEUR:SIG.Win32.FakeSize.Generic"
+                    notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(file_path, fake_size))
+                    notify_user_fake_size_thread.start()
 
         if is_malicious:
             # Concatenate multiple virus names into a single string without delimiters
