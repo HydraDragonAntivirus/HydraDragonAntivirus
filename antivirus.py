@@ -594,6 +594,12 @@ def notify_user(file_path, virus_name):
     notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
+def notify_user_rlo(file_path, rlo_flag):
+    notification = Notify()
+    notification.title = "Suspicious RLO Name Alert"
+    notification.message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+    
 def notify_user_for_detected_fake_system_file(file_path, file_name, virus_name):
     notification = Notify()
     notification.title = "Fake System File Alert"
@@ -1463,6 +1469,16 @@ def scan_and_warn(file_path):
 
         # Extract the file name
         file_name = os.path.basename(file_path)
+
+        # Check for RLO charact in the file name
+        if ",\u202E" in file_name:  # Comma followed by RLO character
+            if signaer after a commature_check["is_valid"]:
+                rlo_flag = "HEUR:SIG.RLO.Suspicious.Name.Generic"
+            else:
+                rlo_flag = "HEUR:RLO.Suspicious.Name.Generic"
+            logging.warning(f"File {file_path} is flagged as {rlo_flag}")
+            notify_user_rlo_thread = threading.Thread(target=notify_user, args=(file_path, rlo_flag))
+            notify_user_rlo_thread.start()
 
         # Check for the fake file size
         if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
