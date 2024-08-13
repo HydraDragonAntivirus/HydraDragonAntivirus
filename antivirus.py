@@ -528,19 +528,51 @@ def scan_pe_file(file_path):
         logging.error(f"Error scanning exe file: {file_path} - {str(e)}")
         return False, ""
 
+def is_encrypted(zip_info):
+    """Check if a ZIP entry is encrypted."""
+    return zip_info.flag_bits & 0x1 != 0
+
+def contains_rlo_after_comma(filename):
+    """Check if the filename contains an RLO character after a comma."""
+    return ",\u202E" in filename
+
 def scan_zip_file(file_path):
     """Scan files within a zip archive."""
     temp_dir = None
     try:
-        temp_dir = tempfile.mkdtemp()  # Create a temporary directory to extract files
+        zip_size = os.path.getsize(file_path)
+        # Create a temporary directory to extract files
+        temp_dir = tempfile.mkdtemp()
+        
         with zipfile.ZipFile(file_path, 'r') as zfile:
-            zfile.extractall(temp_dir)  # Extract all files to temporary directory
-            for root, _, files in os.walk(temp_dir):
-                for file_name in files:
-                    extracted_file_path = os.path.join(root, file_name)
-                    scan_result, virus_name = scan_and_warn(extracted_file_path)
-                    if scan_result:
-                        return True, virus_name
+            for zip_info in zfile.infolist():
+                if is_encrypted(zip_info):
+                    # Skip extraction of encrypted files
+                    logging.info(f"Skipping encrypted file: {zip_info.filename}")
+                    continue
+                
+                # Extract non-encrypted files
+                extracted_file_path = os.path.join(temp_dir, zip_info.filename)
+                zfile.extract(zip_info, temp_dir)
+                extracted_file_size = os.path.getsize(extracted_file_path)
+
+                # Check if the ZIP is smaller than 20MB and contains a large file
+                if zip_size < 20 * 1024 * 1024 and extracted_file_size > 650 * 1024 * 1024:
+                    logging.warning(
+                        f"ZIP file {file_path} is smaller than 20MB but contains a large file: {zip_info.filename} "
+                        f"({extracted_file_size / (1024 * 1024)} MB) - flagged as HEUR:Win32.Suspicious.Size.Encrypted.ZIP"
+                        "Potential ZIPbomb or Fake Size detected to avoid VirusTotal detections."
+                    )
+                    notify_size_warning(file_path, "ZIP", virus_name)
+
+                # Check for RLO in filenames
+                if contains_rlo_after_comma(zip_info.filename):
+                    logging.warning(
+                        f"Filename {zip_info.filename} in {file_path} contains RLO character after a comma - "
+                        "flagged as HEUR:RLO.Suspicious.Name.Encrypted.ZIP.Generic"
+                    )
+                    notify_rlo_warning(file_path, "ZIP", virus_name)
+
     except Exception as e:
         logging.error(f"Error scanning zip file: {file_path} - {str(e)}")
     finally:
@@ -563,14 +595,33 @@ def scan_tar_file(file_path):
     temp_dir = None
     try:
         temp_dir = tempfile.mkdtemp()  # Create a temporary directory to extract files
-        with tarfile.TarFile(file_path, 'r') as tar:
+        tar_size = os.path.getsize(file_path)
+        
+        with tarfile.open(file_path, 'r') as tar:
             tar.extractall(temp_dir)  # Extract all files to temporary directory
+
             for root, _, files in os.walk(temp_dir):
                 for file_name in files:
                     extracted_file_path = os.path.join(root, file_name)
-                    scan_result, virus_name = scan_and_Warn(extracted_file_path)
-                    if scan_result:
-                        return True, virus_name
+                    extracted_file_size = os.path.getsize(extracted_file_path)
+
+                    # Check if the TAR file is smaller than 20MB and contains a large file
+                    if tar_size < 20 * 1024 * 1024 and extracted_file_size > 650 * 1024 * 1024:
+                        logging.warning(
+                            f"TAR file {file_path} is smaller than 20MB but contains a large file: {file_name} "
+                            f"({extracted_file_size / (1024 * 1024)} MB) - flagged as HEUR:Win32.Suspicious.Size.TAR "
+                            "Potential Tarbomb or Fake Size detected to avoid VirusTotal detections."
+                        )
+                        notify_size_warning(file_path, "TAR", virus_name)
+
+                    # Check for RLO in filenames
+                    if contains_rlo_after_comma(file_name):
+                        logging.warning(
+                            f"Filename {file_name} in {file_path} contains RLO character after a comma - "
+                            "flagged as HEUR:RLO.Suspicious.Name.TAR.Generic"
+                        )
+                        notify_rlo_warning(file_path, "TAR", virus_name)
+
     except Exception as e:
         logging.error(f"Error scanning tar file: {file_path} - {str(e)}")
     finally:
@@ -592,6 +643,22 @@ def notify_user(file_path, virus_name):
     notification = Notify()
     notification.title = "Malware Alert"
     notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_size_warning(file_path, archive_type, virus_name):
+    """Send a notification for size-related warnings."""
+    notification = Notify()
+    notification.title = "Size Warning"
+    notification.message = (f"{archive_type} file {file_path} is smaller than 20MB but contains a large file "
+                            f"which might be suspicious. Virus Name: {virus_name}")
+    notification.send()
+
+def notify_rlo_warning(file_path, archive_type, virus_name):
+    """Send a notification for RLO-related warnings."""
+    notification = Notify()
+    notification.title = "RLO Warning"
+    notification.message = (f"Filename in {archive_type} file {file_path} contains RLO character after a comma. "
+                            f"This could indicate suspicious activity. Virus Name: {virus_name}")
     notification.send()
 
 def notify_user_rlo(file_path, rlo_flag):
