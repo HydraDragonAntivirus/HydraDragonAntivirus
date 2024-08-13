@@ -1775,7 +1775,7 @@ def check_uefi_directories():
                         logging.warning(f"Malicious file detected: {uefi_path}")
                         print(f"Malicious file detected: {uefi_path}")
                         notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.ScreenLocker.Ransomware.Generic.Malware")
-                        scan_and_warn(file_path)
+                        scan_and_warn(uefi_path)
                         alerted_uefi_files.append(uefi_path)
 
         # Check for any new files in the EFI directory
