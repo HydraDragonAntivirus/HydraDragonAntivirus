@@ -1531,6 +1531,8 @@ def scan_and_warn(file_path):
     logging.info(f"Scanning file: {file_path}")
 
     try:
+        ransomware_alert(file_path)
+
         # Flag to indicate if the file is decompiled
         is_decompiled = False
 
@@ -1597,8 +1599,6 @@ def scan_and_warn(file_path):
 
         # Perform real-time scan with pe_file flag
         is_malicious, virus_names = scan_file_real_time(file_path, signature_check, pe_file=pe_file)
-
-        ransomware_alert(file_path)
 
         # Check for RLO charact in the file name
         if ",\u202E" in file_name:  # Comma followed by RLO character
@@ -2129,80 +2129,6 @@ def run_sandboxie_control():
     except Exception as e:
         logging.error(f"Unexpected error running Sandboxie control: {e}")
 
-def monitor_user_directory():
-    try:
-        user_dir = rf'{sandboxie_folder}\DefaultBox\user\current'
-
-        # Function to check if a file meets the criteria for ransomware alert
-        def check_file(file_path):
-            try:
-                # Split the file name into parts
-                parts = os.path.basename(file_path).split('.')
-                
-                # Check if the file has at least two extensions
-                if len(parts) < 3:
-                    return False
-
-                # Get the previous and final extensions
-                previous_extension = '.' + parts[-2].lower()
-                final_extension = '.' + parts[-1].lower()
-
-                # If the previous extension is in fileTypes and the final extension is not, raise an alert
-                if previous_extension in fileTypes and final_extension not in fileTypes:
-                    logging.info(f"File '{file_path}' has unknown final extension '{final_extension}' and known previous extension '{previous_extension}'")
-                    scan_and_warn(file_path)
-                    return True
-                return False
-            except Exception as e:
-                logging.error(f"Error checking file '{file_path}': {e}")
-                return False
-
-        alerted_files = []
-
-        # Continuously monitor the directory
-        while True:
-            if os.path.exists(user_dir):
-                for root, _, files in os.walk(user_dir):
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        if os.path.isfile(file_path) and file_path not in alerted_files:
-                            logging.info(f"File detected in {user_dir}: {file}")
-                            print(f"File detected in {user_dir}: {file}")
-                            if check_file(file_path):
-                                alerted_files.append(file_path)
-    except Exception as e:
-        logging.error(f"Error in monitor_user_directory: {e}")
-
-def detect_new_files():
-    """
-    Detect new files in the main folder and subfolders within sandboxie_folder.
-    """
-    # Dictionary to keep track of existing files
-    seen_files = {}
-
-    # Function to scan the directory and update the seen_files dictionary
-    def scan_directory():
-        for root, _, files in os.walk(sandboxie_folder):
-            for file in files:
-                file_path = os.path.join(root, file)
-                if os.path.isfile(file_path):
-                    # Store the modification time of the file
-                    file_mod_time = os.path.getmtime(file_path)
-                    if file_path not in seen_files:
-                        seen_files[file_path] = file_mod_time
-                        logging.info(f"New file detected: {file_path}")
-                        print(f"New file detected: {file_path}")
-                        scan_and_warn(file_path)
-                    elif seen_files[file_path] != file_mod_time:
-                        seen_files[file_path] = file_mod_time
-                        logging.info(f"File modified: {file_path}")
-                        print(f"File modified: {file_path}")
-                        scan_and_warn(file_path)
-
-    # Continuously monitor the directory
-    while True:
-        scan_directory()
-
 # Constants for Windows API calls
 WM_GETTEXT = 0x000D
 WM_GETTEXTLENGTH = 0x000E
@@ -2610,38 +2536,38 @@ class Monitor:
 # List of already scanned files and their modification times
 scanned_files = []
 file_mod_times = {}
+directories_to_scan = [sandboxie_folder, decompile_dir]
 
-# Monitor sandboxie folder
-def scan_sandboxie_folder():
-    global scanned_files
-    # Directories to monitor
-    directories_to_scan = [sandboxie_folder, decompile_dir]
+def monitor_sandboxie_directory():
+    """
+    Monitor sandboxie folder for new or modified files and scan them.
+    """
+    try:
+        while True:
+            for directory in directories_to_scan:
+                for root, _, files in os.walk(directory):
+                    for file in files:
+                        file_path = os.path.join(root, file)
 
-    while True:
-        for directory in directories_to_scan:
-            for root, _, files in os.walk(directory):
-                for file in files:
-                    file_path = os.path.join(root, file)
+                        # Get the last modification time
+                        last_mod_time = os.path.getmtime(file_path)
 
-                    # Get the last modification time
-                    last_mod_time = os.path.getmtime(file_path)
+                        if file_path not in scanned_files:
+                            # New file detected
+                            logging.info(f"New file detected: {file_path}")
+                            print(f"New file detected: {file_path}")
+                            scan_and_warn(file_path)
+                            scanned_files.append(file_path)
+                            file_mod_times[file_path] = last_mod_time
+                        elif file_mod_times[file_path] != last_mod_time:
+                            # File modified
+                            logging.info(f"File modified: {file_path}")
+                            print(f"File modified: {file_path}")
+                            scan_and_warn(file_path)
+                            file_mod_times[file_path] = last_mod_time
 
-                    # Check if the file has been scanned before
-                    if file_path not in scanned_files:
-                        # Scan the file
-                        scan_and_warn(file_path)
-
-                        # Add the file to the scanned files list and track its modification time
-                        scanned_files.append(file_path)
-                        file_mod_times[file_path] = last_mod_time
-
-                    # Check if the file has been modified since the last scan
-                    elif file_mod_times[file_path] != last_mod_time:
-                        # Re-scan the file if modified
-                        scan_and_warn(file_path)
-
-                        # Update the modification time
-                        file_mod_times[file_path] = last_mod_time
+    except Exception as e:
+        logging.error(f"Error in monitor_sandboxie_directory: {e}")
 
 def perform_sandbox_analysis(file_path):
     global main_file_path
@@ -2666,14 +2592,12 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=web_protection_observer.start).start()
 
         # Start other sandbox analysis tasks in separate threads
-        threading.Thread(target=detect_new_files).start()
         threading.Thread(target=observer.start).start()
         threading.Thread(target=scan_and_warn, args=(file_path,)).start()
         threading.Thread(target=start_monitoring_sandbox).start()
         threading.Thread(target=scan_sandboxie_folder).start()
         threading.Thread(target=check_startup_directories).start()
         threading.Thread(target=check_sandbox_directory).start()
-        threading.Thread(target=monitor_user_directory).start()
         threading.Thread(target=monitor_hosts_file).start()
         threading.Thread(target=check_uefi_directories).start() # Start monitoring UEFI directories for malicious files in a separate thread
         threading.Thread(target=monitor.monitor).start() # Function to monitor specific windows in a separate thread
