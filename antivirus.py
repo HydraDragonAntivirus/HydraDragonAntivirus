@@ -2607,9 +2607,11 @@ class Monitor:
         except Exception as e:
             logging.error(f"Unexpected error in monitor loop: {e}")
 
-# List of already scanned files to avoid reprocessing
+# List of already scanned files and their modification times
 scanned_files = []
+file_mod_times = {}
 
+# Monitor sandboxie folder
 def scan_sandboxie_folder():
     global scanned_files
     # Directories to monitor
@@ -2621,10 +2623,25 @@ def scan_sandboxie_folder():
                 for file in files:
                     file_path = os.path.join(root, file)
 
-                    # Only scan files that haven't been scanned yet
+                    # Get the last modification time
+                    last_mod_time = os.path.getmtime(file_path)
+
+                    # Check if the file has been scanned before
                     if file_path not in scanned_files:
+                        # Scan the file
                         scan_and_warn(file_path)
+
+                        # Add the file to the scanned files list and track its modification time
                         scanned_files.append(file_path)
+                        file_mod_times[file_path] = last_mod_time
+
+                    # Check if the file has been modified since the last scan
+                    elif file_mod_times[file_path] != last_mod_time:
+                        # Re-scan the file if modified
+                        scan_and_warn(file_path)
+
+                        # Update the modification time
+                        file_mod_times[file_path] = last_mod_time
 
 def perform_sandbox_analysis(file_path):
     global main_file_path
