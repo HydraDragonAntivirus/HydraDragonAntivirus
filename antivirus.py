@@ -3,7 +3,6 @@ import os
 import shutil
 import subprocess
 import threading
-from platform import architecture
 import re
 import json
 from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QFileDialog, QMessageBox, QStackedWidget
