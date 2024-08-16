@@ -2259,6 +2259,28 @@ class Monitor:
                 "virus_name": "HEUR:Win32.Rogue.Generic",
                 "process_function": self.process_detected_text_rogue
             },
+            "powershell_iex_download": {
+                "patterns": [
+                    '*\powershell.exe* iex *((New-Object Net.WebClient).DownloadString(*',
+                    '*powershell*[string][char[]]@(0x*Set-Alias*Net.WebClient*.DownloadString(*',
+                    '*powershell*iex (new-object system.net.webclient).downloadstring*',
+                    '*iex ( [string][system.text.encoding]::ascii.getstring([system.convert]::frombase64string( ((new-object net.webclient).downloadstring(*',
+                    '*powershell*.DownloadFile([System.Text.Encoding]::ASCII.GetString([System.Convert]::FromBase64String(*>&*',
+                    '*iex (new-object net.webclient).downloadstring(*',
+                    '*powershell -command iex (*downloadstring*',
+                    '*iex (new-object net.webclient).downloadfile(*',
+                    '*powershell*-command*iex(*http*',
+                    '*-command iex (new-object*downloadstring*',
+                    '*$path*iex(*.web*-replace*',
+                    '*iex ((new-object system.net.webclient).downloadstring(*',
+                    '*powershell*.webclient)*iex*',
+                    '*iex(new-object net.webclient).downloadstring(*',
+                    '*iex ((new-object net.webclient).downloadstring(*',
+                    '*http*.replace(*iex*'
+                ],
+                "virus_name": "HEUR:Win32.PowerShell.IEX.Download.Generic",
+                "process_function": self.process_detected_powershell_iex_download
+            },
             "commands": {
                 "wifi": {
                     "command": 'netsh wlan show profile',
@@ -2448,6 +2470,12 @@ class Monitor:
     def process_detected_command_antivirus_search(self, text, file_path=None, hwnd=None):
         virus_name = self.known_malware_messages["commands"]["antivirus"]["virus_name"]
         message = f"Detected search for antivirus processes: {virus_name} in text: {text} from {file_path} {hwnd}"
+        logging.warning(message)
+        self.notify_user_for_detected_command(message)
+
+    def process_detected_command_powershell_iex_download(self, text, file_path=None, hwnd=None):
+        virus_name = self.known_malware_commands["powershell_iex_download"]["virus_name"]
+        message = f"Detected Powershell IEX download and execute: {virus_name} in command: {text} from {file_path} {hwnd}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
