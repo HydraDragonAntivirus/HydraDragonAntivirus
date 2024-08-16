@@ -2050,24 +2050,6 @@ def check_worm_similarity(file_path, features_current):
 
     return worm_detected
 
-# Function to monitor sandbox directory
-def check_sandbox_directory():
-
-    important_directories = [sandboxie_folder]
-    alerted_files = []
-
-    while True:
-        for directory in important_directories:
-            if os.path.exists(directory):
-                for root, dirs, files in os.walk(directory):
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        if os.path.isfile(file_path) and file_path not in alerted_files:
-                            logging.info(f"File detected in {root}: {file}")
-                            print(f"File detected in {root}: {file}")
-                            alerted_files.append(file_path)
-                            scan_and_warn(file_path)
-
 class ScanAndWarnHandler(FileSystemEventHandler):
     def on_any_event(self, event):
         if event.is_directory:
@@ -2541,30 +2523,35 @@ directories_to_scan = [sandboxie_folder, decompile_dir]
 def monitor_sandboxie_directory():
     """
     Monitor sandboxie folder for new or modified files and scan them.
+    This includes functionality from both monitoring methods.
     """
     try:
+        alerted_files = []
+
         while True:
             for directory in directories_to_scan:
-                for root, _, files in os.walk(directory):
-                    for file in files:
-                        file_path = os.path.join(root, file)
+                if os.path.exists(directory):
+                    for root, dirs, files in os.walk(directory):
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            last_mod_time = os.path.getmtime(file_path)
 
-                        # Get the last modification time
-                        last_mod_time = os.path.getmtime(file_path)
+                            if file_path not in alerted_files:
+                                logging.info(f"New file detected in {root}: {file}")
+                                print(f"New file detected in {root}: {file}")
+                                alerted_files.append(file_path)
+                                scan_and_warn(file_path)
 
-                        if file_path not in scanned_files:
-                            # New file detected
-                            logging.info(f"New file detected: {file_path}")
-                            print(f"New file detected: {file_path}")
-                            scan_and_warn(file_path)
-                            scanned_files.append(file_path)
-                            file_mod_times[file_path] = last_mod_time
-                        elif file_mod_times[file_path] != last_mod_time:
-                            # File modified
-                            logging.info(f"File modified: {file_path}")
-                            print(f"File modified: {file_path}")
-                            scan_and_warn(file_path)
-                            file_mod_times[file_path] = last_mod_time
+                            if file_path not in scanned_files:
+                                # New file detected
+                                scanned_files.append(file_path)
+                                file_mod_times[file_path] = last_mod_time
+                            elif file_mod_times[file_path] != last_mod_time:
+                                # File modified
+                                logging.info(f"File modified in {root}: {file}")
+                                print(f"File modified in {root}: {file}")
+                                scan_and_warn(file_path)
+                                file_mod_times[file_path] = last_mod_time
 
     except Exception as e:
         logging.error(f"Error in monitor_sandboxie_directory: {e}")
@@ -2595,9 +2582,8 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=observer.start).start()
         threading.Thread(target=scan_and_warn, args=(file_path,)).start()
         threading.Thread(target=start_monitoring_sandbox).start()
-        threading.Thread(target=scan_sandboxie_folder).start()
+        threading.Thread(target=monitor_sandboxie_directory).start()
         threading.Thread(target=check_startup_directories).start()
-        threading.Thread(target=check_sandbox_directory).start()
         threading.Thread(target=monitor_hosts_file).start()
         threading.Thread(target=check_uefi_directories).start() # Start monitoring UEFI directories for malicious files in a separate thread
         threading.Thread(target=monitor.monitor).start() # Function to monitor specific windows in a separate thread
