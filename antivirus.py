@@ -1259,6 +1259,11 @@ fake_system_files = [
 ]
 
 def monitor_sandbox():
+    if not os.path.exists(sandboxie_folder):
+        print(f"The sandboxie folder path does not exist: {sandboxie_folder}")
+        logging.error(f"The sandboxie folder path does not exist: {sandboxie_folder}")
+        return
+
     hDir = win32file.CreateFile(
         sandboxie_folder,
         1,
@@ -1268,6 +1273,7 @@ def monitor_sandbox():
         win32con.FILE_FLAG_BACKUP_SEMANTICS,
         None
     )
+
     try:
         while True:
             results = win32file.ReadDirectoryChangesW(
@@ -1291,10 +1297,15 @@ def monitor_sandbox():
             )
             for action, file in results:
                 pathToScan = os.path.join(sandboxie_folder, file)
-                print(pathToScan)
-                scan_and_warn(pathToScan)
+                if os.path.exists(pathToScan):
+                    print(pathToScan)
+                    scan_and_warn(pathToScan)
+                else:
+                    print(f"File or folder not found: {pathToScan}")
+                    logging.warning(f"File or folder not found: {pathToScan}")
+
     except Exception as e:
-        print("An error occurred at monitor_sandbox:", e)
+        print(f"An error occurred at monitor_sandbox: {e}")
         logging.error(f"An error occurred at monitor_sandbox: {e}")
     finally:
         win32file.CloseHandle(hDir)
