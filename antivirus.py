@@ -1779,7 +1779,7 @@ def check_uefi_directories():
                         logging.warning(f"Malicious file detected: {uefi_path}")
                         print(f"Malicious file detected: {uefi_path}")
                         notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.SecureBootRecovery.Generic.Malware")
-                        scan_and_warn(file_path)
+                        scan_and_warn(uefi_path)
                         alerted_uefi_files.append(uefi_path)
                     elif uefi_path in uefi_paths and is_malicious_file(uefi_path, 1024):
                         logging.warning(f"Malicious file detected: {uefi_path}")
