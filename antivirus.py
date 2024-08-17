@@ -2473,7 +2473,7 @@ class Monitor:
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def process_detected_command_powershell_iex_download(self, text, file_path=None, hwnd=None):
+    def process_detected_powershell_iex_download(self, text, file_path=None, hwnd=None):
         virus_name = self.known_malware_commands["powershell_iex_download"]["virus_name"]
         message = f"Detected Powershell IEX download and execute: {virus_name} in command: {text} from {file_path} {hwnd}"
         logging.warning(message)
