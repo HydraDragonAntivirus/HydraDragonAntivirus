@@ -2484,6 +2484,7 @@ class Monitor:
 
         # Convert input_string to a temporary file if file_path is not provided
         yara_matches = None
+        clamd_result = None
         temp_file_path = None
         if not file_path:
             with tempfile.NamedTemporaryFile(delete=False) as temp_file:
@@ -2491,10 +2492,12 @@ class Monitor:
                 temp_file_path = temp_file.name
             try:
                 yara_matches = yara_scanner.scan_data(temp_file_path)
+                clamd_result = scan_file_with_clamd(temp_file_path)
             finally:
                 os.remove(temp_file_path)
         else:
             yara_matches = yara_scanner.scan_data(file_path)
+            clamd_result = scan_file_with_clamd(file_path)
 
         # Log and notify about the YARA matches
         if yara_matches:
@@ -2513,6 +2516,24 @@ class Monitor:
                 logging.info(f"No YARA matches found in file: {file_path}")
             if temp_file_path:
                 logging.info(f"No YARA matches found in temporary file: {temp_file_path}")
+
+        # Log and notify about the ClamAV scan results
+        if clamd_result not in ("Clean", ""):
+            if file_path:  # If an actual file path was provided
+                if main_file_path in file_path and file_path.startswith(sandboxie_folder):
+                    logging.warning(f"ClamAV detected malware: {clamd_result} in file: {file_path}")
+                    self.notify_user_for_detected_command(f"ClamAV detected malware: {clamd_result} in file: {file_path}")
+                else:
+                    logging.info(f"ClamAV detected something, but the file is unrelated: {file_path}")
+            else:  # If a temporary file path was used
+                logging.warning(f"ClamAV detected malware: {clamd_result} in file: {temp_file_path}")
+                self.notify_user_for_detected_command(f"ClamAV detected malware: {clamd_result} in file: {temp_file_path}")
+        else:
+            # Log the absence of ClamAV detections along with the file paths
+            if file_path:
+                logging.info(f"No ClamAV detection in file: {file_path}")
+            if temp_file_path:
+                logging.info(f"No ClamAV detection in temporary file: {temp_file_path}")
 
         # Process the input_string for known malware messages
         for category, details in self.known_malware_messages.items():
@@ -2537,7 +2558,7 @@ class Monitor:
         if self.contains_keywords_within_max_distance(preprocessed_input, max_distance=10):
             self.process_detected_text_ransom(preprocessed_input, file_path, hwnd)
 
-        logging.info("Finished processing detection (process_detected).")
+        logging.info(f"Finished processing detection {input_string} (process_detected).")
 
     def monitor(self):
         try:
