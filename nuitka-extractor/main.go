@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -33,10 +34,12 @@ type NuitkaExecutable struct {
 	fPtr         *os.File
 	streamReader io.Reader
 	compressFlag CompressionFlag
+	outputDir    string
 }
 
-func (ne *NuitkaExecutable) New(path string) {
+func (ne *NuitkaExecutable) New(path, outputDir string) {
 	ne.path = path
+	ne.outputDir = outputDir
 }
 
 func (ne *NuitkaExecutable) Check() bool {
@@ -173,8 +176,7 @@ func (ne *NuitkaExecutable) Extract() {
 	}
 
 	fmt.Println("[+] Beginning extraction...")
-	var extractionDir = ne.path + "_extracted"
-	os.Mkdir(extractionDir, 0755)
+	os.Mkdir(ne.outputDir, 0755)
 
 	total_files := 0
 
@@ -193,31 +195,28 @@ func (ne *NuitkaExecutable) Extract() {
 		ne.readChunk(fileSizeBuffer)
 		fileSize = binary.LittleEndian.Uint64(fileSizeBuffer)
 
-		// TODO: 4 bytes crc32 is at this position
-		// if executable uses custom extraction directory
-		//
-		// https://github.com/Nuitka/Nuitka/blob/c371b3/nuitka/build/static_src/OnefileBootstrap.c#L959
-		// https://github.com/Nuitka/Nuitka/blob/c371b3/nuitka/tools/onefile_compressor/OnefileCompressor.py#L184-L187
-		// https://github.com/Nuitka/Nuitka/blob/c371b3/nuitka/Options.py#L1538
-
 		// Basic path sanitization
-		extractionDir = strings.ReplaceAll(extractionDir, "..", "__")
-		var outpath = filepath.Join(extractionDir, fn)
+		ne.outputDir = strings.ReplaceAll(ne.outputDir, "..", "__")
+		var outpath = filepath.Join(ne.outputDir, fn)
 		ne.dumpFile(fileSize, outpath)
 		total_files += 1
 	}
 	fmt.Println("[+] Total files:", total_files)
-	fmt.Println("[+] Successfully extracted to", extractionDir)
+	fmt.Println("[+] Successfully extracted to", ne.outputDir)
 }
 
 func main() {
-	if len(os.Args) == 1 {
-		fmt.Println("Usage: nuitka-extractor <filename>")
+	// Adding a flag for the output directory
+	outputDir := flag.String("output", "", "Specify the output directory for extracted files.")
+	flag.Parse()
+
+	if len(flag.Args()) == 0 || *outputDir == "" {
+		fmt.Println("Usage: nuitka-extractor -output <output_directory> <filename>")
 		return
 	}
 
 	ne := NuitkaExecutable{}
-	ne.New(os.Args[1])
+	ne.New(flag.Args()[0], *outputDir)
 	if ne.Check() {
 		ne.Extract()
 	}
