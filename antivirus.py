@@ -36,6 +36,8 @@ import io
 import spacy
 import codecs
 import csv
+from pydumpck import PyDump
+
 sys.modules['sklearn.externals.joblib'] = joblib
 
 # Set the default encoding to UTF-8 for standard output and input
@@ -1538,6 +1540,25 @@ def extract_original_file_path_from_decompiled(file_path):
         print(f"An error occurred while extracting the original file path: {e}")
         return None
 
+def ensure_unique_folder(base_folder):
+    """Create a uniquely named folder by appending a number if necessary."""
+    folder = base_folder
+    counter = 1
+    while os.path.exists(folder):
+        folder = f"{base_folder}_{counter}"
+        counter += 1
+    os.makedirs(folder)
+    return folder
+
+def is_extractable(file_path):
+    """Check if the file is a PE file and likely to contain extractable Python files."""
+    try:
+        py_dump = PyDump(file_path)
+        return py_dump.has_python_files()
+    except Exception as e:
+        logging.error(f"Error checking extractability for file {file_path}: {e}")
+        return False
+
 def scan_and_warn(file_path):
     logging.info(f"Scanning file: {file_path}")
 
@@ -1580,6 +1601,26 @@ def scan_and_warn(file_path):
                 pe_file = False
 
         if pe_file:
+            # Check if the file is extractable (contains Python files)
+            if is_extractable(file_path):
+                try:
+                    logging.info(f"Attempting to extract Python files from PE file: {file_path}")
+                    
+                    # Ensure unique folder creation for extracted files
+                    base_output_folder = os.path.join(os.path.dirname(file_path), "pydump")
+                    unique_folder = ensure_unique_folder(base_output_folder)
+                    
+                    py_dump = PyDump(file_path)
+                    extracted_files = py_dump.extract_all(output_dir=unique_folder)  # Extract all Python-related files
+
+                    if extracted_files:
+                        logging.info(f"Extracted {len(extracted_files)} Python files to {unique_folder}")
+                    else:
+                        logging.info(f"No Python files found in {file_path}")
+
+                except Exception as e:
+                    logging.error(f"Error extracting Python files from PE file {file_path}: {e}")
+
             decompile_file(file_path)
             is_decompiled = True
 
@@ -1611,7 +1652,7 @@ def scan_and_warn(file_path):
         # Perform real-time scan with pe_file flag
         is_malicious, virus_names = scan_file_real_time(file_path, signature_check, pe_file=pe_file)
 
-        # Check for RLO charact in the file name
+        # Check for RLO character in the file name
         if ",\u202E" in file_name:  # Comma followed by RLO character
             if signature_check["is_valid"]:
                 rlo_flag = "HEUR:SIG.RLO.Suspicious.Name.Generic"
