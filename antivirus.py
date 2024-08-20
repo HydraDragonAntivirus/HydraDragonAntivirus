@@ -37,6 +37,7 @@ import spacy
 import codecs
 import csv
 from pydumpck import PyDump
+from elftools.elf.elffile import ELFFile
 
 sys.modules['sklearn.externals.joblib'] = joblib
 
@@ -56,6 +57,9 @@ decompile_dir = os.path.join(script_dir, "decompile")
 ghidra_projects_dir = os.path.join(script_dir, "ghidra_projects")
 ghidra_logs_dir = os.path.join(script_dir, "ghidra_logs")
 ghidra_scripts_dir = os.path.join(script_dir, "scripts")
+
+nuitka_dir = os.path.join(script_dir, "nuitka")
+
 clamd_dir = r"C:\Program Files\ClamAV\clamd.exe"
 clamdscan_path = r"C:\Program Files\ClamAV\clamdscan.exe"
 freshclam_path = r"C:\Program Files\ClamAV\freshclam.exe"
@@ -1551,7 +1555,7 @@ def ensure_unique_folder(base_folder):
     return folder
 
 def is_extractable(file_path):
-    """Check if the file is a PE file and likely to contain extractable Python files."""
+    """Check if the file likely contains extractable Python files."""
     try:
         py_dump = PyDump(file_path)
         return py_dump.has_python_files()
@@ -1559,11 +1563,68 @@ def is_extractable(file_path):
         logging.error(f"Error checking extractability for file {file_path}: {e}")
         return False
 
+def extract_nuitka_file(file_path):
+    """Extract Nuitka file content into uniquely named folders."""
+    try:
+        base_nuitka_dir = os.path.join(os.path.dirname(file_path), "nuitka")
+        
+        # Find the next available directory number
+        folder_number = 1
+        while os.path.exists(f"{base_nuitka_dir}_{folder_number}"):
+            folder_number += 1
+        output_dir = f"{base_nuitka_dir}_{folder_number}"
+        
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        logging.info(f"Extracting Nuitka file {file_path} to {output_dir}")
+
+        extractor_path = os.path.join(script_dir, "nuitka-extractor.exe")
+        command = [extractor_path, "-output", output_dir, file_path]
+        
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode == 0:
+            logging.info(f"Successfully extracted Nuitka file: {file_path} to {output_dir}")
+        else:
+            logging.error(f"Failed to extract Nuitka file: {file_path}. Error: {result.stderr}")
+    except Exception as e:
+        logging.error(f"Error extracting Nuitka file: {e}")
+
+def is_elf_file(file_path):
+    try:
+        with open(file_path, 'rb') as file:
+            elf = ELFFile(file)
+            return elf.header.e_ident[:4] == b'\x7FELF'
+    except Exception as e:
+        logging.error(f"Error checking ELF file status: {e}")
+        return False
+
+def contains_hex(file_path):
+    """Check if the file contains hex data."""
+    try:
+        with open(file_path, 'rb') as file:
+            content = file.read()
+            hex_data = content.hex()
+            # Simple check for hex content; you might need more sophisticated checks
+            return len(hex_data) > 0
+    except Exception as e:
+        logging.error(f"Error checking for hex content in file {file_path}: {e}")
+        return False
+
 def scan_and_warn(file_path):
     logging.info(f"Scanning file: {file_path}")
 
     try:
+        # Perform ransomware alert check
         ransomware_alert(file_path)
+
+        # Extract the file name
+        file_name = os.path.basename(file_path)
+
+        # Check if the file is a known rootkit file
+        if file_name in known_rootkit_files:
+            logging.warning(f"Detected potential rootkit file: {file_path}")
+            notify_user_for_detected_rootkit(file_path, f"HEUR:Rootkit.{file_name}")
 
         # Flag to indicate if the file is decompiled
         is_decompiled = False
@@ -1575,23 +1636,9 @@ def scan_and_warn(file_path):
             "signature_status_issues": False
         }
 
-        # Extract the file name
-        file_name = os.path.basename(file_path)
-
-        # Check if the file is a known rootkit file
-        if file_name in known_rootkit_files:
-            logging.warning(f"Detected potential rootkit file: {file_path}")
-            notify_user_for_detected_rootkit(file_path, f"HEUR:Rootkit.{file_name}")
-
-        # Check if the file is in the decompile directory and scan
-        if os.path.dirname(file_path) == decompile_dir:
-            logging.info(f"File is in the decompile directory: {file_path}. Scanning file.")
-            is_decompiled = True
-        else:
-            # Skip scanning if the file is in the script directory
-            if os.path.commonpath([file_path, script_dir]) == script_dir:
-                logging.info(f"Skipping file in script directory: {file_path}")
-                return False
+        # Check if the file contains hex data
+        if contains_hex(file_path):
+            logging.info(f"Hex data found in: {file_path}")
 
             if is_pe_file(file_path):
                 logging.info(f"File {file_path} is valid PE file.")
@@ -1600,36 +1647,10 @@ def scan_and_warn(file_path):
                 # File is a valid PE file, set pe_file to True
                 pe_file = False
 
-        if pe_file:
-            # Check if the file is extractable (contains Python files)
-            if is_extractable(file_path):
-                try:
-                    logging.info(f"Attempting to extract Python files from PE file: {file_path}")
-                    
-                    # Ensure unique folder creation for extracted files
-                    base_output_folder = os.path.join(os.path.dirname(file_path), "pydump")
-                    unique_folder = ensure_unique_folder(base_output_folder)
-                    
-                    py_dump = PyDump(file_path)
-                    extracted_files = py_dump.extract_all(output_dir=unique_folder)  # Extract all Python-related files
-
-                    if extracted_files:
-                        logging.info(f"Extracted {len(extracted_files)} Python files to {unique_folder}")
-                    else:
-                        logging.info(f"No Python files found in {file_path}")
-
-                except Exception as e:
-                    logging.error(f"Error extracting Python files from PE file {file_path}: {e}")
-
-            decompile_file(file_path)
-            is_decompiled = True
-
-            # Check for PE file and signatures
             signature_check = check_signature(file_path)
 
             if not isinstance(signature_check, dict):
                 logging.error(f"check_signature did not return a dictionary for file: {file_path}, received: {signature_check}")
-                return False
 
             if signature_check["has_microsoft_signature"]:
                 logging.info(f"Valid Microsoft signature detected for file: {file_path}")
@@ -1639,8 +1660,65 @@ def scan_and_warn(file_path):
             elif signature_check["signature_status_issues"]:
                 logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
                 notify_user_invalid(file_path, "Win32.InvalidSignature")
-                worm_alert(file_path)
-            else:
+
+            # Check for the fake file size
+            if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
+                with open(file_path, 'rb') as file:
+                    file_content = file.read()
+                    if file_content.count(b'\x00') >= 100 * 1024 * 1024:  # At least 100MB of empty binary strings
+                        logging.warning(f"File {file_path} is flagged as HEUR:FakeSize.Generic")
+                        fake_size = "HEUR:FakeSize.Generic"
+                        if signature_check and signature_check["is_valid"]:
+                            fake_size = "HEUR:SIG.Win32.FakeSize.Generic"
+                        notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(file_path, fake_size))
+                        notify_user_fake_size_thread.start()
+
+            # Check if the file is extractable
+            if is_extractable(file_path):
+                try:
+                    logging.info(f"Attempting to extract Python files from: {file_path}")
+
+                    # Ensure unique folder creation for extracted files
+                    base_output_folder = os.path.join(os.path.dirname(file_path), "pydump")
+                    unique_folder = ensure_unique_folder(base_output_folder)
+
+                    py_dump = PyDump(file_path)
+                    extracted_files = py_dump.extract_all(output_dir=unique_folder)
+
+                    if extracted_files:
+                        logging.info(f"Extracted {len(extracted_files)} Python files to {unique_folder}")
+                    else:
+                        logging.info(f"No Python files found in {file_path}")
+
+                except Exception as e:
+                    logging.error(f"Error extracting Python files from {file_path}: {e}")
+
+            # Check if the file contains Nuitka and extract if present
+            try:
+                logging.info(f"Checking if the file {file_path} contains Nuitka executable.")
+                ne = NuitkaExecutable()
+                base_nuitka_dir = os.path.join(os.path.dirname(file_path), "nuitka")
+                folder_number = 1
+                while os.path.exists(f"{base_nuitka_dir}_{folder_number}"):
+                    folder_number += 1
+                output_dir = f"{base_nuitka_dir}_{folder_number}"
+                ne.New(file_path, output_dir)
+                if ne.Check():
+                    ne.Extract()
+                    logging.info(f"Nuitka content extracted to {output_dir}")
+                else:
+                    logging.info(f"No Nuitka content found in {file_path}")
+
+            except Exception as e:
+                logging.error(f"Error checking or extracting Nuitka content from {file_path}: {e}")
+
+            # Decompile the file
+            decompile_file(file_path)
+            is_decompiled = True
+
+            # Check for PE file and signatures
+            if pe_file(file_path):
+                logging.info(f"File {file_path} is a valid PE file.")
                 worm_alert(file_path)
 
             # Check for fake system files after signature validation
@@ -1649,43 +1727,16 @@ def scan_and_warn(file_path):
                     logging.warning(f"Detected fake system file: {file_path}")
                     notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.Generic")
 
+        else:
+            logging.info(f"No hex data found in: {file_path}")
+
         # Perform real-time scan with pe_file flag
         is_malicious, virus_names = scan_file_real_time(file_path, signature_check, pe_file=pe_file)
-
-        # Check for RLO character in the file name
-        if ",\u202E" in file_name:  # Comma followed by RLO character
-            if signature_check["is_valid"]:
-                rlo_flag = "HEUR:SIG.RLO.Suspicious.Name.Generic"
-            else:
-                rlo_flag = "HEUR:RLO.Suspicious.Name.Generic"
-            logging.warning(f"File {file_path} is flagged as {rlo_flag}")
-            notify_user_rlo_thread = threading.Thread(target=notify_user, args=(file_path, rlo_flag))
-            notify_user_rlo_thread.start()
-
-        # Check for the fake file size
-        if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
-            with open(file_path, 'rb') as file:
-                file_content = file.read()
-                if file_content.count(b'\x00') >= 100 * 1024 * 1024:  # At least 100MB of empty binary strings
-                    logging.warning(f"File {file_path} is flagged as HEUR:FakeSize.Generic")
-                    fake_size = "HEUR:FakeSize.Generic"
-                    if signature_check and signature_check["is_valid"]:
-                        fake_size = "HEUR:SIG.Win32.FakeSize.Generic"
-                    notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(file_path, fake_size))
-                    notify_user_fake_size_thread.start()
 
         if is_malicious:
             # Concatenate multiple virus names into a single string without delimiters
             virus_name = ''.join(virus_names)
             logging.warning(f"File {file_path} is malicious. Virus: {virus_name}")
-
-            if is_decompiled:
-                original_file_path = extract_original_file_path_from_decompiled(file_path)
-                if original_file_path:
-                    notify_user_ghidra_thread = threading.Thread(target=notify_user_ghidra, args=(original_file_path, virus_name))
-                    notify_user_ghidra_thread.start()
-                else:
-                    logging.error(f"Could not extract original file path from decompiled file: {file_path}")
 
             if virus_name.startswith("PUA."):
                 notify_user_pua_thread = threading.Thread(target=notify_user_pua, args=(file_path, virus_name))
@@ -1696,9 +1747,18 @@ def scan_and_warn(file_path):
 
         return is_malicious
 
+        # Additional post-decompilation actions based on extracted file path
+        if is_decompiled:
+            logging.info(f"Checking original file path from decompiled data for: {file_path}")
+            original_file_path = extract_original_file_path_from_decompiled(file_path)
+            if original_file_path:
+                logging.info(f"Original file path extracted: {original_file_path}")
+
     except Exception as e:
         logging.error(f"Error scanning file {file_path}: {e}")
         return False
+
+    return True
 
 def start_monitoring_sandbox():
     threading.Thread(target=monitor_sandbox).start()
@@ -2619,7 +2679,7 @@ class Monitor:
 # List of already scanned files and their modification times
 scanned_files = []
 file_mod_times = {}
-directories_to_scan = [sandboxie_folder, decompile_dir]
+directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir]
 
 def monitor_sandboxie_directory():
     """

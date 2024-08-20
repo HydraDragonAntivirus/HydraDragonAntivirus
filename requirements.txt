@@ -9,5 +9,6 @@ watchdog
 notify-py
 pywin32
 pydumpck
+pyelftools
 scapy # You will also need to download https://npcap.com/#download
 spacy # python -m spacy download en_core_web_md

@@ -1,18 +1,17 @@
 import ghidra.app.script.GhidraScript;
+import ghidra.app.decompiler.DecompInterface;
+import ghidra.app.decompiler.DecompileResults;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.pcode.PcodeOpAST;
 import ghidra.program.model.pcode.PcodeBlockBasic;
 import ghidra.program.model.pcode.PcodeBlock;
-import ghidra.app.decompiler.DecompInterface;
-import ghidra.app.decompiler.DecompileResults;
-import ghidra.util.task.TaskMonitor;
-import ghidra.program.model.address.Address;
+import ghidra.program.model.listing.Listing;
 import ghidra.program.model.listing.CodeUnit;
 import ghidra.program.model.listing.CodeUnitIterator;
-import ghidra.program.model.listing.Listing;
 import ghidra.program.model.listing.Instruction;
+import ghidra.util.task.TaskMonitor;
 
 import java.io.PrintWriter;
 import java.io.FileWriter;
@@ -21,7 +20,7 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.Path;
 
-public class ExtractFunctionDetails extends GhidraScript {
+public class DecompileAndSave extends GhidraScript {
 
     @Override
     protected void run() throws Exception {
@@ -34,7 +33,7 @@ public class ExtractFunctionDetails extends GhidraScript {
         Files.createDirectories(Paths.get(outputDir));
 
         // Determine the filename with a unique suffix if needed
-        String baseFileName = "extracted_function_details";
+        String baseFileName = "decompiled_function_details";
         String fileExtension = ".txt";
         String fileName = baseFileName + fileExtension;
         Path filePath = Paths.get(outputDir, fileName);
@@ -98,5 +97,7 @@ public class ExtractFunctionDetails extends GhidraScript {
                 println("Error writing to file: " + e.getMessage());
             }
         }
+
+        println("Decompilation and analysis completed. Results saved to " + filePath);
     }
 }
