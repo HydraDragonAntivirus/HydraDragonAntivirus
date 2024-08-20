@@ -1629,7 +1629,7 @@ def scan_and_warn(file_path):
         # Flag to indicate if the file is decompiled
         is_decompiled = False
 
-        pe_file= False
+        pe_file = False
 
         # Initialize signature_check with a default value
         signature_check = {
@@ -1643,11 +1643,8 @@ def scan_and_warn(file_path):
             logging.info(f"Hex data found in: {file_path}")
 
             if is_pe_file(file_path):
-                logging.info(f"File {file_path} is valid PE file.")
+                logging.info(f"File {file_path} is a valid PE file.")
                 pe_file = True
-            else:
-                # File is a valid PE file, set pe_file to True
-                pe_file = False
 
             signature_check = check_signature(file_path)
 
@@ -1747,14 +1744,14 @@ def scan_and_warn(file_path):
                 notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
                 notify_user_thread.start()
 
-        return is_malicious
-
         # Additional post-decompilation actions based on extracted file path
         if is_decompiled:
             logging.info(f"Checking original file path from decompiled data for: {file_path}")
             original_file_path = extract_original_file_path_from_decompiled(file_path)
             if original_file_path:
                 logging.info(f"Original file path extracted: {original_file_path}")
+
+        return is_malicious
 
     except Exception as e:
         logging.error(f"Error scanning file {file_path}: {e}")
