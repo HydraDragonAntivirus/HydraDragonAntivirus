@@ -57,6 +57,8 @@ decompile_dir = os.path.join(script_dir, "decompile")
 ghidra_projects_dir = os.path.join(script_dir, "ghidra_projects")
 ghidra_logs_dir = os.path.join(script_dir, "ghidra_logs")
 ghidra_scripts_dir = os.path.join(script_dir, "scripts")
+dotnet_dir = os.path.join(script_dir, "dotnet")
+ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
 
 nuitka_dir = os.path.join(script_dir, "nuitka")
 
@@ -1611,6 +1613,27 @@ def contains_hex(file_path):
         logging.error(f"Error checking for hex content in file {file_path}: {e}")
         return False
 
+def is_dotnet_file(file_path):
+    try:
+        pe = pefile.PE(file_path)
+        
+        # Check if the file has a .NET header
+        for entry in pe.DIRECTORY_ENTRY_IMPORT:
+            if entry.dll.decode().lower() == "mscoree.dll":
+                return True
+        
+        # Check the CLR header
+        if hasattr(pe, 'OPTIONAL_HEADER') and hasattr(pe.OPTIONAL_HEADER, 'DATA_DIRECTORY'):
+            clr_directory = pe.OPTIONAL_HEADER.DATA_DIRECTORY[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR']]
+            if clr_directory.VirtualAddress != 0:
+                return True
+
+    except pefile.PEFormatError as e:
+        logging.error(f"PEFormatError for {file_path}: {e}")
+        return False
+
+    return False
+
 def scan_and_warn(file_path):
     logging.info(f"Scanning file: {file_path}")
 
@@ -1714,6 +1737,18 @@ def scan_and_warn(file_path):
             # Decompile the file
             decompile_file(file_path)
             is_decompiled = True
+
+            # Check if .NET data is detected
+            if is_dotnet_file(file_path):  # Add this check to detect .NET assemblies
+                logging.info(f"Detected .NET assembly: {file_path}")
+                folder_number = 1
+                while os.path.exists(f"{dotnet_dir}_{folder_number}"):
+                    folder_number += 1
+                output_dir = f"{dotnet_dir}_{folder_number}"
+                os.makedirs(output_dir, exist_ok=True)
+                ilspy_command = f"{ilspycmd_path} -o {output_dir} {file_path}"
+                os.system(ilspy_command)
+                logging.info(f".NET content decompiled to {output_dir}")
 
             # Check for PE file and signatures
             if pe_file:
@@ -2678,7 +2713,7 @@ class Monitor:
 # List of already scanned files and their modification times
 scanned_files = []
 file_mod_times = {}
-directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir]
+directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir]
 
 def monitor_sandboxie_directory():
     """
