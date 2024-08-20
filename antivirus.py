@@ -1719,7 +1719,7 @@ def scan_and_warn(file_path):
             is_decompiled = True
 
             # Check for PE file and signatures
-            if pe_file(file_path):
+            if pe_file:
                 logging.info(f"File {file_path} is a valid PE file.")
                 worm_alert(file_path)
 
