@@ -1721,11 +1721,11 @@ def scan_and_warn(file_path):
                 logging.info(f"File {file_path} is a valid PE file.")
                 worm_alert(file_path)
 
-            # Check for fake system files after signature validation
-            if file_name in fake_system_files and os.path.abspath(file_path).startswith(main_drive_path):
-                if pe_file and not signature_check["is_valid"]:
-                    logging.warning(f"Detected fake system file: {file_path}")
-                    notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.Generic")
+                # Check for fake system files after signature validation
+                if file_name in fake_system_files and os.path.abspath(file_path).startswith(main_drive_path):
+                    if pe_file and not signature_check["is_valid"]:
+                        logging.warning(f"Detected fake system file: {file_path}")
+                        notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.Generic")
 
         else:
             logging.info(f"No hex data found in: {file_path}")
