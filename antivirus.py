@@ -1629,6 +1629,8 @@ def scan_and_warn(file_path):
         # Flag to indicate if the file is decompiled
         is_decompiled = False
 
+        pe_file= False
+
         # Initialize signature_check with a default value
         signature_check = {
             "has_microsoft_signature": False,
