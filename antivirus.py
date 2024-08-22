@@ -36,8 +36,10 @@ import io
 import spacy
 import codecs
 import csv
-from pydumpck import PyDump
 from elftools.elf.elffile import ELFFile
+import struct
+import zlib
+import marshal
 
 sys.modules['sklearn.externals.joblib'] = joblib
 
@@ -54,6 +56,7 @@ script_dir = os.getcwd()
 
 # Define the paths to the ghidra related directories
 decompile_dir = os.path.join(script_dir, "decompile")
+pyisntaller_dir = os.path.join(script_dir, "pyinstaller")
 ghidra_projects_dir = os.path.join(script_dir, "ghidra_projects")
 ghidra_logs_dir = os.path.join(script_dir, "ghidra_logs")
 ghidra_scripts_dir = os.path.join(script_dir, "scripts")
@@ -1556,15 +1559,6 @@ def ensure_unique_folder(base_folder):
     os.makedirs(folder)
     return folder
 
-def is_extractable(file_path):
-    """Check if the file likely contains extractable Python files."""
-    try:
-        py_dump = PyDump(file_path)
-        return py_dump.has_python_files()
-    except Exception as e:
-        logging.error(f"Error checking extractability for file {file_path}: {e}")
-        return False
-
 def extract_nuitka_file(file_path):
     """Extract Nuitka file content into uniquely named folders."""
     try:
@@ -1634,6 +1628,185 @@ def is_dotnet_file(file_path):
 
     return False
 
+class CTOCEntry:
+    def __init__(self, position, cmprsdDataSize, uncmprsdDataSize, cmprsFlag, typeCmprsData, name):
+        self.position = position
+        self.cmprsdDataSize = cmprsdDataSize
+        self.uncmprsdDataSize = uncmprsdDataSize
+        self.cmprsFlag = cmprsFlag
+        self.typeCmprsData = typeCmprsData
+        self.name = name
+
+class PyInstArchive:
+    MAGIC = b'MEI\014\013\012\013\016'
+    PYINST20_COOKIE_SIZE = 24
+    PYINST21_COOKIE_SIZE = 24 + 64
+
+    def __init__(self, path):
+        self.filePath = path
+
+    def open(self):
+        try:
+            self.fPtr = open(self.filePath, 'rb')
+            self.fileSize = os.stat(self.filePath).st_size
+            return True
+        except:
+            return False
+
+    def close(self):
+        try:
+            self.fPtr.close()
+        except:
+            pass
+
+    def checkFile(self):
+        endPos = self.fileSize
+        searchChunkSize = 8192
+
+        while True:
+            startPos = max(0, endPos - searchChunkSize)
+            self.fPtr.seek(startPos, os.SEEK_SET)
+            data = self.fPtr.read(endPos - startPos)
+            offs = data.rfind(self.MAGIC)
+            if offs != -1:
+                self.cookiePos = startPos + offs
+                break
+            endPos = startPos + len(self.MAGIC) - 1
+            if startPos == 0:
+                return False
+
+        self.fPtr.seek(self.cookiePos + self.PYINST20_COOKIE_SIZE, os.SEEK_SET)
+        self.pyinstVer = 21 if b'python' in self.fPtr.read(64).lower() else 20
+        return True
+
+    def getCArchiveInfo(self):
+        self.fPtr.seek(self.cookiePos, os.SEEK_SET)
+        try:
+            if self.pyinstVer == 20:
+                _, lengthofPackage, toc, tocLen, pyver = struct.unpack('!8siiii', self.fPtr.read(self.PYINST20_COOKIE_SIZE))
+            else:
+                _, lengthofPackage, toc, tocLen, pyver, _ = struct.unpack('!8sIIii64s', self.fPtr.read(self.PYINST21_COOKIE_SIZE))
+        except:
+            return False
+
+        self.pymaj, self.pymin = (pyver // 100, pyver % 100) if pyver >= 100 else (pyver // 10, pyver % 10)
+        self.overlaySize = lengthofPackage + (self.fileSize - self.cookiePos - (self.PYINST20_COOKIE_SIZE if self.pyinstVer == 20 else self.PYINST21_COOKIE_SIZE))
+        self.overlayPos = self.fileSize - self.overlaySize
+        self.tableOfContentsPos = self.overlayPos + toc
+        self.tableOfContentsSize = tocLen
+        return True
+
+    def parseTOC(self):
+        self.fPtr.seek(self.tableOfContentsPos, os.SEEK_SET)
+        self.tocList = []
+        parsedLen = 0
+
+        while parsedLen < self.tableOfContentsSize:
+            entrySize = struct.unpack('!i', self.fPtr.read(4))[0]
+
+            if entrySize <= 0 or entrySize > self.fileSize - self.tableOfContentsPos:
+                return False
+
+            nameLen = struct.calcsize('!iIIIBc')
+
+            try:
+                entry = struct.unpack(f'!IIIBc{entrySize - nameLen}s', self.fPtr.read(entrySize - 4))
+            except struct.error:
+                return False
+
+            name = entry[5].decode('utf-8', errors='replace').rstrip('\0')
+            self.tocList.append(CTOCEntry(
+                self.overlayPos + entry[0],
+                entry[1],
+                entry[2],
+                entry[3],
+                entry[4],
+                name
+            ))
+
+            parsedLen += entrySize
+
+        return True
+
+    def extractFiles(self):
+        folder_number = 1
+        base_extraction_dir = os.path.join(os.getcwd(), os.path.basename(self.filePath) + '_extracted')
+
+        while os.path.exists(f"{base_extraction_dir}_{folder_number}"):
+            folder_number += 1
+
+        extractionDir = f"{base_extraction_dir}_{folder_number}"
+        os.makedirs(extractionDir, exist_ok=True)
+        os.chdir(extractionDir)
+
+        for entry in self.tocList:
+            self.fPtr.seek(entry.position, os.SEEK_SET)
+            data = self.fPtr.read(entry.cmprsdDataSize)
+            if entry.cmprsFlag == 1:
+                try:
+                    data = zlib.decompress(data)
+                except zlib.error:
+                    return False
+
+            with open(entry.name, 'wb') as f:
+                f.write(data)
+
+            if entry.name.endswith('.pyz'):
+                self._extractPyz(entry.name)
+
+        return True
+
+    def _extractPyz(self, name):
+        dirName =  name + '_extracted'
+        os.makedirs(dirName, exist_ok=True)
+
+        with open(name, 'rb') as f:
+            pyzMagic = f.read(4)
+            assert pyzMagic == b'PYZ\0' 
+
+            pyzPycMagic = f.read(4) 
+
+            if self.pymaj != sys.version_info.major or self.pymin != sys.version_info.minor:
+                return False
+
+            tocPosition = struct.unpack('!i', f.read(4))[0]
+            f.seek(tocPosition, os.SEEK_SET)
+
+            try:
+                toc = marshal.load(f)
+            except:
+                return False
+
+            if isinstance(toc, list):
+                toc = dict(toc)
+
+            for key, (ispkg, pos, length) in toc.items():
+                f.seek(pos, os.SEEK_SET)
+                fileName = key.decode('utf-8', errors='replace')
+                fileName = fileName.replace('..', '__').replace('.', os.path.sep)
+
+                if ispkg:
+                    filePath = os.path.join(dirName, fileName, '__init__.pyc')
+                else:
+                    filePath = os.path.join(dirName, fileName + '.pyc')
+
+                os.makedirs(os.path.dirname(filePath), exist_ok=True)
+
+                data = f.read(length)
+                try:
+                    data = zlib.decompress(data)
+                except:
+                    with open(filePath + '.encrypted', 'wb') as e_f:
+                        e_f.write(data)
+                    continue
+
+                with open(filePath, 'wb') as pyc_f:
+                    pyc_f.write(pyzPycMagic)
+                    pyc_f.write(b'\0' * 4)
+                    if self.pymaj >= 3 and self.pymin >= 7:
+                        pyc_f.write(b'\0' * 8)
+                    pyc_f.write(data)
+
 def scan_and_warn(file_path):
     logging.info(f"Scanning file: {file_path}")
 
@@ -1661,105 +1834,102 @@ def scan_and_warn(file_path):
             "signature_status_issues": False
         }
 
-        # Check if the file contains hex data
-        if contains_hex(file_path):
-            logging.info(f"Hex data found in: {file_path}")
-
-            if is_pe_file(file_path):
-                logging.info(f"File {file_path} is a valid PE file.")
-                pe_file = True
-
-            signature_check = check_signature(file_path)
-
-            if not isinstance(signature_check, dict):
-                logging.error(f"check_signature did not return a dictionary for file: {file_path}, received: {signature_check}")
-
-            if signature_check["has_microsoft_signature"]:
-                logging.info(f"Valid Microsoft signature detected for file: {file_path}")
-                return False
-            elif signature_check["is_valid"]:
-                logging.info(f"File '{file_path}' has a valid signature. Skipping worm detection.")
-            elif signature_check["signature_status_issues"]:
-                logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
-                notify_user_invalid(file_path, "Win32.InvalidSignature")
-
-            # Check for the fake file size
-            if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
-                with open(file_path, 'rb') as file:
-                    file_content = file.read()
-                    if file_content.count(b'\x00') >= 100 * 1024 * 1024:  # At least 100MB of empty binary strings
-                        logging.warning(f"File {file_path} is flagged as HEUR:FakeSize.Generic")
-                        fake_size = "HEUR:FakeSize.Generic"
-                        if signature_check and signature_check["is_valid"]:
-                            fake_size = "HEUR:SIG.Win32.FakeSize.Generic"
-                        notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(file_path, fake_size))
-                        notify_user_fake_size_thread.start()
-
-            # Check if the file is extractable
-            if is_extractable(file_path):
-                try:
-                    logging.info(f"Attempting to extract Python files from: {file_path}")
-
-                    # Ensure unique folder creation for extracted files
-                    base_output_folder = os.path.join(os.path.dirname(file_path), "pydump")
-                    unique_folder = ensure_unique_folder(base_output_folder)
-
-                    py_dump = PyDump(file_path)
-                    extracted_files = py_dump.extract_all(output_dir=unique_folder)
-
-                    if extracted_files:
-                        logging.info(f"Extracted {len(extracted_files)} Python files to {unique_folder}")
-                    else:
-                        logging.info(f"No Python files found in {file_path}")
-
-                except Exception as e:
-                    logging.error(f"Error extracting Python files from {file_path}: {e}")
-
-            # Check if the file contains Nuitka and extract if present
-            try:
-                logging.info(f"Checking if the file {file_path} contains Nuitka executable.")
-                ne = NuitkaExecutable()
-                base_nuitka_dir = os.path.join(os.path.dirname(file_path), "nuitka")
-                folder_number = 1
-                while os.path.exists(f"{base_nuitka_dir}_{folder_number}"):
-                    folder_number += 1
-                output_dir = f"{base_nuitka_dir}_{folder_number}"
-                ne.New(file_path, output_dir)
-                if ne.Check():
-                    ne.Extract()
-                    logging.info(f"Nuitka content extracted to {output_dir}")
-                else:
-                    logging.info(f"No Nuitka content found in {file_path}")
-
-            except Exception as e:
-                logging.error(f"Error checking or extracting Nuitka content from {file_path}: {e}")
-
-            # Decompile the file
-            decompile_file(file_path)
+        # Check if the file is in decompile_dir
+        if file_path.startswith(decompile_dir):
+            # Automatically scan decompiled files without hex or extension checks
+            logging.info(f"File {file_path} is in decompile_dir.")
             is_decompiled = True
 
-            # Check if .NET data is detected
-            if is_dotnet_file(file_path):  # Add this check to detect .NET assemblies
-                logging.info(f"Detected .NET assembly: {file_path}")
-                folder_number = 1
-                while os.path.exists(f"{dotnet_dir}_{folder_number}"):
-                    folder_number += 1
-                output_dir = f"{dotnet_dir}_{folder_number}"
-                os.makedirs(output_dir, exist_ok=True)
-                ilspy_command = f"{ilspycmd_path} -o {output_dir} {file_path}"
-                os.system(ilspy_command)
-                logging.info(f".NET content decompiled to {output_dir}")
+        elif contains_hex(file_path):
+            logging.info(f"Hex data found in: {file_path}")
 
-            # Check for PE file and signatures
-            if pe_file:
-                logging.info(f"File {file_path} is a valid PE file.")
-                worm_alert(file_path)
+            # Check if the file is a PyInstaller archive
+            if is_pyinstaller_archive(file_path):
+                logging.info(f"File {file_path} is a PyInstaller archive. Extracting...")
+                pyinstaller_dir = extract_pyinstaller_archive(file_path)
+                if pyinstaller_dir:
+                    logging.info(f"PyInstaller archive extracted to {pyinstaller_dir}")
+                    # Scan extracted contents
+                    for root, dirs, files in os.walk(pyinstaller_dir):
+                        for file in files:
+                            extracted_file_path = os.path.join(root, file)
+                            scan_and_warn(extracted_file_path)
 
-                # Check for fake system files after signature validation
-                if file_name in fake_system_files and os.path.abspath(file_path).startswith(main_drive_path):
-                    if pe_file and not signature_check["is_valid"]:
-                        logging.warning(f"Detected fake system file: {file_path}")
-                        notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.Generic")
+            else:
+                if is_pe_file(file_path):
+                    logging.info(f"File {file_path} is a valid PE file.")
+                    pe_file = True
+
+                signature_check = check_signature(file_path)
+
+                if not isinstance(signature_check, dict):
+                    logging.error(f"check_signature did not return a dictionary for file: {file_path}, received: {signature_check}")
+
+                if signature_check["has_microsoft_signature"]:
+                    logging.info(f"Valid Microsoft signature detected for file: {file_path}")
+                    return False
+                elif signature_check["is_valid"]:
+                    logging.info(f"File '{file_path}' has a valid signature. Skipping worm detection.")
+                elif signature_check["signature_status_issues"]:
+                    logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
+                    notify_user_invalid(file_path, "Win32.InvalidSignature")
+
+                # Check for the fake file size
+                if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
+                    with open(file_path, 'rb') as file:
+                        file_content = file.read()
+                        if file_content.count(b'\x00') >= 100 * 1024 * 1024:  # At least 100MB of empty binary strings
+                            logging.warning(f"File {file_path} is flagged as HEUR:FakeSize.Generic")
+                            fake_size = "HEUR:FakeSize.Generic"
+                            if signature_check and signature_check["is_valid"]:
+                                fake_size = "HEUR:SIG.Win32.FakeSize.Generic"
+                            notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(file_path, fake_size))
+                            notify_user_fake_size_thread.start()
+
+                # Check if the file contains Nuitka and extract if present
+                try:
+                    logging.info(f"Checking if the file {file_path} contains Nuitka executable.")
+                    ne = NuitkaExecutable()
+                    base_nuitka_dir = os.path.join(os.path.dirname(file_path), "nuitka")
+                    folder_number = 1
+                    while os.path.exists(f"{base_nuitka_dir}_{folder_number}"):
+                        folder_number += 1
+                    output_dir = f"{base_nuitka_dir}_{folder_number}"
+                    ne.New(file_path, output_dir)
+                    if ne.Check():
+                        ne.Extract()
+                        logging.info(f"Nuitka content extracted to {output_dir}")
+                    else:
+                        logging.info(f"No Nuitka content found in {file_path}")
+
+                except Exception as e:
+                    logging.error(f"Error checking or extracting Nuitka content from {file_path}: {e}")
+
+                # Decompile the file
+                decompile_file(file_path)
+
+                # Check if .NET data is detected
+                if is_dotnet_file(file_path):  # Add this check to detect .NET assemblies
+                    logging.info(f"Detected .NET assembly: {file_path}")
+                    folder_number = 1
+                    while os.path.exists(f"{dotnet_dir}_{folder_number}"):
+                        folder_number += 1
+                    output_dir = f"{dotnet_dir}_{folder_number}"
+                    os.makedirs(output_dir, exist_ok=True)
+                    ilspy_command = f"{ilspycmd_path} -o {output_dir} {file_path}"
+                    os.system(ilspy_command)
+                    logging.info(f".NET content decompiled to {output_dir}")
+
+                # Check for PE file and signatures
+                if pe_file:
+                    logging.info(f"File {file_path} is a valid PE file.")
+                    worm_alert(file_path)
+
+                    # Check for fake system files after signature validation
+                    if file_name in fake_system_files and os.path.abspath(file_path).startswith(main_drive_path):
+                        if pe_file and not signature_check["is_valid"]:
+                            logging.warning(f"Detected fake system file: {file_path}")
+                            notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.Generic")
 
         else:
             logging.info(f"No hex data found in: {file_path}")
@@ -2713,7 +2883,7 @@ class Monitor:
 # List of already scanned files and their modification times
 scanned_files = []
 file_mod_times = {}
-directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir]
+directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir]
 
 def monitor_sandboxie_directory():
     """
