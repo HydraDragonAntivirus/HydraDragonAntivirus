@@ -714,7 +714,7 @@ def notify_user_invalid(file_path, virus_name):
 
 def notify_user_ghidra(file_path, virus_name):
     notification = Notify()
-    notification.title = "Ghidra Alert"
+    notification.title = "Decompiled Malicious File Alert"
     notification.message = f"Malicious decompiled file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
