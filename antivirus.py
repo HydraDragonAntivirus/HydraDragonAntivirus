@@ -92,7 +92,162 @@ logging.basicConfig(
 
 main_file_path = None
 
-fileTypes = ['.pyd', '.elf', '.ps1', '.bas', '.bat', '.chm', '.cmd', '.com', '.cpl', '.dll', '.exe', '.msc', '.ocx', '.pcd', '.pif', '.reg', '.scr', '.sct', '.url', '.vbe', '.wsc', '.wsf', '.wsh', '.ct', '.t', '.input', '.war', '.jspx', '.tmp', '.dump', '.pwd', '.w', '.cfg', '.psd1', '.psm1', '.ps1xml', '.clixml', '.psc1', '.pssc', '.www', '.rdp', '.msi', '.dat', '.contact', '.settings', '.odt', '.jpg', '.mka','shtml', '.mhtml', '.oqy', '.png', '.csv', '.py', '.sql', '.mdb', '.html', '.htm', '.xml', '.psd', '.pdf', '.xla', '.cub', '.dae', '.indd', '.cs', '.mp3', '.mp4', '.dwg', '.rar', '.mov', '.rtf', '.bmp', '.mkv', '.avi', '.apk', '.lnk', '.dib', '.dic', '.dif', '.divx', '.iso', '.7zip', '.ace', '.arj', '.bz2', '.cab', '.gzip', '.lzh', '.jpeg', '.xz', '.mpeg', '.torrent', '.mpg', '.core', '.pdb', '.ico', '.pas', '.db', '.wmv', '.swf', '.cer', '.bak', '.backup', '.accdb', '.bay', '.p7c', '.exif', '.vss', '.raw', '.m4a', '.wma', '.flv', '.sie', '.sum', '.ibank', '.wallet', '.css', '.js', '.rb', '.xlsm', '.xlsb', '.7z', '.cpp', '.java', '.jpe', '.ini', '.blob', '.wps', '.wav', '.3gp', '.webm', '.m4v', '.amv', '.m4p', '.svg', '.ods', '.bk', '.vdi', '.vmdk', '.accde', '.json', '.gif', '.gz', '.m1v', '.sln', '.pst', '.obj', '.xlam', '.djvu', '.inc', '.cvs', '.dbf', '.tbi', '.wpd', '.dot', '.dotx', '.xltx', '.pptm', '.potx', '.potm', '.xlw', '.xps', '.xsd', '.xsf', '.xsl', '.kmz', '.accdr', '.stm', '.accdt', '.ppam', '.pps', '.ppsm', '.1cd', '.3ds', '.3fr', '.3g2', '.accda', '.accdc', '.accdw', '.adp', '.ai', '.ai3', '.ai4', '.ai5', '.ai6', '.ai7', '.ai8', '.arw', '.ascx', '.asm', '.asmx', '.avs', '.bin', '.cfm', '.dbx', '.dcm', '.dcr', '.pict', '.rgbe', '.dwt', '.f4v', '.exr', '.kwm', '.max', '.mda', '.mde', '.mdf', '.mdw', '.mht', '.mpv', '.msg', '.myi', '.nef', '.odc', '.geo', '.swift', '.odm', '.odp', '.oft', '.orf', '.pfx', '.p12', '.pls', '.safe', '.tab', '.vbs', '.xlk', '.xlm', '.xlt', '.xltm', '.svgz', '.slk', '.dmg', '.ps', '.psb', '.tif', '.rss', '.key', '.vob', '.epsp', '.dc3', '.iff', '.onepkg', '.onetoc2', '.opt', '.p7b', '.pam', '.r3d', '.pkg', '.yml', '.old', '.thmx', '.keytab', '.h', '.php', '.c', '.zip', '.log', '.log1', '.log2', '.tm', '.blf', '.uic', '.widget-plugin', '.regtrans-ms', '.efi', '.rule', '.rules', '.yar', '.yara', '.yrc', '.inf', '.ini', '.ndb', '.cvd', '.cld', '.ign2', '.dmp', '.conf' '.config']
+fileTypes = ['.pyd', '.elf', '.ps1', '.bas', '.bat', '.chm', '.cmd', '.com', '.cpl', '.dll', '.exe', '.msc', '.ocx', '.pcd', '.pif', '.reg', '.scr', '.sct', '.url', '.vbe', '.wsc', '.wsf', '.wsh', '.ct', '.t', '.input', '.war', '.jspx', '.tmp', '.dump', '.pwd', '.w', '.cfg', '.psd1', '.psm1', '.ps1xml', '.clixml', '.psc1', '.pssc', '.www', '.rdp', '.msi', '.dat', '.contact', '.settings', '.odt', '.jpg', '.mka','shtml', '.mhtml', '.oqy', '.png', '.csv', '.py', '.sql', '.mdb', '.html', '.htm', '.xml', '.psd', '.pdf', '.xla', '.cub', '.dae', '.indd', '.cs', '.mp3', '.mp4', '.dwg', '.rar', '.mov', '.rtf', '.bmp', '.mkv', '.avi', '.apk', '.lnk', '.dib', '.dic', '.dif', '.divx', '.iso', '.7zip', '.ace', '.arj', '.bz2', '.cab', '.gzip', '.lzh', '.jpeg', '.xz', '.mpeg', '.torrent', '.mpg', '.core', '.pdb', '.ico', '.pas', '.db', '.wmv', '.swf', '.cer', '.bak', '.backup', '.accdb', '.bay', '.p7c', '.exif', '.vss', '.raw', '.m4a', '.wma', '.flv', '.sie', '.sum', '.ibank', '.wallet', '.css', '.js', '.rb', '.xlsm', '.xlsb', '.7z', '.cpp', '.java', '.jpe', '.ini', '.blob', '.wps', '.wav', '.3gp', '.webm', '.m4v', '.amv', '.m4p', '.svg', '.ods', '.bk', '.vdi', '.vmdk', '.accde', '.json', '.gif', '.gz', '.m1v', '.sln', '.pst', '.obj', '.xlam', '.djvu', '.inc', '.cvs', '.dbf', '.tbi', '.wpd', '.dot', '.dotx', '.xltx', '.pptm', '.potx', '.potm', '.xlw', '.xps', '.xsd', '.xsf', '.xsl', '.kmz', '.accdr', '.stm', '.accdt', '.ppam', '.pps', '.ppsm', '.1cd', '.3ds', '.3fr', '.3g2', '.accda', '.accdc', '.accdw', '.adp', '.ai', '.ai3', '.ai4', '.ai5', '.ai6', '.ai7', '.ai8', '.arw', '.ascx', '.asm', '.asmx', '.avs', '.bin', '.cfm', '.dbx', '.dcm', '.dcr', '.pict', '.rgbe', '.dwt', '.f4v', '.exr', '.kwm', '.max', '.mda', '.mde', '.mdf', '.mdw', '.mht', '.mpv', '.msg', '.myi', '.nef', '.odc', '.geo', '.swift', '.odm', '.odp', '.oft', '.orf', '.pfx', '.p12', '.pls', '.safe', '.tab', '.vbs', '.xlk', '.xlm', '.xlt', '.xltm', '.svgz', '.slk', '.dmg', '.ps', '.psb', '.tif', '.rss', '.key', '.vob', '.epsp', '.dc3', '.iff', '.onepkg', '.onetoc2', '.opt', '.p7b', '.pam', '.r3d', '.pkg', '.yml', '.old', '.thmx', '.keytab', '.h', '.php', '.c', '.zip', '.log', '.log1', '.log2', '.tm', '.blf', '.uic', '.widget-plugin', '.regtrans-ms', '.efi', '.rule', '.rules', '.yar', '.yara', '.yrc', '.inf', '.ini', '.ndb', '.cvd', '.cld', '.ign2', '.dmp', '.conf' '.config', '.pyc']
+
+magic_bytes = {
+    "23 21": "sh",
+    "02 00 5A 57 52 54": "cwk",
+    "00 00 02 00 06 04 06 00": "wk1",
+    "00 00 1A 00 00 10 04 00": "wk3",
+    "00 00 1A 00 02 10 04 00": "wk4",
+    "00 00 1A 00 05 10 04": "123",
+    "00 00 03 F3": "amiga",
+    "00 00 49 49 58 50 52": "qxd",
+    "50 57 53 33": "psafe3",
+    "D4 C3 B2 A1": "pcap",
+    "4D 3C B2 A1": "pcap",
+    "0A 0D 0D 0A": "pcapng",
+    "ED AB EE DB": "rpm",
+    "53 51 4C 69 74 65 20 66": "sqlite",
+    "53 50 30 31": "bin",
+    "49 57 41 44": "wad",
+    "00": "pic",
+    "BE BA FE CA": "dba",
+    "00 01 42 44": "dba",
+    "00 01 44 54": "tda",
+    "54 44 46 24": "tdf",
+    "54 44 45 46": "tdef",
+    "00 01 00 00": "palm",
+    "00 00 01 00": "ico",
+    "69 63 6E 73": "icns",
+    "66 74 79 70 33 67": "3gp",
+    "66 74 79 70 68 65 69 63": "heic",
+    "1F 9D": "z",
+    "1F A0": "z",
+    "2D 68 6C 30 2D": "lzh",
+    "42 41 43 4B 4D 49 4B 45": "bac",
+    "49 4E 44 58": "idx",
+    "62 70 6C 69 73 74": "plist",
+    "42 5A 68": "bz2",
+    "47 49 46 38 37 61": "gif",
+    "47 49 46 38 39 61": "gif",
+    "49 49 2A 00": "tif",
+    "4D 4D 00 2A": "tif",
+    "49 49 2A 00 10 00 00 00": "cr2",
+    "80 2A 5F D7": "cin",
+    "52 4E 43 01": "rnc",
+    "4E 55 52 55 49 4D 47": "nui",
+    "53 44 50 58": "dpx",
+    "76 2F 31 01": "exr",
+    "42 50 47 FB": "bpg",
+    "FF D8 FF DB": "jpg",
+    "FF D8 FF E0 00 10 4A 46": "jpg",
+    "FF D8 FF EE": "jpg",
+    "FF D8 FF E1": "jpg",
+    "00 00 00 0C 6A 50 20 20": "jp2",
+    "FF 4F FF 51": "jp2",
+    "71 6F 69 66": "qoi",
+    "46 4F 52 4D": "ilbm",
+    "4C 5A 49 50": "lz",
+    "30 37 30 37 30 37": "cpio",
+    "4D 5A": "exe",
+    "53 4D 53 4E 46 32 30 30": "ssp",
+    "5A 4D": "exe",
+    "50 4B 03 04": "zip",
+    "52 61 72 21 1A 07 00": "rar",
+    "52 61 72 21 1A 07 01 00": "rar",
+    "7F 45 4C 46": "elf",
+    "89 50 4E 47 0D 0A 1A 0A": "png",
+    "0E 03 13 01": "hdf4",
+    "89 48 44 46 0D 0A 1A 0A": "hdf5",
+    "C9": "com",
+    "CA FE BA BE": "class",
+    "EF BB BF": "txt",
+    "FF FE": "txt",
+    "FE FF": "txt",
+    "FF FE 00 00": "txt",
+    "00 00 FE FF": "txt",
+    "2B 2F 76 38": "txt",
+    "0E FE FF": "txt",
+    "DD 73 66 73": "txt",
+    "FE ED FA CE": "macho",
+    "FE ED FA CF": "macho",
+    "FE ED FE ED": "jks",
+    "CE FA ED FE": "macho",
+    "CF FA ED FE": "macho",
+    "25 21 50 53": "ps",
+    "25 50 44 46 2D": "pdf",
+    "30 26 B2 75 8E 66 CF 11": "asf",
+    "24 53 44 49 30 30 30 31": "sdi",
+    "4F 67 67 53": "ogg",
+    "38 42 50 53": "psd",
+    "52 49 46 46": "avi",
+    "FF FB": "mp3",
+    "49 44 33": "mp3",
+    "42 4D": "bmp",
+    "43 44 30 30 31": "iso",
+    "4C 00 00 00 01 14 02 00": "lnk",
+    "62 6F 6F 6B 00 00 00 00": "alias",
+    "75 73 74 61 72 00 30 30": "tar",
+    "4D 53 43 46": "cab",
+    "4B 44 4D": "vmdk",
+    "43 72 32 34": "crx",
+    "41 47 44 33": "fh8",
+    "05 07 00 00 42 4F 42 4F": "cwk",
+    "00 00 00 14 66 74 79 70": "mov",
+    "4D 54 68 64": "mid",
+    "4D 41 52 31 00": "mar",
+    "4E 45 53 1A": "nes",
+    "75 73 74 61 72": "tar",
+}
+
+def is_hex_data(data):
+    try:
+        binascii.unhexlify(data)
+        return True
+    except (TypeError, binascii.Error):
+        return False
+
+def remove_magic_bytes_from_file(input_file_path, output_file_path):
+    with open(input_file_path, 'rb') as file:
+        data = file.read()
+    
+    # Check if the file is likely to be hex data
+    if is_hex_data(data.decode('utf-8', errors='ignore')):
+        # Process as hex
+        processed_data = remove_magic_bytes_from_hex(data)
+    else:
+        # Process as text
+        processed_data = remove_magic_bytes_from_text(data.decode('utf-8', errors='ignore'))
+
+    with open(output_file_path, 'wb') as file:
+        file.write(processed_data.encode('utf-8'))
+
+def remove_magic_bytes_from_hex(data):
+    hex_data = binascii.hexlify(data).decode('utf-8')
+    for magic_bytes in magic_bytes.keys():
+        # Convert hex magic bytes to a regex pattern for searching
+        pattern = re.compile(rf'{magic_bytes.replace(" ", "")}', re.IGNORECASE)
+        
+        # Remove magic bytes from the hex data
+        hex_data = pattern.sub('', hex_data)
+    
+    return binascii.unhexlify(hex_data)
+
+def remove_magic_bytes_from_text(text):
+    for magic_bytes in magic_bytes.keys():
+        # Convert hex magic bytes to a regex pattern for searching
+        pattern = re.compile(rf'\b{magic_bytes.replace(" ", "")}\b', re.IGNORECASE)
+        
+        # Remove magic bytes from the text, but keep the start of the text intact
+        matches = list(pattern.finditer(text))
+        if matches:
+            # Only remove magic bytes if they are not at the start of the text
+            for match in matches:
+                if match.start() != 0:
+                    text = text[:match.start()] + text[match.end():]
+    
+    return text
 
 def decode_base64(data):
     try:
@@ -117,7 +272,7 @@ def process_file_data(file_path, output_dir):
         data = file.read()
 
     # Process hex data if applicable
-    if contains_hex(file_path):
+    if is_hex_data(file_path):
         decoded_data = binascii.unhexlify(data)
         output_file_path = os.path.join(output_dir, os.path.basename(file_path))
         with open(output_file_path, 'wb') as decoded_file:
@@ -144,29 +299,6 @@ def process_file_data(file_path, output_dir):
     with open(output_file_path, 'wb') as decoded_file:
         decoded_file.write(decoded)
     logging.info(f"Decoded data from {file_path} saved to {output_file_path}")
-
-def iterative_decode(text):
-    while True:
-        # Attempt to decode as hex
-        decoded_hex = decode_hex(text)
-        if decoded_hex:
-            text = decoded_hex
-            continue
-        
-        # Attempt to decode as base64
-        decoded_base64 = decode_base64(text)
-        if decoded_base64:
-            text = decoded_base64
-            continue
-        
-        # Attempt to decode as base32
-        decoded_base32 = decode_base32(text)
-        if decoded_base32:
-            text = decoded_base32
-            continue
-        
-        # If neither decoding works, break the loop
-        break
 
 def extract_infos(file_path, rank=None):
     """Extract information about file"""
@@ -223,6 +355,7 @@ def calculate_similarity(features1, features2, threshold=0.86):
     matching_keys = sum(1 for key in common_keys if features1[key] == features2[key])
     similarity = matching_keys / max(len(features1), len(features2))
     return similarity
+
 malicious_file_names = os.path.join(script_dir, "machinelearning", "malicious_file_names.json")
 malicious_numeric_features = os.path.join(script_dir, "machinelearning", "malicious_numeric.pkl")
 benign_numeric_features = os.path.join(script_dir, "machinelearning", "benign_numeric.pkl")
@@ -1675,18 +1808,6 @@ def is_elf_file(file_path):
         logging.error(f"Error checking ELF file status: {e}")
         return False
 
-def contains_hex(file_path):
-    """Check if the file contains hex data."""
-    try:
-        with open(file_path, 'rb') as file:
-            content = file.read()
-            hex_data = content.hex()
-            # Simple check for hex content; you might need more sophisticated checks
-            return len(hex_data) > 0
-    except Exception as e:
-        logging.error(f"Error checking for hex content in file {file_path}: {e}")
-        return False
-
 def is_dotnet_file(file_path):
     try:
         pe = pefile.PE(file_path)
@@ -1887,6 +2008,46 @@ class PyInstArchive:
                         pyc_f.write(b'\0' * 8)
                     pyc_f.write(data)
 
+def is_pyinstaller_archive(file_path):
+    MAGIC = b'MEI\014\013\012\013\016'
+    try:
+        with open(file_path, 'rb') as f:
+            f.seek(-len(MAGIC), os.SEEK_END)
+            magic = f.read(len(MAGIC))
+            return magic == MAGIC
+    except Exception as e:
+        logging.error(f"Error checking PyInstaller archive: {e}")
+        return False
+
+def extract_pyinstaller_archive(file_path):
+    try:
+        archive = PyInstArchive(file_path)
+        if not archive.open():
+            logging.error(f"Failed to open PyInstaller archive: {file_path}")
+            return None
+
+        if not archive.checkFile():
+            logging.error(f"File {file_path} is not a valid PyInstaller archive.")
+            return None
+
+        if not archive.getCArchiveInfo():
+            logging.error(f"Failed to get CArchive info from {file_path}.")
+            return None
+
+        if not archive.parseTOC():
+            logging.error(f"Failed to parse TOC from {file_path}.")
+            return None
+
+        extraction_success = archive.extractFiles()
+        extraction_dir = os.getcwd() if extraction_success else None
+        archive.close()
+
+        return extraction_dir if extraction_success else None
+
+    except Exception as e:
+        logging.error(f"An error occurred while extracting PyInstaller archive {file_path}: {e}")
+        return None
+
 def scan_and_warn(file_path):
     logging.info(f"Scanning file: {file_path}")
 
@@ -1915,14 +2076,60 @@ def scan_and_warn(file_path):
 
         # Check if the file is in decompile_dir
         if file_path.startswith(decompile_dir):
-            # Automatically scan decompiled files without hex or extension checks
             logging.info(f"File {file_path} is in decompile_dir.")
             is_decompiled = True
 
-        elif contains_hex(file_path):
+        # Check if the file contains hex data
+        if is_hex_data(file_path):
             logging.info(f"Hex data found in: {file_path}")
-            # Process hex data
             process_file_data(file_path, base_dir)
+        else:
+            logging.info(f"No hex data found in: {file_path}")
+            # Process file for magic bytes removal in different scenarios
+            def process_and_check(file_path, label):
+                cleaned_file_path = file_path + f".{label}_cleaned"
+                remove_magic_bytes_from_file(file_path, cleaned_file_path)
+                process_file_data(cleaned_file_path, cleaned_file_path + "_processed")
+
+                yara_matches = yara_scanner.scan_data(cleaned_file_path)
+                clamd_result = clamd_scanner.scan_file(cleaned_file_path)
+                
+                logging.info(f"Processed file {file_path} with label {label}:")
+                logging.info(f"YARA matches: {yara_matches}")
+                logging.info(f"ClamAV result: {clamd_result}")
+
+                # Clean up temporary file
+                if os.path.exists(cleaned_file_path):
+                    os.remove(cleaned_file_path)
+
+            # 1. Full Cleanup (magic bytes, base64, base32)
+            process_and_check(file_path, "full")
+
+            # 2. Base64 and Base32 Cleaning Only
+            process_and_check(file_path, "base64_base32")
+
+            # 3. Magic Bytes Removal Only
+            process_and_check(file_path, "magic_bytes")
+
+            # 4. Normal Processing (without cleanup)
+            normal_file_path = file_path
+            process_file_data(normal_file_path, normal_file_path + "_processed")
+
+            yara_matches = yara_scanner.scan_data(normal_file_path)
+            clamd_result = clamd_scanner.scan_file(normal_file_path)
+
+            logging.info(f"Normal processing for file {file_path}:")
+            logging.info(f"YARA matches: {yara_matches}")
+            logging.info(f"ClamAV result: {clamd_result}")
+
+            # Perform actions based on YARA and ClamAV results
+            if yara_matches:
+                logging.warning(f"YARA matches found: {yara_matches} in file: {file_path}")
+                notify_user_for_detected_command(f"YARA matches found: {yara_matches} in file: {file_path}")
+
+            if clamd_result not in ("Clean", ""):
+                logging.warning(f"ClamAV detected malware: {clamd_result} in file: {file_path}")
+                notify_user_for_detected_command(f"ClamAV detected malware: {clamd_result} in file: {file_path}")
 
             # Check if the file is a PyInstaller archive
             if is_pyinstaller_archive(file_path):
@@ -1955,11 +2162,11 @@ def scan_and_warn(file_path):
                     logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
                     notify_user_invalid(file_path, "Win32.InvalidSignature")
 
-                # Check for the fake file size
+                # Check for the fake file size with continuous `0x00` bytes
                 if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
                     with open(file_path, 'rb') as file:
-                        file_content = file.read()
-                        if file_content.count(b'\x00') >= 100 * 1024 * 1024:  # At least 100MB of empty binary strings
+                        file_content_read = file.read(100 * 1024 * 1024)
+                        if file_content_read == b'\x00' * 100 * 1024 * 1024:  # 100MB of continuous `0x00` bytes
                             logging.warning(f"File {file_path} is flagged as HEUR:FakeSize.Generic")
                             fake_size = "HEUR:FakeSize.Generic"
                             if signature_check and signature_check["is_valid"]:
@@ -1990,7 +2197,7 @@ def scan_and_warn(file_path):
                 decompile_file(file_path)
 
                 # Check if .NET data is detected
-                if is_dotnet_file(file_path):  # Add this check to detect .NET assemblies
+                if is_dotnet_file(file_path):
                     logging.info(f"Detected .NET assembly: {file_path}")
                     folder_number = 1
                     while os.path.exists(f"{dotnet_dir}_{folder_number}"):
@@ -2012,33 +2219,30 @@ def scan_and_warn(file_path):
                             logging.warning(f"Detected fake system file: {file_path}")
                             notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.Generic")
 
-        else:
-            logging.info(f"No hex data found in: {file_path}")
+            # Process base64 and base32 data
+            process_file_data(file_path, base_dir)
 
-        # Process base64 and base32 data
-        process_file_data(file_path, base_dir)
+            # Perform real-time scan with pe_file flag
+            is_malicious, virus_names = scan_file_real_time(file_path, signature_check, pe_file=pe_file)
 
-        # Perform real-time scan with pe_file flag
-        is_malicious, virus_names = scan_file_real_time(file_path, signature_check, pe_file=pe_file)
+            if is_malicious:
+                # Concatenate multiple virus names into a single string without delimiters
+                virus_name = ''.join(virus_names)
+                logging.warning(f"File {file_path} is malicious. Virus: {virus_name}")
 
-        if is_malicious:
-            # Concatenate multiple virus names into a single string without delimiters
-            virus_name = ''.join(virus_names)
-            logging.warning(f"File {file_path} is malicious. Virus: {virus_name}")
+                if virus_name.startswith("PUA."):
+                    notify_user_pua_thread = threading.Thread(target=notify_user_pua, args=(file_path, virus_name))
+                    notify_user_pua_thread.start()
+                else:
+                    notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
+                    notify_user_thread.start()
 
-            if virus_name.startswith("PUA."):
-                notify_user_pua_thread = threading.Thread(target=notify_user_pua, args=(file_path, virus_name))
-                notify_user_pua_thread.start()
-            else:
-                notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
-                notify_user_thread.start()
-
-        # Additional post-decompilation actions based on extracted file path
-        if is_decompiled:
-            logging.info(f"Checking original file path from decompiled data for: {file_path}")
-            original_file_path = extract_original_file_path_from_decompiled(file_path)
-            if original_file_path:
-                logging.info(f"Original file path extracted: {original_file_path}")
+            # Additional post-decompilation actions based on extracted file path
+            if is_decompiled:
+                logging.info(f"Checking original file path from decompiled data for: {file_path}")
+                original_file_path = extract_original_file_path_from_decompiled(file_path)
+                if original_file_path:
+                    logging.info(f"Original file path extracted: {original_file_path}")
 
         return is_malicious
 
@@ -2728,9 +2932,6 @@ class Monitor:
     def preprocess_text(self, text):
         return text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "")
 
-        # Iteratively decode base64/base32 until no further decoding is possible
-        decoded_text = iterative_decode(cleaned_text)
-
     def capture_command_lines(self):
         command_lines = []
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
@@ -2861,24 +3062,72 @@ class Monitor:
         self.notify_user_for_detected_command(message)
 
     def process_detected(self, input_string, file_path=None, hwnd=None):
-        preprocessed_input = self.preprocess_text(input_string)
-
-        # Convert input_string to a temporary file if file_path is not provided
         yara_matches = None
         clamd_result = None
-        temp_file_path = None
+
         if not file_path:
-            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-                temp_file.write(input_string.encode('utf-8'))
+            # Handle text input
+            cleaned_text = remove_magic_bytes_from_text(input_string)
+
+            # Write cleaned text to a temporary file for further processing
+            with tempfile.NamedTemporaryFile(delete=False, mode='w', encoding='utf-8') as temp_file:
+                temp_file.write(cleaned_text)
                 temp_file_path = temp_file.name
+
             try:
+                # Process the temporary file
                 yara_matches = yara_scanner.scan_data(temp_file_path)
                 clamd_result = scan_file_with_clamd(temp_file_path)
             finally:
                 os.remove(temp_file_path)
+
         else:
-            yara_matches = yara_scanner.scan_data(file_path)
-            clamd_result = scan_file_with_clamd(file_path)
+            # Handle file input
+            temp_file_path = None
+
+            # Read the file content
+            with open(file_path, 'r', encoding='utf-8') as file:
+                file_content = file.read()
+
+            # Process the file content with various cleanups
+            full_cleaned_file_content = remove_magic_bytes_from_text(file_content)
+            base64_base32_cleaned_file_content = remove_magic_bytes_from_text(file_content)
+            magic_bytes_removed_file_content = remove_magic_bytes_from_text(file_content)
+
+            # Write cleaned content to temporary files
+            full_cleaned_file_path = file_path + ".full_cleaned"
+            base64_base32_cleaned_file_path = file_path + ".base64_base32_cleaned"
+            magic_bytes_removed_file_path = file_path + ".magic_bytes_removed"
+
+            with open(full_cleaned_file_path, 'w', encoding='utf-8') as file:
+                file.write(full_cleaned_file_content)
+            
+            with open(base64_base32_cleaned_file_path, 'w', encoding='utf-8') as file:
+                file.write(base64_base32_cleaned_file_content)
+
+            with open(magic_bytes_removed_file_path, 'w', encoding='utf-8') as file:
+                file.write(magic_bytes_removed_file_content)
+
+            try:
+                # Process all versions of the file
+                yara_matches = {
+                    "full_cleaned": yara_scanner.scan_data(full_cleaned_file_path),
+                    "base64_base32_cleaned": yara_scanner.scan_data(base64_base32_cleaned_file_path),
+                    "magic_bytes_removed": yara_scanner.scan_data(magic_bytes_removed_file_path),
+                    "normal": yara_scanner.scan_data(file_path)
+                }
+
+                clamd_result = {
+                    "full_cleaned": scan_file_with_clamd(full_cleaned_file_path),
+                    "base64_base32_cleaned": scan_file_with_clamd(base64_base32_cleaned_file_path),
+                    "magic_bytes_removed": scan_file_with_clamd(magic_bytes_removed_file_path),
+                    "normal": scan_file_with_clamd(file_path)
+                }
+            finally:
+                # Clean up temporary files
+                for path in [full_cleaned_file_path, base64_base32_cleaned_file_path, magic_bytes_removed_file_path]:
+                    if os.path.exists(path):
+                        os.remove(path)
 
         # Log and notify about the YARA matches
         if yara_matches:
@@ -2916,28 +3165,28 @@ class Monitor:
             if temp_file_path:
                 logging.info(f"No ClamAV detection in temporary file: {temp_file_path}")
 
-        # Process the input_string for known malware messages
+        # Process the file content for known malware messages
         for category, details in self.known_malware_messages.items():
             if "patterns" in details:
                 for pattern in details["patterns"]:
-                    similarity = self.calculate_similarity_text(preprocessed_input, pattern)
+                    similarity = self.calculate_similarity_text(file_content, pattern)
                     if similarity > 0.8:  # Adjust similarity threshold as needed
-                        details["process_function"](preprocessed_input, file_path, hwnd)
+                        details["process_function"](file_content, file_path, hwnd)
                         return
             elif "message" in details:
-                similarity = self.calculate_similarity_text(preprocessed_input, details["message"])
+                similarity = self.calculate_similarity_text(file_content, details["message"])
                 if similarity > 0.8:  # Adjust similarity threshold as needed
-                    details["process_function"](preprocessed_input, file_path, hwnd)
+                    details["process_function"](file_content, file_path, hwnd)
                     return
             elif "command" in details:
-                similarity = self.calculate_similarity_text(preprocessed_input, details["command"])
+                similarity = self.calculate_similarity_text(file_content, details["command"])
                 if similarity > 0.8:  # Adjust similarity threshold as needed
-                    details["process_function"](preprocessed_input, file_path, hwnd)
+                    details["process_function"](file_content, file_path, hwnd)
                     return
 
         # Adding ransomware check
-        if self.contains_keywords_within_max_distance(preprocessed_input, max_distance=10):
-            self.process_detected_text_ransom(preprocessed_input, file_path, hwnd)
+        if self.contains_keywords_within_max_distance(file_content, max_distance=10):
+            self.process_detected_text_ransom(file_content, file_path, hwnd)
 
         logging.info(f"Finished processing detection {input_string} (process_detected).")
 
@@ -2955,14 +3204,13 @@ class Monitor:
                 # Capture command lines
                 command_lines = self.capture_command_lines()
                 for command_line, executable_path in command_lines:
-                    # Convert command_line to lowercase and preprocess
+                    # Convert command_line to lowercase
                     command_line_lower = command_line.lower()
-                    preprocessed_command_line = self.preprocess_text(command_line_lower)
                     
                     # Process both preprocessed and original command lines
                     self.process_detected(preprocessed_command_line, file_path=executable_path)  # Process preprocessed command line
-                    self.process_detected(command_line_lower, file_path=executable_path)  # Process original command line
-                    self.process_detected(preprocessed_command_line, file_path=executable_path)
+                    self.process_detected(command_line file_path=executable_path)  # Process original command line
+                    self.process_detected(command_line_lower, file_path=executable_path)
 
         except Exception as e:
             logging.error(f"Unexpected error in monitor loop: {e}")
