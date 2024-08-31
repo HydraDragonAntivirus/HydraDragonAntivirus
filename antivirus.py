@@ -2000,7 +2000,7 @@ def extract_pyinstaller_archive(file_path):
         logging.error(f"An error occurred while extracting PyInstaller archive {file_path}: {e}")
         return None
 
-def scan_and_warn(file_path):
+def scan_and_warn(file_path, processed_once=False):
     logging.info(f"Scanning file: {file_path}")
 
     try:
@@ -2037,7 +2037,8 @@ def scan_and_warn(file_path):
             process_file_data(file_path, base_dir)
         else:
             logging.info(f"No hex data found in: {file_path}")
-            # Process file for magic bytes removal in different scenarios
+
+            # Define the processing function
             def process_and_check(file_path, label):
                 cleaned_file_path = file_path + f".{label}_cleaned"
                 remove_magic_bytes_from_file(file_path, cleaned_file_path)
@@ -2067,21 +2068,11 @@ def scan_and_warn(file_path):
             normal_file_path = file_path
             process_file_data(normal_file_path, normal_file_path + "_processed")
 
-            yara_matches = yara_scanner.scan_data(normal_file_path)
-            clamd_result = clamd_scanner.scan_file(normal_file_path)
-
-            logging.info(f"Normal processing for file {file_path}:")
-            logging.info(f"YARA matches: {yara_matches}")
-            logging.info(f"ClamAV result: {clamd_result}")
-
-            # Perform actions based on YARA and ClamAV results
-            if yara_matches:
-                logging.warning(f"YARA matches found: {yara_matches} in file: {file_path}")
-                notify_user_for_detected_command(f"YARA matches found: {yara_matches} in file: {file_path}")
-
-            if clamd_result not in ("Clean", ""):
-                logging.warning(f"ClamAV detected malware: {clamd_result} in file: {file_path}")
-                notify_user_for_detected_command(f"ClamAV detected malware: {clamd_result} in file: {file_path}")
+            # Perform full scan and warn again if needed
+            if not processed_once:
+                logging.info(f"Reprocessing file {file_path} with all checks enabled...")
+                scan_and_warn(file_path, processed_once=True)
+                return False  # Indicate reprocessing was done
 
             # Check if the file is a PyInstaller archive
             if is_pyinstaller_archive(file_path):
@@ -2196,13 +2187,11 @@ def scan_and_warn(file_path):
                 if original_file_path:
                     logging.info(f"Original file path extracted: {original_file_path}")
 
-        return is_malicious
+        return True
 
     except Exception as e:
         logging.error(f"Error scanning file {file_path}: {e}")
         return False
-
-    return True
 
 def monitor_sandbox():
     if not os.path.exists(sandboxie_folder):
@@ -2667,6 +2656,16 @@ class ScanAndWarnHandler(FileSystemEventHandler):
         except Exception as e:
             logging.error(f"Error processing file {file_path}: {e}")
 
+    def process_directory(self, dir_path):
+        try:
+            for root, _, files in os.walk(dir_path):
+                for file_name in files:
+                    file_path = os.path.join(root, file_name)
+                    self.process_file(file_path)
+            logging.info(f"Processed all files in directory: {dir_path}")
+        except Exception as e:
+            logging.error(f"Error processing directory {dir_path}: {e}")
+
     def on_any_event(self, event):
         if event.is_directory:
             self.process_directory(event.src_path)
@@ -2694,16 +2693,6 @@ class ScanAndWarnHandler(FileSystemEventHandler):
         else:
             self.process_file(event.dest_path)
             logging.info(f"File moved: {event.src_path} to {event.dest_path}")
-
-    def process_directory(self, dir_path):
-        try:
-            for root, _, files in os.walk(dir_path):
-                for file_name in files:
-                    file_path = os.path.join(root, file_name)
-                    self.process_file(file_path)
-            logging.info(f"Processed all files in directory: {dir_path}")
-        except Exception as e:
-            logging.error(f"Error processing directory {dir_path}: {e}")
 
 event_handler = ScanAndWarnHandler()
 observer = Observer()
