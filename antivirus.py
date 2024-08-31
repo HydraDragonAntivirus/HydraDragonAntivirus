@@ -1847,18 +1847,19 @@ class PyInstArchive:
     def __init__(self, path):
         self.filePath = path
 
-    def open(self):
+    def open_file(self):
         try:
             self.fPtr = open(self.filePath, 'rb')
             self.fileSize = os.stat(self.filePath).st_size
             return True
-        except:
+        except IOError as e:
+            print(f"Error opening file: {e}")
             return False
 
     def close(self):
         try:
             self.fPtr.close()
-        except:
+        except AttributeError:
             pass
 
     def checkFile(self):
@@ -1888,7 +1889,8 @@ class PyInstArchive:
                 _, lengthofPackage, toc, tocLen, pyver = struct.unpack('!8siiii', self.fPtr.read(self.PYINST20_COOKIE_SIZE))
             else:
                 _, lengthofPackage, toc, tocLen, pyver, _ = struct.unpack('!8sIIii64s', self.fPtr.read(self.PYINST21_COOKIE_SIZE))
-        except:
+        except struct.error as e:
+            print(f"Error unpacking data: {e}")
             return False
 
         self.pymaj, self.pymin = (pyver // 100, pyver % 100) if pyver >= 100 else (pyver // 10, pyver % 10)
@@ -1913,7 +1915,8 @@ class PyInstArchive:
 
             try:
                 entry = struct.unpack(f'!IIIBc{entrySize - nameLen}s', self.fPtr.read(entrySize - 4))
-            except struct.error:
+            except struct.error as e:
+                print(f"Error unpacking TOC entry: {e}")
                 return False
 
             name = entry[5].decode('utf-8', errors='replace').rstrip('\0')
@@ -1976,7 +1979,8 @@ class PyInstArchive:
 
             try:
                 toc = marshal.load(f)
-            except:
+            except (EOFError, ValueError, TypeError) as e:
+                print(f"Error loading PYZ TOC: {e}")
                 return False
 
             if isinstance(toc, list):
@@ -1997,7 +2001,7 @@ class PyInstArchive:
                 data = f.read(length)
                 try:
                     data = zlib.decompress(data)
-                except:
+                except zlib.error:
                     with open(filePath + '.encrypted', 'wb') as e_f:
                         e_f.write(data)
                     continue
@@ -2009,16 +2013,15 @@ class PyInstArchive:
                         pyc_f.write(b'\0' * 8)
                     pyc_f.write(data)
 
+        return True
+
 def is_pyinstaller_archive(file_path):
-    MAGIC = b'MEI\014\013\012\013\016'
-    try:
-        with open(file_path, 'rb') as f:
-            f.seek(-len(MAGIC), os.SEEK_END)
-            magic = f.read(len(MAGIC))
-            return magic == MAGIC
-    except Exception as e:
-        logging.error(f"Error checking PyInstaller archive: {e}")
-        return False
+    archive = PyInstArchive(file_path)
+    if archive.open_file():
+        result = archive.checkFile()
+        archive.close_file()
+        return result
+    return False
 
 def extract_pyinstaller_archive(file_path):
     try:
