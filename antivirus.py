@@ -201,53 +201,45 @@ magic_bytes = {
     "75 73 74 61 72": "tar",
 }
 
-def is_hex_data(data):
+def is_hex_data(file_path):
     try:
+        with open(file_path, 'rb') as file:
+            data = file.read()
+        
+        # Try to decode the data as hex
         binascii.unhexlify(data)
         return True
     except (TypeError, binascii.Error):
         return False
 
-def remove_magic_bytes_from_file(input_file_path, output_file_path):
-    with open(input_file_path, 'rb') as file:
-        data = file.read()
-    
-    # Check if the file is likely to be hex data
-    if is_hex_data(data.decode('utf-8', errors='ignore')):
-        # Process as hex
-        processed_data = remove_magic_bytes_from_hex(data)
-    else:
-        # Process as text
-        processed_data = remove_magic_bytes_from_text(data.decode('utf-8', errors='ignore'))
-
-    with open(output_file_path, 'wb') as file:
-        file.write(processed_data.encode('utf-8'))
-
-def remove_magic_bytes_from_hex(data):
+def remove_magic_bytes(data, magic_bytes):
+    # Convert binary data to hex representation
     hex_data = binascii.hexlify(data).decode('utf-8')
-    for magic_bytes in magic_bytes.keys():
+    
+    for magic_byte in magic_bytes.keys():
         # Convert hex magic bytes to a regex pattern for searching
         pattern = re.compile(rf'{magic_bytes.replace(" ", "")}', re.IGNORECASE)
         
         # Remove magic bytes from the hex data
         hex_data = pattern.sub('', hex_data)
     
+    # Convert hex data back to binary
     return binascii.unhexlify(hex_data)
 
-def remove_magic_bytes_from_text(text):
-    for magic_bytes in magic_bytes.keys():
-        # Convert hex magic bytes to a regex pattern for searching
-        pattern = re.compile(rf'\b{magic_bytes.replace(" ", "")}\b', re.IGNORECASE)
-        
-        # Remove magic bytes from the text, but keep the start of the text intact
-        matches = list(pattern.finditer(text))
-        if matches:
-            # Only remove magic bytes if they are not at the start of the text
-            for match in matches:
-                if match.start() != 0:
-                    text = text[:match.start()] + text[match.end():]
-    
-    return text
+def remove_magic_bytes_from_file(input_file_path, output_file_path, magic_bytes):
+    with open(input_file_path, 'rb') as file:
+        data = file.read()
+
+    # Check if the data is likely hex-encoded
+    if is_hex_data(data.hex()):
+        # Process as hex
+        processed_data = remove_magic_bytes(data, magic_bytes)
+    else:
+        # Since all data is handled as binary, no additional text processing is needed
+        processed_data = remove_magic_bytes(data, magic_bytes)
+
+    with open(output_file_path, 'wb') as file:
+        file.write(processed_data)
 
 def decode_base64(data):
     try:
@@ -279,6 +271,13 @@ def process_file_data(file_path, output_dir):
             decoded_file.write(decoded_data)
         logging.info(f"Hex data from {file_path} saved to {output_file_path}")
 
+        # Remove magic bytes from hex data
+        processed_data = remove_magic_bytes_from_hex(decoded_data)
+        output_file_path = os.path.join(output_dir, 'processed_' + os.path.basename(file_path))
+        with open(output_file_path, 'wb') as processed_file:
+            processed_file.write(processed_data)
+        logging.info(f"Processed hex data from {file_path} saved to {output_file_path}")
+
     # Process base64 and base32 data
     decoded = data
     while True:
@@ -295,10 +294,12 @@ def process_file_data(file_path, output_dir):
         # No more base64 or base32 encoded data
         break
 
-    output_file_path = os.path.join(output_dir, os.path.basename(file_path))
-    with open(output_file_path, 'wb') as decoded_file:
-        decoded_file.write(decoded)
-    logging.info(f"Decoded data from {file_path} saved to {output_file_path}")
+    # Remove magic bytes from the decoded data
+    processed_data = remove_magic_bytes_from_text(decoded.decode('utf-8', errors='ignore'))
+    output_file_path = os.path.join(output_dir, 'processed_' + os.path.basename(file_path))
+    with open(output_file_path, 'wb') as processed_file:
+        processed_file.write(processed_data.encode('utf-8'))
+    logging.info(f"Processed data from {file_path} saved to {output_file_path}")
 
 def extract_infos(file_path, rank=None):
     """Extract information about file"""
@@ -2854,7 +2855,7 @@ class Monitor:
             },
             "powershell_iex_download": {
                 "patterns": [
-                    '*\powershell.exe* iex *((New-Object Net.WebClient).DownloadString(*',
+                    '*\\powershell.exe* iex *((New-Object Net.WebClient).DownloadString(*',
                     '*powershell*[string][char[]]@(0x*Set-Alias*Net.WebClient*.DownloadString(*',
                     '*powershell*iex (new-object system.net.webclient).downloadstring*',
                     '*iex ( [string][system.text.encoding]::ascii.getstring([system.convert]::frombase64string( ((new-object net.webclient).downloadstring(*',
@@ -3209,7 +3210,7 @@ class Monitor:
                     
                     # Process both preprocessed and original command lines
                     self.process_detected(preprocessed_command_line, file_path=executable_path)  # Process preprocessed command line
-                    self.process_detected(command_line file_path=executable_path)  # Process original command line
+                    self.process_detected(command_line, file_path=executable_path)  # Process original command line
                     self.process_detected(command_line_lower, file_path=executable_path)
 
         except Exception as e:
