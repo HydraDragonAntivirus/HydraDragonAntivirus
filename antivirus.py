@@ -375,6 +375,196 @@ ipv6_addresses_signatures_data = {}
 domains_signatures_data = {}
 urlhaus_data = {}
 
+def notify_user(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Malware Alert"
+    notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_size_warning(file_path, archive_type, virus_name):
+    """Send a notification for size-related warnings."""
+    notification = Notify()
+    notification.title = "Size Warning"
+    notification.message = (f"{archive_type} file {file_path} is smaller than 20MB but contains a large file "
+                            f"which might be suspicious. Virus Name: {virus_name}")
+    notification.send()
+
+def notify_rlo_warning(file_path, archive_type, virus_name):
+    """Send a notification for RLO-related warnings."""
+    notification = Notify()
+    notification.title = "RLO Warning"
+    notification.message = (f"Filename in {archive_type} file {file_path} contains RLO character after a comma. "
+                            f"This could indicate suspicious activity. Virus Name: {virus_name}")
+    notification.send()
+
+def notify_user_rlo(file_path, rlo_flag):
+    notification = Notify()
+    notification.title = "Suspicious RLO Name Alert"
+    notification.message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+    
+def notify_user_for_detected_fake_system_file(file_path, file_name, virus_name):
+    notification = Notify()
+    notification.title = "Fake System File Alert"
+    notification.message = (
+        f"Fake system file detected:\n"
+        f"File Path: {file_path}\n"
+        f"File Name: {file_name}\n"
+        f"Threat: {virus_name}"
+    )
+    notification.send()
+
+def notify_user_for_detected_rootkit(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Rootkit Detection Alert"
+    notification.message = (
+        f"Potential rootkit file detected:\n"
+        f"File Path: {file_path}\n"
+        f"Threat: {virus_name}"
+    )
+    notification.send()
+
+def notify_user_invalid(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Invalid signature Alert"
+    notification.message = f"Invalid signature file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_ghidra(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Decompiled Malicious File Alert"
+    notification.message = f"Malicious decompiled file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_pua(file_path, virus_name):
+    notification = Notify()
+    notification.title = "PUA Alert"
+    notification.message = f"PUA file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_fake_size(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Fake Size Alert"
+    notification.message = f"Fake size file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_startup(file_path, message):
+    """Notify the user about suspicious or malicious startup files."""
+    notification = Notify()
+    notification.title = "Startup File Alert"
+    notification.message = message
+    notification.send()
+
+def notify_user_uefi(file_path, virus_name):
+    notification = Notify()
+    notification.title = "UEFI Malware Alert"
+    notification.message = f"Suspicious UEFI file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_ransomware(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Ransomware Alert"
+    notification.message = f"Potential ransomware detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_hosts(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Host Hijacker Alert"
+    notification.message = f"Potential host hijacker detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_worm(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Worm Alert"
+    notification.message = f"Potential worm detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_for_web(domain=None, ip_address=None, url=None, file_path=None):
+    notification = Notify()
+    notification.title = "Malware or Phishing Alert"
+    
+    # Build the notification message dynamically
+    message_parts = []
+    if domain:
+        message_parts.append(f"Domain: {domain}")
+    if ip_address:
+        message_parts.append(f"IP Address: {ip_address}")
+    if url:
+        message_parts.append(f"URL: {url}")
+    if file_path:
+        message_parts.append(f"File Path: {file_path}")
+    
+    if message_parts:
+        notification.message = f"Phishing or Malicious activity detected:\n" + "\n".join(message_parts)
+    else:
+        notification.message = "Phishing or Malicious activity detected"
+    
+    notification.send()
+
+def notify_user_for_hips(ip_address=None, dst_ip_address=None):
+    notification = Notify()
+    notification.title = "Malicious Activity Detected"
+    
+    if ip_address and dst_ip_address:
+        notification.message = f"Malicious activity detected:\nSource: {ip_address}\nDestination: {dst_ip_address}"
+    elif ip_address:
+        notification.message = f"Malicious activity detected:\nSource IP Address: {ip_address}"
+    elif dst_ip_address:
+        notification.message = f"Malicious activity detected:\nDestination IP Address: {dst_ip_address}"
+    else:
+        notification.message = "Malicious activity detected"
+    
+    notification.send()
+
+def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
+    """
+    Function to send notification for detected HIPS file.
+    """
+    notification = Notify()
+    notification.title = "Web Malware Alert For File"
+    notification.message = f"{status} file detected by Web related Message: {file_path}\nSource IP: {src_ip}\nAlert Line: {alert_line}"
+    notification.send()
+    print(f"Real-time web message notification: Detected {status} file {file_path} from {src_ip} with alert line: {alert_line}")
+
+antivirus_style = """
+QWidget {
+    background-color: #2b2b2b;
+    color: #e0e0e0;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+}
+
+QPushButton {
+    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+                                stop:0.2 #007bff, stop:0.8 #0056b3);
+    color: white;
+    border: 2px solid #007bff;
+    padding: 4px 10px;  /* Adjusted padding */
+    border-radius: 8px;  /* Adjusted border-radius */
+    min-width: 250px;  /* Adjusted min-width */
+    font-weight: bold;
+    text-align: center;
+    qproperty-iconSize: 16px;
+}
+
+QPushButton:hover {
+    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+                                stop:0.2 #0056b3, stop:0.8 #004380);
+    border-color: #0056b3;
+}
+
+QPushButton:pressed {
+    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+                                stop:0.2 #004380, stop:0.8 #003d75);
+    border-color: #004380;
+}
+
+QFileDialog {
+    background-color: #2b2b2b;
+    color: #e0e0e0;
+}
+"""
+
 # Function to load antivirus list
 def load_antivirus_list():
     global anntivirus_domains
@@ -529,6 +719,237 @@ def scan_file_with_clamd(file_path):
         print(f"Unexpected clamdscan output: {clamd_output}")
         return "Clean"
 
+def is_local_ip(ip):
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+        return ip_obj.is_private
+    except ValueError:
+        return False
+
+# Regular expressions for matching IP addresses, IPv6 addresses, domains, and URLs
+ip_regex = re.compile(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')
+ipv6_regex = re.compile(r'\b(?:[a-fA-F0-9]{1,4}:){7}[a-fA-F0-9]{1,4}\b')
+domain_regex = re.compile(r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b')
+url_regex = re.compile(r'\b(?:https?://|www\.)[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/[^\s]*)?\b')
+
+class RealTimeWebProtectionHandler:
+    def __init__(self):
+        self.scanned_domains = []
+        self.scanned_ipv4_addresses = []
+        self.scanned_ipv6_addresses = []
+        self.scanned_urls = []
+        self.domain_ip_to_file_map = {}
+
+    def is_related_to_critical_paths(self, file_path):
+        # Check if file path starts with the sandboxie folder or matches the main file path
+        return file_path.startswith(sandboxie_folder) or file_path == main_file_path
+
+    def map_domain_ip_to_file(self, entity):
+        return self.domain_ip_to_file_map.get(entity)
+
+    def handle_detection(self, entity_type, entity_value):
+        file_path = self.map_domain_ip_to_file(entity_value)
+        notify_info = {'domain': None, 'ip_address': None, 'url': None, 'file_path': None}
+
+        if file_path and self.is_related_to_critical_paths(file_path):
+            message = f"{entity_type.capitalize()} {entity_value} is related to a critical path: {file_path}"
+            logging.warning(message)
+            print(message)
+            notify_info[entity_type] = entity_value
+            notify_info['file_path'] = file_path  # Add file_path to notification info
+        else:
+            if file_path:
+                message = f"{entity_type.capitalize()} {entity_value} is not related to critical paths but associated with file path: {file_path}"
+            else:
+                message = f"{entity_type.capitalize()} {entity_value} is not related to critical paths and has no associated file path."
+            logging.info(message)
+            print(message)
+        
+        if any(notify_info.values()):
+            notify_user_for_web(**notify_info)
+
+    def scan_domain(self, domain):
+        if domain in self.scanned_domains:
+            return
+        self.scanned_domains.append(domain)
+        message = f"Scanning domain: {domain}"
+        logging.info(message)
+        print(message)
+
+        if domain.lower() == 'www.com':
+            self.handle_detection('domain', domain)
+            return
+
+        if domain.lower().startswith("www.") and not domain.lower().endswith(".com"):
+            domain = domain[4:]
+
+        parts = domain.split(".")
+        main_domain = domain if len(parts) < 3 else ".".join(parts[-2:])
+
+        for parent_domain in domains_signatures_data:
+            if main_domain == parent_domain or main_domain.endswith(f".{parent_domain}"):
+                self.handle_detection('domain', main_domain)
+                return
+
+    def scan_ip_address(self, ip_address):
+        if ip_address in self.scanned_ipv6_addresses or ip_address in self.scanned_ipv4_addresses:
+            return
+
+        if ':' in ip_address:  # IPv6 address
+            self.scanned_ipv6_addresses.append(ip_address)
+            message = f"Scanning IPv6 address: {ip_address}"
+            logging.info(message)
+            print(message)
+            self.handle_detection('ip_address', ip_address)
+        else:  # IPv4 address
+            self.scanned_ipv4_addresses.append(ip_address)
+            message = f"Scanning IPv4 address: {ip_address}"
+            logging.info(message)
+            print(message)
+            if is_local_ip(ip_address):
+                message = f"Skipping local IP address: {ip_address}"
+                logging.info(message)
+                print(message)
+                return
+            self.handle_detection('ip_address', ip_address)
+
+    def scan_url(self, url):
+        if url in self.scanned_urls:
+            return
+        self.scanned_urls.append(url)
+        for entry in urlhaus_data:
+            if entry['url'] in url:
+                message = f"URL {url} matches the URLhaus signatures."
+                logging.warning(message)
+                print(message)
+
+    def handle_ipv4(self, packet):
+        if DNS in packet:
+            if packet[DNS].qd:
+                for i in range(packet[DNS].qdcount):
+                    query_name = packet[DNSQR][i].qname.decode().rstrip('.')
+                    self.scan_domain(query_name)
+                    message = f"DNS Query (IPv4): {query_name}"
+                    logging.info(message)
+                    print(message)
+            if packet[DNS].an:
+                for i in range(packet[DNS].ancount):
+                    answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
+                    self.scan_domain(answer_name)
+                    message = f"DNS Answer (IPv4): {answer_name}"
+                    logging.info(message)
+                    print(message)
+                    self.scan_ip_address(packet[IP].src)
+                    self.scan_ip_address(packet[IP].dst)
+
+    def handle_ipv6(self, packet):
+        if DNS in packet:
+            if packet[DNS].qd:
+                for i in range(packet[DNS].qdcount()):
+                    query_name = packet[DNSQR][i].qname.decode().rstrip('.')
+                    self.scan_domain(query_name)
+                    message = f"DNS Query (IPv6): {query_name}"
+                    logging.info(message)
+                    print(message)
+            if packet[DNS].an:
+                for i in range(packet[DNS].ancount()):
+                    answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
+                    self.scan_domain(answer_name)
+                    message = f"DNS Answer (IPv6): {answer_name}"
+                    logging.info(message)
+                    print(message)
+                    self.scan_ip_address(packet[IPv6].src)
+                    self.scan_ip_address(packet[IPv6].dst)
+
+    def on_packet_received(self, packet):
+        if IP in packet:
+            self.handle_ipv4(packet)
+        elif IPv6 in packet:
+            self.handle_ipv6(packet)
+        elif DNS in packet:
+            if packet[DNS].qd:
+                for i in range(packet[DNS].qdcount):
+                    query_name = packet[DNSQR][i].qname.decode().rstrip('.')
+                    self.scan_domain(query_name)
+                    message = f"DNS Query: {query_name}"
+                    logging.info(message)
+                    print(message)
+            if packet[DNS].an:
+                for i in range(packet[DNS].ancount):
+                    answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
+                    self.scan_domain(answer_name)
+                    message = f"DNS Answer: {answer_name}"
+                    logging.info(message)
+                    print(message)
+                    if IP in packet:
+                        self.scan_ip_address(packet[IP].src)
+                        self.scan_ip_address(packet[IP].dst)
+                    if TCP in packet or UDP in packet:
+                        url = f"{packet[IP].src}:{packet[IP].dport}"
+                        self.scan_url(url)
+
+class RealTimeWebProtectionObserver:
+    def __init__(self):
+        self.handler = RealTimeWebProtectionHandler()
+        self.is_started = False
+        self.thread = None
+
+    def begin_observing(self):
+        if not self.is_started:
+            self.thread = threading.Thread(target=self.start_sniffing)
+            self.thread.start()
+            self.is_started = True
+            message = "Real-time web protection observer started"
+            logging.info(message)
+            print(message)
+
+    def start_sniffing(self):
+        filter_expression = "(tcp or udp)"
+        sniff(filter=filter_expression, prn=self.handler.on_packet_received, store=0)
+
+web_protection_observer = RealTimeWebProtectionObserver()
+
+class YaraScanner:
+    def scan_data(self, file_path):
+        matched_rules = []
+
+        if not os.path.exists(file_path):
+            logging.error(f"File not found during YARA scan: {file_path}")
+            return None
+
+        with open(file_path, 'rb') as file:
+            data = file.read()
+
+            # Check matches for compiled_rule
+            if compiled_rule:
+                matches = compiled_rule.match(data=data)
+                if matches:
+                    for match in matches:
+                        if match.rule not in excluded_rules:
+                            matched_rules.append(match.rule)
+                        else:
+                            logging.info(f"Rule {match.rule} is excluded.")
+            else:
+                logging.warning("compiled_rule is not defined.")
+
+            # Check matches for yaraxtr_rule (loaded with yara_x)
+            if yaraxtr_rule:
+                scanner = yara_x.Scanner(yaraxtr_rule)
+                results = scanner.scan(data=data)
+                if results.matching_rules:
+                    for rule in results.matching_rules:
+                        if hasattr(rule, 'identifier') and rule.identifier not in excluded_rules:
+                            matched_rules.append(rule.identifier)
+                        else:
+                            logging.info(f"Rule {rule.identifier} is excluded.")
+            else:
+                logging.warning("yaraxtr_rule is not defined.")
+
+        # Return matched rules as the yara_result if not empty, otherwise return None
+        return matched_rules if matched_rules else None
+
+yara_scanner = YaraScanner()
+
 # Function to check the signature of a file
 def check_signature(file_path):
     try:
@@ -611,107 +1032,6 @@ def clean_directories():
 
     except Exception as e:
         logging.error(f"An error occurred while cleaning the directories: {e}")
-
-def scan_file_real_time(file_path, signature_check, pe_file=False):
-    """Scan file in real-time using multiple engines."""
-    logging.info(f"Started scanning file: {file_path}")
-
-    try:
-        # Scan PE files with Static Machine Learning
-        if pe_file:
-            is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
-            if is_malicious:
-                if benign_score < 0.93:
-                    if signature_check["is_valid"]:
-                        malware_definition = "SIG." + malware_definition
-                    logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
-                    return True, malware_definition
-                elif benign_score >= 0.93:
-                    logging.info(f"File is clean based on ML benign score: {file_path}")
-                    return False, "Clean"
-            logging.info(f"No malware detected by Machine Learning in file: {file_path}")
-
-        # Scan with ClamAV
-        try:
-            result = scan_file_with_clamd(file_path)
-            if result not in ("Clean", ""):
-                if signature_check["is_valid"]:
-                    result = "SIG." + result
-                logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
-                return True, result
-            logging.info(f"No malware detected by ClamAV in file: {file_path}")
-        except Exception as e:
-            logging.error(f"An error occurred while scanning file with ClamAV: {file_path}. Error: {str(e)}")
-
-        # Scan with YARA
-        try:
-            yara_result = yara_scanner.scan_data(file_path)
-            if yara_result is not None and yara_result not in ("Clean", ""):
-                if signature_check["is_valid"]:
-                    yara_result = "SIG." + yara_result
-                logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
-                return True, yara_result
-            logging.info(f"Scanned file with YARA: {file_path} - No viruses detected")
-            return False, None
-        except Exception as e:
-            logging.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {e}")
-            return False, None
-
-        # Scan PE files
-        if pe_file:
-            try:
-                scan_result, virus_name = scan_pe_file(file_path)
-                if scan_result and virus_name not in ("Clean", ""):
-                    if signature_check["is_valid"]:
-                        virus_name = "SIG." + virus_name
-                    logging.warning(f"Infected file detected (PE): {file_path} - Virus: {virus_name}")
-                    return True, virus_name
-                logging.info(f"No malware detected in PE file: {file_path}")
-            except PermissionError:
-                logging.error(f"Permission error occurred while scanning PE file: {file_path}")
-            except FileNotFoundError:
-                logging.error(f"PE file not found error occurred while scanning PE file: {file_path}")
-            except Exception as e:
-                logging.error(f"An error occurred while scanning PE file: {file_path}. Error: {str(e)}")
-
-        # Scan TAR files
-        if tarfile.is_tarfile(file_path):
-            try:
-                scan_result, virus_name = scan_tar_file(file_path)
-                if scan_result and virus_name not in ("Clean", "F", ""):
-                    if signature_check["is_valid"]:
-                        virus_name = "SIG." + virus_name
-                    logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
-                    return True, virus_name
-                logging.info(f"No malware detected in TAR file: {file_path}")
-            except PermissionError:
-                logging.error(f"Permission error occurred while scanning TAR file: {file_path}")
-            except FileNotFoundError:
-                logging.error(f"TAR file not found error occurred while scanning TAR file: {file_path}")
-            except Exception as e:
-                logging.error(f"An error occurred while scanning TAR file: {file_path}. Error: {str(e)}")
-
-        # Scan ZIP files
-        if zipfile.is_zipfile(file_path):
-            try:
-                scan_result, virus_name = scan_zip_file(file_path)
-                if scan_result and virus_name not in ("Clean", ""):
-                    if signature_check["is_valid"]:
-                        virus_name = "SIG." + virus_name
-                    logging.warning(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
-                    return True, virus_name
-                logging.info(f"No malware detected in ZIP file: {file_path}")
-            except PermissionError:
-                logging.error(f"Permission error occurred while scanning ZIP file: {file_path}")
-            except FileNotFoundError:
-                logging.error(f"ZIP file not found error occurred while scanning ZIP file: {file_path}")
-            except Exception as e:
-                logging.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {str(e)}")
-
-    except Exception as e:
-        logging.error(f"An error occurred while scanning file: {file_path}. Error: {str(e)}")
-
-    return False, "Clean"
 
 def is_pe_file(file_path):
     """Check if the file at the specified path is a Portable Executable (PE) file."""
@@ -871,426 +1191,106 @@ def scan_tar_file(file_path):
                     break
     return False, ""
 
-def notify_user(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Malware Alert"
-    notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
+def scan_file_real_time(file_path, signature_check, pe_file=False):
+    """Scan file in real-time using multiple engines."""
+    logging.info(f"Started scanning file: {file_path}")
 
-def notify_size_warning(file_path, archive_type, virus_name):
-    """Send a notification for size-related warnings."""
-    notification = Notify()
-    notification.title = "Size Warning"
-    notification.message = (f"{archive_type} file {file_path} is smaller than 20MB but contains a large file "
-                            f"which might be suspicious. Virus Name: {virus_name}")
-    notification.send()
-
-def notify_rlo_warning(file_path, archive_type, virus_name):
-    """Send a notification for RLO-related warnings."""
-    notification = Notify()
-    notification.title = "RLO Warning"
-    notification.message = (f"Filename in {archive_type} file {file_path} contains RLO character after a comma. "
-                            f"This could indicate suspicious activity. Virus Name: {virus_name}")
-    notification.send()
-
-def notify_user_rlo(file_path, rlo_flag):
-    notification = Notify()
-    notification.title = "Suspicious RLO Name Alert"
-    notification.message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-    
-def notify_user_for_detected_fake_system_file(file_path, file_name, virus_name):
-    notification = Notify()
-    notification.title = "Fake System File Alert"
-    notification.message = (
-        f"Fake system file detected:\n"
-        f"File Path: {file_path}\n"
-        f"File Name: {file_name}\n"
-        f"Threat: {virus_name}"
-    )
-    notification.send()
-
-def notify_user_for_detected_rootkit(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Rootkit Detection Alert"
-    notification.message = (
-        f"Potential rootkit file detected:\n"
-        f"File Path: {file_path}\n"
-        f"Threat: {virus_name}"
-    )
-    notification.send()
-
-def notify_user_invalid(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Invalid signature Alert"
-    notification.message = f"Invalid signature file detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-
-def notify_user_ghidra(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Decompiled Malicious File Alert"
-    notification.message = f"Malicious decompiled file detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-
-def notify_user_pua(file_path, virus_name):
-    notification = Notify()
-    notification.title = "PUA Alert"
-    notification.message = f"PUA file detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-
-def notify_user_fake_size(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Fake Size Alert"
-    notification.message = f"Fake size file detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-
-def notify_user_startup(file_path, message):
-    """Notify the user about suspicious or malicious startup files."""
-    notification = Notify()
-    notification.title = "Startup File Alert"
-    notification.message = message
-    notification.send()
-
-def notify_user_uefi(file_path, virus_name):
-    notification = Notify()
-    notification.title = "UEFI Malware Alert"
-    notification.message = f"Suspicious UEFI file detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-
-def notify_user_ransomware(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Ransomware Alert"
-    notification.message = f"Potential ransomware detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-
-def notify_user_hosts(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Host Hijacker Alert"
-    notification.message = f"Potential host hijacker detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-
-def notify_user_worm(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Worm Alert"
-    notification.message = f"Potential worm detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-
-def notify_user_for_web(domain=None, ip_address=None, url=None, file_path=None):
-    notification = Notify()
-    notification.title = "Malware or Phishing Alert"
-    
-    # Build the notification message dynamically
-    message_parts = []
-    if domain:
-        message_parts.append(f"Domain: {domain}")
-    if ip_address:
-        message_parts.append(f"IP Address: {ip_address}")
-    if url:
-        message_parts.append(f"URL: {url}")
-    if file_path:
-        message_parts.append(f"File Path: {file_path}")
-    
-    if message_parts:
-        notification.message = f"Phishing or Malicious activity detected:\n" + "\n".join(message_parts)
-    else:
-        notification.message = "Phishing or Malicious activity detected"
-    
-    notification.send()
-
-def notify_user_for_hips(ip_address=None, dst_ip_address=None):
-    notification = Notify()
-    notification.title = "Malicious Activity Detected"
-    
-    if ip_address and dst_ip_address:
-        notification.message = f"Malicious activity detected:\nSource: {ip_address}\nDestination: {dst_ip_address}"
-    elif ip_address:
-        notification.message = f"Malicious activity detected:\nSource IP Address: {ip_address}"
-    elif dst_ip_address:
-        notification.message = f"Malicious activity detected:\nDestination IP Address: {dst_ip_address}"
-    else:
-        notification.message = "Malicious activity detected"
-    
-    notification.send()
-
-def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
-    """
-    Function to send notification for detected HIPS file.
-    """
-    notification = Notify()
-    notification.title = "Web Malware Alert For File"
-    notification.message = f"{status} file detected by Web related Message: {file_path}\nSource IP: {src_ip}\nAlert Line: {alert_line}"
-    notification.send()
-    print(f"Real-time web message notification: Detected {status} file {file_path} from {src_ip} with alert line: {alert_line}")
-
-def is_local_ip(ip):
     try:
-        ip_obj = ipaddress.ip_address(ip)
-        return ip_obj.is_private
-    except ValueError:
-        return False
+        # Scan PE files with Static Machine Learning
+        if pe_file:
+            is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
+            if is_malicious:
+                if benign_score < 0.93:
+                    if signature_check["is_valid"]:
+                        malware_definition = "SIG." + malware_definition
+                    logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
+                    return True, malware_definition
+                elif benign_score >= 0.93:
+                    logging.info(f"File is clean based on ML benign score: {file_path}")
+                    return False, "Clean"
+            logging.info(f"No malware detected by Machine Learning in file: {file_path}")
 
-# Regular expressions for matching IP addresses, IPv6 addresses, domains, and URLs
-ip_regex = re.compile(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')
-ipv6_regex = re.compile(r'\b(?:[a-fA-F0-9]{1,4}:){7}[a-fA-F0-9]{1,4}\b')
-domain_regex = re.compile(r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b')
-url_regex = re.compile(r'\b(?:https?://|www\.)[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/[^\s]*)?\b')
+        # Scan with ClamAV
+        try:
+            result = scan_file_with_clamd(file_path)
+            if result not in ("Clean", ""):
+                if signature_check["is_valid"]:
+                    result = "SIG." + result
+                logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
+                return True, result
+            logging.info(f"No malware detected by ClamAV in file: {file_path}")
+        except Exception as e:
+            logging.error(f"An error occurred while scanning file with ClamAV: {file_path}. Error: {str(e)}")
 
-class RealTimeWebProtectionHandler:
-    def __init__(self):
-        self.scanned_domains = []
-        self.scanned_ipv4_addresses = []
-        self.scanned_ipv6_addresses = []
-        self.scanned_urls = []
-        self.domain_ip_to_file_map = {}
+        # Scan with YARA
+        try:
+            yara_result = yara_scanner.scan_data(file_path)
+            if yara_result is not None and yara_result not in ("Clean", ""):
+                if signature_check["is_valid"]:
+                    yara_result = "SIG." + yara_result
+                logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
+                return True, yara_result
+            logging.info(f"Scanned file with YARA: {file_path} - No viruses detected")
+            return False, None
+        except Exception as e:
+            logging.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {e}")
+            return False, None
 
-    def is_related_to_critical_paths(self, file_path):
-        # Check if file path starts with the sandboxie folder or matches the main file path
-        return file_path.startswith(sandboxie_folder) or file_path == main_file_path
+        # Scan PE files
+        if pe_file:
+            try:
+                scan_result, virus_name = scan_pe_file(file_path)
+                if scan_result and virus_name not in ("Clean", ""):
+                    if signature_check["is_valid"]:
+                        virus_name = "SIG." + virus_name
+                    logging.warning(f"Infected file detected (PE): {file_path} - Virus: {virus_name}")
+                    return True, virus_name
+                logging.info(f"No malware detected in PE file: {file_path}")
+            except PermissionError:
+                logging.error(f"Permission error occurred while scanning PE file: {file_path}")
+            except FileNotFoundError:
+                logging.error(f"PE file not found error occurred while scanning PE file: {file_path}")
+            except Exception as e:
+                logging.error(f"An error occurred while scanning PE file: {file_path}. Error: {str(e)}")
 
-    def map_domain_ip_to_file(self, entity):
-        return self.domain_ip_to_file_map.get(entity)
+        # Scan TAR files
+        if tarfile.is_tarfile(file_path):
+            try:
+                scan_result, virus_name = scan_tar_file(file_path)
+                if scan_result and virus_name not in ("Clean", "F", ""):
+                    if signature_check["is_valid"]:
+                        virus_name = "SIG." + virus_name
+                    logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
+                    return True, virus_name
+                logging.info(f"No malware detected in TAR file: {file_path}")
+            except PermissionError:
+                logging.error(f"Permission error occurred while scanning TAR file: {file_path}")
+            except FileNotFoundError:
+                logging.error(f"TAR file not found error occurred while scanning TAR file: {file_path}")
+            except Exception as e:
+                logging.error(f"An error occurred while scanning TAR file: {file_path}. Error: {str(e)}")
 
-    def handle_detection(self, entity_type, entity_value):
-        file_path = self.map_domain_ip_to_file(entity_value)
-        notify_info = {'domain': None, 'ip_address': None, 'url': None, 'file_path': None}
+        # Scan ZIP files
+        if zipfile.is_zipfile(file_path):
+            try:
+                scan_result, virus_name = scan_zip_file(file_path)
+                if scan_result and virus_name not in ("Clean", ""):
+                    if signature_check["is_valid"]:
+                        virus_name = "SIG." + virus_name
+                    logging.warning(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
+                    return True, virus_name
+                logging.info(f"No malware detected in ZIP file: {file_path}")
+            except PermissionError:
+                logging.error(f"Permission error occurred while scanning ZIP file: {file_path}")
+            except FileNotFoundError:
+                logging.error(f"ZIP file not found error occurred while scanning ZIP file: {file_path}")
+            except Exception as e:
+                logging.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {str(e)}")
 
-        if file_path and self.is_related_to_critical_paths(file_path):
-            message = f"{entity_type.capitalize()} {entity_value} is related to a critical path: {file_path}"
-            logging.warning(message)
-            print(message)
-            notify_info[entity_type] = entity_value
-            notify_info['file_path'] = file_path  # Add file_path to notification info
-        else:
-            if file_path:
-                message = f"{entity_type.capitalize()} {entity_value} is not related to critical paths but associated with file path: {file_path}"
-            else:
-                message = f"{entity_type.capitalize()} {entity_value} is not related to critical paths and has no associated file path."
-            logging.info(message)
-            print(message)
-        
-        if any(notify_info.values()):
-            notify_user_for_web(**notify_info)
+    except Exception as e:
+        logging.error(f"An error occurred while scanning file: {file_path}. Error: {str(e)}")
 
-    def scan_domain(self, domain):
-        if domain in self.scanned_domains:
-            return
-        self.scanned_domains.append(domain)
-        message = f"Scanning domain: {domain}"
-        logging.info(message)
-        print(message)
-
-        if domain.lower() == 'www.com':
-            self.handle_detection('domain', domain)
-            return
-
-        if domain.lower().startswith("www.") and not domain.lower().endswith(".com"):
-            domain = domain[4:]
-
-        parts = domain.split(".")
-        main_domain = domain if len(parts) < 3 else ".".join(parts[-2:])
-
-        for parent_domain in domains_signatures_data:
-            if main_domain == parent_domain or main_domain.endswith(f".{parent_domain}"):
-                self.handle_detection('domain', main_domain)
-                return
-
-    def scan_ip_address(self, ip_address):
-        if ip_address in self.scanned_ipv6_addresses or ip_address in self.scanned_ipv4_addresses:
-            return
-
-        if ':' in ip_address:  # IPv6 address
-            self.scanned_ipv6_addresses.append(ip_address)
-            message = f"Scanning IPv6 address: {ip_address}"
-            logging.info(message)
-            print(message)
-            self.handle_detection('ip_address', ip_address)
-        else:  # IPv4 address
-            self.scanned_ipv4_addresses.append(ip_address)
-            message = f"Scanning IPv4 address: {ip_address}"
-            logging.info(message)
-            print(message)
-            if is_local_ip(ip_address):
-                message = f"Skipping local IP address: {ip_address}"
-                logging.info(message)
-                print(message)
-                return
-            self.handle_detection('ip_address', ip_address)
-
-    def scan_url(self, url):
-        if url in self.scanned_urls:
-            return
-        self.scanned_urls.append(url)
-        for entry in urlhaus_data:
-            if entry['url'] in url:
-                message = f"URL {url} matches the URLhaus signatures."
-                logging.warning(message)
-                print(message)
-
-    def on_packet_received(self, packet):
-        if IP in packet:
-            self.handle_ipv4(packet)
-        elif IPv6 in packet:
-            self.handle_ipv6(packet)
-        elif DNS in packet:
-            if packet[DNS].qd:
-                for i in range(packet[DNS].qdcount):
-                    query_name = packet[DNSQR][i].qname.decode().rstrip('.')
-                    self.scan_domain(query_name)
-                    message = f"DNS Query: {query_name}"
-                    logging.info(message)
-                    print(message)
-            if packet[DNS].an:
-                for i in range(packet[DNS].ancount):
-                    answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
-                    self.scan_domain(answer_name)
-                    message = f"DNS Answer: {answer_name}"
-                    logging.info(message)
-                    print(message)
-                    if IP in packet:
-                        self.scan_ip_address(packet[IP].src)
-                        self.scan_ip_address(packet[IP].dst)
-                    if TCP in packet or UDP in packet:
-                        url = f"{packet[IP].src}:{packet[IP].dport}"
-                        self.scan_url(url)
-
-    def handle_ipv4(self, packet):
-        if DNS in packet:
-            if packet[DNS].qd:
-                for i in range(packet[DNS].qdcount):
-                    query_name = packet[DNSQR][i].qname.decode().rstrip('.')
-                    self.scan_domain(query_name)
-                    message = f"DNS Query (IPv4): {query_name}"
-                    logging.info(message)
-                    print(message)
-            if packet[DNS].an:
-                for i in range(packet[DNS].ancount):
-                    answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
-                    self.scan_domain(answer_name)
-                    message = f"DNS Answer (IPv4): {answer_name}"
-                    logging.info(message)
-                    print(message)
-                    self.scan_ip_address(packet[IP].src)
-                    self.scan_ip_address(packet[IP].dst)
-
-    def handle_ipv6(self, packet):
-        if DNS in packet:
-            if packet[DNS].qd:
-                for i in range(packet[DNS].qdcount()):
-                    query_name = packet[DNSQR][i].qname.decode().rstrip('.')
-                    self.scan_domain(query_name)
-                    message = f"DNS Query (IPv6): {query_name}"
-                    logging.info(message)
-                    print(message)
-            if packet[DNS].an:
-                for i in range(packet[DNS].ancount()):
-                    answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
-                    self.scan_domain(answer_name)
-                    message = f"DNS Answer (IPv6): {answer_name}"
-                    logging.info(message)
-                    print(message)
-                    self.scan_ip_address(packet[IPv6].src)
-                    self.scan_ip_address(packet[IPv6].dst)
-
-class RealTimeWebProtectionObserver:
-    def __init__(self):
-        self.handler = RealTimeWebProtectionHandler()
-        self.is_started = False
-        self.thread = None
-
-    def begin_observing(self):
-        if not self.is_started:
-            self.thread = threading.Thread(target=self.start_sniffing)
-            self.thread.start()
-            self.is_started = True
-            message = "Real-time web protection observer started"
-            logging.info(message)
-            print(message)
-
-    def start_sniffing(self):
-        filter_expression = "(tcp or udp)"
-        sniff(filter=filter_expression, prn=self.handler.on_packet_received, store=0)
-
-web_protection_observer = RealTimeWebProtectionObserver()
-
-class YaraScanner:
-    def scan_data(self, file_path):
-        matched_rules = []
-
-        if not os.path.exists(file_path):
-            logging.error(f"File not found during YARA scan: {file_path}")
-            return None
-
-        with open(file_path, 'rb') as file:
-            data = file.read()
-
-            # Check matches for compiled_rule
-            if compiled_rule:
-                matches = compiled_rule.match(data=data)
-                if matches:
-                    for match in matches:
-                        if match.rule not in excluded_rules:
-                            matched_rules.append(match.rule)
-                        else:
-                            logging.info(f"Rule {match.rule} is excluded.")
-            else:
-                logging.warning("compiled_rule is not defined.")
-
-            # Check matches for yaraxtr_rule (loaded with yara_x)
-            if yaraxtr_rule:
-                scanner = yara_x.Scanner(yaraxtr_rule)
-                results = scanner.scan(data=data)
-                if results.matching_rules:
-                    for rule in results.matching_rules:
-                        if hasattr(rule, 'identifier') and rule.identifier not in excluded_rules:
-                            matched_rules.append(rule.identifier)
-                        else:
-                            logging.info(f"Rule {rule.identifier} is excluded.")
-            else:
-                logging.warning("yaraxtr_rule is not defined.")
-
-        # Return matched rules as the yara_result if not empty, otherwise return None
-        return matched_rules if matched_rules else None
-
-yara_scanner = YaraScanner()
-
-antivirus_style = """
-QWidget {
-    background-color: #2b2b2b;
-    color: #e0e0e0;
-    font-family: Arial, sans-serif;
-    font-size: 14px;
-}
-
-QPushButton {
-    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
-                                stop:0.2 #007bff, stop:0.8 #0056b3);
-    color: white;
-    border: 2px solid #007bff;
-    padding: 4px 10px;  /* Adjusted padding */
-    border-radius: 8px;  /* Adjusted border-radius */
-    min-width: 250px;  /* Adjusted min-width */
-    font-weight: bold;
-    text-align: center;
-    qproperty-iconSize: 16px;
-}
-
-QPushButton:hover {
-    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
-                                stop:0.2 #0056b3, stop:0.8 #004380);
-    border-color: #0056b3;
-}
-
-QPushButton:pressed {
-    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
-                                stop:0.2 #004380, stop:0.8 #003d75);
-    border-color: #004380;
-}
-
-QFileDialog {
-    background-color: #2b2b2b;
-    color: #e0e0e0;
-}
-"""
+    return False, "Clean"
 
 class AnalysisThread(QThread):
     def __init__(self, file_path):
@@ -1482,58 +1482,6 @@ fake_system_files = [
     'dllhost.exe',
     'services.exe'
 ]
-
-def monitor_sandbox():
-    if not os.path.exists(sandboxie_folder):
-        print(f"The sandboxie folder path does not exist: {sandboxie_folder}")
-        logging.error(f"The sandboxie folder path does not exist: {sandboxie_folder}")
-        return
-
-    hDir = win32file.CreateFile(
-        sandboxie_folder,
-        1,
-        win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
-        None,
-        win32con.OPEN_EXISTING,
-        win32con.FILE_FLAG_BACKUP_SEMANTICS,
-        None
-    )
-
-    try:
-        while True:
-            results = win32file.ReadDirectoryChangesW(
-                hDir,
-                1024,
-                True,
-                win32con.FILE_NOTIFY_CHANGE_FILE_NAME |
-                win32con.FILE_NOTIFY_CHANGE_DIR_NAME |
-                win32con.FILE_NOTIFY_CHANGE_ATTRIBUTES |
-                win32con.FILE_NOTIFY_CHANGE_SIZE |
-                win32con.FILE_NOTIFY_CHANGE_LAST_WRITE |
-                win32con.FILE_NOTIFY_CHANGE_SECURITY |
-                FILE_NOTIFY_CHANGE_LAST_ACCESS |
-                FILE_NOTIFY_CHANGE_CREATION |
-                FILE_NOTIFY_CHANGE_EA |
-                FILE_NOTIFY_CHANGE_STREAM_NAME |
-                FILE_NOTIFY_CHANGE_STREAM_SIZE |
-                FILE_NOTIFY_CHANGE_STREAM_WRITE,
-                None,
-                None
-            )
-            for action, file in results:
-                pathToScan = os.path.join(sandboxie_folder, file)
-                if os.path.exists(pathToScan):
-                    print(pathToScan)
-                    scan_and_warn(pathToScan)
-                else:
-                    print(f"File or folder not found: {pathToScan}")
-                    logging.warning(f"File or folder not found: {pathToScan}")
-
-    except Exception as e:
-        print(f"An error occurred at monitor_sandbox: {e}")
-        logging.error(f"An error occurred at monitor_sandbox: {e}")
-    finally:
-        win32file.CloseHandle(hDir)
 
 def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
     """
@@ -2256,6 +2204,58 @@ def scan_and_warn(file_path):
 
     return True
 
+def monitor_sandbox():
+    if not os.path.exists(sandboxie_folder):
+        print(f"The sandboxie folder path does not exist: {sandboxie_folder}")
+        logging.error(f"The sandboxie folder path does not exist: {sandboxie_folder}")
+        return
+
+    hDir = win32file.CreateFile(
+        sandboxie_folder,
+        1,
+        win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
+        None,
+        win32con.OPEN_EXISTING,
+        win32con.FILE_FLAG_BACKUP_SEMANTICS,
+        None
+    )
+
+    try:
+        while True:
+            results = win32file.ReadDirectoryChangesW(
+                hDir,
+                1024,
+                True,
+                win32con.FILE_NOTIFY_CHANGE_FILE_NAME |
+                win32con.FILE_NOTIFY_CHANGE_DIR_NAME |
+                win32con.FILE_NOTIFY_CHANGE_ATTRIBUTES |
+                win32con.FILE_NOTIFY_CHANGE_SIZE |
+                win32con.FILE_NOTIFY_CHANGE_LAST_WRITE |
+                win32con.FILE_NOTIFY_CHANGE_SECURITY |
+                FILE_NOTIFY_CHANGE_LAST_ACCESS |
+                FILE_NOTIFY_CHANGE_CREATION |
+                FILE_NOTIFY_CHANGE_EA |
+                FILE_NOTIFY_CHANGE_STREAM_NAME |
+                FILE_NOTIFY_CHANGE_STREAM_SIZE |
+                FILE_NOTIFY_CHANGE_STREAM_WRITE,
+                None,
+                None
+            )
+            for action, file in results:
+                pathToScan = os.path.join(sandboxie_folder, file)
+                if os.path.exists(pathToScan):
+                    print(pathToScan)
+                    scan_and_warn(pathToScan)
+                else:
+                    print(f"File or folder not found: {pathToScan}")
+                    logging.warning(f"File or folder not found: {pathToScan}")
+
+    except Exception as e:
+        print(f"An error occurred at monitor_sandbox: {e}")
+        logging.error(f"An error occurred at monitor_sandbox: {e}")
+    finally:
+        win32file.CloseHandle(hDir)
+
 def start_monitoring_sandbox():
     threading.Thread(target=monitor_sandbox).start()
 
@@ -2659,6 +2659,14 @@ def check_worm_similarity(file_path, features_current):
     return worm_detected
 
 class ScanAndWarnHandler(FileSystemEventHandler):
+
+    def process_file(self, file_path):
+        try:
+            scan_and_warn(file_path)
+            logging.info(f"Processed file: {file_path}")
+        except Exception as e:
+            logging.error(f"Error processing file {file_path}: {e}")
+
     def on_any_event(self, event):
         if event.is_directory:
             self.process_directory(event.src_path)
@@ -2686,13 +2694,6 @@ class ScanAndWarnHandler(FileSystemEventHandler):
         else:
             self.process_file(event.dest_path)
             logging.info(f"File moved: {event.src_path} to {event.dest_path}")
-
-    def process_file(self, file_path):
-        try:
-            scan_and_warn(file_path)
-            logging.info(f"Processed file: {file_path}")
-        except Exception as e:
-            logging.error(f"Error processing file {file_path}: {e}")
 
     def process_directory(self, dir_path):
         try:
