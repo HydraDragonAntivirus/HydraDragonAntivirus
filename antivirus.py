@@ -40,6 +40,9 @@ from elftools.elf.elffile import ELFFile
 import struct
 import zlib
 import marshal
+import base64
+from base32_crockford import base32_crockford
+import binascii
 
 sys.modules['sklearn.externals.joblib'] = joblib
 
@@ -61,13 +64,16 @@ ghidra_projects_dir = os.path.join(script_dir, "ghidra_projects")
 ghidra_logs_dir = os.path.join(script_dir, "ghidra_logs")
 ghidra_scripts_dir = os.path.join(script_dir, "scripts")
 dotnet_dir = os.path.join(script_dir, "dotnet")
-ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
-
+base_dir = os.path.join(script_dir, "base32and64")
 nuitka_dir = os.path.join(script_dir, "nuitka")
+ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
 
 clamd_dir = r"C:\Program Files\ClamAV\clamd.exe"
 clamdscan_path = r"C:\Program Files\ClamAV\clamdscan.exe"
 freshclam_path = r"C:\Program Files\ClamAV\freshclam.exe"
+
+# Ensure base64 and base32 directories exist
+os.makedirs(base_dir, exist_ok=True)
 # Configure logging
 log_directory = os.path.join(script_dir, "log")
 log_file = os.path.join(log_directory, "antivirus.log")
@@ -87,6 +93,80 @@ logging.basicConfig(
 main_file_path = None
 
 fileTypes = ['.pyd', '.elf', '.ps1', '.bas', '.bat', '.chm', '.cmd', '.com', '.cpl', '.dll', '.exe', '.msc', '.ocx', '.pcd', '.pif', '.reg', '.scr', '.sct', '.url', '.vbe', '.wsc', '.wsf', '.wsh', '.ct', '.t', '.input', '.war', '.jspx', '.tmp', '.dump', '.pwd', '.w', '.cfg', '.psd1', '.psm1', '.ps1xml', '.clixml', '.psc1', '.pssc', '.www', '.rdp', '.msi', '.dat', '.contact', '.settings', '.odt', '.jpg', '.mka','shtml', '.mhtml', '.oqy', '.png', '.csv', '.py', '.sql', '.mdb', '.html', '.htm', '.xml', '.psd', '.pdf', '.xla', '.cub', '.dae', '.indd', '.cs', '.mp3', '.mp4', '.dwg', '.rar', '.mov', '.rtf', '.bmp', '.mkv', '.avi', '.apk', '.lnk', '.dib', '.dic', '.dif', '.divx', '.iso', '.7zip', '.ace', '.arj', '.bz2', '.cab', '.gzip', '.lzh', '.jpeg', '.xz', '.mpeg', '.torrent', '.mpg', '.core', '.pdb', '.ico', '.pas', '.db', '.wmv', '.swf', '.cer', '.bak', '.backup', '.accdb', '.bay', '.p7c', '.exif', '.vss', '.raw', '.m4a', '.wma', '.flv', '.sie', '.sum', '.ibank', '.wallet', '.css', '.js', '.rb', '.xlsm', '.xlsb', '.7z', '.cpp', '.java', '.jpe', '.ini', '.blob', '.wps', '.wav', '.3gp', '.webm', '.m4v', '.amv', '.m4p', '.svg', '.ods', '.bk', '.vdi', '.vmdk', '.accde', '.json', '.gif', '.gz', '.m1v', '.sln', '.pst', '.obj', '.xlam', '.djvu', '.inc', '.cvs', '.dbf', '.tbi', '.wpd', '.dot', '.dotx', '.xltx', '.pptm', '.potx', '.potm', '.xlw', '.xps', '.xsd', '.xsf', '.xsl', '.kmz', '.accdr', '.stm', '.accdt', '.ppam', '.pps', '.ppsm', '.1cd', '.3ds', '.3fr', '.3g2', '.accda', '.accdc', '.accdw', '.adp', '.ai', '.ai3', '.ai4', '.ai5', '.ai6', '.ai7', '.ai8', '.arw', '.ascx', '.asm', '.asmx', '.avs', '.bin', '.cfm', '.dbx', '.dcm', '.dcr', '.pict', '.rgbe', '.dwt', '.f4v', '.exr', '.kwm', '.max', '.mda', '.mde', '.mdf', '.mdw', '.mht', '.mpv', '.msg', '.myi', '.nef', '.odc', '.geo', '.swift', '.odm', '.odp', '.oft', '.orf', '.pfx', '.p12', '.pls', '.safe', '.tab', '.vbs', '.xlk', '.xlm', '.xlt', '.xltm', '.svgz', '.slk', '.dmg', '.ps', '.psb', '.tif', '.rss', '.key', '.vob', '.epsp', '.dc3', '.iff', '.onepkg', '.onetoc2', '.opt', '.p7b', '.pam', '.r3d', '.pkg', '.yml', '.old', '.thmx', '.keytab', '.h', '.php', '.c', '.zip', '.log', '.log1', '.log2', '.tm', '.blf', '.uic', '.widget-plugin', '.regtrans-ms', '.efi', '.rule', '.rules', '.yar', '.yara', '.yrc', '.inf', '.ini', '.ndb', '.cvd', '.cld', '.ign2', '.dmp', '.conf' '.config']
+
+def decode_base64(data):
+    try:
+        return base64.b64decode(data)
+    except (binascii.Error, ValueError):
+        return None
+
+def decode_base32(data):
+    try:
+        return base32_crockford.decode(data)
+    except (binascii.Error, ValueError):
+        return None
+
+def decode_hex(data):
+    try:
+        return binascii.unhexlify(data)
+    except (binascii.Error, ValueError):
+        return None
+
+def process_file_data(file_path, output_dir):
+    with open(file_path, 'rb') as file:
+        data = file.read()
+
+    # Process hex data if applicable
+    if contains_hex(file_path):
+        decoded_data = binascii.unhexlify(data)
+        output_file_path = os.path.join(output_dir, os.path.basename(file_path))
+        with open(output_file_path, 'wb') as decoded_file:
+            decoded_file.write(decoded_data)
+        logging.info(f"Hex data from {file_path} saved to {output_file_path}")
+
+    # Process base64 and base32 data
+    decoded = data
+    while True:
+        base64_decoded = decode_base64(decoded)
+        if base64_decoded is not None:
+            decoded = base64_decoded
+            continue
+        
+        base32_decoded = decode_base32(decoded)
+        if base32_decoded is not None:
+            decoded = base32_decoded
+            continue
+
+        # No more base64 or base32 encoded data
+        break
+
+    output_file_path = os.path.join(output_dir, os.path.basename(file_path))
+    with open(output_file_path, 'wb') as decoded_file:
+        decoded_file.write(decoded)
+    logging.info(f"Decoded data from {file_path} saved to {output_file_path}")
+
+def iterative_decode(text):
+    while True:
+        # Attempt to decode as hex
+        decoded_hex = decode_hex(text)
+        if decoded_hex:
+            text = decoded_hex
+            continue
+        
+        # Attempt to decode as base64
+        decoded_base64 = decode_base64(text)
+        if decoded_base64:
+            text = decoded_base64
+            continue
+        
+        # Attempt to decode as base32
+        decoded_base32 = decode_base32(text)
+        if decoded_base32:
+            text = decoded_base32
+            continue
+        
+        # If neither decoding works, break the loop
+        break
 
 def extract_infos(file_path, rank=None):
     """Extract information about file"""
@@ -1824,7 +1904,6 @@ def scan_and_warn(file_path):
 
         # Flag to indicate if the file is decompiled
         is_decompiled = False
-
         pe_file = False
 
         # Initialize signature_check with a default value
@@ -1842,6 +1921,8 @@ def scan_and_warn(file_path):
 
         elif contains_hex(file_path):
             logging.info(f"Hex data found in: {file_path}")
+            # Process hex data
+            process_file_data(file_path, base_dir)
 
             # Check if the file is a PyInstaller archive
             if is_pyinstaller_archive(file_path):
@@ -1933,6 +2014,9 @@ def scan_and_warn(file_path):
 
         else:
             logging.info(f"No hex data found in: {file_path}")
+
+        # Process base64 and base32 data
+        process_file_data(file_path, base_dir)
 
         # Perform real-time scan with pe_file flag
         is_malicious, virus_names = scan_file_real_time(file_path, signature_check, pe_file=pe_file)
@@ -2597,11 +2681,6 @@ class Monitor:
                     "virus_name": "HEUR:Win32.Ransom.ShadowCopy.Generic",
                     "process_function": self.process_detected_command_ransom_shadowcopy
                 },
-                "shadowcopy_base64": {
-                    "command": 'rwblahqalcwbdxwcpapjuaqwpbwbwqwsaqfwqwfryur',
-                    "virus_name": "HEUR:Win32.Ransom.ShadowCopy.Base64.Generic",
-                    "process_function": self.process_detected_command_ransom_shadowcopy_base64
-                },
                 "wmic": {
                     "command": 'wmic shadowcopy delete',
                     "virus_name": "HEUR:Win32.Ransom.ShadowCopy.WMIC.Generic",
@@ -2648,6 +2727,9 @@ class Monitor:
 
     def preprocess_text(self, text):
         return text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "")
+
+        # Iteratively decode base64/base32 until no further decoding is possible
+        decoded_text = iterative_decode(cleaned_text)
 
     def capture_command_lines(self):
         command_lines = []
@@ -2733,12 +2815,6 @@ class Monitor:
     def process_detected_command_ransom_shadowcopy(self, text, file_path=None, hwnd=None):
         virus_name = self.known_malware_messages["commands"]["shadowcopy"]["virus_name"]
         message = f"Detected ransomware shadow copy deletion: {virus_name} in text: {text} from {file_path} {hwnd}"
-        logging.warning(message)
-        self.notify_user_for_detected_command(message)
-
-    def process_detected_command_ransom_shadowcopy_base64(self, text, file_path=None, hwnd=None):
-        virus_name = self.known_malware_messages["commands"]["shadowcopy_base64"]["virus_name"]
-        message = f"Detected base64 encoded ransomware shadow copy deletion: {virus_name} in text: {text} from {file_path} {hwnd}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
@@ -2868,22 +2944,33 @@ class Monitor:
     def monitor(self):
         try:
             while True:
+                # Capture windows with text
                 windows = find_windows_with_text()
                 for hwnd, text in windows:
-                    self.process_detected(text, hwnd=hwnd)
+                    # Process both preprocessed and original text
+                    preprocessed_text = self.preprocess_text(text)
+                    self.process_detected(preprocessed_text, hwnd=hwnd)  # Process preprocessed text
+                    self.process_detected(text, hwnd=hwnd)  # Process original text
 
+                # Capture command lines
                 command_lines = self.capture_command_lines()
                 for command_line, executable_path in command_lines:
-                    # Convert command_line to lowercase
+                    # Convert command_line to lowercase and preprocess
                     command_line_lower = command_line.lower()
-                    self.process_detected(command_line, file_path=executable_path)
+                    preprocessed_command_line = self.preprocess_text(command_line_lower)
+                    
+                    # Process both preprocessed and original command lines
+                    self.process_detected(preprocessed_command_line, file_path=executable_path)  # Process preprocessed command line
+                    self.process_detected(command_line_lower, file_path=executable_path)  # Process original command line
+                    self.process_detected(preprocessed_command_line, file_path=executable_path)
+
         except Exception as e:
             logging.error(f"Unexpected error in monitor loop: {e}")
 
 # List of already scanned files and their modification times
 scanned_files = []
 file_mod_times = {}
-directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir]
+directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, base_dir]
 
 def monitor_sandboxie_directory():
     """
