@@ -1197,7 +1197,7 @@ class RealTimeWebProtectionObserver:
         self.is_started = False
         self.thread = None
 
-    def start(self):
+    def begin_observing(self):
         if not self.is_started:
             self.thread = threading.Thread(target=self.start_sniffing)
             self.thread.start()
@@ -3280,7 +3280,7 @@ def perform_sandbox_analysis(file_path):
 
         # Monitor Snort log for new lines and process alerts
         threading.Thread(target=monitor_snort_log).start()
-        threading.Thread(target=web_protection_observer.start).start()
+        threading.Thread(target=web_protection_observer.begin_observing).start()
 
         # Start other sandbox analysis tasks in separate threads
         threading.Thread(target=observer.start).start()
