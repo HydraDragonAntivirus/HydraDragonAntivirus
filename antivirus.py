@@ -1297,7 +1297,7 @@ class AnalysisThread(QThread):
         super().__init__()
         self.file_path = file_path
 
-    def run(self):
+    def execute_anylsis(self):
         try:
             print(f"Running analysis for: {self.file_path}")  
             logging.info(f"Running analysis for: {self.file_path}")
@@ -1352,7 +1352,7 @@ class AntivirusUI(QWidget):
 
     def run_analysis_thread(self, file_path):
         self.analysis_thread = AnalysisThread(file_path)
-        self.analysis_thread.start()
+        self.analysis_thread.execute_analysis()
 
     def show_success_message(self):
         QMessageBox.information(self, "Update Definitions", "AntiVirus definitions updated successfully and ClamAV has been restarted.")
