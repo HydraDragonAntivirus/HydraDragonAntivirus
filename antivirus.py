@@ -18,7 +18,6 @@ import yara_x
 import psutil
 from notifypy import Notify
 import logging
-import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -66,6 +65,8 @@ ghidra_scripts_dir = os.path.join(script_dir, "scripts")
 dotnet_dir = os.path.join(script_dir, "dotnet")
 base_dir = os.path.join(script_dir, "base32and64")
 nuitka_dir = os.path.join(script_dir, "nuitka")
+commandlineandmessage_dir = os.path.join(script_dir, "commandlineandmessage")
+extracted_dir = os.path.join(script_dir, "extracted")
 ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
 
 clamd_dir = r"C:\Program Files\ClamAV\clamd.exe"
@@ -74,6 +75,10 @@ freshclam_path = r"C:\Program Files\ClamAV\freshclam.exe"
 
 # Ensure base64 and base32 directories exist
 os.makedirs(base_dir, exist_ok=True)
+
+os.makedirs(commandlineandmessage_dir, exist_ok=True)
+os.makedirs(extracted_dir, exist_ok=True)
+
 # Configure logging
 log_directory = os.path.join(script_dir, "log")
 log_file = os.path.join(log_directory, "antivirus.log")
@@ -201,104 +206,136 @@ magic_bytes = {
     "75 73 74 61 72": "tar",
 }
 
-def is_hex_data(file_path):
+antivirus_style = """
+QWidget {
+    background-color: #2b2b2b;
+    color: #e0e0e0;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+}
+
+QPushButton {
+    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+                                stop:0.2 #007bff, stop:0.8 #0056b3);
+    color: white;
+    border: 2px solid #007bff;
+    padding: 4px 10px;  /* Adjusted padding */
+    border-radius: 8px;  /* Adjusted border-radius */
+    min-width: 250px;  /* Adjusted min-width */
+    font-weight: bold;
+    text-align: center;
+    qproperty-iconSize: 16px;
+}
+
+QPushButton:hover {
+    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+                                stop:0.2 #0056b3, stop:0.8 #004380);
+    border-color: #0056b3;
+}
+
+QPushButton:pressed {
+    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+                                stop:0.2 #004380, stop:0.8 #003d75);
+    border-color: #004380;
+}
+
+QFileDialog {
+    background-color: #2b2b2b;
+    color: #e0e0e0;
+}
+"""
+
+malicious_file_names = os.path.join(script_dir, "machinelearning", "malicious_file_names.json")
+malicious_numeric_features = os.path.join(script_dir, "machinelearning", "malicious_numeric.pkl")
+benign_numeric_features = os.path.join(script_dir, "machinelearning", "benign_numeric.pkl")
+yara_folder_path = os.path.join(script_dir, "yara")
+excluded_rules_dir = os.path.join(script_dir, "excluded")
+excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
+ip_addresses_path = os.path.join(script_dir, "website", "IP_Addresses.txt")
+ipv6_addresses_path = os.path.join(script_dir, "website", "ipv6.txt")
+ipv4_whitelist_path = os.path.join(script_dir, "website", "ipv4whitelist.txt")
+domains_path = os.path.join(script_dir, "website", "Domains.txt")
+urlhaus_path = os.path.join(script_dir, "website", "urlhaus.txt")
+antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
+ip_addresses_signatures_data = {}
+ipv4_whitelist_data = {}
+ipv6_addresses_signatures_data = {}
+domains_signatures_data = {}
+urlhaus_data = {}
+
+def is_hex_data(data):
+    """Check if the given binary data can be valid hex-encoded data."""
     try:
-        with open(file_path, 'rb') as file:
-            data = file.read()
-        
-        # Try to decode the data as hex
-        binascii.unhexlify(data)
+        # Convert binary data to hex representation and back to binary
+        binascii.unhexlify(binascii.hexlify(data))
         return True
     except (TypeError, binascii.Error):
         return False
 
 def remove_magic_bytes(data, magic_bytes):
-    # Convert binary data to hex representation
-    hex_data = binascii.hexlify(data).decode('utf-8')
-    
-    for magic_byte in magic_bytes.keys():
-        # Convert hex magic bytes to a regex pattern for searching
-        pattern = re.compile(rf'{magic_bytes.replace(" ", "")}', re.IGNORECASE)
-        
-        # Remove magic bytes from the hex data
-        hex_data = pattern.sub('', hex_data)
-    
-    # Convert hex data back to binary
-    return binascii.unhexlify(hex_data)
+    """Remove magic bytes from data, considering it might be hex-encoded."""
+    if is_hex_data(data):
+        # Convert binary data to hex representation for easier pattern removal
+        hex_data = binascii.hexlify(data).decode('utf-8')
 
-def remove_magic_bytes_from_file(input_file_path, output_file_path, magic_bytes):
-    with open(input_file_path, 'rb') as file:
-        data = file.read()
+        # Remove magic bytes by applying regex patterns
+        for magic_byte in magic_bytes.keys():
+            pattern = re.compile(rf'{magic_bytes[magic_byte].replace(" ", "")}', re.IGNORECASE)
+            hex_data = pattern.sub('', hex_data)
 
-    # Check if the data is likely hex-encoded
-    if is_hex_data(data.hex()):
-        # Process as hex
-        processed_data = remove_magic_bytes(data, magic_bytes)
+        # Convert hex data back to binary
+        return binascii.unhexlify(hex_data)
     else:
-        # Since all data is handled as binary, no additional text processing is needed
-        processed_data = remove_magic_bytes(data, magic_bytes)
-
-    with open(output_file_path, 'wb') as file:
-        file.write(processed_data)
+        # If data is not hex-encoded, process it directly
+        hex_data = binascii.hexlify(data).decode('utf-8')
+        for magic_byte in magic_bytes.keys():
+            pattern = re.compile(rf'{magic_bytes[magic_byte].replace(" ", "")}', re.IGNORECASE)
+            hex_data = pattern.sub('', hex_data)
+        return binascii.unhexlify(hex_data)
 
 def decode_base64(data):
+    """Decode base64-encoded data."""
     try:
         return base64.b64decode(data)
     except (binascii.Error, ValueError):
         return None
 
 def decode_base32(data):
+    """Decode base32-encoded data."""
     try:
         return base32_crockford.decode(data)
     except (binascii.Error, ValueError):
         return None
 
-def decode_hex(data):
-    try:
-        return binascii.unhexlify(data)
-    except (binascii.Error, ValueError):
-        return None
-
-def process_file_data(file_path, output_dir):
+def process_file_data(file_path, output_dir, magic_bytes):
+    """Process file data by decoding and removing magic bytes."""
     with open(file_path, 'rb') as file:
         data = file.read()
 
-    # Process hex data if applicable
-    if is_hex_data(file_path):
-        decoded_data = binascii.unhexlify(data)
-        output_file_path = os.path.join(output_dir, os.path.basename(file_path))
-        with open(output_file_path, 'wb') as decoded_file:
-            decoded_file.write(decoded_data)
-        logging.info(f"Hex data from {file_path} saved to {output_file_path}")
-
-        # Remove magic bytes from hex data
-        processed_data = remove_magic_bytes_from_hex(decoded_data)
-        output_file_path = os.path.join(output_dir, 'processed_' + os.path.basename(file_path))
-        with open(output_file_path, 'wb') as processed_file:
-            processed_file.write(processed_data)
-        logging.info(f"Processed hex data from {file_path} saved to {output_file_path}")
-
-    # Process base64 and base32 data
-    decoded = data
+    original_data = data
+    # Initial processing of the data
     while True:
-        base64_decoded = decode_base64(decoded)
+        # Try to decode base64 and base32 repeatedly until no more decoding is possible
+        base64_decoded = decode_base64(data)
         if base64_decoded is not None:
-            decoded = base64_decoded
+            data = base64_decoded
             continue
-        
-        base32_decoded = decode_base32(decoded)
+
+        base32_decoded = decode_base32(data)
         if base32_decoded is not None:
-            decoded = base32_decoded
+            data = base32_decoded
             continue
 
         # No more base64 or base32 encoded data
         break
 
-    # Remove magic bytes from the decoded data
-    processed_data = remove_magic_bytes_from_text(decoded.decode('utf-8', errors='ignore'))
+    # Process the data to handle possible mixed content
+    processed_data = remove_magic_bytes(data, magic_bytes)
+
+    # Save processed data
     output_file_path = os.path.join(output_dir, 'processed_' + os.path.basename(file_path))
     with open(output_file_path, 'wb') as processed_file:
-        processed_file.write(processed_data.encode('utf-8'))
+        processed_file.write(processed_data)
     logging.info(f"Processed data from {file_path} saved to {output_file_path}")
 
 def extract_infos(file_path, rank=None):
@@ -356,24 +393,6 @@ def calculate_similarity(features1, features2, threshold=0.86):
     matching_keys = sum(1 for key in common_keys if features1[key] == features2[key])
     similarity = matching_keys / max(len(features1), len(features2))
     return similarity
-
-malicious_file_names = os.path.join(script_dir, "machinelearning", "malicious_file_names.json")
-malicious_numeric_features = os.path.join(script_dir, "machinelearning", "malicious_numeric.pkl")
-benign_numeric_features = os.path.join(script_dir, "machinelearning", "benign_numeric.pkl")
-yara_folder_path = os.path.join(script_dir, "yara")
-excluded_rules_dir = os.path.join(script_dir, "excluded")
-excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
-ip_addresses_path = os.path.join(script_dir, "website", "IP_Addresses.txt")
-ipv6_addresses_path = os.path.join(script_dir, "website", "ipv6.txt")
-ipv4_whitelist_path = os.path.join(script_dir, "website", "ipv4whitelist.txt")
-domains_path = os.path.join(script_dir, "website", "Domains.txt")
-urlhaus_path = os.path.join(script_dir, "website", "urlhaus.txt")
-antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
-ip_addresses_signatures_data = {}
-ipv4_whitelist_data = {}
-ipv6_addresses_signatures_data = {}
-domains_signatures_data = {}
-urlhaus_data = {}
 
 def notify_user(file_path, virus_name):
     notification = Notify()
@@ -525,45 +544,6 @@ def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
     notification.message = f"{status} file detected by Web related Message: {file_path}\nSource IP: {src_ip}\nAlert Line: {alert_line}"
     notification.send()
     print(f"Real-time web message notification: Detected {status} file {file_path} from {src_ip} with alert line: {alert_line}")
-
-antivirus_style = """
-QWidget {
-    background-color: #2b2b2b;
-    color: #e0e0e0;
-    font-family: Arial, sans-serif;
-    font-size: 14px;
-}
-
-QPushButton {
-    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
-                                stop:0.2 #007bff, stop:0.8 #0056b3);
-    color: white;
-    border: 2px solid #007bff;
-    padding: 4px 10px;  /* Adjusted padding */
-    border-radius: 8px;  /* Adjusted border-radius */
-    min-width: 250px;  /* Adjusted min-width */
-    font-weight: bold;
-    text-align: center;
-    qproperty-iconSize: 16px;
-}
-
-QPushButton:hover {
-    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
-                                stop:0.2 #0056b3, stop:0.8 #004380);
-    border-color: #0056b3;
-}
-
-QPushButton:pressed {
-    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
-                                stop:0.2 #004380, stop:0.8 #003d75);
-    border-color: #004380;
-}
-
-QFileDialog {
-    background-color: #2b2b2b;
-    color: #e0e0e0;
-}
-"""
 
 # Function to load antivirus list
 def load_antivirus_list():
@@ -1060,7 +1040,7 @@ def scan_pe_file(file_path):
     """Scan files within an exe file."""
     try:
         pe = pefile.PE(file_path)
-        virus_names = ""
+        virus_names = []
         for entry in pe.DIRECTORY_ENTRY_RESOURCE.entries:
             if hasattr(entry, 'directory'):
                 for resource in entry.directory.entries:
@@ -1070,22 +1050,21 @@ def scan_pe_file(file_path):
                                 for r in res.directory.entries:
                                     if hasattr(r, 'data'):
                                         data = pe.get_data(r.data.struct.OffsetToData, r.data.struct.Size)
-                                        scan_result, virus_name = scan_and_warn(data)
-                                        if scan_result:
-                                            virus_names.append(virus_name)
-                                            # Return immediately if malware is detected
-                                            return True, virus_names
-        return False, virus_names
+                                        
+                                        # Save data to file in the extracted directory
+                                        extracted_file_path = os.path.join(extracted_dir, "pe_extracted_data.bin")
+                                        with open(extracted_file_path, 'wb') as temp_file:
+                                            temp_file.write(data)
+        
+        return True, virus_names
     except Exception as e:
         logging.error(f"Error scanning exe file: {file_path} - {str(e)}")
         return False, ""
 
 def scan_zip_file(file_path):
     """Scan files within a zip archive."""
-    temp_dir = None
     try:
         zip_size = os.path.getsize(file_path)
-        temp_dir = tempfile.mkdtemp()
 
         with zipfile.ZipFile(file_path, 'r') as zfile:
             for zip_info in zfile.infolist():
@@ -1101,11 +1080,11 @@ def scan_zip_file(file_path):
                     logging.info(f"Skipping encrypted file: {zip_info.filename}")
                     continue
 
-                extracted_file_path = os.path.join(temp_dir, zip_info.filename)
-                zfile.extract(zip_info, temp_dir)
-                extracted_file_size = os.path.getsize(extracted_file_path)
+                extracted_file_path = os.path.join(extracted_dir, zip_info.filename)
+                zfile.extract(zip_info, extracted_dir)
 
                 # Check for suspicious conditions: large files in small ZIP archives
+                extracted_file_size = os.path.getsize(extracted_file_path)
                 if zip_size < 20 * 1024 * 1024 and extracted_file_size > 650 * 1024 * 1024:
                     logging.warning(
                         f"ZIP file {file_path} is smaller than 20MB but contains a large file: {zip_info.filename} "
@@ -1114,35 +1093,15 @@ def scan_zip_file(file_path):
                     )
                     notify_size_warning(file_path, "ZIP", virus_name)
 
-                # Scan the extracted file
-                with open(extracted_file_path, 'rb') as f:
-                    data = f.read()
-                    scan_result, virus_name = scan_and_warn(data)
-                    if scan_result:
-                        return True, virus_name
-
+        return True, []
     except Exception as e:
         logging.error(f"Error scanning zip file: {file_path} - {str(e)}")
-    finally:
-        if temp_dir:
-            for _ in range(5):
-                try:
-                    shutil.rmtree(temp_dir)
-                    break
-                except PermissionError:
-                    logging.error(f"Permission error while deleting {temp_dir}. Retrying...")
-                    time.sleep(1)
-                except Exception as e:
-                    logging.error(f"Unexpected error while deleting {temp_dir}: {e}")
-                    break
-    return False, ""
+        return False, ""
 
 def scan_tar_file(file_path):
     """Scan files within a tar archive."""
-    temp_dir = None
     try:
         tar_size = os.path.getsize(file_path)
-        temp_dir = tempfile.mkdtemp()
 
         with tarfile.open(file_path, 'r') as tar:
             for member in tar.getmembers():
@@ -1155,11 +1114,11 @@ def scan_tar_file(file_path):
                     notify_rlo_warning(file_path, "TAR", virus_name)
 
                 if member.isreg():  # Check if it's a regular file
-                    extracted_file_path = os.path.join(temp_dir, member.name)
-                    tar.extract(member, temp_dir)
-                    extracted_file_size = os.path.getsize(extracted_file_path)
+                    extracted_file_path = os.path.join(extracted_dir, member.name)
+                    tar.extract(member, extracted_dir)
 
                     # Check for suspicious conditions: large files in small TAR archives
+                    extracted_file_size = os.path.getsize(extracted_file_path)
                     if tar_size < 20 * 1024 * 1024 and extracted_file_size > 650 * 1024 * 1024:
                         logging.warning(
                             f"TAR file {file_path} is smaller than 20MB but contains a large file: {member.name} "
@@ -1168,28 +1127,10 @@ def scan_tar_file(file_path):
                         )
                         notify_size_warning(file_path, "TAR", virus_name)
 
-                    # Scan the extracted file
-                    with open(extracted_file_path, 'rb') as f:
-                        data = f.read()
-                        scan_result, virus_name = scan_and_warn(data)
-                        if scan_result:
-                            return True, virus_name
-
+        return True, []
     except Exception as e:
         logging.error(f"Error scanning tar file: {file_path} - {str(e)}")
-    finally:
-        if temp_dir:
-            for _ in range(5):
-                try:
-                    shutil.rmtree(temp_dir)
-                    break
-                except PermissionError:
-                    logging.error(f"Permission error while deleting {temp_dir}. Retrying...")
-                    time.sleep(1)
-                except Exception as e:
-                    logging.error(f"Unexpected error while deleting {temp_dir}: {e}")
-                    break
-    return False, ""
+        return False, ""
 
 def scan_file_real_time(file_path, signature_check, pe_file=False):
     """Scan file in real-time using multiple engines."""
@@ -2000,7 +1941,7 @@ def extract_pyinstaller_archive(file_path):
         logging.error(f"An error occurred while extracting PyInstaller archive {file_path}: {e}")
         return None
 
-def scan_and_warn(file_path, processed_once=False):
+def scan_and_warn(file_path, flag=False):
     logging.info(f"Scanning file: {file_path}")
 
     try:
@@ -2015,11 +1956,9 @@ def scan_and_warn(file_path, processed_once=False):
             logging.warning(f"Detected potential rootkit file: {file_path}")
             notify_user_for_detected_rootkit(file_path, f"HEUR:Rootkit.{file_name}")
 
-        # Flag to indicate if the file is decompiled
+        # Initialize variables
         is_decompiled = False
         pe_file = False
-
-        # Initialize signature_check with a default value
         signature_check = {
             "has_microsoft_signature": False,
             "is_valid": False,
@@ -2031,161 +1970,125 @@ def scan_and_warn(file_path, processed_once=False):
             logging.info(f"File {file_path} is in decompile_dir.")
             is_decompiled = True
 
-        # Check if the file contains hex data
-        if is_hex_data(file_path):
-            logging.info(f"Hex data found in: {file_path}")
-            process_file_data(file_path, base_dir)
-        else:
-            logging.info(f"No hex data found in: {file_path}")
+        # Process encoded data (base64, base32)
+        process_encoded_data(file_path)
 
-            # Define the processing function
-            def process_and_check(file_path, label):
-                cleaned_file_path = file_path + f".{label}_cleaned"
-                remove_magic_bytes_from_file(file_path, cleaned_file_path)
-                process_file_data(cleaned_file_path, cleaned_file_path + "_processed")
+        # Process the file data including magic byte removal
+        process_file_data(file_path, os.path.dirname(file_path), magic_bytes)
 
-                yara_matches = yara_scanner.scan_data(cleaned_file_path)
-                clamd_result = clamd_scanner.scan_file(cleaned_file_path)
-                
-                logging.info(f"Processed file {file_path} with label {label}:")
-                logging.info(f"YARA matches: {yara_matches}")
-                logging.info(f"ClamAV result: {clamd_result}")
+        # Check if the file is a PyInstaller archive
+        if is_pyinstaller_archive(file_path):
+            logging.info(f"File {file_path} is a PyInstaller archive. Extracting...")
+            pyinstaller_dir = extract_pyinstaller_archive(file_path)
+            if pyinstaller_dir:
+                logging.info(f"PyInstaller archive extracted to {pyinstaller_dir}")
+                # Scan extracted contents
+                for root, dirs, files in os.walk(pyinstaller_dir):
+                    for file in files:
+                        extracted_file_path = os.path.join(root, file)
+                        scan_and_warn(extracted_file_path, flag)
 
-                # Clean up temporary file
-                if os.path.exists(cleaned_file_path):
-                    os.remove(cleaned_file_path)
+        # Check if the file is a PE file
+        if is_pe_file(file_path):
+            logging.info(f"File {file_path} is a valid PE file.")
+            pe_file = True
 
-            # 1. Full Cleanup (magic bytes, base64, base32)
-            process_and_check(file_path, "full")
+        # Check signature
+        signature_check = check_signature(file_path)
+        if not isinstance(signature_check, dict):
+            logging.error(f"check_signature did not return a dictionary for file: {file_path}, received: {signature_check}")
 
-            # 2. Base64 and Base32 Cleaning Only
-            process_and_check(file_path, "base64_base32")
+        if signature_check["has_microsoft_signature"]:
+            logging.info(f"Valid Microsoft signature detected for file: {file_path}")
+            return False
+        elif signature_check["is_valid"]:
+            logging.info(f"File '{file_path}' has a valid signature. Skipping worm detection.")
+        elif signature_check["signature_status_issues"]:
+            logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
+            notify_user_invalid(file_path, "Win32.InvalidSignature")
 
-            # 3. Magic Bytes Removal Only
-            process_and_check(file_path, "magic_bytes")
+        # Check for fake file size
+        if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
+            with open(file_path, 'rb') as file:
+                file_content_read = file.read(100 * 1024 * 1024)
+                if file_content_read == b'\x00' * 100 * 1024 * 1024:  # 100MB of continuous `0x00` bytes
+                    logging.warning(f"File {file_path} is flagged as HEUR:FakeSize.Generic")
+                    fake_size = "HEUR:FakeSize.Generic"
+                    if signature_check and signature_check["is_valid"]:
+                        fake_size = "HEUR:SIG.Win32.FakeSize.Generic"
+                    notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(file_path, fake_size))
+                    notify_user_fake_size_thread.start()
 
-            # 4. Normal Processing (without cleanup)
-            normal_file_path = file_path
-            process_file_data(normal_file_path, normal_file_path + "_processed")
-
-            # Perform full scan and warn again if needed
-            if not processed_once:
-                logging.info(f"Reprocessing file {file_path} with all checks enabled...")
-                scan_and_warn(file_path, processed_once=True)
-                return False  # Indicate reprocessing was done
-
-            # Check if the file is a PyInstaller archive
-            if is_pyinstaller_archive(file_path):
-                logging.info(f"File {file_path} is a PyInstaller archive. Extracting...")
-                pyinstaller_dir = extract_pyinstaller_archive(file_path)
-                if pyinstaller_dir:
-                    logging.info(f"PyInstaller archive extracted to {pyinstaller_dir}")
-                    # Scan extracted contents
-                    for root, dirs, files in os.walk(pyinstaller_dir):
-                        for file in files:
-                            extracted_file_path = os.path.join(root, file)
-                            scan_and_warn(extracted_file_path)
-
+        # Check if the file contains Nuitka and extract if present
+        try:
+            logging.info(f"Checking if the file {file_path} contains Nuitka executable.")
+            ne = NuitkaExecutable()
+            base_nuitka_dir = os.path.join(os.path.dirname(file_path), "nuitka")
+            folder_number = 1
+            while os.path.exists(f"{base_nuitka_dir}_{folder_number}"):
+                folder_number += 1
+            output_dir = f"{base_nuitka_dir}_{folder_number}"
+            ne.New(file_path, output_dir)
+            if ne.Check():
+                ne.Extract()
+                logging.info(f"Nuitka content extracted to {output_dir}")
             else:
-                if is_pe_file(file_path):
-                    logging.info(f"File {file_path} is a valid PE file.")
-                    pe_file = True
+                logging.info(f"No Nuitka content found in {file_path}")
 
-                signature_check = check_signature(file_path)
+        except Exception as e:
+            logging.error(f"Error checking or extracting Nuitka content from {file_path}: {e}")
 
-                if not isinstance(signature_check, dict):
-                    logging.error(f"check_signature did not return a dictionary for file: {file_path}, received: {signature_check}")
+        # Decompile the file
+        decompile_file(file_path)
 
-                if signature_check["has_microsoft_signature"]:
-                    logging.info(f"Valid Microsoft signature detected for file: {file_path}")
-                    return False
-                elif signature_check["is_valid"]:
-                    logging.info(f"File '{file_path}' has a valid signature. Skipping worm detection.")
-                elif signature_check["signature_status_issues"]:
-                    logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
-                    notify_user_invalid(file_path, "Win32.InvalidSignature")
+        # Check if .NET data is detected
+        if is_dotnet_file(file_path):
+            logging.info(f"Detected .NET assembly: {file_path}")
+            folder_number = 1
+            while os.path.exists(f"{dotnet_dir}_{folder_number}"):
+                folder_number += 1
+            output_dir = f"{dotnet_dir}_{folder_number}"
+            os.makedirs(output_dir, exist_ok=True)
+            ilspy_command = f"{ilspycmd_path} -o {output_dir} {file_path}"
+            os.system(ilspy_command)
+            logging.info(f".NET content decompiled to {output_dir}")
 
-                # Check for the fake file size with continuous `0x00` bytes
-                if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
-                    with open(file_path, 'rb') as file:
-                        file_content_read = file.read(100 * 1024 * 1024)
-                        if file_content_read == b'\x00' * 100 * 1024 * 1024:  # 100MB of continuous `0x00` bytes
-                            logging.warning(f"File {file_path} is flagged as HEUR:FakeSize.Generic")
-                            fake_size = "HEUR:FakeSize.Generic"
-                            if signature_check and signature_check["is_valid"]:
-                                fake_size = "HEUR:SIG.Win32.FakeSize.Generic"
-                            notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(file_path, fake_size))
-                            notify_user_fake_size_thread.start()
+        # Check for PE file and signatures
+        if pe_file:
+            logging.info(f"File {file_path} is a valid PE file.")
+            worm_alert(file_path)
 
-                # Check if the file contains Nuitka and extract if present
-                try:
-                    logging.info(f"Checking if the file {file_path} contains Nuitka executable.")
-                    ne = NuitkaExecutable()
-                    base_nuitka_dir = os.path.join(os.path.dirname(file_path), "nuitka")
-                    folder_number = 1
-                    while os.path.exists(f"{base_nuitka_dir}_{folder_number}"):
-                        folder_number += 1
-                    output_dir = f"{base_nuitka_dir}_{folder_number}"
-                    ne.New(file_path, output_dir)
-                    if ne.Check():
-                        ne.Extract()
-                        logging.info(f"Nuitka content extracted to {output_dir}")
-                    else:
-                        logging.info(f"No Nuitka content found in {file_path}")
+            # Check for fake system files after signature validation
+            if file_name in fake_system_files and os.path.abspath(file_path).startswith(main_drive_path):
+                if pe_file and not signature_check["is_valid"]:
+                    logging.warning(f"Detected fake system file: {file_path}")
+                    notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.Generic")
 
-                except Exception as e:
-                    logging.error(f"Error checking or extracting Nuitka content from {file_path}: {e}")
+        # Perform real-time scan
+        is_malicious, virus_names = scan_file_real_time(file_path, signature_check, pe_file=pe_file)
 
-                # Decompile the file
-                decompile_file(file_path)
+        if is_malicious:
+            # Concatenate multiple virus names into a single string without delimiters
+            virus_name = ''.join(virus_names)
+            logging.warning(f"File {file_path} is malicious. Virus: {virus_name}")
 
-                # Check if .NET data is detected
-                if is_dotnet_file(file_path):
-                    logging.info(f"Detected .NET assembly: {file_path}")
-                    folder_number = 1
-                    while os.path.exists(f"{dotnet_dir}_{folder_number}"):
-                        folder_number += 1
-                    output_dir = f"{dotnet_dir}_{folder_number}"
-                    os.makedirs(output_dir, exist_ok=True)
-                    ilspy_command = f"{ilspycmd_path} -o {output_dir} {file_path}"
-                    os.system(ilspy_command)
-                    logging.info(f".NET content decompiled to {output_dir}")
+            if virus_name.startswith("PUA."):
+                notify_user_pua_thread = threading.Thread(target=notify_user_pua, args=(file_path, virus_name))
+                notify_user_pua_thread.start()
+            else:
+                notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
+                notify_user_thread.start()
 
-                # Check for PE file and signatures
-                if pe_file:
-                    logging.info(f"File {file_path} is a valid PE file.")
-                    worm_alert(file_path)
+        # Additional post-decompilation actions based on extracted file path
+        if is_decompiled:
+            logging.info(f"Checking original file path from decompiled data for: {file_path}")
+            original_file_path = extract_original_file_path_from_decompiled(file_path)
+            if original_file_path:
+                logging.info(f"Original file path extracted: {original_file_path}")
 
-                    # Check for fake system files after signature validation
-                    if file_name in fake_system_files and os.path.abspath(file_path).startswith(main_drive_path):
-                        if pe_file and not signature_check["is_valid"]:
-                            logging.warning(f"Detected fake system file: {file_path}")
-                            notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.Generic")
-
-            # Process base64 and base32 data
-            process_file_data(file_path, base_dir)
-
-            # Perform real-time scan with pe_file flag
-            is_malicious, virus_names = scan_file_real_time(file_path, signature_check, pe_file=pe_file)
-
-            if is_malicious:
-                # Concatenate multiple virus names into a single string without delimiters
-                virus_name = ''.join(virus_names)
-                logging.warning(f"File {file_path} is malicious. Virus: {virus_name}")
-
-                if virus_name.startswith("PUA."):
-                    notify_user_pua_thread = threading.Thread(target=notify_user_pua, args=(file_path, virus_name))
-                    notify_user_pua_thread.start()
-                else:
-                    notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
-                    notify_user_thread.start()
-
-            # Additional post-decompilation actions based on extracted file path
-            if is_decompiled:
-                logging.info(f"Checking original file path from decompiled data for: {file_path}")
-                original_file_path = extract_original_file_path_from_decompiled(file_path)
-                if original_file_path:
-                    logging.info(f"Original file path extracted: {original_file_path}")
+        # Continue processing even if flag is True, to handle files already processed
+        if flag:
+            logging.info(f"Reprocessing file {file_path} with all checks enabled...")
 
         return True
 
@@ -2564,7 +2467,6 @@ def worm_alert(file_path):
         logging.info(f"Running worm detection for file '{file_path}'")
 
         # Define directory paths
-        main_drive_path = rf'{sandboxie_folder}\drive\C'
         critical_directory = os.path.join('C:', 'Windows')
         sandbox_critical_directory = os.path.join(sandboxie_folder, 'drive', 'C', 'Windows')
 
@@ -3056,131 +2958,62 @@ class Monitor:
         self.notify_user_for_detected_command(message)
 
     def process_detected(self, input_string, file_path=None, hwnd=None):
-        yara_matches = None
-        clamd_result = None
+        if file_path:
+            base_name = os.path.basename(file_path)
+            full_cleaned_file_path = os.path.join(commandlineandmessage_dir, f"{base_name}.full_cleaned")
+        else:
+            full_cleaned_file_path = os.path.join(commandlineandmessage_dir, "input_string.full_cleaned")
 
         if not file_path:
             # Handle text input
             cleaned_text = remove_magic_bytes_from_text(input_string)
 
-            # Write cleaned text to a temporary file for further processing
-            with tempfile.NamedTemporaryFile(delete=False, mode='w', encoding='utf-8') as temp_file:
-                temp_file.write(cleaned_text)
-                temp_file_path = temp_file.name
-
-            try:
-                # Process the temporary file
-                yara_matches = yara_scanner.scan_data(temp_file_path)
-                clamd_result = scan_file_with_clamd(temp_file_path)
-            finally:
-                os.remove(temp_file_path)
-
+            # Save cleaned text to the designated folder
+            with open(full_cleaned_file_path, 'w', encoding='utf-8') as file:
+                file.write(cleaned_text)
         else:
             # Handle file input
-            temp_file_path = None
-
-            # Read the file content
             with open(file_path, 'r', encoding='utf-8') as file:
                 file_content = file.read()
 
-            # Process the file content with various cleanups
+            # Process the file content with cleanups
             full_cleaned_file_content = remove_magic_bytes_from_text(file_content)
-            base64_base32_cleaned_file_content = remove_magic_bytes_from_text(file_content)
-            magic_bytes_removed_file_content = remove_magic_bytes_from_text(file_content)
 
-            # Write cleaned content to temporary files
-            full_cleaned_file_path = file_path + ".full_cleaned"
-            base64_base32_cleaned_file_path = file_path + ".base64_base32_cleaned"
-            magic_bytes_removed_file_path = file_path + ".magic_bytes_removed"
-
+            # Save cleaned content to the designated folder
             with open(full_cleaned_file_path, 'w', encoding='utf-8') as file:
                 file.write(full_cleaned_file_content)
-            
-            with open(base64_base32_cleaned_file_path, 'w', encoding='utf-8') as file:
-                file.write(base64_base32_cleaned_file_content)
 
-            with open(magic_bytes_removed_file_path, 'w', encoding='utf-8') as file:
-                file.write(magic_bytes_removed_file_content)
-
-            try:
-                # Process all versions of the file
-                yara_matches = {
-                    "full_cleaned": yara_scanner.scan_data(full_cleaned_file_path),
-                    "base64_base32_cleaned": yara_scanner.scan_data(base64_base32_cleaned_file_path),
-                    "magic_bytes_removed": yara_scanner.scan_data(magic_bytes_removed_file_path),
-                    "normal": yara_scanner.scan_data(file_path)
-                }
-
-                clamd_result = {
-                    "full_cleaned": scan_file_with_clamd(full_cleaned_file_path),
-                    "base64_base32_cleaned": scan_file_with_clamd(base64_base32_cleaned_file_path),
-                    "magic_bytes_removed": scan_file_with_clamd(magic_bytes_removed_file_path),
-                    "normal": scan_file_with_clamd(file_path)
-                }
-            finally:
-                # Clean up temporary files
-                for path in [full_cleaned_file_path, base64_base32_cleaned_file_path, magic_bytes_removed_file_path]:
-                    if os.path.exists(path):
-                        os.remove(path)
-
-        # Log and notify about the YARA matches
-        if yara_matches:
-            if file_path:  # If an actual file path was provided
-                if main_file_path in file_path and file_path.startswith(sandboxie_folder):
-                    logging.warning(f"YARA matches found: {yara_matches} in file: {file_path}")
-                    self.notify_user_for_detected_command(f"YARA matches found: {yara_matches} in file: {file_path}")
-                else:
-                    logging.info(f"YARA matches found, but the file is unrelated: {file_path}")
-            else:  # If a temporary file path was used
-                logging.warning(f"YARA matches found: {yara_matches} in file: {temp_file_path}")
-                self.notify_user_for_detected_command(f"YARA matches found: {yara_matches} in file: {temp_file_path}")
+        # Log the cleaned file path
+        if file_path:
+            logging.info(f"Processed file: {file_path} -> Cleaned file: {full_cleaned_file_path}")
         else:
-            # Log the absence of YARA matches along with the file paths
-            if file_path:
-                logging.info(f"No YARA matches found in file: {file_path}")
-            if temp_file_path:
-                logging.info(f"No YARA matches found in temporary file: {temp_file_path}")
-
-        # Log and notify about the ClamAV scan results
-        if clamd_result not in ("Clean", ""):
-            if file_path:  # If an actual file path was provided
-                if main_file_path in file_path and file_path.startswith(sandboxie_folder):
-                    logging.warning(f"ClamAV detected malware: {clamd_result} in file: {file_path}")
-                    self.notify_user_for_detected_command(f"ClamAV detected malware: {clamd_result} in file: {file_path}")
-                else:
-                    logging.info(f"ClamAV detected something, but the file is unrelated: {file_path}")
-            else:  # If a temporary file path was used
-                logging.warning(f"ClamAV detected malware: {clamd_result} in file: {temp_file_path}")
-                self.notify_user_for_detected_command(f"ClamAV detected malware: {clamd_result} in file: {temp_file_path}")
-        else:
-            # Log the absence of ClamAV detections along with the file paths
-            if file_path:
-                logging.info(f"No ClamAV detection in file: {file_path}")
-            if temp_file_path:
-                logging.info(f"No ClamAV detection in temporary file: {temp_file_path}")
+            logging.info(f"Processed input string -> Cleaned file: {full_cleaned_file_path}")
 
         # Process the file content for known malware messages
+        with open(full_cleaned_file_path, 'r', encoding='utf-8') as file:
+            file_content = file.read()
+
         for category, details in self.known_malware_messages.items():
             if "patterns" in details:
                 for pattern in details["patterns"]:
-                    similarity = self.calculate_similarity_text(file_content, pattern)
+                    similarity = calculate_similarity_text(file_content, pattern)
                     if similarity > 0.8:  # Adjust similarity threshold as needed
                         details["process_function"](file_content, file_path, hwnd)
                         return
             elif "message" in details:
-                similarity = self.calculate_similarity_text(file_content, details["message"])
+                similarity = calculate_similarity_text(file_content, details["message"])
                 if similarity > 0.8:  # Adjust similarity threshold as needed
                     details["process_function"](file_content, file_path, hwnd)
                     return
             elif "command" in details:
-                similarity = self.calculate_similarity_text(file_content, details["command"])
+                similarity = calculate_similarity_text(file_content, details["command"])
                 if similarity > 0.8:  # Adjust similarity threshold as needed
                     details["process_function"](file_content, file_path, hwnd)
                     return
 
         # Adding ransomware check
-        if self.contains_keywords_within_max_distance(file_content, max_distance=10):
-            self.process_detected_text_ransom(file_content, file_path, hwnd)
+        if contains_keywords_within_max_distance(file_content, max_distance=10):
+            process_detected_text_ransom(file_content, file_path, hwnd)
 
         logging.info(f"Finished processing detection {input_string} (process_detected).")
 
@@ -3212,7 +3045,7 @@ class Monitor:
 # List of already scanned files and their modification times
 scanned_files = []
 file_mod_times = {}
-directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, base_dir]
+directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, base_dir, commandlineandmessage_dir, extracted_dir]
 
 def monitor_sandboxie_directory():
     """
