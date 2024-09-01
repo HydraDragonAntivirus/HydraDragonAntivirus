@@ -1941,6 +1941,266 @@ def extract_pyinstaller_archive(file_path):
         logging.error(f"An error occurred while extracting PyInstaller archive {file_path}: {e}")
         return None
 
+def has_known_extension(file_path):
+    try:
+        ext = os.path.splitext(file_path)[1].lower()
+        logging.info(f"Extracted extension '{ext}' for file '{file_path}'")
+        return ext in fileTypes
+    except Exception as e:
+        logging.error(f"Error checking extension for file {file_path}: {e}")
+        return False
+
+def is_readable(file_path):
+    try:
+        logging.info(f"Attempting to read file '{file_path}'")
+        with open(file_path, 'r') as file:
+            file_data = file.read(1024)
+            if file_data:  # Check if file has readable content
+                logging.info(f"File '{file_path}' is readable")
+                return True
+            return False
+    except UnicodeDecodeError:
+        logging.error(f"UnicodeDecodeError while reading file '{file_path}'")
+        return False
+    except Exception as e:
+        logging.error(f"Error reading file {file_path}: {e}")
+        return False
+
+def is_ransomware(file_path):
+    try:
+        filename = os.path.basename(file_path)
+        parts = filename.split('.')
+        
+        logging.info(f"Checking ransomware conditions for file '{file_path}' with parts '{parts}'")
+
+        # Check if there are multiple extensions
+        if len(parts) < 3:
+            logging.info(f"File '{file_path}' does not have multiple extensions, not flagged as ransomware")
+            return False
+
+        # Check if the second last extension is known
+        previous_extension = '.' + parts[-2].lower()
+        if previous_extension not in fileTypes:
+            logging.info(f"Previous extension '{previous_extension}' of file '{file_path}' is not known, not flagged as ransomware")
+            return False
+
+        # Check if the final extension is not in fileTypes
+        final_extension = '.' + parts[-1].lower()
+        if final_extension not in fileTypes:
+            logging.warning(f"File '{file_path}' has unrecognized final extension '{final_extension}', checking if it might be ransomware sign")
+            # Check if the file has a known extension or is readable
+            if has_known_extension(file_path) or is_readable(file_path):
+                logging.info(f"File '{file_path}' is not ransomware")
+                return False
+            else:
+                logging.warning(f"File '{file_path}' might be ransomware sign")
+                return True
+
+        logging.info(f"File '{file_path}' does not meet ransomware conditions")
+        return False
+    except Exception as e:
+        logging.error(f"Error checking ransomware for file {file_path}: {e}")
+        return False
+
+def search_files_with_same_extension(directory, extension):
+    try:
+        logging.info(f"Searching for files with extension '{extension}' in directory '{directory}'")
+        files_with_same_extension = []
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if file.endswith(extension):
+                    files_with_same_extension.append(os.path.join(root, file))
+        logging.info(f"Found {len(files_with_same_extension)} files with extension '{extension}'")
+        return files_with_same_extension
+    except Exception as e:
+        logging.error(f"Error searching for files with extension '{extension}' in directory '{directory}': {e}")
+        return []
+
+def ransomware_alert(file_path):
+    global has_warned_ransomware
+    global ransomware_detection_count
+
+    if has_warned_ransomware:
+        logging.info("Ransomware alert already triggered, skipping...")
+        return
+
+    try:
+        logging.info(f"Running ransomware alert check for file '{file_path}'")
+        if is_ransomware(file_path):
+            ransomware_detection_count += 1
+            logging.warning(f"File '{file_path}' might be ransomware sign. Count: {ransomware_detection_count}")
+            
+            # If two alerts happen, search directories for files with the same extension
+            if ransomware_detection_count == 2:
+                _, ext = os.path.splitext(file_path)
+                if ext:
+                    directory = os.path.dirname(file_path)
+                    files_with_same_extension = search_files_with_same_extension(directory, ext)
+                    for file in files_with_same_extension:
+                        logging.info(f"Checking file '{file}' with same extension '{ext}'")
+                        if is_ransomware(file):
+                            logging.warning(f"File '{file}' might also be related to ransomware")
+
+            # Notify user if the detection count reaches the threshold
+            if ransomware_detection_count >= 10:
+                notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.Generic")
+                has_warned_ransomware = True
+                logging.warning(f"User has been notified about potential ransomware in {main_file_path}")
+                print(f"User has been notified about potential ransomware in {main_file_path}")
+    except Exception as e:
+        logging.error(f"Error in ransomware_alert: {e}")
+
+# Global variables for worm detection
+worm_alerted_files = []
+worm_detected_count = {}
+file_paths = []
+
+def calculate_similarity_worm(features1, features2, threshold=0.86):
+    """
+    Calculate similarity between two dictionaries of features for worm detection.
+    Adjusted threshold for worm detection.
+    """
+    common_keys = set(features1.keys()) & set(features2.keys())
+    matching_keys = sum(1 for key in common_keys if features1[key] == features2[key])
+    similarity = matching_keys / max(len(features1), len(features2))
+    return similarity
+
+def extract_numeric_worm_features(file_path):
+    """
+    Extract numeric features of a file using pefile for worm detection.
+    """
+    res = {}
+    try:
+        pe = pefile.PE(file_path)
+        res['SizeOfOptionalHeader'] = pe.FILE_HEADER.SizeOfOptionalHeader
+        res['MajorLinkerVersion'] = pe.OPTIONAL_HEADER.MajorLinkerVersion
+        res['MinorLinkerVersion'] = pe.OPTIONAL_HEADER.MinorLinkerVersion
+        res['SizeOfCode'] = pe.OPTIONAL_HEADER.SizeOfCode
+        res['SizeOfInitializedData'] = pe.OPTIONAL_HEADER.SizeOfInitializedData
+        res['SizeOfUninitializedData'] = pe.OPTIONAL_HEADER.SizeOfUninitializedData
+        res['AddressOfEntryPoint'] = pe.OPTIONAL_HEADER.AddressOfEntryPoint
+        res['BaseOfCode'] = pe.OPTIONAL_HEADER.BaseOfCode
+        res['BaseOfData'] = pe.OPTIONAL_HEADER.BaseOfData if hasattr(pe.OPTIONAL_HEADER, 'BaseOfData') else 0
+        res['ImageBase'] = pe.OPTIONAL_HEADER.ImageBase
+        res['SectionAlignment'] = pe.OPTIONAL_HEADER.SectionAlignment
+        res['FileAlignment'] = pe.OPTIONAL_HEADER.FileAlignment
+        res['MajorOperatingSystemVersion'] = pe.OPTIONAL_HEADER.MajorOperatingSystemVersion
+        res['MinorOperatingSystemVersion'] = pe.OPTIONAL_HEADER.MinorOperatingSystemVersion
+        res['MajorImageVersion'] = pe.OPTIONAL_HEADER.MajorImageVersion
+        res['MinorImageVersion'] = pe.OPTIONAL_HEADER.MinorImageVersion
+        res['MajorSubsystemVersion'] = pe.OPTIONAL_HEADER.MajorSubsystemVersion
+        res['MinorSubsystemVersion'] = pe.OPTIONAL_HEADER.MinorSubsystemVersion
+        res['SizeOfImage'] = pe.OPTIONAL_HEADER.SizeOfImage
+        res['SizeOfHeaders'] = pe.OPTIONAL_HEADER.SizeOfHeaders
+        res['CheckSum'] = pe.OPTIONAL_HEADER.CheckSum
+        res['Subsystem'] = pe.OPTIONAL_HEADER.Subsystem
+        res['DllCharacteristics'] = pe.OPTIONAL_HEADER.DllCharacteristics
+        res['SizeOfStackReserve'] = pe.OPTIONAL_HEADER.SizeOfStackReserve
+        res['SizeOfStackCommit'] = pe.OPTIONAL_HEADER.SizeOfStackCommit
+        res['SizeOfHeapReserve'] = pe.OPTIONAL_HEADER.SizeOfHeapReserve
+        res['SizeOfHeapCommit'] = pe.OPTIONAL_HEADER.SizeOfHeapCommit
+        res['LoaderFlags'] = pe.OPTIONAL_HEADER.LoaderFlags
+        res['NumberOfRvaAndSizes'] = pe.OPTIONAL_HEADER.NumberOfRvaAndSizes
+    except Exception as e:
+        logging.error(f"An error occurred while processing {file_path}: {e}")
+
+    return res
+
+def check_worm_similarity(file_path, features_current):
+    """Check similarity with main file and collected files."""
+    worm_detected = False
+
+    if main_file_path and main_file_path != file_path:
+        features_main = extract_numeric_worm_features(main_file_path)
+        similarity_main = calculate_similarity_worm(features_current, features_main)
+        if similarity_main > 0.86:
+            logging.warning(f"Main file '{main_file_path}' is spreading the worm to '{file_path}' with similarity score {similarity_main}")
+            worm_detected = True
+
+    for collected_file_path in file_paths:
+        if collected_file_path != file_path:
+            features_collected = extract_numeric_worm_features(collected_file_path)
+            similarity_collected = calculate_similarity_worm(features_current, features_collected)
+            if similarity_collected > 0.86:
+                logging.warning(f"Worm has spread to '{collected_file_path}' with similarity score {similarity_collected}")
+                worm_detected = True
+
+    return worm_detected
+
+def worm_alert(file_path):
+    global worm_alerted_files
+    global worm_detected_count
+    global file_paths
+
+    if file_path in worm_alerted_files:
+        logging.info(f"Worm alert already triggered for {file_path}, skipping...")
+        return
+
+    try:
+        logging.info(f"Running worm detection for file '{file_path}'")
+
+        # Define directory paths
+        critical_directory = os.path.join('C:', 'Windows')
+        sandbox_critical_directory = os.path.join(sandboxie_folder, 'drive', 'C', 'Windows')
+
+        # Extract features
+        features_current = extract_numeric_worm_features(file_path)
+        worm_detected = False
+        is_critical = file_path.startswith(main_drive_path) or file_path.startswith(critical_directory) or file_path.startswith(sandbox_critical_directory)
+
+        if is_critical:
+            original_file_path = os.path.join(critical_directory, os.path.basename(file_path))
+            sandbox_file_path = os.path.join(sandbox_critical_directory, os.path.basename(file_path))
+
+            if os.path.exists(original_file_path) and os.path.exists(sandbox_file_path):
+                original_file_size = os.path.getsize(original_file_path)
+                current_file_size = os.path.getsize(sandbox_file_path)
+                size_difference = abs(current_file_size - original_file_size) / original_file_size
+
+                original_file_mtime = os.path.getmtime(original_file_path)
+                current_file_mtime = os.path.getmtime(sandbox_file_path)
+                mtime_difference = abs(current_file_mtime - original_file_mtime)
+
+                if size_difference > 0.10:
+                    logging.warning(f"File size difference for '{file_path}' exceeds 10%.")
+                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Agnostic.Generic.Malware")
+                    worm_alerted_files.append(file_path)
+                    return  # Only flag once if a critical difference is found
+
+                if mtime_difference > 3600:  # 3600 seconds = 1 hour
+                    logging.warning(f"Modification time difference for '{file_path}' exceeds 1 hour.")
+                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Time.Agnostic.Generic.Malware")
+                    worm_alerted_files.append(file_path)
+                    return  # Only flag once if a critical difference is found
+
+            # Proceed with worm detection based on critical file comparison
+            worm_detected = check_worm_similarity(file_path, features_current)
+
+            if worm_detected:
+                logging.warning(f"Worm '{file_path}' detected in critical directory. Alerting user.")
+                notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Critical.Generic.Malware")
+                worm_alerted_files.append(file_path)
+        
+        else:
+            # Check for generic worm detection
+            worm_detected = check_worm_similarity(file_path, features_current)
+            worm_detected_count[file_path] = worm_detected_count.get(file_path, 0) + 1
+
+            if worm_detected or worm_detected_count[file_path] >= 5:
+                if file_path not in worm_alerted_files:
+                    logging.warning(f"Worm '{file_path}' detected under 5 different names or as potential worm. Alerting user.")
+                    notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Generic.Malware")
+                    worm_alerted_files.append(file_path)
+
+                # Notify for all files that have reached the detection threshold
+                for detected_file in worm_detected_count:
+                    if worm_detected_count[detected_file] >= 5 and detected_file not in worm_alerted_files:
+                        notify_user_worm(detected_file, "HEUR:Win32.Worm.Classic.Generic.Malware")
+                        worm_alerted_files.append(detected_file)
+
+    except Exception as e:
+        logging.error(f"Error in worm detection for file {file_path}: {e}")
+
 def scan_and_warn(file_path, flag=False):
     logging.info(f"Scanning file: {file_path}")
 
@@ -2288,266 +2548,6 @@ def check_uefi_directories():
                     notify_user_uefi(file_path, "HEUR:Win32.Startup.UEFI.Generic.Malware")
                     scan_and_warn(file_path)
                     alerted_uefi_files.append(file_path)
-
-def has_known_extension(file_path):
-    try:
-        ext = os.path.splitext(file_path)[1].lower()
-        logging.info(f"Extracted extension '{ext}' for file '{file_path}'")
-        return ext in fileTypes
-    except Exception as e:
-        logging.error(f"Error checking extension for file {file_path}: {e}")
-        return False
-
-def is_readable(file_path):
-    try:
-        logging.info(f"Attempting to read file '{file_path}'")
-        with open(file_path, 'r') as file:
-            file_data = file.read(1024)
-            if file_data:  # Check if file has readable content
-                logging.info(f"File '{file_path}' is readable")
-                return True
-            return False
-    except UnicodeDecodeError:
-        logging.error(f"UnicodeDecodeError while reading file '{file_path}'")
-        return False
-    except Exception as e:
-        logging.error(f"Error reading file {file_path}: {e}")
-        return False
-
-def is_ransomware(file_path):
-    try:
-        filename = os.path.basename(file_path)
-        parts = filename.split('.')
-        
-        logging.info(f"Checking ransomware conditions for file '{file_path}' with parts '{parts}'")
-
-        # Check if there are multiple extensions
-        if len(parts) < 3:
-            logging.info(f"File '{file_path}' does not have multiple extensions, not flagged as ransomware")
-            return False
-
-        # Check if the second last extension is known
-        previous_extension = '.' + parts[-2].lower()
-        if previous_extension not in fileTypes:
-            logging.info(f"Previous extension '{previous_extension}' of file '{file_path}' is not known, not flagged as ransomware")
-            return False
-
-        # Check if the final extension is not in fileTypes
-        final_extension = '.' + parts[-1].lower()
-        if final_extension not in fileTypes:
-            logging.warning(f"File '{file_path}' has unrecognized final extension '{final_extension}', checking if it might be ransomware sign")
-            # Check if the file has a known extension or is readable
-            if has_known_extension(file_path) or is_readable(file_path):
-                logging.info(f"File '{file_path}' is not ransomware")
-                return False
-            else:
-                logging.warning(f"File '{file_path}' might be ransomware sign")
-                return True
-
-        logging.info(f"File '{file_path}' does not meet ransomware conditions")
-        return False
-    except Exception as e:
-        logging.error(f"Error checking ransomware for file {file_path}: {e}")
-        return False
-
-def search_files_with_same_extension(directory, extension):
-    try:
-        logging.info(f"Searching for files with extension '{extension}' in directory '{directory}'")
-        files_with_same_extension = []
-        for root, _, files in os.walk(directory):
-            for file in files:
-                if file.endswith(extension):
-                    files_with_same_extension.append(os.path.join(root, file))
-        logging.info(f"Found {len(files_with_same_extension)} files with extension '{extension}'")
-        return files_with_same_extension
-    except Exception as e:
-        logging.error(f"Error searching for files with extension '{extension}' in directory '{directory}': {e}")
-        return []
-
-def ransomware_alert(file_path):
-    global has_warned_ransomware
-    global ransomware_detection_count
-
-    if has_warned_ransomware:
-        logging.info("Ransomware alert already triggered, skipping...")
-        return
-
-    try:
-        logging.info(f"Running ransomware alert check for file '{file_path}'")
-        if is_ransomware(file_path):
-            ransomware_detection_count += 1
-            logging.warning(f"File '{file_path}' might be ransomware sign. Count: {ransomware_detection_count}")
-            
-            # If two alerts happen, search directories for files with the same extension
-            if ransomware_detection_count == 2:
-                _, ext = os.path.splitext(file_path)
-                if ext:
-                    directory = os.path.dirname(file_path)
-                    files_with_same_extension = search_files_with_same_extension(directory, ext)
-                    for file in files_with_same_extension:
-                        logging.info(f"Checking file '{file}' with same extension '{ext}'")
-                        if is_ransomware(file):
-                            logging.warning(f"File '{file}' might also be related to ransomware")
-
-            # Notify user if the detection count reaches the threshold
-            if ransomware_detection_count >= 10:
-                notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.Generic")
-                has_warned_ransomware = True
-                logging.warning(f"User has been notified about potential ransomware in {main_file_path}")
-                print(f"User has been notified about potential ransomware in {main_file_path}")
-    except Exception as e:
-        logging.error(f"Error in ransomware_alert: {e}")
-
-# Global variables for worm detection
-worm_alerted_files = []
-worm_detected_count = {}
-file_paths = []
-
-def calculate_similarity_worm(features1, features2, threshold=0.86):
-    """
-    Calculate similarity between two dictionaries of features for worm detection.
-    Adjusted threshold for worm detection.
-    """
-    common_keys = set(features1.keys()) & set(features2.keys())
-    matching_keys = sum(1 for key in common_keys if features1[key] == features2[key])
-    similarity = matching_keys / max(len(features1), len(features2))
-    return similarity
-
-def extract_numeric_worm_features(file_path):
-    """
-    Extract numeric features of a file using pefile for worm detection.
-    """
-    res = {}
-    try:
-        pe = pefile.PE(file_path)
-        res['SizeOfOptionalHeader'] = pe.FILE_HEADER.SizeOfOptionalHeader
-        res['MajorLinkerVersion'] = pe.OPTIONAL_HEADER.MajorLinkerVersion
-        res['MinorLinkerVersion'] = pe.OPTIONAL_HEADER.MinorLinkerVersion
-        res['SizeOfCode'] = pe.OPTIONAL_HEADER.SizeOfCode
-        res['SizeOfInitializedData'] = pe.OPTIONAL_HEADER.SizeOfInitializedData
-        res['SizeOfUninitializedData'] = pe.OPTIONAL_HEADER.SizeOfUninitializedData
-        res['AddressOfEntryPoint'] = pe.OPTIONAL_HEADER.AddressOfEntryPoint
-        res['BaseOfCode'] = pe.OPTIONAL_HEADER.BaseOfCode
-        res['BaseOfData'] = pe.OPTIONAL_HEADER.BaseOfData if hasattr(pe.OPTIONAL_HEADER, 'BaseOfData') else 0
-        res['ImageBase'] = pe.OPTIONAL_HEADER.ImageBase
-        res['SectionAlignment'] = pe.OPTIONAL_HEADER.SectionAlignment
-        res['FileAlignment'] = pe.OPTIONAL_HEADER.FileAlignment
-        res['MajorOperatingSystemVersion'] = pe.OPTIONAL_HEADER.MajorOperatingSystemVersion
-        res['MinorOperatingSystemVersion'] = pe.OPTIONAL_HEADER.MinorOperatingSystemVersion
-        res['MajorImageVersion'] = pe.OPTIONAL_HEADER.MajorImageVersion
-        res['MinorImageVersion'] = pe.OPTIONAL_HEADER.MinorImageVersion
-        res['MajorSubsystemVersion'] = pe.OPTIONAL_HEADER.MajorSubsystemVersion
-        res['MinorSubsystemVersion'] = pe.OPTIONAL_HEADER.MinorSubsystemVersion
-        res['SizeOfImage'] = pe.OPTIONAL_HEADER.SizeOfImage
-        res['SizeOfHeaders'] = pe.OPTIONAL_HEADER.SizeOfHeaders
-        res['CheckSum'] = pe.OPTIONAL_HEADER.CheckSum
-        res['Subsystem'] = pe.OPTIONAL_HEADER.Subsystem
-        res['DllCharacteristics'] = pe.OPTIONAL_HEADER.DllCharacteristics
-        res['SizeOfStackReserve'] = pe.OPTIONAL_HEADER.SizeOfStackReserve
-        res['SizeOfStackCommit'] = pe.OPTIONAL_HEADER.SizeOfStackCommit
-        res['SizeOfHeapReserve'] = pe.OPTIONAL_HEADER.SizeOfHeapReserve
-        res['SizeOfHeapCommit'] = pe.OPTIONAL_HEADER.SizeOfHeapCommit
-        res['LoaderFlags'] = pe.OPTIONAL_HEADER.LoaderFlags
-        res['NumberOfRvaAndSizes'] = pe.OPTIONAL_HEADER.NumberOfRvaAndSizes
-    except Exception as e:
-        logging.error(f"An error occurred while processing {file_path}: {e}")
-
-    return res
-
-def check_worm_similarity(file_path, features_current):
-    """Check similarity with main file and collected files."""
-    worm_detected = False
-
-    if main_file_path and main_file_path != file_path:
-        features_main = extract_numeric_worm_features(main_file_path)
-        similarity_main = calculate_similarity_worm(features_current, features_main)
-        if similarity_main > 0.86:
-            logging.warning(f"Main file '{main_file_path}' is spreading the worm to '{file_path}' with similarity score {similarity_main}")
-            worm_detected = True
-
-    for collected_file_path in file_paths:
-        if collected_file_path != file_path:
-            features_collected = extract_numeric_worm_features(collected_file_path)
-            similarity_collected = calculate_similarity_worm(features_current, features_collected)
-            if similarity_collected > 0.86:
-                logging.warning(f"Worm has spread to '{collected_file_path}' with similarity score {similarity_collected}")
-                worm_detected = True
-
-    return worm_detected
-
-def worm_alert(file_path):
-    global worm_alerted_files
-    global worm_detected_count
-    global file_paths
-
-    if file_path in worm_alerted_files:
-        logging.info(f"Worm alert already triggered for {file_path}, skipping...")
-        return
-
-    try:
-        logging.info(f"Running worm detection for file '{file_path}'")
-
-        # Define directory paths
-        critical_directory = os.path.join('C:', 'Windows')
-        sandbox_critical_directory = os.path.join(sandboxie_folder, 'drive', 'C', 'Windows')
-
-        # Extract features
-        features_current = extract_numeric_worm_features(file_path)
-        worm_detected = False
-        is_critical = file_path.startswith(main_drive_path) or file_path.startswith(critical_directory) or file_path.startswith(sandbox_critical_directory)
-
-        if is_critical:
-            original_file_path = os.path.join(critical_directory, os.path.basename(file_path))
-            sandbox_file_path = os.path.join(sandbox_critical_directory, os.path.basename(file_path))
-
-            if os.path.exists(original_file_path) and os.path.exists(sandbox_file_path):
-                original_file_size = os.path.getsize(original_file_path)
-                current_file_size = os.path.getsize(sandbox_file_path)
-                size_difference = abs(current_file_size - original_file_size) / original_file_size
-
-                original_file_mtime = os.path.getmtime(original_file_path)
-                current_file_mtime = os.path.getmtime(sandbox_file_path)
-                mtime_difference = abs(current_file_mtime - original_file_mtime)
-
-                if size_difference > 0.10:
-                    logging.warning(f"File size difference for '{file_path}' exceeds 10%.")
-                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Agnostic.Generic.Malware")
-                    worm_alerted_files.append(file_path)
-                    return  # Only flag once if a critical difference is found
-
-                if mtime_difference > 3600:  # 3600 seconds = 1 hour
-                    logging.warning(f"Modification time difference for '{file_path}' exceeds 1 hour.")
-                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Time.Agnostic.Generic.Malware")
-                    worm_alerted_files.append(file_path)
-                    return  # Only flag once if a critical difference is found
-
-            # Proceed with worm detection based on critical file comparison
-            worm_detected = check_worm_similarity(file_path, features_current)
-
-            if worm_detected:
-                logging.warning(f"Worm '{file_path}' detected in critical directory. Alerting user.")
-                notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Critical.Generic.Malware")
-                worm_alerted_files.append(file_path)
-        
-        else:
-            # Check for generic worm detection
-            worm_detected = check_worm_similarity(file_path, features_current)
-            worm_detected_count[file_path] = worm_detected_count.get(file_path, 0) + 1
-
-            if worm_detected or worm_detected_count[file_path] >= 5:
-                if file_path not in worm_alerted_files:
-                    logging.warning(f"Worm '{file_path}' detected under 5 different names or as potential worm. Alerting user.")
-                    notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Generic.Malware")
-                    worm_alerted_files.append(file_path)
-
-                # Notify for all files that have reached the detection threshold
-                for detected_file in worm_detected_count:
-                    if worm_detected_count[detected_file] >= 5 and detected_file not in worm_alerted_files:
-                        notify_user_worm(detected_file, "HEUR:Win32.Worm.Classic.Generic.Malware")
-                        worm_alerted_files.append(detected_file)
-
-    except Exception as e:
-        logging.error(f"Error in worm detection for file {file_path}: {e}")
 
 class ScanAndWarnHandler(FileSystemEventHandler):
 
