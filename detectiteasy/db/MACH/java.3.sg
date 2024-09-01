@@ -1,0 +1,14 @@
+// DIE's signature file
+
+init("library", "Java Runtime");
+
+function detect(bShowType, bShowVersion, bShowOptions) {
+    if (MACH.isLibraryPresent("libjava.dylib")) {
+        bDetected = true;
+    } else if (MACH.isLibraryPresent("libjvm.dylib")) {
+        bDetected = true;
+    }
+
+    _setLang("Java", bDetected);
+    return result(bShowType, bShowVersion, bShowOptions);
+}

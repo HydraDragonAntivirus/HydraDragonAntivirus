@@ -1,0 +1,11 @@
+// DIE's signature file
+
+init("type", "LX");
+
+function detect(bShowType, bShowVersion, bShowOptions) {
+    if (MSDOS.isLX()) {
+        bDetected = true;
+    }
+
+    return result(bShowType, bShowVersion, bShowOptions);
+}

@@ -1,0 +1,11 @@
+// DIE's signature file
+
+init("format", "empty file");
+
+function detect(bShowType, bShowVersion, bShowOptions) {
+    if (Binary.getSize() == 0) {
+        bDetected = true;
+    }
+
+    return result(bShowType, bShowVersion, bShowOptions);
+}

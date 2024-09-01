@@ -1,0 +1,11 @@
+// DIE's signature file
+
+init("protector", "Agile");
+
+function detect(bShowType, bShowVersion, bShowOptions) {
+    if (PE.isNetObjectPresent("ObfuscatedByAgileDotNetAttribute")) {
+        bDetected = true;
+    }
+
+    return result(bShowType, bShowVersion, bShowOptions);
+}

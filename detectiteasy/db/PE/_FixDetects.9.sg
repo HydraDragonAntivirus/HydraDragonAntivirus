@@ -1,0 +1,79 @@
+// Author: DosX
+// E-Mail: collab@kay-software.ru
+// GitHub: https://github.com/DosX-dev
+// Telegram: @DosX_dev
+
+function detect() {
+
+    removeFalsePositive({
+        falsePositive: { packer: "AHpacker" },
+        ifPresents: { packer: "ExE Pack" }
+    });
+
+    removeFalsePositive({
+        falsePositive: { linker: "Turbo Linker" },
+        ifPresents: { linker: "Microsoft Linker" }
+    });
+
+    removeFalsePositive({
+        falsePositive: { tool: "Borland Delphi" },
+        ifPresents: { tool: "Microsoft Linker" }
+    });
+
+    removeFalsePositive({
+        falsePositive: { compiler: "FASM" },
+        ifPresents: { packer: "Simple Pack" }
+    });
+
+    // Number of "compiler" more than 1? Remove Visual C++.
+    if (_isResultPresent("compiler", "Microsoft Visual C/C++") && _getNumberOfResults("compiler") > 1) {
+        _removeResult("compiler", "Microsoft Visual C/C++");
+
+        if (_getNumberOfResults("language") > 1 && _isLangPresent("C/C++")) {
+            _removeResult("language", "C/C++");
+        }
+    }
+
+    // Visual Studio? -> C#
+    if (_isLangPresent("MSIL/C#") && _isResultPresent("tool", "Visual Studio")) {
+        _removeResult("language", "MSIL/C#");
+        _setLang("C#");
+    }
+
+
+
+    return null;
+}
+
+function removeFalsePositive(data) {
+
+    var falsePositive = data.falsePositive,
+        ifPresents = data.ifPresents;
+
+    var falsePositiveKey = String(),
+        falsePositiveValue = String();
+
+    for (var key in falsePositive) {
+        if (falsePositive.hasOwnProperty(key)) {
+            falsePositiveKey = key;
+            falsePositiveValue = falsePositive[key];
+            break;
+        }
+    }
+
+    var ifPresentsKey = String(),
+        ifPresentsValue = String();
+
+    for (var key in ifPresents) {
+        if (ifPresents.hasOwnProperty(key)) {
+            ifPresentsKey = key;
+            ifPresentsValue = ifPresents[key];
+            break;
+        }
+    }
+
+    if (_isResultPresent(falsePositiveKey, falsePositiveValue) && _isResultPresent(ifPresentsKey, ifPresentsValue)) {
+        _removeResult(falsePositiveKey, falsePositiveValue);
+    }
+
+}

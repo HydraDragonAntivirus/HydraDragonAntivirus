@@ -1,0 +1,11 @@
+// DIE's signature file
+
+init("protector", "Dotfuscator");
+
+function detect(bShowType, bShowVersion, bShowOptions) {
+    if (_getNumberOfResults("protector") <= 1 && PE.isNetObjectPresent("DotfuscatorAttribute")) {
+        bDetected = true;
+    }
+
+    return result(bShowType, bShowVersion, bShowOptions);
+}

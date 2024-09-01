@@ -1,0 +1,30 @@
+// DIE's signature file
+// sign by A.S.L  - asl@onet.eu
+// fixed by adoxa
+
+init("protector", "Vbs To Exe");
+
+function detect(bShowType, bShowVersion, bShowOptions) {
+    if (PE.resource["D"]) {
+        if (PE.compare("'2edecompile'", PE.resource["D"].Offset + 2)) {
+            sVersion = "v2.0.2.0";
+            bDetected = true;
+        } else if (PE.resource["D"].Size == 14 &&
+            PE.isResourceNamePresent("B") &&
+            PE.isResourceNamePresent("F") &&
+            PE.isResourceNamePresent("I") &&
+            PE.isResourceNamePresent("N") &&
+            PE.isResourceNamePresent("O")) {
+            sVersion = "v2.0.2.0";
+            bDetected = true;
+        }
+        if (bDetected) {
+            if (PE.resource["P"]) {
+                sOptions = "Protected";
+            }
+        }
+    }
+
+    _setLang("VBScript", bDetected);
+    return result(bShowType, bShowVersion, bShowOptions);
+}

@@ -67,7 +67,10 @@ base_dir = os.path.join(script_dir, "base32and64")
 nuitka_dir = os.path.join(script_dir, "nuitka")
 commandlineandmessage_dir = os.path.join(script_dir, "commandlineandmessage")
 extracted_dir = os.path.join(script_dir, "extracted")
+detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
+detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
+extractor_path = os.path.join(script_dir, "nuitka-extractor.exe")
 
 clamd_dir = r"C:\Program Files\ClamAV\clamd.exe"
 clamdscan_path = r"C:\Program Files\ClamAV\clamdscan.exe"
@@ -1663,7 +1666,6 @@ def extract_nuitka_file(file_path):
 
         logging.info(f"Extracting Nuitka file {file_path} to {output_dir}")
 
-        extractor_path = os.path.join(script_dir, "nuitka-extractor.exe")
         command = [extractor_path, "-output", output_dir, file_path]
         
         result = subprocess.run(command, capture_output=True, text=True)
@@ -1683,25 +1685,19 @@ def is_elf_file(file_path):
         logging.error(f"Error checking ELF file status: {e}")
         return False
 
-def is_dotnet_file(file_path):
+def is_dotnet_file(file_path, detectiteasy_console_path):
     try:
-        pe = pefile.PE(file_path)
+        # Run the DIE console command to analyze the file
+        result = subprocess.run([detectiteasy_console_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         
-        # Check if the file has a .NET header
-        for entry in pe.DIRECTORY_ENTRY_IMPORT:
-            if entry.dll.decode().lower() == "mscoree.dll":
-                return True
+        # Check if the output indicates that the file is a .NET executable
+        if "Microsoft .NET" in result.stdout or "CLR" in result.stdout:
+            return True
         
-        # Check the CLR header
-        if hasattr(pe, 'OPTIONAL_HEADER') and hasattr(pe.OPTIONAL_HEADER, 'DATA_DIRECTORY'):
-            clr_directory = pe.OPTIONAL_HEADER.DATA_DIRECTORY[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR']]
-            if clr_directory.VirtualAddress != 0:
-                return True
-
-    except pefile.PEFormatError as e:
-        logging.error(f"PEFormatError for {file_path}: {e}")
+    except subprocess.SubprocessError as e:
+        logging.error(f"Error running Detect It Easy for {file_path}: {e}")
         return False
-
+    
     return False
 
 class CTOCEntry:

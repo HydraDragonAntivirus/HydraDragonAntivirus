@@ -74,6 +74,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 
 - https://github.com/icsharpcode/ILSpy
 - https://github.com/extremecoders-re/nuitka-extractor
+- https://github.com/horsicq/Detect-It-Easy
 
 - I used these projects to decompile.
 
@@ -83,6 +84,11 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 **Note 7:**.
 
 - Test that ilspycmd.exe works on your machine because you need to install .NET 6.0 Runtime which some machines don't have.
+
+**Note 8:**
+
+- Don't forget to do a clean up, as it takes up too much space while processing files against ransomware, etc. 
+- You need too much storage because it logs everything. 
 
 ## Internet Access In Sandboxie
 - HIPS detection shouldn't work if you don't open the Internet in Sandboxie. To enable it go to: Sandbox -> DefaultBox -> Sandbox Settings -> Restrictions -> Internet Access -> Click "BLock All Programs" then click "Allow All Programs" then save it and you're done!.  https://sandboxie-plus.com/sandboxie/restrictionssettings/

@@ -1,0 +1,4 @@
+var File = ZIP;
+var X = ZIP;
+
+includeScript("result-general");

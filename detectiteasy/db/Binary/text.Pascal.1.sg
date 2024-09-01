@@ -1,0 +1,18 @@
+// DIE's signature file
+
+init("source", "Pascal");
+
+function detect(bShowType, bShowVersion, bShowOptions) {
+    var sText = Binary.getHeaderString();
+    /* if(/^unit/im.test(sText))
+    {
+        bDetected=1;
+    } */
+    if (/^\s*program\s.*\s*uses\s/im.test(sText)) {
+        bDetected = true;
+    }
+
+
+    _setLang("Pascal", bDetected);
+    return result(bShowType, bShowVersion, bShowOptions);
+}

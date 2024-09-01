@@ -1,0 +1,14 @@
+// DIE's signature file
+
+init("source", "HTML");
+
+function detect(bShowType, bShowVersion, bShowOptions) {
+    var sText = Binary.getHeaderString();
+    if (/^<(!DOCTYPE )?html/m.test(sText)) {
+        bDetected = true;
+    }
+
+
+    _setLang("HTML", bDetected);
+    return result(bShowType, bShowVersion, bShowOptions);
+}

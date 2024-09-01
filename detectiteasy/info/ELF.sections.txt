@@ -1,0 +1,32 @@
+.bss|compiler|Uninitialized Data Section
+.comment|compiler|Version control information.
+.data1|compiler|Data Section
+.data|compiler|Data Section
+.debug_abbrev|compiler|DEBUG
+.debug_aranges|compiler|DEBUG
+.debug_frame|compiler|DEBUG
+.debug_info|compiler|DEBUG
+.debug_line|compiler|DEBUG
+.debug_loc|compiler|DEBUG
+.debug_macinfo|compiler|DEBUG
+.debug_pubnames|compiler|DEBUG
+.debug_ranges|compiler|DEBUG
+.debug_str|compiler|DEBUG
+.debug|compiler|Debug info Section.
+.dynamic|compiler|Dynamic linking information.
+.dynstr|compiler|Strings needed for dynamic linking.
+.dynsym|compiler|The dynamic linking symbol table.
+.fini|compiler|Executable instructions that contribute to the process termination code.
+.got|compiler|The global offset table.
+.hash|compiler|Hash Table.
+.init|compiler|Executable instructions that contribute to the process initialization code.
+.interp|compiler|The path name of a program interpreter.
+.line|compiler|Line number information for symbolic debugging.
+.note|compiler|Note Section.
+.plt|compiler|The procedure linkage table.
+.rodata|compiler|Read-only data.
+.rodata1|compiler|Read-only data.
+.shstrtab|compiler|Section names.
+.strtab|compiler|String table.
+.symtab|compiler|Symbol table.
+.text|compiler|Code Section.

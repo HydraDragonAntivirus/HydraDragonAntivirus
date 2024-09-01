@@ -1,0 +1,11 @@
+// DIE's signature file
+
+init("type", "NE");
+
+function detect(bShowType, bShowVersion, bShowOptions) {
+    if (MSDOS.isNE()) {
+        bDetected = true;
+    }
+
+    return result(bShowType, bShowVersion, bShowOptions);
+}

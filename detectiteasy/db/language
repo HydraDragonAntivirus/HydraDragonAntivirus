@@ -1,0 +1,33 @@
+// Author: DosX
+// E-Mail: collab@kay-software.ru
+// GitHub: https://github.com/DosX-dev
+// Telegram: @DosX_dev
+
+function _isLangPresent(languageName) {
+    return _isResultPresent("language", languageName) || _isResultPresent("~language", languageName);
+}
+
+function _isLangDetected() {
+    return _getNumberOfResults("language") || _getNumberOfResults("~language");
+}
+
+function _setLang(languageName, isPositive, version) {
+    if (isPositive == true || isPositive == undefined) {
+        // if "C/C++" already detected
+        if (_isLangPresent("C/C++") && (languageName == "C" || languageName == "C++")) {
+            _removeResult("language", "C/C++");
+        }
+
+        // if "C" or "C++"" detected
+        if (languageName == "C/C++" && (_isLangPresent("C") || _isLangPresent("C++"))) {
+            return null;
+        }
+
+        if (File.isVerbose() && !_isLangPresent(languageName)) {
+            var isHeurResult = (version == "HEUR");
+
+            _setResult((isHeurResult ? "~" : "") + "language", languageName, (version && !isHeurResult ? version : ""), "", "");
+        }
+    }
+
+}

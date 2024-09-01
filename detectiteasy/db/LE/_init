@@ -1,0 +1,4 @@
+var File = LE;
+var X = LE;
+
+includeScript("result-general");

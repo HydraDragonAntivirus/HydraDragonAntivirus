@@ -1,0 +1,13 @@
+// DIE's signature file
+// Author: Jason Hood <jadoxa@yahoo.com.au>
+
+init("installer", "INTENIUM install system");
+
+function detect(bShowType, bShowVersion, bShowOptions) {
+    if (PE.compareOverlay("'stgc_hdr'")) {
+        sVersion = PE.getFileVersion();
+        bDetected = true;
+    }
+
+    return result(bShowType, bShowVersion, bShowOptions);
+}
