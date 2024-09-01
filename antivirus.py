@@ -1233,21 +1233,6 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
 
     return False, "Clean"
 
-class AnalysisThread(QThread):
-    def __init__(self, file_path):
-        super().__init__()
-        self.file_path = file_path
-
-    def execute_anylsis(self):
-        try:
-            print(f"Running analysis for: {self.file_path}")  
-            logging.info(f"Running analysis for: {self.file_path}")
-            perform_sandbox_analysis(self.file_path)
-        except Exception as e:
-            error_message = f"An error occurred during sandbox analysis: {str(e)}"
-            logging.error(error_message)
-            print(error_message)
-
 class WorkerSignals(QObject):
     success = Signal()
     failure = Signal()
@@ -3121,6 +3106,21 @@ def perform_sandbox_analysis(file_path):
 
     except Exception as e:
         logging.error(f"An error occurred during sandbox analysis: {e}")
+
+class AnalysisThread(QThread):
+    def __init__(self, file_path):
+        super().__init__()
+        self.file_path = file_path
+
+    def execute_anylsis(self):
+        try:
+            print(f"Running analysis for: {self.file_path}")  
+            logging.info(f"Running analysis for: {self.file_path}")
+            perform_sandbox_analysis(self.file_path)
+        except Exception as e:
+            error_message = f"An error occurred during sandbox analysis: {str(e)}"
+            logging.error(error_message)
+            print(error_message)
 
 def run_sandboxie(file_path):
     try:
