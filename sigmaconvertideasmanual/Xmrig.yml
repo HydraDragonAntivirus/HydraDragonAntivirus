@@ -1,0 +1,49 @@
+title: Xmrig
+status: experimental
+description: Detect Xmrig
+author: Joe Security
+date: 2019-11-07
+id: 200021
+threatname:
+behaviorgroup: 29
+classification: 9
+mitreattack: 
+
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        CommandLine:
+            - '*-algo=* -o *miner* -u*'
+            - '*cryptonight --url=xmr.*'
+            - '*stratum+tcp://*'
+            - '*--algo=cn*-o * -u *'
+            - '*--coin=monero --*'
+            - '*-o pool.*--nicehash*'
+            - '*--pool stratum:*'
+            - '*--background --donate-level 1 --nicehash*'
+            - '*-o * -u * -p w=a -k -a*'
+            - '* -u * -p x --max-cpu-usage*'
+            - '*--donate-level=*--max-cpu-usage=*'
+            - '*-p stratum1+ssl://* -r --response-timeout*'
+            - '*-o * --cpu-max-threads-hint*'
+            - '*--donate-level * -o pool.*'
+            - '*--cpu-memory-pool=*--donate-level=*'
+            - '*--pool=stratum:*--cinit-max-gpu=*'
+            - '*-o xmr.* -u * -p*'
+            - '*-epool * -ewal * -worker*'
+            - '*-o * -u * --donate-level=*'
+            - '*--cinit-find-e --pool=stratums://*'
+            - '*-o * -u * -p x *'
+            - '*pool.minexmr.*-max-threads-*'
+            - '*--cinit-find-*.nanopool.*'
+            - '*--cinit-find-*--url=*'
+            - '*--url pool* --donate-level*'
+            - '*--user *--donate-level*'
+            - '*-p w=Rig -a cn-heavy/xhv -k -o*'
+            - '*-o * -u * --tls*'
+            - '*--user*--server*--algo*'
+            
+    condition: selection
+level: critical
