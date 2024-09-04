@@ -2815,7 +2815,6 @@ class Monitor:
                 "process_function": self.process_detected_command_antivirus_search
                 }
             }
-        }
 
     def preprocess_text(self, text):
         return text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "")
