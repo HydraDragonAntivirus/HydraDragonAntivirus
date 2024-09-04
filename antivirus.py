@@ -2751,57 +2751,68 @@ class Monitor:
                 "virus_name": "HEUR:Win32.PowerShell.IEX.Download.Generic",
                 "process_function": self.process_detected_powershell_iex_download
             },
-            "commands": {
-                "wifi": {
-                    "command": 'netsh wlan show profile',
-                    "virus_name": "HEUR:Win32.Trojan.Password.Stealer.Wi-Fi.Generic",
-                    "process_function": self.process_detected_command_wifi
+            "xmrig": {
+                "patterns": [
+                    'xmrig',
+                    'xmrig.exe',
+                    'start xmrig',
+                    'xmrig --help',
+                    'xmrig --version',
+                    'xmrig --config'
+                ],
+                "virus_name": "HEUR:Win32.Miner.XMRig.Generic",
+                "process_function": self.process_detected_command_xmrig
+            },
+            "wifi": {
+                "command": 'netsh wlan show profile',
+                "virus_name": "HEUR:Win32.Trojan.Password.Stealer.Wi-Fi.Generic",
+                "process_function": self.process_detected_command_wifi
+            },
+            "shadowcopy": {
+                "command": 'get-wmiobject win32_shadowcopy | foreach-object {$_.delete();}',
+                "virus_name": "HEUR:Win32.Ransom.ShadowCopy.Generic",
+                "process_function": self.process_detected_command_ransom_shadowcopy
+            },
+            "wmic": {
+                "command": 'wmic shadowcopy delete',
+                "virus_name": "HEUR:Win32.Ransom.ShadowCopy.WMIC.Generic",
+                "process_function": self.process_detected_command_wmic_shadowcopy
+            },
+            "startup": {
+                "command": 'copy-item \\roaming\\microsoft\\windows\\start menu\\programs\\startup',
+                "virus_name": "HEUR:Win32.Startup.PowerShell.Injection.Generic",
+                "process_function": self.process_detected_command_copy_to_startup
                 },
-                "shadowcopy": {
-                    "command": 'get-wmiobject win32_shadowcopy | foreach-object {$_.delete();}',
-                    "virus_name": "HEUR:Win32.Ransom.ShadowCopy.Generic",
-                    "process_function": self.process_detected_command_ransom_shadowcopy
+            "schtasks": {
+                "command": 'schtasks*/create*/xml*\\temp\\*.tmp',
+                "virus_name": "HEUR:Win32.TaskScheduler.TempFile.Generic",
+                "process_function": self.process_detected_command_schtasks_temp
+            },
+            "koadic": {
+                "patterns": [
+                'chcp 437 & schtasks /query /tn k0adic',
+                'chcp 437 & schtasks /create /tn k0adic'
+                ],
+                "virus_name": "HEUR:Win32.Rootkit.Koadic.Generic",
+                "process_function": self.process_detected_command_rootkit_koadic
                 },
-                "wmic": {
-                    "command": 'wmic shadowcopy delete',
-                    "virus_name": "HEUR:Win32.Ransom.ShadowCopy.WMIC.Generic",
-                    "process_function": self.process_detected_command_wmic_shadowcopy
+            "fodhelper": {
+                "command": [
+                'reg add hkcu\\software\\classes\\ms-settings\\shell\\open\\command'
+            ],
+                "virus_name": "HEUR:Fodhelper.UAC.Bypass.Command",
+                "process_function": self.process_detected_command_fodhelper
                 },
-                "startup": {
-                    "command": 'copy-item \\roaming\\microsoft\\windows\\start menu\\programs\\startup',
-                    "virus_name": "HEUR:Win32.Startup.PowerShell.Injection.Generic",
-                    "process_function": self.process_detected_command_copy_to_startup
-                },
-                "schtasks": {
-                    "command": 'schtasks*/create*/xml*\\temp\\*.tmp',
-                    "virus_name": "HEUR:Win32.TaskScheduler.TempFile.Generic",
-                    "process_function": self.process_detected_command_schtasks_temp
-                },
-                "koadic": {
-                    "patterns": [
-                        'chcp 437 & schtasks /query /tn k0adic',
-                        'chcp 437 & schtasks /create /tn k0adic'
-                    ],
-                    "virus_name": "HEUR:Win32.Rootkit.Koadic.Generic",
-                    "process_function": self.process_detected_command_rootkit_koadic
-                },
-                "fodhelper": {
-                    "patterns": [
-                        'reg add hkcu\\software\\classes\\ms-settings\\shell\\open\\command'
-                    ],
-                    "virus_name": "HEUR:Fodhelper.UAC.Bypass.Command",
-                    "process_function": self.process_detected_command_fodhelper
-                },
-                "antivirus": {
-                    "patterns": [
-                        'findstr avastui.exe',
-                        'findstr avgui.exe',
-                        'findstr nswscsvc.exe',
-                        'findstr sophoshealth.exe',
-                        'findstr antivirus.exe'
-                    ],
-                    "virus_name": "HEUR:Antivirus.Process.Search.Command",
-                    "process_function": self.process_detected_command_antivirus_search
+            "antivirus": {
+                "patterns": [
+                    'findstr avastui.exe',
+                    'findstr avgui.exe',
+                    'findstr nswscsvc.exe',
+                    'findstr sophoshealth.exe',
+                    'findstr antivirus.exe'
+                ],
+                "virus_name": "HEUR:Antivirus.Process.Search.Command",
+                "process_function": self.process_detected_command_antivirus_search
                 }
             }
         }
@@ -2885,25 +2896,25 @@ class Monitor:
         self.notify_user_for_detected_command(message)
 
     def process_detected_command_wifi(self, text, file_path=None, hwnd=None):
-        virus_name = self.known_malware_messages["commands"]["wifi"]["virus_name"]
+        virus_name = self.known_malware_messages["wifi"]["virus_name"]
         message = f"Detected Wi-Fi credentials stealing malware: {virus_name} in text: {text} from {file_path} {hwnd}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
     def process_detected_command_ransom_shadowcopy(self, text, file_path=None, hwnd=None):
-        virus_name = self.known_malware_messages["commands"]["shadowcopy"]["virus_name"]
+        virus_name = self.known_malware_messages["shadowcopy"]["virus_name"]
         message = f"Detected ransomware shadow copy deletion: {virus_name} in text: {text} from {file_path} {hwnd}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
     def process_detected_command_wmic_shadowcopy(self, text, file_path=None, hwnd=None):
-        virus_name = self.known_malware_messages["commands"]["wmic"]["virus_name"]
+        virus_name = self.known_malware_messages["wmic"]["virus_name"]
         message = f"Detected WMIC shadow copy deletion: {virus_name} in text: {text} from {file_path} {hwnd}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
     def process_detected_command_copy_to_startup(self, text, file_path=None, hwnd=None):
-        virus_name = self.known_malware_messages["commands"]["startup"]["virus_name"]
+        virus_name = self.known_malware_messages["startup"]["virus_name"]
         message = f"Detected startup copy malware: {virus_name} in text: {text} from {file_path} {hwnd}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
@@ -2915,26 +2926,32 @@ class Monitor:
         self.notify_user_for_detected_command(message)
 
     def process_detected_command_rootkit_koadic(self, text, file_path=None, hwnd=None):
-        virus_name = self.known_malware_messages["commands"]["koadic"]["virus_name"]
+        virus_name = self.known_malware_messages["koadic"]["virus_name"]
         message = f"Detected rootkit behavior associated with Koadic: {virus_name} in text: {text} from {file_path} {hwnd}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
     def process_detected_command_fodhelper(self, text, file_path=None, hwnd=None):
-        virus_name = self.known_malware_messages["commands"]["fodhelper"]["virus_name"]
+        virus_name = self.known_malware_messages["fodhelper"]["virus_name"]
         message = f"Detected UAC bypass attempt using Fodhelper: {virus_name} in text: {text} from {file_path} {hwnd}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
     def process_detected_command_antivirus_search(self, text, file_path=None, hwnd=None):
-        virus_name = self.known_malware_messages["commands"]["antivirus"]["virus_name"]
+        virus_name = self.known_malware_messages["antivirus"]["virus_name"]
         message = f"Detected search for antivirus processes: {virus_name} in text: {text} from {file_path} {hwnd}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
     def process_detected_powershell_iex_download(self, text, file_path=None, hwnd=None):
-        virus_name = self.known_malware_commands["powershell_iex_download"]["virus_name"]
-        message = f"Detected Powershell IEX download and execute: {virus_name} in command: {text} from {file_path} {hwnd}"
+        virus_name = self.known_malware_messages["powershell_iex_download"]["virus_name"]
+        message = f"Detected PowerShell IEX download command: {virus_name} in text: {text} from {file_path} {hwnd}"
+        logging.warning(message)
+        self.notify_user_for_detected_command(message)
+
+    def process_detected_command_xmrig(self, text, file_path=None, hwnd=None):
+        virus_name = self.known_malware_messages["xmrig"]["virus_name"]
+        message = f"Detected XMRig mining activity: {virus_name} in text: {text} from {file_path} {hwnd}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
