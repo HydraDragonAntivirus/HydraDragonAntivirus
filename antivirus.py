@@ -1117,24 +1117,36 @@ def scan_tar_file(file_path):
 
         with tarfile.open(file_path, 'r') as tar:
             for member in tar.getmembers():
+
                 # Check for RLO in filenames
                 if contains_rlo_after_comma(member.name):
+                    virus_name = "HEUR:RLO.Suspicious.Name.Encrypted.TAR.Generic"
                     logging.warning(
                         f"Filename {member.name} in {file_path} contains RLO character after a comma - "
-                        "flagged as HEUR:RLO.Suspicious.Name.Encrypted.TAR.Generic"
+                        f"flagged as {virus_name}"
                     )
                     notify_rlo_warning(file_path, "TAR", virus_name)
 
                 if member.isreg():  # Check if it's a regular file
                     extracted_file_path = os.path.join(tar_extracted_dir, member.name)
+
+                    # Skip if the file has already been processed
+                    if os.path.isfile(extracted_file_path):
+                        logging.info(f"File {member.name} already processed, skipping...")
+                        continue
+
                     tar.extract(member, tar_extracted_dir)
 
+                    # Process the file data including magic byte removal
+                    process_file_data(extracted_file_path)
+                    
                     # Check for suspicious conditions: large files in small TAR archives
                     extracted_file_size = os.path.getsize(extracted_file_path)
                     if tar_size < 20 * 1024 * 1024 and extracted_file_size > 650 * 1024 * 1024:
+                        virus_name = "HEUR:Win32.Suspicious.Size.Encrypted.TAR"
                         logging.warning(
                             f"TAR file {file_path} is smaller than 20MB but contains a large file: {member.name} "
-                            f"({extracted_file_size / (1024 * 1024)} MB) - flagged as HEUR:Win32.Suspicious.Size.Encrypted.TAR. "
+                            f"({extracted_file_size / (1024 * 1024)} MB) - flagged as {virus_name}. "
                             "Potential TARbomb or Fake Size detected to avoid VirusTotal detections."
                         )
                         notify_size_warning(file_path, "TAR", virus_name)
