@@ -102,7 +102,10 @@ freshclam_path = r"C:\Program Files\ClamAV\freshclam.exe"
 os.makedirs(base_dir, exist_ok=True)
 
 os.makedirs(commandlineandmessage_dir, exist_ok=True)
-os.makedirs(extracted_dir, exist_ok=True)
+os.makedirs(processed_dir, exist_ok=True)
+os.makedirs(pe_extracted_dir, exist_ok=True)
+os.makedirs(zip_extracted_dir, exist_ok=True)
+os.makedirs(tar_extracted_dir, exist_ok=True)
 
 # Configure logging
 log_directory = os.path.join(script_dir, "log")
