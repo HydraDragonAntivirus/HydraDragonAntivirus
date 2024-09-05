@@ -1072,11 +1072,13 @@ def scan_zip_file(file_path):
 
         with zipfile.ZipFile(file_path, 'r') as zfile:
             for zip_info in zfile.infolist():
+
                 # Check for RLO in filenames before handling encryption
                 if contains_rlo_after_comma(zip_info.filename):
+                    virus_name = "HEUR:RLO.Suspicious.Name.Encrypted.ZIP.Generic"
                     logging.warning(
                         f"Filename {zip_info.filename} in {file_path} contains RLO character after a comma - "
-                        "flagged as HEUR:RLO.Suspicious.Name.Encrypted.ZIP.Generic"
+                        f"flagged as {virus_name}"
                     )
                     notify_rlo_warning(file_path, "ZIP", virus_name)
                 
@@ -1090,9 +1092,10 @@ def scan_zip_file(file_path):
                 # Check for suspicious conditions: large files in small ZIP archives
                 extracted_file_size = os.path.getsize(extracted_file_path)
                 if zip_size < 20 * 1024 * 1024 and extracted_file_size > 650 * 1024 * 1024:
+                    virus_name = "HEUR:Win32.Suspicious.Size.Encrypted.ZIP"
                     logging.warning(
                         f"ZIP file {file_path} is smaller than 20MB but contains a large file: {zip_info.filename} "
-                        f"({extracted_file_size / (1024 * 1024)} MB) - flagged as HEUR:Win32.Suspicious.Size.Encrypted.ZIP. "
+                        f"({extracted_file_size / (1024 * 1024)} MB) - flagged as {virus_name}. "
                         "Potential ZIPbomb or Fake Size detected to avoid VirusTotal detections."
                     )
                     notify_size_warning(file_path, "ZIP", virus_name)
@@ -2302,11 +2305,11 @@ def scan_and_warn(file_path, flag=False):
             folder_number = 1
             while os.path.exists(f"{dotnet_dir}_{folder_number}"):
                 folder_number += 1
-            output_dir = f"{dotnet_dir}_{folder_number}"
-            os.makedirs(output_dir, exist_ok=True)
-            ilspy_command = f"{ilspycmd_path} -o {output_dir} {file_path}"
+            dotnet_output_dir = f"{dotnet_dir}_{folder_number}"
+            os.makedirs(dotnet_output_dir, exist_ok=True)
+            ilspy_command = f"{ilspycmd_path} -o {dotnet_output_dir} {file_path}"
             os.system(ilspy_command)
-            logging.info(f".NET content decompiled to {output_dir}")
+            logging.info(f".NET content decompiled to {dotnet_output_dir}")
 
         # Check for PE file and signatures
         if pe_file:
