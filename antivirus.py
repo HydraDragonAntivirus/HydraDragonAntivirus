@@ -1633,7 +1633,10 @@ def extract_original_file_path_from_decompiled(file_path):
             for line in file:
                 if line.startswith("// Original file:"):
                     parts = line.split(':', 2)
-                    original_file_path = rf"{parts[1].upper()}:\{parts[2].replace('/', '\\')}"
+                    # Construct the path without using an rf-string
+                    drive_letter = parts[1].upper() + ":"
+                    path = parts[2].replace('/', '\\')
+                    original_file_path = f"{drive_letter}\\{path}"
                     return original_file_path.strip()
         return None
     except Exception as e:
