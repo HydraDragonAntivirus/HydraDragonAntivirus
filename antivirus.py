@@ -1205,8 +1205,8 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
             return False, None
 
         # Scan TAR files
-        if tarfile.is_tarfile(file_path):
-            try:
+        try:
+            if tarfile.is_tarfile(file_path):
                 scan_result, virus_name = scan_tar_file(file_path)
                 if scan_result and virus_name not in ("Clean", "F", ""):
                     if signature_check["is_valid"]:
@@ -1214,16 +1214,16 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                     logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
                     return True, virus_name
                 logging.info(f"No malware detected in TAR file: {file_path}")
-            except PermissionError:
+        except PermissionError:
                 logging.error(f"Permission error occurred while scanning TAR file: {file_path}")
-            except FileNotFoundError:
+        except FileNotFoundError:
                 logging.error(f"TAR file not found error occurred while scanning TAR file: {file_path}")
-            except Exception as e:
+        except Exception as e:
                 logging.error(f"An error occurred while scanning TAR file: {file_path}. Error: {e}")
 
         # Scan ZIP files
-        if zipfile.is_zipfile(file_path):
-            try:
+        try:
+            if zipfile.is_zipfile(file_path):
                 scan_result, virus_name = scan_zip_file(file_path)
                 if scan_result and virus_name not in ("Clean", ""):
                     if signature_check["is_valid"]:
