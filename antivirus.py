@@ -683,8 +683,8 @@ def restart_clamd():
             print("Failed to start ClamAV.")
             return False
     except Exception as e:
-        logging.error(f"An error occurred while restarting ClamAV: {str(e)}")
-        print(f"An error occurred while restarting ClamAV: {str(e)}")
+        logging.error(f"An error occurred while restarting ClamAV: {e}")
+        print(f"An error occurred while restarting ClamAV: {e}")
         return False
 
 def scan_file_with_clamd(file_path):
@@ -1067,7 +1067,7 @@ def scan_pe_file(file_path):
         
         return True, virus_names
     except Exception as e:
-        logging.error(f"Error scanning exe file: {file_path} - {str(e)}")
+        logging.error(f"Error scanning exe file: {file_path} - {e}")
         return False, ""
 
 def scan_zip_file(file_path):
@@ -1107,7 +1107,7 @@ def scan_zip_file(file_path):
 
         return True, []
     except Exception as e:
-        logging.error(f"Error scanning zip file: {file_path} - {str(e)}")
+        logging.error(f"Error scanning zip file: {file_path} - {e}")
         return False, ""
 
 def scan_tar_file(file_path):
@@ -1153,7 +1153,7 @@ def scan_tar_file(file_path):
 
         return True, []
     except Exception as e:
-        logging.error(f"Error scanning tar file: {file_path} - {str(e)}")
+        logging.error(f"Error scanning tar file: {file_path} - {e}")
         return False, ""
 
 def scan_file_real_time(file_path, signature_check, pe_file=False):
@@ -1161,19 +1161,22 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
     logging.info(f"Started scanning file: {file_path}")
 
     try:
-        # Scan PE files with Static Machine Learning
-        if pe_file:
-            is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
-            if is_malicious:
-                if benign_score < 0.93:
-                    if signature_check["is_valid"]:
-                        malware_definition = "SIG." + malware_definition
-                    logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
-                    return True, malware_definition
-                elif benign_score >= 0.93:
-                    logging.info(f"File is clean based on ML benign score: {file_path}")
-                    return False, "Clean"
-            logging.info(f"No malware detected by Machine Learning in file: {file_path}")
+        # Scan with Machine Learning AI for PE files
+        try:
+            if pe_file:
+                is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
+                if is_malicious:
+                    if benign_score < 0.93:
+                        if signature_check["is_valid"]:
+                            malware_definition = "SIG." + malware_definition
+                        logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
+                        return True, malware_definition
+                    elif benign_score >= 0.93:
+                        logging.info(f"File is clean based on ML benign score: {file_path}")
+                        return False, "Clean"
+                logging.info(f"No malware detected by Machine Learning in file: {file_path}")
+            except Exception as e:
+                logging.error(f"An error occurred while scanning file with Machine Learning AI: {file_path}. Error: {e}")
 
         # Scan with ClamAV
         try:
@@ -1185,7 +1188,7 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                 return True, result
             logging.info(f"No malware detected by ClamAV in file: {file_path}")
         except Exception as e:
-            logging.error(f"An error occurred while scanning file with ClamAV: {file_path}. Error: {str(e)}")
+            logging.error(f"An error occurred while scanning file with ClamAV: {file_path}. Error: {e}")
 
         # Scan with YARA
         try:
@@ -1200,23 +1203,6 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
         except Exception as e:
             logging.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {e}")
             return False, None
-
-        # Scan PE files
-        if pe_file:
-            try:
-                scan_result, virus_name = scan_pe_file(file_path)
-                if scan_result and virus_name not in ("Clean", ""):
-                    if signature_check["is_valid"]:
-                        virus_name = "SIG." + virus_name
-                    logging.warning(f"Infected file detected (PE): {file_path} - Virus: {virus_name}")
-                    return True, virus_name
-                logging.info(f"No malware detected in PE file: {file_path}")
-            except PermissionError:
-                logging.error(f"Permission error occurred while scanning PE file: {file_path}")
-            except FileNotFoundError:
-                logging.error(f"PE file not found error occurred while scanning PE file: {file_path}")
-            except Exception as e:
-                logging.error(f"An error occurred while scanning PE file: {file_path}. Error: {str(e)}")
 
         # Scan TAR files
         if tarfile.is_tarfile(file_path):
@@ -1233,7 +1219,7 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
             except FileNotFoundError:
                 logging.error(f"TAR file not found error occurred while scanning TAR file: {file_path}")
             except Exception as e:
-                logging.error(f"An error occurred while scanning TAR file: {file_path}. Error: {str(e)}")
+                logging.error(f"An error occurred while scanning TAR file: {file_path}. Error: {e}")
 
         # Scan ZIP files
         if zipfile.is_zipfile(file_path):
@@ -1250,10 +1236,10 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
             except FileNotFoundError:
                 logging.error(f"ZIP file not found error occurred while scanning ZIP file: {file_path}")
             except Exception as e:
-                logging.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {str(e)}")
+                logging.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {e}")
 
     except Exception as e:
-        logging.error(f"An error occurred while scanning file: {file_path}. Error: {str(e)}")
+        logging.error(f"An error occurred while scanning file: {file_path}. Error: {e}")
 
     return False, "Clean"
 
@@ -3164,7 +3150,7 @@ class AnalysisThread(QThread):
             logging.info(f"Running analysis for: {self.file_path}")
             perform_sandbox_analysis(self.file_path)
         except Exception as e:
-            error_message = f"An error occurred during sandbox analysis: {str(e)}"
+            error_message = f"An error occurred during sandbox analysis: {e}"
             logging.error(error_message)
             print(error_message)
 
