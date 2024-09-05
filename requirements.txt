@@ -10,5 +10,6 @@ notify-py
 pywin32
 pydumpck
 pyelftools
+base32-crockford
 scapy # You will also need to download https://npcap.com/#download
 spacy # python -m spacy download en_core_web_md
