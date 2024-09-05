@@ -277,7 +277,7 @@ def is_hex_data(data):
     except (TypeError, binascii.Error):
         return False
 
-def remove_magic_bytes(data, magic_bytes):
+def remove_magic_bytes(data):
     """Remove magic bytes from data, considering it might be hex-encoded."""
     if is_hex_data(data):
         # Convert binary data to hex representation for easier pattern removal
@@ -312,7 +312,7 @@ def decode_base32(data):
     except (binascii.Error, ValueError):
         return None
 
-def process_file_data(file_path, output_dir, magic_bytes):
+def process_file_data(file_path, output_dir):
     """Process file data by decoding and removing magic bytes."""
     with open(file_path, 'rb') as file:
         data = file.read()
@@ -335,7 +335,7 @@ def process_file_data(file_path, output_dir, magic_bytes):
         break
 
     # Process the data to handle possible mixed content
-    processed_data = remove_magic_bytes(data, magic_bytes)
+    processed_data = remove_magic_bytes(data)
 
     # Save processed data
     output_file_path = os.path.join(output_dir, 'processed_' + os.path.basename(file_path))
@@ -2238,7 +2238,7 @@ def scan_and_warn(file_path, flag=False):
             is_decompiled = True
 
         # Process the file data including magic byte removal
-        process_file_data(file_path, os.path.dirname(file_path), magic_bytes)
+        process_file_data(file_path, os.path.dirname(file_path))
 
         # Check if the file is a PyInstaller archive
         if is_pyinstaller_archive(file_path):
