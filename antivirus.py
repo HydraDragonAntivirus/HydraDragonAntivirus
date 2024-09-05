@@ -3029,17 +3029,17 @@ class Monitor:
         for category, details in self.known_malware_messages.items():
             if "patterns" in details:
                 for pattern in details["patterns"]:
-                    similarity = calculate_similarity_text(file_content, pattern)
+                    similarity = self.calculate_similarity_text(file_content, pattern)
                     if similarity > 0.8:  # Adjust similarity threshold as needed
                         details["process_function"](file_content, file_path, hwnd)
                         return
             elif "message" in details:
-                similarity = calculate_similarity_text(file_content, details["message"])
+                similarity = self.calculate_similarity_text(file_content, details["message"])
                 if similarity > 0.8:  # Adjust similarity threshold as needed
                     details["process_function"](file_content, file_path, hwnd)
                     return
             elif "command" in details:
-                similarity = calculate_similarity_text(file_content, details["command"])
+                similarity = self.calculate_similarity_text(file_content, details["command"])
                 if similarity > 0.8:  # Adjust similarity threshold as needed
                     details["process_function"](file_content, file_path, hwnd)
                     return
