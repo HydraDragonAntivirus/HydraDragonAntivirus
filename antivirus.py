@@ -1176,7 +1176,7 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                         return False, "Clean"
                 logging.info(f"No malware detected by Machine Learning in file: {file_path}")
         except Exception as e:
-                logging.error(f"An error occurred while scanning file with Machine Learning AI: {file_path}. Error: {e}")
+            logging.error(f"An error occurred while scanning file with Machine Learning AI: {file_path}. Error: {e}")
 
         # Scan with ClamAV
         try:
@@ -1215,11 +1215,11 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                     return True, virus_name
                 logging.info(f"No malware detected in TAR file: {file_path}")
         except PermissionError:
-                logging.error(f"Permission error occurred while scanning TAR file: {file_path}")
+            logging.error(f"Permission error occurred while scanning TAR file: {file_path}")
         except FileNotFoundError:
-                logging.error(f"TAR file not found error occurred while scanning TAR file: {file_path}")
+            logging.error(f"TAR file not found error occurred while scanning TAR file: {file_path}")
         except Exception as e:
-                logging.error(f"An error occurred while scanning TAR file: {file_path}. Error: {e}")
+            logging.error(f"An error occurred while scanning TAR file: {file_path}. Error: {e}")
 
         # Scan ZIP files
         try:
@@ -1231,12 +1231,12 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                     logging.warning(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
                     return True, virus_name
                 logging.info(f"No malware detected in ZIP file: {file_path}")
-            except PermissionError:
-                logging.error(f"Permission error occurred while scanning ZIP file: {file_path}")
-            except FileNotFoundError:
-                logging.error(f"ZIP file not found error occurred while scanning ZIP file: {file_path}")
-            except Exception as e:
-                logging.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {e}")
+        except PermissionError:
+            logging.error(f"Permission error occurred while scanning ZIP file: {file_path}")
+        except FileNotFoundError:
+            logging.error(f"ZIP file not found error occurred while scanning ZIP file: {file_path}")
+        except Exception as e:
+            logging.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {e}")
 
     except Exception as e:
         logging.error(f"An error occurred while scanning file: {file_path}. Error: {e}")
