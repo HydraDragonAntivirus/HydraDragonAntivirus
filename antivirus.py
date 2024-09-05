@@ -3026,8 +3026,8 @@ class Monitor:
                     return
 
         # Adding ransomware check
-        if contains_keywords_within_max_distance(file_content, max_distance=10):
-            process_detected_text_ransom(file_content, file_path, hwnd)
+        if self.contains_keywords_within_max_distance(file_content, max_distance=10):
+            self.process_detected_text_ransom(file_content, file_path, hwnd)
 
         logging.info(f"Finished processing detection {input_string} (process_detected).")
 
