@@ -2494,7 +2494,7 @@ def check_hosts_file_for_blocked_antivirus():
         blocked_domains = []
 
         # Regular expression pattern to match domain or any subdomain
-        domain_patterns = [re.escape(domain) + r'\b' for domain in antivirus_domains]
+        domain_patterns = [re.escape(domain) + r'\b' for domain in antivirus_domains_data]
         pattern = r'\b(?:' + '|'.join(domain_patterns) + r')\b'
 
         # Find all matching domains/subdomains in hosts content
