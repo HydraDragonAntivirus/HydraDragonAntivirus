@@ -2262,6 +2262,9 @@ def scan_and_warn(file_path, flag=False):
             # Process the file data including magic byte removal
             process_file_data(file_path)
 
+        # Process the file using monitor_message.process_detected with file_path argument
+        monitor_message.process_detected(file_path=file_path)
+
         # Check if the file is a PyInstaller archive
         if is_pyinstaller_archive(file_path):
             logging.info(f"File {file_path} is a PyInstaller archive. Extracting...")
@@ -2727,7 +2730,7 @@ def contains_url(text):
                 return True
     return False
 
-class Monitor:
+class Monitor_Message_CommandLine:
     def __init__(self):
         self.known_malware_messages = {
             "classic": {
@@ -2990,7 +2993,7 @@ class Monitor:
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def process_detected(self, input_string, file_path=None, hwnd=None):
+    def process_detected(self, input_string=None, file_path=None, hwnd=None):
         if file_path:
             base_name = os.path.basename(file_path)
             full_cleaned_file_path = os.path.join(commandlineandmessage_dir, f"{base_name}.full_cleaned")
@@ -2999,22 +3002,16 @@ class Monitor:
 
         if not file_path:
             # Handle text input
-            cleaned_text = remove_magic_bytes_from_text(input_string)
-
-            # Save cleaned text to the designated folder
             with open(full_cleaned_file_path, 'w', encoding='utf-8') as file:
-                file.write(cleaned_text)
+                file.write(input_string)
         else:
             # Handle file input
             with open(file_path, 'r', encoding='utf-8') as file:
                 file_content = file.read()
 
-            # Process the file content with cleanups
-            full_cleaned_file_content = remove_magic_bytes_from_text(file_content)
-
-            # Save cleaned content to the designated folder
+            # Save content to the designated folder
             with open(full_cleaned_file_path, 'w', encoding='utf-8') as file:
-                file.write(full_cleaned_file_content)
+                file.write(file_content)
 
         # Log the cleaned file path
         if file_path:
@@ -3068,7 +3065,6 @@ class Monitor:
                     command_line_lower = command_line.lower()
                     
                     # Process both preprocessed and original command lines
-                    self.process_detected(preprocessed_command_line, file_path=executable_path)  # Process preprocessed command line
                     self.process_detected(command_line, file_path=executable_path)  # Process original command line
                     self.process_detected(command_line_lower, file_path=executable_path)
 
@@ -3118,6 +3114,7 @@ def monitor_sandboxie_directory():
 
 def perform_sandbox_analysis(file_path):
     global main_file_path
+    global monitor_message
     try:
         if not isinstance(file_path, (str, bytes, os.PathLike)):
             raise ValueError(f"Expected str, bytes or os.PathLike object, not {type(file_path).__name__}")
@@ -3132,7 +3129,7 @@ def perform_sandbox_analysis(file_path):
         # Set main file path globally
         main_file_path = file_path
 
-        monitor = Monitor()
+        monitor_message = Monitor_Message_CommandLine()
 
         # Monitor Snort log for new lines and process alerts
         threading.Thread(target=monitor_snort_log).start()
@@ -3146,7 +3143,7 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=check_startup_directories).start()
         threading.Thread(target=monitor_hosts_file).start()
         threading.Thread(target=check_uefi_directories).start() # Start monitoring UEFI directories for malicious files in a separate thread
-        threading.Thread(target=monitor.monitor).start() # Function to monitor specific windows in a separate thread
+        threading.Thread(target=monitor_message.monitor).start() # Function to monitor specific windows in a separate thread
         threading.Thread(target=run_sandboxie_control).start()
         threading.Thread(target=run_sandboxie, args=(file_path,)).start()
 
