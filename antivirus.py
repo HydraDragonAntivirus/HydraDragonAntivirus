@@ -40,7 +40,7 @@ import struct
 import zlib
 import marshal
 import base64
-from base32_crockford import base32_crockford
+import base32_crockford
 import binascii
 
 sys.modules['sklearn.externals.joblib'] = joblib
