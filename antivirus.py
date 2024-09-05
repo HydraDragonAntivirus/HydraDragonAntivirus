@@ -67,11 +67,32 @@ base_dir = os.path.join(script_dir, "base32and64")
 nuitka_dir = os.path.join(script_dir, "nuitka")
 pyintstaller_dir = os.path.join(script_dir, "pyinstaller")
 commandlineandmessage_dir = os.path.join(script_dir, "commandlineandmessage")
-extracted_dir = os.path.join(script_dir, "extracted")
+pe_extracted_dir = os.path.join(script_dir, "pe_extracted")
+zip_extracted_dir = os.path.join(script_dir, "zip_extracted")
+tar_extracted_dir = os.path.join(script_dir, "tar_extracted")
+processed_dir = os.path.join(script_dir, "processed")
 detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
 detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
 extractor_path = os.path.join(script_dir, "nuitka-extractor.exe")
+malicious_file_names = os.path.join(script_dir, "machinelearning", "malicious_file_names.json")
+malicious_numeric_features = os.path.join(script_dir, "machinelearning", "malicious_numeric.pkl")
+benign_numeric_features = os.path.join(script_dir, "machinelearning", "benign_numeric.pkl")
+yara_folder_path = os.path.join(script_dir, "yara")
+excluded_rules_dir = os.path.join(script_dir, "excluded")
+excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
+ip_addresses_path = os.path.join(script_dir, "website", "IP_Addresses.txt")
+ipv6_addresses_path = os.path.join(script_dir, "website", "ipv6.txt")
+ipv4_whitelist_path = os.path.join(script_dir, "website", "ipv4whitelist.txt")
+domains_path = os.path.join(script_dir, "website", "Domains.txt")
+urlhaus_path = os.path.join(script_dir, "website", "urlhaus.txt")
+antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
+antivirus_domains_data = {}
+ip_addresses_signatures_data = {}
+ipv4_whitelist_data = {}
+ipv6_addresses_signatures_data = {}
+domains_signatures_data = {}
+urlhaus_data = {}
 
 clamd_dir = r"C:\Program Files\ClamAV\clamd.exe"
 clamdscan_path = r"C:\Program Files\ClamAV\clamdscan.exe"
@@ -249,25 +270,6 @@ QFileDialog {
 }
 """
 
-malicious_file_names = os.path.join(script_dir, "machinelearning", "malicious_file_names.json")
-malicious_numeric_features = os.path.join(script_dir, "machinelearning", "malicious_numeric.pkl")
-benign_numeric_features = os.path.join(script_dir, "machinelearning", "benign_numeric.pkl")
-yara_folder_path = os.path.join(script_dir, "yara")
-excluded_rules_dir = os.path.join(script_dir, "excluded")
-excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
-ip_addresses_path = os.path.join(script_dir, "website", "IP_Addresses.txt")
-ipv6_addresses_path = os.path.join(script_dir, "website", "ipv6.txt")
-ipv4_whitelist_path = os.path.join(script_dir, "website", "ipv4whitelist.txt")
-domains_path = os.path.join(script_dir, "website", "Domains.txt")
-urlhaus_path = os.path.join(script_dir, "website", "urlhaus.txt")
-antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
-antivirus_domains_data = {}
-ip_addresses_signatures_data = {}
-ipv4_whitelist_data = {}
-ipv6_addresses_signatures_data = {}
-domains_signatures_data = {}
-urlhaus_data = {}
-
 def is_hex_data(data):
     """Check if the given binary data can be valid hex-encoded data."""
     try:
@@ -312,7 +314,7 @@ def decode_base32(data):
     except (binascii.Error, ValueError):
         return None
 
-def process_file_data(file_path, output_dir):
+def process_file_data(file_path):
     """Process file data by decoding and removing magic bytes."""
     with open(file_path, 'rb') as file:
         data = file.read()
@@ -338,7 +340,7 @@ def process_file_data(file_path, output_dir):
     processed_data = remove_magic_bytes(data)
 
     # Save processed data
-    output_file_path = os.path.join(output_dir, 'processed_' + os.path.basename(file_path))
+    output_file_path = os.path.join(processed_dir, 'processed_' + os.path.basename(file_path))
     with open(output_file_path, 'wb') as processed_file:
         processed_file.write(processed_data)
     logging.info(f"Processed data from {file_path} saved to {output_file_path}")
@@ -1056,7 +1058,7 @@ def scan_pe_file(file_path):
                                         data = pe.get_data(r.data.struct.OffsetToData, r.data.struct.Size)
                                         
                                         # Save data to file in the extracted directory
-                                        extracted_file_path = os.path.join(extracted_dir, "pe_extracted_data.bin")
+                                        extracted_file_path = os.path.join(pe_extracted_dir, "pe_extracted_data.bin")
                                         with open(extracted_file_path, 'wb') as temp_file:
                                             temp_file.write(data)
         
@@ -1086,8 +1088,8 @@ def scan_zip_file(file_path):
                     logging.info(f"Skipping encrypted file: {zip_info.filename}")
                     continue
 
-                extracted_file_path = os.path.join(extracted_dir, zip_info.filename)
-                zfile.extract(zip_info, extracted_dir)
+                extracted_file_path = os.path.join(zip_extracted_dir, zip_info.filename)
+                zfile.extract(zip_info, zip_extracted_dir)
 
                 # Check for suspicious conditions: large files in small ZIP archives
                 extracted_file_size = os.path.getsize(extracted_file_path)
@@ -1121,8 +1123,8 @@ def scan_tar_file(file_path):
                     notify_rlo_warning(file_path, "TAR", virus_name)
 
                 if member.isreg():  # Check if it's a regular file
-                    extracted_file_path = os.path.join(extracted_dir, member.name)
-                    tar.extract(member, extracted_dir)
+                    extracted_file_path = os.path.join(tar_extracted_dir, member.name)
+                    tar.extract(member, tar_extracted_dir)
 
                     # Check for suspicious conditions: large files in small TAR archives
                     extracted_file_size = os.path.getsize(extracted_file_path)
@@ -2240,8 +2242,10 @@ def scan_and_warn(file_path, flag=False):
             logging.info(f"File {file_path} is in decompile_dir.")
             is_decompiled = True
 
-        # Process the file data including magic byte removal
-        process_file_data(file_path, os.path.dirname(file_path))
+        # Check if the file is not in the processed directory
+        if not os.path.commonpath([file_path, processed_dir]) == processed_dir:
+            # Process the file data including magic byte removal
+            process_file_data(file_path)
 
         # Check if the file is a PyInstaller archive
         if is_pyinstaller_archive(file_path):
@@ -3059,7 +3063,7 @@ class Monitor:
 # List of already scanned files and their modification times
 scanned_files = []
 file_mod_times = {}
-directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, base_dir, commandlineandmessage_dir, extracted_dir]
+directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, base_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, processed_dir]
 
 def monitor_sandboxie_directory():
     """
