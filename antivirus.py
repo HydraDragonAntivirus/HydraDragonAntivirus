@@ -1706,14 +1706,14 @@ def extract_nuitka_file(file_path):
             if not os.path.exists(nuitka_output_dir):
                 os.makedirs(nuitka_output_dir)
 
-            logging.info(f"Extracting Nuitka file {file_path} to {output_dir}")
+            logging.info(f"Extracting Nuitka file {file_path} to {nuitka_output_dir}")
             
             # Use nuitka_extractor to extract the file
-            command = [nuitka_extractor_path, "-output", output_dir, file_path]
+            command = [nuitka_extractor_path, "-output", nuitka_output_dir, file_path]
             result = subprocess.run(command, capture_output=True, text=True)
             
             if result.returncode == 0:
-                logging.info(f"Successfully extracted Nuitka file: {file_path} to {output_dir}")
+                logging.info(f"Successfully extracted Nuitka file: {file_path} to {nuitka_output_dir}")
             else:
                 logging.error(f"Failed to extract Nuitka file: {file_path}. Error: {result.stderr}")
         else:
