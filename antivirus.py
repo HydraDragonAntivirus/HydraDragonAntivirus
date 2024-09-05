@@ -58,7 +58,7 @@ script_dir = os.getcwd()
 
 # Define the paths to the ghidra related directories
 decompile_dir = os.path.join(script_dir, "decompile")
-pyisntaller_dir = os.path.join(script_dir, "pyinstaller")
+pyinstaller_dir = os.path.join(script_dir, "pyinstaller")
 ghidra_projects_dir = os.path.join(script_dir, "ghidra_projects")
 ghidra_logs_dir = os.path.join(script_dir, "ghidra_logs")
 ghidra_scripts_dir = os.path.join(script_dir, "scripts")
