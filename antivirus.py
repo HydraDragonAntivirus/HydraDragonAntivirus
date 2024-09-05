@@ -65,6 +65,7 @@ ghidra_scripts_dir = os.path.join(script_dir, "scripts")
 dotnet_dir = os.path.join(script_dir, "dotnet")
 base_dir = os.path.join(script_dir, "base32and64")
 nuitka_dir = os.path.join(script_dir, "nuitka")
+pyintstaller_dir = os.path.join(script_dir, "pyinstaller")
 commandlineandmessage_dir = os.path.join(script_dir, "commandlineandmessage")
 extracted_dir = os.path.join(script_dir, "extracted")
 detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
@@ -260,6 +261,7 @@ ipv4_whitelist_path = os.path.join(script_dir, "website", "ipv4whitelist.txt")
 domains_path = os.path.join(script_dir, "website", "Domains.txt")
 urlhaus_path = os.path.join(script_dir, "website", "urlhaus.txt")
 antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
+antivirus_domains_data = {}
 ip_addresses_signatures_data = {}
 ipv4_whitelist_data = {}
 ipv6_addresses_signatures_data = {}
@@ -419,7 +421,7 @@ def notify_rlo_warning(file_path, archive_type, virus_name):
                             f"This could indicate suspicious activity. Virus Name: {virus_name}")
     notification.send()
 
-def notify_user_rlo(file_path, rlo_flag):
+def notify_user_rlo(file_path, virus_name):
     notification = Notify()
     notification.title = "Suspicious RLO Name Alert"
     notification.message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
@@ -550,15 +552,14 @@ def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
 
 # Function to load antivirus list
 def load_antivirus_list():
-    global anntivirus_domains
+    global anntivirus_domains_data
     try:
         with open(antivirus_list_path, 'r') as antivirus_file:
-            antivirus_domains = antivirus_file.read().splitlines()
-        return antivirus_domains
+            antivirus_domains_data = antivirus_file.read().splitlines()
+        return antivirus_domains_data
     except Exception as e:
         logging.error(f"Error loading Antivirus domains: {e}")
         return []
-
 
 def load_data():
     global ip_addresses_signatures_data, ipv6_addresses_signatures_data, domains_signatures_data, ipv4_whitelist_data, urlhaus_data
@@ -1653,29 +1654,51 @@ def ensure_unique_folder(base_folder):
     os.makedirs(folder)
     return folder
 
+def is_nuitka_file(file_path):
+    """Check if the file is a Nuitka executable using Detect It Easy."""
+    try:
+        # Run the DIE console command to analyze the file
+        result = subprocess.run([detectiteasy_console_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        
+        # Check if the output indicates the file is a Nuitka-compiled executable
+        if "Nuitka" in result.stdout:
+            return True
+        
+    except subprocess.SubprocessError as e:
+        logging.error(f"Error running Detect It Easy for {file_path}: {e}")
+        return False
+    
+    return False
+
 def extract_nuitka_file(file_path):
     """Extract Nuitka file content into uniquely named folders."""
     try:
-        base_nuitka_dir = os.path.join(os.path.dirname(file_path), "nuitka")
-        
-        # Find the next available directory number
-        folder_number = 1
-        while os.path.exists(f"{base_nuitka_dir}_{folder_number}"):
-            folder_number += 1
-        output_dir = f"{base_nuitka_dir}_{folder_number}"
-        
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+        # Check if the file is a Nuitka executable
+        if is_nuitka_file(file_path):
+            logging.info(f"Nuitka executable detected in {file_path}")
+            
+            # Find the next available directory number
+            folder_number = 1
+            while os.path.exists(f"{nuitka_dir}_{folder_number}"):
+                folder_number += 1
+            nuitka_output_dir = f"{nuitka_dir}_{folder_number}"
+            
+            if not os.path.exists(nuitka_output_dir):
+                os.makedirs(nuitka_output_dir)
 
-        logging.info(f"Extracting Nuitka file {file_path} to {output_dir}")
-
-        command = [extractor_path, "-output", output_dir, file_path]
-        
-        result = subprocess.run(command, capture_output=True, text=True)
-        if result.returncode == 0:
-            logging.info(f"Successfully extracted Nuitka file: {file_path} to {output_dir}")
+            logging.info(f"Extracting Nuitka file {file_path} to {output_dir}")
+            
+            # Use nuitka_extractor to extract the file
+            command = [nuitka_extractor_path, "-output", output_dir, file_path]
+            result = subprocess.run(command, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                logging.info(f"Successfully extracted Nuitka file: {file_path} to {output_dir}")
+            else:
+                logging.error(f"Failed to extract Nuitka file: {file_path}. Error: {result.stderr}")
         else:
-            logging.error(f"Failed to extract Nuitka file: {file_path}. Error: {result.stderr}")
+            logging.info(f"No Nuitka content found in {file_path}")
+    
     except Exception as e:
         logging.error(f"Error extracting Nuitka file: {e}")
 
@@ -2214,9 +2237,6 @@ def scan_and_warn(file_path, flag=False):
             logging.info(f"File {file_path} is in decompile_dir.")
             is_decompiled = True
 
-        # Process encoded data (base64, base32)
-        process_encoded_data(file_path)
-
         # Process the file data including magic byte removal
         process_file_data(file_path, os.path.dirname(file_path), magic_bytes)
 
@@ -2266,19 +2286,10 @@ def scan_and_warn(file_path, flag=False):
         # Check if the file contains Nuitka and extract if present
         try:
             logging.info(f"Checking if the file {file_path} contains Nuitka executable.")
-            ne = NuitkaExecutable()
-            base_nuitka_dir = os.path.join(os.path.dirname(file_path), "nuitka")
-            folder_number = 1
-            while os.path.exists(f"{base_nuitka_dir}_{folder_number}"):
-                folder_number += 1
-            output_dir = f"{base_nuitka_dir}_{folder_number}"
-            ne.New(file_path, output_dir)
-            if ne.Check():
-                ne.Extract()
-                logging.info(f"Nuitka content extracted to {output_dir}")
-            else:
-                logging.info(f"No Nuitka content found in {file_path}")
-
+            
+            # Extract Nuitka file content using the extract_nuitka_file function
+            extract_nuitka_file(file_path)
+                
         except Exception as e:
             logging.error(f"Error checking or extracting Nuitka content from {file_path}: {e}")
 
