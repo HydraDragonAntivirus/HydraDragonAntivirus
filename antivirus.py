@@ -98,7 +98,7 @@ clamd_dir = r"C:\Program Files\ClamAV\clamd.exe"
 clamdscan_path = r"C:\Program Files\ClamAV\clamdscan.exe"
 freshclam_path = r"C:\Program Files\ClamAV\freshclam.exe"
 
-# Ensure base64 and base32 directories exist
+# Ensure base64 and base32 directory exist
 os.makedirs(base_dir, exist_ok=True)
 
 os.makedirs(commandlineandmessage_dir, exist_ok=True)
