@@ -1175,7 +1175,7 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                         logging.info(f"File is clean based on ML benign score: {file_path}")
                         return False, "Clean"
                 logging.info(f"No malware detected by Machine Learning in file: {file_path}")
-            except Exception as e:
+        except Exception as e:
                 logging.error(f"An error occurred while scanning file with Machine Learning AI: {file_path}. Error: {e}")
 
         # Scan with ClamAV
