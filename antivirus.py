@@ -2516,10 +2516,11 @@ def check_hosts_file_for_blocked_antivirus():
             print(f"Suspicious hosts file detected: {hosts_path}")
             notify_user_hosts(hosts_path, "HEUR:Win32.Trojan.Hosts.Hijacker.Generic")
             return True
-        return False
+
     except Exception as e:
         logging.error(f"Error reading hosts file: {e}")
-        return False
+
+    return False
 
 # Function to continuously monitor hosts file
 def monitor_hosts_file():
