@@ -2481,6 +2481,9 @@ def check_startup_directories():
                             elif file_path.endswith(('.vbs', '.js', '.jse', '.bat', '.url', '.cmd', '.hta', '.ps1', '.wsf')):
                                 malware_type = "HEUR:Win32.Startup.Script.Generic.Malware"
                                 message = f"Confirmed script malware detected: {file_path}\nVirus: {malware_type}"
+                            elif file_path.endswith(('.vbe', '.dll', '.jar', '.msi', '.scr', '.hta', '.hta')):
+                                malware_type = "HEUR:Win32.Startup.Compiled.Generic.Malware"
+                                message = f"Confirmed compiled malware detected: {file_path}\nVirus: {malware_type}"
                             else:
                                 malware_type = "HEUR:Win32.Startup.Generic.Malware"
                                 message = f"Suspicious startup file detected: {file_path}"
