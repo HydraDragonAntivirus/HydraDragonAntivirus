@@ -1,47 +1,56 @@
-import sys
-import os
-import shutil
-import subprocess
-import threading
-import re
-import json
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QFileDialog, QMessageBox, QStackedWidget
-from PySide6.QtCore import Qt, QObject, QThread, Signal, Slot, QMetaObject
-from PySide6.QtGui import QIcon
-import sklearn
-import joblib
-import pefile
-import zipfile
-import tarfile
-import yara
-import yara_x
-import psutil
-from notifypy import Notify
-import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
 import time
-import win32file
-import win32con
-from datetime import datetime, timedelta
-import winreg
-from scapy.all import IP, IPv6, DNS, DNSQR, DNSRR, TCP, UDP, sniff
-import ctypes
-import ipaddress
-from sklearn.metrics.pairwise import cosine_similarity
-import numpy as np
-import io
-import spacy
-import codecs
-import csv
-from elftools.elf.elffile import ELFFile
-import struct
-import zlib
-import marshal
-import base64
-import base32_crockford
-import binascii
+print("time module loaded")
+
+def load_with_timing(module_name, import_statement):
+    start_time = time.time()
+    exec(import_statement)
+    end_time = time.time()
+    print(f"{module_name} module loaded in {end_time - start_time:.6f} seconds")
+
+load_with_timing("sys", "import sys")
+load_with_timing("os", "import os")
+load_with_timing("shutil", "import shutil")
+load_with_timing("subprocess", "import subprocess")
+load_with_timing("threading", "import threading")
+load_with_timing("re", "import re")
+load_with_timing("json", "import json")
+load_with_timing("PySide6.QtWidgets", "from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QFileDialog, QMessageBox, QStackedWidget")
+load_with_timing("PySide6.QtCore", "from PySide6.QtCore import Qt, QObject, QThread, Signal, Slot, QMetaObject")
+load_with_timing("PySide6.QtGui", "from PySide6.QtGui import QIcon")
+load_with_timing("sklearn", "import sklearn")
+load_with_timing("joblib", "import joblib")
+load_with_timing("pefile", "import pefile")
+load_with_timing("zipfile", "import zipfile")
+load_with_timing("tarfile", "import tarfile")
+load_with_timing("yara", "import yara")
+load_with_timing("yara_x", "import yara_x")
+load_with_timing("psutil", "import psutil")
+load_with_timing("notifypy.Notify", "from notifypy import Notify")
+load_with_timing("logging", "import logging")
+load_with_timing("concurrent.futures", "from concurrent.futures import ThreadPoolExecutor, as_completed")
+load_with_timing("watchdog.observers", "from watchdog.observers import Observer")
+load_with_timing("watchdog.events", "from watchdog.events import FileSystemEventHandler")
+load_with_timing("time", "import time")
+load_with_timing("win32file", "import win32file")
+load_with_timing("win32con", "import win32con")
+load_with_timing("datetime", "from datetime import datetime, timedelta")
+load_with_timing("winreg", "import winreg")
+load_with_timing("scapy", "from scapy.all import IP, IPv6, DNS, DNSQR, DNSRR, TCP, UDP, sniff")
+load_with_timing("ctypes", "import ctypes")
+load_with_timing("ipaddress", "import ipaddress")
+load_with_timing("sklearn.metrics.pairwise", "from sklearn.metrics.pairwise import cosine_similarity")
+load_with_timing("numpy", "import numpy as np")
+load_with_timing("io", "import io")
+load_with_timing("spacy", "import spacy")
+load_with_timing("codecs", "import codecs")
+load_with_timing("csv", "import csv")
+load_with_timing("elftools.elf", "from elftools.elf.elffile import ELFFile")
+load_with_timing("struct", "import struct")
+load_with_timing("zlib", "import zlib")
+load_with_timing("marshal", "import marshal")
+load_with_timing("base64", "import base64")
+load_with_timing("base32_crockford", "import base32_crockford")
+load_with_timing("binascii", "import binascii")
 
 sys.modules['sklearn.externals.joblib'] = joblib
 
