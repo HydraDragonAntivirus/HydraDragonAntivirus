@@ -1202,10 +1202,8 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                 logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
                 return True, yara_result
             logging.info(f"Scanned file with YARA: {file_path} - No viruses detected")
-            return False, None
         except Exception as e:
             logging.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {e}")
-            return False, None
 
         # Scan TAR files
         try:
