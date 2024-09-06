@@ -61,6 +61,7 @@ sys.stdin = io.TextIOWrapper(sys.stdin.detach(), encoding='utf-8')
 
 # Load the spaCy model globally
 nlp_spacy_lang = spacy.load("en_core_web_md")
+print("spaCy model 'en_core_web_md' loaded successfully")
 
 # Set script directory
 script_dir = os.getcwd()
