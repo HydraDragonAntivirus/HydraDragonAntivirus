@@ -1,56 +1,190 @@
 import time
 print("time module loaded")
 
-def load_with_timing(module_name, import_statement):
-    start_time = time.time()
-    exec(import_statement)
-    end_time = time.time()
-    print(f"{module_name} module loaded in {end_time - start_time:.6f} seconds")
+# Record the start time for total duration
+total_start_time = time.time()
 
-load_with_timing("sys", "import sys")
-load_with_timing("os", "import os")
-load_with_timing("shutil", "import shutil")
-load_with_timing("subprocess", "import subprocess")
-load_with_timing("threading", "import threading")
-load_with_timing("re", "import re")
-load_with_timing("json", "import json")
-load_with_timing("PySide6.QtWidgets", "from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QFileDialog, QMessageBox, QStackedWidget")
-load_with_timing("PySide6.QtCore", "from PySide6.QtCore import Qt, QObject, QThread, Signal, Slot, QMetaObject")
-load_with_timing("PySide6.QtGui", "from PySide6.QtGui import QIcon")
-load_with_timing("sklearn", "import sklearn")
-load_with_timing("joblib", "import joblib")
-load_with_timing("pefile", "import pefile")
-load_with_timing("zipfile", "import zipfile")
-load_with_timing("tarfile", "import tarfile")
-load_with_timing("yara", "import yara")
-load_with_timing("yara_x", "import yara_x")
-load_with_timing("psutil", "import psutil")
-load_with_timing("notifypy.Notify", "from notifypy import Notify")
-load_with_timing("logging", "import logging")
-load_with_timing("concurrent.futures", "from concurrent.futures import ThreadPoolExecutor, as_completed")
-load_with_timing("watchdog.observers", "from watchdog.observers import Observer")
-load_with_timing("watchdog.events", "from watchdog.events import FileSystemEventHandler")
-load_with_timing("time", "import time")
-load_with_timing("win32file", "import win32file")
-load_with_timing("win32con", "import win32con")
-load_with_timing("datetime", "from datetime import datetime, timedelta")
-load_with_timing("winreg", "import winreg")
-load_with_timing("scapy", "from scapy.all import IP, IPv6, DNS, DNSQR, DNSRR, TCP, UDP, sniff")
-load_with_timing("ctypes", "import ctypes")
-load_with_timing("ipaddress", "import ipaddress")
-load_with_timing("sklearn.metrics.pairwise", "from sklearn.metrics.pairwise import cosine_similarity")
-load_with_timing("numpy", "import numpy as np")
-load_with_timing("io", "import io")
-load_with_timing("spacy", "import spacy")
-load_with_timing("codecs", "import codecs")
-load_with_timing("csv", "import csv")
-load_with_timing("elftools.elf", "from elftools.elf.elffile import ELFFile")
-load_with_timing("struct", "import struct")
-load_with_timing("zlib", "import zlib")
-load_with_timing("marshal", "import marshal")
-load_with_timing("base64", "import base64")
-load_with_timing("base32_crockford", "import base32_crockford")
-load_with_timing("binascii", "import binascii")
+# Measure and print time taken for each import
+start_time = time.time()
+import sys
+print(f"sys module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import os
+print(f"os module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import shutil
+print(f"shutil module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import subprocess
+print(f"subprocess module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import threading
+print(f"threading module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import re
+print(f"re module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import json
+print(f"json module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QFileDialog, QMessageBox, QStackedWidget
+print(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from PySide6.QtCore import Qt, QObject, QThread, Signal, Slot, QMetaObject
+print(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from PySide6.QtGui import QIcon
+print(f"PySide6.QtGui.QIcon module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import sklearn
+print(f"sklearn module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import joblib
+print(f"joblib module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import pefile
+print(f"pefile module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import zipfile
+print(f"zipfile module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import tarfile
+print(f"tarfile module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import yara
+print(f"yara module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import yara_x
+print(f"yara_x module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import psutil
+print(f"psutil module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from notifypy import Notify
+print(f"notifypy.Notify module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import logging
+print(f"logging module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from concurrent.futures import ThreadPoolExecutor, as_completed
+print(f"concurrent.futures.ThreadPoolExecutor and as_completed loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from watchdog.observers import Observer
+print(f"watchdog.observers.Observer module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from watchdog.events import FileSystemEventHandler
+print(f"watchdog.events.FileSystemEventHandler module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import time
+print(f"time module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import win32file
+print(f"win32file module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import win32con
+print(f"win32con module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from datetime import datetime, timedelta
+print(f"datetime.datetime and timedelta modules loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import winreg
+print(f"winreg module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from scapy.all import IP, IPv6, DNS, DNSQR, DNSRR, TCP, UDP, sniff
+print(f"scapy modules (IP, IPv6, DNS, DNSQR, DNSRR, TCP, UDP, sniff) loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import ctypes
+print(f"ctypes module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import ipaddress
+print(f"ipaddress module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from sklearn.metrics.pairwise import cosine_similarity
+print(f"sklearn.metrics.pairwise.cosine_similarity module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import numpy as np
+print(f"numpy module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import io
+print(f"io module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import spacy
+print(f"spacy module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import codecs
+print(f"codecs module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import csv
+print(f"csv module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from elftools.elf.elffile import ELFFile
+print(f"elftools.elf.ELFFile module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import struct
+print(f"struct module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import zlib
+print(f"zlib module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import marshal
+print(f"marshal module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import base64
+print(f"base64 module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import base32_crockford
+print(f"base32_crockford module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import binascii
+print(f"binascii module loaded in {time.time() - start_time:.6f} seconds")
+
+# Calculate and print total time
+total_end_time = time.time()
+total_duration = total_end_time - total_start_time
+print(f"Total time for all imports: {total_duration:.6f} seconds")
 
 sys.modules['sklearn.externals.joblib'] = joblib
 
