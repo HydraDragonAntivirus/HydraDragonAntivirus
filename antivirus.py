@@ -87,6 +87,9 @@ ipv4_whitelist_path = os.path.join(script_dir, "website", "ipv4whitelist.txt")
 domains_path = os.path.join(script_dir, "website", "Domains.txt")
 urlhaus_path = os.path.join(script_dir, "website", "urlhaus.txt")
 antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
+yaraxtr_yrc_path = os.path.join(yara_folder_path, "yaraxtr.yrc")
+compiled_rule_path = os.path.join(yara_folder_path, "compiled_rule.yrc")
+windows_defender_path = os.path.join(yara_folder_path, "WindowsDefender.yrc")
 antivirus_domains_data = {}
 ip_addresses_signatures_data = {}
 ipv4_whitelist_data = {}
@@ -1558,18 +1561,24 @@ print("Machine Learning AI Signatures loaded!")
 
 try:
     # Load the precompiled rules from the .yrc file
-    compiled_rule = yara.load(os.path.join(yara_folder_path, "compiled_rule.yrc"))
+    compiled_rule = yara.load(compiled_rule_path)
     print("YARA Rules Definitions loaded!")
 except yara.Error as e:
     print(f"Error loading precompiled YARA rule: {e}")
-
-yaraxtr_yrc_path = os.path.join(yara_folder_path, "yaraxtr.yrc")
 
 try:
     # Load the precompiled rule from the .yrc file using yara_x
     with open(yaraxtr_yrc_path, 'rb') as f:
         yaraxtr_rule = yara_x.Rules.deserialize_from(f)
     print("YARA-X Rules Definitions loaded!")
+except Exception as e:
+    print(f"Error loading YARA-X rules: {e}")
+
+try:
+    # Load the precompiled Windows Defender rule from the .yrc file using yara_x
+    with open(windows_defender_path, 'rb') as f:
+        yaraxtr_rule = yara_x.Rules.deserialize_from(f)
+    print("Windows Defender YARA-X Rules Definitions loaded!")
 except Exception as e:
     print(f"Error loading YARA-X rules: {e}")
 
