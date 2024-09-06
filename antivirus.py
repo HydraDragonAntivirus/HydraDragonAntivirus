@@ -920,7 +920,7 @@ class YaraScanner:
                         if match.rule not in excluded_rules:
                             matched_rules.append(match.rule)
                         else:
-                            logging.info(f"Rule {match.rule} is excluded.")
+                            logging.info(f"Rule {match.rule} is excluded from compiled_rule.")
             else:
                 logging.warning("compiled_rule is not defined.")
 
@@ -933,10 +933,24 @@ class YaraScanner:
                         if hasattr(rule, 'identifier') and rule.identifier not in excluded_rules:
                             matched_rules.append(rule.identifier)
                         else:
-                            logging.info(f"Rule {rule.identifier} is excluded.")
+                            logging.info(f"Rule {rule.identifier} is excluded from yaraxtr_rule.")
             else:
                 logging.warning("yaraxtr_rule is not defined.")
 
+
+            # Check matches for windows_defender_rule (loaded with yara_x)
+            if windows_defender_rule:
+                scanner = yara_x.Scanner(windows_defender_rule)
+                results = scanner.scan(data=data)
+                if results.matching_rules:
+                    for rule in results.matching_rules:
+                        if hasattr(rule, 'identifier') and rule.identifier not in excluded_rules:
+                            matched_rules.append(rule.identifier)
+                        else:
+                            logging.info(f"Rule {rule.identifier} is excluded from windows_defender_rule.")
+            else:
+                logging.warning("windows_defender_rule is not defined.")
+    
         # Return matched rules as the yara_result if not empty, otherwise return None
         return matched_rules if matched_rules else None
 
@@ -1575,7 +1589,7 @@ except Exception as e:
 try:
     # Load the precompiled Windows Defender rule from the .yrc file using yara_x
     with open(windows_defender_path, 'rb') as f:
-        yaraxtr_rule = yara_x.Rules.deserialize_from(f)
+        windows_defender_rule = yara_x.Rules.deserialize_from(f)
     print("Windows Defender YARA-X Rules Definitions loaded!")
 except Exception as e:
     print(f"Error loading YARA-X rules: {e}")
