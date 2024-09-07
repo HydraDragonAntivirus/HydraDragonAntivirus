@@ -79,6 +79,11 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 
 - I used these projects to decompile.
 
+- https://github.com/starhopp3r/ML-Antivirus
+- https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0
+
+- I used these projects for AI.
+
 **Note 6:**.
 - You will need an internet connection to install. It's not an offline installer.
 
