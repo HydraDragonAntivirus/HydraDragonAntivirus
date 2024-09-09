@@ -181,6 +181,14 @@ start_time = time.time()
 import binascii
 print(f"binascii module loaded in {time.time() - start_time:.6f} seconds")
 
+start_time = time.time()
+from transformers import AutoTokenizer, AutoModelForCausalLM
+print(f"transformers.AutoTokenizer and AutoModelForCausalLM modules loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from accelerate import Accelerator
+print(f"accelerate.Accelerator module loaded in {time.time() - start_time:.6f} seconds")
+
 # Calculate and print total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
