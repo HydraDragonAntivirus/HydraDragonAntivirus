@@ -2443,6 +2443,138 @@ def log_directory_type(file_path):
     elif file_path == main_file_path:  # Check for main file path
         logging.info(f"{file_path}: This is the main file.")
 
+# Function to process the file and analyze it
+def scan_with_tinyllama(file_path):
+    # Log directory type based on the global variables
+    if file_path.startswith(sandboxie_folder):
+        logging.info(f"{file_path}: It's a Sandbox environment file and not hex data.")
+    elif file_path.startswith(main_file_path):
+        logging.info(f"{file_path}: Main file and not hex data.")
+    elif file_path.startswith(decompile_dir):
+        logging.info(f"{file_path}: Decompiled and not hex data.")
+    elif file_path.startswith(dotnet_dir):
+        logging.info(f"{file_path}: .NET decompiled and not hex data.")
+    elif file_path.startswith(commandlineandmessage_dir):
+        logging.info(f"{file_path}: Command line message extracted and not hex data.")
+    else:
+        logging.warning(f"{file_path}: File does not match known directories.")
+
+    # Define initial message including directory types
+    initial_message = (
+        "The result should always include four lines. Here are the lines that you must include all of them:\n"
+        "- Malware: [Yes/No/Maybe]\n"
+        "- Virus Name:\n"
+        "- Confidence: [percentage]\n"
+        "- Malicious Content: [Explanation]\n"
+        f"File name: {os.path.basename(file_path)}\n"
+        f"File path: {file_path}\n\n"
+        f"This file is categorized as:\n"
+        f"- Sandboxie environment file: {sandboxie_folder}\n"
+        f"- Main file: {main_file_path}\n"
+        f"- Decompiled file: {decompile_dir}\n"
+        f"- .NET decompiled file: {dotnet_dir}\n"
+        f"- Command line message or Windows readable messages: {commandlineandmessage_dir}\n\n"
+        "Based on the file name, file path, and file content analysis:\n\n"
+        "If this file is obfuscated, it may be dangerous, I provide readable text for you to analyze it to is file malware.\n"
+        "If it is a script file and obfuscated, it is probably suspicious or malware.\n"
+        "If it registers itself in 'Shell Common Startup' or 'Shell Startup' and has these extensions, it could be harmful:\n"
+        "- .vbs, .js, .jse, .bat, .url, .cmd, .hta, .ps1, .wsf (Windows script files)\n"
+        "- .vbe, .dll, .jar, .msi, .scr (suspicious extensions at Windows common startup shell:common startup or shell:startup)\n"
+        "If it tries to register as .wll instead of .dll, it could also be harmful.\n"
+        "Decrypt base64 base32 strings in your head.\n"
+    )
+
+    # Tokenize the initial message
+    initial_inputs = tokenizer(initial_message, return_tensors="pt")
+    initial_token_length = initial_inputs['input_ids'].shape[1]
+
+    # Define token limits
+    max_tokens = 2048  # Set the maximum token limit based on the model's capacity
+    remaining_tokens = max_tokens - initial_token_length
+
+    # Tokenize the readable content
+    file_inputs = tokenizer(readable_content, return_tensors="pt")
+    file_token_length = file_inputs['input_ids'].shape[1]
+
+    # Truncate the file content to fit within the remaining tokens
+    if file_token_length > remaining_tokens:
+        truncated_file_content = tokenizer.decode(file_inputs['input_ids'][0, :remaining_tokens], skip_special_tokens=True)
+    else:
+        truncated_file_content = readable_content
+
+    # Combine the initial message with the truncated file content
+    combined_message = initial_message + f"File content:\n{truncated_file_content}\n"
+
+    # Tokenize the combined message
+    inputs = tokenizer(combined_message, return_tensors="pt")
+
+    # Generate the response with a limited number of tokens
+    try:
+        response = accelerator.unwrap_model(model).generate(
+            input_ids=inputs['input_ids'],
+            max_new_tokens=1000,  # Limit the number of tokens in the generated response
+            num_return_sequences=1
+        )
+        response = tokenizer.decode(response[0], skip_special_tokens=True).strip()
+    except Exception as e:
+        print(f"Error generating response: {e}")
+        return
+
+    # Extract the relevant part of the response
+    start_index = response.lower().find("based on the analysis:")
+    if start_index == -1:
+        start_index = 0
+    else:
+        start_index += len("Based on the analysis:")
+
+    relevant_response = response[start_index:].strip()
+
+    # Initialize variables to store extracted information
+    malware = "Unknown"
+    confidence = "Unknown"
+    virus_name = "Unknown"
+    explanation = "No explanation provided"
+
+    # Extract relevant parts from the response for malware, virus name, confidence, and explanation
+    for line in relevant_response.split("\n"):
+        line_lower = line.lower()
+
+        if "malware:" in line_lower:
+            malware = line.split(":")[-1].strip()
+        if "virus name:" in line_lower:
+            potential_name = line.split(":")[-1].strip()
+            if os.path.basename(file_path) not in potential_name:
+                virus_name = potential_name
+        if "confidence:" in line_lower:
+            confidence = line.split(":")[-1].strip()
+        if "malicious content:" in line_lower:
+            explanation = line.split(":")[-1].strip()
+
+    # Ensure only the four required lines are printed
+    final_response = (
+        f"Malware: {malware}\n"
+        f"Virus Name: {virus_name}\n"
+        f"Confidence: {confidence}\n"
+        f"Malicious Content: {explanation}\n"
+    )
+
+    print(final_response)
+
+    # Log the response
+    answer_log_path = os.path.join(script_dir, "answer.log")
+    try:
+        with open(answer_log_path, "a") as answer_log_file:
+            answer_log_file.write(relevant_response + "\n\n")  # Write the raw model response
+    except Exception as e:
+        print(f"Error writing to log file {answer_log_path}: {e}")
+
+    log_file_path = os.path.join(script_dir, "log", "TinyLlama.log")
+    try:
+        with open(log_file_path, "a") as log_file:
+            log_file.write(final_response + "\n")
+    except Exception as e:
+        print(f"Error writing to log file {log_file_path}: {e}")
+
 def scan_and_warn(file_path, flag=False):
     logging.info(f"Scanning file: {file_path}")
 
@@ -2474,7 +2606,7 @@ def scan_and_warn(file_path, flag=False):
                 logging.info(f"File '{file_path}' has a valid signature. Skipping worm detection.")
             elif signature_check["signature_status_issues"]:
                 logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
-                notify_user_invalid(file_path, "Win32.InvalidSignature")
+                notify_user_invalid(file_path, "Win32.Suspicious.InvalidSignature")
         else:
             # If the file content is not valid hex data, perform scanning with TinyLlama
             logging.info(f"File {file_path} does not contain valid hex-encoded data. Scanning with TinyLlama...")
@@ -2705,7 +2837,7 @@ def check_startup_directories():
                             elif file_path.endswith(('.vbs', '.js', '.jse', '.bat', '.url', '.cmd', '.hta', '.ps1', '.wsf')):
                                 malware_type = "HEUR:Win32.Startup.Script.Generic.Malware"
                                 message = f"Confirmed script malware detected: {file_path}\nVirus: {malware_type}"
-                            elif file_path.endswith(('.vbe', '.dll', '.jar', '.msi', '.scr', '.hta', '.hta')):
+                            elif file_path.endswith(('.vbe', '.dll', '.jar', '.msi', '.scr', '.hta',)):
                                 malware_type = "HEUR:Win32.Startup.Suspicious.Extension.Generic.Malware"
                                 message = f"Confirmed malware with suspicious extension detected: {file_path}\nVirus: {malware_type}"
                             else:
