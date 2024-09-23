@@ -1773,6 +1773,11 @@ model, tokenizer = load_tinyllama_model()
 # List to keep track of existing project names
 existing_projects = []
 
+# List of already scanned files and their modification times
+scanned_files = []
+file_mod_times = {}
+directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, base_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, processed_dir]
+
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
     try:
@@ -3257,11 +3262,6 @@ class Monitor_Message_CommandLine:
 
         except Exception as e:
             logging.error(f"Unexpected error in monitor loop: {e}")
-
-# List of already scanned files and their modification times
-scanned_files = []
-file_mod_times = {}
-directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, base_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, processed_dir]
 
 def monitor_sandboxie_directory():
     """
