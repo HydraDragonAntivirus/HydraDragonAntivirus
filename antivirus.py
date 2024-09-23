@@ -591,7 +591,7 @@ def notify_rlo_warning(file_path, archive_type, virus_name):
     """Send a notification for RLO-related warnings."""
     notification = Notify()
     notification.title = "RLO Warning"
-    notification.message = (f"Filename in {archive_type} file {file_path} contains RLO character after a comma. "
+    notification.message = (f"Filename in {archive_type} file {file_path} contains RLO character after a dot. "
                             f"This could indicate suspicious activity. Virus Name: {virus_name}")
     notification.send()
 
@@ -1224,9 +1224,9 @@ def is_encrypted(zip_info):
     """Check if a ZIP entry is encrypted."""
     return zip_info.flag_bits & 0x1 != 0
 
-def contains_rlo_after_comma(filename):
-    """Check if the filename contains an RLO character after a comma."""
-    return ",\u202E" in filename
+def contains_rlo_after_dot(filename):
+    """Check if the filename contains an RLO character after a dot."""
+    return ".\u202E" in filename
 
 def scan_pe_file(file_path):
     """Scan files within an exe file."""
@@ -1262,7 +1262,7 @@ def scan_zip_file(file_path):
             for zip_info in zfile.infolist():
 
                 # Check for RLO in filenames before handling encryption
-                if contains_rlo_after_comma(zip_info.filename):
+                if contains_rlo_after_dot(zip_info.filename):
                     virus_name = "HEUR:RLO.Suspicious.Name.Encrypted.ZIP.Generic"
                     logging.warning(
                         f"Filename {zip_info.filename} in {file_path} contains RLO character after a comma - "
@@ -1302,7 +1302,7 @@ def scan_tar_file(file_path):
             for member in tar.getmembers():
 
                 # Check for RLO in filenames
-                if contains_rlo_after_comma(member.name):
+                if contains_rlo_after_dot(member.name):
                     virus_name = "HEUR:RLO.Suspicious.Name.Encrypted.TAR.Generic"
                     logging.warning(
                         f"Filename {member.name} in {file_path} contains RLO character after a comma - "
