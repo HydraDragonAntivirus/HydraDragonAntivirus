@@ -1008,9 +1008,9 @@ class RealTimeWebProtectionHandler:
     def on_packet_received(self, packet):
         if IP in packet:
             self.handle_ipv4(packet)
-        elif IPv6 in packet:
+        if IPv6 in packet:
             self.handle_ipv6(packet)
-        elif DNS in packet:
+        if DNS in packet:
             if packet[DNS].qd:
                 for i in range(packet[DNS].qdcount):
                     query_name = packet[DNSQR][i].qname.decode().rstrip('.')
@@ -2788,7 +2788,7 @@ def check_uefi_directories():
                 if file_path.endswith(".efi") and file_path not in known_uefi_files and file_path not in alerted_uefi_files:
                     logging.warning(f"Unknown file detected: {file_path}")
                     print(f"Unknown file detected: {file_path}")
-                    notify_user_uefi(file_path, "HEUR:Win32.Startup.UEFI.Generic.Malware")
+                    notify_user_uefi(file_path, "HEUR:Win32.Rootkit.Startup.UEFI.Generic.Malware")
                     scan_and_warn(file_path)
                     alerted_uefi_files.append(file_path)
 
