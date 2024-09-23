@@ -1746,6 +1746,30 @@ try:
 except Exception as e:
     print(f"Error loading YARA-X rules: {e}")
 
+# Function to load TinyLlama model and tokenizer
+def load_tinyllama_model():
+    try:
+        message = "Attempting to load TinyLlama model and tokenizer..."
+        print(message)
+        logging.info(message)
+        
+        tokenizer = AutoTokenizer.from_pretrained(os.path.join(script_dir, "TinyLlama"), local_files_only=True)
+        model = AutoModelForCausalLM.from_pretrained(os.path.join(script_dir, "TinyLlama"), local_files_only=True)
+        
+        success_message = "TinyLlama successfully loaded!"
+        print(success_message)
+        logging.info(success_message)
+        
+        return model, tokenizer
+    except Exception as e:
+        error_message = f"Error loading TinyLlama model or tokenizer: {e}"
+        print(error_message)
+        logging.error(error_message)
+        exit(1)
+
+# Load the TinyLlama model
+model, tokenizer = load_tinyllama_model()
+
 # List to keep track of existing project names
 existing_projects = []
 
