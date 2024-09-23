@@ -435,20 +435,20 @@ QFileDialog {
 }
 """
 
-def is_hex_data(data):
+def is_hex_data(data_content):
     """Check if the given binary data can be valid hex-encoded data."""
     try:
         # Convert binary data to hex representation and back to binary
-        binascii.unhexlify(binascii.hexlify(data))
+        binascii.unhexlify(binascii.hexlify(data_content))
         return True
     except (TypeError, binascii.Error):
         return False
 
-def remove_magic_bytes(data):
+def remove_magic_bytes(data_content):
     """Remove magic bytes from data, considering it might be hex-encoded."""
-    if is_hex_data(data):
+    if is_hex_data(data_content):
         # Convert binary data to hex representation for easier pattern removal
-        hex_data = binascii.hexlify(data).decode('utf-8')
+        hex_data = binascii.hexlify(data_content).decode('utf-8')
 
         # Remove magic bytes by applying regex patterns
         for magic_byte in magic_bytes.keys():
@@ -459,50 +459,50 @@ def remove_magic_bytes(data):
         return binascii.unhexlify(hex_data)
     else:
         # If data is not hex-encoded, process it directly
-        hex_data = binascii.hexlify(data).decode('utf-8')
+        hex_data = binascii.hexlify(data_content).decode('utf-8')
         for magic_byte in magic_bytes.keys():
             pattern = re.compile(rf'{magic_bytes[magic_byte].replace(" ", "")}', re.IGNORECASE)
             hex_data = pattern.sub('', hex_data)
         return binascii.unhexlify(hex_data)
 
-def decode_base64(data):
+def decode_base64(data_content):
     """Decode base64-encoded data."""
     try:
-        return base64.b64decode(data)
+        return base64.b64decode(data_content)
     except (binascii.Error, ValueError):
         return None
 
-def decode_base32(data):
+def decode_base32(data_content):
     """Decode base32-encoded data."""
     try:
-        return base32_crockford.decode(data)
+        return base32_crockford.decode(data_content)
     except (binascii.Error, ValueError):
         return None
 
 def process_file_data(file_path):
     """Process file data by decoding and removing magic bytes."""
     with open(file_path, 'rb') as file:
-        data = file.read()
+        data_content = file.read()
 
-    original_data = data
+    original_data = data_content
     # Initial processing of the data
     while True:
         # Try to decode base64 and base32 repeatedly until no more decoding is possible
-        base64_decoded = decode_base64(data)
+        base64_decoded = decode_base64(data_content)
         if base64_decoded is not None:
-            data = base64_decoded
+            data_content = base64_decoded
             continue
 
-        base32_decoded = decode_base32(data)
+        base32_decoded = decode_base32(data_content)
         if base32_decoded is not None:
-            data = base32_decoded
+            data_content = base32_decoded
             continue
 
         # No more base64 or base32 encoded data
         break
 
     # Process the data to handle possible mixed content
-    processed_data = remove_magic_bytes(data)
+    processed_data = remove_magic_bytes(data_content)
 
     # Save processed data
     output_file_path = os.path.join(processed_dir, 'processed_' + os.path.basename(file_path))
@@ -1080,11 +1080,11 @@ class YaraScanner:
             return None
 
         with open(file_path, 'rb') as file:
-            data = file.read()
+            data_content = file.read()
 
             # Check matches for compiled_rule
             if compiled_rule:
-                matches = compiled_rule.match(data=data)
+                matches = compiled_rule.match(data=data_content)
                 if matches:
                     for match in matches:
                         if match.rule not in excluded_rules:
@@ -1097,7 +1097,7 @@ class YaraScanner:
             # Check matches for yaraxtr_rule (loaded with yara_x)
             if yaraxtr_rule:
                 scanner = yara_x.Scanner(yaraxtr_rule)
-                results = scanner.scan(data=data)
+                results = scanner.scan(data=data_content)
                 if results.matching_rules:
                     for rule in results.matching_rules:
                         if hasattr(rule, 'identifier') and rule.identifier not in excluded_rules:
@@ -1111,7 +1111,7 @@ class YaraScanner:
             # Check matches for windows_defender_rule (loaded with yara_x)
             if windows_defender_rule:
                 scanner = yara_x.Scanner(windows_defender_rule)
-                results = scanner.scan(data=data)
+                results = scanner.scan(data=data_content)
                 if results.matching_rules:
                     for rule in results.matching_rules:
                         if hasattr(rule, 'identifier') and rule.identifier not in excluded_rules:
@@ -1245,12 +1245,12 @@ def scan_pe_file(file_path):
                             if hasattr(res, 'directory'):
                                 for r in res.directory.entries:
                                     if hasattr(r, 'data'):
-                                        data = pe.get_data(r.data.struct.OffsetToData, r.data.struct.Size)
+                                        data_content = pe.get_data(r.data.struct.OffsetToData, r.data.struct.Size)
                                         
                                         # Save data to file in the extracted directory
                                         extracted_file_path = os.path.join(pe_extracted_dir, "pe_extracted_data.bin")
                                         with open(extracted_file_path, 'wb') as temp_file:
-                                            temp_file.write(data)
+                                            temp_file.write(data_content)
         
         return True, virus_names
     except Exception as e:
@@ -2061,8 +2061,8 @@ class PyInstArchive:
         while True:
             startPos = max(0, endPos - searchChunkSize)
             self.fPtr.seek(startPos, os.SEEK_SET)
-            data = self.fPtr.read(endPos - startPos)
-            offs = data.rfind(self.MAGIC)
+            data_content = self.fPtr.read(endPos - startPos)
+            offs = data_content.rfind(self.MAGIC)
             if offs != -1:
                 self.cookiePos = startPos + offs
                 break
@@ -2138,15 +2138,15 @@ class PyInstArchive:
 
         for entry in self.tocList:
             self.fPtr.seek(entry.position, os.SEEK_SET)
-            data = self.fPtr.read(entry.cmprsdDataSize)
+            data_content = self.fPtr.read(entry.cmprsdDataSize)
             if entry.cmprsFlag == 1:
                 try:
-                    data = zlib.decompress(data)
+                    data_content = zlib.decompress(data_content)
                 except zlib.error:
                     return False
 
             with open(entry.name, 'wb') as f:
-                f.write(data)
+                f.write(data_content)
 
             if entry.name.endswith('.pyz'):
                 self._extractPyz(entry.name)
@@ -2190,12 +2190,12 @@ class PyInstArchive:
 
                 os.makedirs(os.path.dirname(filePath), exist_ok=True)
 
-                data = f.read(length)
+                data_content = f.read(length)
                 try:
-                    data = zlib.decompress(data)
+                    data_content = zlib.decompress(data_content)
                 except zlib.error:
                     with open(filePath + '.encrypted', 'wb') as e_f:
-                        e_f.write(data)
+                        e_f.write(data_content)
                     continue
 
                 with open(filePath, 'wb') as pyc_f:
@@ -2203,7 +2203,7 @@ class PyInstArchive:
                     pyc_f.write(b'\0' * 4)
                     if self.pymaj >= 3 and self.pymin >= 7:
                         pyc_f.write(b'\0' * 8)
-                    pyc_f.write(data)
+                    pyc_f.write(data_content)
 
         return True
 
@@ -2686,7 +2686,7 @@ def scan_and_warn(file_path, flag=False):
     try:
 
         with open(file_path, 'rb') as file:
-            data = file.read()
+            data_content = file.read()
 
         # Initialize variables
         is_decompiled = False
@@ -2698,7 +2698,7 @@ def scan_and_warn(file_path, flag=False):
         }
 
         # Check if the file content is valid hex data
-        if is_hex_data(data):
+        if is_hex_data(data_content):
             logging.info(f"File {file_path} contains valid hex-encoded data.")
             
             # Perform signature check only if the file is valid hex data
