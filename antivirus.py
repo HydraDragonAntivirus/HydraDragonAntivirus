@@ -2416,10 +2416,35 @@ def worm_alert(file_path):
     except Exception as e:
         logging.error(f"Error in worm detection for file {file_path}: {e}")
 
+def log_directory_type(file_path):
+    if file_path.startswith(sandboxie_folder):
+        logging.info(f"{file_path}: It's a Sandbox environment file.")
+    elif file_path.startswith(decompile_dir):
+        logging.info(f"{file_path}: Decompiled.")
+    elif file_path.startswith(nuitka_dir):
+        logging.info(f"{file_path}: Nuitka onefile extracted.")
+    elif file_path.startswith(dotnet_dir):
+        logging.info(f"{file_path}: .NET decompiled.")
+    elif file_path.startswith(pyinstaller_dir):
+        logging.info(f"{file_path}: PyInstaller onefile extracted.")
+    elif file_path.startswith(commandlineandmessage_dir):
+        logging.info(f"{file_path}: Command line message extracted.")
+    elif file_path.startswith(pe_extracted_dir):
+        logging.info(f"{file_path}: PE file extracted.")
+    elif file_path.startswith(zip_extracted_dir):
+        logging.info(f"{file_path}: ZIP extracted.")
+    elif file_path.startswith(tar_extracted_dir):
+        logging.info(f"{file_path}: TAR extracted.")
+    elif file_path.startswith(processed_dir):
+        logging.info(f"{file_path}: Processed - File is base64/base32, signature/magic bytes removed.")
+
 def scan_and_warn(file_path, flag=False):
     logging.info(f"Scanning file: {file_path}")
 
     try:
+        # Log directory type based on file path
+        log_directory_type(file_path)
+
         # Perform ransomware alert check
         ransomware_alert(file_path)
 
