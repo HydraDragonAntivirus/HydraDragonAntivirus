@@ -208,6 +208,9 @@ print("spaCy model 'en_core_web_md' loaded successfully")
 # Set script directory
 script_dir = os.getcwd()
 
+# Initialize the accelerator
+accelerator = Accelerator()
+
 # Define the paths to the ghidra related directories
 decompile_dir = os.path.join(script_dir, "decompile")
 pyinstaller_dir = os.path.join(script_dir, "pyinstaller")
@@ -2437,6 +2440,8 @@ def log_directory_type(file_path):
         logging.info(f"{file_path}: TAR extracted.")
     elif file_path.startswith(processed_dir):
         logging.info(f"{file_path}: Processed - File is base64/base32, signature/magic bytes removed.")
+    elif file_path == main_file_path:  # Check for main file path
+        logging.info(f"{file_path}: This is the main file.")
 
 def scan_and_warn(file_path, flag=False):
     logging.info(f"Scanning file: {file_path}")
