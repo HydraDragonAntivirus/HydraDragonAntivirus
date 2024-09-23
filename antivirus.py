@@ -568,6 +568,17 @@ def notify_user(file_path, virus_name):
     notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
+def notify_user_for_tinyllama(file_path, virus_name, malware_status):
+    notification = Notify()
+    notification.title = "TinyLlama Security Alert"
+    
+    if malware_status.lower() == "maybe":
+        notification.message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
+    elif malware_status.lower() == "yes":
+        notification.message = f"Malware detected: {file_path}\nVirus: {virus_name}"
+
+    notification.send()
+
 def notify_size_warning(file_path, archive_type, virus_name):
     """Send a notification for size-related warnings."""
     notification = Notify()
@@ -2444,7 +2455,7 @@ def log_directory_type(file_path):
         logging.info(f"{file_path}: This is the main file.")
 
 # Function to process the file and analyze it
-def scan_with_tinyllama(file_path):
+def scan_file_with_tinyllama(file_path):
     # Log directory type based on the global variables
     if file_path.startswith(sandboxie_folder):
         logging.info(f"{file_path}: It's a Sandbox environment file and not hex data.")
@@ -2559,6 +2570,7 @@ def scan_with_tinyllama(file_path):
     )
 
     print(final_response)
+    logging.info(final_response)
 
     # Log the response
     answer_log_path = os.path.join(script_dir, "answer.log")
@@ -2574,6 +2586,10 @@ def scan_with_tinyllama(file_path):
             log_file.write(final_response + "\n")
     except Exception as e:
         print(f"Error writing to log file {log_file_path}: {e}")
+
+    # If malware is detected (Maybe or Yes), notify the user with the appropriate message
+    if malware.lower() in ["maybe", "yes"]:
+        notify_user_for_tinyllama(file_path, virus_name, malware)
 
 def scan_and_warn(file_path, flag=False):
     logging.info(f"Scanning file: {file_path}")
@@ -2611,7 +2627,7 @@ def scan_and_warn(file_path, flag=False):
             # If the file content is not valid hex data, perform scanning with TinyLlama
             logging.info(f"File {file_path} does not contain valid hex-encoded data. Scanning with TinyLlama...")
             try:
-                scan_with_tinylama(file_path)
+                scan_file_with_tinyllama(file_path)
             except Exception as e:
                 logging.error(f"Error during scanning with TinyLlama for file {file_path}: {e}")
 
