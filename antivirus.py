@@ -2470,6 +2470,13 @@ def scan_and_warn(file_path, flag=False):
             elif signature_check["signature_status_issues"]:
                 logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
                 notify_user_invalid(file_path, "Win32.InvalidSignature")
+        else:
+            # If the file content is not valid hex data, perform scanning with TinyLlama
+            logging.info(f"File {file_path} does not contain valid hex-encoded data. Scanning with TinyLlama...")
+            try:
+                scan_with_tinylama(file_path)
+            except Exception as e:
+                logging.error(f"Error during scanning with TinyLlama for file {file_path}: {e}")
 
         # Log directory type based on file path
         log_directory_type(file_path)
