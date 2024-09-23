@@ -2489,8 +2489,8 @@ def scan_file_with_tinyllama(file_path):
         "If this file is obfuscated, it may be dangerous, I provide readable text for you to analyze it to is file malware.\n"
         "If it is a script file and obfuscated, it is probably suspicious or malware.\n"
         "If it registers itself in 'Shell Common Startup' or 'Shell Startup' and has these extensions, it could be harmful:\n"
-        "- .vbs, .js, .jse, .bat, .url, .cmd, .hta, .ps1, .psm1, .wsf, .wsb, .sct (Windows script files)\n"
-        "- .vbe, .dll, .jar, .msi, .scr (suspicious extensions at Windows common startup shell:common startup or shell:startup)\n"
+        "- .vbs, .vbe, .js, .jse, .bat, .url, .cmd, .hta, .ps1, .psm1, .wsf, .wsb, .sct (Windows script files)\n"
+        "- .dll, .jar, .msi, .scr (suspicious extensions at Windows common startup shell:common startup or shell:startup)\n"
         "If it tries to register as .wll instead of .dll, it could also be harmful.\n"
         "Decrypt base64 base32 strings in your head.\n"
     )
@@ -2850,10 +2850,10 @@ def check_startup_directories():
                             if file_path.endswith('.wll') and is_pe_file(file_path):
                                 malware_type = "HEUR:Win32.Startup.DLLwithWLL.Generic.Malware"
                                 message = f"Confirmed DLL malware detected: {file_path}\nVirus: {malware_type}"
-                            elif file_path.endswith(('.vbs', '.js', '.jse', '.bat', '.url', '.cmd', '.hta', '.ps1', '.psm1', '.wsf', '.wsb', '.sct')):
+                            elif file_path.endswith(('.vbs', '.vbe', '.js', '.jse', '.bat', '.url', '.cmd', '.hta', '.ps1', '.psm1', '.wsf', '.wsb', '.sct')):
                                 malware_type = "HEUR:Win32.Startup.Script.Generic.Malware"
                                 message = f"Confirmed script malware detected: {file_path}\nVirus: {malware_type}"
-                            elif file_path.endswith(('.vbe', '.dll', '.jar', '.msi', '.scr', '.hta',)):
+                            elif file_path.endswith(('.dll', '.jar', '.msi', '.scr', '.hta',)):
                                 malware_type = "HEUR:Win32.Startup.Suspicious.Extension.Generic.Malware"
                                 message = f"Confirmed malware with suspicious extension detected: {file_path}\nVirus: {malware_type}"
                             else:
