@@ -2442,6 +2442,35 @@ def scan_and_warn(file_path, flag=False):
     logging.info(f"Scanning file: {file_path}")
 
     try:
+
+        # Initialize variables
+        is_decompiled = False
+        pe_file = False
+        signature_check = {
+            "has_microsoft_signature": False,
+            "is_valid": False,
+            "signature_status_issues": False
+        }
+
+        # Check if the file content is valid hex data
+        if is_hex_data(file_content):
+            logging.info(f"File {file_path} contains valid hex-encoded data.")
+            
+            # Perform signature check only if the file is valid hex data
+            signature_check = check_signature(file_path)
+            if not isinstance(signature_check, dict):
+                logging.error(f"check_signature did not return a dictionary for file: {file_path}, received: {signature_check}")
+            
+            # Handle signature results
+            if signature_check["has_microsoft_signature"]:
+                logging.info(f"Valid Microsoft signature detected for file: {file_path}")
+                return False
+            if signature_check["is_valid"]:
+                logging.info(f"File '{file_path}' has a valid signature. Skipping worm detection.")
+            elif signature_check["signature_status_issues"]:
+                logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
+                notify_user_invalid(file_path, "Win32.InvalidSignature")
+
         # Log directory type based on file path
         log_directory_type(file_path)
 
@@ -2455,15 +2484,6 @@ def scan_and_warn(file_path, flag=False):
         if file_name in known_rootkit_files:
             logging.warning(f"Detected potential rootkit file: {file_path}")
             notify_user_for_detected_rootkit(file_path, f"HEUR:Rootkit.{file_name}")
-
-        # Initialize variables
-        is_decompiled = False
-        pe_file = False
-        signature_check = {
-            "has_microsoft_signature": False,
-            "is_valid": False,
-            "signature_status_issues": False
-        }
 
         # Check if the file is in decompile_dir
         if file_path.startswith(decompile_dir):
@@ -2494,20 +2514,6 @@ def scan_and_warn(file_path, flag=False):
         if is_pe_file(file_path):
             logging.info(f"File {file_path} is a valid PE file.")
             pe_file = True
-
-        # Check signature
-        signature_check = check_signature(file_path)
-        if not isinstance(signature_check, dict):
-            logging.error(f"check_signature did not return a dictionary for file: {file_path}, received: {signature_check}")
-
-        if signature_check["has_microsoft_signature"]:
-            logging.info(f"Valid Microsoft signature detected for file: {file_path}")
-            return False
-        elif signature_check["is_valid"]:
-            logging.info(f"File '{file_path}' has a valid signature. Skipping worm detection.")
-        elif signature_check["signature_status_issues"]:
-            logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
-            notify_user_invalid(file_path, "Win32.InvalidSignature")
 
         # Check for fake file size
         if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
