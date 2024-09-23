@@ -189,6 +189,10 @@ start_time = time.time()
 from accelerate import Accelerator
 print(f"accelerate.Accelerator module loaded in {time.time() - start_time:.6f} seconds")
 
+start_time = time.time()
+import py7zr
+print(f"py7zr module loaded in {time.time() - start_time:.6f} seconds")
+
 # Calculate and print total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
@@ -1293,6 +1297,57 @@ def scan_zip_file(file_path):
         logging.error(f"Error scanning zip file: {file_path} - {e}")
         return False, ""
 
+def scan_7z_file(file_path):
+    """Scan files within a 7z archive."""
+    try:
+        # Get the size of the 7z file
+        archive_size = os.path.getsize(file_path)
+
+        with py7zr.SevenZipFile(file_path, mode='r') as archive:
+            for entry in archive.list():
+                filename = entry.filename
+
+                # RLO check
+                if contains_rlo_after_dot(filename):
+                    virus_name = "HEUR:RLO.Suspicious.Name.Encrypted.7Z.Generic"
+                    logging.warning(
+                        f"Filename {filename} in {file_path} contains RLO character after a dot - "
+                        f"flagged as {virus_name}"
+                    )
+                    notify_rlo_warning(file_path, "7Z", virus_name)
+
+                if is_encrypted(entry):
+                    logging.info(f"Skipping encrypted file: {filename}")
+                    continue
+
+                # Extract the file
+                extracted_file_path = os.path.join(zip_extracted_dir, filename)
+                archive.extract(entry, target_dir=zip_extracted_dir)
+
+                # Check for suspicious conditions: large files in small 7z archives
+                extracted_file_size = os.path.getsize(extracted_file_path)
+                if archive_size < 20 * 1024 * 1024 and extracted_file_size > 650 * 1024 * 1024:
+                    virus_name = "HEUR:Win32.Suspicious.Size.Encrypted.7Z"
+                    logging.warning(
+                        f"7Z file {file_path} is smaller than 20MB but contains a large file: {filename} "
+                        f"({extracted_file_size / (1024 * 1024)} MB) - flagged as {virus_name}. "
+                        "Potential 7Z bomb or Fake Size detected to avoid VirusTotal detections."
+                    )
+                    notify_size_warning(file_path, "7Z", virus_name)
+
+        return True, []
+    except Exception as e:
+        logging.error(f"Error scanning 7z file: {file_path} - {e}")
+        return False, ""
+
+def is_7z_file(file_path):
+    """Check if the file is a valid 7z archive."""
+    try:
+        with py7zr.SevenZipFile(file_path, mode='r') as archive:
+            return True
+    except Exception:
+        return False
+
 def scan_tar_file(file_path):
     """Scan files within a tar archive."""
     try:
@@ -1418,6 +1473,25 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
             logging.error(f"ZIP file not found error occurred while scanning ZIP file: {file_path}")
         except Exception as e:
             logging.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {e}")
+
+        # Scan 7z files
+        try:
+            if is_7z_file(file_path):
+                scan_result, virus_name = scan_7z_file(file_path)
+                if scan_result and virus_name not in ("Clean", ""):
+                    if signature_check["is_valid"]:
+                        virus_name = "SIG." + virus_name
+                    logging.warning(f"Infected file detected (7Z): {file_path} - Virus: {virus_name}")
+                    return True, virus_name
+                logging.info(f"No malware detected in 7Z file: {file_path}")
+            else:
+                logging.info(f"File is not a valid 7Z archive: {file_path}")
+        except PermissionError:
+            logging.error(f"Permission error occurred while scanning 7Z file: {file_path}")
+        except FileNotFoundError:
+            logging.error(f"7Z file not found error occurred while scanning 7Z file: {file_path}")
+        except Exception as e:
+            logging.error(f"An error occurred while scanning 7Z file: {file_path}. Error: {e}")
 
     except Exception as e:
         logging.error(f"An error occurred while scanning file: {file_path}. Error: {e}")
@@ -2503,15 +2577,30 @@ def scan_file_with_tinyllama(file_path):
     max_tokens = 2048  # Set the maximum token limit based on the model's capacity
     remaining_tokens = max_tokens - initial_token_length
 
-    # Tokenize the readable content
-    file_inputs = tokenizer(readable_content, return_tensors="pt")
+    # Read the first 100,000 lines of the file
+    readable_file_content = ""
+    line_count = 0
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            for line in file:
+                if line_count < 100000:
+                    readable_file_content += line
+                    line_count += 1
+                else:
+                    break
+    except Exception as e:
+        logging.error(f"Error reading file {file_path}: {e}")
+        return
+
+    # Tokenize the readable file content
+    file_inputs = tokenizer(readable_file_content, return_tensors="pt")
     file_token_length = file_inputs['input_ids'].shape[1]
 
     # Truncate the file content to fit within the remaining tokens
     if file_token_length > remaining_tokens:
         truncated_file_content = tokenizer.decode(file_inputs['input_ids'][0, :remaining_tokens], skip_special_tokens=True)
     else:
-        truncated_file_content = readable_content
+        truncated_file_content = readable_file_content
 
     # Combine the initial message with the truncated file content
     combined_message = initial_message + f"File content:\n{truncated_file_content}\n"
@@ -2596,6 +2685,9 @@ def scan_and_warn(file_path, flag=False):
 
     try:
 
+        with open(file_path, 'rb') as file:
+            data = file.read()
+
         # Initialize variables
         is_decompiled = False
         pe_file = False
@@ -2606,7 +2698,7 @@ def scan_and_warn(file_path, flag=False):
         }
 
         # Check if the file content is valid hex data
-        if is_hex_data(file_content):
+        if is_hex_data(data):
             logging.info(f"File {file_path} contains valid hex-encoded data.")
             
             # Perform signature check only if the file is valid hex data
