@@ -47,7 +47,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
  - Any ghidra project will be removed after you restart the program. So be careful!
 - You have to restart the program after the analysis.
 - Please don't share your IP in the logs.
-- Please put TinyLlama in the folder C:\Program Files\HydraDragonAntivirus\TinyLlama\model.safetensors otherwise the antivirus won't work.
+- Please put TinyLlama in the folder C:\Program Files\HydraDragonAntivirus\TinyLlama (Add TinyLlama files like model.safetensors) otherwise the antivirus won't work.
 
 ## Discord Community Server
 
