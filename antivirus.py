@@ -572,9 +572,9 @@ def notify_user(file_path, virus_name):
     notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
-def notify_user_for_tinyllama(file_path, virus_name, malware_status):
+def notify_user_for_llama32(file_path, virus_name, malware_status):
     notification = Notify()
-    notification.title = "TinyLlama Security Alert"
+    notification.title = "Llama3.2-1B Security Alert"
     
     if malware_status.lower() == "maybe":
         notification.message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
@@ -1834,29 +1834,29 @@ try:
 except Exception as e:
     print(f"Error loading YARA-X rules: {e}")
 
-# Function to load TinyLlama model and tokenizer
-def load_tinyllama_model():
+# Function to load Llama3.2-1B model and tokenizer
+def load_llama32_model():
     try:
-        message = "Attempting to load TinyLlama model and tokenizer..."
+        message = "Attempting to load Llama3.2-1B model and tokenizer..."
         print(message)
         logging.info(message)
         
         tokenizer = AutoTokenizer.from_pretrained(os.path.join(script_dir, "TinyLlama"), local_files_only=True)
         model = AutoModelForCausalLM.from_pretrained(os.path.join(script_dir, "TinyLlama"), local_files_only=True)
         
-        success_message = "TinyLlama successfully loaded!"
+        success_message = "Llama3.2-1B successfully loaded!"
         print(success_message)
         logging.info(success_message)
         
         return model, tokenizer
     except Exception as e:
-        error_message = f"Error loading TinyLlama model or tokenizer: {e}"
+        error_message = f"Error loading Llama3.2-1B model or tokenizer: {e}"
         print(error_message)
         logging.error(error_message)
         exit(1)
 
-# Load the TinyLlama model
-model, tokenizer = load_tinyllama_model()
+# Load the Llama3.2-1B model
+model, tokenizer = load_llama32_model()
 
 # List to keep track of existing project names
 existing_projects = []
@@ -2529,7 +2529,7 @@ def log_directory_type(file_path):
         logging.info(f"{file_path}: This is the main file.")
 
 # Function to process the file and analyze it
-def scan_file_with_tinyllama(file_path):
+def scan_file_with_llama32(file_path):
     # Log directory type based on the global variables
     if file_path.startswith(sandboxie_folder):
         logging.info(f"{file_path}: It's a Sandbox environment file and not hex data.")
@@ -2669,7 +2669,7 @@ def scan_file_with_tinyllama(file_path):
     except Exception as e:
         print(f"Error writing to log file {answer_log_path}: {e}")
 
-    log_file_path = os.path.join(script_dir, "log", "TinyLlama.log")
+    log_file_path = os.path.join(script_dir, "log", "Llama32-1B.log")
     try:
         with open(log_file_path, "a") as log_file:
             log_file.write(final_response + "\n")
@@ -2678,7 +2678,7 @@ def scan_file_with_tinyllama(file_path):
 
     # If malware is detected (Maybe or Yes), notify the user with the appropriate message
     if malware.lower() in ["maybe", "yes"]:
-        notify_user_for_tinyllama(file_path, virus_name, malware)
+        notify_user_for_llama32(file_path, virus_name, malware)
 
 def scan_and_warn(file_path, flag=False):
     logging.info(f"Scanning file: {file_path}")
@@ -2716,12 +2716,12 @@ def scan_and_warn(file_path, flag=False):
                 logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
                 notify_user_invalid(file_path, "Win32.Suspicious.InvalidSignature")
         else:
-            # If the file content is not valid hex data, perform scanning with TinyLlama
-            logging.info(f"File {file_path} does not contain valid hex-encoded data. Scanning with TinyLlama...")
+            # If the file content is not valid hex data, perform scanning with Llama3.2-1B
+            logging.info(f"File {file_path} does not contain valid hex-encoded data. Scanning with Llama3.2-1B...")
             try:
-                scan_file_with_tinyllama(file_path)
+                scan_file_with_llama32(file_path)
             except Exception as e:
-                logging.error(f"Error during scanning with TinyLlama for file {file_path}: {e}")
+                logging.error(f"Error during scanning with Llama3.2-1B for file {file_path}: {e}")
 
         # Log directory type based on file path
         log_directory_type(file_path)
