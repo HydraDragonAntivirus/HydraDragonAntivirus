@@ -47,7 +47,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
  - Any ghidra project will be removed after you restart the program. So be careful!
 - You have to restart the program after the analysis.
 - Please don't share your IP in the logs.
-- Please put TinyLlama (Extract TinyLlama.7z) in the folder C:\Program Files\HydraDragonAntivirus\TinyLlama (Add TinyLlama files like model.safetensors) otherwise the antivirus won't work.
+- Please put Llama3.2-1B (Extract Llama3.2-1B.7z) in the folder C:\Program Files\HydraDragonAntivirus\Llama3.2-1B (Add Llama3.2-1B files like model.safetensors) otherwise the antivirus won't work.
 - Please put _internal (Exract _internal.7z) in the folder C:\Program Files\HydraDragonAntivirus\_internal otherwise the antivirus won't work.
 
 ## Discord Community Server
@@ -81,7 +81,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - I used these projects to decompile.
 
 - https://github.com/starhopp3r/ML-Antivirus
-- https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0
+- https://huggingface.co/meta-llama/Llama-3.2-1B
 
 - I used these projects for AI.
 
@@ -120,8 +120,8 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 **Why does my antivirus detect this as malware?**
 - It's a false positive. It's a one-file compiled Pyinstaller file and contains the website, HIPS signatures without obfuscation. It's a fully open source product.
 
-**Why is it 5GB+?**
-- Because of website signatures, Ghidra, ClamAV and Java Development Kit. Website signatures are not very effective but they can detect old and new viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space. Java Development Kit is for Ghidra. That's 1GB+, but TinyLlama and Pyinstaller (transformers, torch modules etc.) make a total of 5GB+. Note that it's a completely local and very professional open source antivirus.
+**Why is it 6GB+?**
+- Because of website signatures, Ghidra, ClamAV and Java Development Kit. Website signatures are not very effective but they can detect old and new viruses. I can remove them if you want. Ghidra is for decompiling 6but takes too much space. Java Development Kit is for Ghidra. That's 1GB+, but Llama3.2-1B and Pyinstaller (transformers, torch modules etc.) make a total of GB+. Note that it's a completely local and very professional open source antivirus.
 
 **I get unexpected errors when using compiled YARA-X rules.**
 - I don't usually encounter this problem, please create an issue.
@@ -133,7 +133,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Windows 10 64-bit and Windows 11 only (you can run ClamAV, but you can't run HydraDragonAntivirus on Windows 8.1 and it's not supported). If you want, I can create a 32-bit version for Windows 10 32-bit, but I faced some problems. ClamAV has limitations on 32-bit, so it's problematic. On Windows 8.1, ClamAV isn't supported because it's an outdated Windows version. You will get the `api-ms-win-crt-runtime-l1-1-0.dll` error. Even if you add this DLL, you will get another error: "Application failed to start properly (0xc000007b)." Then install this: [Microsoft VC Redist](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170). After running `C:\Program Files\ClamAV\freshclam.exe` and `clamd.exe` with `clamd --install`, the setup is complete, but you can't run HydraDragonAntivirus on Windows 8.1 because you get an ImportError on line nine due to PySide6.
 
 **Minimum RAM?**
-- 8GB RAM is the minimum because I am using TinyLlama locally. I strongly recommend 8GB RAM.
+- 8GB RAM is the minimum because I am using Llama3.2-1B locally. I strongly recommend 8GB RAM.
 
 **Any sponsors or supporters?**
 - Yes, there are supporters of this project. Xcitium (Comodo) has expressed interest in supporting this project by sending malware samples, and Cisco Talos ClamAV community projects.
