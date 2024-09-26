@@ -12,7 +12,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 ## Download Machine Learning Malware And Benign Database
 - **Malware Database:** [Download Link](https://drive.google.com/file/d/1QwdxdwX_nH-oF-5hVTkbTuFkrwUfR0-h)
 - **Benign Database:** [Download Link](https://drive.google.com/file/d/1ynUPnLLm3O6QrlCpDz7A0h1QqjIK3Icc)
-- **Notice:** Only contains PE files.
+- **Note:** Only contains PE files.
 - **Password:** infected
 
 ## Machine Learning Training Guide
@@ -48,6 +48,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - You have to restart the program after the analysis.
 - Please don't share your IP in the logs.
 - Please put TinyLlama in the folder C:\Program Files\HydraDragonAntivirus\TinyLlama (Add TinyLlama files like model.safetensors) otherwise the antivirus won't work.
+- Please put _internal in the folder C:\Program Files\HydraDragonAntivirus\_internal otherwise the antivirus won't work.
 
 ## Discord Community Server
 
@@ -116,8 +117,8 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 **Why does my antivirus detect this as malware?**
 - It's a false positive. It's a one-file compiled Pyinstaller file and contains the website, HIPS signatures without obfuscation. It's a fully open source product.
 
-**Why is it 4GB+?**
-- Because of website signatures, Ghidra, ClamAV and Java Development Kit. Website signatures are not very effective but they can detect old and new viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space. Java Development Kit is for Ghidra. That's 1GB+, but TinyLlama and Pyinstaller make a total of 4GB+.
+**Why is it 5GB+?**
+- Because of website signatures, Ghidra, ClamAV and Java Development Kit. Website signatures are not very effective but they can detect old and new viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space. Java Development Kit is for Ghidra. That's 1GB+, but TinyLlama and Pyinstaller make a total of 5GB+. Note that it's a completely local and very professional open source antivirus.
 
 **I get unexpected errors when using compiled YARA-X rules.**
 - I don't usually encounter this problem, please create an issue.
