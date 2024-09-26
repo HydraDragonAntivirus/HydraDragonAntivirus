@@ -574,7 +574,7 @@ def notify_user(file_path, virus_name):
 
 def notify_user_for_llama32(file_path, virus_name, malware_status):
     notification = Notify()
-    notification.title = "Llama3.2-1B Security Alert"
+    notification.title = "Llama-3.2-1B Security Alert"
     
     if malware_status.lower() == "maybe":
         notification.message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
@@ -1834,28 +1834,28 @@ try:
 except Exception as e:
     print(f"Error loading YARA-X rules: {e}")
 
-# Function to load Llama3.2-1B model and tokenizer
+# Function to load Llama-3.2-1B model and tokenizer
 def load_llama32_model():
     try:
-        message = "Attempting to load Llama3.2-1B model and tokenizer..."
+        message = "Attempting to load Llama-3.2-1B model and tokenizer..."
         print(message)
         logging.info(message)
         
-        tokenizer = AutoTokenizer.from_pretrained(os.path.join(script_dir, "TinyLlama"), local_files_only=True)
-        model = AutoModelForCausalLM.from_pretrained(os.path.join(script_dir, "TinyLlama"), local_files_only=True)
+        tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B", local_files_only=True)
+        model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-1B", local_files_only=True)
         
-        success_message = "Llama3.2-1B successfully loaded!"
+        success_message = "Llama-3.2-1B successfully loaded!"
         print(success_message)
         logging.info(success_message)
         
         return model, tokenizer
     except Exception as e:
-        error_message = f"Error loading Llama3.2-1B model or tokenizer: {e}"
+        error_message = f"Error loading Llama-3.2-1B model or tokenizer: {e}"
         print(error_message)
         logging.error(error_message)
         exit(1)
 
-# Load the Llama3.2-1B model
+# Load the Llama-3.2-1B model
 model, tokenizer = load_llama32_model()
 
 # List to keep track of existing project names
@@ -2716,12 +2716,12 @@ def scan_and_warn(file_path, flag=False):
                 logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
                 notify_user_invalid(file_path, "Win32.Suspicious.InvalidSignature")
         else:
-            # If the file content is not valid hex data, perform scanning with Llama3.2-1B
-            logging.info(f"File {file_path} does not contain valid hex-encoded data. Scanning with Llama3.2-1B...")
+            # If the file content is not valid hex data, perform scanning with Llama-3.2-1B
+            logging.info(f"File {file_path} does not contain valid hex-encoded data. Scanning with Llama-3.2-1B...")
             try:
                 scan_file_with_llama32(file_path)
             except Exception as e:
-                logging.error(f"Error during scanning with Llama3.2-1B for file {file_path}: {e}")
+                logging.error(f"Error during scanning with Llama-3.2-1B for file {file_path}: {e}")
 
         # Log directory type based on file path
         log_directory_type(file_path)
