@@ -3627,7 +3627,7 @@ class AnalysisThread(QThread):
         super().__init__()
         self.file_path = file_path
 
-    def execute_anylsis(self):
+    def execute_analysis(self):
         try:
             print(f"Running analysis for: {self.file_path}")  
             logging.info(f"Running analysis for: {self.file_path}")
