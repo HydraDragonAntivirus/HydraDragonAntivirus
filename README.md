@@ -47,8 +47,6 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
  - Any ghidra project will be removed after you restart the program. So be careful!
 - You have to restart the program after the analysis.
 - Please don't share your IP in the logs.
-- Please put Llama3.2-1B (Extract Llama3.2-1B.7z) in the folder C:\Program Files\HydraDragonAntivirus\Llama3.2-1B (Add Llama3.2-1B files like model.safetensors) otherwise the antivirus won't work.
-- Please put _internal (Exract _internal.7z) in the folder C:\Program Files\HydraDragonAntivirus\_internal otherwise the antivirus won't work.
 
 ## Discord Community Server
 
