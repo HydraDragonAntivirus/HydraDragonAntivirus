@@ -14,6 +14,7 @@ base32-crockford
 torch
 accelerate
 py7zr
+chardet
 transformers # You will also need download https://huggingface.co/TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T?library=transformers
 scapy # You will also need to download https://npcap.com/#download
 spacy # python -m spacy download en_core_web_md

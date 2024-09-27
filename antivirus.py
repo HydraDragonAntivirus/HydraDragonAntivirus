@@ -189,6 +189,10 @@ start_time = time.time()
 import py7zr
 print(f"py7zr module loaded in {time.time() - start_time:.6f} seconds")
 
+start_time = time.time()
+import chardet
+print(f"chardet module loaded in {time.time() - start_time:.6f} seconds")
+
 # Calculate and print total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
@@ -196,10 +200,26 @@ print(f"Total time for all imports: {total_duration:.6f} seconds")
 
 sys.modules['sklearn.externals.joblib'] = joblib
 
-# Set the default encoding to UTF-8 for standard output and input
-sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-8')
-sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-8')
-sys.stdin = io.TextIOWrapper(sys.stdin.detach(), encoding='utf-8')
+def detect_encoding_stream(stream):
+    """Detect the encoding of a stream."""
+    # Read a small portion to detect encoding
+    raw_data = stream.read(10000)  # Read the first 10 KB
+    stream.seek(0)  # Reset stream position
+
+    result = chardet.detect(raw_data)
+    return result['encoding']
+
+# Detect encoding for standard input
+input_encoding = detect_encoding_stream(sys.stdin)
+sys.stdin = io.TextIOWrapper(sys.stdin.detach(), encoding=input_encoding)
+
+# Detect encoding for standard output
+output_encoding = 'utf-8'  # Typically, set output to UTF-8
+sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding=output_encoding)
+
+# Detect encoding for standard error
+error_encoding = 'utf-8'  # Typically, set error output to UTF-8
+sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding=error_encoding)
 
 # Load the spaCy model globally
 nlp_spacy_lang = spacy.load("en_core_web_md")
@@ -431,6 +451,11 @@ QFileDialog {
 }
 """
 
+def detect_encoding(data_content):
+    """Detect the encoding of the byte data."""
+    result = chardet.detect(data_content)
+    return result['encoding']
+
 def is_hex_data(data_content):
     """Check if the given binary data can be valid hex-encoded data."""
     try:
@@ -442,9 +467,12 @@ def is_hex_data(data_content):
 
 def remove_magic_bytes(data_content):
     """Remove magic bytes from data, considering it might be hex-encoded."""
+    # Attempt to detect the encoding
+    encoding = detect_encoding(data_content)
+
     if is_hex_data(data_content):
         # Convert binary data to hex representation for easier pattern removal
-        hex_data = binascii.hexlify(data_content).decode('utf-8')
+        hex_data = binascii.hexlify(data_content).decode(encoding, errors='ignore')
 
         # Remove magic bytes by applying regex patterns
         for magic_byte in magic_bytes.keys():
@@ -454,12 +482,25 @@ def remove_magic_bytes(data_content):
         # Convert hex data back to binary
         return binascii.unhexlify(hex_data)
     else:
-        # If data is not hex-encoded, process it directly
-        hex_data = binascii.hexlify(data_content).decode('utf-8')
+        try:
+            # Decode the data using the detected encoding
+            decoded_content = data_content.decode(encoding, errors='ignore')
+        except (AttributeError, TypeError) as e:
+            logging.error(f"Error decoding data: {e}")
+            return data_content  # Return original data if decoding fails
+
+        # Convert decoded content back to bytes for magic byte removal
+        hex_data = binascii.hexlify(decoded_content.encode(encoding)).decode(errors='ignore')
+
         for magic_byte in magic_bytes.keys():
             pattern = re.compile(rf'{magic_bytes[magic_byte].replace(" ", "")}', re.IGNORECASE)
             hex_data = pattern.sub('', hex_data)
-        return binascii.unhexlify(hex_data)
+
+        try:
+            return binascii.unhexlify(hex_data)
+        except Exception as e:
+            logging.error(f"Error unhexlifying data: {e}")
+            return data_content  # Return original data if unhexlifying fails
 
 def decode_base64(data_content):
     """Decode base64-encoded data."""
@@ -2034,6 +2075,14 @@ class PyInstArchive:
 
     def __init__(self, path):
         self.filePath = path
+        self.encoding = self.detect_encoding_of_archive()
+
+    def detect_encoding_archive(self):
+        """Detect the encoding of the file."""
+        with open(self.filePath, 'rb') as f:
+            raw_data = f.read(10000)  # Read a chunk for encoding detection
+        result = chardet.detect(raw_data)
+        return result['encoding']
 
     def open_file(self):
         try:
@@ -2041,7 +2090,7 @@ class PyInstArchive:
             self.fileSize = os.stat(self.filePath).st_size
             return True
         except IOError as e:
-            print(f"Error opening file: {e}")
+            logging.error(f"Error opening file: {e}")
             return False
 
     def close(self):
@@ -2078,7 +2127,7 @@ class PyInstArchive:
             else:
                 _, lengthofPackage, toc, tocLen, pyver, _ = struct.unpack('!8sIIii64s', self.fPtr.read(self.PYINST21_COOKIE_SIZE))
         except struct.error as e:
-            print(f"Error unpacking data: {e}")
+            logging.error(f"Error unpacking data: {e}")
             return False
 
         self.pymaj, self.pymin = (pyver // 100, pyver % 100) if pyver >= 100 else (pyver // 10, pyver % 10)
@@ -2104,10 +2153,10 @@ class PyInstArchive:
             try:
                 entry = struct.unpack(f'!IIIBc{entrySize - nameLen}s', self.fPtr.read(entrySize - 4))
             except struct.error as e:
-                print(f"Error unpacking TOC entry: {e}")
+                logging.error(f"Error unpacking TOC entry: {e}")
                 return False
 
-            name = entry[5].decode('utf-8', errors='replace').rstrip('\0')
+            name = entry[5].decode(self.encoding, errors='replace').rstrip('\0')
             self.tocList.append(CTOCEntry(
                 self.overlayPos + entry[0],
                 entry[1],
@@ -2150,14 +2199,14 @@ class PyInstArchive:
         return True
 
     def _extractPyz(self, name):
-        dirName =  name + '_extracted'
+        dirName = name + '_extracted'
         os.makedirs(dirName, exist_ok=True)
 
         with open(name, 'rb') as f:
             pyzMagic = f.read(4)
             assert pyzMagic == b'PYZ\0' 
 
-            pyzPycMagic = f.read(4) 
+            pyzPycMagic = f.read(4)
 
             if self.pymaj != sys.version_info.major or self.pymin != sys.version_info.minor:
                 return False
@@ -2168,7 +2217,7 @@ class PyInstArchive:
             try:
                 toc = marshal.load(f)
             except (EOFError, ValueError, TypeError) as e:
-                print(f"Error loading PYZ TOC: {e}")
+                logging.error(f"Error loading PYZ TOC: {e}")
                 return False
 
             if isinstance(toc, list):
@@ -2176,7 +2225,7 @@ class PyInstArchive:
 
             for key, (ispkg, pos, length) in toc.items():
                 f.seek(pos, os.SEEK_SET)
-                fileName = key.decode('utf-8', errors='replace')
+                fileName = key.decode(self.encoding, errors='replace')
                 fileName = fileName.replace('..', '__').replace('.', os.path.sep)
 
                 if ispkg:
@@ -2556,11 +2605,11 @@ def scan_file_with_llama32(file_path):
         f"- .NET decompiled file: {dotnet_dir}\n"
         f"- Command line message or Windows readable messages: {commandlineandmessage_dir}\n\n"
         "Based on the file name, file path, and file content analysis:\n\n"
-        "If this file is obfuscated, it may be dangerous, I provide readable text for you to analyze it to is file malware.\n"
+        "If this file is obfuscated, it may be dangerous, I provide readable text for you to analyze it to determine if this file is malware.\n"
         "If it is a script file and obfuscated, it is probably suspicious or malware.\n"
         "If it registers itself in 'Shell Common Startup' or 'Shell Startup' and has these extensions, it could be harmful:\n"
         "- .vbs, .vbe, .js, .jse, .bat, .url, .cmd, .hta, .ps1, .psm1, .wsf, .wsb, .sct (Windows script files)\n"
-        "- .dll, .jar, .msi, .scr (suspicious extensions at Windows common startup shell:common startup or shell:startup)\n"
+        "- .dll, .jar, .msi, .scr (suspicious extensions) at Windows common startup shell:common startup or shell:startup\n"
         "If it tries to register as .wll instead of .dll, it could also be harmful.\n"
         "Decrypt base64 base32 strings in your head.\n"
     )
@@ -2573,20 +2622,31 @@ def scan_file_with_llama32(file_path):
     max_tokens = 2048  # Set the maximum token limit based on the model's capacity
     remaining_tokens = max_tokens - initial_token_length
 
-    # Read the first 100,000 lines of the file
+    # Read the file content
     readable_file_content = ""
     line_count = 0
+
+    # Define max_lines for how many lines you want to read from the file
+    max_lines = 100000
+
     try:
-        with open(file_path, 'r', encoding='utf-8') as file:
+        # Detect encoding by reading a portion of the file
+        with open(file_path, 'rb') as file:
+            raw_data = file.read(10000)  # Read a chunk for encoding detection
+            result = chardet.detect(raw_data)
+            encoding = result['encoding'] or 'utf-8'  # Fallback to utf-8 if detection fails
+
+        # Read the file with the detected encoding
+        with open(file_path, 'r', encoding=encoding) as file:
             for line in file:
-                if line_count < 100000:
+                if line_count < max_lines:
                     readable_file_content += line
                     line_count += 1
                 else:
                     break
     except Exception as e:
         logging.error(f"Error reading file {file_path}: {e}")
-        return
+        return None  # Handle error appropriately
 
     # Tokenize the readable file content
     file_inputs = tokenizer(readable_file_content, return_tensors="pt")
@@ -2613,15 +2673,12 @@ def scan_file_with_llama32(file_path):
         )
         response = tokenizer.decode(response[0], skip_special_tokens=True).strip()
     except Exception as e:
-        print(f"Error generating response: {e}")
+        logging.error(f"Error generating response: {e}")
         return
 
     # Extract the relevant part of the response
     start_index = response.lower().find("based on the analysis:")
-    if start_index == -1:
-        start_index = 0
-    else:
-        start_index += len("Based on the analysis:")
+    start_index = start_index + len("Based on the analysis:") if start_index != -1 else 0
 
     relevant_response = response[start_index:].strip()
 
@@ -2631,10 +2688,9 @@ def scan_file_with_llama32(file_path):
     virus_name = "Unknown"
     explanation = "No explanation provided"
 
-    # Extract relevant parts from the response for malware, virus name, confidence, and explanation
+    # Extract relevant parts from the response
     for line in relevant_response.split("\n"):
         line_lower = line.lower()
-
         if "malware:" in line_lower:
             malware = line.split(":")[-1].strip()
         if "virus name:" in line_lower:
@@ -2663,16 +2719,16 @@ def scan_file_with_llama32(file_path):
         with open(answer_log_path, "a") as answer_log_file:
             answer_log_file.write(relevant_response + "\n\n")  # Write the raw model response
     except Exception as e:
-        print(f"Error writing to log file {answer_log_path}: {e}")
+        logging.error(f"Error writing to log file {answer_log_path}: {e}")
 
     log_file_path = os.path.join(script_dir, "log", "Llama32-1B.log")
     try:
         with open(log_file_path, "a") as log_file:
             log_file.write(final_response + "\n")
     except Exception as e:
-        print(f"Error writing to log file {log_file_path}: {e}")
+        logging.error(f"Error writing to log file {log_file_path}: {e}")
 
-    # If malware is detected (Maybe or Yes), notify the user with the appropriate message
+    # If malware is detected (Maybe or Yes), notify the user
     if malware.lower() in ["maybe", "yes"]:
         notify_user_for_llama32(file_path, virus_name, malware)
 
@@ -3465,33 +3521,54 @@ class Monitor_Message_CommandLine:
         self.notify_user_for_detected_command(message)
 
     def process_detected(self, input_string=None, file_path=None, hwnd=None):
+        commandlineandmessage_dir = "some_directory"  # Define your directory
+
+        # Determine the full path for the cleaned file
         if file_path:
             base_name = os.path.basename(file_path)
             full_cleaned_file_path = os.path.join(commandlineandmessage_dir, f"{base_name}.full_cleaned")
         else:
             full_cleaned_file_path = os.path.join(commandlineandmessage_dir, "input_string.full_cleaned")
 
-        if not file_path:
-            # Handle text input
-            with open(full_cleaned_file_path, 'w', encoding='utf-8') as file:
-                file.write(input_string)
-        else:
-            # Handle file input
-            with open(file_path, 'r', encoding='utf-8') as file:
-                file_content = file.read()
+        try:
+            if input_string:
+                # Handle text input
+                with open(full_cleaned_file_path, 'w', encoding='utf-8') as file:
+                    file.write(input_string)
+            else:
+                # Handle file input with dynamic encoding detection
+                with open(file_path, 'rb') as f:
+                    raw_data = f.read(10000)  # Read a chunk for encoding detection
+                result = chardet.detect(raw_data)
+                encoding = result['encoding'] if result['encoding'] else 'utf-8'  # Fallback to utf-8 if detection fails
 
-            # Save content to the designated folder
-            with open(full_cleaned_file_path, 'w', encoding='utf-8') as file:
-                file.write(file_content)
+                # Read the file content using the detected encoding
+                with open(file_path, 'r', encoding=encoding) as file:
+                    file_content = file.read()
 
-        # Log the cleaned file path
-        if file_path:
-            logging.info(f"Processed file: {file_path} -> Cleaned file: {full_cleaned_file_path}")
-        else:
-            logging.info(f"Processed input string -> Cleaned file: {full_cleaned_file_path}")
+                # Save content to the designated folder using the same detected encoding
+                with open(full_cleaned_file_path, 'w', encoding=encoding) as file:
+                    file.write(file_content)
 
-        # Process the file content for known malware messages
-        with open(full_cleaned_file_path, 'r', encoding='utf-8') as file:
+            # Log the cleaned file path
+            logging.info(f"Processed {'file' if file_path else 'input string'}: {file_path if file_path else 'input_string'} -> Cleaned file: {full_cleaned_file_path}")
+
+            # Process the cleaned file for known malware messages
+            self.detect_malware(full_cleaned_file_path, hwnd, file_path)
+
+        except Exception as e:
+            logging.error(f"Error handling {'file' if file_path else 'input string'}: {e}")
+            return None  # Return None or an appropriate value in case of an error
+
+    def detect_malware(self, full_cleaned_file_path, hwnd, original_file_path=None):
+        # Detect the file's encoding
+        with open(full_cleaned_file_path, 'rb') as f:
+            raw_data = f.read(10000)  # Read a chunk for encoding detection
+        result = chardet.detect(raw_data)
+        encoding = result['encoding'] if result['encoding'] else 'utf-8'  # Fallback to utf-8 if detection fails
+
+        # Read the file content using the detected encoding
+        with open(full_cleaned_file_path, 'r', encoding=encoding) as file:
             file_content = file.read()
 
         for category, details in self.known_malware_messages.items():
@@ -3499,24 +3576,24 @@ class Monitor_Message_CommandLine:
                 for pattern in details["patterns"]:
                     similarity = self.calculate_similarity_text(file_content, pattern)
                     if similarity > 0.8:  # Adjust similarity threshold as needed
-                        details["process_function"](file_content, file_path, hwnd)
+                        details["process_function"](file_content, original_file_path, hwnd)
                         return
             elif "message" in details:
                 similarity = self.calculate_similarity_text(file_content, details["message"])
                 if similarity > 0.8:  # Adjust similarity threshold as needed
-                    details["process_function"](file_content, file_path, hwnd)
+                    details["process_function"](file_content, original_file_path, hwnd)
                     return
             elif "command" in details:
                 similarity = self.calculate_similarity_text(file_content, details["command"])
                 if similarity > 0.8:  # Adjust similarity threshold as needed
-                    details["process_function"](file_content, file_path, hwnd)
+                    details["process_function"](file_content, original_file_path, hwnd)
                     return
 
         # Adding ransomware check
         if self.contains_keywords_within_max_distance(file_content, max_distance=10):
-            self.process_detected_text_ransom(file_content, file_path, hwnd)
+            self.process_detected_text_ransom(file_content, original_file_path, hwnd)
 
-        logging.info(f"Finished processing detection {input_string} (process_detected).")
+        logging.info(f"Finished processing detection for {'input string' if original_file_path is None else original_file_path}.")
 
     def monitor(self):
         try:
