@@ -98,10 +98,6 @@ from watchdog.events import FileSystemEventHandler
 print(f"watchdog.events.FileSystemEventHandler module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import time
-print(f"time module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import win32file
 print(f"win32file module loaded in {time.time() - start_time:.6f} seconds")
 
