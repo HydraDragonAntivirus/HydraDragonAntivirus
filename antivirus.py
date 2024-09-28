@@ -3509,7 +3509,6 @@ class Monitor_Message_CommandLine:
         self.notify_user_for_detected_command(message)
 
     def process_detected(self, input_string=None, file_path=None, hwnd=None):
-        commandlineandmessage_dir = "some_directory"  # Define your directory
 
         # Determine the full path for the cleaned file
         if file_path:
