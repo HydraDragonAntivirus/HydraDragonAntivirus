@@ -1,1 +1,1 @@
-pyinstaller --icon="C:\Users\victim\Documents\HydraDragonAntivirus\assets\HydraDragonAV.png" --uac-admin --hidden-import=preshed.maps --add-data "C:\Users\victim\AppData\Local\Programs\Python\Python312\Lib\site-packages\pyside6;." antivirus.py
+pyinstaller --icon="C:\Users\victim\Documents\HydraDragonAntivirus\assets\HydraDragonAV.png" --uac-admin --hidden-import=preshed.maps --add-data "C:\Users\victim\AppData\Local\Programs\Python\Python312\Lib\site-packages\pyside6;." --noconfirm antivirus.py
