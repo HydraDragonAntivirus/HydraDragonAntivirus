@@ -200,26 +200,14 @@ print(f"Total time for all imports: {total_duration:.6f} seconds")
 
 sys.modules['sklearn.externals.joblib'] = joblib
 
-def detect_encoding_stream(stream):
-    """Detect the encoding of a stream."""
-    # Read a small portion to detect encoding
-    raw_data = stream.read(10000)  # Read the first 10 KB
-    stream.seek(0)  # Reset stream position
+# Set standard input encoding to UTF-8
+sys.stdin = io.TextIOWrapper(sys.stdin.detach(), encoding='utf-8')
 
-    result = chardet.detect(raw_data)
-    return result['encoding']
+# Set standard output encoding to UTF-8
+sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-8')
 
-# Detect encoding for standard input
-input_encoding = detect_encoding_stream(sys.stdin)
-sys.stdin = io.TextIOWrapper(sys.stdin.detach(), encoding=input_encoding)
-
-# Detect encoding for standard output
-output_encoding = 'utf-8'  # Typically, set output to UTF-8
-sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding=output_encoding)
-
-# Detect encoding for standard error
-error_encoding = 'utf-8'  # Typically, set error output to UTF-8
-sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding=error_encoding)
+# Set standard error encoding to UTF-8
+sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-8')
 
 # Load the spaCy model globally
 nlp_spacy_lang = spacy.load("en_core_web_md")
