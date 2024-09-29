@@ -1399,9 +1399,6 @@ def scan_tar_file(file_path):
                         continue
 
                     tar.extract(member, tar_extracted_dir)
-
-                    # Process the file data including magic byte removal
-                    process_file_data(extracted_file_path)
                     
                     # Check for suspicious conditions: large files in small TAR archives
                     extracted_file_size = os.path.getsize(extracted_file_path)
