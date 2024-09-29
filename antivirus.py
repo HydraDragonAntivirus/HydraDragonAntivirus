@@ -260,9 +260,9 @@ ipv6_addresses_signatures_data = {}
 domains_signatures_data = {}
 urlhaus_data = {}
 
-clamd_dir = r"C:\Program Files\ClamAV\clamd.exe"
-clamdscan_path = r"C:\Program Files\ClamAV\clamdscan.exe"
-freshclam_path = r"C:\Program Files\ClamAV\freshclam.exe"
+clamd_dir = "C:\\Program Files\\ClamAV\\clamd.exe"
+clamdscan_path = "C:\\Program Files\\ClamAV\\clamdscan.exe"
+freshclam_path = "C:\\Program Files\\ClamAV\\freshclam.exe"
 
 # Ensure base64 and base32 directory exist
 os.makedirs(base_dir, exist_ok=True)
@@ -1574,8 +1574,8 @@ class AntivirusUI(QWidget):
         QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
 
     def update_definitions(self):
-        file_paths = [r"C:\Program Files\ClamAV\database\daily.cvd", r"C:\Program Files\ClamAV\database\daily.cld"]
-        directory_path = r"C:\Program Files\ClamAV\database"
+        file_paths = ["C:\\Program Files\\ClamAV\\database\\daily.cvd", "C:\\Program Files\\ClamAV\\database\\daily.cld"]
+        directory_path = "C:\\Program Files\\ClamAV\\database"
         file_found = False
 
         # Check if either daily.cvd or daily.cld exists
@@ -1637,12 +1637,12 @@ class AntivirusUI(QWidget):
 alert_regex = re.compile(r'\[Priority: (\d+)\].*?\{(?:UDP|TCP)\} (\d+\.\d+\.\d+\.\d+):\d+ -> (\d+\.\d+\.\d+\.\d+):\d+')
 
 # File paths and configurations
-log_path = r"C:\Snort\log\alert.ids"
-log_folder = r"C:\Snort\log"
-snort_config_path = r"C:\Snort\etc\snort.conf"
-sandboxie_path = r"C:\Program Files\Sandboxie\Start.exe"
-sandboxie_control_path = r"C:\Program Files\Sandboxie\SbieCtrl.exe"
-sbie_ini_path = r"C:\Program Files\Sandboxie\SbieIni.exe"
+log_path = "C:\\Snort\\log\\alert.ids"
+log_folder = "C:\\Snort\\log"
+snort_config_path = "C:\\Snort\\etc\\snort.conf"
+sandboxie_path = "C:\\Program Files\\Sandboxie\\Start.exe"
+sandboxie_control_path = "C:\\Program Files\\Sandboxie\\SbieCtrl.exe"
+sbie_ini_path = "C:\\Program Files\\Sandboxie\\SbieIni.exe"
 device_args = [f"-i {i}" for i in range(1, 26)]  # Fixed device arguments
 username = os.getlogin()
 sandboxie_folder = rf'C:\Sandbox\{username}\DefaultBox'
