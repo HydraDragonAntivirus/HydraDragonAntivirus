@@ -1666,7 +1666,7 @@ uefi_paths = [
     rf'{sandboxie_folder}\drive\X\EFI\Microsoft\Boot\memtest.efi',
     rf'{sandboxie_folder}\drive\X\EFI\Boot\bootx64.efi'
 ]
-snort_command = [r'C:\Snort\bin\snort.exe'] + device_args + ["-c", snort_config_path, "-A", "fast"]
+snort_command = ["C:\\Snort\\bin\\snort.exe"] + device_args + ["-c", snort_config_path, "-A", "fast"]
 
 # Custom flags for directory changes
 FILE_NOTIFY_CHANGE_LAST_ACCESS = 0x00000020
