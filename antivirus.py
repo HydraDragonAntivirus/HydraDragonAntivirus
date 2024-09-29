@@ -3505,79 +3505,70 @@ class Monitor_Message_CommandLine:
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def process_detected(self, input_string=None, file_path=None, hwnd=None):
-
-        # Determine the full path for the cleaned file
-        if file_path:
-            base_name = os.path.basename(file_path)
-            full_cleaned_file_path = os.path.join(commandlineandmessage_dir, f"{base_name}.full_cleaned")
-        else:
-            full_cleaned_file_path = os.path.join(commandlineandmessage_dir, "input_string.full_cleaned")
-
+    def process_detected(self, file_path=None, hwnd=None):
         try:
-            if input_string:
-                # Handle text input
-                with open(full_cleaned_file_path, 'w', encoding='utf-8') as file:
-                    file.write(input_string)
-            else:
-                # Handle file input with dynamic encoding detection
-                with open(file_path, 'rb') as f:
-                    raw_data = f.read(10000)  # Read a chunk for encoding detection
-                result = chardet.detect(raw_data)
-                encoding = result['encoding'] if result['encoding'] else 'utf-8'  # Fallback to utf-8 if detection fails
+            # Handle file input with dynamic encoding detection
+            with open(file_path, 'rb') as f:
+                raw_data = f.read(10000)  # Read a chunk for encoding detection
+            result = chardet.detect(raw_data)
+            encoding = result['encoding'] if result['encoding'] else 'utf-8'  # Fallback to utf-8 if detection fails
 
-                # Read the file content using the detected encoding
-                with open(file_path, 'r', encoding=encoding) as file:
-                    file_content = file.read()
+            # Read the file content using the detected encoding
+            with open(file_path, 'r', encoding=encoding) as file:
+                file_content = file.read()
 
-                # Save content to the designated folder using the same detected encoding
-                with open(full_cleaned_file_path, 'w', encoding=encoding) as file:
-                    file.write(file_content)
+            # Save content to the same file path using the detected encoding
+            with open(file_path, 'w', encoding=encoding) as file:
+                file.write(file_content)
 
             # Log the cleaned file path
-            logging.info(f"Processed {'file' if file_path else 'input string'}: {file_path if file_path else 'input_string'} -> Cleaned file: {full_cleaned_file_path}")
+            logging.info(f"Processed file: {file_path}")
 
-            # Process the cleaned file for known malware messages
-            self.detect_malware(full_cleaned_file_path, hwnd, file_path)
+            # Process the file for known malware messages
+            self.detect_malware(file_path, hwnd)
 
         except Exception as e:
-            logging.error(f"Error handling {'file' if file_path else 'input string'}: {e}")
+            logging.error(f"Error handling file: {e}")
             return None  # Return None or an appropriate value in case of an error
 
-    def detect_malware(self, full_cleaned_file_path, hwnd, original_file_path=None):
-        # Detect the file's encoding
-        with open(full_cleaned_file_path, 'rb') as f:
-            raw_data = f.read(10000)  # Read a chunk for encoding detection
-        result = chardet.detect(raw_data)
-        encoding = result['encoding'] if result['encoding'] else 'utf-8'  # Fallback to utf-8 if detection fails
+    def detect_malware(self, file_path, hwnd):
+        try:
+            # Detect the file's encoding
+            with open(file_path, 'rb') as f:
+                raw_data = f.read(10000)  # Read a chunk for encoding detection
+            result = chardet.detect(raw_data)
+            encoding = result['encoding'] if result['encoding'] else 'utf-8'  # Fallback to utf-8 if detection fails
 
-        # Read the file content using the detected encoding
-        with open(full_cleaned_file_path, 'r', encoding=encoding) as file:
-            file_content = file.read()
+            # Read the file content using the detected encoding
+            with open(file_path, 'r', encoding=encoding) as file:
+                file_content = file.read()
 
-        for category, details in self.known_malware_messages.items():
-            if "patterns" in details:
-                for pattern in details["patterns"]:
-                    similarity = self.calculate_similarity_text(file_content, pattern)
+            for category, details in self.known_malware_messages.items():
+                if "patterns" in details:
+                    for pattern in details["patterns"]:
+                        similarity = self.calculate_similarity_text(file_content, pattern)
+                        if similarity > 0.8:  # Adjust similarity threshold as needed
+                            details["process_function"](file_content, file_path, hwnd)
+                            return
+                elif "message" in details:
+                    similarity = self.calculate_similarity_text(file_content, details["message"])
                     if similarity > 0.8:  # Adjust similarity threshold as needed
-                        details["process_function"](file_content, original_file_path, hwnd)
+                        details["process_function"](file_content, file_path, hwnd)
                         return
-            elif "message" in details:
-                similarity = self.calculate_similarity_text(file_content, details["message"])
-                if similarity > 0.8:  # Adjust similarity threshold as needed
-                    details["process_function"](file_content, original_file_path, hwnd)
-                    return
-            elif "command" in details:
-                similarity = self.calculate_similarity_text(file_content, details["command"])
-                if similarity > 0.8:  # Adjust similarity threshold as needed
-                    details["process_function"](file_content, original_file_path, hwnd)
-                    return
+                elif "command" in details:
+                    similarity = self.calculate_similarity_text(file_content, details["command"])
+                    if similarity > 0.8:  # Adjust similarity threshold as needed
+                        details["process_function"](file_content, file_path, hwnd)
+                        return
 
-        # Adding ransomware check
-        if self.contains_keywords_within_max_distance(file_content, max_distance=10):
-            self.process_detected_text_ransom(file_content, original_file_path, hwnd)
+            # Adding ransomware check
+            if self.contains_keywords_within_max_distance(file_content, max_distance=10):
+                self.process_detected_text_ransom(file_content, file_path, hwnd)
 
-        logging.info(f"Finished processing detection for {'input string' if original_file_path is None else original_file_path}.")
+            logging.info(f"Finished processing detection for {file_path}.")
+
+        except Exception as e:
+            logging.error(f"Error handling file: {e}")
 
     def monitor(self):
         try:
