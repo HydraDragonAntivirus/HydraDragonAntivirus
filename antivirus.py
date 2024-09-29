@@ -2007,7 +2007,7 @@ def extract_nuitka_file(file_path):
             logging.info(f"Extracting Nuitka file {file_path} to {nuitka_output_dir}")
             
             # Use nuitka_extractor to extract the file
-            command = [nuitka_extractor_path, "-output", nuitka_output_dir, file_path]
+            command = [nuitka_extractor_path, nuitka_output_dir, "-output", file_path]
             result = subprocess.run(command, capture_output=True, text=True)
             
             if result.returncode == 0:

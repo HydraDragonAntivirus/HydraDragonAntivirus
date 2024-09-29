@@ -206,17 +206,18 @@ func (ne *NuitkaExecutable) Extract() {
 }
 
 func main() {
-	// Adding a flag for the output directory
+	// Updated flag handling
 	outputDir := flag.String("output", "", "Specify the output directory for extracted files.")
 	flag.Parse()
 
 	if len(flag.Args()) == 0 || *outputDir == "" {
-		fmt.Println("Usage: nuitka-extractor -output <output_directory> <filename>")
+		fmt.Println("Usage: nuitka-extractor <output_directory> -output <filename>")
 		return
 	}
 
+	// Using the new argument order
 	ne := NuitkaExecutable{}
-	ne.New(flag.Args()[0], *outputDir)
+	ne.New(flag.Args()[1], *outputDir) // Here, we take the file path as the second argument
 	if ne.Check() {
 		ne.Extract()
 	}
