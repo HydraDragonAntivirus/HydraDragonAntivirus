@@ -2784,8 +2784,8 @@ def scan_and_warn(file_path, flag=False):
             # Process the file data including magic byte removal
             process_file_data(file_path)
 
-        # Process the file using monitor_message.process_detected with file_path argument
-        monitor_message.process_detected(file_path=file_path)
+        # Process the file using monitor_message.detect_malware with file_path argument
+        monitor_message.detect_malware(file_path)
 
         # Check if the file is a PyInstaller archive
         if is_pyinstaller_archive(file_path):
@@ -3505,32 +3505,6 @@ class Monitor_Message_CommandLine:
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def process_detected(self, file_path=None, hwnd=None):
-        try:
-            # Handle file input with dynamic encoding detection
-            with open(file_path, 'rb') as f:
-                raw_data = f.read(10000)  # Read a chunk for encoding detection
-            result = chardet.detect(raw_data)
-            encoding = result['encoding'] if result['encoding'] else 'utf-8'  # Fallback to utf-8 if detection fails
-
-            # Read the file content using the detected encoding
-            with open(file_path, 'r', encoding=encoding) as file:
-                file_content = file.read()
-
-            # Save content to the same file path using the detected encoding
-            with open(file_path, 'w', encoding=encoding) as file:
-                file.write(file_content)
-
-            # Log the cleaned file path
-            logging.info(f"Processed file: {file_path}")
-
-            # Process the file for known malware messages
-            self.detect_malware(file_path, hwnd)
-
-        except Exception as e:
-            logging.error(f"Error handling file: {e}")
-            return None  # Return None or an appropriate value in case of an error
-
     def detect_malware(self, file_path, hwnd):
         try:
             # Detect the file's encoding
@@ -3570,29 +3544,64 @@ class Monitor_Message_CommandLine:
         except Exception as e:
             logging.error(f"Error handling file: {e}")
 
+    def get_unique_filename(self, base_name):
+        """Generate a unique filename by appending a number if necessary."""
+        counter = 1
+        unique_name = f"{base_name}.txt"
+        while os.path.exists(unique_name):
+            unique_name = f"{base_name}_{counter}.txt"
+            counter += 1
+        return unique_name
+
     def monitor(self):
         try:
             while True:
                 # Capture windows with text
                 windows = find_windows_with_text()
                 for hwnd, text in windows:
-                    # Process both preprocessed and original text
+                    # Preprocess the text
                     preprocessed_text = self.preprocess_text(text)
-                    self.process_detected(preprocessed_text, hwnd=hwnd)  # Process preprocessed text
-                    self.process_detected(text, hwnd=hwnd)  # Process original text
+
+                    # Generate unique file names for preprocessed and original text
+                    preprocessed_file_path = self.get_unique_filename(f"preprocessed_{hwnd}")
+                    original_file_path = self.get_unique_filename(f"original_{hwnd}")
+
+                    # Write preprocessed text to a file
+                    with open(preprocessed_file_path, 'w', encoding='utf-8') as file:
+                        file.write(preprocessed_text)
+
+                    # Write original text to a file
+                    with open(original_file_path, 'w', encoding='utf-8') as file:
+                        file.write(text)
+
+                    # Scan and warn with preprocessed and original text
+                    scan_and_warn(preprocessed_file_path, hwnd)
+                    scan_and_warn(original_file_path, hwnd)
 
                 # Capture command lines
                 command_lines = self.capture_command_lines()
                 for command_line, executable_path in command_lines:
-                    # Convert command_line to lowercase
-                    command_line_lower = command_line.lower()
-                    
-                    # Process both preprocessed and original command lines
-                    self.process_detected(command_line, file_path=executable_path)  # Process original command line
-                    self.process_detected(command_line_lower, file_path=executable_path)
+                    # Preprocess command line
+                    preprocessed_command_line = self.preprocess_text(command_line)
+
+                    # Generate unique file names for command line
+                    original_command_file_path = self.get_unique_filename(f"command_{executable_path}")
+                    preprocessed_command_file_path = self.get_unique_filename(f"command_preprocessed_{executable_path}")
+
+                    # Write original command line to a file
+                    with open(original_command_file_path, 'w', encoding='utf-8') as file:
+                        file.write(command_line)
+
+                    # Write preprocessed command line to a file
+                    with open(preprocessed_command_file_path, 'w', encoding='utf-8') as file:
+                        file.write(preprocessed_command_line)
+
+                    # Scan and warn with both versions of command lines
+                    scan_and_warn(original_command_file_path, executable_path)
+                    scan_and_warn(preprocessed_command_file_path, executable_path)
 
         except Exception as e:
-            logging.error(f"Unexpected error in monitor loop: {e}")
+            logging.error(f"Error in monitor: {e}")
 
 def monitor_sandboxie_directory():
     """
