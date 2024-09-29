@@ -2784,8 +2784,8 @@ def scan_and_warn(file_path, flag=False):
             # Process the file data including magic byte removal
             process_file_data(file_path)
 
-        # Process the file using monitor_message.process_detected with file_path argument
-        monitor_message.process_detected(file_path=file_path)
+        # Process the file using monitor_message.detect_malware with file_path argument
+        monitor_message.detect_malware(file_path)
 
         # Check if the file is a PyInstaller archive
         if is_pyinstaller_archive(file_path):
@@ -3505,32 +3505,6 @@ class Monitor_Message_CommandLine:
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def process_detected(self, file_path=None, hwnd=None):
-        try:
-            # Handle file input with dynamic encoding detection
-            with open(file_path, 'rb') as f:
-                raw_data = f.read(10000)  # Read a chunk for encoding detection
-            result = chardet.detect(raw_data)
-            encoding = result['encoding'] if result['encoding'] else 'utf-8'  # Fallback to utf-8 if detection fails
-
-            # Read the file content using the detected encoding
-            with open(file_path, 'r', encoding=encoding) as file:
-                file_content = file.read()
-
-            # Save content to the same file path using the detected encoding
-            with open(file_path, 'w', encoding=encoding) as file:
-                file.write(file_content)
-
-            # Log the cleaned file path
-            logging.info(f"Processed file: {file_path}")
-
-            # Process the file for known malware messages
-            self.detect_malware(file_path, hwnd)
-
-        except Exception as e:
-            logging.error(f"Error handling file: {e}")
-            return None  # Return None or an appropriate value in case of an error
-
     def detect_malware(self, file_path, hwnd):
         try:
             # Detect the file's encoding
@@ -3586,10 +3560,23 @@ class Monitor_Message_CommandLine:
                 for command_line, executable_path in command_lines:
                     # Convert command_line to lowercase
                     command_line_lower = command_line.lower()
-                    
-                    # Process both preprocessed and original command lines
-                    self.process_detected(command_line, file_path=executable_path)  # Process original command line
-                    self.process_detected(command_line_lower, file_path=executable_path)
+
+                    # Save original command line to a temporary file
+                    command_line_file_path = os.path.join(commandlineandmessage_dir, f"{os.path.basename(executable_path)}_cmd.txt")
+                    with open(command_line_file_path, 'w', encoding='utf-8') as file:
+                        file.write(command_line)
+
+                    # Save lowercase command line to another temporary file
+                    command_line_lower_file_path = os.path.join(commandlineandmessage_dir, f"{os.path.basename(executable_path)}_cmd_lower.txt")
+                    with open(command_line_lower_file_path, 'w', encoding='utf-8') as file:
+                        file.write(command_line_lower)
+
+                    # Process the original and lowercase command lines as files
+                    scan_and_warn(command_line_file_path)
+                    scan_and_warn(command_line_lower_file_path)
+
+        except Exception as e:
+            logging.error(f"Error in monitor: {e}")
 
         except Exception as e:
             logging.error(f"Unexpected error in monitor loop: {e}")
