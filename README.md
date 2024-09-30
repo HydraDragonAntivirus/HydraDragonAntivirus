@@ -102,6 +102,10 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 **Note 10:**
 - I added en_core_web_md manually to C:\Program Files\HydraDragonAntivirus you can find the spacy path from codechecker\spacyfind.py but you need to rename en_core_web_md folder name which contains config.cfg for an example if version 3.7.1 then it contains a subfolder en_core_web_md.3.7.1
 
+**Note 11:**
+
+- ALLOW_IPV4.txt = ip4whitelist.txt
+
 ## Internet Access In Sandboxie
 - HIPS detection shouldn't work if you don't open the Internet in Sandboxie. To enable it go to: Sandbox -> DefaultBox -> Sandbox Settings -> Restrictions -> Internet Access -> Click "BLock All Programs" then click "Allow All Programs" then save it and you're done!.  https://sandboxie-plus.com/sandboxie/restrictionssettings/
 
