@@ -2007,7 +2007,7 @@ def extract_nuitka_file(file_path):
             logging.info(f"Extracting Nuitka file {file_path} to {nuitka_output_dir}")
             
             # Use nuitka_extractor to extract the file
-            command = [nuitka_extractor_path, nuitka_output_dir, "-output", file_path]
+            command = [nuitka_extractor_path, "-output", nuitka_output_dir, file_path]
             result = subprocess.run(command, capture_output=True, text=True)
             
             if result.returncode == 0:
@@ -3547,9 +3547,9 @@ class Monitor_Message_CommandLine:
     def get_unique_filename(self, base_name):
         """Generate a unique filename by appending a number if necessary."""
         counter = 1
-        unique_name = f"{base_name}.txt"
+        unique_name = os.path.join(commandlineandmessage_dir, f"{base_name}.txt")
         while os.path.exists(unique_name):
-            unique_name = f"{base_name}_{counter}.txt"
+            unique_name = os.path.join(commandlineandmessage_dir, f"{base_name}_{counter}.txt")
             counter += 1
         return unique_name
 
