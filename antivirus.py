@@ -446,38 +446,41 @@ def is_hex_data(data_content):
 
 def remove_magic_bytes(data_content):
     """Remove magic bytes from data, considering it might be hex-encoded."""
+    try:
+        if is_hex_data(data_content):
+            # Convert binary data to hex representation for easier pattern removal
+            hex_data = binascii.hexlify(data_content).decode("utf-8", errors="replace")
 
-    if is_hex_data(data_content):
-        # Convert binary data to hex representation for easier pattern removal
-        hex_data = binascii.hexlify(data_content).decode("utf-8", errors="replace")
+            # Remove magic bytes by applying regex patterns
+            for magic_byte in magic_bytes.keys():
+                pattern = re.compile(rf'{magic_bytes[magic_byte].replace(" ", "")}', re.IGNORECASE)
+                hex_data = pattern.sub('', hex_data)
 
-        # Remove magic bytes by applying regex patterns
-        for magic_byte in magic_bytes.keys():
-            pattern = re.compile(rf'{magic_bytes[magic_byte].replace(" ", "")}', re.IGNORECASE)
-            hex_data = pattern.sub('', hex_data)
-
-        # Convert hex data back to binary
-        return binascii.unhexlify(hex_data)
-    else:
-        try:
-            # Decode the data using UTF-8
-            decoded_content = data_content.decode("utf-8", errors="replace")
-        except (AttributeError, TypeError) as e:
-            logging.error(f"Error decoding data: {e}")
-            return data_content  # Return original data if decoding fails
-
-        # Convert decoded content back to bytes for magic byte removal
-        hex_data = binascii.hexlify(decoded_content.encode("utf-8")).decode(errors="replace")
-
-        for magic_byte in magic_bytes.keys():
-            pattern = re.compile(rf'{magic_bytes[magic_byte].replace(" ", "")}', re.IGNORECASE)
-            hex_data = pattern.sub('', hex_data)
-
-        try:
+            # Convert hex data back to binary
             return binascii.unhexlify(hex_data)
-        except Exception as e:
-            logging.error(f"Error unhexlifying data: {e}")
-            return data_content  # Return original data if unhexlifying fails
+        else:
+            try:
+                # Decode the data using UTF-8
+                decoded_content = data_content.decode("utf-8", errors="replace")
+            except (AttributeError, TypeError) as e:
+                logging.error(f"Error decoding data: {e}")
+                return data_content  # Return original data if decoding fails
+
+            # Convert decoded content back to bytes for magic byte removal
+            hex_data = binascii.hexlify(decoded_content.encode("utf-8")).decode(errors="replace")
+
+            for magic_byte in magic_bytes.keys():
+                pattern = re.compile(rf'{magic_bytes[magic_byte].replace(" ", "")}', re.IGNORECASE)
+                hex_data = pattern.sub('', hex_data)
+
+            try:
+                return binascii.unhexlify(hex_data)
+            except Exception as e:
+                logging.error(f"Error unhexlifying data: {e}")
+                return data_content  # Return original data if unhexlifying fails
+    except Exception as e:
+        logging.error(f"Unexpected error in remove_magic_bytes: {e}")
+        return data_content  # Return original data in case of unexpected errors
 
 def decode_base64(data_content):
     """Decode base64-encoded data."""
@@ -495,34 +498,40 @@ def decode_base32(data_content):
 
 def process_file_data(file_path):
     """Process file data by decoding and removing magic bytes."""
-    with open(file_path, 'rb') as file:
-        data_content = file.read()
+    try:
+        with open(file_path, 'rb') as file:
+            data_content = file.read()
 
-    original_data = data_content
-    # Initial processing of the data
-    while True:
-        # Try to decode base64 and base32 repeatedly until no more decoding is possible
-        base64_decoded = decode_base64(data_content)
-        if base64_decoded is not None:
-            data_content = base64_decoded
-            continue
+        original_data = data_content
+        # Initial processing of the data
+        while True:
+            # Try to decode base64 and base32 repeatedly until no more decoding is possible
+            base64_decoded = decode_base64(data_content)
+            if base64_decoded is not None:
+                data_content = base64_decoded
+                continue
 
-        base32_decoded = decode_base32(data_content)
-        if base32_decoded is not None:
-            data_content = base32_decoded
-            continue
+            base32_decoded = decode_base32(data_content)
+            if base32_decoded is not None:
+                data_content = base32_decoded
+                continue
 
-        # No more base64 or base32 encoded data
-        break
+            # No more base64 or base32 encoded data
+            break
 
-    # Process the data to handle possible mixed content
-    processed_data = remove_magic_bytes(data_content)
+        # Process the data to handle possible mixed content
+        processed_data = remove_magic_bytes(data_content)
 
-    # Save processed data
-    output_file_path = os.path.join(processed_dir, 'processed_' + os.path.basename(file_path))
-    with open(output_file_path, 'wb') as processed_file:
-        processed_file.write(processed_data)
-    logging.info(f"Processed data from {file_path} saved to {output_file_path}")
+        # Save processed data
+        output_file_path = os.path.join(processed_dir, 'processed_' + os.path.basename(file_path))
+        with open(output_file_path, 'wb') as processed_file:
+            processed_file.write(processed_data)
+        
+        logging.info(f"Processed data from {file_path} saved to {output_file_path}")
+
+    except Exception as e:
+        logging.error(f"Error processing file {file_path}: {e}")
+        print(f"Error processing file {file_path}: {e}")
 
 def extract_infos(file_path, rank=None):
     """Extract information about file"""
