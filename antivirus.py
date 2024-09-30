@@ -2802,6 +2802,11 @@ def scan_and_warn(file_path, flag=False):
         with open(file_path, 'rb') as file:
             data_content = file.read()
 
+        # Check if the file is empty
+        if os.path.getsize(file_path) == 0:
+            logging.warning(f"File {file_path} is empty. Skipping scan.")
+            return False
+
         # Initialize variables
         is_decompiled = False
         pe_file = False
