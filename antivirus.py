@@ -2804,7 +2804,7 @@ def scan_and_warn(file_path, flag=False):
 
         # Check if the file is empty
         if os.path.getsize(file_path) == 0:
-            logging.warning(f"File {file_path} is empty. Skipping scan.")
+            logging.warning(f"File {file_path} is empty. Skipping scan. That doesn't mean it's not malicious. See here: https://github.com/HydraDragonAntivirus/0KBAttack")
             return False
 
         # Initialize variables
