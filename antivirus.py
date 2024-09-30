@@ -482,10 +482,10 @@ def remove_magic_bytes(data_content):
         logging.error(f"Unexpected error in remove_magic_bytes: {e}")
         return data_content  # Return original data in case of unexpected errors
 
-def decode_base64(data_content):
-    """Decode base64-encoded data."""
+def decode_base32(data_content):
+    """Decode base32-encoded data."""
     try:
-        return base64.b64decode(data_content)
+        return base32_crockford.decode(data_content.decode('utf-8'))
     except (binascii.Error, ValueError):
         return None
 
@@ -503,9 +503,8 @@ def process_file_data(file_path):
             data_content = file.read()
 
         original_data = data_content
-        # Initial processing of the data
         while True:
-            # Try to decode base64 and base32 repeatedly until no more decoding is possible
+            # Try to decode base64 and base32 repeatedly
             base64_decoded = decode_base64(data_content)
             if base64_decoded is not None:
                 data_content = base64_decoded
@@ -519,7 +518,7 @@ def process_file_data(file_path):
             # No more base64 or base32 encoded data
             break
 
-        # Process the data to handle possible mixed content
+        # Remove magic bytes
         processed_data = remove_magic_bytes(data_content)
 
         # Save processed data
