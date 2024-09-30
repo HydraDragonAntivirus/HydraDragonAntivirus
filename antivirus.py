@@ -3518,7 +3518,7 @@ class Monitor_Message_CommandLine:
 
     def process_detected_text_rogue(self, text, file_path):
         virus_name = self.known_malware_messages["rogue"]["virus_name"]
-        message = f"Detected potential rogue security software: {virus_name} in text: {text} from {file_path} {hwnd}"
+        message = f"Detected potential rogue security software: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
