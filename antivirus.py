@@ -3642,17 +3642,21 @@ class Monitor_Message_CommandLine:
                     preprocessed_file_path = self.get_unique_filename(f"preprocessed_{hwnd}")
                     original_file_path = self.get_unique_filename(f"original_{hwnd}")
 
-                    # Write preprocessed text to a file
-                    with open(preprocessed_file_path, 'w', encoding="utf-8", errors="replace") as file:
-                        file.write(preprocessed_text)
+                    # Write preprocessed text to a file if not empty
+                    if preprocessed_text:
+                        with open(preprocessed_file_path, 'w', encoding="utf-8", errors="replace") as file:
+                            file.write(preprocessed_text)
 
-                    # Write original text to a file
-                    with open(original_file_path, 'w', encoding="utf-8", errors="replace") as file:
-                        file.write(text)
+                    # Write original text to a file if not empty
+                    if text:
+                        with open(original_file_path, 'w', encoding="utf-8", errors="replace") as file:
+                            file.write(text)
 
-                    # Scan and warn with preprocessed and original text
-                    scan_and_warn(preprocessed_file_path)
-                    scan_and_warn(original_file_path)
+                    # Scan and warn with preprocessed and original text if files were created
+                    if preprocessed_text:
+                        scan_and_warn(preprocessed_file_path)
+                    if text:
+                        scan_and_warn(original_file_path)
 
                 # Capture command lines
                 command_lines = self.capture_command_lines()
@@ -3664,17 +3668,21 @@ class Monitor_Message_CommandLine:
                     original_command_file_path = self.get_unique_filename(f"command_{executable_path}")
                     preprocessed_command_file_path = self.get_unique_filename(f"command_preprocessed_{executable_path}")
 
-                    # Write original command line to a file
-                    with open(original_command_file_path, 'w', encoding="utf-8", errors="replace") as file:
-                        file.write(command_line)
+                    # Write original command line to a file if not empty
+                    if command_line:
+                        with open(original_command_file_path, 'w', encoding="utf-8", errors="replace") as file:
+                            file.write(command_line)
 
-                    # Write preprocessed command line to a file
-                    with open(preprocessed_command_file_path, 'w', encoding="utf-8", errors="replace") as file:
-                        file.write(preprocessed_command_line)
+                    # Write preprocessed command line to a file if not empty
+                    if preprocessed_command_line:
+                        with open(preprocessed_command_file_path, 'w', encoding="utf-8", errors="replace") as file:
+                            file.write(preprocessed_command_line)
 
-                    # Scan and warn with both versions of command lines
-                    scan_and_warn(original_command_file_path)
-                    scan_and_warn(preprocessed_command_file_path)
+                    # Scan and warn with both versions of command lines if files were created
+                    if command_line:
+                        scan_and_warn(original_command_file_path)
+                    if preprocessed_command_line:
+                        scan_and_warn(preprocessed_command_file_path)
 
         except Exception as e:
             logging.error(f"Error in monitor: {e}")
