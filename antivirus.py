@@ -849,7 +849,11 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
         return False, malware_definition, nearest_benign_similarity
  
 def restart_clamd_thread():
-    threading.Thread(target=restart_clamd).start()
+    try:
+        threading.Thread(target=restart_clamd).start()
+    except Exception as e:
+        logging.error(f"Error starting clamd restart thread: {e}")
+        print(f"Error starting clamd restart thread: {e}")
 
 def restart_clamd():
     try:
@@ -876,23 +880,28 @@ def restart_clamd():
 
 def scan_file_with_clamd(file_path):
     """Scan file using clamd."""
-    file_path = os.path.abspath(file_path)  # Get absolute path
-    result = subprocess.run([clamdscan_path, file_path], capture_output=True, text=True)
-    clamd_output = result.stdout
-    print(f"Clamdscan output: {clamd_output}")
+    try:
+        file_path = os.path.abspath(file_path)  # Get absolute path
+        result = subprocess.run([clamdscan_path, file_path], capture_output=True, text=True)
+        clamd_output = result.stdout
+        print(f"Clamdscan output: {clamd_output}")
 
-    if "ERROR" in clamd_output:
-        print(f"Clamdscan reported an error: {clamd_output}")
-        return "Clean"
-    elif "FOUND" in clamd_output:
-        match = re.search(r": (.+) FOUND", clamd_output)
-        if match:
-            virus_name = match.group(1).strip()
-            return virus_name
-    elif "OK" in clamd_output or "Infected files: 0" in clamd_output:
-        return "Clean"
-    else:
-        print(f"Unexpected clamdscan output: {clamd_output}")
+        if "ERROR" in clamd_output:
+            print(f"Clamdscan reported an error: {clamd_output}")
+            return "Clean"
+        elif "FOUND" in clamd_output:
+            match = re.search(r": (.+) FOUND", clamd_output)
+            if match:
+                virus_name = match.group(1).strip()
+                return virus_name
+        elif "OK" in clamd_output or "Infected files: 0" in clamd_output:
+            return "Clean"
+        else:
+            print(f"Unexpected clamdscan output: {clamd_output}")
+            return "Clean"
+    except Exception as e:
+        logging.error(f"Error scanning file {file_path}: {e}")
+        print(f"Error scanning file {file_path}: {e}")
         return "Clean"
 
 def is_local_ip(ip):
@@ -917,7 +926,6 @@ class RealTimeWebProtectionHandler:
         self.domain_ip_to_file_map = {}
 
     def is_related_to_critical_paths(self, file_path):
-        # Check if file path starts with the sandboxie folder or matches the main file path
         return file_path.startswith(sandboxie_folder) or file_path == main_file_path
 
     def map_domain_ip_to_file(self, entity):
@@ -927,142 +935,170 @@ class RealTimeWebProtectionHandler:
         file_path = self.map_domain_ip_to_file(entity_value)
         notify_info = {'domain': None, 'ip_address': None, 'url': None, 'file_path': None}
 
-        if file_path and self.is_related_to_critical_paths(file_path):
-            message = f"{entity_type.capitalize()} {entity_value} is related to a critical path: {file_path}"
-            logging.warning(message)
-            print(message)
-            notify_info[entity_type] = entity_value
-            notify_info['file_path'] = file_path  # Add file_path to notification info
-        else:
-            if file_path:
-                message = f"{entity_type.capitalize()} {entity_value} is not related to critical paths but associated with file path: {file_path}"
-            else:
-                message = f"{entity_type.capitalize()} {entity_value} is not related to critical paths and has no associated file path."
-            logging.info(message)
-            print(message)
-        
-        if any(notify_info.values()):
-            notify_user_for_web(**notify_info)
-
-    def scan_domain(self, domain):
-        if domain in self.scanned_domains:
-            return
-        self.scanned_domains.append(domain)
-        message = f"Scanning domain: {domain}"
-        logging.info(message)
-        print(message)
-
-        if domain.lower() == 'www.com':
-            self.handle_detection('domain', domain)
-            return
-
-        if domain.lower().startswith("www.") and not domain.lower().endswith(".com"):
-            domain = domain[4:]
-
-        parts = domain.split(".")
-        main_domain = domain if len(parts) < 3 else ".".join(parts[-2:])
-
-        for parent_domain in domains_signatures_data:
-            if main_domain == parent_domain or main_domain.endswith(f".{parent_domain}"):
-                self.handle_detection('domain', main_domain)
-                return
-
-    def scan_ip_address(self, ip_address):
-        if ip_address in self.scanned_ipv6_addresses or ip_address in self.scanned_ipv4_addresses:
-            return
-
-        if ':' in ip_address:  # IPv6 address
-            self.scanned_ipv6_addresses.append(ip_address)
-            message = f"Scanning IPv6 address: {ip_address}"
-            logging.info(message)
-            print(message)
-            self.handle_detection('ip_address', ip_address)
-        else:  # IPv4 address
-            self.scanned_ipv4_addresses.append(ip_address)
-            message = f"Scanning IPv4 address: {ip_address}"
-            logging.info(message)
-            print(message)
-            if is_local_ip(ip_address):
-                message = f"Skipping local IP address: {ip_address}"
-                logging.info(message)
-                print(message)
-                return
-            self.handle_detection('ip_address', ip_address)
-
-    def scan_url(self, url):
-        if url in self.scanned_urls:
-            return
-        self.scanned_urls.append(url)
-        for entry in urlhaus_data:
-            if entry['url'] in url:
-                message = f"URL {url} matches the URLhaus signatures."
+        try:
+            if file_path and self.is_related_to_critical_paths(file_path):
+                message = f"{entity_type.capitalize()} {entity_value} is related to a critical path: {file_path}"
                 logging.warning(message)
                 print(message)
+                notify_info[entity_type] = entity_value
+                notify_info['file_path'] = file_path
+            else:
+                if file_path:
+                    message = f"{entity_type.capitalize()} {entity_value} is not related to critical paths but associated with file path: {file_path}"
+                else:
+                    message = f"{entity_type.capitalize()} {entity_value} is not related to critical paths and has no associated file path."
+                logging.info(message)
+                print(message)
+
+            if any(notify_info.values()):
+                notify_user_for_web(**notify_info)
+        except Exception as e:
+            logging.error(f"Error in handle_detection: {e}")
+            print(f"Error in handle_detection: {e}")
+
+    def scan_domain(self, domain):
+        try:
+            if domain in self.scanned_domains:
+                return
+            self.scanned_domains.append(domain)
+            message = f"Scanning domain: {domain}"
+            logging.info(message)
+            print(message)
+
+            if domain.lower() == 'www.com':
+                self.handle_detection('domain', domain)
+                return
+
+            if domain.lower().startswith("www.") and not domain.lower().endswith(".com"):
+                domain = domain[4:]
+
+            parts = domain.split(".")
+            main_domain = domain if len(parts) < 3 else ".".join(parts[-2:])
+
+            for parent_domain in domains_signatures_data:
+                if main_domain == parent_domain or main_domain.endswith(f".{parent_domain}"):
+                    self.handle_detection('domain', main_domain)
+                    return
+        except Exception as e:
+            logging.error(f"Error scanning domain {domain}: {e}")
+            print(f"Error scanning domain {domain}: {e}")
+
+    def scan_ip_address(self, ip_address):
+        try:
+            if ip_address in self.scanned_ipv6_addresses or ip_address in self.scanned_ipv4_addresses:
+                return
+
+            if ':' in ip_address:  # IPv6 address
+                self.scanned_ipv6_addresses.append(ip_address)
+                message = f"Scanning IPv6 address: {ip_address}"
+                logging.info(message)
+                print(message)
+                self.handle_detection('ip_address', ip_address)
+            else:  # IPv4 address
+                self.scanned_ipv4_addresses.append(ip_address)
+                message = f"Scanning IPv4 address: {ip_address}"
+                logging.info(message)
+                print(message)
+                if is_local_ip(ip_address):
+                    message = f"Skipping local IP address: {ip_address}"
+                    logging.info(message)
+                    print(message)
+                    return
+                self.handle_detection('ip_address', ip_address)
+        except Exception as e:
+            logging.error(f"Error scanning IP address {ip_address}: {e}")
+            print(f"Error scanning IP address {ip_address}: {e}")
+
+    def scan_url(self, url):
+        try:
+            if url in self.scanned_urls:
+                return
+            self.scanned_urls.append(url)
+            for entry in urlhaus_data:
+                if entry['url'] in url:
+                    message = f"URL {url} matches the URLhaus signatures."
+                    logging.warning(message)
+                    print(message)
+        except Exception as e:
+            logging.error(f"Error scanning URL {url}: {e}")
+            print(f"Error scanning URL {url}: {e}")
 
     def handle_ipv4(self, packet):
-        if DNS in packet:
-            if packet[DNS].qd:
-                for i in range(packet[DNS].qdcount):
-                    query_name = packet[DNSQR][i].qname.decode().rstrip('.')
-                    self.scan_domain(query_name)
-                    message = f"DNS Query (IPv4): {query_name}"
-                    logging.info(message)
-                    print(message)
-            if packet[DNS].an:
-                for i in range(packet[DNS].ancount):
-                    answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
-                    self.scan_domain(answer_name)
-                    message = f"DNS Answer (IPv4): {answer_name}"
-                    logging.info(message)
-                    print(message)
-                    self.scan_ip_address(packet[IP].src)
-                    self.scan_ip_address(packet[IP].dst)
-
-    def handle_ipv6(self, packet):
-        if DNS in packet:
-            if packet[DNS].qd:
-                for i in range(packet[DNS].qdcount()):
-                    query_name = packet[DNSQR][i].qname.decode().rstrip('.')
-                    self.scan_domain(query_name)
-                    message = f"DNS Query (IPv6): {query_name}"
-                    logging.info(message)
-                    print(message)
-            if packet[DNS].an:
-                for i in range(packet[DNS].ancount()):
-                    answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
-                    self.scan_domain(answer_name)
-                    message = f"DNS Answer (IPv6): {answer_name}"
-                    logging.info(message)
-                    print(message)
-                    self.scan_ip_address(packet[IPv6].src)
-                    self.scan_ip_address(packet[IPv6].dst)
-
-    def on_packet_received(self, packet):
-        if IP in packet:
-            self.handle_ipv4(packet)
-        if IPv6 in packet:
-            self.handle_ipv6(packet)
-        if DNS in packet:
-            if packet[DNS].qd:
-                for i in range(packet[DNS].qdcount):
-                    query_name = packet[DNSQR][i].qname.decode().rstrip('.')
-                    self.scan_domain(query_name)
-                    message = f"DNS Query: {query_name}"
-                    logging.info(message)
-                    print(message)
-            if packet[DNS].an:
-                for i in range(packet[DNS].ancount):
-                    answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
-                    self.scan_domain(answer_name)
-                    message = f"DNS Answer: {answer_name}"
-                    logging.info(message)
-                    print(message)
-                    if IP in packet:
+        try:
+            if DNS in packet:
+                if packet[DNS].qd:
+                    for i in range(packet[DNS].qdcount):
+                        query_name = packet[DNSQR][i].qname.decode().rstrip('.')
+                        self.scan_domain(query_name)
+                        message = f"DNS Query (IPv4): {query_name}"
+                        logging.info(message)
+                        print(message)
+                if packet[DNS].an:
+                    for i in range(packet[DNS].ancount):
+                        answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
+                        self.scan_domain(answer_name)
+                        message = f"DNS Answer (IPv4): {answer_name}"
+                        logging.info(message)
+                        print(message)
                         self.scan_ip_address(packet[IP].src)
                         self.scan_ip_address(packet[IP].dst)
-                    if TCP in packet or UDP in packet:
-                        url = f"{packet[IP].src}:{packet[IP].dport}"
-                        self.scan_url(url)
+        except Exception as e:
+            logging.error(f"Error handling IPv4 packet: {e}")
+            print(f"Error handling IPv4 packet: {e}")
+
+    def handle_ipv6(self, packet):
+        try:
+            if DNS in packet:
+                if packet[DNS].qd:
+                    for i in range(packet[DNS].qdcount()):
+                        query_name = packet[DNSQR][i].qname.decode().rstrip('.')
+                        self.scan_domain(query_name)
+                        message = f"DNS Query (IPv6): {query_name}"
+                        logging.info(message)
+                        print(message)
+                if packet[DNS].an:
+                    for i in range(packet[DNS].ancount()):
+                        answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
+                        self.scan_domain(answer_name)
+                        message = f"DNS Answer (IPv6): {answer_name}"
+                        logging.info(message)
+                        print(message)
+                        self.scan_ip_address(packet[IPv6].src)
+                        self.scan_ip_address(packet[IPv6].dst)
+        except Exception as e:
+            logging.error(f"Error handling IPv6 packet: {e}")
+            print(f"Error handling IPv6 packet: {e}")
+
+    def on_packet_received(self, packet):
+        try:
+            if IP in packet:
+                self.handle_ipv4(packet)
+            if IPv6 in packet:
+                self.handle_ipv6(packet)
+            if DNS in packet:
+                if packet[DNS].qd:
+                    for i in range(packet[DNS].qdcount):
+                        query_name = packet[DNSQR][i].qname.decode().rstrip('.')
+                        self.scan_domain(query_name)
+                        message = f"DNS Query: {query_name}"
+                        logging.info(message)
+                        print(message)
+                if packet[DNS].an:
+                    for i in range(packet[DNS].ancount):
+                        answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
+                        self.scan_domain(answer_name)
+                        message = f"DNS Answer: {answer_name}"
+                        logging.info(message)
+                        print(message)
+                        if IP in packet:
+                            self.scan_ip_address(packet[IP].src)
+                            self.scan_ip_address(packet[IP].dst)
+                        if TCP in packet or UDP in packet:
+                            url = f"{packet[IP].src}:{packet[IP].dport}"
+                            self.scan_url(url)
+        except Exception as e:
+            logging.error(f"Error processing packet: {e}")
+            print(f"Error processing packet: {e}")
 
 class RealTimeWebProtectionObserver:
     def __init__(self):
@@ -1081,7 +1117,11 @@ class RealTimeWebProtectionObserver:
 
     def start_sniffing(self):
         filter_expression = "(tcp or udp)"
-        sniff(filter=filter_expression, prn=self.handler.on_packet_received, store=0)
+        try:
+            sniff(filter=filter_expression, prn=self.handler.on_packet_received, store=0)
+        except Exception as e:
+            logging.error(f"An error occurred while sniffing packets: {e}")
+            print(f"Error while sniffing packets: {e}")
 
 web_protection_observer = RealTimeWebProtectionObserver()
 
@@ -1089,54 +1129,58 @@ class YaraScanner:
     def scan_data(self, file_path):
         matched_rules = []
 
-        if not os.path.exists(file_path):
-            logging.error(f"File not found during YARA scan: {file_path}")
+        try:
+            if not os.path.exists(file_path):
+                logging.error(f"File not found during YARA scan: {file_path}")
+                return None
+
+            with open(file_path, 'rb') as file:
+                data_content = file.read()
+
+                # Check matches for compiled_rule
+                if compiled_rule:
+                    matches = compiled_rule.match(data=data_content)
+                    if matches:
+                        for match in matches:
+                            if match.rule not in excluded_rules:
+                                matched_rules.append(match.rule)
+                            else:
+                                logging.info(f"Rule {match.rule} is excluded from compiled_rule.")
+                else:
+                    logging.warning("compiled_rule is not defined.")
+
+                # Check matches for yaraxtr_rule (loaded with yara_x)
+                if yaraxtr_rule:
+                    scanner = yara_x.Scanner(yaraxtr_rule)
+                    results = scanner.scan(data=data_content)
+                    if results.matching_rules:
+                        for rule in results.matching_rules:
+                            if hasattr(rule, 'identifier') and rule.identifier not in excluded_rules:
+                                matched_rules.append(rule.identifier)
+                            else:
+                                logging.info(f"Rule {rule.identifier} is excluded from yaraxtr_rule.")
+                else:
+                    logging.warning("yaraxtr_rule is not defined.")
+
+                # Check matches for windows_defender_rule (loaded with yara_x)
+                if windows_defender_rule:
+                    scanner = yara_x.Scanner(windows_defender_rule)
+                    results = scanner.scan(data=data_content)
+                    if results.matching_rules:
+                        for rule in results.matching_rules:
+                            if hasattr(rule, 'identifier') and rule.identifier not in excluded_rules:
+                                matched_rules.append(rule.identifier)
+                            else:
+                                logging.info(f"Rule {rule.identifier} is excluded from windows_defender_rule.")
+                else:
+                    logging.warning("windows_defender_rule is not defined.")
+
+            # Return matched rules as the yara_result if not empty, otherwise return None
+            return matched_rules if matched_rules else None
+
+        except Exception as e:
+            logging.error(f"An error occurred during YARA scan: {e}")
             return None
-
-        with open(file_path, 'rb') as file:
-            data_content = file.read()
-
-            # Check matches for compiled_rule
-            if compiled_rule:
-                matches = compiled_rule.match(data=data_content)
-                if matches:
-                    for match in matches:
-                        if match.rule not in excluded_rules:
-                            matched_rules.append(match.rule)
-                        else:
-                            logging.info(f"Rule {match.rule} is excluded from compiled_rule.")
-            else:
-                logging.warning("compiled_rule is not defined.")
-
-            # Check matches for yaraxtr_rule (loaded with yara_x)
-            if yaraxtr_rule:
-                scanner = yara_x.Scanner(yaraxtr_rule)
-                results = scanner.scan(data=data_content)
-                if results.matching_rules:
-                    for rule in results.matching_rules:
-                        if hasattr(rule, 'identifier') and rule.identifier not in excluded_rules:
-                            matched_rules.append(rule.identifier)
-                        else:
-                            logging.info(f"Rule {rule.identifier} is excluded from yaraxtr_rule.")
-            else:
-                logging.warning("yaraxtr_rule is not defined.")
-
-
-            # Check matches for windows_defender_rule (loaded with yara_x)
-            if windows_defender_rule:
-                scanner = yara_x.Scanner(windows_defender_rule)
-                results = scanner.scan(data=data_content)
-                if results.matching_rules:
-                    for rule in results.matching_rules:
-                        if hasattr(rule, 'identifier') and rule.identifier not in excluded_rules:
-                            matched_rules.append(rule.identifier)
-                        else:
-                            logging.info(f"Rule {rule.identifier} is excluded from windows_defender_rule.")
-            else:
-                logging.warning("windows_defender_rule is not defined.")
-    
-        # Return matched rules as the yara_result if not empty, otherwise return None
-        return matched_rules if matched_rules else None
 
 yara_scanner = YaraScanner()
 
