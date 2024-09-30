@@ -1148,7 +1148,7 @@ def check_signature(file_path):
         verify_command = "(Get-AuthenticodeSignature " + cmd + ").Status"
         process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, text=True)
 
-        status = process.stdout.strip()
+        status = process.stdout.strip() if process.stdout else ""
         is_valid = "Valid" in status
         signature_status_issues = "HashMismatch" in status or "NotTrusted" in status
 
@@ -1156,7 +1156,7 @@ def check_signature(file_path):
         if not signature_status_issues:
             ms_command = f"Get-AuthenticodeSignature '{file_path}' | Format-List"
             ms_result = subprocess.run(["powershell.exe", "-Command", ms_command], capture_output=True, text=True)
-            has_microsoft_signature = "O=Microsoft Corporation" in ms_result.stdout
+            has_microsoft_signature = "O=Microsoft Corporation" in (ms_result.stdout if ms_result.stdout else "")
         else:
             has_microsoft_signature = False
 
