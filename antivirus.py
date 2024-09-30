@@ -482,10 +482,10 @@ def remove_magic_bytes(data_content):
         logging.error(f"Unexpected error in remove_magic_bytes: {e}")
         return data_content  # Return original data in case of unexpected errors
 
-def decode_base32(data_content):
-    """Decode base32-encoded data."""
+def decode_base64(data_content):
+    """Decode base64-encoded data."""
     try:
-        return base32_crockford.decode(data_content.decode('utf-8'))
+        return base64.b64decode(data_content)
     except (binascii.Error, ValueError):
         return None
 
