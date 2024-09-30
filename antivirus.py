@@ -189,10 +189,6 @@ start_time = time.time()
 import py7zr
 print(f"py7zr module loaded in {time.time() - start_time:.6f} seconds")
 
-start_time = time.time()
-import chardet
-print(f"chardet module loaded in {time.time() - start_time:.6f} seconds")
-
 # Calculate and print total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
@@ -200,14 +196,14 @@ print(f"Total time for all imports: {total_duration:.6f} seconds")
 
 sys.modules['sklearn.externals.joblib'] = joblib
 
-# Set standard input encoding to UTF-8
-sys.stdin = io.TextIOWrapper(sys.stdin.detach(), encoding='utf-8')
+# Set standard input encoding to UTF-8, replacing errors
+sys.stdin = io.TextIOWrapper(sys.stdin.detach(), encoding="utf-8", errors="replace")
 
-# Set standard output encoding to UTF-8
-sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-8')
+# Set standard output encoding to UTF-8, replacing errors
+sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding="utf-8", errors="replace")
 
-# Set standard error encoding to UTF-8
-sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-8')
+# Set standard error encoding to UTF-8, replacing errors
+sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding="utf-8", errors="replace")
 
 # Load the spaCy model globally
 nlp_spacy_lang = spacy.load("en_core_web_md")
@@ -439,11 +435,6 @@ QFileDialog {
 }
 """
 
-def detect_encoding(data_content):
-    """Detect the encoding of the byte data."""
-    result = chardet.detect(data_content)
-    return result['encoding']
-
 def is_hex_data(data_content):
     """Check if the given binary data can be valid hex-encoded data."""
     try:
@@ -455,12 +446,10 @@ def is_hex_data(data_content):
 
 def remove_magic_bytes(data_content):
     """Remove magic bytes from data, considering it might be hex-encoded."""
-    # Attempt to detect the encoding
-    encoding = detect_encoding(data_content)
 
     if is_hex_data(data_content):
         # Convert binary data to hex representation for easier pattern removal
-        hex_data = binascii.hexlify(data_content).decode(encoding, errors='ignore')
+        hex_data = binascii.hexlify(data_content).decode("utf-8", errors="replace")
 
         # Remove magic bytes by applying regex patterns
         for magic_byte in magic_bytes.keys():
@@ -471,14 +460,14 @@ def remove_magic_bytes(data_content):
         return binascii.unhexlify(hex_data)
     else:
         try:
-            # Decode the data using the detected encoding
-            decoded_content = data_content.decode(encoding, errors='ignore')
+            # Decode the data using UTF-8
+            decoded_content = data_content.decode("utf-8", errors="replace")
         except (AttributeError, TypeError) as e:
             logging.error(f"Error decoding data: {e}")
             return data_content  # Return original data if decoding fails
 
         # Convert decoded content back to bytes for magic byte removal
-        hex_data = binascii.hexlify(decoded_content.encode(encoding)).decode(errors='ignore')
+        hex_data = binascii.hexlify(decoded_content.encode("utf-8")).decode(errors="replace")
 
         for magic_byte in magic_bytes.keys():
             pattern = re.compile(rf'{magic_bytes[magic_byte].replace(" ", "")}', re.IGNORECASE)
@@ -2060,14 +2049,6 @@ class PyInstArchive:
 
     def __init__(self, path):
         self.filePath = path
-        self.encoding = self.detect_encoding_of_archive()
-
-    def detect_encoding_archive(self):
-        """Detect the encoding of the file."""
-        with open(self.filePath, 'rb') as f:
-            raw_data = f.read(10000)  # Read a chunk for encoding detection
-        result = chardet.detect(raw_data)
-        return result['encoding']
 
     def open_file(self):
         try:
@@ -2141,7 +2122,7 @@ class PyInstArchive:
                 logging.error(f"Error unpacking TOC entry: {e}")
                 return False
 
-            name = entry[5].decode(self.encoding, errors='replace').rstrip('\0')
+            name = entry[5].decode("utf-8", errors="replace").rstrip('\0')
             self.tocList.append(CTOCEntry(
                 self.overlayPos + entry[0],
                 entry[1],
@@ -2210,7 +2191,7 @@ class PyInstArchive:
 
             for key, (ispkg, pos, length) in toc.items():
                 f.seek(pos, os.SEEK_SET)
-                fileName = key.decode(self.encoding, errors='replace')
+                fileName = key.decode("utf-8", errors="replace")
                 fileName = fileName.replace('..', '__').replace('.', os.path.sep)
 
                 if ispkg:
@@ -2615,14 +2596,8 @@ def scan_file_with_llama32(file_path):
     max_lines = 100000
 
     try:
-        # Detect encoding by reading a portion of the file
-        with open(file_path, 'rb') as file:
-            raw_data = file.read(10000)  # Read a chunk for encoding detection
-            result = chardet.detect(raw_data)
-            encoding = result['encoding'] or 'utf-8'  # Fallback to utf-8 if detection fails
-
-        # Read the file with the detected encoding
-        with open(file_path, 'r', encoding=encoding) as file:
+        # Read the file with UTF-8 encoding
+        with open(file_path, 'r', encoding="utf-8", errors="replace") as file:
             for line in file:
                 if line_count < max_lines:
                     readable_file_content += line
@@ -3507,14 +3482,8 @@ class Monitor_Message_CommandLine:
 
     def detect_malware(self, file_path, hwnd):
         try:
-            # Detect the file's encoding
-            with open(file_path, 'rb') as f:
-                raw_data = f.read(10000)  # Read a chunk for encoding detection
-            result = chardet.detect(raw_data)
-            encoding = result['encoding'] if result['encoding'] else 'utf-8'  # Fallback to utf-8 if detection fails
-
-            # Read the file content using the detected encoding
-            with open(file_path, 'r', encoding=encoding) as file:
+            # Read the file content using UTF-8 encoding
+            with open(file_path, 'r', encoding="utf-8", errors="replace") as file:
                 file_content = file.read()
 
             for category, details in self.known_malware_messages.items():
@@ -3567,11 +3536,11 @@ class Monitor_Message_CommandLine:
                     original_file_path = self.get_unique_filename(f"original_{hwnd}")
 
                     # Write preprocessed text to a file
-                    with open(preprocessed_file_path, 'w', encoding='utf-8') as file:
+                    with open(preprocessed_file_path, 'w', encoding="utf-8", errors="replace") as file:
                         file.write(preprocessed_text)
 
                     # Write original text to a file
-                    with open(original_file_path, 'w', encoding='utf-8') as file:
+                    with open(original_file_path, 'w', encoding="utf-8", errors="replace") as file:
                         file.write(text)
 
                     # Scan and warn with preprocessed and original text
@@ -3589,11 +3558,11 @@ class Monitor_Message_CommandLine:
                     preprocessed_command_file_path = self.get_unique_filename(f"command_preprocessed_{executable_path}")
 
                     # Write original command line to a file
-                    with open(original_command_file_path, 'w', encoding='utf-8') as file:
+                    with open(original_command_file_path, 'w', encoding="utf-8", errors="replace") as file:
                         file.write(command_line)
 
                     # Write preprocessed command line to a file
-                    with open(preprocessed_command_file_path, 'w', encoding='utf-8') as file:
+                    with open(preprocessed_command_file_path, 'w', encoding="utf-8", errors="replace") as file:
                         file.write(preprocessed_command_line)
 
                     # Scan and warn with both versions of command lines
