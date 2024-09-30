@@ -3487,102 +3487,102 @@ class Monitor_Message_CommandLine:
         notification.message = message
         notification.send()
 
-    def process_detected_text_classic(self, text, file_path=None, hwnd=None):
+    def process_detected_text_classic(self, text, file_path):
         virus_name = self.known_malware_messages["classic"]["virus_name"]
-        message = f"Detected potential anti-vm anti-debug malware: {virus_name} in text: {text} from {file_path} {hwnd}"
+        message = f"Detected potential anti-vm anti-debug malware: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def process_detected_text_av(self, text, file_path=None, hwnd=None):
+    def process_detected_text_av(self, text, file_path):
         virus_name = self.known_malware_messages["av"]["virus_name"]
-        message = f"Detected potential anti-AV malware: {virus_name} in text: {text} from {file_path} {hwnd}"
+        message = f"Detected potential anti-AV malware: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def process_detected_text_debugger(self, text, file_path=None, hwnd=None):
+    def process_detected_text_debugger(self, text, file_path):
         virus_name = self.known_malware_messages["debugger"]["virus_name"]
-        message = f"Detected potential anti-debugger malware: {virus_name} in text: {text} from {file_path} {hwnd}"
+        message = f"Detected potential anti-debugger malware: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def process_detected_text_fanmade(self, text, file_path=None, hwnd=None):
+    def process_detected_text_fanmade(self, text, file_path):
         virus_name = self.known_malware_messages["fanmade"]["virus_name"]
-        message = f"Detected potential fanmade malware: {virus_name} in text: {text} from {file_path} {hwnd}"
+        message = f"Detected potential fanmade malware: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def process_detected_text_rogue(self, text, file_path=None, hwnd=None):
+    def process_detected_text_rogue(self, text, file_path):
         virus_name = self.known_malware_messages["rogue"]["virus_name"]
         message = f"Detected potential rogue security software: {virus_name} in text: {text} from {file_path} {hwnd}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def process_detected_text_ransom(self, text, file_path=None, hwnd=None):
-        message = f"Potential ransomware detected in text: {text} from {file_path} {hwnd}"
+    def process_detected_text_ransom(self, text, file_path):
+        message = f"Potential ransomware detected in text: {text} from {file_path}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def process_detected_command_wifi(self, text, file_path=None, hwnd=None):
+    def process_detected_command_wifi(self, text, file_path):
         virus_name = self.known_malware_messages["wifi"]["virus_name"]
-        message = f"Detected Wi-Fi credentials stealing malware: {virus_name} in text: {text} from {file_path} {hwnd}"
+        message = f"Detected Wi-Fi credentials stealing malware: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def process_detected_command_ransom_shadowcopy(self, text, file_path=None, hwnd=None):
+    def process_detected_command_ransom_shadowcopy(self, text, file_path):
         virus_name = self.known_malware_messages["shadowcopy"]["virus_name"]
-        message = f"Detected ransomware shadow copy deletion: {virus_name} in text: {text} from {file_path} {hwnd}"
+        message = f"Detected ransomware shadow copy deletion: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def process_detected_command_wmic_shadowcopy(self, text, file_path=None, hwnd=None):
+    def process_detected_command_wmic_shadowcopy(self, text, file_path):
         virus_name = self.known_malware_messages["wmic"]["virus_name"]
-        message = f"Detected WMIC shadow copy deletion: {virus_name} in text: {text} from {file_path} {hwnd}"
+        message = f"Detected WMIC shadow copy deletion: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def process_detected_command_copy_to_startup(self, text, file_path=None, hwnd=None):
+    def process_detected_command_copy_to_startup(self, text, file_path):
         virus_name = self.known_malware_messages["startup"]["virus_name"]
-        message = f"Detected startup copy malware: {virus_name} in text: {text} from {file_path} {hwnd}"
+        message = f"Detected startup copy malware: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def process_detected_command_schtasks_temp(self, text, file_path=None, hwnd=None):
+    def process_detected_command_schtasks_temp(self, text, file_path):
         virus_name = self.known_malware_messages["commands"]["schtasks"]["virus_name"]
-        message = f"Detected scheduled task creation using temp file: {virus_name} in text: {text} from {file_path} {hwnd}"
+        message = f"Detected scheduled task creation using temp file: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def process_detected_command_rootkit_koadic(self, text, file_path=None, hwnd=None):
+    def process_detected_command_rootkit_koadic(self, text, file_path):
         virus_name = self.known_malware_messages["koadic"]["virus_name"]
-        message = f"Detected rootkit behavior associated with Koadic: {virus_name} in text: {text} from {file_path} {hwnd}"
+        message = f"Detected rootkit behavior associated with Koadic: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def process_detected_command_fodhelper(self, text, file_path=None, hwnd=None):
+    def process_detected_command_fodhelper(self, text, file_path):
         virus_name = self.known_malware_messages["fodhelper"]["virus_name"]
-        message = f"Detected UAC bypass attempt using Fodhelper: {virus_name} in text: {text} from {file_path} {hwnd}"
+        message = f"Detected UAC bypass attempt using Fodhelper: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def process_detected_command_antivirus_search(self, text, file_path=None, hwnd=None):
+    def process_detected_command_antivirus_search(self, text, file_path):
         virus_name = self.known_malware_messages["antivirus"]["virus_name"]
-        message = f"Detected search for antivirus processes: {virus_name} in text: {text} from {file_path} {hwnd}"
+        message = f"Detected search for antivirus processes: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def process_detected_powershell_iex_download(self, text, file_path=None, hwnd=None):
+    def process_detected_powershell_iex_download(self, text, file_path):
         virus_name = self.known_malware_messages["powershell_iex_download"]["virus_name"]
-        message = f"Detected PowerShell IEX download command: {virus_name} in text: {text} from {file_path} {hwnd}"
+        message = f"Detected PowerShell IEX download command: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def process_detected_command_xmrig(self, text, file_path=None, hwnd=None):
+    def process_detected_command_xmrig(self, text, file_path):
         virus_name = self.known_malware_messages["xmrig"]["virus_name"]
-        message = f"Detected XMRig mining activity: {virus_name} in text: {text} from {file_path} {hwnd}"
+        message = f"Detected XMRig mining activity: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def detect_malware(self, file_path, hwnd):
+    def detect_malware(self, file_path):
         try:
             # Read the file content using UTF-8 encoding
             with open(file_path, 'r', encoding="utf-8", errors="replace") as file:
@@ -3592,23 +3592,23 @@ class Monitor_Message_CommandLine:
                 if "patterns" in details:
                     for pattern in details["patterns"]:
                         similarity = self.calculate_similarity_text(file_content, pattern)
-                        if similarity > 0.8:  # Adjust similarity threshold as needed
-                            details["process_function"](file_content, file_path, hwnd)
+                        if similarity > 0.8:
+                            details["process_function"](file_content, file_path)
                             return
                 elif "message" in details:
                     similarity = self.calculate_similarity_text(file_content, details["message"])
-                    if similarity > 0.8:  # Adjust similarity threshold as needed
-                        details["process_function"](file_content, file_path, hwnd)
+                    if similarity > 0.8:
+                        details["process_function"](file_content, file_path)
                         return
                 elif "command" in details:
                     similarity = self.calculate_similarity_text(file_content, details["command"])
-                    if similarity > 0.8:  # Adjust similarity threshold as needed
-                        details["process_function"](file_content, file_path, hwnd)
+                    if similarity > 0.8:
+                        details["process_function"](file_content, file_path)
                         return
 
             # Adding ransomware check
             if self.contains_keywords_within_max_distance(file_content, max_distance=10):
-                self.process_detected_text_ransom(file_content, file_path, hwnd)
+                self.process_detected_text_ransom(file_content, file_path)
 
             logging.info(f"Finished processing detection for {file_path}.")
 
@@ -3624,7 +3624,7 @@ class Monitor_Message_CommandLine:
             counter += 1
         return unique_name
 
-    def monitor(self):
+    def monitoring_command_line_and_messages(self):
         try:
             while True:
                 # Capture windows with text
@@ -3646,8 +3646,8 @@ class Monitor_Message_CommandLine:
                         file.write(text)
 
                     # Scan and warn with preprocessed and original text
-                    scan_and_warn(preprocessed_file_path, hwnd)
-                    scan_and_warn(original_file_path, hwnd)
+                    scan_and_warn(preprocessed_file_path)
+                    scan_and_warn(original_file_path)
 
                 # Capture command lines
                 command_lines = self.capture_command_lines()
@@ -3668,8 +3668,8 @@ class Monitor_Message_CommandLine:
                         file.write(preprocessed_command_line)
 
                     # Scan and warn with both versions of command lines
-                    scan_and_warn(original_command_file_path, executable_path)
-                    scan_and_warn(preprocessed_command_file_path, executable_path)
+                    scan_and_warn(original_command_file_path)
+                    scan_and_warn(preprocessed_command_file_path)
 
         except Exception as e:
             logging.error(f"Error in monitor: {e}")
@@ -3741,7 +3741,7 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=check_startup_directories).start()
         threading.Thread(target=monitor_hosts_file).start()
         threading.Thread(target=check_uefi_directories).start() # Start monitoring UEFI directories for malicious files in a separate thread
-        threading.Thread(target=monitor_message.monitor).start() # Function to monitor specific windows in a separate thread
+        threading.Thread(target=monitor_message.monitoring_command_line_and_messages).start() # Function to monitor specific windows in a separate thread
         threading.Thread(target=run_sandboxie_control).start()
         threading.Thread(target=run_sandboxie, args=(file_path,)).start()
 
