@@ -1515,7 +1515,7 @@ class WorkerSignals(QObject):
 
 class AntivirusUI(QWidget):
     folder_scan_finished = Signal()
-    
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Hydra Dragon Antivirus")
@@ -1526,7 +1526,6 @@ class AntivirusUI(QWidget):
         main_layout = QVBoxLayout()
         main_layout.addWidget(self.stacked_widget)
         self.setLayout(main_layout)
-        # Set the window icon
         self.setWindowIcon(QIcon("assets/HydraDragonAV.png"))
         self.signals = WorkerSignals()
         self.signals.success.connect(self.show_success_message)
@@ -1567,57 +1566,59 @@ class AntivirusUI(QWidget):
         directory_path = "C:\\Program Files\\ClamAV\\database"
         file_found = False
 
-        # Check if either daily.cvd or daily.cld exists
-        for file_path in file_paths:
-            if os.path.exists(file_path):
-                file_found = True
-                # Get the file's modification time
-                file_mod_time = os.path.getmtime(file_path)
-                file_mod_time = datetime.fromtimestamp(file_mod_time)
-                
-                # Calculate the age of the file
-                file_age = datetime.now() - file_mod_time
-                
-                # If the file is older than 6 hours, check other files in the directory
-                if file_age > timedelta(hours=6):
-                    all_files_old = True
-                    for root, dirs, files in os.walk(directory_path):
-                        for file_name in files:
-                            other_file_path = os.path.join(root, file_name)
-                            other_file_mod_time = os.path.getmtime(other_file_path)
-                            other_file_mod_time = datetime.fromtimestamp(other_file_mod_time)
-                            other_file_age = datetime.now() - other_file_mod_time
-                            if other_file_age <= timedelta(hours=6):
-                                all_files_old = False
-                                break
-                        if not all_files_old:
-                            break
-                    if all_files_old:
-                        result = subprocess.run([freshclam_path], capture_output=True, text=True)
-                        if result.returncode == 0:
-                            self.signals.success.emit()
-                            restart_clamd_thread()
-                        else:
-                            self.signals.failure.emit()
-                            print(f"freshclam failed with output: {result.stdout}\n{result.stderr}")
-                        return
-                    else:
-                        print("One of the other files is not older than 6 hours. No update needed.")
-                        return
-                else:
-                    print("The database is not older than 6 hours. No update needed.")
-                return
+        try:
+            # Check if either daily.cvd or daily.cld exists
+            for file_path in file_paths:
+                if os.path.exists(file_path):
+                    file_found = True
+                    file_mod_time = os.path.getmtime(file_path)
+                    file_mod_time = datetime.fromtimestamp(file_mod_time)
 
-        # If neither daily.cvd nor daily.cld exists, run freshclam
-        if not file_found:
-            print("Neither daily.cvd nor daily.cld files exist. Running freshclam.")
-            result = subprocess.run([freshclam_path], capture_output=True, text=True)
-            if result.returncode == 0:
-                restart_clamd_thread()
-                self.signals.success.emit()
-            else:
-                self.signals.failure.emit()
-                print(f"freshclam failed with output: {result.stdout}\n{result.stderr}")
+                    file_age = datetime.now() - file_mod_time
+
+                    if file_age > timedelta(hours=6):
+                        all_files_old = True
+                        for root, dirs, files in os.walk(directory_path):
+                            for file_name in files:
+                                other_file_path = os.path.join(root, file_name)
+                                other_file_mod_time = os.path.getmtime(other_file_path)
+                                other_file_mod_time = datetime.fromtimestamp(other_file_mod_time)
+                                other_file_age = datetime.now() - other_file_mod_time
+                                if other_file_age <= timedelta(hours=6):
+                                    all_files_old = False
+                                    break
+                            if not all_files_old:
+                                break
+                        if all_files_old:
+                            result = subprocess.run([freshclam_path], capture_output=True, text=True)
+                            if result.returncode == 0:
+                                self.signals.success.emit()
+                                restart_clamd_thread()
+                            else:
+                                self.signals.failure.emit()
+                                print(f"freshclam failed with output: {result.stdout}\n{result.stderr}")
+                            return
+                        else:
+                            print("One of the other files is not older than 6 hours. No update needed.")
+                            return
+                    else:
+                        print("The database is not older than 6 hours. No update needed.")
+                    return
+
+            # If neither daily.cvd nor daily.cld exists, run freshclam
+            if not file_found:
+                print("Neither daily.cvd nor daily.cld files exist. Running freshclam.")
+                result = subprocess.run([freshclam_path], capture_output=True, text=True)
+                if result.returncode == 0:
+                    restart_clamd_thread()
+                    self.signals.success.emit()
+                else:
+                    self.signals.failure.emit()
+                    print(f"freshclam failed with output: {result.stdout}\n{result.stderr}")
+
+        except Exception as e:
+            logging.error(f"Error in update_definitions: {e}")
+            self.signals.failure.emit()
 
     def start_update_definitions_thread(self):
         threading.Thread(target=self.update_definitions).start()
@@ -1955,10 +1956,15 @@ def ensure_unique_folder(base_folder):
     """Create a uniquely named folder by appending a number if necessary."""
     folder = base_folder
     counter = 1
-    while os.path.exists(folder):
-        folder = f"{base_folder}_{counter}"
-        counter += 1
-    os.makedirs(folder)
+    try:
+        while os.path.exists(folder):
+            folder = f"{base_folder}_{counter}"
+            counter += 1
+        os.makedirs(folder)
+    except Exception as e:
+        logging.error(f"Error creating folder '{folder}': {e}")
+        return None  # Return None if an error occurs
+
     return folder
 
 def is_nuitka_file(file_path):
@@ -2069,21 +2075,29 @@ class PyInstArchive:
         endPos = self.fileSize
         searchChunkSize = 8192
 
-        while True:
-            startPos = max(0, endPos - searchChunkSize)
-            self.fPtr.seek(startPos, os.SEEK_SET)
-            data_content = self.fPtr.read(endPos - startPos)
-            offs = data_content.rfind(self.MAGIC)
-            if offs != -1:
-                self.cookiePos = startPos + offs
-                break
-            endPos = startPos + len(self.MAGIC) - 1
-            if startPos == 0:
-                return False
+        try:
+            while True:
+                startPos = max(0, endPos - searchChunkSize)
+                self.fPtr.seek(startPos, os.SEEK_SET)
+                data_content = self.fPtr.read(endPos - startPos)
+                offs = data_content.rfind(self.MAGIC)
+                if offs != -1:
+                    self.cookiePos = startPos + offs
+                    break
+                endPos = startPos + len(self.MAGIC) - 1
+                if startPos == 0:
+                    return False
+        except Exception as e:
+            logging.error(f"Error during checkFile: {e}")
+            return False
 
-        self.fPtr.seek(self.cookiePos + self.PYINST20_COOKIE_SIZE, os.SEEK_SET)
-        self.pyinstVer = 21 if b'python' in self.fPtr.read(64).lower() else 20
-        return True
+        try:
+            self.fPtr.seek(self.cookiePos + self.PYINST20_COOKIE_SIZE, os.SEEK_SET)
+            self.pyinstVer = 21 if b'python' in self.fPtr.read(64).lower() else 20
+            return True
+        except Exception as e:
+            logging.error(f"Error reading Python version: {e}")
+            return False
 
     def getCArchiveInfo(self):
         self.fPtr.seek(self.cookiePos, os.SEEK_SET)
@@ -2108,31 +2122,35 @@ class PyInstArchive:
         self.tocList = []
         parsedLen = 0
 
-        while parsedLen < self.tableOfContentsSize:
-            entrySize = struct.unpack('!i', self.fPtr.read(4))[0]
+        try:
+            while parsedLen < self.tableOfContentsSize:
+                entrySize = struct.unpack('!i', self.fPtr.read(4))[0]
 
-            if entrySize <= 0 or entrySize > self.fileSize - self.tableOfContentsPos:
-                return False
+                if entrySize <= 0 or entrySize > self.fileSize - self.tableOfContentsPos:
+                    return False
 
-            nameLen = struct.calcsize('!iIIIBc')
+                nameLen = struct.calcsize('!iIIIBc')
 
-            try:
-                entry = struct.unpack(f'!IIIBc{entrySize - nameLen}s', self.fPtr.read(entrySize - 4))
-            except struct.error as e:
-                logging.error(f"Error unpacking TOC entry: {e}")
-                return False
+                try:
+                    entry = struct.unpack(f'!IIIBc{entrySize - nameLen}s', self.fPtr.read(entrySize - 4))
+                except struct.error as e:
+                    logging.error(f"Error unpacking TOC entry: {e}")
+                    return False
 
-            name = entry[5].decode("utf-8", errors="replace").rstrip('\0')
-            self.tocList.append(CTOCEntry(
-                self.overlayPos + entry[0],
-                entry[1],
-                entry[2],
-                entry[3],
-                entry[4],
-                name
-            ))
+                name = entry[5].decode("utf-8", errors="replace").rstrip('\0')
+                self.tocList.append(CTOCEntry(
+                    self.overlayPos + entry[0],
+                    entry[1],
+                    entry[2],
+                    entry[3],
+                    entry[4],
+                    name
+                ))
 
-            parsedLen += entrySize
+                parsedLen += entrySize
+        except Exception as e:
+            logging.error(f"Error during TOC parsing: {e}")
+            return False
 
         return True
 
@@ -2147,20 +2165,24 @@ class PyInstArchive:
         os.makedirs(extractionDir, exist_ok=True)
         os.chdir(extractionDir)
 
-        for entry in self.tocList:
-            self.fPtr.seek(entry.position, os.SEEK_SET)
-            data_content = self.fPtr.read(entry.cmprsdDataSize)
-            if entry.cmprsFlag == 1:
-                try:
-                    data_content = zlib.decompress(data_content)
-                except zlib.error:
-                    return False
+        try:
+            for entry in self.tocList:
+                self.fPtr.seek(entry.position, os.SEEK_SET)
+                data_content = self.fPtr.read(entry.cmprsdDataSize)
+                if entry.cmprsFlag == 1:
+                    try:
+                        data_content = zlib.decompress(data_content)
+                    except zlib.error:
+                        return False
 
-            with open(entry.name, 'wb') as f:
-                f.write(data_content)
+                with open(entry.name, 'wb') as f:
+                    f.write(data_content)
 
-            if entry.name.endswith('.pyz'):
-                self._extractPyz(entry.name)
+                if entry.name.endswith('.pyz'):
+                    self._extractPyz(entry.name)
+        except Exception as e:
+            logging.error(f"Error during file extraction: {e}")
+            return False
 
         return True
 
@@ -2168,62 +2190,70 @@ class PyInstArchive:
         dirName = name + '_extracted'
         os.makedirs(dirName, exist_ok=True)
 
-        with open(name, 'rb') as f:
-            pyzMagic = f.read(4)
-            assert pyzMagic == b'PYZ\0' 
+        try:
+            with open(name, 'rb') as f:
+                pyzMagic = f.read(4)
+                assert pyzMagic == b'PYZ\0' 
 
-            pyzPycMagic = f.read(4)
+                pyzPycMagic = f.read(4)
 
-            if self.pymaj != sys.version_info.major or self.pymin != sys.version_info.minor:
-                return False
+                if self.pymaj != sys.version_info.major or self.pymin != sys.version_info.minor:
+                    return False
 
-            tocPosition = struct.unpack('!i', f.read(4))[0]
-            f.seek(tocPosition, os.SEEK_SET)
+                tocPosition = struct.unpack('!i', f.read(4))[0]
+                f.seek(tocPosition, os.SEEK_SET)
 
-            try:
-                toc = marshal.load(f)
-            except (EOFError, ValueError, TypeError) as e:
-                logging.error(f"Error loading PYZ TOC: {e}")
-                return False
-
-            if isinstance(toc, list):
-                toc = dict(toc)
-
-            for key, (ispkg, pos, length) in toc.items():
-                f.seek(pos, os.SEEK_SET)
-                fileName = key.decode("utf-8", errors="replace")
-                fileName = fileName.replace('..', '__').replace('.', os.path.sep)
-
-                if ispkg:
-                    filePath = os.path.join(dirName, fileName, '__init__.pyc')
-                else:
-                    filePath = os.path.join(dirName, fileName + '.pyc')
-
-                os.makedirs(os.path.dirname(filePath), exist_ok=True)
-
-                data_content = f.read(length)
                 try:
-                    data_content = zlib.decompress(data_content)
-                except zlib.error:
-                    with open(filePath + '.encrypted', 'wb') as e_f:
-                        e_f.write(data_content)
-                    continue
+                    toc = marshal.load(f)
+                except (EOFError, ValueError, TypeError) as e:
+                    logging.error(f"Error loading PYZ TOC: {e}")
+                    return False
 
-                with open(filePath, 'wb') as pyc_f:
-                    pyc_f.write(pyzPycMagic)
-                    pyc_f.write(b'\0' * 4)
-                    if self.pymaj >= 3 and self.pymin >= 7:
-                        pyc_f.write(b'\0' * 8)
-                    pyc_f.write(data_content)
+                if isinstance(toc, list):
+                    toc = dict(toc)
+
+                for key, (ispkg, pos, length) in toc.items():
+                    f.seek(pos, os.SEEK_SET)
+                    fileName = key.decode("utf-8", errors="replace")
+                    fileName = fileName.replace('..', '__').replace('.', os.path.sep)
+
+                    if ispkg:
+                        filePath = os.path.join(dirName, fileName, '__init__.pyc')
+                    else:
+                        filePath = os.path.join(dirName, fileName + '.pyc')
+
+                    os.makedirs(os.path.dirname(filePath), exist_ok=True)
+
+                    data_content = f.read(length)
+                    try:
+                        data_content = zlib.decompress(data_content)
+                    except zlib.error:
+                        with open(filePath + '.encrypted', 'wb') as e_f:
+                            e_f.write(data_content)
+                        continue
+
+                    with open(filePath, 'wb') as pyc_f:
+                        pyc_f.write(pyzPycMagic)
+                        pyc_f.write(b'\0' * 4)
+                        if self.pymaj >= 3 and self.pymin >= 7:
+                            pyc_f.write(b'\0' * 8)
+                        pyc_f.write(data_content)
+        except Exception as e:
+            logging.error(f"Error during PYZ extraction: {e}")
+            return False
 
         return True
 
 def is_pyinstaller_archive(file_path):
-    archive = PyInstArchive(file_path)
-    if archive.open_file():
-        result = archive.checkFile()
-        archive.close_file()
-        return result
+    try:
+        archive = PyInstArchive(file_path)
+        if archive.open_file():
+            result = archive.checkFile()
+            archive.close_file()
+            return result
+    except Exception as e:
+        logging.error(f"Error checking if '{file_path}' is a PyInstaller archive: {e}")
+    
     return False
 
 def extract_pyinstaller_archive(file_path):
@@ -2374,10 +2404,14 @@ def calculate_similarity_worm(features1, features2, threshold=0.86):
     Calculate similarity between two dictionaries of features for worm detection.
     Adjusted threshold for worm detection.
     """
-    common_keys = set(features1.keys()) & set(features2.keys())
-    matching_keys = sum(1 for key in common_keys if features1[key] == features2[key])
-    similarity = matching_keys / max(len(features1), len(features2))
-    return similarity
+    try:
+        common_keys = set(features1.keys()) & set(features2.keys())
+        matching_keys = sum(1 for key in common_keys if features1[key] == features2[key])
+        similarity = matching_keys / max(len(features1), len(features2)) if max(len(features1), len(features2)) > 0 else 0
+        return similarity
+    except Exception as e:
+        logging.error(f"Error calculating similarity: {e}")
+        return 0  # Return a default value in case of an error
 
 def extract_numeric_worm_features(file_path):
     """
@@ -2424,20 +2458,24 @@ def check_worm_similarity(file_path, features_current):
     """Check similarity with main file and collected files."""
     worm_detected = False
 
-    if main_file_path and main_file_path != file_path:
-        features_main = extract_numeric_worm_features(main_file_path)
-        similarity_main = calculate_similarity_worm(features_current, features_main)
-        if similarity_main > 0.86:
-            logging.warning(f"Main file '{main_file_path}' is spreading the worm to '{file_path}' with similarity score {similarity_main}")
-            worm_detected = True
-
-    for collected_file_path in file_paths:
-        if collected_file_path != file_path:
-            features_collected = extract_numeric_worm_features(collected_file_path)
-            similarity_collected = calculate_similarity_worm(features_current, features_collected)
-            if similarity_collected > 0.86:
-                logging.warning(f"Worm has spread to '{collected_file_path}' with similarity score {similarity_collected}")
+    try:
+        if main_file_path and main_file_path != file_path:
+            features_main = extract_numeric_worm_features(main_file_path)
+            similarity_main = calculate_similarity_worm(features_current, features_main)
+            if similarity_main > 0.86:
+                logging.warning(f"Main file '{main_file_path}' is spreading the worm to '{file_path}' with similarity score {similarity_main}")
                 worm_detected = True
+
+        for collected_file_path in file_paths:
+            if collected_file_path != file_path:
+                features_collected = extract_numeric_worm_features(collected_file_path)
+                similarity_collected = calculate_similarity_worm(features_current, features_collected)
+                if similarity_collected > 0.86:
+                    logging.warning(f"Worm has spread to '{collected_file_path}' with similarity score {similarity_collected}")
+                    worm_detected = True
+
+    except Exception as e:
+        logging.error(f"Error checking worm similarity for '{file_path}': {e}")
 
     return worm_detected
 
