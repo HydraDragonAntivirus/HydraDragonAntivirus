@@ -492,6 +492,9 @@ def decode_base64(data_content):
 def decode_base32(data_content):
     """Decode base32-encoded data."""
     try:
+        # Ensure the input is bytes
+        if isinstance(data_content, str):
+            data_content = data_content.encode('utf-8')
         return base32_crockford.decode(data_content)
     except (binascii.Error, ValueError):
         return None
@@ -502,7 +505,6 @@ def process_file_data(file_path):
         with open(file_path, 'rb') as file:
             data_content = file.read()
 
-        original_data = data_content
         while True:
             # Try to decode base64 and base32 repeatedly
             base64_decoded = decode_base64(data_content)
@@ -525,7 +527,7 @@ def process_file_data(file_path):
         output_file_path = os.path.join(processed_dir, 'processed_' + os.path.basename(file_path))
         with open(output_file_path, 'wb') as processed_file:
             processed_file.write(processed_data)
-        
+
         logging.info(f"Processed data from {file_path} saved to {output_file_path}")
 
     except Exception as e:
