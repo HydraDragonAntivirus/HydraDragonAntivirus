@@ -494,7 +494,7 @@ def decode_base32(data_content):
     try:
         # Ensure the input is bytes
         if isinstance(data_content, str):
-            data_content = data_content.encode('utf-8')
+            data_content = data_content.encode("utf-8")
         return base32_crockford.decode(data_content)
     except (binascii.Error, ValueError):
         return None
