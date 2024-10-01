@@ -3603,11 +3603,20 @@ class Monitor_Message_CommandLine:
         self.notify_user_for_detected_command(message)
 
     def detect_malware(self, file_path):
+        if not isinstance(file_path, str):
+            logging.error(f"Expected a string for file_path, but got {type(file_path).__name__}")
+            return
+        
         try:
-            # Read the file content using UTF-8 encoding
+            # Attempt to read the file content using UTF-8 encoding
             with open(file_path, 'r', encoding="utf-8", errors="replace") as file:
                 file_content = file.read()
 
+            if not isinstance(file_content, str):
+                logging.error("File content is not a valid string.")
+                return
+
+            # Process known malware messages
             for category, details in self.known_malware_messages.items():
                 if "patterns" in details:
                     for pattern in details["patterns"]:
@@ -3632,6 +3641,10 @@ class Monitor_Message_CommandLine:
 
             logging.info(f"Finished processing detection for {file_path}.")
 
+        except FileNotFoundError:
+            logging.error(f"File not found: {file_path}")
+        except IsADirectoryError:
+            logging.error(f"Expected a file but got a directory: {file_path}")
         except Exception as e:
             logging.error(f"Error handling file: {e}")
 
