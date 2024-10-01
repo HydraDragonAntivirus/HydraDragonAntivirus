@@ -1200,7 +1200,7 @@ def check_signature(file_path):
         # Command to verify the executable signature status
         cmd = f'"{file_path}"'
         verify_command = "(Get-AuthenticodeSignature " + cmd + ").Status"
-        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, text=True)
+        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
 
         status = process.stdout.strip() if process.stdout else ""
         is_valid = "Valid" in status
@@ -1209,7 +1209,7 @@ def check_signature(file_path):
         # Command to check for Microsoft signature if there are no issues
         if not signature_status_issues:
             ms_command = f"Get-AuthenticodeSignature '{file_path}' | Format-List"
-            ms_result = subprocess.run(["powershell.exe", "-Command", ms_command], capture_output=True, text=True)
+            ms_result = subprocess.run(["powershell.exe", "-Command", ms_command], capture_output=True, text=True, encoding='utf-8', errors='replace')
             has_microsoft_signature = "O=Microsoft Corporation" in (ms_result.stdout if ms_result.stdout else "")
         else:
             has_microsoft_signature = False
@@ -3643,15 +3643,15 @@ class Monitor_Message_CommandLine:
                     preprocessed_file_path = self.get_unique_filename(f"preprocessed_{hwnd}")
                     original_file_path = self.get_unique_filename(f"original_{hwnd}")
 
-                    # Write preprocessed text to a file if not empty
+                    # Write preprocessed text to a file if not empty and limit to first 1 million characters
                     if preprocessed_text:
                         with open(preprocessed_file_path, 'w', encoding="utf-8", errors="replace") as file:
-                            file.write(preprocessed_text)
+                            file.write(preprocessed_text[:1_000_000])
 
-                    # Write original text to a file if not empty
+                    # Write original text to a file if not empty and limit to first 1 million characters
                     if text:
                         with open(original_file_path, 'w', encoding="utf-8", errors="replace") as file:
-                            file.write(text)
+                            file.write(text[:1_000_000])
 
                     # Scan and warn with preprocessed and original text if files were created
                     if preprocessed_text:
@@ -3669,15 +3669,15 @@ class Monitor_Message_CommandLine:
                     original_command_file_path = self.get_unique_filename(f"command_{executable_path}")
                     preprocessed_command_file_path = self.get_unique_filename(f"command_preprocessed_{executable_path}")
 
-                    # Write original command line to a file if not empty
+                    # Write original command line to a file if not empty and limit to first 1 million characters
                     if command_line:
                         with open(original_command_file_path, 'w', encoding="utf-8", errors="replace") as file:
-                            file.write(command_line)
+                            file.write(command_line[:1_000_000])
 
-                    # Write preprocessed command line to a file if not empty
+                    # Write preprocessed command line to a file if not empty and limit to first 1 million characters
                     if preprocessed_command_line:
                         with open(preprocessed_command_file_path, 'w', encoding="utf-8", errors="replace") as file:
-                            file.write(preprocessed_command_line)
+                            file.write(preprocessed_command_line[:1_000_000])
 
                     # Scan and warn with both versions of command lines if files were created
                     if command_line:
