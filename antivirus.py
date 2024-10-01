@@ -2303,7 +2303,6 @@ def is_pyinstaller_archive(file_path):
         archive = PyInstArchive(file_path)
         if archive.open_file():
             result = archive.checkFile()
-            archive.close_file()
             return result
     except Exception as e:
         logging.error(f"Error checking if '{file_path}' is a PyInstaller archive: {e}")
