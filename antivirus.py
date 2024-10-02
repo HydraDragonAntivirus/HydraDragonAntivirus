@@ -496,7 +496,8 @@ def decode_base32(data_content):
         if isinstance(data_content, str):
             data_content = data_content.encode("utf-8")
         return base32_crockford.decode(data_content)
-    except (binascii.Error, ValueError):
+    except (binascii.Error, ValueError) as e:
+        logging.error(f"Base32 decoding error: {e}")
         return None
 
 def process_file_data(file_path):
@@ -506,16 +507,20 @@ def process_file_data(file_path):
             data_content = file.read()
 
         while True:
-            # Try to decode base64 and base32 repeatedly
-            base64_decoded = decode_base64(data_content)
-            if base64_decoded is not None:
-                data_content = base64_decoded
-                continue
+            # Check type before decoding
+            if isinstance(data_content, bytes):
+                base64_decoded = decode_base64(data_content)
+                if base64_decoded is not None:
+                    data_content = base64_decoded
+                    continue
 
-            base32_decoded = decode_base32(data_content)
-            if base32_decoded is not None:
-                data_content = base32_decoded
-                continue
+                base32_decoded = decode_base32(data_content)
+                if base32_decoded is not None:
+                    data_content = base32_decoded
+                    continue
+            else:
+                logging.error(f"Invalid type for data_content: {type(data_content)}")
+                break
 
             # No more base64 or base32 encoded data
             break
