@@ -2091,7 +2091,7 @@ def is_elf_file(file_path):
         logging.error(f"Error checking ELF file status: {e}")
         return False
 
-def is_dotnet_file(file_path, detectiteasy_console_path):
+def is_dotnet_file(file_path):
     try:
         # Run the DIE console command to analyze the file
         result = subprocess.run([detectiteasy_console_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
