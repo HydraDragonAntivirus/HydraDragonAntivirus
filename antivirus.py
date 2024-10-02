@@ -3695,8 +3695,11 @@ class Monitor_Message_CommandLine:
                         try:
                             with open(preprocessed_file_path, 'w', encoding="utf-8", errors="replace") as file:
                                 file.write(preprocessed_text[:1_000_000])
-                            logging.info(f"Wrote preprocessed text to {preprocessed_file_path}.")
-                            scan_and_warn(preprocessed_file_path)
+                            if os.path.getsize(preprocessed_file_path) == 0:
+                                logging.error(f"Preprocessed file is empty: {preprocessed_file_path}.")
+                            else:
+                                logging.info(f"Wrote preprocessed text to {preprocessed_file_path}.")
+                                scan_and_warn(preprocessed_file_path)
                         except Exception as e:
                             logging.error(f"Error writing preprocessed text to {preprocessed_file_path}: {e}")
 
@@ -3705,8 +3708,11 @@ class Monitor_Message_CommandLine:
                         try:
                             with open(original_file_path, 'w', encoding="utf-8", errors="replace") as file:
                                 file.write(text[:1_000_000])
-                            logging.info(f"Wrote original text to {original_file_path}.")
-                            scan_and_warn(original_file_path)
+                            if os.path.getsize(original_file_path) == 0:
+                                logging.error(f"Original file is empty: {original_file_path}.")
+                            else:
+                                logging.info(f"Wrote original text to {original_file_path}.")
+                                scan_and_warn(original_file_path)
                         except Exception as e:
                             logging.error(f"Error writing original text to {original_file_path}: {e}")
 
@@ -3723,8 +3729,11 @@ class Monitor_Message_CommandLine:
                         try:
                             with open(original_command_file_path, 'w', encoding="utf-8", errors="replace") as file:
                                 file.write(command_line[:1_000_000])
-                            logging.info(f"Wrote original command line to {original_command_file_path}.")
-                            scan_and_warn(original_command_file_path)
+                            if os.path.getsize(original_command_file_path) == 0:
+                                logging.error(f"Original command line file is empty: {original_command_file_path}.")
+                            else:
+                                logging.info(f"Wrote original command line to {original_command_file_path}.")
+                                scan_and_warn(original_command_file_path)
                         except Exception as e:
                             logging.error(f"Error writing original command line to {original_command_file_path}: {e}")
 
@@ -3733,8 +3742,11 @@ class Monitor_Message_CommandLine:
                         try:
                             with open(preprocessed_command_file_path, 'w', encoding="utf-8", errors="replace") as file:
                                 file.write(preprocessed_command_line[:1_000_000])
-                            logging.info(f"Wrote preprocessed command line to {preprocessed_command_file_path}.")
-                            scan_and_warn(preprocessed_command_file_path)
+                            if os.path.getsize(preprocessed_command_file_path) == 0:
+                                logging.error(f"Preprocessed command line file is empty: {preprocessed_command_file_path}.")
+                            else:
+                                logging.info(f"Wrote preprocessed command line to {preprocessed_command_file_path}.")
+                                scan_and_warn(preprocessed_command_file_path)
                         except Exception as e:
                             logging.error(f"Error writing preprocessed command line to {preprocessed_command_file_path}: {e}")
 
