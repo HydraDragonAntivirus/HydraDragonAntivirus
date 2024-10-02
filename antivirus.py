@@ -3618,9 +3618,14 @@ class Monitor_Message_CommandLine:
             return
         
         try:
-            # Attempt to read the file content using UTF-8 encoding
+            # Attempt to read the first 1 million lines of the file
+            file_content = []
             with open(file_path, 'r', encoding="utf-8", errors="replace") as file:
-                file_content = file.read()
+                for line_number, line in enumerate(file):
+                    file_content.append(line)
+                    if line_number >= 999999:  # Stop after 1 million lines
+                        break
+            file_content = ''.join(file_content)  # Join the lines into a single string
 
             if not isinstance(file_content, str):
                 logging.error("File content is not a valid string.")
