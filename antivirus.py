@@ -2844,7 +2844,10 @@ def scan_and_warn(file_path, flag=False):
         # Check if the file content is valid hex data
         if is_hex_data(data_content):
             logging.info(f"File {file_path} contains valid hex-encoded data.")
-            
+             
+            # Decompile the file
+            decompile_file(file_path)
+
             # Perform signature check only if the file is valid hex data
             signature_check = check_signature(file_path)
             if not isinstance(signature_check, dict):
@@ -2932,9 +2935,6 @@ def scan_and_warn(file_path, flag=False):
                 
         except Exception as e:
             logging.error(f"Error checking or extracting Nuitka content from {file_path}: {e}")
-
-        # Decompile the file
-        decompile_file(file_path)
 
         # Check if .NET data is detected
         if is_dotnet_file(file_path):
