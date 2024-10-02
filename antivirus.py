@@ -3656,12 +3656,12 @@ class Monitor_Message_CommandLine:
 
             logging.info(f"Finished processing detection for {file_path}.")
 
-        except FileNotFoundError:
-            logging.error(f"File not found: {file_path}")
-        except IsADirectoryError:
-            logging.error(f"Expected a file but got a directory: {file_path}")
+        except FileNotFoundError as e:
+            logging.error(f"File not found: {file_path}. Error: {e}")
+        except IsADirectoryError as e:
+            logging.error(f"Expected a file but got a directory: {file_path}. Error: {e}")
         except Exception as e:
-            logging.error(f"Error handling file: {e}")
+            logging.error(f"Error handling file {file_path}: {e}")
 
     def get_unique_filename(self, base_name):
         """Generate a unique filename by appending a number if necessary."""
