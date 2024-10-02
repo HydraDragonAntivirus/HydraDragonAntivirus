@@ -481,8 +481,9 @@ def remove_magic_bytes(data_content):
 def decode_base64(data_content):
     """Decode base64-encoded data."""
     try:
-        return base64.b64decode(data_content)
+        return base64.b64decode(data_content, validate=True)
     except (binascii.Error, ValueError):
+        logging.error("Base64 decoding failed.")
         return None
 
 def decode_base32(data_content):
@@ -503,7 +504,6 @@ def process_file_data(file_path):
             data_content = file.read()
 
         while True:
-            # Check type before decoding
             if isinstance(data_content, bytes):
                 base64_decoded = decode_base64(data_content)
                 if base64_decoded is not None:
@@ -514,11 +514,8 @@ def process_file_data(file_path):
                 if base32_decoded is not None:
                     data_content = base32_decoded
                     continue
-            else:
-                logging.error(f"Invalid type for data_content: {type(data_content)}")
-                break
 
-            # No more base64 or base32 encoded data
+            logging.warning("No more base64 or base32 encoded data found.")
             break
 
         # Remove magic bytes
