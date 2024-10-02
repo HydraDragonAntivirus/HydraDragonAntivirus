@@ -2820,9 +2820,13 @@ def scan_file_with_llama32(file_path):
         logging.error(f"An unexpected error occurred in scan_file_with_llama32: {e}")
 
 def scan_and_warn(file_path, flag=False):
-    logging.info(f"Scanning file: {file_path}")
+    logging.info(f"Scanning file: {file_path}, Type: {type(file_path).__name__}")
 
     try:
+        # Check if the file_path is valid
+        if not isinstance(file_path, str):
+            logging.error(f"Invalid file_path type: {type(file_path).__name__}")
+            return False
 
         with open(file_path, 'rb') as file:
             data_content = file.read()
@@ -3613,6 +3617,7 @@ class Monitor_Message_CommandLine:
         self.notify_user_for_detected_command(message)
 
     def detect_malware(self, file_path):
+        logging.info(f"Type of file_path received: {type(file_path).__name__}")
         if not isinstance(file_path, str):
             logging.error(f"Expected a string for file_path, but got {type(file_path).__name__}")
             return
