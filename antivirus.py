@@ -3195,7 +3195,7 @@ class ScanAndWarnHandler(FileSystemEventHandler):
             scan_and_warn(file_path)
             logging.info(f"Processed file: {file_path}")
         except Exception as e:
-            logging.error(f"Error processing file {file_path}: {e}")
+            logging.error(f"Error processing file (scan_and_warn) {file_path}: {e}")
 
     def process_directory(self, dir_path):
         try:
