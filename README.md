@@ -45,7 +45,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
  
  ## IMPORTANT
  - Any ghidra project will be removed after you restart the program. So be careful!
- - Don't forget to clean up commandlineandmessages, zip_extracted, etc. dirs, sandboxie dirs before analysis.
+ - Don't forget to clean up commandlineandmessages, zip_extracted, etc. dirs, sandboxie dirs before analysis. Or take a snapshot before you running the program.
  - You have to restart the program after the analysis.
 - Please don't share your IP in the logs.
 
