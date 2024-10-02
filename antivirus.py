@@ -3605,21 +3605,27 @@ class Monitor_Message_CommandLine:
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 
-    def detect_malware(self, file_path):
+    def detect_malware(self, file_path=None):
+        if file_path is None:
+            logging.error("file_path cannot be None.")
+            return
+
         logging.info(f"Type of file_path received: {type(file_path).__name__}")
         if not isinstance(file_path, str):
             logging.error(f"Expected a string for file_path, but got {type(file_path).__name__}")
             return
-        
+
         try:
-            # Attempt to read the first 1 million lines of the file
             file_content = []
             with open(file_path, 'r', encoding="utf-8", errors="replace") as file:
                 for line_number, line in enumerate(file):
-                    file_content.append(line)
-                    if line_number >= 999999:  # Stop after 1 million lines
+                    if line_number < 1000000:  # Only read the first 1 million lines
+                        file_content.append(line)
+                    else:
+                        logging.warning("Exceeded 1 million lines; stopping read.")
                         break
-            file_content = ''.join(file_content)  # Join the lines into a single string
+
+            file_content = ''.join(file_content)
 
             if not isinstance(file_content, str):
                 logging.error("File content is not a valid string.")
@@ -3632,23 +3638,28 @@ class Monitor_Message_CommandLine:
                         similarity = self.calculate_similarity_text(file_content, pattern)
                         if similarity > 0.8:
                             details["process_function"](file_content, file_path)
+                            logging.info(f"Detected malware pattern in {file_path}.")
                             return
                 elif "message" in details:
                     similarity = self.calculate_similarity_text(file_content, details["message"])
                     if similarity > 0.8:
                         details["process_function"](file_content, file_path)
+                        logging.info(f"Detected malware message in {file_path}.")
                         return
                 elif "command" in details:
                     similarity = self.calculate_similarity_text(file_content, details["command"])
                     if similarity > 0.8:
                         details["process_function"](file_content, file_path)
+                        logging.info(f"Detected malware command in {file_path}.")
                         return
 
             # Adding ransomware check
             if self.contains_keywords_within_max_distance(file_content, max_distance=10):
                 self.process_detected_text_ransom(file_content, file_path)
+                logging.info(f"Detected ransomware keywords in {file_path}.")
 
-            logging.info(f"Finished processing detection for {file_path}.")
+            logging.info(f"Finished processing detection for {file_path}. No malware detected (detect_malware).")
+            return False  # Indicate no malware detected
 
         except FileNotFoundError as e:
             logging.error(f"File not found: {file_path}. Error: {e}")
@@ -3656,6 +3667,8 @@ class Monitor_Message_CommandLine:
             logging.error(f"Expected a file but got a directory: {file_path}. Error: {e}")
         except Exception as e:
             logging.error(f"Error handling file {file_path}: {e}")
+
+        return None  # Indicate an error occurred
 
     def get_unique_filename(self, base_name):
         """Generate a unique filename by appending a number if necessary."""
