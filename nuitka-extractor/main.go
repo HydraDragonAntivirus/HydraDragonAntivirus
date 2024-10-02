@@ -217,7 +217,7 @@ func main() {
 
 	// Using the new argument order
 	ne := NuitkaExecutable{}
-	ne.New(flag.Args()[1], *outputDir) // Here, we take the file path as the second argument
+	ne.New(flag.Args()[0], *outputDir) // Here, we take the file path as the second argument
 	if ne.Check() {
 		ne.Extract()
 	}
