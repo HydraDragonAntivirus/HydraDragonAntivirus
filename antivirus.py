@@ -3690,47 +3690,53 @@ class Monitor_Message_CommandLine:
                     preprocessed_file_path = self.get_unique_filename(f"preprocessed_{hwnd}")
                     original_file_path = self.get_unique_filename(f"original_{hwnd}")
 
-                    # Write preprocessed text to a file if not empty and limit to first 1 million characters
+                    # Write preprocessed text to a file if not empty
                     if preprocessed_text:
-                        with open(preprocessed_file_path, 'w', encoding="utf-8", errors="replace") as file:
-                            file.write(preprocessed_text[:1_000_000])
+                        try:
+                            with open(preprocessed_file_path, 'w', encoding="utf-8", errors="replace") as file:
+                                file.write(preprocessed_text[:1_000_000])
+                            logging.info(f"Wrote preprocessed text to {preprocessed_file_path}.")
+                            scan_and_warn(preprocessed_file_path)
+                        except Exception as e:
+                            logging.error(f"Error writing preprocessed text to {preprocessed_file_path}: {e}")
 
-                    # Write original text to a file if not empty and limit to first 1 million characters
+                    # Write original text to a file if not empty
                     if text:
-                        with open(original_file_path, 'w', encoding="utf-8", errors="replace") as file:
-                            file.write(text[:1_000_000])
-
-                    # Scan and warn with preprocessed and original text if files were created
-                    if preprocessed_text:
-                        scan_and_warn(preprocessed_file_path)
-                    if text:
-                        scan_and_warn(original_file_path)
+                        try:
+                            with open(original_file_path, 'w', encoding="utf-8", errors="replace") as file:
+                                file.write(text[:1_000_000])
+                            logging.info(f"Wrote original text to {original_file_path}.")
+                            scan_and_warn(original_file_path)
+                        except Exception as e:
+                            logging.error(f"Error writing original text to {original_file_path}: {e}")
 
                 # Capture command lines
                 command_lines = self.capture_command_lines()
                 for command_line, executable_path in command_lines:
-                    # Preprocess command line
                     preprocessed_command_line = self.preprocess_text(command_line)
 
-                    # Generate unique file names for command line
                     original_command_file_path = self.get_unique_filename(f"command_{executable_path}")
                     preprocessed_command_file_path = self.get_unique_filename(f"command_preprocessed_{executable_path}")
 
-                    # Write original command line to a file if not empty and limit to first 1 million characters
+                    # Write original command line to a file if not empty
                     if command_line:
-                        with open(original_command_file_path, 'w', encoding="utf-8", errors="replace") as file:
-                            file.write(command_line[:1_000_000])
+                        try:
+                            with open(original_command_file_path, 'w', encoding="utf-8", errors="replace") as file:
+                                file.write(command_line[:1_000_000])
+                            logging.info(f"Wrote original command line to {original_command_file_path}.")
+                            scan_and_warn(original_command_file_path)
+                        except Exception as e:
+                            logging.error(f"Error writing original command line to {original_command_file_path}: {e}")
 
-                    # Write preprocessed command line to a file if not empty and limit to first 1 million characters
+                    # Write preprocessed command line to a file if not empty
                     if preprocessed_command_line:
-                        with open(preprocessed_command_file_path, 'w', encoding="utf-8", errors="replace") as file:
-                            file.write(preprocessed_command_line[:1_000_000])
-
-                    # Scan and warn with both versions of command lines if files were created
-                    if command_line:
-                        scan_and_warn(original_command_file_path)
-                    if preprocessed_command_line:
-                        scan_and_warn(preprocessed_command_file_path)
+                        try:
+                            with open(preprocessed_command_file_path, 'w', encoding="utf-8", errors="replace") as file:
+                                file.write(preprocessed_command_line[:1_000_000])
+                            logging.info(f"Wrote preprocessed command line to {preprocessed_command_file_path}.")
+                            scan_and_warn(preprocessed_command_file_path)
+                        except Exception as e:
+                            logging.error(f"Error writing preprocessed command line to {preprocessed_command_file_path}: {e}")
 
         except Exception as e:
             logging.error(f"Error in monitor: {e}")
