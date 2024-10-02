@@ -1102,8 +1102,13 @@ class RealTimeWebProtectionHandler:
         try:
             if IP in packet:
                 self.handle_ipv4(packet)
+                if TCP in packet or UDP in packet:
+                    url = f"{packet[IP].src}:{packet[IP].dport}"
+                    self.scan_url(url)
+
             if IPv6 in packet:
                 self.handle_ipv6(packet)
+
             if DNS in packet:
                 if packet[DNS].qd:
                     for i in range(packet[DNS].qdcount):
@@ -1112,6 +1117,7 @@ class RealTimeWebProtectionHandler:
                         message = f"DNS Query: {query_name}"
                         logging.info(message)
                         print(message)
+
                 if packet[DNS].an:
                     for i in range(packet[DNS].ancount):
                         answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
@@ -1119,12 +1125,11 @@ class RealTimeWebProtectionHandler:
                         message = f"DNS Answer: {answer_name}"
                         logging.info(message)
                         print(message)
-                        if IP in packet:
-                            self.scan_ip_address(packet[IP].src)
-                            self.scan_ip_address(packet[IP].dst)
-                        if TCP in packet or UDP in packet:
-                            url = f"{packet[IP].src}:{packet[IP].dport}"
-                            self.scan_url(url)
+
+                if IP in packet:
+                    self.scan_ip_address(packet[IP].src)
+                    self.scan_ip_address(packet[IP].dst)
+
         except Exception as e:
             logging.error(f"Error processing packet: {e}")
             print(f"Error processing packet: {e}")
