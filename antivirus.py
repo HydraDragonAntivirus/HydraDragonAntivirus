@@ -1036,7 +1036,7 @@ class RealTimeWebProtectionHandler:
 
     def handle_ipv4(self, packet):
         try:
-            if DNS in packet:
+            if IP in packet and DNS in packet:
                 if packet[DNS].qd:
                     for i in range(packet[DNS].qdcount):
                         query_name = packet[DNSQR][i].qname.decode().rstrip('.')
@@ -1052,44 +1052,40 @@ class RealTimeWebProtectionHandler:
                         logging.info(message)
                         print(message)
 
-                # Check for IP layer presence
-                if IP in packet:
-                    self.scan_ip_address(packet[IP].src)
-                    self.scan_ip_address(packet[IP].dst)
-                else:
-                    logging.warning("IP layer not found in the packet.")
-                    print("Warning: IP layer not found in the packet.")
-                    
+                self.scan_ip_address(packet[IP].src)
+                self.scan_ip_address(packet[IP].dst)
+            else:
+                logging.warning("IP layer or DNS layer not found in the packet.")
+                print("Warning: IP layer or DNS layer not found in the packet.")
+                
         except Exception as e:
             logging.error(f"Error handling IPv4 packet: {e}")
             print(f"Error handling IPv4 packet: {e}")
 
     def handle_ipv6(self, packet):
         try:
-            if DNS in packet:
+            if IPv6 in packet and DNS in packet:
                 if packet[DNS].qd:
-                    for i in range(packet[DNS].qdcount):  # Access as attribute
+                    for i in range(packet[DNS].qdcount):
                         query_name = packet[DNSQR][i].qname.decode().rstrip('.')
                         self.scan_domain(query_name)
                         message = f"DNS Query (IPv6): {query_name}"
                         logging.info(message)
                         print(message)
                 if packet[DNS].an:
-                    for i in range(packet[DNS].ancount):  # Access as attribute
+                    for i in range(packet[DNS].ancount):
                         answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
                         self.scan_domain(answer_name)
                         message = f"DNS Answer (IPv6): {answer_name}"
                         logging.info(message)
                         print(message)
 
-                    # Check for IPv6 layer presence
-                    if IPv6 in packet:
-                        self.scan_ip_address(packet[IPv6].src)
-                        self.scan_ip_address(packet[IPv6].dst)
-                    else:
-                        logging.warning("IPv6 layer not found in the packet.")
-                        print("Warning: IPv6 layer not found in the packet.")
-                    
+                self.scan_ip_address(packet[IPv6].src)
+                self.scan_ip_address(packet[IPv6].dst)
+            else:
+                logging.warning("IPv6 layer or DNS layer not found in the packet.")
+                print("Warning: IPv6 layer or DNS layer not found in the packet.")
+                
         except Exception as e:
             logging.error(f"Error handling IPv6 packet: {e}")
             print(f"Error handling IPv6 packet: {e}")
