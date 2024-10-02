@@ -222,7 +222,6 @@ ghidra_projects_dir = os.path.join(script_dir, "ghidra_projects")
 ghidra_logs_dir = os.path.join(script_dir, "ghidra_logs")
 ghidra_scripts_dir = os.path.join(script_dir, "scripts")
 dotnet_dir = os.path.join(script_dir, "dotnet")
-base_dir = os.path.join(script_dir, "base32and64")
 nuitka_dir = os.path.join(script_dir, "nuitka")
 pyintstaller_dir = os.path.join(script_dir, "pyinstaller")
 commandlineandmessage_dir = os.path.join(script_dir, "commandlineandmessage")
@@ -259,9 +258,6 @@ urlhaus_data = {}
 clamd_dir = "C:\\Program Files\\ClamAV\\clamd.exe"
 clamdscan_path = "C:\\Program Files\\ClamAV\\clamdscan.exe"
 freshclam_path = "C:\\Program Files\\ClamAV\\freshclam.exe"
-
-# Ensure base64 and base32 directory exist
-os.makedirs(base_dir, exist_ok=True)
 
 os.makedirs(commandlineandmessage_dir, exist_ok=True)
 os.makedirs(processed_dir, exist_ok=True)
@@ -1954,7 +1950,7 @@ existing_projects = []
 # List of already scanned files and their modification times
 scanned_files = []
 file_mod_times = {}
-directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, base_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, processed_dir]
+directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, processed_dir]
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
