@@ -46,7 +46,7 @@ Source: "C:\Users\victim\Documents\hydradownload\clamav-1.4.1.win.x64.msi"; Dest
 Source: "C:\Users\victim\Documents\hydradownload\npcap-1.79.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydradownload\Snort_2_9_20_Installer.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydradownload\jre-8u421-windows-i586-iftw.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydradownload\jdk-22_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydradownload\jdk-23_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydradownload\Sandboxie-Classic-x64-v5.69.9.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydradownload\setup.bat"; DestDir: "{tmp}"; Flags: deleteafterinstall
 ; Note: Don't use "Flags: ignoreversion" on any shared system files
@@ -67,6 +67,6 @@ Filename: "{tmp}\clamav-1.4.1.win.x64.msi"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\npcap-1.79.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\Snort_2_9_20_Installer.x64.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\jre-8u421-windows-i586-iftw.exe"; Flags: shellexec waituntilterminated
-Filename: "{tmp}\jdk-22_windows-x64_bin.exe"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\jdk-23_windows-x64_bin.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\Sandboxie-Classic-x64-v5.69.9.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\setup.bat"; Flags: shellexec waituntilterminated

@@ -28,7 +28,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - I now using 11.1.2: https://ghidra-sre.org/
 
 ## Java Development Kit
-- Just look at https://www.oracle.com/java/technologies/downloads/#jdk22-windows
+- Just look at https://www.oracle.com/java/technologies/downloads/#jdk23-windows
 
 ## Setup
 - Setup file on release HydraDragonAntivirus.exe
