@@ -11,7 +11,11 @@ import ghidra.program.model.listing.Listing;
 import ghidra.program.model.listing.CodeUnit;
 import ghidra.program.model.listing.CodeUnitIterator;
 import ghidra.program.model.listing.Instruction;
+import ghidra.app.util.bin.format.pe.ExportDataDirectory;
+import ghidra.app.util.bin.format.pe.ExportInfo;
+import ghidra.app.util.bin.format.pe.NTHeader;
 import ghidra.util.task.TaskMonitor;
+import ghidra.util.Msg;
 
 import java.io.PrintWriter;
 import java.io.FileWriter;
@@ -28,45 +32,77 @@ public class DecompileAndSave extends GhidraScript {
         DecompInterface decompiler = new DecompInterface();
         decompiler.openProgram(program);
 
+        // Use the current directory from Ghidra and navigate to decompile directory
+        String currentDir = currentProgram.getExecutablePath();
+        Path outputDir = Paths.get(currentDir).getParent().resolve("decompile");
+
         // Ensure the directory exists
-        String outputDir = "C:\\Program Files\\HydraDragonAntivirus\\decompile";
-        Files.createDirectories(Paths.get(outputDir));
+        try {
+            Files.createDirectories(outputDir);
+            println("Decompile directory created: " + outputDir.toString());
+        } catch (IOException e) {
+            println("Failed to create directory: " + e.getMessage());
+            return;
+        }
 
         // Determine the filename with a unique suffix if needed
         String baseFileName = "decompiled_function_details";
         String fileExtension = ".txt";
-        String fileName = baseFileName + fileExtension;
-        Path filePath = Paths.get(outputDir, fileName);
-
+        Path filePath = outputDir.resolve(baseFileName + fileExtension);
         int fileIndex = 1;
+
         while (Files.exists(filePath)) {
-            fileName = baseFileName + "_" + fileIndex + fileExtension;
-            filePath = Paths.get(outputDir, fileName);
+            filePath = outputDir.resolve(baseFileName + "_" + fileIndex + fileExtension);
             fileIndex++;
         }
 
+        println("Saving decompiled code to: " + filePath.toString());
+
         // Save the original file path as a comment in the first line
-        try (PrintWriter out = new PrintWriter(new FileWriter(filePath.toFile(), true))) {
+        try (PrintWriter out = new PrintWriter(new FileWriter(filePath.toFile()))) {
             out.println("// Original file: " + currentProgram.getExecutablePath());
             out.println();
         } catch (IOException e) {
             println("Error writing to file: " + e.getMessage());
+            return;
         }
+
+        // Function Manager to retrieve all functions
+        if (!program.getFunctionManager().getFunctions(true).hasNext()) {
+            println("No functions found in the program.");
+            return;
+        }
+
+        int functionCount = 0;  // Count of functions processed
 
         // Extract and combine details for each function
         for (Function func : program.getFunctionManager().getFunctions(true)) {
+            println("Processing function: " + func.getName());
+
             // Decompile to C code
             DecompileResults results = decompiler.decompileFunction(func, 60, TaskMonitor.DUMMY);
+            if (!results.decompileCompleted()) {
+                println("Decompilation failed for function: " + func.getName());
+                continue;
+            }
+
             HighFunction highFunc = results.getHighFunction();
+            if (highFunc == null || results.getDecompiledFunction() == null) {
+                println("Decompiled function or high-level function is null for: " + func.getName());
+                continue;
+            }
+
             String decompiledCode = results.getDecompiledFunction().getC();
 
             // Extract Pcode (intermediate representation)
             StringBuilder pcodeRepresentation = new StringBuilder();
-            for (PcodeBlock block : highFunc.getBasicBlocks()) {
-                if (block instanceof PcodeBlockBasic) {
-                    PcodeBlockBasic basicBlock = (PcodeBlockBasic) block;
-                    for (PcodeOpAST pcodeOp : basicBlock.getIterator()) {
-                        pcodeRepresentation.append(pcodeOp.toString()).append("\n");
+            if (highFunc.getBasicBlocks() != null) {
+                for (PcodeBlock block : highFunc.getBasicBlocks()) {
+                    if (block instanceof PcodeBlockBasic) {
+                        PcodeBlockBasic basicBlock = (PcodeBlockBasic) block;
+                        for (PcodeOpAST pcodeOp : basicBlock.getIterator()) {
+                            pcodeRepresentation.append(pcodeOp.toString()).append("\n");
+                        }
                     }
                 }
             }
@@ -96,8 +132,38 @@ public class DecompileAndSave extends GhidraScript {
             } catch (IOException e) {
                 println("Error writing to file: " + e.getMessage());
             }
+
+            functionCount++;  // Increment function count
         }
 
-        println("Decompilation and analysis completed. Results saved to " + filePath);
+        // **Now handling export data directory extraction**
+
+        // Extract export information if the program is a PE file and has an Export Data Directory
+        NTHeader ntHeader = NTHeader.createNTHeader(currentProgram, this);
+        ExportDataDirectory exportDataDir = ntHeader.getOptionalHeader().getExportDataDirectory();
+
+        if (exportDataDir != null && exportDataDir.parse()) {
+            ExportInfo[] exports = exportDataDir.getExports();
+            try (PrintWriter out = new PrintWriter(new FileWriter(filePath.toFile(), true))) {
+                out.println("\nExported Functions:");
+                for (ExportInfo export : exports) {
+                    // Skip invalid exports
+                    if (export == null || export.getName() == null) {
+                        println("Invalid or missing export entry.");
+                        continue;
+                    }
+
+                    out.println("Export Name: " + export.getName() + 
+                                ", Address: " + export.getAddress() + 
+                                ", Ordinal: " + export.getOrdinal());
+                }
+            } catch (IOException e) {
+                println("Error writing exported functions to file: " + e.getMessage());
+            }
+        } else {
+            println("No export data directory found or failed to parse export directory.");
+        }
+
+        println("Decompilation and analysis completed for " + functionCount + " functions. Results saved to " + filePath);
     }
 }
