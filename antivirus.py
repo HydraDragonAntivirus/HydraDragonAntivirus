@@ -1052,8 +1052,7 @@ class RealTimeWebProtectionHandler:
                 self.scan_ip_address(packet[IP].src)
                 self.scan_ip_address(packet[IP].dst)
             else:
-                logging.warning("IP layer or DNS layer not found in the packet.")
-                print("Warning: IP layer or DNS layer not found in the packet.")
+                logging.info("IP layer or DNS layer not found in the packet.")
                 
         except Exception as e:
             logging.error(f"Error handling IPv4 packet: {e}")
