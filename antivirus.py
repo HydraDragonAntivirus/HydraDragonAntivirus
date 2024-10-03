@@ -1190,10 +1190,10 @@ class YaraScanner:
                     results = scanner.scan(data=data_content)
                     if results.matching_rules:
                         for rule in results.matching_rules:
-                            if hasattr(rule, 'identifier') and rule.identifier not in excluded_rules:
-                                matched_rules.append(rule.identifier)
+                            if hasattr(rule, 'identifier'):
+                                logging.info(f"Detected by Windows Defender rule: {rule.identifier}")
                             else:
-                                logging.info(f"Rule {rule.identifier} is excluded from windows_defender_rule.")
+                                logging.info("Detected rule without identifier by Windows Defender.")
                 else:
                     logging.warning("windows_defender_rule is not defined.")
 
