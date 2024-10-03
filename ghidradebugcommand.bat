@@ -28,3 +28,4 @@ IF ERRORLEVEL 1 (
 )
 
 echo Analysis completed successfully.
+pause
