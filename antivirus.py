@@ -247,7 +247,6 @@ urlhaus_path = os.path.join(script_dir, "website", "urlhaus.txt")
 antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
 yaraxtr_yrc_path = os.path.join(yara_folder_path, "yaraxtr.yrc")
 compiled_rule_path = os.path.join(yara_folder_path, "compiled_rule.yrc")
-windows_defender_path = os.path.join(yara_folder_path, "WindowsDefender.yrc")
 antivirus_domains_data = {}
 ip_addresses_signatures_data = {}
 ipv4_whitelist_data = {}
@@ -1184,19 +1183,6 @@ class YaraScanner:
                 else:
                     logging.warning("yaraxtr_rule is not defined.")
 
-                # Check matches for windows_defender_rule (loaded with yara_x)
-                if windows_defender_rule:
-                    scanner = yara_x.Scanner(windows_defender_rule)
-                    results = scanner.scan(data=data_content)
-                    if results.matching_rules:
-                        for rule in results.matching_rules:
-                            if hasattr(rule, 'identifier'):
-                                logging.info(f"Detected by Windows Defender rule: {rule.identifier}")
-                            else:
-                                logging.info("Detected rule without identifier by Windows Defender.")
-                else:
-                    logging.warning("windows_defender_rule is not defined.")
-
             # Return matched rules as the yara_result if not empty, otherwise return None
             return matched_rules if matched_rules else None
 
@@ -1901,14 +1887,6 @@ try:
     with open(yaraxtr_yrc_path, 'rb') as f:
         yaraxtr_rule = yara_x.Rules.deserialize_from(f)
     print("YARA-X Rules Definitions loaded!")
-except Exception as e:
-    print(f"Error loading YARA-X rules: {e}")
-
-try:
-    # Load the precompiled Windows Defender rule from the .yrc file using yara_x
-    with open(windows_defender_path, 'rb') as f:
-        windows_defender_rule = yara_x.Rules.deserialize_from(f)
-    print("Windows Defender YARA-X Rules Definitions loaded!")
 except Exception as e:
     print(f"Error loading YARA-X rules: {e}")
 
