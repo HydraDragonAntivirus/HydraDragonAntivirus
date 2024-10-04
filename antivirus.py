@@ -2782,6 +2782,11 @@ def scan_file_with_llama32(file_path):
     except Exception as e:
         logging.error(f"An unexpected error occurred in scan_file_with_llama32: {e}")
 
+# Function to run decompilation in a separate thread
+def decompile_file_threaded(file_path):
+    thread_decompile = threading.Thread(target=decompile_file, args=(file_path,))
+    thread_decompile.start()
+
 def scan_and_warn(file_path, flag=False):
     logging.info(f"Scanning file: {file_path}, Type: {type(file_path).__name__}")
 
@@ -2813,7 +2818,7 @@ def scan_and_warn(file_path, flag=False):
             logging.info(f"File {file_path} contains valid hex-encoded data.")
              
             # Decompile the file
-            decompile_file(file_path)
+            decompile_file_threaded(file_path)
 
             # Perform signature check only if the file is valid hex data
             signature_check = check_signature(file_path)
