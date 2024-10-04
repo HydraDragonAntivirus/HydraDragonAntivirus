@@ -124,7 +124,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - It's a false positive. It's a one-file compiled Pyinstaller file and contains the website, HIPS signatures without obfuscation. It's a fully open source product.
 
 **Why is it 5GB+?**
-- Because of website signatures, Ghidra, ClamAV and Java Development Kit. Website signatures are not very effective but they can detect old and new viruses. I can remove them if you want. Ghidra is for decompiling 6but takes too much space. Java Development Kit is for Ghidra. That's 1GB+, but Llama3.2-1B and Pyinstaller (transformers, torch modules etc.) make a total of GB+. Note that it's a completely local and very professional open source antivirus.
+- Because of website signatures, Ghidra, ClamAV and Java Development Kit. Website signatures are not very effective but they can detect old and new viruses. I can remove them if you want. Ghidra is for decompiling 6but takes too much space. Java Development Kit is for Ghidra. That's 1GB+, but Llama3.2-1B and Pyinstaller (transformers, torch modules etc.) make a total of 5GB+. Note that it's a completely local and very professional open source antivirus.
 
 **I get unexpected errors when using compiled YARA-X rules.**
 - I don't usually encounter this problem, please create an issue.
