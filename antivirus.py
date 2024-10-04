@@ -2909,7 +2909,8 @@ def scan_and_warn(file_path, flag=False):
             except Exception as e:
                 logging.error(f"Error during scanning with Llama-3.2-1B for file {file_path}: {e}")
 
-            # Scan for malware in real-time
+            # Scan for malware in real-time only for non-hex data
+            logging.info(f"Performing real-time malware detection for non-hex data file: {file_path}...")
             real_time_scan_thread = threading.Thread(target=monitor_message.detect_malware, args=(file_path,))
             real_time_scan_thread.start()
 
