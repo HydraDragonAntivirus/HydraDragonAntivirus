@@ -2882,6 +2882,23 @@ def scan_and_warn(file_path, flag=False):
             elif signature_check["signature_status_issues"]:
                 logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
                 notify_user_invalid(file_path, "Win32.Suspicious.InvalidSignature")
+            
+            # Additional checks for PE files and .NET files
+            if is_pe_file(file_path):
+                logging.info(f"File {file_path} is a valid PE file.")
+                pe_file = True
+            
+            if is_dotnet_file(file_path):
+                dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(file_path,))
+                dotnet_thread.start()
+
+            # Check if the file contains Nuitka and extract if present
+            try:
+                logging.info(f"Checking if the file {file_path} contains Nuitka executable.")
+                extract_nuitka_file(file_path)
+            except Exception as e:
+                logging.error(f"Error checking or extracting Nuitka content from {file_path}: {e}")
+
         else:
             # If the file content is not valid hex data, perform scanning with Llama-3.2-1B
             logging.info(f"File {file_path} does not contain valid hex-encoded data. Scanning with Llama-3.2-1B...")
@@ -2891,6 +2908,10 @@ def scan_and_warn(file_path, flag=False):
                 scan_thread.join()  # Wait for scanning to complete
             except Exception as e:
                 logging.error(f"Error during scanning with Llama-3.2-1B for file {file_path}: {e}")
+
+            # Scan for malware in real-time
+            real_time_scan_thread = threading.Thread(target=monitor_message.detect_malware, args=(file_path,))
+            real_time_scan_thread.start()
 
         # Log directory type based on file path
         log_directory_type(file_path)
@@ -2917,20 +2938,11 @@ def scan_and_warn(file_path, flag=False):
             process_thread = threading.Thread(target=process_file_data, args=(file_path,))
             process_thread.start()
 
-        # Scan for malware in real-time
-        real_time_scan_thread = threading.Thread(target=monitor_message.detect_malware, args=(file_path,))
-        real_time_scan_thread.start()
-
         # PyInstaller archive extraction in a separate thread
         if is_pyinstaller_archive(file_path):
             logging.info(f"File {file_path} is a PyInstaller archive. Extracting...")
             pyinstaller_thread = threading.Thread(target=extract_and_scan_pyinstaller, args=(file_path,))
             pyinstaller_thread.start()
-
-        # Additional checks for PE files and .NET files
-        if is_pe_file(file_path):
-            logging.info(f"File {file_path} is a valid PE file.")
-            pe_file = True
 
         # Check for fake file size
         if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
@@ -2944,25 +2956,6 @@ def scan_and_warn(file_path, flag=False):
                     notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(file_path, fake_size))
                     notify_user_fake_size_thread.start()
 
-        # Check if the file contains Nuitka and extract if present
-        try:
-            logging.info(f"Checking if the file {file_path} contains Nuitka executable.")
-            
-            # Extract Nuitka file content using the extract_nuitka_file function
-            extract_nuitka_file(file_path)
-                
-        except Exception as e:
-            logging.error(f"Error checking or extracting Nuitka content from {file_path}: {e}")
-
-        # Check if .NET data is detected
-        if is_dotnet_file(file_path):
-            dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(file_path))
-            dotnet_thread.start()
-
-        # Check for PE file and signatures
-        if pe_file:
-            pe_thread = threading.Thread(target=check_pe_file, args=(file_path, pe_file, signature_check, file_name))
-            pe_thread.start()
         # Perform real-time scan
         is_malicious, virus_names = scan_file_real_time(file_path, signature_check, pe_file=pe_file)
 
