@@ -1076,8 +1076,7 @@ class RealTimeWebProtectionHandler:
                 self.scan_ip_address(packet[IPv6].src)
                 self.scan_ip_address(packet[IPv6].dst)
             else:
-                logging.warning("IPv6 layer or DNS layer not found in the packet.")
-                print("Warning: IPv6 layer or DNS layer not found in the packet.")
+                logging.debug("IPv6 layer or DNS layer not found in the packet.")
                 
         except Exception as e:
             logging.error(f"Error handling IPv6 packet: {e}")
@@ -2797,7 +2796,7 @@ def scan_and_warn(file_path, flag=False):
 
         # Check if the file is empty
         if os.path.getsize(file_path) == 0:
-            logging.warning(f"File {file_path} is empty. Skipping scan. That doesn't mean it's not malicious. See here: https://github.com/HydraDragonAntivirus/0KBAttack")
+            logging.debug(f"File {file_path} is empty. Skipping scan. That doesn't mean it's not malicious. See here: https://github.com/HydraDragonAntivirus/0KBAttack")
             return False
 
         # Initialize variables
