@@ -25,7 +25,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - You can compile YARA-X and YARA from the yara folder. The website database is not a complication. See the machine learning training guide to compile machine learning database. To compile antivirus.py install requirements.txt and use assets/HydraDragonAV.png then use pyinstaller.txt arguments and change based on your installed folder of HydraDragonAntivirus. After compiling Pyinstaller, Machine Learning, YARA then look at the compiler.iss and replace the code with your installed environment, you can find other files in repo like hydradownload folder and then compile it. It's done! Now you are ready to release your fork of HydraDragonAntivirus.
 
 ## Ghidra Source Code
-- I now using 11.1.2: https://ghidra-sre.org/
+- I now using 11.2: https://ghidra-sre.org/
 
 ## Java Development Kit
 - Just look at https://www.oracle.com/java/technologies/downloads/#jdk23-windows
