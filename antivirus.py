@@ -1742,7 +1742,7 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
     """
     for proc in psutil.process_iter(['pid', 'name', 'exe']):
         try:
-            connections = proc.connections()
+            connections = proc.net_connections()
             if connections:
                 for conn in connections:
                     if conn.raddr and (conn.raddr.ip == src_ip or conn.raddr.ip == dst_ip):
