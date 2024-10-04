@@ -1986,11 +1986,15 @@ def extract_original_file_path_from_decompiled(file_path):
                     # Construct the path without using an rf-string
                     drive_letter = parts[1].upper() + ":"
                     path = parts[2].replace('/', '\\')
-                    original_file_path = f"{drive_letter}\\{path}"
-                    return original_file_path.strip()
+                    original_file_path = f"{drive_letter}\\{path}".strip()
+
+                    # Log the extracted original file path
+                    logging.info(f"Original file path extracted: {original_file_path}")
+
+                    return original_file_path
         return None
     except Exception as e:
-        print(f"An error occurred while extracting the original file path: {e}")
+        logging.error(f"An error occurred while extracting the original file path: {e}")
         return None
 
 def ensure_unique_folder(base_folder):
@@ -2298,28 +2302,38 @@ def is_pyinstaller_archive(file_path):
 
 def extract_pyinstaller_archive(file_path):
     try:
+        # Ensure the extraction directory exists
+        os.makedirs(pyinstaller_dir, exist_ok=True)
+
         archive = PyInstArchive(file_path)
+        
+        # Open the PyInstaller archive
         if not archive.open():
             logging.error(f"Failed to open PyInstaller archive: {file_path}")
             return None
 
+        # Check if the file is a valid PyInstaller archive
         if not archive.checkFile():
             logging.error(f"File {file_path} is not a valid PyInstaller archive.")
             return None
 
+        # Retrieve CArchive info from the archive
         if not archive.getCArchiveInfo():
             logging.error(f"Failed to get CArchive info from {file_path}.")
             return None
 
+        # Parse the Table of Contents (TOC) from the archive
         if not archive.parseTOC():
             logging.error(f"Failed to parse TOC from {file_path}.")
             return None
 
-        extraction_success = archive.extractFiles()
-        extraction_dir = os.getcwd() if extraction_success else None
+        # Extract files to the specified pyinstaller_dir
+        extraction_success = archive.extractFiles(pyinstaller_dir)
+        
+        # Close the archive
         archive.close()
 
-        return extraction_dir if extraction_success else None
+        return pyinstaller_dir if extraction_success else None
 
     except Exception as e:
         logging.error(f"An error occurred while extracting PyInstaller archive {file_path}: {e}")
@@ -2782,10 +2796,43 @@ def scan_file_with_llama32(file_path):
     except Exception as e:
         logging.error(f"An unexpected error occurred in scan_file_with_llama32: {e}")
 
-# Function to run decompilation in a separate thread
-def decompile_file_threaded(file_path):
-    thread_decompile = threading.Thread(target=decompile_file, args=(file_path,))
-    thread_decompile.start()
+def extract_and_scan_pyinstaller(file_path):
+    pyinstaller_dir = extract_pyinstaller_archive(file_path)
+    if pyinstaller_dir:
+        logging.info(f"PyInstaller archive extracted to {pyinstaller_dir}")
+        for root, dirs, files in os.walk(pyinstaller_dir):
+            for file in files:
+                extracted_file_path = os.path.join(root, file)
+                scan_and_warn(extracted_file_path)
+
+def decompile_dotnet_file(file_path, dotnet_dir, ilspycmd_path):
+    try:
+        logging.info(f"Detected .NET assembly: {file_path}")
+        folder_number = 1
+        while os.path.exists(f"{dotnet_dir}_{folder_number}"):
+            folder_number += 1
+        dotnet_output_dir = f"{dotnet_dir}_{folder_number}"
+        os.makedirs(dotnet_output_dir, exist_ok=True)
+        ilspy_command = f"{ilspycmd_path} -o {dotnet_output_dir} {file_path}"
+        os.system(ilspy_command)
+        logging.info(f".NET content decompiled to {dotnet_output_dir}")
+
+    except Exception as e:
+        logging.error(f"Error decompiling .NET file {file_path}: {e}")
+
+def check_pe_file(file_path, pe_file, signature_check, file_name):
+    try:
+        logging.info(f"File {file_path} is a valid PE file.")
+        worm_alert(file_path)
+
+        # Check for fake system files after signature validation
+        if file_name in fake_system_files and os.path.abspath(file_path).startswith(main_drive_path):
+            if pe_file and not signature_check["is_valid"]:
+                logging.warning(f"Detected fake system file: {file_path}")
+                notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.Generic")
+
+    except Exception as e:
+        logging.error(f"Error checking PE file {file_path}: {e}")
 
 def scan_and_warn(file_path, flag=False):
     logging.info(f"Scanning file: {file_path}, Type: {type(file_path).__name__}")
@@ -2817,8 +2864,9 @@ def scan_and_warn(file_path, flag=False):
         if is_hex_data(data_content):
             logging.info(f"File {file_path} contains valid hex-encoded data.")
              
-            # Decompile the file
-            decompile_file_threaded(file_path)
+            # Decompile the file in a separate thread
+            decompile_thread = threading.Thread(target=decompile_file, args=(file_path,))
+            decompile_thread.start()
 
             # Perform signature check only if the file is valid hex data
             signature_check = check_signature(file_path)
@@ -2838,7 +2886,9 @@ def scan_and_warn(file_path, flag=False):
             # If the file content is not valid hex data, perform scanning with Llama-3.2-1B
             logging.info(f"File {file_path} does not contain valid hex-encoded data. Scanning with Llama-3.2-1B...")
             try:
-                scan_file_with_llama32(file_path)
+                scan_thread = threading.Thread(target=scan_file_with_llama32, args=(file_path,))
+                scan_thread.start()
+                scan_thread.join()  # Wait for scanning to complete
             except Exception as e:
                 logging.error(f"Error during scanning with Llama-3.2-1B for file {file_path}: {e}")
 
@@ -2851,37 +2901,33 @@ def scan_and_warn(file_path, flag=False):
         # Extract the file name
         file_name = os.path.basename(file_path)
 
-        # Check if the file is a known rootkit file
-        if file_name in known_rootkit_files:
-            logging.warning(f"Detected potential rootkit file: {file_path}")
-            notify_user_for_detected_rootkit(file_path, f"HEUR:Rootkit.{file_name}")
-
         # Check if the file is in decompile_dir
         if file_path.startswith(decompile_dir):
             logging.info(f"File {file_path} is in decompile_dir.")
             is_decompiled = True
 
-        # Check if the file is not in the processed directory
+        # Check if the file is a known rootkit file
+        if file_name in known_rootkit_files:
+            logging.warning(f"Detected potential rootkit file: {file_path}")
+            rootkit_thread = threading.Thread(target=notify_user_for_detected_rootkit, args=(file_path, f"HEUR:Rootkit.{file_name}"))
+            rootkit_thread.start()
+
+        # Process the file data including magic byte removal
         if not os.path.commonpath([file_path, processed_dir]) == processed_dir:
-            # Process the file data including magic byte removal
-            process_file_data(file_path)
+            process_thread = threading.Thread(target=process_file_data, args=(file_path,))
+            process_thread.start()
 
-        # Process the file using monitor_message.detect_malware with file_path argument
-        monitor_message.detect_malware(file_path)
+        # Scan for malware in real-time
+        real_time_scan_thread = threading.Thread(target=monitor_message.detect_malware, args=(file_path,))
+        real_time_scan_thread.start()
 
-        # Check if the file is a PyInstaller archive
+        # PyInstaller archive extraction in a separate thread
         if is_pyinstaller_archive(file_path):
             logging.info(f"File {file_path} is a PyInstaller archive. Extracting...")
-            pyinstaller_dir = extract_pyinstaller_archive(file_path)
-            if pyinstaller_dir:
-                logging.info(f"PyInstaller archive extracted to {pyinstaller_dir}")
-                # Scan extracted contents
-                for root, dirs, files in os.walk(pyinstaller_dir):
-                    for file in files:
-                        extracted_file_path = os.path.join(root, file)
-                        scan_and_warn(extracted_file_path, flag)
+            pyinstaller_thread = threading.Thread(target=extract_and_scan_pyinstaller, args=(file_path,))
+            pyinstaller_thread.start()
 
-        # Check if the file is a PE file
+        # Additional checks for PE files and .NET files
         if is_pe_file(file_path):
             logging.info(f"File {file_path} is a valid PE file.")
             pe_file = True
@@ -2910,27 +2956,13 @@ def scan_and_warn(file_path, flag=False):
 
         # Check if .NET data is detected
         if is_dotnet_file(file_path):
-            logging.info(f"Detected .NET assembly: {file_path}")
-            folder_number = 1
-            while os.path.exists(f"{dotnet_dir}_{folder_number}"):
-                folder_number += 1
-            dotnet_output_dir = f"{dotnet_dir}_{folder_number}"
-            os.makedirs(dotnet_output_dir, exist_ok=True)
-            ilspy_command = f"{ilspycmd_path} -o {dotnet_output_dir} {file_path}"
-            os.system(ilspy_command)
-            logging.info(f".NET content decompiled to {dotnet_output_dir}")
+            dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(file_path))
+            dotnet_thread.start()
 
         # Check for PE file and signatures
         if pe_file:
-            logging.info(f"File {file_path} is a valid PE file.")
-            worm_alert(file_path)
-
-            # Check for fake system files after signature validation
-            if file_name in fake_system_files and os.path.abspath(file_path).startswith(main_drive_path):
-                if pe_file and not signature_check["is_valid"]:
-                    logging.warning(f"Detected fake system file: {file_path}")
-                    notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.Generic")
-
+            pe_thread = threading.Thread(target=check_pe_file, args=(file_path, pe_file, signature_check, file_name))
+            pe_thread.start()
         # Perform real-time scan
         is_malicious, virus_names = scan_file_real_time(file_path, signature_check, pe_file=pe_file)
 
@@ -2949,9 +2981,8 @@ def scan_and_warn(file_path, flag=False):
         # Additional post-decompilation actions based on extracted file path
         if is_decompiled:
             logging.info(f"Checking original file path from decompiled data for: {file_path}")
-            original_file_path = extract_original_file_path_from_decompiled(file_path)
-            if original_file_path:
-                logging.info(f"Original file path extracted: {original_file_path}")
+            original_file_path_thread = threading.Thread(target=extract_original_file_path_from_decompiled, args=(file_path,))
+            original_file_path_thread.start()
 
         # Continue processing even if flag is True, to handle files already processed
         if flag:
