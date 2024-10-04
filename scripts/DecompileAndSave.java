@@ -32,9 +32,10 @@ public class DecompileAndSave extends GhidraScript {
         String executablePath = currentProgram.getExecutablePath().replaceFirst("^/", ""); // Removes leading slash
         executablePath = executablePath.replace("/", "\\");  // Convert to Windows-style path
 
-        // Convert the current executable path to a proper Path object
-        Path currentDirPath = Paths.get(executablePath).getParent();
+        // Convert the current directory path to a proper Path object
+        Path currentDirPath = Paths.get(System.getProperty("user.dir"));
         Path outputDir = currentDirPath.resolve("decompile");
+
 
         // Ensure the directory exists
         try {
