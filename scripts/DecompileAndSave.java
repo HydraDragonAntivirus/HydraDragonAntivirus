@@ -2,39 +2,39 @@ import ghidra.app.script.GhidraScript;
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.program.model.listing.Function;
-import ghidra.program.model.listing.Program;
-import ghidra.program.model.pcode.HighFunction;
-import ghidra.program.model.pcode.PcodeOpAST;
-import ghidra.program.model.pcode.PcodeBlockBasic;
-import ghidra.program.model.pcode.PcodeBlock;
 import ghidra.program.model.listing.Listing;
 import ghidra.program.model.listing.CodeUnit;
 import ghidra.program.model.listing.CodeUnitIterator;
 import ghidra.program.model.listing.Instruction;
-import ghidra.app.util.bin.format.pe.ExportDataDirectory;
-import ghidra.app.util.bin.format.pe.ExportInfo;
-import ghidra.app.util.bin.format.pe.NTHeader;
+import ghidra.program.model.pcode.PcodeOp;
+import ghidra.program.model.pcode.PcodeBlockBasic;
+import ghidra.program.model.pcode.PcodeBlock;
+import ghidra.program.model.listing.Program;
 import ghidra.util.task.TaskMonitor;
-import ghidra.util.Msg;
 
 import java.io.PrintWriter;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Iterator;
 
 public class DecompileAndSave extends GhidraScript {
 
     @Override
     protected void run() throws Exception {
-        Program program = currentProgram;
+        Program program = currentProgram; // Reference to the current program
         DecompInterface decompiler = new DecompInterface();
         decompiler.openProgram(program);
 
-        // Use the current directory from Ghidra and navigate to decompile directory
-        String currentDir = currentProgram.getExecutablePath();
-        Path outputDir = Paths.get(currentDir).getParent().resolve("decompile");
+        // Remove leading backslash from executable path and fix slashes
+        String executablePath = currentProgram.getExecutablePath().replaceFirst("^/", ""); // Removes leading slash
+        executablePath = executablePath.replace("/", "\\");  // Convert to Windows-style path
+
+        // Convert the current executable path to a proper Path object
+        Path currentDirPath = Paths.get(executablePath).getParent();
+        Path outputDir = currentDirPath.resolve("decompile");
 
         // Ensure the directory exists
         try {
@@ -45,27 +45,20 @@ public class DecompileAndSave extends GhidraScript {
             return;
         }
 
-        // Determine the filename with a unique suffix if needed
-        String baseFileName = "decompiled_function_details";
+        // Base filenames
+        String nativeAssemblyBaseFile = "native_assembly";
+        String pcodeBaseFile = "pcode_representation";
+        String cCodeBaseFile = "c_decompiled";
+        String unifiedBaseFile = "unified_output"; // Unified file for all data
         String fileExtension = ".txt";
-        Path filePath = outputDir.resolve(baseFileName + fileExtension);
-        int fileIndex = 1;
 
-        while (Files.exists(filePath)) {
-            filePath = outputDir.resolve(baseFileName + "_" + fileIndex + fileExtension);
-            fileIndex++;
-        }
+        // Ensure unique filenames with suffixes
+        Path nativeAssemblyFilePath = getUniqueFilePath(outputDir, nativeAssemblyBaseFile, fileExtension);
+        Path pcodeFilePath = getUniqueFilePath(outputDir, pcodeBaseFile, fileExtension);
+        Path cCodeFilePath = getUniqueFilePath(outputDir, cCodeBaseFile, fileExtension);
+        Path unifiedFilePath = getUniqueFilePath(outputDir, unifiedBaseFile, fileExtension); // Path for unified file
 
-        println("Saving decompiled code to: " + filePath.toString());
-
-        // Save the original file path as a comment in the first line
-        try (PrintWriter out = new PrintWriter(new FileWriter(filePath.toFile()))) {
-            out.println("// Original file: " + currentProgram.getExecutablePath());
-            out.println();
-        } catch (IOException e) {
-            println("Error writing to file: " + e.getMessage());
-            return;
-        }
+        println("Saving native assembly, pcode, C code, and unified output to: " + outputDir.toString());
 
         // Function Manager to retrieve all functions
         if (!program.getFunctionManager().getFunctions(true).hasNext()) {
@@ -86,21 +79,17 @@ public class DecompileAndSave extends GhidraScript {
                 continue;
             }
 
-            HighFunction highFunc = results.getHighFunction();
-            if (highFunc == null || results.getDecompiledFunction() == null) {
-                println("Decompiled function or high-level function is null for: " + func.getName());
-                continue;
-            }
-
             String decompiledCode = results.getDecompiledFunction().getC();
 
             // Extract Pcode (intermediate representation)
             StringBuilder pcodeRepresentation = new StringBuilder();
-            if (highFunc.getBasicBlocks() != null) {
-                for (PcodeBlock block : highFunc.getBasicBlocks()) {
+            if (results.getHighFunction().getBasicBlocks() != null) {
+                for (PcodeBlock block : results.getHighFunction().getBasicBlocks()) {
                     if (block instanceof PcodeBlockBasic) {
                         PcodeBlockBasic basicBlock = (PcodeBlockBasic) block;
-                        for (PcodeOpAST pcodeOp : basicBlock.getIterator()) {
+                        Iterator<PcodeOp> iterator = basicBlock.getIterator();
+                        while (iterator.hasNext()) {
+                            PcodeOp pcodeOp = iterator.next();
                             pcodeRepresentation.append(pcodeOp.toString()).append("\n");
                         }
                     }
@@ -119,8 +108,39 @@ public class DecompileAndSave extends GhidraScript {
                 }
             }
 
-            // Combine and write all details to file
-            try (PrintWriter out = new PrintWriter(new FileWriter(filePath.toFile(), true))) {
+            // Write C decompiled code to its respective file
+            try (PrintWriter out = new PrintWriter(new FileWriter(cCodeFilePath.toFile(), true))) {
+                out.println("// Original file: " + executablePath); // Add original file path as a comment
+                out.println("Function: " + func.getName());
+                out.println(decompiledCode);
+                out.println("\n\n");
+            } catch (IOException e) {
+                println("Error writing C decompiled code: " + e.getMessage());
+            }
+
+            // Write Pcode representation to its respective file
+            try (PrintWriter out = new PrintWriter(new FileWriter(pcodeFilePath.toFile(), true))) {
+                out.println("// Original file: " + executablePath); // Add original file path as a comment
+                out.println("Function: " + func.getName());
+                out.println(pcodeRepresentation.toString());
+                out.println("\n\n");
+            } catch (IOException e) {
+                println("Error writing Pcode representation: " + e.getMessage());
+            }
+
+            // Write native assembly to its respective file
+            try (PrintWriter out = new PrintWriter(new FileWriter(nativeAssemblyFilePath.toFile(), true))) {
+                out.println("// Original file: " + executablePath); // Add original file path as a comment
+                out.println("Function: " + func.getName());
+                out.println(nativeAssemblyCode.toString());
+                out.println("\n\n");
+            } catch (IOException e) {
+                println("Error writing native assembly code: " + e.getMessage());
+            }
+
+            // Write combined output to the unified file
+            try (PrintWriter out = new PrintWriter(new FileWriter(unifiedFilePath.toFile(), true))) {
+                out.println("// Original file: " + executablePath); // Add original file path as a comment
                 out.println("Function: " + func.getName());
                 out.println("C Decompilation:");
                 out.println(decompiledCode);
@@ -130,40 +150,25 @@ public class DecompileAndSave extends GhidraScript {
                 out.println(nativeAssemblyCode.toString());
                 out.println("\n\n");
             } catch (IOException e) {
-                println("Error writing to file: " + e.getMessage());
+                println("Error writing unified output: " + e.getMessage());
             }
 
             functionCount++;  // Increment function count
         }
 
-        // **Now handling export data directory extraction**
+        println("Decompilation and analysis completed for " + functionCount + " functions. Results saved to " + outputDir);
+    }
 
-        // Extract export information if the program is a PE file and has an Export Data Directory
-        NTHeader ntHeader = NTHeader.createNTHeader(currentProgram, this);
-        ExportDataDirectory exportDataDir = ntHeader.getOptionalHeader().getExportDataDirectory();
+    // Helper method to create unique filenames with suffixes if files already exist
+    private Path getUniqueFilePath(Path outputDir, String baseFileName, String fileExtension) {
+        Path filePath = outputDir.resolve(baseFileName + fileExtension);
+        int fileIndex = 1;
 
-        if (exportDataDir != null && exportDataDir.parse()) {
-            ExportInfo[] exports = exportDataDir.getExports();
-            try (PrintWriter out = new PrintWriter(new FileWriter(filePath.toFile(), true))) {
-                out.println("\nExported Functions:");
-                for (ExportInfo export : exports) {
-                    // Skip invalid exports
-                    if (export == null || export.getName() == null) {
-                        println("Invalid or missing export entry.");
-                        continue;
-                    }
-
-                    out.println("Export Name: " + export.getName() + 
-                                ", Address: " + export.getAddress() + 
-                                ", Ordinal: " + export.getOrdinal());
-                }
-            } catch (IOException e) {
-                println("Error writing exported functions to file: " + e.getMessage());
-            }
-        } else {
-            println("No export data directory found or failed to parse export directory.");
+        while (Files.exists(filePath)) {
+            filePath = outputDir.resolve(baseFileName + "_" + fileIndex + fileExtension);
+            fileIndex++;
         }
 
-        println("Decompilation and analysis completed for " + functionCount + " functions. Results saved to " + filePath);
+        return filePath;
     }
 }
