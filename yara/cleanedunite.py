@@ -19,6 +19,6 @@ def process_file(input_file_path, output_file_path):
         file.write(processed_content)
 
 # Example usage
-input_file_path = 'intezer.yar'  # Specify the path to your input file
-output_file_path = 'cleaned_intzer.yar'  # Specify the path to your output file
+input_file_path = 'united.yar'  # Specify the path to your input file
+output_file_path = 'cleaned_united.yar'  # Specify the path to your output file
 process_file(input_file_path, output_file_path)
