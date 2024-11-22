@@ -17,7 +17,7 @@ executables = [
 
 # Fine-tune build options (adjust as needed)
 build_options = {
-    "packages": [],  # List packages if any are required
+    "packages": ["scapy"],  # List packages if any are required
     "includes": ["preshed.maps"],  # Include necessary modules
     "excludes": ["tkinter"],  # Exclude unnecessary modules like tkinter
     "include_msvcr": True  # Include Microsoft Visual C Runtime libraries
