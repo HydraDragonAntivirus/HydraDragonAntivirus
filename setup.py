@@ -9,7 +9,7 @@ executables = [
     Executable(
         "antivirus.py",  # Your script
         target_name="antivirus.exe",  # Output executable name
-        base="Console",  # 'None' for a GUI application (no console window)
+        base="Console",  # Console application
         icon="assets/HydraDragonAV.ico",  # Path to your .ico file
         uac_admin=True  # Request admin privileges
     )
