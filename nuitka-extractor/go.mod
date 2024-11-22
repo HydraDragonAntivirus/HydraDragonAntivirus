@@ -1,6 +1,6 @@
 module github.com/extremecoders-re/nuitka-extractor
 
-go 1.19
+go 1.23.3
 
 require (
 	github.com/klauspost/compress v1.16.6
