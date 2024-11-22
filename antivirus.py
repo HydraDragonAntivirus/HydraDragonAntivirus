@@ -247,6 +247,7 @@ urlhaus_path = os.path.join(script_dir, "website", "urlhaus.txt")
 antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
 yaraxtr_yrc_path = os.path.join(yara_folder_path, "yaraxtr.yrc")
 compiled_rule_path = os.path.join(yara_folder_path, "compiled_rule.yrc")
+yarGen_rule_path = os.path.join(yara_folder_path, "machinelearning.yrc")
 antivirus_domains_data = {}
 ip_addresses_signatures_data = {}
 ipv4_whitelist_data = {}
