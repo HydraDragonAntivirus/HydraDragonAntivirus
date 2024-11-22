@@ -1,11 +1,15 @@
+import sys
 from cx_Freeze import setup, Executable
+
+# Increase maximum recursion depth
+sys.setrecursionlimit(50000)  # Adjust as necessary (default is usually 1000)
 
 # Define the executable and options
 executables = [
     Executable(
         "antivirus.py",  # Your script
         target_name="antivirus.exe",  # Output executable name
-        base=None,  # 'None' for a GUI application (no console window)
+        base="Console",  # 'None' for a GUI application (no console window)
         icon="assets/HydraDragonAV.ico",  # Path to your .ico file
         uac_admin=True  # Request admin privileges
     )
