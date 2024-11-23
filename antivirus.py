@@ -4,8 +4,8 @@ import logging
 import io
 from datetime import datetime
 
-# Ensure the script directory is properly set
-script_dir = os.path.dirname(os.path.abspath(__file__))
+# Set script directory
+script_dir = os.getcwd()
 
 # Define log directories and files
 log_directory = os.path.join(script_dir, "log")
@@ -218,9 +218,6 @@ sys.modules['sklearn.externals.joblib'] = joblib
 # Load the spaCy model globally
 nlp_spacy_lang = spacy.load("en_core_web_md")
 print("spaCy model 'en_core_web_md' loaded successfully")
-
-# Set script directory
-script_dir = os.getcwd()
 
 # Initialize the accelerator
 accelerator = Accelerator()
