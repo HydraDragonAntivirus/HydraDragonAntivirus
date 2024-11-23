@@ -1913,7 +1913,7 @@ def load_llama32_model():
         error_message = f"Error loading Llama-3.2-1B model or tokenizer: {e}"
         print(error_message)
         logging.error(error_message)
-        exit(1)
+        sys.exit(1)
 
 # Load the Llama-3.2-1B model
 model, tokenizer = load_llama32_model()
