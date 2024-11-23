@@ -32,7 +32,7 @@ executables = [
     Executable(
         "antivirus.py",  # Your script
         target_name="antivirus.exe",  # Output executable name
-        base="Win64GUI",  # Win64GUI application
+        base="Win32GUI",  # Win64GUI application
         icon="assets/HydraDragonAV.ico",  # Path to your .ico file
         uac_admin=True  # Request admin privileges
     )
