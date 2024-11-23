@@ -2,30 +2,33 @@ import sys
 from cx_Freeze import setup, Executable
 from pathlib import Path
 import spacy
+import os
 
 # Increase maximum recursion depth
-sys.setrecursionlimit(50000)
+sys.setrecursionlimit(50000)  # Adjust as necessary (default is usually 1000)
 
-# Locate site-packages directory and handle versioned folder names
+# Locate site-packages directory
 site_packages = Path(spacy.__file__).parent.parent
-model_folder_prefix = "en_core_web_md"  # Base name for the model
+spacy_model_path = site_packages / "en_core_web_md"
 
-# Dynamically find the model directory (e.g., en_core_web_md-3.8.0)
-spacy_model_path = next(
-    (p for p in site_packages.glob(f"{model_folder_prefix}*") if p.is_dir()), None
-)
+# Find subfolder starting with 'en_core_web_md-'
+model_version_folder = None
+for subfolder in os.listdir(spacy_model_path):
+    if subfolder.startswith("en_core_web_md-"):
+        model_version_folder = spacy_model_path / subfolder
+        break
 
-if not spacy_model_path:
-    raise FileNotFoundError(f"Model folder for {model_folder_prefix} not found in {site_packages}")
+if model_version_folder is None:
+    raise Exception("Could not find the versioned model folder starting with 'en_core_web_md-'")
 
 # Define the executable and options
 executables = [
     Executable(
-        "antivirus.py",
-        target_name="antivirus.exe",
-        base="Console",
-        icon="assets/HydraDragonAV.ico",
-        uac_admin=True,
+        "antivirus.py",  # Your script
+        target_name="antivirus.exe",  # Output executable name
+        base="Console",  # Console application
+        icon="assets/HydraDragonAV.ico",  # Path to your .ico file
+        uac_admin=True  # Request admin privileges
     )
 ]
 
@@ -36,15 +39,15 @@ build_options = {
     "excludes": ["tkinter"],
     "include_msvcr": True,
     "include_files": [
-        (str(spacy_model_path), model_folder_prefix)  # Include the model as en_core_web_md
+        (str(model_version_folder), "en_core_web_md")  # Include the model folder
     ],
 }
 
 # Setup configuration for cx_Freeze
 setup(
-    name="HydraDragon Antivirus",
-    version="0.1",
+    name="HydraDragon Antivirus",  # Application name
+    version="0.1",  # Version number
     description="HydraDragon Antivirus for Windows - A comprehensive malware analysis tool utilizing dynamic/static analysis, machine learning, and behavior analysis.",
-    options={"build_exe": build_options},
-    executables=executables,
+    options={"build_exe": build_options},  # Build options
+    executables=executables,  # List of executables
 )
