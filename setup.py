@@ -26,7 +26,7 @@ executables = [
     Executable(
         "antivirus.py",  # Your script
         target_name="antivirus.exe",  # Output executable name
-        base="Win32GUI",  # Win32GUI application
+        base="Win64GUI",  # Win64GUI application
         icon="assets/HydraDragonAV.ico",  # Path to your .ico file
         uac_admin=True  # Request admin privileges
     )
@@ -35,7 +35,7 @@ executables = [
 # Fine-tune build options (adjust as needed)
 build_options = {
     "packages": ["scapy", "srsly", "blis", "spacy","transformers"],
-    "includes": ["preshed.maps"],
+    "includes": ["preshed.maps", "transformers.models.glm"],
     "excludes": ["tkinter"],
     "include_msvcr": True,
     "include_files": [
