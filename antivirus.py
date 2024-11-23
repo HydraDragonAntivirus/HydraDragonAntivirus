@@ -1,18 +1,45 @@
-import time
-print("time module loaded")
+import os
+import sys
+import logging
+import io
+from datetime import datetime
+
+# Ensure the script directory is properly set
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Define log directories and files
+log_directory = os.path.join(script_dir, "log")
+if not os.path.exists(log_directory):
+    os.makedirs(log_directory)
+
+# Separate log files for different purposes
+console_log_file = os.path.join(log_directory, "antivirusconsole.log")
+application_log_file = os.path.join(log_directory, "antivirus.log")
+stdin_log_file = os.path.join(log_directory, "antivirusstdin.log")
+
+# Configure logging for application log
+logging.basicConfig(
+    filename=application_log_file,
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+)
+
+# Redirect stdout to console log
+sys.stdout = open(console_log_file, "w", encoding="utf-8", errors="replace")
+
+# Redirect stderr to console log
+sys.stderr = open(console_log_file, "w", encoding="utf-8", errors="replace")
+
+# Redirect stdin to a log file
+sys.stdin = open(stdin_log_file, "w+", encoding="utf-8", errors="replace")
+
+# Logging for application initialization
+logging.info("Application started at %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
 # Record the start time for total duration
 total_start_time = time.time()
 
 # Measure and print time taken for each import
-start_time = time.time()
-import sys
-print(f"sys module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import os
-print(f"os module loaded in {time.time() - start_time:.6f} seconds")
-
 start_time = time.time()
 import shutil
 print(f"shutil module loaded in {time.time() - start_time:.6f} seconds")
@@ -82,10 +109,6 @@ from notifypy import Notify
 print(f"notifypy.Notify module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import logging
-print(f"logging module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 from concurrent.futures import ThreadPoolExecutor, as_completed
 print(f"concurrent.futures.ThreadPoolExecutor and as_completed loaded in {time.time() - start_time:.6f} seconds")
 
@@ -106,8 +129,8 @@ import win32con
 print(f"win32con module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from datetime import datetime, timedelta
-print(f"datetime.datetime and timedelta modules loaded in {time.time() - start_time:.6f} seconds")
+from datetime import timedelta
+print(f"datetime.timedelta modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import winreg
@@ -132,10 +155,6 @@ print(f"sklearn.metrics.pairwise.cosine_similarity module loaded in {time.time()
 start_time = time.time()
 import numpy as np
 print(f"numpy module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import io
-print(f"io module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import spacy
@@ -196,15 +215,6 @@ print(f"Total time for all imports: {total_duration:.6f} seconds")
 
 sys.modules['sklearn.externals.joblib'] = joblib
 
-# Set standard input encoding to UTF-8, replacing errors
-sys.stdin = io.TextIOWrapper(sys.stdin.detach(), encoding="utf-8", errors="replace")
-
-# Set standard output encoding to UTF-8, replacing errors
-sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding="utf-8", errors="replace")
-
-# Set standard error encoding to UTF-8, replacing errors
-sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding="utf-8", errors="replace")
-
 # Load the spaCy model globally
 nlp_spacy_lang = spacy.load("en_core_web_md")
 print("spaCy model 'en_core_web_md' loaded successfully")
@@ -264,21 +274,9 @@ os.makedirs(pe_extracted_dir, exist_ok=True)
 os.makedirs(zip_extracted_dir, exist_ok=True)
 os.makedirs(tar_extracted_dir, exist_ok=True)
 
-# Configure logging
-log_directory = os.path.join(script_dir, "log")
-log_file = os.path.join(log_directory, "antivirus.log")
 # Counter for ransomware detection
 ransomware_detection_count = 0 
 has_warned_ransomware = False  # Flag to check if ransomware warning has been issued
-
-if not os.path.exists(log_directory):
-    os.makedirs(log_directory)
-
-logging.basicConfig(
-    filename=log_file,
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-)
 
 main_file_path = None
 

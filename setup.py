@@ -26,7 +26,7 @@ executables = [
     Executable(
         "antivirus.py",  # Your script
         target_name="antivirus.exe",  # Output executable name
-        base="Console",  # Console application
+        base="Win32GUI",  # Win32GUI application
         icon="assets/HydraDragonAV.ico",  # Path to your .ico file
         uac_admin=True  # Request admin privileges
     )
@@ -47,7 +47,7 @@ build_options = {
 setup(
     name="HydraDragon Antivirus",  # Application name
     version="0.1",  # Version number
-    description="HydraDragon Antivirus for Windows - A comprehensive malware analysis tool utilizing dynamic/static analysis, machine learning, and behavior analysis.",
+    description="HydraDragon Antivirus",
     options={"build_exe": build_options},  # Build options
     executables=executables,  # List of executables
 )
