@@ -89,6 +89,7 @@ PUA.Win.Packer.PrivateEXEProtector4-6192998-2
 PUA.Win.Packer.InterplaysMveFi-1
 PUA.Win.File.Pemalform-9786668-0
 Win.Packer.MalwareCrypter-6620810-1
+Win.Packed.Mikey-9859574-0
 # False positives from SaneSecurity and other 3rd parties
 Sanesecurity.Malware.26368.JsHeur
 Sanesecurity.Malware.26399.JsHeur
@@ -150,6 +151,7 @@ inv.exe.sigs.InterServer.net.SHA256.20371
 vhxtdQ.sigs.InterServer.net.SHA256.21881
 winnow.trojan.ts.shipping.51
 TwinWave.EvilJS.AXONestedFunction.20230731
+TwinWave.EvilDoc.PublicDottedQuadDLrRunLikeHell.20210223
 # False positives YARA
 UPX
 with_sqlite
@@ -224,3 +226,6 @@ SecuriteInfo.com.Trojan.Loader.1550.2
 SecuriteInfo.com.JS.Iframe-DUA.32133.30025
 SecuriteInfo.com.JS.Agent-CPW.20448.22370
 SecuriteInfo.com.JS.Agent-CIS.7004.30549
+SecuriteInfo.com.Spam.23381.1049.21405
+SecuriteInfo.com.W32.Bladabindi.DO.gen.Eldorado.2583.32181
+SecuriteInfo.com.JS.Phishing-FT.6047.23367
