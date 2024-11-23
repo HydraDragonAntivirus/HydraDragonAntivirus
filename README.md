@@ -22,7 +22,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Just look at the release for get Domains.7z.
 
 ## Guide to compiling from source
-- You can compile YARA-X and YARA from the yara folder. The website database is not a complication. See the machine learning training guide to compile machine learning database. To compile antivirus.py install requirements.txt and use assets/HydraDragonAV.png then use buildcxfreeze.txt arguments and change based on your installed folder of HydraDragonAntivirus. After compiling cx_Freeze, Machine Learning, YARA then look at the compiler.iss and replace the code with your installed environment, you can find other files in repo like hydradownload folder and then compile it. It's done! Now you are ready to release your fork of HydraDragonAntivirus.
+- You can compile YARA-X and YARA from the yara folder. The website database is not a complication. See the machine learning training guide to compile machine learning database. To compile antivirus.py install requirements.txt and use assets/HydraDragonAV.png then use buildcxfreeze.txt arguments and change based on your installed folder of HydraDragonAntivirus. After compiling cx_Freeze with python 3.11, Machine Learning, YARA then look at the compiler.iss and replace the code with your installed environment, you can find other files in repo like hydradownload folder and then compile it. It's done! Now you are ready to release your fork of HydraDragonAntivirus.
 
 ## Ghidra Source Code
 - I now using 11.2.1: https://ghidra-sre.org/
