@@ -3,6 +3,7 @@ import sys
 import logging
 import io
 from datetime import datetime
+import time
 
 # Set script directory
 script_dir = os.getcwd()
