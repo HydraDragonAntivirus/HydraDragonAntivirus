@@ -2,13 +2,16 @@ import sys
 from cx_Freeze import setup, Executable
 from pathlib import Path
 import spacy
+import transformers
 import os
 
 # Increase maximum recursion depth
 sys.setrecursionlimit(50000)  # Adjust as necessary (default is usually 1000)
 
-# Locate site-packages directory
+# Locate site-packages directory for spacy and transformers
 site_packages = Path(spacy.__file__).parent.parent
+
+# Locate spacy model path
 spacy_model_path = site_packages / "en_core_web_md"
 
 # Find subfolder starting with 'en_core_web_md-'
@@ -21,6 +24,9 @@ for subfolder in os.listdir(spacy_model_path):
 if model_version_folder is None:
     raise Exception("Could not find the versioned model folder starting with 'en_core_web_md-'")
 
+# Locate transformers package folder
+transformers_path = Path(transformers.__file__).parent
+
 # Define the executable and options
 executables = [
     Executable(
@@ -32,14 +38,15 @@ executables = [
     )
 ]
 
-# Fine-tune build options (adjust as needed)
+# Fine-tune build options
 build_options = {
-    "packages": ["scapy", "srsly", "blis", "spacy","transformers"],
+    "packages": ["scapy", "srsly", "blis", "spacy", "transformers"],
     "includes": ["preshed.maps"],
     "excludes": ["tkinter"],
     "include_msvcr": True,
     "include_files": [
-        (str(model_version_folder), "en_core_web_md")  # Include the model folder
+        (str(model_version_folder), "en_core_web_md"),  # Include the spacy model folder
+        (str(transformers_path), "transformers"),       # Include the transformers folder
     ],
 }
 
