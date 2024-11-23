@@ -4,20 +4,28 @@ from pathlib import Path
 import spacy
 
 # Increase maximum recursion depth
-sys.setrecursionlimit(50000)  # Adjust as necessary (default is usually 1000)
+sys.setrecursionlimit(50000)
 
-# Locate site-packages directory
+# Locate site-packages directory and handle versioned folder names
 site_packages = Path(spacy.__file__).parent.parent
-spacy_model_path = site_packages / "en_core_web_md"
+model_folder_prefix = "en_core_web_md"  # Base name for the model
+
+# Dynamically find the model directory (e.g., en_core_web_md-3.8.0)
+spacy_model_path = next(
+    (p for p in site_packages.glob(f"{model_folder_prefix}*") if p.is_dir()), None
+)
+
+if not spacy_model_path:
+    raise FileNotFoundError(f"Model folder for {model_folder_prefix} not found in {site_packages}")
 
 # Define the executable and options
 executables = [
     Executable(
-        "antivirus.py",  # Your script
-        target_name="antivirus.exe",  # Output executable name
-        base="Console",  # Console application
-        icon="assets/HydraDragonAV.ico",  # Path to your .ico file
-        uac_admin=True  # Request admin privileges
+        "antivirus.py",
+        target_name="antivirus.exe",
+        base="Console",
+        icon="assets/HydraDragonAV.ico",
+        uac_admin=True,
     )
 ]
 
@@ -28,15 +36,15 @@ build_options = {
     "excludes": ["tkinter"],
     "include_msvcr": True,
     "include_files": [
-        (str(spacy_model_path), "en_core_web_md")  # Include the model
+        (str(spacy_model_path), model_folder_prefix)  # Include the model as en_core_web_md
     ],
 }
 
 # Setup configuration for cx_Freeze
 setup(
-    name="HydraDragon Antivirus",  # Application name
-    version="1.0",  # Version number
+    name="HydraDragon Antivirus",
+    version="0.1",
     description="HydraDragon Antivirus for Windows - A comprehensive malware analysis tool utilizing dynamic/static analysis, machine learning, and behavior analysis.",
-    options={"build_exe": build_options},  # Build options
-    executables=executables,  # List of executables
+    options={"build_exe": build_options},
+    executables=executables,
 )
