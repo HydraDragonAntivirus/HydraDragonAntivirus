@@ -3446,6 +3446,11 @@ class Monitor_Message_CommandLine:
                 "virus_name": "HEUR:Win32.TaskScheduler.TempFile.Generic",
                 "process_function": self.process_detected_command_schtasks_temp
             },
+            "stopeventlog": {
+                "command": 'sc.exe stop eventlog',
+                "virus_name": "HEUR:Win32.StopEventLog.Generic",
+                "process_function": self.process_detected_commands_stop_eventlog
+            },
             "koadic": {
                 "patterns": [
                 'chcp 437 & schtasks /query /tn k0adic',
@@ -3579,6 +3584,12 @@ class Monitor_Message_CommandLine:
     def process_detected_command_schtasks_temp(self, text, file_path):
         virus_name = self.known_malware_messages["commands"]["schtasks"]["virus_name"]
         message = f"Detected scheduled task creation using temp file: {virus_name} in text: {text} from {file_path}"
+        logging.warning(message)
+        self.notify_user_for_detected_command(message)
+
+    def process_detected_command_stop_eventlog(self, text, file_path):
+        virus_name = self.known_malware_messages["commands"]["stopeventlog"]["virus_name"]
+        message = f"Detected Stop EventLog command execution: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
         self.notify_user_for_detected_command(message)
 

@@ -1,0 +1,21 @@
+title: Stop EventLog
+status: experimental
+description: Stop EventLog
+author: Joe Security
+date: 2024-03-11
+id: 200116
+threatname:
+behaviorgroup: 7
+classification: 8
+mitreattack: 
+
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        CommandLine:
+            - '*sc.exe stop eventlog'            
+            
+    condition: selection
+level: critical
