@@ -256,6 +256,7 @@ antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
 yaraxtr_yrc_path = os.path.join(yara_folder_path, "yaraxtr.yrc")
 compiled_rule_path = os.path.join(yara_folder_path, "compiled_rule.yrc")
 yarGen_rule_path = os.path.join(yara_folder_path, "machinelearning.yrc")
+icewater_rule_path = os.path.join(yara_folder_path, "icewater.yrc")
 antivirus_domains_data = {}
 ip_addresses_signatures_data = {}
 ipv4_whitelist_data = {}
@@ -1163,6 +1164,30 @@ class YaraScanner:
                 else:
                     logging.warning("compiled_rule is not defined.")
 
+                # Check matches for yarGen_rule
+                if yarGen_rule:
+                    matches = yarGen_rule.match(data=data_content)
+                    if matches:
+                        for match in matches:
+                            if match.rule not in excluded_rules:
+                                matched_rules.append(match.rule)
+                            else:
+                                logging.info(f"Rule {match.rule} is excluded from yarGen_rule.")
+                else:
+                    logging.warning("yarGen_rule is not defined.")
+
+                # Check matches for icewater_rule
+                if icewater_rule:
+                    matches = icewater_rule.match(data=data_content)
+                    if matches:
+                        for match in matches:
+                            if match.rule not in excluded_rules:
+                                matched_rules.append(match.rule)
+                            else:
+                                logging.info(f"Rule {match.rule} is excluded from icewater_rule.")
+                else:
+                    logging.warning("icewater_rule is not defined.")
+
                 # Check matches for yaraxtr_rule (loaded with yara_x)
                 if yaraxtr_rule:
                     scanner = yara_x.Scanner(yaraxtr_rule)
@@ -1872,6 +1897,13 @@ try:
     # Load the precompiled yarGen rules from the .yrc file
     yarGen_rule = yara.load(yarGen_rule_path)
     print("yarGen Rules Definitions loaded!")
+except yara.Error as e:
+    print(f"Error loading precompiled YARA rule: {e}")
+
+try:
+    # Load the precompiled icewater rules from the .yrc file
+    icewater_rule = yara.load(icewater_rule_path)
+    print("Icewater Rules Definitions loaded!")
 except yara.Error as e:
     print(f"Error loading precompiled YARA rule: {e}")
 
