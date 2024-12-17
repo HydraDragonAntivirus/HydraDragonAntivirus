@@ -210,8 +210,8 @@ import py7zr
 print(f"py7zr module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from uncompyle6.main import decompile
-print(f"uncompyle6.decompile module loaded in {time.time() - start_time:.6f} seconds")
+import uncompyle6
+print(f"uncompyle6 module loaded in {time.time() - start_time:.6f} seconds")
 
 # Calculate and print total time
 total_end_time = time.time()
@@ -2836,14 +2836,29 @@ def scan_file_with_llama32(file_path):
     except Exception as e:
         logging.error(f"An unexpected error occurred in scan_file_with_llama32: {e}")
 
-def extract_and_scan_pyinstaller(file_path):
+def extract_and_return_pyinstaller(file_path):
+    """
+    Extracts a PyInstaller archive and returns the paths of the extracted files.
+    
+    :param file_path: Path to the PyInstaller archive.
+    :return: A list of extracted file paths.
+    """
+    extracted_file_paths = []  # List to store the paths of the extracted files
+
+    # Extract PyInstaller archive
     pyinstaller_dir = extract_pyinstaller_archive(file_path)
+    
     if pyinstaller_dir:
         logging.info(f"PyInstaller archive extracted to {pyinstaller_dir}")
+        
+        # Traverse the extracted files
         for root, dirs, files in os.walk(pyinstaller_dir):
             for file in files:
                 extracted_file_path = os.path.join(root, file)
-                scan_and_warn(extracted_file_path)
+                # Add the file path to the list of extracted file paths
+                extracted_file_paths.append(extracted_file_path)
+
+    return extracted_file_paths
 
 def decompile_dotnet_file(file_path, dotnet_dir, ilspycmd_path):
     try:
@@ -2906,6 +2921,73 @@ def extract_7z_archive(archive_path, output_dir, seven_zip_path):
         logging.error(f"Error during archive extraction: {e}")
         return []
 
+def is_pyc_file(file_path):
+    """
+    Use Detect It Easy (DIE) to check if the file is a Python compiled file (i.e., .pyc file).
+    
+    :param file_path: Path to the file to analyze.
+    :return: True if the file is a Python compiled file (e.g., .pyc), False otherwise.
+    """
+    try:
+        # Run the DIE console command to analyze the file
+        result = subprocess.run([detectiteasy_console_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        # Check if the output contains the general Python Compiled Module format
+        if "Python" in result.stdout and "Compiled Module" in result.stdout and "Magic tag" in result.stdout:
+            logging.info(f"File {file_path} is detected as a Python compiled module by DIE.")
+            return True
+
+    except subprocess.SubprocessError as e:
+        logging.error(f"Error running Detect It Easy for {file_path}: {e}")
+        return False
+
+def show_code_with_uncompyle6(file_path, file_name):
+    """
+    Attempts to decompile a .pyc file using uncompyle6, after validating it's a .pyc file.
+    Saves the decompiled content to a file and also returns the decompiled file path.
+    
+    :param file_path: Path to the Python compiled file (.pyc) to decompile.
+    :param file_name: The name to use for saving the decompiled source file.
+    :return: The path of the saved decompiled source file, or None if decompilation fails.
+    """
+    try:
+        # Check if the file is a valid .pyc file
+        if not is_pyc_file(file_path):
+            logging.warning(f"File {file_path} is not a valid .pyc file. Skipping decompilation.")
+            return None
+
+        logging.info(f"Attempting to decompile .pyc file: {file_path}")
+        
+        # Decompile the .pyc file using uncompyle6
+        decompiled_code = None
+        with open(file_path, "rb") as f:
+            decompiled_code = uncompyle6.pyeval.evaluate(f)
+        
+        if decompiled_code is None:
+            logging.error(f"Failed to decompile {file_path}.")
+            return None
+        
+        # Define the output directory where the decompiled file will be saved
+        output_dir = os.path.splitext(file_path)[0] + "_decompiled"
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        
+        # Define the output file path
+        output_file_path = os.path.join(output_dir, f"{file_name}_decompiled.py")
+
+        # Save the decompiled code to the output file
+        with open(output_file_path, "w") as output_file:
+            output_file.write(decompiled_code)
+
+        logging.info(f"Successfully decompiled {file_path} and saved to {output_file_path}.")
+        
+        # Return the path to the decompiled file
+        return output_file_path
+
+    except Exception as e:
+        logging.error(f"Error during decompilation of {file_path} using uncompyle6: {e}")
+        return None
+
 def scan_and_warn(file_path, flag=False):
     """
     Scans a file for potential issues, starting with attempting to extract it if possible.
@@ -2950,6 +3032,20 @@ def scan_and_warn(file_path, flag=False):
             logging.info(f"File {file_path} is not a valid archive or extraction failed. Proceeding with scanning.")
         except Exception as extraction_error:
             logging.warning(f"Error during extraction of {file_path}: {extraction_error}")
+
+        # Check if it's a .pyc file and decompile if needed
+        if is_pyc_file(file_path):
+            logging.info(f"File {file_path} is a .pyc (Python Compiled Module) file. Attempting to decompile...")
+
+            # Call the show_code_with_uncompyle6 function to decompile the .pyc file
+            decompiled_file_path = show_code_with_uncompyle6(file_path, file_name)
+
+            # If decompilation was successful, scan the decompiled file
+            if decompiled_file_path:
+                logging.info(f"Scanning decompiled file: {decompiled_file_path}")
+                scan_and_warn(decompiled_file_path)
+            else:
+                logging.error(f"Decompilation failed for file {file_path}.")
 
         # Initialize variables
         is_decompiled = False
@@ -3036,11 +3132,20 @@ def scan_and_warn(file_path, flag=False):
             process_thread = threading.Thread(target=process_file_data, args=(file_path,))
             process_thread.start()
 
-        # PyInstaller archive extraction in a separate thread
+        # Check if the file is a PyInstaller archive
         if is_pyinstaller_archive(file_path):
             logging.info(f"File {file_path} is a PyInstaller archive. Extracting...")
-            pyinstaller_thread = threading.Thread(target=extract_and_scan_pyinstaller, args=(file_path,))
-            pyinstaller_thread.start()
+
+            # Extract the PyInstaller files and get their paths
+            extracted_files_pyinstaller = extract_and_return_pyinstaller(file_path)
+
+            if extracted_files_pyinstaller:
+                # Scan each extracted file
+                for extracted_file in extracted_files_pyinstaller:
+                    logging.info(f"Scanning extracted file: {extracted_file}")
+                    scan_and_warn(extracted_file)
+            else:
+                logging.warning(f"No files extracted from PyInstaller archive: {file_path}")
 
         # Check for fake file size
         if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
