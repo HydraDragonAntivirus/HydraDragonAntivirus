@@ -2870,10 +2870,49 @@ def check_pe_file(file_path, pe_file, signature_check, file_name):
     except Exception as e:
         logging.error(f"Error checking PE file {file_path}: {e}")
 
-def scan_and_warn(file_path, flag=False):
-    logging.info(f"Scanning file: {file_path}, Type: {type(file_path).__name__}")
-
+def extract_7z_archive(archive_path, output_dir, seven_zip_path):
+    """
+    Extract all files from a 7z archive using 7z.exe.
+    
+    :param archive_path: Path to the 7z archive.
+    :param output_dir: Directory to extract files to.
+    :param seven_zip_path: Path to 7z.exe.
+    :return: List of extracted file paths.
+    """
     try:
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        command = [seven_zip_path, "x", archive_path, f"-o{output_dir}", "-y"]
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        
+        if result.returncode != 0:
+            logging.error(f"7z extraction failed: {result.stderr}")
+            return []
+
+        # Parse output to get list of extracted files
+        extracted_files = []
+        for line in result.stdout.splitlines():
+            if line.startswith("Extracting  "):
+                extracted_file = line[len("Extracting  "):].strip()
+                extracted_files.append(os.path.join(output_dir, extracted_file))
+        return extracted_files
+
+    except Exception as e:
+        logging.error(f"Error during archive extraction: {e}")
+        return []
+
+def scan_and_warn(file_path, flag=False):
+    """
+    Scans a file for potential issues, starting with attempting to extract it if possible.
+
+    :param file_path: Path to the file or archive to scan.
+    :param flag: Indicates if the file should be reprocessed even if already scanned.
+    :return: True if the scan was successful, False otherwise.
+    """
+    try:
+        logging.info(f"Scanning file: {file_path}, Type: {type(file_path).__name__}")
+
         # Check if the file_path is valid
         if not isinstance(file_path, str):
             logging.error(f"Invalid file_path type: {type(file_path).__name__}")
@@ -2886,6 +2925,27 @@ def scan_and_warn(file_path, flag=False):
         if os.path.getsize(file_path) == 0:
             logging.debug(f"File {file_path} is empty. Skipping scan. That doesn't mean it's not malicious. See here: https://github.com/HydraDragonAntivirus/0KBAttack")
             return False
+
+       # Extract the file name
+        file_name = os.path.basename(file_path)
+
+       # Attempt to extract the file, regardless of its type
+        try:
+            output_dir = os.path.splitext(file_name)[0] + "_extracted"
+
+            logging.info(f"Attempting to extract file {file_path} into {output_dir}...")
+            extracted_files = extract_7z_archive(file_path, output_dir, seven_zip_path)
+
+            if extracted_files:
+                logging.info(f"Extraction successful for {file_path}. Scanning extracted files...")
+                # Recursively scan each extracted file
+                for extracted_file in extracted_files:
+                    logging.info(f"Scanning extracted file: {extracted_file}")
+                    scan_and_warn(extracted_file)
+
+            logging.info(f"File {file_path} is not a valid archive or extraction failed. Proceeding with scanning.")
+        except Exception as extraction_error:
+            logging.warning(f"Error during extraction of {file_path}: {extraction_error}")
 
         # Initialize variables
         is_decompiled = False
@@ -2955,9 +3015,6 @@ def scan_and_warn(file_path, flag=False):
 
         # Perform ransomware alert check
         ransomware_alert(file_path)
-
-        # Extract the file name
-        file_name = os.path.basename(file_path)
 
         # Check if the file is in decompile_dir
         if file_path.startswith(decompile_dir):
