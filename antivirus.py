@@ -210,8 +210,8 @@ import py7zr
 print(f"py7zr module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import uncompyle6
-print(f"uncompyle6 module loaded in {time.time() - start_time:.6f} seconds")
+from uncompyle6.main import decompile
+print(f"uncompyle6.decompile module loaded in {time.time() - start_time:.6f} seconds")
 
 # Calculate and print total time
 total_end_time = time.time()
