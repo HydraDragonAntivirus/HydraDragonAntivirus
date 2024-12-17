@@ -266,6 +266,7 @@ urlhaus_data = {}
 
 clamdscan_path = "C:\\Program Files\\ClamAV\\clamdscan.exe"
 freshclam_path = "C:\\Program Files\\ClamAV\\freshclam.exe"
+seven_zip_path = "C:\\Program Files\\7-Zip\\7z.exe"  # Path to 7z.exe
 
 os.makedirs(commandlineandmessage_dir, exist_ok=True)
 os.makedirs(processed_dir, exist_ok=True)
