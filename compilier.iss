@@ -48,7 +48,7 @@ Source: "C:\Users\victim\Documents\hydradownload\npcap-1.80.exe"; DestDir: "{tmp
 Source: "C:\Users\victim\Documents\hydradownload\Snort_2_9_20_Installer.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydradownload\JavaSetup8u431.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydradownload\jdk-23_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydradownload\Sandboxie-Classic-x64-v5.70.3.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydradownload\Sandboxie-Classic-x64-v5.70.4.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydradownload\setup.bat"; DestDir: "{tmp}"; Flags: deleteafterinstall
 ; Note: Don't use "Flags: ignoreversion" on any shared system files
 
@@ -70,5 +70,5 @@ Filename: "{tmp}\npcap-1.80.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\Snort_2_9_20_Installer.x64.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\JavaSetup8u431.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\jdk-23_windows-x64_bin.exe"; Flags: shellexec waituntilterminated
-Filename: "{tmp}\Sandboxie-Classic-x64-v5.70.3.exe"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\Sandboxie-Classic-x64-v5.70.4.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\setup.bat"; Flags: shellexec waituntilterminated
