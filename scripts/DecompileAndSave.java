@@ -54,9 +54,6 @@ public class DecompileAndSave extends GhidraScript {
         String fileExtension = ".txt";
 
         // Ensure unique filenames with suffixes
-        Path nativeAssemblyFilePath = getUniqueFilePath(outputDir, nativeAssemblyBaseFile, fileExtension);
-        Path pcodeFilePath = getUniqueFilePath(outputDir, pcodeBaseFile, fileExtension);
-        Path cCodeFilePath = getUniqueFilePath(outputDir, cCodeBaseFile, fileExtension);
         Path unifiedFilePath = getUniqueFilePath(outputDir, unifiedBaseFile, fileExtension); // Path for unified file
 
         println("Saving native assembly, pcode, C code, and unified output to: " + outputDir.toString());
@@ -107,36 +104,6 @@ public class DecompileAndSave extends GhidraScript {
                     Instruction instruction = (Instruction) codeUnit;
                     nativeAssemblyCode.append(instruction.toString()).append("\n");
                 }
-            }
-
-            // Write C decompiled code to its respective file
-            try (PrintWriter out = new PrintWriter(new FileWriter(cCodeFilePath.toFile(), true))) {
-                out.println("// Original file: " + executablePath); // Add original file path as a comment
-                out.println("Function: " + func.getName());
-                out.println(decompiledCode);
-                out.println("\n\n");
-            } catch (IOException e) {
-                println("Error writing C decompiled code: " + e.getMessage());
-            }
-
-            // Write Pcode representation to its respective file
-            try (PrintWriter out = new PrintWriter(new FileWriter(pcodeFilePath.toFile(), true))) {
-                out.println("// Original file: " + executablePath); // Add original file path as a comment
-                out.println("Function: " + func.getName());
-                out.println(pcodeRepresentation.toString());
-                out.println("\n\n");
-            } catch (IOException e) {
-                println("Error writing Pcode representation: " + e.getMessage());
-            }
-
-            // Write native assembly to its respective file
-            try (PrintWriter out = new PrintWriter(new FileWriter(nativeAssemblyFilePath.toFile(), true))) {
-                out.println("// Original file: " + executablePath); // Add original file path as a comment
-                out.println("Function: " + func.getName());
-                out.println(nativeAssemblyCode.toString());
-                out.println("\n\n");
-            } catch (IOException e) {
-                println("Error writing native assembly code: " + e.getMessage());
             }
 
             // Write combined output to the unified file
