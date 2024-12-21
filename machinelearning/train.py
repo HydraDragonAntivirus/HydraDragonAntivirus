@@ -92,10 +92,12 @@ def extract_numeric_features(file_path, rank=None, is_malicious=False):
         res['resources'] = []
         if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
             for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
-                for resource_id in resource_type.directory.entries:
-                    if hasattr(resource_id, 'data'):
-                        resource_data = resource_id.data.struct
-                        res['resources'].append(resource_data)
+                # Ensure 'directory' exists before accessing its 'entries'
+                if hasattr(resource_type, 'directory'):
+                    for resource_id in resource_type.directory.entries:
+                        if hasattr(resource_id, 'data'):
+                            resource_data = resource_id.data.struct
+                            res['resources'].append(resource_data)
 
         # Extract Relocations (Handle the 'list' case for DIRECTORY_ENTRY_BASERELOC)
         res['relocations'] = []

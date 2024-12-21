@@ -608,10 +608,11 @@ def extract_numeric_features(file_path, rank=None):
         res['resources'] = []
         if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
             for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
-                for resource_id in resource_type.directory.entries:
-                    if hasattr(resource_id, 'data'):
-                        resource_data = resource_id.data.struct
-                        res['resources'].append(resource_data)
+                if hasattr(resource_type, 'directory'):  # Check if 'directory' exists
+                    for resource_id in resource_type.directory.entries:
+                        if hasattr(resource_id, 'data'):
+                            resource_data = resource_id.data.struct
+                            res['resources'].append(resource_data)
 
         # Extract Relocations (Handle the 'list' case for DIRECTORY_ENTRY_BASERELOC)
         res['relocations'] = []
@@ -2630,10 +2631,11 @@ def extract_numeric_worm_features(file_path):
         res['resources'] = []
         if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
             for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
-                for resource_id in resource_type.directory.entries:
-                    if hasattr(resource_id, 'data'):
-                        resource_data = resource_id.data.struct
-                        res['resources'].append(resource_data)
+                if hasattr(resource_type, 'directory'):  # Check if 'directory' exists
+                    for resource_id in resource_type.directory.entries:
+                        if hasattr(resource_id, 'data'):
+                            resource_data = resource_id.data.struct
+                            res['resources'].append(resource_data)
 
         # Extract Relocations
         res['relocations'] = []
