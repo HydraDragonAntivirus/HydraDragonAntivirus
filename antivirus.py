@@ -261,6 +261,7 @@ yaraxtr_yrc_path = os.path.join(yara_folder_path, "yaraxtr.yrc")
 compiled_rule_path = os.path.join(yara_folder_path, "compiled_rule.yrc")
 yarGen_rule_path = os.path.join(yara_folder_path, "machinelearning.yrc")
 icewater_rule_path = os.path.join(yara_folder_path, "icewater.yrc")
+valhalla_rule_path = os.path.join(yara_folder_path, "valhalla-rules.yrc")
 antivirus_domains_data = {}
 ip_addresses_signatures_data = {}
 ipv4_whitelist_data = {}
@@ -1248,6 +1249,18 @@ class YaraScanner:
                 else:
                     logging.warning("icewater_rule is not defined.")
 
+                # Check matches for valhalla_rule
+                if valhalla_rule:
+                    matches = valhalla_rule.match(data=data_content)
+                    if matches:
+                        for match in matches:
+                            if match.rule not in excluded_rules:
+                                matched_rules.append(match.rule)
+                            else:
+                                logging.info(f"Rule {match.rule} is excluded from valhalla_rule.")
+                else:
+                    logging.warning("valhalla_rule is not defined.")
+
                 # Check matches for yaraxtr_rule (loaded with yara_x)
                 if yaraxtr_rule:
                     scanner = yara_x.Scanner(yaraxtr_rule)
@@ -1964,6 +1977,13 @@ try:
     # Load the precompiled icewater rules from the .yrc file
     icewater_rule = yara.load(icewater_rule_path)
     print("Icewater Rules Definitions loaded!")
+except yara.Error as e:
+    print(f"Error loading precompiled YARA rule: {e}")
+
+try:
+    # Load the precompiled valhalla rules from the .yrc file
+    valhalla_rule = yara.load(valhalla_rule_path)
+    print("Vallhalla Demo Rules Definitions loaded!")
 except yara.Error as e:
     print(f"Error loading precompiled YARA rule: {e}")
 
