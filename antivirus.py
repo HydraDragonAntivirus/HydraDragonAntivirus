@@ -213,6 +213,10 @@ start_time = time.time()
 import uncompyle6
 print(f"uncompyle6 module loaded in {time.time() - start_time:.6f} seconds")
 
+start_time = time.time()
+import pymem
+print(f"pymem module loaded in {time.time() - start_time:.6f} seconds")
+
 # Calculate and print total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
@@ -242,6 +246,7 @@ zip_extracted_dir = os.path.join(script_dir, "zip_extracted")
 tar_extracted_dir = os.path.join(script_dir, "tar_extracted")
 processed_dir = os.path.join(script_dir, "processed")
 detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
+memory_dir = os.path.join(script_dir, "memory")
 detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
 nuitka_extractor_path = os.path.join(script_dir, "nuitka-extractor.exe")
@@ -275,6 +280,7 @@ seven_zip_path = "C:\\Program Files\\7-Zip\\7z.exe"  # Path to 7z.exe
 
 os.makedirs(commandlineandmessage_dir, exist_ok=True)
 os.makedirs(processed_dir, exist_ok=True)
+os.makedirs(memory_dir, exist_ok=True)
 os.makedirs(pe_extracted_dir, exist_ok=True)
 os.makedirs(zip_extracted_dir, exist_ok=True)
 os.makedirs(tar_extracted_dir, exist_ok=True)
@@ -865,6 +871,106 @@ def load_data():
         print(f"Error loading URLhaus data: {e}")
 
     print("Domain, IPv4, IPv6, Whitelist, and URLhaus signatures loaded successfully!")
+
+def enum_process_modules(handle):
+    """Enumerate and retrieve loaded modules in a process."""
+    hModules = (ctypes.c_void_p * 1024)()
+    needed = ctypes.c_ulong()
+    if not pymem.ressources.psapi.EnumProcessModulesEx(
+        handle,
+        ctypes.byref(hModules),
+        ctypes.sizeof(hModules),
+        ctypes.byref(needed),
+        pymem.ressources.structure.EnumProcessModuleEX.LIST_MODULES_ALL
+    ):
+        raise RuntimeError("Failed to enumerate process modules")
+    return [module for module in hModules if module]
+
+def get_module_info(handle, base_addr):
+    """Retrieve module information."""
+    module_info = pymem.ressources.structure.MODULEINFO()
+    pymem.ressources.psapi.GetModuleInformation(
+        handle,
+        ctypes.c_void_p(base_addr),
+        ctypes.byref(module_info),
+        ctypes.sizeof(module_info)
+    )
+    return module_info
+
+def read_memory_data(pm, base_addr, size):
+    """Read memory data from a specific module."""
+    return pm.read_bytes(base_addr, size)
+
+def extract_ascii_strings(data):
+    """Extract readable ASCII strings from binary data."""
+    return re.findall(r'[ -~]{4,}', data.decode('ascii', errors='ignore'))
+
+def save_memory_data(memory_dir, base_addr, data):
+    """Save raw memory data to a file."""
+    memory_file = os.path.join(memory_dir, f"module_{hex(base_addr)}.bin")
+    with open(memory_file, 'wb') as mem_file:
+        mem_file.write(data)
+
+def save_extracted_strings(output_filename, extracted_strings):
+    """Save extracted ASCII strings to a file."""
+    with open(output_filename, 'w', encoding='utf-8') as file:
+        file.writelines(f"{line}\n" for line in extracted_strings)
+
+def analyze_process_memory(file_path):
+    """Perform memory analysis on the specified file path."""
+    try:
+        if not os.path.isfile(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        logging.info(f"Starting analysis on: {file_path}")
+
+        memory_dir = "memory"
+        os.makedirs(memory_dir, exist_ok=True)
+
+        # Attach to the process
+        pm = pymem.Pymem(file_path)
+        logging.info(f"Attached to process: {file_path}")
+
+        extracted_strings = []
+        try:
+            for module in enum_process_modules(pm.process_handle):
+                base_addr = ctypes.cast(module, ctypes.POINTER(ctypes.c_void_p)).contents.value
+                module_info = get_module_info(pm.process_handle, base_addr)
+
+                try:
+                    data = read_memory_data(pm, base_addr, module_info.SizeOfImage)
+                    save_memory_data(memory_dir, base_addr, data)
+
+                    ascii_strings = extract_ascii_strings(data)
+                    extracted_strings.append(f"{file_path}: Module {hex(base_addr)}:")
+                    extracted_strings.extend(ascii_strings)
+                except pymem.exception.AccessDenied:
+                    extracted_strings.append(f"Access denied: {hex(base_addr)}")
+                except Exception as e:
+                    extracted_strings.append(f"Error reading {hex(base_addr)}: {e}")
+        finally:
+            pm.close_process()  # Explicitly release the process handle
+            logging.info(f"Released process handle for: {file_path}")
+
+        # Check for existing output file and create a unique filename
+        base_filename = "extracted_strings"
+        output_filename = os.path.join(memory_dir, f"{base_filename}.txt")
+        count = 1
+        while os.path.exists(output_filename):
+            output_filename = os.path.join(memory_dir, f"{base_filename}_{count}.txt")
+            count += 1
+
+        # Save the extracted strings
+        save_extracted_strings(output_filename, extracted_strings)
+
+        logging.info(f"Analysis complete. Results saved in {output_filename}")
+
+        # Return the new file path
+        return output_filename
+
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        return None
 
 def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     """Scan a file for malicious activity using machine learning."""
@@ -3215,6 +3321,11 @@ def scan_and_warn(file_path, flag=False):
                 logging.info(f"File {file_path} is a valid PE file.")
                 pe_file = True
             
+            # Call analyze_process_memory if the file is a PE file
+            if pe_file:
+                logging.info(f"File {file_path} is identified as a PE file. Performing process memory analysis...")
+                analyze_process_memory(file_path)
+
             if is_dotnet_file(file_path):
                 dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(file_path,))
                 dotnet_thread.start()
