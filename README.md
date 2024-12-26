@@ -51,7 +51,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 
 ## Discord Community Server
 
-- Here is the server link: https://discord.gg/jNtANEXJ
+- Here is the server link: https://discord.gg/Rdyw59xqMC
 
 ## Prepare environment
 - Create DefaultBox in Sandboxie and create too many files to detect ransomware, finally use UEFI and GPT.
