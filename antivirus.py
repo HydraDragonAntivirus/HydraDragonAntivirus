@@ -240,6 +240,7 @@ ghidra_scripts_dir = os.path.join(script_dir, "scripts")
 dotnet_dir = os.path.join(script_dir, "dotnet")
 nuitka_dir = os.path.join(script_dir, "nuitka")
 pyintstaller_dir = os.path.join(script_dir, "pyinstaller")
+python_source_code_dir = os.path.join(script_dir, "pythonsourcecode")
 commandlineandmessage_dir = os.path.join(script_dir, "commandlineandmessage")
 pe_extracted_dir = os.path.join(script_dir, "pe_extracted")
 zip_extracted_dir = os.path.join(script_dir, "zip_extracted")
@@ -278,6 +279,7 @@ clamdscan_path = "C:\\Program Files\\ClamAV\\clamdscan.exe"
 freshclam_path = "C:\\Program Files\\ClamAV\\freshclam.exe"
 seven_zip_path = "C:\\Program Files\\7-Zip\\7z.exe"  # Path to 7z.exe
 
+os.makedirs(python_source_code_dir, exist_ok=True)
 os.makedirs(commandlineandmessage_dir, exist_ok=True)
 os.makedirs(processed_dir, exist_ok=True)
 os.makedirs(memory_dir, exist_ok=True)
@@ -2423,8 +2425,15 @@ class PyInstArchive:
         return True
 
     def extractFiles(self):
+        script_dir = os.getcwd()
+        python_source_code_dir = os.path.join(script_dir, "pythonsourcecode")
+        
+        # Create the directory for python source code if it doesn't exist
+        if not os.path.exists(python_source_code_dir):
+            os.makedirs(python_source_code_dir)
+
         folder_number = 1
-        base_extraction_dir = os.path.join(os.getcwd(), os.path.basename(self.filePath) + '_extracted')
+        base_extraction_dir = os.path.join(script_dir, os.path.basename(self.filePath) + '_extracted')
 
         while os.path.exists(f"{base_extraction_dir}_{folder_number}"):
             folder_number += 1
@@ -2452,8 +2461,14 @@ class PyInstArchive:
                 # Check for entry points (python scripts or pyc files)
                 if entry.typeCmprsData == b's':
                     print(f"[+] Possible entry point: {entry.name}")
-                    if self.pycMagic == b'\0' * 4:
-                        self.barePycList.append(entry.name + '.pyc')
+
+                    # Copy the entry point to the python source code directory
+                    entry_point_path = os.path.join(python_source_code_dir, entry.name)
+                    os.makedirs(os.path.dirname(entry_point_path), exist_ok=True)
+                    shutil.copy(entry.name, entry_point_path)
+
+                if self.pycMagic == b'\0' * 4:
+                    self.barePycList.append(entry.name + '.pyc')
         except Exception as e:
             logging.error(f"Error during file extraction: {e}")
             return False
