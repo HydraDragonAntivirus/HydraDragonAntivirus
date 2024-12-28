@@ -3215,7 +3215,7 @@ def is_pyc_file(file_path):
 def show_code_with_uncompyle6(file_path, file_name):
     """
     Attempts to decompile a .pyc file using uncompyle6, after validating it's a .pyc file.
-    Saves the decompiled content to a file and also returns the decompiled file path.
+    Saves the decompiled content to a file with `_source_code.py` or `_decompiled.py` suffix and returns the decompiled file path.
     
     :param file_path: Path to the Python compiled file (.pyc) to decompile.
     :param file_name: The name to use for saving the decompiled source file.
@@ -3238,13 +3238,23 @@ def show_code_with_uncompyle6(file_path, file_name):
             logging.error(f"Failed to decompile {file_path}.")
             return None
         
-        # Define the output directory where the decompiled file will be saved
-        output_dir = os.path.splitext(file_path)[0] + "_decompiled"
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-        
-        # Define the output file path
-        output_file_path = os.path.join(output_dir, f"{file_name}_decompiled.py")
+        # If python_source_code_dir is provided, save the decompiled file there
+        if python_source_code_dir:
+            output_dir = python_source_code_dir
+            output_file_path = os.path.join(output_dir, f"{file_name}_source_code.py")
+        else:
+            # Define the output directory where the decompiled file will be saved
+            output_dir = os.path.dirname(file_path)
+            output_file_path = os.path.join(output_dir, f"{file_name}_decompiled.py")
+
+        # Create versioned filenames if needed (_1, _2, etc.)
+        version = 1
+        while os.path.exists(output_file_path):
+            if python_source_code_dir:
+                output_file_path = os.path.join(output_dir, f"{file_name}_source_code_{version}.py")
+            else:
+                output_file_path = os.path.join(output_dir, f"{file_name}_decompiled_{version}.py")
+            version += 1
 
         # Save the decompiled code to the output file
         with open(output_file_path, "w") as output_file:
