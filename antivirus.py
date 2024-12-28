@@ -2426,7 +2426,6 @@ class PyInstArchive:
 
     def extractFiles(self):
         script_dir = os.getcwd()
-        python_source_code_dir = os.path.join(script_dir, "pythonsourcecode")
         
         # Create the directory for python source code if it doesn't exist
         if not os.path.exists(python_source_code_dir):
