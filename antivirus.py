@@ -2321,6 +2321,8 @@ class PyInstArchive:
 
     def __init__(self, path):
         self.filePath = path
+        self.pycMagic = b'\0' * 4
+        self.barePycList = []  # List of pyc files whose headers need to be fixed
 
     def open_file(self):
         try:
@@ -2446,9 +2448,18 @@ class PyInstArchive:
 
                 if entry.name.endswith('.pyz'):
                     self._extractPyz(entry.name)
+
+                # Check for entry points (python scripts or pyc files)
+                if entry.typeCmprsData == b's':
+                    print(f"[+] Possible entry point: {entry.name}")
+                    if self.pycMagic == b'\0' * 4:
+                        self.barePycList.append(entry.name + '.pyc')
         except Exception as e:
             logging.error(f"Error during file extraction: {e}")
             return False
+
+        # Fix bare pyc files if necessary
+        self._fixBarePycs()
 
         return True
 
@@ -2509,6 +2520,11 @@ class PyInstArchive:
             return False
 
         return True
+
+    def _fixBarePycs(self):
+        for pycFile in self.barePycList:
+            with open(pycFile, 'r+b') as pycFile:
+                pycFile.write(self.pycMagic)  # Overwrite the first four bytes with pyc magic
 
 def is_pyinstaller_archive(file_path):
     try:
