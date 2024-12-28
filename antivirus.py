@@ -2140,7 +2140,7 @@ existing_projects = []
 # List of already scanned files and their modification times
 scanned_files = []
 file_mod_times = {}
-directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, processed_dir]
+directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, processed_dir, python_source_code_dir]
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
@@ -2939,6 +2939,10 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: Processed - File is base64/base32, signature/magic bytes removed.")
         elif file_path == main_file_path:  # Check for main file path
             logging.info(f"{file_path}: This is the main file.")
+        elif file_path.startswith(memory_dir):
+            logging.info(f"{file_path}: It's a dynamic analysis memory dump file.")
+        elif file_path.startswith(pythonsourcecodedir):
+            logging.info(f"{file_path}: It's a PyInstaller reversed-engineered Python source code directory.")
         else:
             logging.warning(f"{file_path}: File does not match known directories.")
     except Exception as e:
