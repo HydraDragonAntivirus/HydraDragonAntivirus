@@ -217,6 +217,10 @@ start_time = time.time()
 import pymem
 print(f"pymem module loaded in {time.time() - start_time:.6f} seconds")
 
+start_time = time.time()
+import hashlib
+print(f"hashlib module loaded in {time.time() - start_time:.6f} seconds")
+
 # Calculate and print total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
@@ -3222,11 +3226,6 @@ def show_code_with_uncompyle6(file_path, file_name):
     :return: The path of the saved decompiled source file, or None if decompilation fails.
     """
     try:
-        # Check if the file is a valid .pyc file
-        if not is_pyc_file(file_path):
-            logging.warning(f"File {file_path} is not a valid .pyc file. Skipping decompilation.")
-            return None
-
         logging.info(f"Attempting to decompile .pyc file: {file_path}")
         
         # Decompile the .pyc file using uncompyle6
