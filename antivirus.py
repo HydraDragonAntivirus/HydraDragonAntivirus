@@ -3209,43 +3209,74 @@ def is_pyc_file(file_path):
 
 def show_code_with_uncompyle6(file_path):
     """
-    Attempts to decompile a .pyc file using uncompyle6, after validating it's a .pyc file.
-    Saves the decompiled content to a file and also returns the decompiled file path.
+    Decompiles a .pyc file and saves it with appropriate naming based on 
+    PyInstaller's entry point detection method.
     
-    :param file_path: Path to the Python compiled file (.pyc) to decompile.
-    :return: The path of the saved decompiled source file, or None if decompilation fails.
+    Args:
+        file_path: Path to the .pyc file to decompile
+    Returns:
+        Path to the decompiled source file, or None if decompilation fails
     """
     try:
-        logging.info(f"Attempting to decompile .pyc file: {file_path}")
+        logging.info(f"Processing python file: {file_path}")
         
-        # Decompile the .pyc file using uncompyle6
-        decompiled_code = None
+        # Create output directory if needed
+        if not os.path.exists('python_source_code_dir'):
+            os.makedirs('python_source_code_dir')
+        
+        # Get base name without .pyc extension
+        base_name = os.path.splitext(os.path.basename(file_path))[0]
+        
+        # Check if it's source code using PyInstaller's method
+        is_source = False
+        with open(file_path, "rb") as f:
+            # Skip pyc header
+            f.seek(16)
+            
+            # Try to read TOC entry structure
+            entry_data = f.read(struct.calcsize('!IIIBc'))
+            if len(entry_data) >= struct.calcsize('!IIIBc'):
+                try:
+                    # Unpack TOC entry to check typeCmprsData
+                    _, _, _, _, type_cmprs_data = struct.unpack('!IIIBc', entry_data)
+                    is_source = (type_cmprs_data == b's')
+                except struct.error:
+                    pass
+        
+        # Create versioned output name based on detection
+        version = 1
+        while True:
+            if is_source:
+                output_path = os.path.join(
+                    'python_source_code_dir',
+                    f"{base_name}_{version}_source_code.py"
+                )
+            else:
+                output_path = os.path.join(
+                    'python_source_code_dir',
+                    f"{base_name}_{version}_decompile.py"
+                )
+            if not os.path.exists(output_path):
+                break
+            version += 1
+        
+        # Decompile the file
         with open(file_path, "rb") as f:
             decompiled_code = uncompyle6.pyeval.evaluate(f)
         
         if decompiled_code is None:
-            logging.error(f"Failed to decompile {file_path}.")
+            logging.error(f"Failed to decompile {file_path}")
             return None
         
-        # Define the output directory where the decompiled file will be saved
-        output_dir = os.path.splitext(file_path)[0] + "_decompiled"
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-        
-        # Define the output file path (remove file name)
-        output_file_path = os.path.join(output_dir, "decompiled.py")
-
-        # Save the decompiled code to the output file
-        with open(output_file_path, "w") as output_file:
+        # Save the decompiled code
+        with open(output_path, "w") as output_file:
             output_file.write(decompiled_code)
-
-        logging.info(f"Successfully decompiled {file_path} and saved to {output_file_path}.")
         
-        # Return the path to the decompiled file
-        return output_file_path
+        logging.info(f"Successfully saved to {output_path}")
+        return output_path
 
     except Exception as e:
-        logging.error(f"Error during decompilation of {file_path} using uncompyle6: {e}")
+        logging.error(f"Error processing python file {file_path}: {e}")
         return None
 
 def scan_and_warn(file_path, flag=False):
