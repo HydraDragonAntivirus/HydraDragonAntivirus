@@ -217,10 +217,6 @@ start_time = time.time()
 import pymem
 print(f"pymem module loaded in {time.time() - start_time:.6f} seconds")
 
-start_time = time.time()
-import hashlib
-print(f"hashlib module loaded in {time.time() - start_time:.6f} seconds")
-
 # Calculate and print total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
@@ -2465,11 +2461,6 @@ class PyInstArchive:
                 if entry.typeCmprsData == b's':
                     print(f"[+] Possible entry point: {entry.name}")
 
-                    # Copy the entry point to the python source code directory
-                    entry_point_path = os.path.join(python_source_code_dir, entry.name)
-                    os.makedirs(os.path.dirname(entry_point_path), exist_ok=True)
-                    shutil.copy(entry.name, entry_point_path)
-
                 if self.pycMagic == b'\0' * 4:
                     self.barePycList.append(entry.name + '.pyc')
         except Exception as e:
@@ -3216,43 +3207,87 @@ def is_pyc_file(file_path):
         logging.error(f"Error running Detect It Easy for {file_path}: {e}")
         return False
 
-def show_code_with_uncompyle6(file_path, file_name):
+def detect_and_copy_entry_point(file_path):
     """
-    Attempts to decompile a .pyc file using uncompyle6, after validating it's a .pyc file.
+    Detects entry points in a file based on content (not extension) and copies them to the python_source_code_dir
+    if not already present.
+
+    :param file_path: The path to the file that needs to be checked for entry points.
+    :return: The path of the copied entry point file or None if no entry point is found.
+    """
+    try:
+        # Read the file content to check for possible entry point signature
+        with open(file_path, "rb") as f:
+            file_content = f.read()
+
+        # Check for entry point patterns, e.g., Python code, pyc magic, or specific signatures
+        if b'python' in file_content or file_content.startswith(b'\0\0\0\0'):  # Example of pyc file magic
+            file_name = os.path.basename(file_path)
+
+            # Generate a unique hash of the entry content to avoid duplication
+            file_content_hash = hashlib.md5(file_content).hexdigest()
+
+            # Define the potential entry point path in the source code directory
+            entry_point_path = os.path.join(python_source_code_dir, file_name)
+
+            # Check if a file with the same content already exists in the target directory
+            if os.path.exists(entry_point_path):
+                with open(entry_point_path, "rb") as existing_file:
+                    existing_file_content = existing_file.read()
+                    existing_file_hash = hashlib.md5(existing_file_content).hexdigest()
+                    # Compare hashes to avoid re-copying the same content
+                    if existing_file_hash == file_content_hash:
+                        logging.info(f"Entry point {file_name} already exists with the same content. Skipping extraction.")
+                        return entry_point_path  # Return the existing file path
+
+            # If the content is unique, copy the file to the source code directory
+            os.makedirs(os.path.dirname(entry_point_path), exist_ok=True)
+            shutil.copy(file_path, entry_point_path)
+            logging.info(f"[+] Copied possible entry point: {file_name} to {entry_point_path}")
+
+            # Return the file path after copying
+            return entry_point_path
+
+        else:
+            logging.info(f"No entry point detected in {file_path}.")
+            return None  # Return None if no entry point was detected
+
+    except Exception as e:
+        logging.error(f"Error during entry point detection and copying: {e}")
+        return None  # Return None if an error occurs
+
+def show_code_with_uncompyle6(file_path):
+    """
+    Attempts to decompile a .pyc file using uncompyle6.
     Saves the decompiled content to a file with `_source_code.py` or `_decompiled.py` suffix and returns the decompiled file path.
-    
+    Directly extracts the decompiled source code to the python_source_code_dir without checking for duplicates.
+
     :param file_path: Path to the Python compiled file (.pyc) to decompile.
-    :param file_name: The name to use for saving the decompiled source file.
     :return: The path of the saved decompiled source file, or None if decompilation fails.
     """
     try:
         logging.info(f"Attempting to decompile .pyc file: {file_path}")
-        
+
         # Decompile the .pyc file using uncompyle6
         decompiled_code = None
         with open(file_path, "rb") as f:
             decompiled_code = uncompyle6.pyeval.evaluate(f)
-        
+
         if decompiled_code is None:
             logging.error(f"Failed to decompile {file_path}.")
             return None
-        
-        # If python_source_code_dir is provided, save the decompiled file there
-        if python_source_code_dir:
-            output_dir = python_source_code_dir
-            output_file_path = os.path.join(output_dir, f"{file_name}_source_code.py")
-        else:
-            # Define the output directory where the decompiled file will be saved
-            output_dir = os.path.dirname(file_path)
-            output_file_path = os.path.join(output_dir, f"{file_name}_decompiled.py")
+
+        # Define the output directory where the decompiled file will be saved
+        output_dir = python_source_code_dir if python_source_code_dir else os.path.dirname(file_path)
+        output_file_suffix = "_source_code"
+
+        # Define the output file path
+        output_file_path = os.path.join(output_dir, f"{os.path.basename(file_path)}{output_file_suffix}.py")
 
         # Create versioned filenames if needed (_1, _2, etc.)
         version = 1
         while os.path.exists(output_file_path):
-            if python_source_code_dir:
-                output_file_path = os.path.join(output_dir, f"{file_name}_source_code_{version}.py")
-            else:
-                output_file_path = os.path.join(output_dir, f"{file_name}_decompiled_{version}.py")
+            output_file_path = os.path.join(output_dir, f"{os.path.basename(file_path)}{output_file_suffix}_{version}.py")
             version += 1
 
         # Save the decompiled code to the output file
@@ -3260,7 +3295,7 @@ def show_code_with_uncompyle6(file_path, file_name):
             output_file.write(decompiled_code)
 
         logging.info(f"Successfully decompiled {file_path} and saved to {output_file_path}.")
-        
+
         # Return the path to the decompiled file
         return output_file_path
 
