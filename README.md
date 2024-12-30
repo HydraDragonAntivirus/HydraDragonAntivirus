@@ -108,6 +108,10 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 
 - ALLOW_IPV4.txt = ip4whitelist.txt
 
+**Note 12:**
+
+- Your Windows folder must be in C:\ because some codes are hard coded.
+
 ## Internet Access In Sandboxie
 - HIPS detection shouldn't work if you don't open the Internet in Sandboxie. To enable it go to: Sandbox -> DefaultBox -> Sandbox Settings -> Restrictions -> Internet Access -> Click "BLock All Programs" then click "Allow All Programs" then save it and you're done!.  https://sandboxie-plus.com/sandboxie/restrictionssettings/
 
