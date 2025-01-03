@@ -2827,27 +2827,39 @@ def extract_numeric_worm_features(file_path):
     return res
 
 def check_worm_similarity(file_path, features_current):
-    """Check similarity with main file and collected files."""
+    """
+    Check similarity between the main file, collected files, and the current file for worm detection.
+    """
     worm_detected = False
 
     try:
+        # Compare with the main file if available and distinct from the current file
         if main_file_path and main_file_path != file_path:
             features_main = extract_numeric_worm_features(main_file_path)
             similarity_main = calculate_similarity_worm(features_current, features_main)
             if similarity_main > 0.86:
-                logging.warning(f"Main file '{main_file_path}' is spreading the worm to '{file_path}' with similarity score {similarity_main}")
+                logging.warning(
+                    f"Main file '{main_file_path}' is potentially spreading the worm to '{file_path}' "
+                    f"with similarity score: {similarity_main:.2f}"
+                )
                 worm_detected = True
 
+        # Compare with each collected file in the file paths
         for collected_file_path in file_paths:
             if collected_file_path != file_path:
                 features_collected = extract_numeric_worm_features(collected_file_path)
                 similarity_collected = calculate_similarity_worm(features_current, features_collected)
                 if similarity_collected > 0.86:
-                    logging.warning(f"Worm has spread to '{collected_file_path}' with similarity score {similarity_collected}")
+                    logging.warning(
+                        f"Worm has potentially spread to '{collected_file_path}' "
+                        f"from '{file_path}' with similarity score: {similarity_collected:.2f}"
+                    )
                     worm_detected = True
 
+    except FileNotFoundError as fnf_error:
+        logging.error(f"File not found: {fnf_error}")
     except Exception as e:
-        logging.error(f"Error checking worm similarity for '{file_path}': {e}")
+        logging.error(f"An unexpected error occurred while checking worm similarity for '{file_path}': {e}")
 
     return worm_detected
 
