@@ -1,222 +1,284 @@
 import hashlib
 import json
-import joblib
 import os
 import pefile
+import logging
+import joblib
 import shutil
-import sys
-import sklearn
-sys.modules['sklearn.externals.joblib'] = joblib
+from datetime import datetime
+from typing import Dict, List, Optional, Any, Tuple
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+import numpy as np
 
-def calculate_md5(file_path):
-    """Calculate the MD5 hash of a file."""
-    hasher = hashlib.md5()
-    with open(file_path, 'rb') as f:
-        buf = f.read()
-        hasher.update(buf)
-    return hasher.hexdigest()
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('pe_extraction.log'),
+        logging.StreamHandler()
+    ]
+)
 
-def extract_infos(file_path, rank=None):
-    """Extract information about file"""
-    file_name = os.path.basename(file_path)
-    file_md5 = calculate_md5(file_path)
-    if rank is not None:
-        return {'file_name': file_name, 'numeric_tag': rank, 'md5': file_md5}
-    else:
-        return {'file_name': file_name, 'md5': file_md5}
+class PEFeatureExtractor:
+    def __init__(self):
+        self.features_cache = {}
+        
+    def _calculate_entropy(self, data: bytes) -> float:
+        """Calculate Shannon entropy of binary data."""
+        if not data:
+            return 0.0
+        
+        entropy = 0
+        for x in range(256):
+            p_x = float(data.count(x))/len(data)
+            if p_x > 0:
+                entropy += - p_x * np.log2(p_x)
+        return entropy
 
-def extract_numeric_features(file_path, rank=None, is_malicious=False):
-    """Extract numeric features of a file using pefile with extended PE attributes"""
-    res = {}
-    try:
-        pe = pefile.PE(file_path)
+    def _calculate_md5(self, file_path: str) -> str:
+        """Calculate MD5 hash of file."""
+        hasher = hashlib.md5()
+        with open(file_path, 'rb') as f:
+            hasher.update(f.read())
+        return hasher.hexdigest()
 
-        # Extract Optional Header features
-        res['SizeOfOptionalHeader'] = pe.FILE_HEADER.SizeOfOptionalHeader
-        res['MajorLinkerVersion'] = pe.OPTIONAL_HEADER.MajorLinkerVersion
-        res['MinorLinkerVersion'] = pe.OPTIONAL_HEADER.MinorLinkerVersion
-        res['SizeOfCode'] = pe.OPTIONAL_HEADER.SizeOfCode
-        res['SizeOfInitializedData'] = pe.OPTIONAL_HEADER.SizeOfInitializedData
-        res['SizeOfUninitializedData'] = pe.OPTIONAL_HEADER.SizeOfUninitializedData
-        res['AddressOfEntryPoint'] = pe.OPTIONAL_HEADER.AddressOfEntryPoint
-        res['BaseOfCode'] = pe.OPTIONAL_HEADER.BaseOfCode
-        res['BaseOfData'] = pe.OPTIONAL_HEADER.BaseOfData if hasattr(pe.OPTIONAL_HEADER, 'BaseOfData') else 0
-        res['ImageBase'] = pe.OPTIONAL_HEADER.ImageBase
-        res['SectionAlignment'] = pe.OPTIONAL_HEADER.SectionAlignment
-        res['FileAlignment'] = pe.OPTIONAL_HEADER.FileAlignment
-        res['MajorOperatingSystemVersion'] = pe.OPTIONAL_HEADER.MajorOperatingSystemVersion
-        res['MinorOperatingSystemVersion'] = pe.OPTIONAL_HEADER.MinorOperatingSystemVersion
-        res['MajorImageVersion'] = pe.OPTIONAL_HEADER.MajorImageVersion
-        res['MinorImageVersion'] = pe.OPTIONAL_HEADER.MinorImageVersion
-        res['MajorSubsystemVersion'] = pe.OPTIONAL_HEADER.MajorSubsystemVersion
-        res['MinorSubsystemVersion'] = pe.OPTIONAL_HEADER.MinorSubsystemVersion
-        res['SizeOfImage'] = pe.OPTIONAL_HEADER.SizeOfImage
-        res['SizeOfHeaders'] = pe.OPTIONAL_HEADER.SizeOfHeaders
-        res['CheckSum'] = pe.OPTIONAL_HEADER.CheckSum
-        res['Subsystem'] = pe.OPTIONAL_HEADER.Subsystem
-        res['DllCharacteristics'] = pe.OPTIONAL_HEADER.DllCharacteristics
-        res['SizeOfStackReserve'] = pe.OPTIONAL_HEADER.SizeOfStackReserve
-        res['SizeOfStackCommit'] = pe.OPTIONAL_HEADER.SizeOfStackCommit
-        res['SizeOfHeapReserve'] = pe.OPTIONAL_HEADER.SizeOfHeapReserve
-        res['SizeOfHeapCommit'] = pe.OPTIONAL_HEADER.SizeOfHeapCommit
-        res['LoaderFlags'] = pe.OPTIONAL_HEADER.LoaderFlags
-        res['NumberOfRvaAndSizes'] = pe.OPTIONAL_HEADER.NumberOfRvaAndSizes
+    def extract_section_data(self, section) -> Dict[str, Any]:
+        """Extract comprehensive section data including entropy."""
+        raw_data = section.get_data()
+        return {
+            'name': section.Name.decode(errors='ignore').strip('\x00'),
+            'virtual_size': section.Misc_VirtualSize,
+            'virtual_address': section.VirtualAddress,
+            'raw_size': section.SizeOfRawData,
+            'pointer_to_raw_data': section.PointerToRawData,
+            'characteristics': section.Characteristics,
+            'entropy': self._calculate_entropy(raw_data),
+            'raw_data_size': len(raw_data) if raw_data else 0
+        }
 
-        # Extract Section Headers
-        res['sections'] = []
-        for section in pe.sections:
-            section_info = {
-                'name': section.Name.decode(errors='ignore').strip('\x00'),
-                'virtual_size': section.Misc_VirtualSize,
-                'virtual_address': section.VirtualAddress,
-                'size_of_raw_data': section.SizeOfRawData,
-                'pointer_to_raw_data': section.PointerToRawData,
-                'characteristics': section.Characteristics
-            }
-            res['sections'].append(section_info)
-
-        # Extract Imported Functions
-        res['imports'] = []
+    def extract_imports(self, pe) -> List[Dict[str, Any]]:
+        """Extract detailed import information."""
+        imports = []
         if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT'):
             for entry in pe.DIRECTORY_ENTRY_IMPORT:
-                for imp in entry.imports:
-                    res['imports'].append(imp.name.decode() if imp.name else "Unknown")
+                dll_imports = {
+                    'dll_name': entry.dll.decode() if entry.dll else None,
+                    'imports': [{
+                        'name': imp.name.decode() if imp.name else None,
+                        'address': imp.address,
+                        'ordinal': imp.ordinal
+                    } for imp in entry.imports]
+                }
+                imports.append(dll_imports)
+        return imports
 
-        # Extract Exported Functions
-        res['exports'] = []
+    def extract_exports(self, pe) -> List[Dict[str, Any]]:
+        """Extract detailed export information."""
+        exports = []
         if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT'):
             for exp in pe.DIRECTORY_ENTRY_EXPORT.symbols:
-                res['exports'].append(exp.name.decode() if exp.name else "Unknown")
+                export_info = {
+                    'name': exp.name.decode() if exp.name else None,
+                    'address': exp.address,
+                    'ordinal': exp.ordinal,
+                    'forwarder': exp.forwarder.decode() if exp.forwarder else None
+                }
+                exports.append(export_info)
+        return exports
 
-        # Extract Resources (Strings, Icons, etc.)
-        res['resources'] = []
-        if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-            for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
-                # Ensure 'directory' exists before accessing its 'entries'
-                if hasattr(resource_type, 'directory'):
-                    for resource_id in resource_type.directory.entries:
-                        if hasattr(resource_id, 'data'):
-                            resource_data = resource_id.data.struct
-                            res['resources'].append(resource_data)
+    def extract_features(self, file_path: str, rank: Optional[int] = None, 
+                        is_malicious: bool = False) -> Optional[Dict[str, Any]]:
+        """Extract comprehensive PE file features."""
+        if file_path in self.features_cache:
+            return self.features_cache[file_path]
 
-        # Extract Relocations (Handle the 'list' case for DIRECTORY_ENTRY_BASERELOC)
-        res['relocations'] = []
-        if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC') and isinstance(pe.DIRECTORY_ENTRY_BASERELOC, list):
-            for relocation in pe.DIRECTORY_ENTRY_BASERELOC:
-                # Check if 'entries' exists and is iterable
-                if hasattr(relocation, 'entries'):
-                    for entry in relocation.entries:
-                        res['relocations'].append(entry)
-
-        # Extract Debug Information
-        res['debug'] = []
-        if hasattr(pe, 'DIRECTORY_ENTRY_DEBUG'):
-            if isinstance(pe.DIRECTORY_ENTRY_DEBUG, list):
-                for debug_entry in pe.DIRECTORY_ENTRY_DEBUG:
-                    res['debug'].append(debug_entry.struct if hasattr(debug_entry, 'struct') else "No Debug Struct")
-
-        if rank is not None:
-            res['numeric_tag'] = rank
-
-    except Exception as e:
-        print(f"An error occurred while processing {file_path}: {e}")
-        move_to_problematic(file_path, is_malicious)
-    
-    return res
-
-def move_to_problematic(file_path, is_malicious):
-    if is_malicious:
-        problematic_folder = "problematicfilemalicious"
-    else:
-        problematic_folder = "problematicfile"
-    
-    os.makedirs(problematic_folder, exist_ok=True)
-    shutil.move(file_path, os.path.join(problematic_folder, os.path.basename(file_path)))
-
-def move_to_duplicated(file_path, is_malicious):
-    if is_malicious:
-        duplicated_folder = "duplicatedmaliciousorder"
-    else:
-        duplicated_folder = "duplicated"
-    
-    os.makedirs(duplicated_folder, exist_ok=True)
-    shutil.move(file_path, os.path.join(duplicated_folder, os.path.basename(file_path)))
-
-def load_malicious_files(folder):
-    """Load malicious files and extract their information"""
-    files_info = []
-    numeric_features = []
-    md5_hashes = set()
-    md5_list = []
-    rank = 1  # Initialize rank
-    
-    for root, _, files in os.walk(folder, topdown=True):
-        for file in files:
-            if file.endswith('.vir'):
-                file_path = os.path.join(root, file)
-                file_md5 = calculate_md5(file_path)
-                if file_md5 in md5_hashes:
-                    print(f"Duplicate file detected: {file_path}")
-                    move_to_duplicated(file_path, True)
-                    continue
-                md5_hashes.add(file_md5)
-                md5_list.append(file_md5)
+        try:
+            pe = pefile.PE(file_path)
+            features = {
+                'file_info': {
+                    'path': file_path,
+                    'name': os.path.basename(file_path),
+                    'size': os.path.getsize(file_path),
+                    'md5': self._calculate_md5(file_path),
+                    'rank': rank,
+                    'is_malicious': is_malicious
+                },
                 
-                file_info = extract_infos(file_path, rank=rank)
-                numeric_info = extract_numeric_features(file_path, rank=rank, is_malicious=True)
-                if file_info:
-                    files_info.append(file_info)
-                if numeric_info:
-                    numeric_features.append(numeric_info)
-                rank += 1  # Increment rank for next file
+                'headers': {
+                    'optional_header': {
+                        'major_linker_version': pe.OPTIONAL_HEADER.MajorLinkerVersion,
+                        'minor_linker_version': pe.OPTIONAL_HEADER.MinorLinkerVersion,
+                        'size_of_code': pe.OPTIONAL_HEADER.SizeOfCode,
+                        'size_of_initialized_data': pe.OPTIONAL_HEADER.SizeOfInitializedData,
+                        'size_of_uninitialized_data': pe.OPTIONAL_HEADER.SizeOfUninitializedData,
+                        'address_of_entry_point': pe.OPTIONAL_HEADER.AddressOfEntryPoint,
+                        'base_of_code': pe.OPTIONAL_HEADER.BaseOfCode,
+                        'image_base': pe.OPTIONAL_HEADER.ImageBase,
+                        'section_alignment': pe.OPTIONAL_HEADER.SectionAlignment,
+                        'file_alignment': pe.OPTIONAL_HEADER.FileAlignment,
+                        'major_os_version': pe.OPTIONAL_HEADER.MajorOperatingSystemVersion,
+                        'minor_os_version': pe.OPTIONAL_HEADER.MinorOperatingSystemVersion,
+                        'subsystem': pe.OPTIONAL_HEADER.Subsystem,
+                        'dll_characteristics': pe.OPTIONAL_HEADER.DllCharacteristics,
+                    },
+                    'file_header': {
+                        'machine': pe.FILE_HEADER.Machine,
+                        'number_of_sections': pe.FILE_HEADER.NumberOfSections,
+                        'time_date_stamp': pe.FILE_HEADER.TimeDateStamp,
+                        'characteristics': pe.FILE_HEADER.Characteristics,
+                    }
+                },
                 
-    return files_info, numeric_features, md5_list
+                'sections': [self.extract_section_data(section) for section in pe.sections],
+                'imports': self.extract_imports(pe),
+                'exports': self.extract_exports(pe),
+                
+                'resources': [],
+                'debug_info': []
+            }
 
-def load_benign_files(folder):
-    """Load benign files and extract their information"""
-    files_info = []
-    numeric_features = []
-    md5_hashes = set()
-    md5_list = []
-    
-    for root, _, files in os.walk(folder, topdown=True):
-        for index, file in enumerate(files, start=1):
-            file_path = os.path.join(root, file)
-            if os.path.isfile(file_path):
-                file_md5 = calculate_md5(file_path)
-                if file_md5 in md5_hashes:
-                    print(f"Duplicate file detected: {file_path}")
-                    move_to_duplicated(file_path, False)
-                    continue
-                md5_hashes.add(file_md5)
-                md5_list.append(file_md5)
-                
-                file_info = extract_infos(file_path, rank=index)
-                numeric_info = extract_numeric_features(file_path, rank=index, is_malicious=False)
-                if file_info:
-                    files_info.append(file_info)
-                if numeric_info:
-                    numeric_features.append(numeric_info)
-    return files_info, numeric_features, md5_list
+            # Extract resources
+            if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
+                for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+                    if hasattr(resource_type, 'directory'):
+                        for resource_id in resource_type.directory.entries:
+                            if hasattr(resource_id, 'directory'):
+                                for resource_lang in resource_id.directory.entries:
+                                    if hasattr(resource_lang, 'data'):
+                                        res_data = {
+                                            'type_id': resource_type.id,
+                                            'resource_id': resource_id.id,
+                                            'lang_id': resource_lang.id,
+                                            'size': resource_lang.data.struct.Size,
+                                            'codepage': resource_lang.data.struct.CodePage,
+                                        }
+                                        features['resources'].append(res_data)
+
+            # Extract debug information
+            if hasattr(pe, 'DIRECTORY_ENTRY_DEBUG'):
+                for debug in pe.DIRECTORY_ENTRY_DEBUG:
+                    debug_info = {
+                        'type': debug.struct.Type,
+                        'timestamp': debug.struct.TimeDateStamp,
+                        'version': f"{debug.struct.MajorVersion}.{debug.struct.MinorVersion}",
+                        'size': debug.struct.SizeOfData,
+                    }
+                    features['debug_info'].append(debug_info)
+
+            self.features_cache[file_path] = features
+            return features
+
+        except Exception as e:
+            logging.error(f"Error extracting features from {file_path}: {str(e)}")
+            return None
+
+class DataProcessor:
+    def __init__(self, malicious_dir: str = 'datamaliciousorder', benign_dir: str = 'data2'):
+        self.malicious_dir = malicious_dir
+        self.benign_dir = benign_dir
+        self.pe_extractor = PEFeatureExtractor()
+        self.problematic_dir = Path('problematic_files')
+        self.duplicates_dir = Path('duplicate_files')
+        self.output_dir = Path(f"pe_features_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        
+        # Create necessary directories
+        for directory in [self.problematic_dir, self.duplicates_dir, self.output_dir]:
+            directory.mkdir(exist_ok=True, parents=True)
+
+    def _process_file(self, file_path: Path, rank: int, is_malicious: bool) -> Optional[Dict[str, Any]]:
+        """Process a single PE file."""
+        try:
+            return self.pe_extractor.extract_features(str(file_path), rank, is_malicious)
+        except Exception as e:
+            logging.error(f"Error processing {file_path}: {str(e)}")
+            self._move_problematic_file(file_path, is_malicious)
+            return None
+
+    def _move_problematic_file(self, file_path: Path, is_malicious: bool):
+        """Move problematic files to separate directory."""
+        dest_dir = self.problematic_dir / ('malicious' if is_malicious else 'benign')
+        dest_dir.mkdir(exist_ok=True)
+        shutil.move(str(file_path), str(dest_dir / file_path.name))
+
+    def _move_duplicate_file(self, file_path: Path, is_malicious: bool):
+        """Move duplicate files to separate directory."""
+        dest_dir = self.duplicates_dir / ('malicious' if is_malicious else 'benign')
+        dest_dir.mkdir(exist_ok=True)
+        shutil.move(str(file_path), str(dest_dir / file_path.name))
+
+    def process_files(self, directory: str, is_malicious: bool = False) -> Tuple[List[Dict[str, Any]], List[str]]:
+        """Process all files in directory with duplicate detection."""
+        features_list = []
+        md5_hashes = set()
+        md5_list = []
+        
+        files = list(Path(directory).rglob('*.vir' if is_malicious else '*'))
+        with ThreadPoolExecutor() as executor:
+            futures = []
+            for rank, file_path in enumerate(files, 1):
+                if file_path.is_file():
+                    file_md5 = self.pe_extractor._calculate_md5(str(file_path))
+                    if file_md5 in md5_hashes:
+                        logging.info(f"Duplicate file detected: {file_path}")
+                        self._move_duplicate_file(file_path, is_malicious)
+                        continue
+                    
+                    md5_hashes.add(file_md5)
+                    md5_list.append(file_md5)
+                    futures.append(executor.submit(self._process_file, file_path, rank, is_malicious))
+            
+            for future in futures:
+                features = future.result()
+                if features:
+                    features_list.append(features)
+        
+        return features_list, md5_list
+
+    def process_dataset(self):
+        """Process entire dataset and save results."""
+        logging.info("Processing malicious files...")
+        malicious_features, malicious_md5s = self.process_files(self.malicious_dir, is_malicious=True)
+        
+        logging.info("Processing benign files...")
+        benign_features, benign_md5s = self.process_files(self.benign_dir, is_malicious=False)
+
+        # Save results
+        results = {
+            'metadata': {
+                'timestamp': datetime.now().isoformat(),
+                'malicious_count': len(malicious_features),
+                'benign_count': len(benign_features),
+                'total_files': len(malicious_features) + len(benign_features)
+            },
+            'malicious_features': malicious_features,
+            'benign_features': benign_features,
+            'malicious_md5s': malicious_md5s,
+            'benign_md5s': benign_md5s
+        }
+
+        # Save complete results
+        with open(self.output_dir / 'complete_results.json', 'w') as f:
+            json.dump(results, f, indent=2)
+
+        # Save separate files for compatibility
+        joblib.dump(malicious_features, self.output_dir / 'malicious_numeric.pkl')
+        joblib.dump(benign_features, self.output_dir / 'benign_numeric.pkl')
+        
+        with open(self.output_dir / 'malicious_file_names.json', 'w') as f:
+            json.dump([feat['file_info'] for feat in malicious_features], f, indent=2)
+
+        logging.info(f"Processing complete. Results saved in {self.output_dir}")
 
 def main():
-    # Load data
-    malicious_files_info, malicious_numeric_features, malicious_md5_list = load_malicious_files('datamaliciousorder')
-    benign_files_info, benign_numeric_features, benign_md5_list = load_benign_files('data2')
+    import argparse
+    parser = argparse.ArgumentParser(description='PE File Feature Extractor')
+    parser.add_argument('--malicious-dir', default='datamaliciousorder', help='Directory containing malicious PE files')
+    parser.add_argument('--benign-dir', default='data2', help='Directory containing benign PE files')
+    args = parser.parse_args()
 
-    # Save malicious file names in JSON
-    with open('malicious_file_names.json', 'w') as f:
-        json.dump(malicious_files_info, f)
-
-    # Save numeric features for malicious files as pickle file
-    with open('malicious_numeric.pkl', 'wb') as f:
-        joblib.dump(malicious_numeric_features, f)
-
-    # Save numeric features for benign files as pickle file
-    with open('benign_numeric.pkl', 'wb') as f:
-        joblib.dump(benign_numeric_features, f)
-
-    print("Files information saved in JSON. Numeric features and MD5 hashes saved separately for malicious and benign files.")
+    processor = DataProcessor(args.malicious_dir, args.benign_dir)
+    processor.process_dataset()
 
 if __name__ == "__main__":
     main()
