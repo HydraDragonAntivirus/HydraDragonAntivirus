@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
+import argparse
 
 logging.basicConfig(
     level=logging.INFO,
@@ -271,7 +272,6 @@ class DataProcessor:
         logging.info(f"Processing complete. Results saved in {self.output_dir}")
 
 def main():
-    import argparse
     parser = argparse.ArgumentParser(description='PE File Feature Extractor')
     parser.add_argument('--malicious-dir', default='datamaliciousorder', help='Directory containing malicious PE files')
     parser.add_argument('--benign-dir', default='data2', help='Directory containing benign PE files')
