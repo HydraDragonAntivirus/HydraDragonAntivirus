@@ -1,5 +1,8 @@
 import "pe"
 import "hash"
+import "console"
+import "macho"
+import "math"
 
 private rule file_pe_header {
     meta:
@@ -2471,7 +2474,6 @@ rule MAL_FIN13_MAILSLOT {
         file_pe_header and
         all of them
 }
-import "pe"
 
 rule leaked_anydesk_leaked_certificate {
    meta:
@@ -2489,7 +2491,6 @@ rule leaked_anydesk_leaked_certificate {
          pe.signatures[i].serial == "0d:bf:15:2d:ea:f0:b9:81:a8:a9:38:d5:3f:76:9d:b8"
       )
 }
-import "pe"
 
 rule malicious_hacking_team_malicious_certificate {
    meta:
@@ -2506,7 +2507,7 @@ rule malicious_hacking_team_malicious_certificate {
          pe.signatures[i].issuer contains "VeriSign Class 3 Code Signing 2010 CA" and
          pe.signatures[i].serial == "0f:1b:43:48:4a:13:69:c8:30:38:dc:24:e7:77:8b:7d"
       )
-}import "pe"
+}
 
 rule leaked_hangil_it_leaked_certificate {
    meta:
@@ -2523,7 +2524,7 @@ rule leaked_hangil_it_leaked_certificate {
          pe.signatures[i].issuer contains "Sectigo Public Code Signing CA R36" and
          pe.signatures[i].serial == "01:39:dd:e1:19:bb:32:0d:fb:9f:5d:ef:e3:f7:12:45"
       )
-}import "pe"
+}
 
 rule malicious_lamera_dprk_certificate {
    meta:
@@ -2540,7 +2541,7 @@ rule malicious_lamera_dprk_certificate {
          pe.signatures[i].issuer contains "LAMERA CORPORATION LIMITED" and
          pe.signatures[i].serial == "87:9f:a9:42:f9:f0:97:b7:4f:d6:f7:da:bc:f1:74:5a"
       )
-}import "pe"
+}
 
 rule leaked_lapsus_nvidia_leaked_certificate {
    meta:
@@ -2557,7 +2558,7 @@ rule leaked_lapsus_nvidia_leaked_certificate {
          pe.signatures[i].issuer contains "VeriSign Class 3 Code Signing 2010 CA" and
          pe.signatures[i].serial == "43:bb:43:7d:60:98:66:28:6d:d8:39:e1:d0:03:09:f5" or "14:78:1b:c8:62:e8:dc:50:3a:55:93:46:f5:dc:c5:18"
       )
-}import "console"
+}
 
 rule Logger_Macho_EntryPoint_LCMain
 {
@@ -2604,9 +2605,6 @@ rule Logger_Macho_EntryPoint_UnixThread_64Bit
 			and console.hex("unix_Thread_entry_point_64: ", (uint32(unix_Thread+0x90)) + 0x100000000)
                 )
 }
-import "math"
-import "console"
-import "macho"
 
 rule macho_cstring_entrophy
 {
@@ -2670,7 +2668,6 @@ rule macho_ustring_entrophy
 			)
 		)
 }
-import "macho"
 
 rule macho_libframework_suspicious {
   meta:
@@ -2680,7 +2677,7 @@ rule macho_libframework_suspicious {
 
   condition:
     macho.has_dylib("/usr/lib/libsqlite3.dylib") and macho.has_dylib("/usr/local/lib/libframework.dylib")
-}import "macho"
+}
 
 rule macho_no_section_text
 {
@@ -2711,7 +2708,6 @@ rule macho_no_section_text
 			)
 		)
 }
-import "macho"
 
 
 /*
@@ -2740,7 +2736,6 @@ rule macho_no_pagezero
 			seg.segname == "__PAGEZERO"
 		)
 }
-import "macho"
 
 rule macho_has_restrict
 {
@@ -2771,7 +2766,6 @@ rule macho_has_restrict
 			)
 		)
 }
-import "macho"
 
 rule macho_text_protected
 {
@@ -2799,8 +2793,6 @@ rule macho_text_protected
 			seg.flags & macho.SG_PROTECTED_VERSION_1
 		)
 }
-import "macho"
-
 rule macos_bundle_qlgenerator
 {
 	meta:
@@ -2949,8 +2941,6 @@ rule MAL_Lckmac_strings {
         uint32(0) == 0xbebafeca) and    //FAT_CIGAM
         all of them
 }
-import "pe"
-
 rule leaked_msi_leaked_certificate {
    meta:
       status = "revoked"
@@ -2966,7 +2956,7 @@ rule leaked_msi_leaked_certificate {
          pe.signatures[i].issuer contains "DigiCert SHA2 Assured ID Code Signing CA" and
          pe.signatures[i].serial == "0b:88:60:32:86:1d:95:53:c6:8f:80:33:13:a9:89:75"
       )
-}import "pe"
+}
 
 rule SI_APT_Kimsuky_Certificate_D2Innovation_bc3a_Jan24 {
     meta:
@@ -3092,7 +3082,7 @@ rule SI_APT_Kimsuky_Certificate_D2Innovation_bc3a_Jan24 {
         and $binSignature in (200000..filesize)
         and for all of ($s_*): (# >= 0) //these strings are optional
         and 3 of ($aa_*)
-}import "math"
+}
 
 rule SI_CRYPT_ScrubCrypt_BAT_Jan24 : Crypter {
 
