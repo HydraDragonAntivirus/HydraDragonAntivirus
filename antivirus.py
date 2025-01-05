@@ -2251,9 +2251,12 @@ def is_nuitka_file(file_path):
             return True
         
     except subprocess.SubprocessError as e:
-        logging.error(f"Error running Detect It Easy for {file_path}: {e}")
+        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {e}")
         return False
-    
+    except Exception as e:
+        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {e}")
+        return False
+
     return False
 
 def extract_nuitka_file(file_path):
@@ -2307,9 +2310,12 @@ def is_dotnet_file(file_path):
             return True
         
     except subprocess.SubprocessError as e:
-        logging.error(f"Error running Detect It Easy for {file_path}: {e}")
+        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {e}")
         return False
-    
+    except Exception as e:
+        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {e}")
+        return False
+
     return False
 
 class CTOCEntry:
@@ -3232,7 +3238,10 @@ def is_pyc_file(file_path):
             return True
 
     except subprocess.SubprocessError as e:
-        logging.error(f"Error running Detect It Easy for {file_path}: {e}")
+        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {e}")
+        return False
+    except Exception as e:
+        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {e}")
         return False
 
 def show_code_with_uncompyle6(file_path):
