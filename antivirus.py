@@ -217,6 +217,10 @@ start_time = time.time()
 import pymem
 print(f"pymem module loaded in {time.time() - start_time:.6f} seconds")
 
+start_time = time.time()
+import inspect
+print(f"pymem module loaded in {time.time() - start_time:.6f} seconds")
+
 # Calculate and print total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
