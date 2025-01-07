@@ -1635,8 +1635,8 @@ def clean_directories():
         else:
             logging.info(f"Ghidra logs folder exists at: {ghidra_logs_dir}")
 
-    except Exception as e:
-        logging.error(f"An error occurred while cleaning the directories: {e}")
+    except Exception as ex:
+        logging.error(f"An error occurred while cleaning the directories: {ex}")
 
 
 def is_pe_file(file_path):
@@ -1650,8 +1650,8 @@ def is_pe_file(file_path):
             return True
     except pefile.PEFormatError:
         return False
-    except Exception as e:
-        print(f"Error occurred while checking if file is PE: {e}")
+    except Exception as ex:
+        print(f"Error occurred while checking if file is PE: {ex}")
         return False
 
 def is_encrypted(zip_info):
