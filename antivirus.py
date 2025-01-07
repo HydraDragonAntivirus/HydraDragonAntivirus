@@ -3388,13 +3388,14 @@ def is_pyc_file(file_path):
         logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {e}")
         return False
 
-def show_code_with_uncompyle6(file_path):
+def show_code_with_uncompyle6(file_path, file_name):
     """
     Decompiles a .pyc file and saves it with appropriate naming based on
     PyInstaller's entry point detection method.
 
     Args:
         file_path: Path to the .pyc file to decompile
+        file_name: The name of the .pyc file to be decompiled
     Returns:
         Path to the decompiled source file, or None if decompilation fails
     """
@@ -3405,8 +3406,8 @@ def show_code_with_uncompyle6(file_path):
         if not os.path.exists('python_source_code_dir'):
             os.makedirs('python_source_code_dir')
 
-        # Get base name without .pyc extension
-        base_name = os.path.splitext(os.path.basename(file_path))[0]
+        # Use base_name derived from file_name (without extension)
+        base_name = os.path.splitext(file_name)[0]
 
         # Check if it's source code using PyInstaller's method
         is_source = False
