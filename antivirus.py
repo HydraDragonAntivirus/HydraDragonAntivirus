@@ -1118,9 +1118,9 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     except pefile.PEFormatError:
         logging.error(f"Error: {file_path} does not have a valid PE format.")
         return False, malware_definition, 0  # Default return value if the PE format is invalid
-    except Exception as e:
-        print(f"An error occurred while scanning file {file_path}: {e}")
-        logging.error(f"An error occurred while scanning file {file_path}: {e}")
+    except Exception as ex:
+        print(f"An error occurred while scanning file {file_path}: {ex}")
+        logging.error(f"An error occurred while scanning file {file_path}: {ex}")
         return False, malware_definition, 0  # Default return value in case of general exception
 
 def restart_clamd_thread():
