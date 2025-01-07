@@ -3893,54 +3893,6 @@ def find_windows_with_text():
     ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
     return window_handles
 
-# Helper function to check if a string contains a known IP address
-def contains_ip_address(text):
-    for ip in ip_addresses_signatures_data:
-        if ip in text:
-            if ip_regex.search(text):
-                return True
-    return False
-
-# Helper function to check if a string contains a known IPv6 address
-def contains_ipv6_address(text):
-    for ipv6 in ipv6_addresses_signatures_data:
-        if ipv6 in text:
-            if ipv6_regex.search(text):
-                return True
-    return False
-
-# Helper function to check if a string contains a known domain
-def contains_domain(text):
-    for domain in domains_signatures_data:
-        if domain in text:
-            if domain_regex.search(text):
-                return True
-    return False
-
-# Helper function to check if a string contains a known URL from urlhaus_data
-def contains_url(text):
-    # Extract all URLs from the text using the URL regex
-    extracted_urls = url_regex.findall(text)
-    
-    for url in extracted_urls:
-        for entry in urlhaus_data:
-            if entry['url'] in url:
-                message = (
-                    f"URL {url} matches the URLhaus signatures.\n"
-                    f"ID: {entry['id']}\n"
-                    f"Date Added: {entry['dateadded']}\n"
-                    f"URL Status: {entry['url_status']}\n"
-                    f"Last Online: {entry['last_online']}\n"
-                    f"Threat: {entry['threat']}\n"
-                    f"Tags: {entry['tags']}\n"
-                    f"URLhaus Link: {entry['urlhaus_link']}\n"
-                    f"Reporter: {entry['reporter']}"
-                )
-                logging.warning(message)
-                print(message)
-                return True
-    return False
-
 class Monitor_Message_CommandLine:
     def __init__(self):
         self.known_malware_messages = {
