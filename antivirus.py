@@ -1031,7 +1031,7 @@ def analyze_process_memory(file_path):
                 except pymem.exception.AccessDenied:
                     extracted_strings.append(f"Access denied: {hex(base_addr)}")
                 except Exception as ex:
-                    extracted_strings.append(f"Error reading {hex(base_addr)}: {e}")
+                    extracted_strings.append(f"Error reading {hex(base_addr)}: {ex}")
         finally:
             pm.close_process()  # Explicitly release the process handle
             logging.info(f"Released process handle for: {file_path}")
