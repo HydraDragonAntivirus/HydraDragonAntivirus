@@ -847,7 +847,7 @@ def load_antivirus_list():
         return []
 
 def load_domains_data():
-    global ip_addresses_signatures_data, ipv6_addresses_signatures_data, domains_signatures_data, ipv4_whitelist_data, urlhaus_data, malware_domains_data, phishing_domains_data, abuse_domains_data, mining_domains_data, spam_domains_data, whitelist_domains_data
+    global ip_addresses_signatures_data, ipv6_addresses_signatures_data, ipv4_whitelist_data, urlhaus_data, malware_domains_data, phishing_domains_data, abuse_domains_data, mining_domains_data, spam_domains_data, whitelist_domains_data
 
     try:
         # Load IPv4 addresses
