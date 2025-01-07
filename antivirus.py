@@ -1070,13 +1070,16 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
             return False, malware_definition, 0  # If it's not a PE file, return the default value
 
         logging.info(f"File {file_path} is a valid PE file, proceeding with feature extraction.")
-        file_info = extract_infos(file_path)
+        file_info = extract_infos(file_path)  # Extract detailed file info
         file_numeric_features = extract_numeric_features(file_path)
 
         is_malicious = False
         malware_rank = None
         nearest_malicious_similarity = 0
         nearest_benign_similarity = 0
+
+        # Logging the file info for detailed output
+        logging.info(f"File information: {file_info}")
 
         # Checking against malicious features
         for malicious_features, info in zip(malicious_numeric_features, malicious_file_names):
@@ -1089,7 +1092,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
                 malware_rank = rank
                 malware_definition = info['file_name']  # Set malware definition if malicious match is found
                 logging.warning(
-                    f"Malicious activity detected in {file_path}. Malware definition: {malware_definition}, similarity: {similarity}")
+                    f"Malicious activity detected in {file_path}. Malware definition: {malware_definition}, similarity: {similarity}, rank: {malware_rank}")
                 break
 
         # If malicious not detected, check for benign features
@@ -1109,7 +1112,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
 
         # Return True for malicious or False for benign/unknown
         if is_malicious:
-            logging.info(f"File {file_path} is flagged as malicious. Returning: False, {malware_definition}.")
+            logging.info(f"File {file_path} is flagged as malicious. Returning: False, {malware_definition}, rank: {malware_rank}.")
             return False, malware_definition, nearest_benign_similarity  # Malicious detected, return False
         else:
             logging.info(f"File {file_path} is not malicious. Returning: False, {malware_definition}.")
