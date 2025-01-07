@@ -1128,9 +1128,9 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
 def restart_clamd_thread():
     try:
         threading.Thread(target=restart_clamd).start()
-    except Exception as e:
-        logging.error(f"Error starting clamd restart thread: {e}")
-        print(f"Error starting clamd restart thread: {e}")
+    except Exception as ex:
+        logging.error(f"Error starting clamd restart thread: {ex}")
+        print(f"Error starting clamd restart thread: {ex}")
 
 def restart_clamd():
     try:
@@ -1150,9 +1150,9 @@ def restart_clamd():
             logging.error("Failed to start ClamAV.")
             print("Failed to start ClamAV.")
             return False
-    except Exception as e:
-        logging.error(f"An error occurred while restarting ClamAV: {e}")
-        print(f"An error occurred while restarting ClamAV: {e}")
+    except Exception as ex:
+        logging.error(f"An error occurred while restarting ClamAV: {ex}")
+        print(f"An error occurred while restarting ClamAV: {ex}")
         return False
 
 def scan_file_with_clamd(file_path):
@@ -1176,9 +1176,9 @@ def scan_file_with_clamd(file_path):
         else:
             print(f"Unexpected clamdscan output: {clamd_output}")
             return "Clean"
-    except Exception as e:
-        logging.error(f"Error scanning file {file_path}: {e}")
-        print(f"Error scanning file {file_path}: {e}")
+    except Exception as ex:
+        logging.error(f"Error scanning file {file_path}: {ex}")
+        print(f"Error scanning file {file_path}: {ex}")
         return "Clean"
 
 def is_local_ip(ip):
@@ -1194,6 +1194,11 @@ ipv6_regex = re.compile(r'\b(?:[a-fA-F0-9]{1,4}:){7}[a-fA-F0-9]{1,4}\b')
 domain_regex = re.compile(r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b')
 url_regex = re.compile(r'\b(?:https?://|www\.)[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/[^\s]*)?\b')
 
+
+def is_related_to_critical_paths(file_path):
+    return file_path.startswith(sandboxie_folder) or file_path == main_file_path
+
+
 class RealTimeWebProtectionHandler:
     def __init__(self):
         self.scanned_domains = []
@@ -1201,9 +1206,6 @@ class RealTimeWebProtectionHandler:
         self.scanned_ipv6_addresses = []
         self.scanned_urls = []
         self.domain_ip_to_file_map = {}
-
-    def is_related_to_critical_paths(self, file_path):
-        return file_path.startswith(sandboxie_folder) or file_path == main_file_path
 
     def map_domain_ip_to_file(self, entity):
         return self.domain_ip_to_file_map.get(entity)
@@ -1214,7 +1216,7 @@ class RealTimeWebProtectionHandler:
                        'detection_type': detection_type}
 
         try:
-            if file_path and self.is_related_to_critical_paths(file_path):
+            if file_path and is_related_to_critical_paths(file_path):
                 message = f"{entity_type.capitalize()} {entity_value} is related to a critical path: {file_path}"
                 if detection_type:
                     message = f"{detection_type} {message}"
@@ -1234,9 +1236,9 @@ class RealTimeWebProtectionHandler:
 
             if any(notify_info.values()):
                 notify_user_for_web(**notify_info)
-        except Exception as e:
-            logging.error(f"Error in handle_detection: {e}")
-            print(f"Error in handle_detection: {e}")
+        except Exception as ex:
+            logging.error(f"Error in handle_detection: {ex}")
+            print(f"Error in handle_detection: {ex}")
 
     def scan_domain(self, domain):
         try:
@@ -1319,9 +1321,9 @@ class RealTimeWebProtectionHandler:
                     print(message)
                     return
                 self.handle_detection('ip_address', ip_address)
-        except Exception as e:
-            logging.error(f"Error scanning IP address {ip_address}: {e}")
-            print(f"Error scanning IP address {ip_address}: {e}")
+        except Exception as ex:
+            logging.error(f"Error scanning IP address {ip_address}: {ex}")
+            print(f"Error scanning IP address {ip_address}: {ex}")
 
     def scan_url(self, url):
         try:
