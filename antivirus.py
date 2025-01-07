@@ -482,8 +482,8 @@ def remove_magic_bytes(data_content):
             try:
                 # Decode the data using UTF-8
                 decoded_content = data_content.decode("utf-8", errors="replace")
-            except (AttributeError, TypeError) as e:
-                logging.error(f"Error decoding data: {e}")
+            except (AttributeError, TypeError) as ex:
+                logging.error(f"Error decoding data: {ex}")
                 return data_content  # Return original data if decoding fails
 
             # Convert decoded content back to bytes for magic byte removal
@@ -495,11 +495,11 @@ def remove_magic_bytes(data_content):
 
             try:
                 return binascii.unhexlify(hex_data)
-            except Exception as e:
-                logging.error(f"Error unhexlifying data: {e}")
+            except Exception as ex:
+                logging.error(f"Error unhexlifying data: {ex}")
                 return data_content  # Return original data if unhexlifying fails
-    except Exception as e:
-        logging.error(f"Unexpected error in remove_magic_bytes: {e}")
+    except Exception as ex:
+        logging.error(f"Unexpected error in remove_magic_bytes: {ex}")
         return data_content  # Return original data in case of unexpected errors
 
 def decode_base64(data_content):
@@ -517,15 +517,15 @@ def decode_base32(data_content):
         if isinstance(data_content, str):
             data_content = data_content.encode("utf-8")
         return base32_crockford.decode(data_content)
-    except (binascii.Error, ValueError) as e:
-        logging.error(f"Base32 decoding error: {e}")
+    except (binascii.Error, ValueError) as ex:
+        logging.error(f"Base32 decoding error: {ex}")
         return None
 
 def process_file_data(file_path):
     """Process file data by decoding and removing magic bytes."""
     try:
-        with open(file_path, 'rb') as file:
-            data_content = file.read()
+        with open(file_path, 'rb') as data_file:
+            data_content = data_file.read()
 
         while True:
             if isinstance(data_content, bytes):
@@ -552,9 +552,9 @@ def process_file_data(file_path):
 
         logging.info(f"Processed data from {file_path} saved to {output_file_path}")
 
-    except Exception as e:
-        logging.error(f"Error processing file {file_path}: {e}")
-        print(f"Error processing file {file_path}: {e}")
+    except Exception as ex:
+        logging.error(f"Error processing file {file_path}: {ex}")
+        print(f"Error processing file {file_path}: {ex}")
 
 def extract_infos(file_path, rank=None):
     """Extract information about file"""
@@ -661,8 +661,8 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
 
         return numeric_features
 
-    except Exception as e:
-        logging.error(f"Error extracting numeric features from {file_path}: {str(e)}")
+    except Exception as ex:
+        logging.error(f"Error extracting numeric features from {file_path}: {str(ex)}")
         return None
 
 def calculate_similarity(features1, features2):
@@ -848,8 +848,8 @@ def load_antivirus_list():
         with open(antivirus_list_path, 'r') as antivirus_file:
             antivirus_domains_data = antivirus_file.read().splitlines()
         return antivirus_domains_data
-    except Exception as e:
-        logging.error(f"Error loading Antivirus domains: {e}")
+    except Exception as ex:
+        logging.error(f"Error loading Antivirus domains: {ex}")
         return []
 
 def load_domains_data():
@@ -860,16 +860,16 @@ def load_domains_data():
         with open(ip_addresses_path, 'r') as ip_file:
             ip_addresses_signatures_data = ip_file.read().splitlines()
         print("IPv4 Addresses loaded successfully!")
-    except Exception as e:
-        print(f"Error loading IPv4 Addresses: {e}")
+    except Exception as ex:
+        print(f"Error loading IPv4 Addresses: {ex}")
 
     try:
         # Load IPv6 addresses
         with open(ipv6_addresses_path, 'r') as ipv6_file:
             ipv6_addresses_signatures_data = ipv6_file.read().splitlines()
         print("IPv6 Addresses loaded successfully!")
-    except Exception as e:
-        print(f"Error loading IPv6 Addresses: {e}")
+    except Exception as ex:
+        print(f"Error loading IPv6 Addresses: {ex}")
 
     try:
         # Load IPv4 whitelist
@@ -913,8 +913,8 @@ def load_domains_data():
         with open(abuse_domains_path, 'r') as domains_file:
             abuse_domains_data = domains_file.read().splitlines()
         print("Abuse domains loaded successfully!")
-    except Exception as e:
-        print(f"Error loading Abuse domains: {e}")
+    except Exception as ex:
+        print(f"Error loading Abuse domains: {ex}")
         abuse_domains_data = []
 
     try:
@@ -2369,8 +2369,8 @@ def extract_original_file_path_from_decompiled(file_path):
 
                     return original_file_path
         return None
-    except Exception as e:
-        logging.error(f"An error occurred while extracting the original file path: {e}")
+    except Exception as ex:
+        logging.error(f"An error occurred while extracting the original file path: {ex}")
         return None
 
 def ensure_unique_folder(base_folder):
@@ -2382,8 +2382,8 @@ def ensure_unique_folder(base_folder):
             folder = f"{base_folder}_{counter}"
             counter += 1
         os.makedirs(folder)
-    except Exception as e:
-        logging.error(f"Error creating folder '{folder}': {e}")
+    except Exception as ex:
+        logging.error(f"Error creating folder '{folder}': {ex}")
         return None  # Return None if an error occurs
 
     return folder
