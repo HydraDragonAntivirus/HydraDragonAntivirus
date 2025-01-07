@@ -889,8 +889,8 @@ def load_domains_data():
         with open(ipv4_whitelist_path, 'r') as whitelist_file:
             ipv4_whitelist_data = whitelist_file.read().splitlines()
         print("IPv4 Whitelist loaded successfully!")
-    except Exception as e:
-        print(f"Error loading IPv4 Whitelist: {e}")
+    except Exception as ex:
+        print(f"Error loading IPv4 Whitelist: {ex}")
 
     try:
         # Load URLhaus data
@@ -900,16 +900,16 @@ def load_domains_data():
             for row in reader:
                 urlhaus_data.append(row)
         print("URLhaus data loaded successfully!")
-    except Exception as e:
-        print(f"Error loading URLhaus data: {e}")
+    except Exception as ex:
+        print(f"Error loading URLhaus data: {ex}")
 
     try:
         # Load malware domains
         with open(malware_domains_path, 'r') as domains_file:
             malware_domains_data = domains_file.read().splitlines()
         print("Malware domains loaded successfully!")
-    except Exception as e:
-        print(f"Error loading Malware domains: {e}")
+    except Exception as ex:
+        print(f"Error loading Malware domains: {ex}")
         malware_domains_data = []
 
     try:
@@ -953,8 +953,8 @@ def load_domains_data():
         with open(whitelist_domains_path, 'r') as domains_file:
             whitelist_domains_data = domains_file.read().splitlines()
         print("Whitelist domains loaded successfully!")
-    except Exception as e:
-        print(f"Error loading Whitelist domains: {e}")
+    except Exception as ex:
+        print(f"Error loading Whitelist domains: {ex}")
         whitelist_domains_data = []
 
     print("All domain and ip address files loaded successfully!")
@@ -992,7 +992,7 @@ def extract_ascii_strings(data):
     """Extract readable ASCII strings from binary data."""
     return re.findall(r'[ -~]{4,}', data.decode('ascii', errors='ignore'))
 
-def save_memory_data(memory_dir, base_addr, data):
+def save_memory_data(base_addr, data):
     """Save raw memory data to a file."""
     memory_file = os.path.join(memory_dir, f"module_{hex(base_addr)}.bin")
     with open(memory_file, 'wb') as mem_file:
@@ -1009,10 +1009,7 @@ def analyze_process_memory(file_path):
         if not os.path.isfile(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
 
-        logging.info(f"Starting analysis on: {file_path}")
-
-        memory_dir = "memory"
-        os.makedirs(memory_dir, exist_ok=True)
+        logging.info(f"Starting analysis on: {file_path}"))
 
         # Attach to the process
         pm = pymem.Pymem(file_path)
@@ -1026,7 +1023,7 @@ def analyze_process_memory(file_path):
 
                 try:
                     data = read_memory_data(pm, base_addr, module_info.SizeOfImage)
-                    save_memory_data(memory_dir, base_addr, data)
+                    save_memory_data(base_addr, data)
 
                     ascii_strings = extract_ascii_strings(data)
                     extracted_strings.append(f"{file_path}: Module {hex(base_addr)}:")
