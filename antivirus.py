@@ -277,12 +277,18 @@ compiled_rule_path = os.path.join(yara_folder_path, "compiled_rule.yrc")
 yarGen_rule_path = os.path.join(yara_folder_path, "machinelearning.yrc")
 icewater_rule_path = os.path.join(yara_folder_path, "icewater.yrc")
 valhalla_rule_path = os.path.join(yara_folder_path, "valhalla-rules.yrc")
-antivirus_domains_data = {}
-ip_addresses_signatures_data = {}
-ipv4_whitelist_data = {}
-ipv6_addresses_signatures_data = {}
-domains_signatures_data = {}
-urlhaus_data = {}
+antivirus_domains_data = []
+ip_addresses_signatures_data = []
+ipv6_addresses_signatures_data = []
+domains_signatures_data = []
+ipv4_whitelist_data = []
+urlhaus_data = []
+malware_domains_data = []
+phishing_domains_data = []
+abuse_domains_data = []
+mining_domains_data = []
+spam_domains_data = []
+whitelist_domains_data = []
 
 clamdscan_path = "C:\\Program Files\\ClamAV\\clamdscan.exe"
 freshclam_path = "C:\\Program Files\\ClamAV\\freshclam.exe"
@@ -840,9 +846,9 @@ def load_antivirus_list():
         logging.error(f"Error loading Antivirus domains: {e}")
         return []
 
-def load_data():
-    global ip_addresses_signatures_data, ipv6_addresses_signatures_data, domains_signatures_data, ipv4_whitelist_data, urlhaus_data
-    
+def load_domains_data():
+    global ip_addresses_signatures_data, ipv6_addresses_signatures_data, domains_signatures_data, ipv4_whitelist_data, urlhaus_data, malware_domains_data, phishing_domains_data, abuse_domains_data, mining_domains_data, spam_domains_data, whitelist_domains_data
+
     try:
         # Load IPv4 addresses
         with open(ip_addresses_path, 'r') as ip_file:
@@ -858,14 +864,6 @@ def load_data():
         print("IPv6 Addresses loaded successfully!")
     except Exception as e:
         print(f"Error loading IPv6 Addresses: {e}")
-
-    try:
-        # Load domains
-        with open(domains_path, 'r') as domains_file:
-            domains_signatures_data = domains_file.read().splitlines()
-        print("Domains loaded successfully!")
-    except Exception as e:
-        print(f"Error loading Domains: {e}")
 
     try:
         # Load IPv4 whitelist
@@ -886,7 +884,61 @@ def load_data():
     except Exception as e:
         print(f"Error loading URLhaus data: {e}")
 
-    print("Domain, IPv4, IPv6, Whitelist, and URLhaus signatures loaded successfully!")
+    try:
+        # Load malware domains
+        with open(malware_domains_path, 'r') as domains_file:
+            malware_domains_data = domains_file.read().splitlines()
+        print("Malware domains loaded successfully!")
+    except Exception as e:
+        print(f"Error loading Malware domains: {e}")
+        malware_domains_data = []
+
+    try:
+        # Load phishing domains
+        with open(phishing_domains_path, 'r') as domains_file:
+            phishing_domains_data = domains_file.read().splitlines()
+        print("Phishing domains loaded successfully!")
+    except Exception as e:
+        print(f"Error loading Phishing domains: {e}")
+        phishing_domains_data = []
+
+    try:
+        # Load abuse domains
+        with open(abuse_domains_path, 'r') as domains_file:
+            abuse_domains_data = domains_file.read().splitlines()
+        print("Abuse domains loaded successfully!")
+    except Exception as e:
+        print(f"Error loading Abuse domains: {e}")
+        abuse_domains_data = []
+
+    try:
+        # Load mining domains
+        with open(mining_domains_path, 'r') as domains_file:
+            mining_domains_data = domains_file.read().splitlines()
+        print("Mining domains loaded successfully!")
+    except Exception as e:
+        print(f"Error loading Mining domains: {e}")
+        mining_domains_data = []
+
+    try:
+        # Load spam domains
+        with open(spam_domains_path, 'r') as domains_file:
+            spam_domains_data = domains_file.read().splitlines()
+        print("Spam domains loaded successfully!")
+    except Exception as e:
+        print(f"Error loading Spam domains: {e}")
+        spam_domains_data = []
+
+    try:
+        # Load whitelist domains
+        with open(whitelist_domains_path, 'r') as domains_file:
+            whitelist_domains_data = domains_file.read().splitlines()
+        print("Whitelist domains loaded successfully!")
+    except Exception as e:
+        print(f"Error loading Whitelist domains: {e}")
+        whitelist_domains_data = []
+
+    print("All domain and ip address files loaded successfully!")
 
 def enum_process_modules(handle):
     """Enumerate and retrieve loaded modules in a process."""
@@ -2064,7 +2116,7 @@ threading.Thread(target=run_snort).start()
 restart_clamd_thread()
 clean_directories()
 activate_uefi_drive() # Call the UEFI function
-load_data()
+load_domains_data()
 load_antivirus_list()
 # Load excluded rules from text file
 with open(excluded_rules_path, "r") as file:
