@@ -1748,7 +1748,7 @@ def scan_7z_file(file_path):
 def is_7z_file(file_path):
     """Check if the file is a valid 7z archive."""
     try:
-        with py7zr.SevenZipFile(file_path, mode='r') as archive:
+        with py7zr.SevenZipFile(file_path, mode='r'):
             return True
     except Exception:
         return False
