@@ -280,7 +280,6 @@ valhalla_rule_path = os.path.join(yara_folder_path, "valhalla-rules.yrc")
 antivirus_domains_data = []
 ip_addresses_signatures_data = []
 ipv6_addresses_signatures_data = []
-domains_signatures_data = []
 ipv4_whitelist_data = []
 urlhaus_data = []
 malware_domains_data = []
