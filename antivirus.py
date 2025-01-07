@@ -787,12 +787,14 @@ def notify_user_worm(file_path, virus_name):
     notification.message = f"Potential worm detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
-def notify_user_for_web(domain=None, ip_address=None, url=None, file_path=None):
+def notify_user_for_web(domain=None, ip_address=None, url=None, file_path=None, detection_type=None):
     notification = Notify()
     notification.title = "Malware or Phishing Alert"
 
     # Build the notification message dynamically
     message_parts = []
+    if detection_type:
+        message_parts.append(f"Detection Type: {detection_type}")
     if domain:
         message_parts.append(f"Domain: {domain}")
     if ip_address:
@@ -808,6 +810,7 @@ def notify_user_for_web(domain=None, ip_address=None, url=None, file_path=None):
         notification.message = "Phishing or Malicious activity detected"
 
     notification.send()
+
 
 def notify_user_for_hips(ip_address=None, dst_ip_address=None):
     notification = Notify()
@@ -1171,7 +1174,8 @@ class RealTimeWebProtectionHandler:
 
     def handle_detection(self, entity_type, entity_value, detection_type=None):
         file_path = self.map_domain_ip_to_file(entity_value)
-        notify_info = {'domain': None, 'ip_address': None, 'url': None, 'file_path': None}
+        notify_info = {'domain': None, 'ip_address': None, 'url': None, 'file_path': None,
+                       'detection_type': detection_type}
 
         try:
             if file_path and self.is_related_to_critical_paths(file_path):
