@@ -1840,7 +1840,6 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                     elif benign_score >= 0.93:
                         logging.info(f"File is clean based on ML benign score: {file_path}")
                 logging.info(f"No malware detected by Machine Learning in file: {file_path}")
-        except Exception as e:x
         except Exception as ex:
             logging.error(f"An error occurred while scanning file with Machine Learning AI: {file_path}. Error: {ex}")
 
