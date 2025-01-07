@@ -24,7 +24,7 @@ logging.basicConfig(
 class PEFeatureExtractor:
     def __init__(self):
         self.features_cache = {}
-        
+
     def _calculate_entropy(self, data: bytes) -> float:
         """Calculate Shannon entropy of binary data."""
         if not data:
@@ -32,7 +32,7 @@ class PEFeatureExtractor:
         
         entropy = 0
         for x in range(256):
-            p_x = float(data.count(x))/len(data)
+            p_x = float(data.count(x)) / len(data)
             if p_x > 0:
                 entropy += - p_x * np.log2(p_x)
         return entropy
@@ -88,8 +88,7 @@ class PEFeatureExtractor:
                 exports.append(export_info)
         return exports
 
-    def extract_features(self, file_path: str, rank: Optional[int] = None, 
-                        is_malicious: bool = False) -> Optional[Dict[str, Any]]:
+    def extract_features(self, file_path: str, rank: Optional[int] = None, is_malicious: bool = False) -> Optional[Dict[str, Any]]:
         """Extract comprehensive PE file features."""
         if file_path in self.features_cache:
             return self.features_cache[file_path]
