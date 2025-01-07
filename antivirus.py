@@ -2885,21 +2885,15 @@ def calculate_similarity_worm(features1, features2, threshold=0.86):
         logging.error(f"Error calculating similarity: {e}")
         return 0  # Return a default value in case of an error
 
-
 def extract_numeric_worm_features(file_path: str) -> Optional[Dict[str, Any]]:
     """
     Extract numeric features of a file using pefile for worm detection.
     """
     res = {}
     try:
-        # Load the PE file
-        pe = pefile.PE(file_path)
-
         # Reuse the numeric features extraction function for base data
         res.update(extract_numeric_features(file_path) or {})
 
-    except pefile.PEFormatError as pe_error:
-        logging.error(f"PE Format Error in file {file_path}: {pe_error}", exc_info=True)
     except Exception as e:
         logging.error(f"An error occurred while processing {file_path}: {e}", exc_info=True)
 
