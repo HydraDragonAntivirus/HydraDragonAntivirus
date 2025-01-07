@@ -839,7 +839,7 @@ def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
 
 # Function to load antivirus list
 def load_antivirus_list():
-    global anntivirus_domains_data
+    global antivirus_domains_data
     try:
         with open(antivirus_list_path, 'r') as antivirus_file:
             antivirus_domains_data = antivirus_file.read().splitlines()
