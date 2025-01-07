@@ -691,6 +691,12 @@ def notify_user(file_path, virus_name):
     notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
+def notify_user_pua(file_path, virus_name):
+    notification = Notify()
+    notification.title = "PUA Alert"
+    notification.message = f"PUA file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
 def notify_user_for_llama32(file_path, virus_name, malware_status):
     notification = Notify()
     notification.title = "Llama-3.2-1B Security Alert"
@@ -755,12 +761,6 @@ def notify_user_ghidra(file_path, virus_name):
     notification = Notify()
     notification.title = "Decompiled Malicious File Alert"
     notification.message = f"Malicious decompiled file detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-
-def notify_user_pua(file_path, virus_name):
-    notification = Notify()
-    notification.title = "PUA Alert"
-    notification.message = f"PUA file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
 def notify_user_fake_size(file_path, virus_name):
