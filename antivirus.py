@@ -2729,7 +2729,7 @@ def extract_pyinstaller_archive(file_path):
             return None
 
         # Extract files to the specified pyinstaller_dir
-        extraction_success = archive.extractFiles(pyinstaller_dir)
+        extraction_success = archive.extractFiles()
         
         # Close the archive
         archive.close()
