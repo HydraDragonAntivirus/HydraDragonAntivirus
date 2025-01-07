@@ -1305,6 +1305,15 @@ class RealTimeWebProtectionHandler:
                     )
                     logging.warning(message)
                     print(message)
+
+                    # Use handle_detection for related file path and notification logic
+                    self.handle_detection(
+                        entity_type="url",
+                        entity_value=url,
+                        detection_type="URLhaus Match"
+                    )
+                    return
+
             logging.info(f"No match found for URL: {url}")
             print(f"No match found for URL: {url}")
 
