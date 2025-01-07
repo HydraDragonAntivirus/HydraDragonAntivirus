@@ -1826,6 +1826,7 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
     """Scan file in real-time using multiple engines."""
     logging.info(f"Started scanning file: {file_path}")
 
+    try:
         # Scan with Machine Learning AI for PE files
         try:
             if pe_file:
@@ -1840,6 +1841,7 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                         logging.info(f"File is clean based on ML benign score: {file_path}")
                 logging.info(f"No malware detected by Machine Learning in file: {file_path}")
         except Exception as e:x
+        except Exception as ex:
             logging.error(f"An error occurred while scanning file with Machine Learning AI: {file_path}. Error: {ex}")
 
         # Scan with ClamAV
@@ -1874,7 +1876,7 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                     if signature_check["is_valid"]:
                         virus_name = "SIG." + virus_name
                     logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
-                    return True, virus_name
+                    return True, virus_name, "TAR"
                 logging.info(f"No malware detected in TAR file: {file_path}")
         except PermissionError:
             logging.error(f"Permission error occurred while scanning TAR file: {file_path}")
@@ -1891,7 +1893,7 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                     if signature_check["is_valid"]:
                         virus_name = "SIG." + virus_name
                     logging.warning(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
-                    return True, virus_name
+                    return True, virus_name, "ZIP"
                 logging.info(f"No malware detected in ZIP file: {file_path}")
         except PermissionError:
             logging.error(f"Permission error occurred while scanning ZIP file: {file_path}")
@@ -1908,7 +1910,7 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                     if signature_check["is_valid"]:
                         virus_name = "SIG." + virus_name
                     logging.warning(f"Infected file detected (7Z): {file_path} - Virus: {virus_name}")
-                    return True, virus_name
+                    return True, virus_name, "7Z"
                 logging.info(f"No malware detected in 7Z file: {file_path}")
             else:
                 logging.info(f"File is not a valid 7Z archive: {file_path}")
@@ -1922,7 +1924,7 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
     except Exception as ex:
         logging.error(f"An error occurred while scanning file: {file_path}. Error: {ex}")
 
-    return False, "Clean"
+    return False, "Clean", ""  # Default to clean if no malware found
 
 class WorkerSignals(QObject):
     success = Signal()
