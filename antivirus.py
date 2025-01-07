@@ -1830,8 +1830,8 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
         # Scan with Machine Learning AI for PE files
         try:
             if pe_file:
-                is_malicious, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
-                if is_malicious:
+                is_malicious_machine_learning , malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
+                if is_malicious_machine_learning:
                     if benign_score < 0.93:
                         if signature_check["is_valid"]:
                             malware_definition = "SIG." + malware_definition
@@ -3562,16 +3562,17 @@ def scan_and_warn(file_path, flag=False):
         # Perform real-time scan
         is_malicious, virus_names = scan_file_real_time(file_path, signature_check, pe_file=pe_file)
 
+        # Inside the scan check logic
         if is_malicious:
             # Concatenate multiple virus names into a single string without delimiters
             virus_name = ''.join(virus_names)
             logging.warning(f"File {file_path} is malicious. Virus: {virus_name}")
 
             if virus_name.startswith("PUA."):
-                notify_user_pua_thread = threading.Thread(target=notify_user_pua, args=(file_path, virus_name))
+                notify_user_pua_thread = threading.Thread(target=notify_user_pua, args=(file_path, virus_name, engine_detected))
                 notify_user_pua_thread.start()
             else:
-                notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name))
+                notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name, engine_detected))
                 notify_user_thread.start()
 
         # Additional post-decompilation actions based on extracted file path
