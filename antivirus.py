@@ -1009,7 +1009,7 @@ def analyze_process_memory(file_path):
         if not os.path.isfile(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
 
-        logging.info(f"Starting analysis on: {file_path}"))
+        logging.info(f"Starting analysis on: {file_path}")
 
         # Attach to the process
         pm = pymem.Pymem(file_path)
