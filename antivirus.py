@@ -790,7 +790,7 @@ def notify_user_worm(file_path, virus_name):
 def notify_user_for_web(domain=None, ip_address=None, url=None, file_path=None):
     notification = Notify()
     notification.title = "Malware or Phishing Alert"
-    
+
     # Build the notification message dynamically
     message_parts = []
     if domain:
@@ -801,12 +801,12 @@ def notify_user_for_web(domain=None, ip_address=None, url=None, file_path=None):
         message_parts.append(f"URL: {url}")
     if file_path:
         message_parts.append(f"File Path: {file_path}")
-    
+
     if message_parts:
         notification.message = f"Phishing or Malicious activity detected:\n" + "\n".join(message_parts)
     else:
         notification.message = "Phishing or Malicious activity detected"
-    
+
     notification.send()
 
 def notify_user_for_hips(ip_address=None, dst_ip_address=None):
@@ -1169,13 +1169,15 @@ class RealTimeWebProtectionHandler:
     def map_domain_ip_to_file(self, entity):
         return self.domain_ip_to_file_map.get(entity)
 
-    def handle_detection(self, entity_type, entity_value):
+    def handle_detection(self, entity_type, entity_value, detection_type=None):
         file_path = self.map_domain_ip_to_file(entity_value)
         notify_info = {'domain': None, 'ip_address': None, 'url': None, 'file_path': None}
 
         try:
             if file_path and self.is_related_to_critical_paths(file_path):
                 message = f"{entity_type.capitalize()} {entity_value} is related to a critical path: {file_path}"
+                if detection_type:
+                    message = f"{detection_type} {message}"
                 logging.warning(message)
                 print(message)
                 notify_info[entity_type] = entity_value
@@ -1185,6 +1187,8 @@ class RealTimeWebProtectionHandler:
                     message = f"{entity_type.capitalize()} {entity_value} is not related to critical paths but associated with file path: {file_path}"
                 else:
                     message = f"{entity_type.capitalize()} {entity_value} is not related to critical paths and has no associated file path."
+                if detection_type:
+                    message = f"{detection_type} {message}"
                 logging.info(message)
                 print(message)
 
@@ -1213,10 +1217,42 @@ class RealTimeWebProtectionHandler:
             parts = domain.split(".")
             main_domain = domain if len(parts) < 3 else ".".join(parts[-2:])
 
-            for parent_domain in domains_signatures_data:
-                if main_domain == parent_domain or main_domain.endswith(f".{parent_domain}"):
-                    self.handle_detection('domain', main_domain)
-                    return
+            # Check against spam domains (highest priority)
+            if any(main_domain == spam_domain or main_domain.endswith(f".{spam_domain}")
+                   for spam_domain in spam_domains_data):
+                self.handle_detection('domain', main_domain, 'SPAM')
+                return
+
+            # Check against mining domains
+            if any(main_domain == mining_domain or main_domain.endswith(f".{mining_domain}")
+                   for mining_domain in mining_domains_data):
+                self.handle_detection('domain', main_domain, 'MINING')
+                return
+
+            # Check against abuse domains
+            if any(main_domain == abuse_domain or main_domain.endswith(f".{abuse_domain}")
+                   for abuse_domain in abuse_domains_data):
+                self.handle_detection('domain', main_domain, 'ABUSE')
+                return
+
+            # Check against phishing domains
+            if any(main_domain == phishing_domain or main_domain.endswith(f".{phishing_domain}")
+                   for phishing_domain in phishing_domains_data):
+                self.handle_detection('domain', main_domain, 'PHISHING')
+                return
+
+            # Check against malware domains
+            if any(main_domain == malware_domain or main_domain.endswith(f".{malware_domain}")
+                   for malware_domain in malware_domains_data):
+                self.handle_detection('domain', main_domain, 'MALWARE')
+                return
+
+            # Check if domain is whitelisted
+            if any(main_domain == whitelist_domain or main_domain.endswith(f".{whitelist_domain}")
+                   for whitelist_domain in whitelist_domains_data):
+                logging.info(f"Domain {main_domain} is whitelisted")
+                return
+
         except Exception as e:
             logging.error(f"Error scanning domain {domain}: {e}")
             print(f"Error scanning domain {domain}: {e}")
@@ -1250,13 +1286,28 @@ class RealTimeWebProtectionHandler:
     def scan_url(self, url):
         try:
             if url in self.scanned_urls:
+                logging.info(f"URL {url} has already been scanned.")
                 return
-            self.scanned_urls.append(url)
+
+            self.scanned_urls.append(url)  # Add to the scanned list
             for entry in urlhaus_data:
                 if entry['url'] in url:
-                    message = f"URL {url} matches the URLhaus signatures."
+                    message = (
+                        f"URL {url} matches the URLhaus signatures.\n"
+                        f"ID: {entry['id']}\n"
+                        f"Date Added: {entry['dateadded']}\n"
+                        f"URL Status: {entry['url_status']}\n"
+                        f"Last Online: {entry['last_online']}\n"
+                        f"Threat: {entry['threat']}\n"
+                        f"Tags: {entry['tags']}\n"
+                        f"URLhaus Link: {entry['urlhaus_link']}\n"
+                        f"Reporter: {entry['reporter']}"
+                    )
                     logging.warning(message)
                     print(message)
+            logging.info(f"No match found for URL: {url}")
+            print(f"No match found for URL: {url}")
+
         except Exception as e:
             logging.error(f"Error scanning URL {url}: {e}")
             print(f"Error scanning URL {url}: {e}")
