@@ -3744,9 +3744,9 @@ def check_hosts_file_for_blocked_antivirus():
 def monitor_hosts_file():
     # Continuously check the hosts file
     while True:
-        is_malicious = check_hosts_file_for_blocked_antivirus()
+        is_malicious_host = check_hosts_file_for_blocked_antivirus()
 
-        if is_malicious:
+        if is_malicious_host:
             print("Malicious hosts file detected and flagged.")
             break  # Stop monitoring after notifying once
 
