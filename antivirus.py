@@ -221,6 +221,10 @@ start_time = time.time()
 import inspect
 print(f"pymem module loaded in {time.time() - start_time:.6f} seconds")
 
+start_time = time.time()
+from typing import Optional, Dict, Any
+print(f"typing.Optional, Dict and Any module loaded in {time.time() - start_time:.6f} seconds")
+
 # Calculate and print total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
@@ -565,10 +569,14 @@ def extract_infos(file_path, rank=None):
         return {'file_name': file_name}
 
 def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Optional[Dict[str, Any]]:
-    """Extract numeric features of a file using pefile."""
+    """
+    Extract numeric features of a file using pefile.
+    """
     try:
+        # Load the PE file
         pe = pefile.PE(file_path)
 
+        # Extract features
         numeric_features = {
             # Optional Header Features
             'SizeOfOptionalHeader': pe.FILE_HEADER.SizeOfOptionalHeader,
@@ -579,12 +587,19 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
             'SizeOfUninitializedData': pe.OPTIONAL_HEADER.SizeOfUninitializedData,
             'AddressOfEntryPoint': pe.OPTIONAL_HEADER.AddressOfEntryPoint,
             'BaseOfCode': pe.OPTIONAL_HEADER.BaseOfCode,
-            'BaseOfData': pe.OPTIONAL_HEADER.BaseOfData if hasattr(pe.OPTIONAL_HEADER, 'BaseOfData') else 0,
+            'BaseOfData': getattr(pe.OPTIONAL_HEADER, 'BaseOfData', 0),
             'ImageBase': pe.OPTIONAL_HEADER.ImageBase,
             'SectionAlignment': pe.OPTIONAL_HEADER.SectionAlignment,
             'FileAlignment': pe.OPTIONAL_HEADER.FileAlignment,
             'MajorOperatingSystemVersion': pe.OPTIONAL_HEADER.MajorOperatingSystemVersion,
             'MinorOperatingSystemVersion': pe.OPTIONAL_HEADER.MinorOperatingSystemVersion,
+            'MajorImageVersion': pe.OPTIONAL_HEADER.MajorImageVersion,
+            'MinorImageVersion': pe.OPTIONAL_HEADER.MinorImageVersion,
+            'MajorSubsystemVersion': pe.OPTIONAL_HEADER.MajorSubsystemVersion,
+            'MinorSubsystemVersion': pe.OPTIONAL_HEADER.MinorSubsystemVersion,
+            'SizeOfImage': pe.OPTIONAL_HEADER.SizeOfImage,
+            'SizeOfHeaders': pe.OPTIONAL_HEADER.SizeOfHeaders,
+            'CheckSum': pe.OPTIONAL_HEADER.CheckSum,
             'Subsystem': pe.OPTIONAL_HEADER.Subsystem,
             'DllCharacteristics': pe.OPTIONAL_HEADER.DllCharacteristics,
             'SizeOfStackReserve': pe.OPTIONAL_HEADER.SizeOfStackReserve,
@@ -609,29 +624,29 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
             'imports': [
                 imp.name.decode(errors='ignore') if imp.name else "Unknown"
                 for entry in getattr(pe, 'DIRECTORY_ENTRY_IMPORT', [])
-                for imp in entry.imports
+                for imp in getattr(entry, 'imports', [])
             ] if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT') else [],
             # Exported Functions
             'exports': [
                 exp.name.decode(errors='ignore') if exp.name else "Unknown"
-                for exp in getattr(pe, 'DIRECTORY_ENTRY_EXPORT', None).symbols
+                for exp in getattr(getattr(pe, 'DIRECTORY_ENTRY_EXPORT', None), 'symbols', [])
             ] if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT') else [],
             # Resources
             'resources': [
                 {
-                    'type_id': resource_type.id,
-                    'resource_id': resource_id.id,
-                    'lang_id': resource_lang.id,
+                    'type_id': resource_type.struct.Id,
+                    'resource_id': resource_id.struct.Id,
+                    'lang_id': resource_lang.struct.Id,
                     'size': resource_lang.data.struct.Size,
                     'codepage': resource_lang.data.struct.CodePage,
                 }
                 for resource_type in getattr(pe, 'DIRECTORY_ENTRY_RESOURCE', {}).get('entries', [])
                 if hasattr(resource_type, 'directory')
-                for resource_id in resource_type.directory.entries
+                for resource_id in getattr(resource_type.directory, 'entries', [])
                 if hasattr(resource_id, 'directory')
-                for resource_lang in resource_id.directory.entries
-                if hasattr(resource_lang, 'data')
-            ],
+                for resource_lang in getattr(resource_id.directory, 'entries', [])
+                if hasattr(resource_lang, 'data') and resource_lang.data.struct
+            ] if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE') else [],
             # Debug Information
             'debug': [
                 {
@@ -642,8 +657,18 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
                 }
                 for debug in getattr(pe, 'DIRECTORY_ENTRY_DEBUG', [])
             ] if hasattr(pe, 'DIRECTORY_ENTRY_DEBUG') else [],
+            # Relocations
+            'relocations': [
+                {
+                    'virtual_address': entry.rva,
+                    'type': entry.type
+                }
+                for relocation in getattr(pe, 'DIRECTORY_ENTRY_BASERELOC', [])
+                for entry in getattr(relocation, 'entries', [])
+            ] if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC') else [],
         }
 
+        # Add numeric tag if provided
         if rank is not None:
             numeric_features['numeric_tag'] = rank
 
@@ -2860,113 +2885,21 @@ def calculate_similarity_worm(features1, features2, threshold=0.86):
         logging.error(f"Error calculating similarity: {e}")
         return 0  # Return a default value in case of an error
 
-def extract_numeric_worm_features(file_path):
+
+def extract_numeric_worm_features(file_path: str) -> Optional[Dict[str, Any]]:
     """
-    Extract numeric features of a file using pefile for malware detection.
+    Extract numeric features of a file using pefile for worm detection.
     """
     res = {}
     try:
         # Load the PE file
         pe = pefile.PE(file_path)
 
-        # Extract Optional Header features
-        res.update({
-            'SizeOfOptionalHeader': pe.FILE_HEADER.SizeOfOptionalHeader,
-            'MajorLinkerVersion': pe.OPTIONAL_HEADER.MajorLinkerVersion,
-            'MinorLinkerVersion': pe.OPTIONAL_HEADER.MinorLinkerVersion,
-            'SizeOfCode': pe.OPTIONAL_HEADER.SizeOfCode,
-            'SizeOfInitializedData': pe.OPTIONAL_HEADER.SizeOfInitializedData,
-            'SizeOfUninitializedData': pe.OPTIONAL_HEADER.SizeOfUninitializedData,
-            'AddressOfEntryPoint': pe.OPTIONAL_HEADER.AddressOfEntryPoint,
-            'BaseOfCode': pe.OPTIONAL_HEADER.BaseOfCode,
-            'BaseOfData': getattr(pe.OPTIONAL_HEADER, 'BaseOfData', 0),
-            'ImageBase': pe.OPTIONAL_HEADER.ImageBase,
-            'SectionAlignment': pe.OPTIONAL_HEADER.SectionAlignment,
-            'FileAlignment': pe.OPTIONAL_HEADER.FileAlignment,
-            'MajorOperatingSystemVersion': pe.OPTIONAL_HEADER.MajorOperatingSystemVersion,
-            'MinorOperatingSystemVersion': pe.OPTIONAL_HEADER.MinorOperatingSystemVersion,
-            'MajorImageVersion': pe.OPTIONAL_HEADER.MajorImageVersion,
-            'MinorImageVersion': pe.OPTIONAL_HEADER.MinorImageVersion,
-            'MajorSubsystemVersion': pe.OPTIONAL_HEADER.MajorSubsystemVersion,
-            'MinorSubsystemVersion': pe.OPTIONAL_HEADER.MinorSubsystemVersion,
-            'SizeOfImage': pe.OPTIONAL_HEADER.SizeOfImage,
-            'SizeOfHeaders': pe.OPTIONAL_HEADER.SizeOfHeaders,
-            'CheckSum': pe.OPTIONAL_HEADER.CheckSum,
-            'Subsystem': pe.OPTIONAL_HEADER.Subsystem,
-            'DllCharacteristics': pe.OPTIONAL_HEADER.DllCharacteristics,
-            'SizeOfStackReserve': pe.OPTIONAL_HEADER.SizeOfStackReserve,
-            'SizeOfStackCommit': pe.OPTIONAL_HEADER.SizeOfStackCommit,
-            'SizeOfHeapReserve': pe.OPTIONAL_HEADER.SizeOfHeapReserve,
-            'SizeOfHeapCommit': pe.OPTIONAL_HEADER.SizeOfHeapCommit,
-            'LoaderFlags': pe.OPTIONAL_HEADER.LoaderFlags,
-            'NumberOfRvaAndSizes': pe.OPTIONAL_HEADER.NumberOfRvaAndSizes
-        })
-
-        # Extract Section Headers
-        res['sections'] = [
-            {
-                'name': section.Name.decode(errors='ignore').strip('\x00'),
-                'virtual_size': section.Misc_VirtualSize,
-                'virtual_address': section.VirtualAddress,
-                'size_of_raw_data': section.SizeOfRawData,
-                'pointer_to_raw_data': section.PointerToRawData,
-                'characteristics': section.Characteristics
-            }
-            for section in pe.sections
-        ]
-
-        # Extract Imports
-        res['imports'] = [
-            imp.name.decode(errors='ignore') if imp.name else "Unknown"
-            for entry in getattr(pe, 'DIRECTORY_ENTRY_IMPORT', [])
-            for imp in getattr(entry, 'imports', [])
-        ]
-
-        # Extract Exports
-        res['exports'] = [
-            exp.name.decode(errors='ignore') if exp.name else "Unknown"
-            for exp in getattr(pe, 'DIRECTORY_ENTRY_EXPORT', {}).get('symbols', [])
-        ] if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT') else []
-
-        # Extract Resources
-        res['resources'] = []
-        if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-            for resource_type in getattr(pe.DIRECTORY_ENTRY_RESOURCE, 'entries', []):
-                if hasattr(resource_type, 'directory'):
-                    for resource_id in getattr(resource_type.directory, 'entries', []):
-                        for resource_lang in getattr(resource_id.directory, 'entries', []):
-                            if hasattr(resource_lang, 'data') and resource_lang.data.struct:
-                                res['resources'].append({
-                                    'type': resource_type.struct.Id,
-                                    'id': resource_id.id,
-                                    'language': resource_lang.id,
-                                    'size': resource_lang.data.struct.Size,
-                                    'codepage': resource_lang.data.struct.CodePage
-                                })
-
-        # Extract Relocations
-        res['relocations'] = [
-            {
-                'virtual_address': entry.rva,
-                'type': entry.type
-            }
-            for relocation in getattr(pe, 'DIRECTORY_ENTRY_BASERELOC', [])
-            for entry in getattr(relocation, 'entries', [])
-        ] if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC') else []
-
-        # Extract Debug Information
-        res['debug'] = [
-            {
-                'type': debug.struct.Type,
-                'timestamp': debug.struct.TimeDateStamp,
-                'major_version': debug.struct.MajorVersion,
-                'minor_version': debug.struct.MinorVersion
-            }
-            for debug in getattr(pe, 'DIRECTORY_ENTRY_DEBUG', [])
-        ] if hasattr(pe, 'DIRECTORY_ENTRY_DEBUG') else []
+        # Reuse the numeric features extraction function for base data
+        res.update(extract_numeric_features(file_path) or {})
 
     except pefile.PEFormatError as pe_error:
-        logging.error(f"PE Format Error in file {file_path}: {pe_error}")
+        logging.error(f"PE Format Error in file {file_path}: {pe_error}", exc_info=True)
     except Exception as e:
         logging.error(f"An error occurred while processing {file_path}: {e}", exc_info=True)
 
