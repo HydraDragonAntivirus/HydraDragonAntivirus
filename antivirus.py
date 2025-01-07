@@ -610,12 +610,12 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
                 imp.name.decode(errors='ignore') if imp.name else "Unknown"
                 for entry in getattr(pe, 'DIRECTORY_ENTRY_IMPORT', [])
                 for imp in entry.imports
-            ],
+            ] if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT') else [],
             # Exported Functions
             'exports': [
                 exp.name.decode(errors='ignore') if exp.name else "Unknown"
-                for exp in getattr(pe, 'DIRECTORY_ENTRY_EXPORT', {}).get('symbols', [])
-            ],
+                for exp in getattr(pe, 'DIRECTORY_ENTRY_EXPORT', None).symbols
+            ] if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT') else [],
             # Resources
             'resources': [
                 {
@@ -641,7 +641,7 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
                     'size': debug.struct.SizeOfData,
                 }
                 for debug in getattr(pe, 'DIRECTORY_ENTRY_DEBUG', [])
-            ],
+            ] if hasattr(pe, 'DIRECTORY_ENTRY_DEBUG') else [],
         }
 
         if rank is not None:
@@ -650,7 +650,7 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
         return numeric_features
 
     except Exception as ex:
-        logging.error(f"Error extracting numeric features from {file_path}: {str(ex)}")
+        logging.error(f"Error extracting numeric features from {file_path}: {str(ex)}", exc_info=True)
         return None
 
 def calculate_similarity(features1, features2):
