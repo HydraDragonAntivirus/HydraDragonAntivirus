@@ -568,9 +568,9 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
     """Extract numeric features of a file using pefile."""
     try:
         pe = pefile.PE(file_path)
-        
+
         numeric_features = {
-            # Optional Header features
+            # Optional Header Features
             'SizeOfOptionalHeader': pe.FILE_HEADER.SizeOfOptionalHeader,
             'MajorLinkerVersion': pe.OPTIONAL_HEADER.MajorLinkerVersion,
             'MinorLinkerVersion': pe.OPTIONAL_HEADER.MinorLinkerVersion,
@@ -593,69 +593,57 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
             'SizeOfHeapCommit': pe.OPTIONAL_HEADER.SizeOfHeapCommit,
             'LoaderFlags': pe.OPTIONAL_HEADER.LoaderFlags,
             'NumberOfRvaAndSizes': pe.OPTIONAL_HEADER.NumberOfRvaAndSizes,
-        }
-        
-        # Section Headers
-        numeric_features['sections'] = [
-            {
-                'name': section.Name.decode(errors='ignore').strip('\x00'),
-                'virtual_size': section.Misc_VirtualSize,
-                'virtual_address': section.VirtualAddress,
-                'size_of_raw_data': section.SizeOfRawData,
-                'pointer_to_raw_data': section.PointerToRawData,
-                'characteristics': section.Characteristics,
-            }
-            for section in pe.sections
-        ]
-        
-        # Imported Functions
-        numeric_features['imports'] = []
-        if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT'):
-            for entry in pe.DIRECTORY_ENTRY_IMPORT:
-                for imp in entry.imports:
-                    numeric_features['imports'].append(
-                        imp.name.decode(errors='ignore') if imp.name else "Unknown"
-                    )
-        
-        # Exported Functions
-        numeric_features['exports'] = []
-        if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT'):
-            numeric_features['exports'] = [
+            # Section Headers
+            'sections': [
+                {
+                    'name': section.Name.decode(errors='ignore').strip('\x00'),
+                    'virtual_size': section.Misc_VirtualSize,
+                    'virtual_address': section.VirtualAddress,
+                    'size_of_raw_data': section.SizeOfRawData,
+                    'pointer_to_raw_data': section.PointerToRawData,
+                    'characteristics': section.Characteristics,
+                }
+                for section in pe.sections
+            ],
+            # Imported Functions
+            'imports': [
+                imp.name.decode(errors='ignore') if imp.name else "Unknown"
+                for entry in getattr(pe, 'DIRECTORY_ENTRY_IMPORT', [])
+                for imp in entry.imports
+            ],
+            # Exported Functions
+            'exports': [
                 exp.name.decode(errors='ignore') if exp.name else "Unknown"
-                for exp in pe.DIRECTORY_ENTRY_EXPORT.symbols
-            ]
-        
-        # Resources
-        numeric_features['resources'] = []
-        if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-            for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
-                if hasattr(resource_type, 'directory'):
-                    for resource_id in resource_type.directory.entries:
-                        if hasattr(resource_id, 'directory'):
-                            for resource_lang in resource_id.directory.entries:
-                                if hasattr(resource_lang, 'data'):
-                                    resource_data = {
-                                        'type_id': resource_type.id,
-                                        'resource_id': resource_id.id,
-                                        'lang_id': resource_lang.id,
-                                        'size': resource_lang.data.struct.Size,
-                                        'codepage': resource_lang.data.struct.CodePage,
-                                    }
-                                    numeric_features['resources'].append(resource_data)
-
-        # Debug Information
-        numeric_features['debug'] = []
-        if hasattr(pe, 'DIRECTORY_ENTRY_DEBUG'):
-            numeric_features['debug'] = [
+                for exp in getattr(pe, 'DIRECTORY_ENTRY_EXPORT', {}).get('symbols', [])
+            ],
+            # Resources
+            'resources': [
+                {
+                    'type_id': resource_type.id,
+                    'resource_id': resource_id.id,
+                    'lang_id': resource_lang.id,
+                    'size': resource_lang.data.struct.Size,
+                    'codepage': resource_lang.data.struct.CodePage,
+                }
+                for resource_type in getattr(pe, 'DIRECTORY_ENTRY_RESOURCE', {}).get('entries', [])
+                if hasattr(resource_type, 'directory')
+                for resource_id in resource_type.directory.entries
+                if hasattr(resource_id, 'directory')
+                for resource_lang in resource_id.directory.entries
+                if hasattr(resource_lang, 'data')
+            ],
+            # Debug Information
+            'debug': [
                 {
                     'type': debug.struct.Type,
                     'timestamp': debug.struct.TimeDateStamp,
                     'version': f"{debug.struct.MajorVersion}.{debug.struct.MinorVersion}",
                     'size': debug.struct.SizeOfData,
                 }
-                for debug in pe.DIRECTORY_ENTRY_DEBUG
-            ]
-        
+                for debug in getattr(pe, 'DIRECTORY_ENTRY_DEBUG', [])
+            ],
+        }
+
         if rank is not None:
             numeric_features['numeric_tag'] = rank
 
