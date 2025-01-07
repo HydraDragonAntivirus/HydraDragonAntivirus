@@ -917,8 +917,8 @@ def load_domains_data():
         with open(phishing_domains_path, 'r') as domains_file:
             phishing_domains_data = domains_file.read().splitlines()
         print("Phishing domains loaded successfully!")
-    except Exception as e:
-        print(f"Error loading Phishing domains: {e}")
+    except Exception as ex:
+        print(f"Error loading Phishing domains: {ex}")
         phishing_domains_data = []
 
     try:
@@ -935,8 +935,8 @@ def load_domains_data():
         with open(mining_domains_path, 'r') as domains_file:
             mining_domains_data = domains_file.read().splitlines()
         print("Mining domains loaded successfully!")
-    except Exception as e:
-        print(f"Error loading Mining domains: {e}")
+    except Exception as ex:
+        print(f"Error loading Mining domains: {ex}")
         mining_domains_data = []
 
     try:
@@ -944,8 +944,8 @@ def load_domains_data():
         with open(spam_domains_path, 'r') as domains_file:
             spam_domains_data = domains_file.read().splitlines()
         print("Spam domains loaded successfully!")
-    except Exception as e:
-        print(f"Error loading Spam domains: {e}")
+    except Exception as ex:
+        print(f"Error loading Spam domains: {ex}")
         spam_domains_data = []
 
     try:
@@ -961,17 +961,17 @@ def load_domains_data():
 
 def enum_process_modules(handle):
     """Enumerate and retrieve loaded modules in a process."""
-    hModules = (ctypes.c_void_p * 1024)()
+    hmodules = (ctypes.c_void_p * 1024)()
     needed = ctypes.c_ulong()
     if not pymem.ressources.psapi.EnumProcessModulesEx(
         handle,
-        ctypes.byref(hModules),
-        ctypes.sizeof(hModules),
+        ctypes.byref(hmodules),
+        ctypes.sizeof(hmodules),
         ctypes.byref(needed),
         pymem.ressources.structure.EnumProcessModuleEX.LIST_MODULES_ALL
     ):
         raise RuntimeError("Failed to enumerate process modules")
-    return [module for module in hModules if module]
+    return [module for module in hmodules if module]
 
 def get_module_info(handle, base_addr):
     """Retrieve module information."""
@@ -1000,8 +1000,8 @@ def save_memory_data(base_addr, data):
 
 def save_extracted_strings(output_filename, extracted_strings):
     """Save extracted ASCII strings to a file."""
-    with open(output_filename, 'w', encoding='utf-8') as file:
-        file.writelines(f"{line}\n" for line in extracted_strings)
+    with open(output_filename, 'w', encoding='utf-8') as output_file:
+        output_file.writelines(f"{line}\n" for line in extracted_strings)
 
 def analyze_process_memory(file_path):
     """Perform memory analysis on the specified file path."""
@@ -1030,7 +1030,7 @@ def analyze_process_memory(file_path):
                     extracted_strings.extend(ascii_strings)
                 except pymem.exception.AccessDenied:
                     extracted_strings.append(f"Access denied: {hex(base_addr)}")
-                except Exception as e:
+                except Exception as ex:
                     extracted_strings.append(f"Error reading {hex(base_addr)}: {e}")
         finally:
             pm.close_process()  # Explicitly release the process handle
@@ -1052,8 +1052,8 @@ def analyze_process_memory(file_path):
         # Return the new file path
         return output_filename
 
-    except Exception as e:
-        logging.error(f"An error occurred: {e}")
+    except Exception as ex:
+        logging.error(f"An error occurred: {ex}")
         return None
 
 def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
