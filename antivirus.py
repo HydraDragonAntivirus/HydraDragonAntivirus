@@ -1073,7 +1073,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
         file_info = extract_infos(file_path)  # Extract detailed file info
         file_numeric_features = extract_numeric_features(file_path)
 
-        is_malicious = False
+        is_malicious_machine_learning_ai = False
         malware_rank = None
         nearest_malicious_similarity = 0
         nearest_benign_similarity = 0
@@ -1096,7 +1096,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
                 break
 
         # If malicious not detected, check for benign features
-        if not is_malicious:
+        if not is_malicious_machine_learning_ai:
             for benign_features in benign_numeric_features:
                 similarity = calculate_similarity(file_numeric_features, benign_features)
                 if similarity > nearest_benign_similarity:
@@ -1111,7 +1111,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
                 logging.info(f"File {file_path} is classified as unknown with similarity: {nearest_benign_similarity}")
 
         # Return True for malicious or False for benign/unknown
-        if is_malicious:
+        if is_malicious_machine_learning_ai:
             logging.info(f"File {file_path} is flagged as malicious. Returning: False, {malware_definition}, rank: {malware_rank}.")
             return False, malware_definition, nearest_benign_similarity  # Malicious detected, return False
         else:
