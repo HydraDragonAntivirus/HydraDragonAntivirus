@@ -1295,9 +1295,9 @@ class RealTimeWebProtectionHandler:
                 logging.info(f"Domain {main_domain} is whitelisted")
                 return
 
-        except Exception as e:
-            logging.error(f"Error scanning domain {domain}: {e}")
-            print(f"Error scanning domain {domain}: {e}")
+        except Exception as ex:
+            logging.error(f"Error scanning domain {domain}: {ex}")
+            print(f"Error scanning domain {domain}: {ex}")
 
     def scan_ip_address(self, ip_address):
         try:
@@ -1359,9 +1359,9 @@ class RealTimeWebProtectionHandler:
             logging.info(f"No match found for URL: {url}")
             print(f"No match found for URL: {url}")
 
-        except Exception as e:
-            logging.error(f"Error scanning URL {url}: {e}")
-            print(f"Error scanning URL {url}: {e}")
+        except Exception as ex:
+            logging.error(f"Error scanning URL {url}: {ex}")
+            print(f"Error scanning URL {url}: {ex}")
 
     def handle_ipv4(self, packet):
         try:
@@ -1384,9 +1384,9 @@ class RealTimeWebProtectionHandler:
                 self.scan_ip_address(packet[IP].src)
                 self.scan_ip_address(packet[IP].dst)
                 
-        except Exception as e:
-            logging.error(f"Error handling IPv4 packet: {e}")
-            print(f"Error handling IPv4 packet: {e}")
+        except Exception as ex:
+            logging.error(f"Error handling IPv4 packet: {ex}")
+            print(f"Error handling IPv4 packet: {ex}")
 
     def handle_ipv6(self, packet):
         try:
@@ -1411,9 +1411,9 @@ class RealTimeWebProtectionHandler:
             else:
                 logging.debug("IPv6 layer or DNS layer not found in the packet.")
                 
-        except Exception as e:
-            logging.error(f"Error handling IPv6 packet: {e}")
-            print(f"Error handling IPv6 packet: {e}")
+        except Exception as ex:
+            logging.error(f"Error handling IPv6 packet: {ex}")
+            print(f"Error handling IPv6 packet: {ex}")
 
     def on_packet_received(self, packet):
         try:
@@ -1447,9 +1447,9 @@ class RealTimeWebProtectionHandler:
                     self.scan_ip_address(packet[IP].src)
                     self.scan_ip_address(packet[IP].dst)
 
-        except Exception as e:
-            logging.error(f"Error processing packet: {e}")
-            print(f"Error processing packet: {e}")
+        except Exception as ex:
+            logging.error(f"Error processing packet: {ex}")
+            print(f"Error processing packet: {ex}")
 
 class RealTimeWebProtectionObserver:
     def __init__(self):
@@ -1470,93 +1470,90 @@ class RealTimeWebProtectionObserver:
         filter_expression = "(tcp or udp)"
         try:
             sniff(filter=filter_expression, prn=self.handler.on_packet_received, store=0)
-        except Exception as e:
-            logging.error(f"An error occurred while sniffing packets: {e}")
-            print(f"Error while sniffing packets: {e}")
+        except Exception as ex:
+            logging.error(f"An error occurred while sniffing packets: {ex}")
+            print(f"Error while sniffing packets: {ex}")
 
 web_protection_observer = RealTimeWebProtectionObserver()
 
-class YaraScanner:
-    def scan_data(self, file_path):
-        matched_rules = []
+def scan_yara(file_path):
+    matched_rules = []
 
-        try:
-            if not os.path.exists(file_path):
-                logging.error(f"File not found during YARA scan: {file_path}")
-                return None
-
-            with open(file_path, 'rb') as file:
-                data_content = file.read()
-
-                # Check matches for compiled_rule
-                if compiled_rule:
-                    matches = compiled_rule.match(data=data_content)
-                    if matches:
-                        for match in matches:
-                            if match.rule not in excluded_rules:
-                                matched_rules.append(match.rule)
-                            else:
-                                logging.info(f"Rule {match.rule} is excluded from compiled_rule.")
-                else:
-                    logging.warning("compiled_rule is not defined.")
-
-                # Check matches for yarGen_rule
-                if yarGen_rule:
-                    matches = yarGen_rule.match(data=data_content)
-                    if matches:
-                        for match in matches:
-                            if match.rule not in excluded_rules:
-                                matched_rules.append(match.rule)
-                            else:
-                                logging.info(f"Rule {match.rule} is excluded from yarGen_rule.")
-                else:
-                    logging.warning("yarGen_rule is not defined.")
-
-                # Check matches for icewater_rule
-                if icewater_rule:
-                    matches = icewater_rule.match(data=data_content)
-                    if matches:
-                        for match in matches:
-                            if match.rule not in excluded_rules:
-                                matched_rules.append(match.rule)
-                            else:
-                                logging.info(f"Rule {match.rule} is excluded from icewater_rule.")
-                else:
-                    logging.warning("icewater_rule is not defined.")
-
-                # Check matches for valhalla_rule
-                if valhalla_rule:
-                    matches = valhalla_rule.match(data=data_content)
-                    if matches:
-                        for match in matches:
-                            if match.rule not in excluded_rules:
-                                matched_rules.append(match.rule)
-                            else:
-                                logging.info(f"Rule {match.rule} is excluded from valhalla_rule.")
-                else:
-                    logging.warning("valhalla_rule is not defined.")
-
-                # Check matches for yaraxtr_rule (loaded with yara_x)
-                if yaraxtr_rule:
-                    scanner = yara_x.Scanner(yaraxtr_rule)
-                    results = scanner.scan(data=data_content)
-                    if results.matching_rules:
-                        for rule in results.matching_rules:
-                            if hasattr(rule, 'identifier') and rule.identifier not in excluded_rules:
-                                matched_rules.append(rule.identifier)
-                            else:
-                                logging.info(f"Rule {rule.identifier} is excluded from yaraxtr_rule.")
-                else:
-                    logging.warning("yaraxtr_rule is not defined.")
-
-            # Return matched rules as the yara_result if not empty, otherwise return None
-            return matched_rules if matched_rules else None
-
-        except Exception as e:
-            logging.error(f"An error occurred during YARA scan: {e}")
+    try:
+        if not os.path.exists(file_path):
+            logging.error(f"File not found during YARA scan: {file_path}")
             return None
 
-yara_scanner = YaraScanner()
+        with open(file_path, 'rb') as yara_file:
+            data_content = yara_file.read()
+
+            # Check matches for compiled_rule
+            if compiled_rule:
+                matches = compiled_rule.match(data=data_content)
+                if matches:
+                    for match in matches:
+                        if match.rule not in excluded_rules:
+                            matched_rules.append(match.rule)
+                        else:
+                            logging.info(f"Rule {match.rule} is excluded from compiled_rule.")
+            else:
+                logging.warning("compiled_rule is not defined.")
+
+            # Check matches for yarGen_rule
+            if yarGen_rule:
+                matches = yarGen_rule.match(data=data_content)
+                if matches:
+                    for match in matches:
+                        if match.rule not in excluded_rules:
+                            matched_rules.append(match.rule)
+                        else:
+                            logging.info(f"Rule {match.rule} is excluded from yarGen_rule.")
+            else:
+                logging.warning("yarGen_rule is not defined.")
+
+            # Check matches for icewater_rule
+            if icewater_rule:
+                matches = icewater_rule.match(data=data_content)
+                if matches:
+                    for match in matches:
+                        if match.rule not in excluded_rules:
+                            matched_rules.append(match.rule)
+                        else:
+                            logging.info(f"Rule {match.rule} is excluded from icewater_rule.")
+            else:
+                logging.warning("icewater_rule is not defined.")
+
+            # Check matches for valhalla_rule
+            if valhalla_rule:
+                matches = valhalla_rule.match(data=data_content)
+                if matches:
+                    for match in matches:
+                        if match.rule not in excluded_rules:
+                            matched_rules.append(match.rule)
+                        else:
+                            logging.info(f"Rule {match.rule} is excluded from valhalla_rule.")
+            else:
+                logging.warning("valhalla_rule is not defined.")
+
+            # Check matches for yaraxtr_rule (loaded with yara_x)
+            if yaraxtr_rule:
+                scanner = yara_x.Scanner(yaraxtr_rule)
+                results = scanner.scan(data=data_content)
+                if results.matching_rules:
+                    for rule in results.matching_rules:
+                        if hasattr(rule, 'identifier') and rule.identifier not in excluded_rules:
+                            matched_rules.append(rule.identifier)
+                        else:
+                            logging.info(f"Rule {rule.identifier} is excluded from yaraxtr_rule.")
+            else:
+                logging.warning("yaraxtr_rule is not defined.")
+
+        # Return matched rules as the yara_result if not empty, otherwise return None
+        return matched_rules if matched_rules else None
+
+    except Exception as ex:
+        logging.error(f"An error occurred during YARA scan: {ex}")
+        return None
 
 # Function to check the signature of a file
 def check_signature(file_path):
@@ -1583,9 +1580,9 @@ def check_signature(file_path):
             "has_microsoft_signature": has_microsoft_signature,
             "signature_status_issues": signature_status_issues
         }
-    except Exception as e:
-        print(f"An error occurred while checking signature: {e}")
-        logging.error(f"An error occurred while checking signature: {e}")
+    except Exception as ex:
+        print(f"An error occurred while checking signature: {ex}")
+        logging.error(f"An error occurred while checking signature: {ex}")
         return {
             "is_valid": False,
             "has_microsoft_signature": False,
@@ -1604,9 +1601,9 @@ def check_valid_signature_only(file_path):
         return {
             "is_valid": is_valid
         }
-    except Exception as e:
-        print(f"An error occurred while verifying a valid signature: {e}")
-        logging.error(f"An error occurred while verifying a valid signature: {e}")
+    except Exception as ex:
+        print(f"An error occurred while verifying a valid signature: {ex}")
+        logging.error(f"An error occurred while verifying a valid signature: {ex}")
         return {
             "is_valid": False
         }
@@ -1641,14 +1638,15 @@ def clean_directories():
     except Exception as e:
         logging.error(f"An error occurred while cleaning the directories: {e}")
 
+
 def is_pe_file(file_path):
     """Check if the file at the specified path is a Portable Executable (PE) file."""
     if not os.path.exists(file_path):
         return False
-    
+
     try:
-        with open(file_path, 'rb') as file:
-            pe = pefile.PE(data=file.read())
+        with open(file_path, 'rb') as pe_file:
+            pefile.PE(data=pe_file.read())  # Try loading the file as a PE.
             return True
     except pefile.PEFormatError:
         return False
@@ -1858,7 +1856,7 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
 
         # Scan with YARA
         try:
-            yara_result = yara_scanner.scan_data(file_path)
+            yara_result = scan_yara(file_path)
             if yara_result is not None and yara_result not in ("Clean", ""):
                 if signature_check["is_valid"]:
                     yara_result = "SIG." + yara_result
@@ -4043,10 +4041,10 @@ class Monitor_Message_CommandLine:
                     cmdline_str = " ".join(proc.info['cmdline'])
                     executable_path = proc.exe()  # Capture the executable path
                     command_lines.append((cmdline_str, executable_path))
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
-                logging.error(f"Process error: {e}")
-            except Exception as e:
-                logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {e}")
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as ex:
+                logging.error(f"Process error: {ex}")
+            except Exception as ex:
+                logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {ex}")
         return command_lines
 
     def contains_keywords_within_max_distance(self, text, max_distance):
