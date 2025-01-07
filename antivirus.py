@@ -1088,7 +1088,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
             if similarity > nearest_malicious_similarity:
                 nearest_malicious_similarity = similarity
             if similarity >= threshold:
-                is_malicious = True
+                is_malicious_machine_learning_ai = True
                 malware_rank = rank
                 malware_definition = info['file_name']  # Set malware definition if malicious match is found
                 logging.warning(f"Malicious activity detected in {file_path}. Malware definition: {malware_definition}, similarity: {similarity}, rank: {malware_rank}")
