@@ -685,16 +685,16 @@ def calculate_similarity(features1, features2):
     similarity = matching_keys / max(len(features1), len(features2))
     return similarity
 
-def notify_user(file_path, virus_name):
+def notify_user(file_path, virus_name, engine_detected): 
     notification = Notify()
     notification.title = "Malware Alert"
-    notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}"
+    notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
     notification.send()
 
-def notify_user_pua(file_path, virus_name):
+def notify_user_pua(file_path, virus_name, engine_detected):
     notification = Notify()
     notification.title = "PUA Alert"
-    notification.message = f"PUA file detected: {file_path}\nVirus: {virus_name}"
+    notification.message = f"PUA file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
     notification.send()
 
 def notify_user_for_llama32(file_path, virus_name, malware_status):
@@ -1826,7 +1826,6 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
     """Scan file in real-time using multiple engines."""
     logging.info(f"Started scanning file: {file_path}")
 
-    try:
         # Scan with Machine Learning AI for PE files
         try:
             if pe_file:
@@ -1836,10 +1835,9 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                         if signature_check["is_valid"]:
                             malware_definition = "SIG." + malware_definition
                         logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
-                        return True, malware_definition
+                        return True, malware_definition, "ML"
                     elif benign_score >= 0.93:
                         logging.info(f"File is clean based on ML benign score: {file_path}")
-                        return False, "Clean"
                 logging.info(f"No malware detected by Machine Learning in file: {file_path}")
         except Exception as e:x
             logging.error(f"An error occurred while scanning file with Machine Learning AI: {file_path}. Error: {ex}")
@@ -1851,7 +1849,7 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                 if signature_check["is_valid"]:
                     result = "SIG." + result
                 logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
-                return True, result
+                return True, result, "ClamAV"
             logging.info(f"No malware detected by ClamAV in file: {file_path}")
         except Exception as ex:
             logging.error(f"An error occurred while scanning file with ClamAV: {file_path}. Error: {ex}")
@@ -1863,7 +1861,7 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                 if signature_check["is_valid"]:
                     yara_result = "SIG." + yara_result
                 logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
-                return True, yara_result
+                return True, yara_result, "YARA"
             logging.info(f"Scanned file with YARA: {file_path} - No viruses detected")
         except Exception as ex:
             logging.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {ex}")
