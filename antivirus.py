@@ -2862,7 +2862,7 @@ def calculate_similarity_worm(features1, features2, threshold=0.86):
 
 def extract_numeric_worm_features(file_path):
     """
-    Extract numeric features of a file using pefile for worm detection.
+    Extract numeric features of a file using pefile for malware detection.
     """
     res = {}
     try:
@@ -2879,7 +2879,7 @@ def extract_numeric_worm_features(file_path):
             'SizeOfUninitializedData': pe.OPTIONAL_HEADER.SizeOfUninitializedData,
             'AddressOfEntryPoint': pe.OPTIONAL_HEADER.AddressOfEntryPoint,
             'BaseOfCode': pe.OPTIONAL_HEADER.BaseOfCode,
-            'BaseOfData': pe.OPTIONAL_HEADER.BaseOfData if hasattr(pe.OPTIONAL_HEADER, 'BaseOfData') else 0,
+            'BaseOfData': getattr(pe.OPTIONAL_HEADER, 'BaseOfData', 0),
             'ImageBase': pe.OPTIONAL_HEADER.ImageBase,
             'SectionAlignment': pe.OPTIONAL_HEADER.SectionAlignment,
             'FileAlignment': pe.OPTIONAL_HEADER.FileAlignment,
@@ -2917,37 +2917,42 @@ def extract_numeric_worm_features(file_path):
 
         # Extract Imports
         res['imports'] = [
-            imp.name.decode() if imp.name else "Unknown"
+            imp.name.decode(errors='ignore') if imp.name else "Unknown"
             for entry in getattr(pe, 'DIRECTORY_ENTRY_IMPORT', [])
             for imp in getattr(entry, 'imports', [])
         ]
 
         # Extract Exports
         res['exports'] = [
-            exp.name.decode() if exp.name else "Unknown"
+            exp.name.decode(errors='ignore') if exp.name else "Unknown"
             for exp in getattr(pe, 'DIRECTORY_ENTRY_EXPORT', {}).get('symbols', [])
-        ]
+        ] if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT') else []
 
         # Extract Resources
         res['resources'] = []
         if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-            for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+            for resource_type in getattr(pe.DIRECTORY_ENTRY_RESOURCE, 'entries', []):
                 if hasattr(resource_type, 'directory'):
-                    for resource_id in resource_type.directory.entries:
-                        if hasattr(resource_id, 'data'):
-                            resource_data = {
-                                'type': resource_type.struct.Id,
-                                'size': resource_id.data.struct.Size,
-                                'codepage': resource_id.data.struct.CodePage
-                            }
-                            res['resources'].append(resource_data)
+                    for resource_id in getattr(resource_type.directory, 'entries', []):
+                        for resource_lang in getattr(resource_id.directory, 'entries', []):
+                            if hasattr(resource_lang, 'data') and resource_lang.data.struct:
+                                res['resources'].append({
+                                    'type': resource_type.struct.Id,
+                                    'id': resource_id.id,
+                                    'language': resource_lang.id,
+                                    'size': resource_lang.data.struct.Size,
+                                    'codepage': resource_lang.data.struct.CodePage
+                                })
 
         # Extract Relocations
         res['relocations'] = [
-            entry
+            {
+                'virtual_address': entry.rva,
+                'type': entry.type
+            }
             for relocation in getattr(pe, 'DIRECTORY_ENTRY_BASERELOC', [])
             for entry in getattr(relocation, 'entries', [])
-        ]
+        ] if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC') else []
 
         # Extract Debug Information
         res['debug'] = [
@@ -2958,13 +2963,12 @@ def extract_numeric_worm_features(file_path):
                 'minor_version': debug.struct.MinorVersion
             }
             for debug in getattr(pe, 'DIRECTORY_ENTRY_DEBUG', [])
-            if hasattr(debug, 'struct')
-        ]
+        ] if hasattr(pe, 'DIRECTORY_ENTRY_DEBUG') else []
 
     except pefile.PEFormatError as pe_error:
         logging.error(f"PE Format Error in file {file_path}: {pe_error}")
     except Exception as e:
-        logging.error(f"An error occurred while processing {file_path}: {e}")
+        logging.error(f"An error occurred while processing {file_path}: {e}", exc_info=True)
 
     return res
 
