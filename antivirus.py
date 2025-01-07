@@ -1045,12 +1045,13 @@ def analyze_process_memory(file_path):
 def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     """Scan a file for malicious activity using machine learning."""
 
-    try:
-        malware_definition = "Benign"  # Default value if no malware is detected
+    # Default assignment of malware_definition before starting the process
+    malware_definition = "Benign"  # Assuming the file is benign if no other conditions match.
 
+    try:
         pe = pefile.PE(file_path)
         if not pe:
-            return False, malware_definition, 0  # If it's not a PE file, return default
+            return False, malware_definition, 0  # If it's not a PE file, return the default value
 
         file_info = extract_infos(file_path)
         file_numeric_features = extract_numeric_features(file_path)
@@ -1060,7 +1061,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
         nearest_malicious_similarity = 0
         nearest_benign_similarity = 0
 
-        # Check against malicious features
+        # Checking against malicious features
         for malicious_features, info in zip(malicious_numeric_features, malicious_file_names):
             rank = info['numeric_tag']
             similarity = calculate_similarity(file_numeric_features, malicious_features)
@@ -1069,10 +1070,10 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
             if similarity >= threshold:
                 is_malicious = True
                 malware_rank = rank
-                malware_definition = info['file_name']  # Update malware definition
+                malware_definition = info['file_name']  # Set malware definition if malicious match is found
                 break
 
-        # Check against benign features if no malicious features match
+        # Check for benign features if file is not malicious
         for benign_features in benign_numeric_features:
             similarity = calculate_similarity(file_numeric_features, benign_features)
             if similarity > nearest_benign_similarity:
@@ -1087,10 +1088,11 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
             return False, malware_definition, nearest_benign_similarity
 
     except pefile.PEFormatError:
-        return False, malware_definition, 0  # If the PE format is invalid, return default value
+        return False, malware_definition, 0  # Default return value if the PE format is invalid
     except Exception as e:
         print(f"An error occurred while scanning file {file_path}: {e}")
-        return False, malware_definition, 0  # Default case in case of exception
+        return False, malware_definition, 0  # Default return value in case of general exception
+
 
 def restart_clamd_thread():
     try:
