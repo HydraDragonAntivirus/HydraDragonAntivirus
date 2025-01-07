@@ -665,7 +665,7 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
         logging.error(f"Error extracting numeric features from {file_path}: {str(e)}")
         return None
 
-def calculate_similarity(features1, features2, threshold=0.86):
+def calculate_similarity(features1, features2):
     """Calculate similarity between two dictionaries of features"""
     common_keys = set(features1.keys()) & set(features2.keys())
     matching_keys = sum(1 for key in common_keys if features1[key] == features2[key])
@@ -756,12 +756,16 @@ def notify_user_fake_size(file_path, virus_name):
     notification.message = f"Fake size file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
+
 def notify_user_startup(file_path, message):
     """Notify the user about suspicious or malicious startup files."""
     notification = Notify()
     notification.title = "Startup File Alert"
-    notification.message = message
+
+    # Include file_path in the message
+    notification.message = f"File: {file_path}\n{message}"
     notification.send()
+
 
 def notify_user_uefi(file_path, virus_name):
     notification = Notify()
