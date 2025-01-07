@@ -1841,8 +1841,8 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                         logging.info(f"File is clean based on ML benign score: {file_path}")
                         return False, "Clean"
                 logging.info(f"No malware detected by Machine Learning in file: {file_path}")
-        except Exception as e:
-            logging.error(f"An error occurred while scanning file with Machine Learning AI: {file_path}. Error: {e}")
+        except Exception as e:x
+            logging.error(f"An error occurred while scanning file with Machine Learning AI: {file_path}. Error: {ex}")
 
         # Scan with ClamAV
         try:
@@ -1853,8 +1853,8 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                 logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
                 return True, result
             logging.info(f"No malware detected by ClamAV in file: {file_path}")
-        except Exception as e:
-            logging.error(f"An error occurred while scanning file with ClamAV: {file_path}. Error: {e}")
+        except Exception as ex:
+            logging.error(f"An error occurred while scanning file with ClamAV: {file_path}. Error: {ex}")
 
         # Scan with YARA
         try:
@@ -1865,8 +1865,8 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                 logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
                 return True, yara_result
             logging.info(f"Scanned file with YARA: {file_path} - No viruses detected")
-        except Exception as e:
-            logging.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {e}")
+        except Exception as ex:
+            logging.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {ex}")
 
         # Scan TAR files
         try:
@@ -1882,8 +1882,8 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
             logging.error(f"Permission error occurred while scanning TAR file: {file_path}")
         except FileNotFoundError:
             logging.error(f"TAR file not found error occurred while scanning TAR file: {file_path}")
-        except Exception as e:
-            logging.error(f"An error occurred while scanning TAR file: {file_path}. Error: {e}")
+        except Exception as ex:
+            logging.error(f"An error occurred while scanning TAR file: {file_path}. Error: {ex}")
 
         # Scan ZIP files
         try:
@@ -1899,8 +1899,8 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
             logging.error(f"Permission error occurred while scanning ZIP file: {file_path}")
         except FileNotFoundError:
             logging.error(f"ZIP file not found error occurred while scanning ZIP file: {file_path}")
-        except Exception as e:
-            logging.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {e}")
+        except Exception as ex:
+            logging.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {ex}")
 
         # Scan 7z files
         try:
@@ -1918,11 +1918,11 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
             logging.error(f"Permission error occurred while scanning 7Z file: {file_path}")
         except FileNotFoundError:
             logging.error(f"7Z file not found error occurred while scanning 7Z file: {file_path}")
-        except Exception as e:
-            logging.error(f"An error occurred while scanning 7Z file: {file_path}. Error: {e}")
+        except Exception as ex:
+            logging.error(f"An error occurred while scanning 7Z file: {file_path}. Error: {ex}")
 
-    except Exception as e:
-        logging.error(f"An error occurred while scanning file: {file_path}. Error: {e}")
+    except Exception as ex:
+        logging.error(f"An error occurred while scanning file: {file_path}. Error: {ex}")
 
     return False, "Clean"
 
