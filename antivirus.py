@@ -1091,8 +1091,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
                 is_malicious = True
                 malware_rank = rank
                 malware_definition = info['file_name']  # Set malware definition if malicious match is found
-                logging.warning(
-                    f"Malicious activity detected in {file_path}. Malware definition: {malware_definition}, similarity: {similarity}, rank: {malware_rank}")
+                logging.warning(f"Malicious activity detected in {file_path}. Malware definition: {malware_definition}, similarity: {similarity}, rank: {malware_rank}")
                 break
 
         # If malicious not detected, check for benign features
