@@ -1638,7 +1638,6 @@ def clean_directories():
     except Exception as ex:
         logging.error(f"An error occurred while cleaning the directories: {ex}")
 
-
 def is_pe_file(file_path):
     """Check if the file at the specified path is a Portable Executable (PE) file."""
     if not os.path.exists(file_path):
@@ -1662,30 +1661,6 @@ def contains_rlo_after_dot(filename):
     """Check if the filename contains an RLO character after a dot."""
     return ".\u202E" in filename
 
-def scan_pe_file(file_path):
-    """Scan files within an exe file."""
-    try:
-        pe = pefile.PE(file_path)
-        virus_names = []
-        for entry in pe.DIRECTORY_ENTRY_RESOURCE.entries:
-            if hasattr(entry, 'directory'):
-                for resource in entry.directory.entries:
-                    if hasattr(resource, 'directory'):
-                        for res in resource.directory.entries:
-                            if hasattr(res, 'directory'):
-                                for r in res.directory.entries:
-                                    if hasattr(r, 'data'):
-                                        data_content = pe.get_data(r.data.struct.OffsetToData, r.data.struct.Size)
-                                        
-                                        # Save data to file in the extracted directory
-                                        extracted_file_path = os.path.join(pe_extracted_dir, "pe_extracted_data.bin")
-                                        with open(extracted_file_path, 'wb') as temp_file:
-                                            temp_file.write(data_content)
-        
-        return True, virus_names
-    except Exception as e:
-        logging.error(f"Error scanning exe file: {file_path} - {e}")
-        return False, ""
 
 def scan_zip_file(file_path):
     """Scan files within a zip archive."""
