@@ -3390,9 +3390,9 @@ def is_pyc_file(file_path):
 
 def show_code_with_uncompyle6(file_path):
     """
-    Decompiles a .pyc file and saves it with appropriate naming based on 
+    Decompiles a .pyc file and saves it with appropriate naming based on
     PyInstaller's entry point detection method.
-    
+
     Args:
         file_path: Path to the .pyc file to decompile
     Returns:
@@ -3400,20 +3400,20 @@ def show_code_with_uncompyle6(file_path):
     """
     try:
         logging.info(f"Processing python file: {file_path}")
-        
+
         # Create output directory if needed
         if not os.path.exists('python_source_code_dir'):
             os.makedirs('python_source_code_dir')
-        
+
         # Get base name without .pyc extension
         base_name = os.path.splitext(os.path.basename(file_path))[0]
-        
+
         # Check if it's source code using PyInstaller's method
         is_source = False
         with open(file_path, "rb") as f:
             # Skip pyc header
             f.seek(16)
-            
+
             # Try to read TOC entry structure
             entry_data = f.read(struct.calcsize('!IIIBc'))
             if len(entry_data) >= struct.calcsize('!IIIBc'):
@@ -3423,7 +3423,7 @@ def show_code_with_uncompyle6(file_path):
                     is_source = (type_cmprs_data == b's')
                 except struct.error:
                     pass
-        
+
         # Create versioned output name based on detection
         version = 1
         while True:
@@ -3440,19 +3440,19 @@ def show_code_with_uncompyle6(file_path):
             if not os.path.exists(output_path):
                 break
             version += 1
-        
+
         # Decompile the file
         with open(file_path, "rb") as f:
             decompiled_code = uncompyle6.pyeval.evaluate(f)
-        
+
         if decompiled_code is None:
             logging.error(f"Failed to decompile {file_path}")
             return None
-        
+
         # Save the decompiled code
         with open(output_path, "w") as output_file:
             output_file.write(decompiled_code)
-        
+
         logging.info(f"Successfully saved to {output_path}")
         return output_path
 
