@@ -1998,7 +1998,7 @@ class AntivirusUI(QWidget):
         threading.Thread(target=self.update_definitions).start()
 
 # Regex for Snort alerts
-alert_regex = re.compile(r'\[Priority: (\d+)\].*?\{(?:UDP|TCP)\} (\d+\.\d+\.\d+\.\d+):\d+ -> (\d+\.\d+\.\d+\.\d+):\d+')
+alert_regex = re.compile(r'\[Priority: (\d+)].*?\{(?:UDP|TCP)} (\d+\.\d+\.\d+\.\d+):\d+ -> (\d+\.\d+\.\d+\.\d+):\d+')
 
 # File paths and configurations
 log_path = "C:\\Snort\\log\\alert.ids"
@@ -2544,7 +2544,7 @@ class PyInstArchive:
 
         return True
 
-    def extractFiles(self):        
+    def extractFiles(self):
         # Create the directory for python source code if it doesn't exist
         if not os.path.exists(python_source_code_dir):
             os.makedirs(python_source_code_dir)
