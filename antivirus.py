@@ -2250,20 +2250,20 @@ except Exception as e:
     print(f"Error loading YARA-X rules: {e}")
 
 # Function to load Llama-3.2-1B model and tokenizer
-def load_llama32_model():
+def load_llama32_1b_model():
     try:
         message = "Attempting to load Llama-3.2-1B model and tokenizer..."
         print(message)
         logging.info(message)
         
-        llama3_tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B", local_files_only=True)
-        llama_model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-1B", local_files_only=True)
+        llama32_tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B", local_files_only=True)
+        llama32_model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-1B", local_files_only=True)
         
         success_message = "Llama-3.2-1B successfully loaded!"
         print(success_message)
         logging.info(success_message)
         
-        return llama_model, llama3_tokenizer
+        return llama32_model, llama32_tokenizer
     except Exception as ex:
         error_message = f"Error loading Llama-3.2-1B model or tokenizer: {ex}"
         print(error_message)
@@ -2271,7 +2271,7 @@ def load_llama32_model():
         sys.exit(1)
 
 # Load the Llama-3.2-1B model
-llama_model, llama3_tokenizer = load_llama32_model()
+llama32_1b_model, llama32_1b_tokenizer = load_llama32_1b_model()
 
 # List to keep track of existing project names
 existing_projects = []
@@ -2477,7 +2477,7 @@ class PyInstArchive:
         except AttributeError:
             pass
 
-    def checkFile(self):
+    def checkfile(self):
         endPos = self.fileSize
         searchChunkSize = 8192
 
@@ -2494,7 +2494,7 @@ class PyInstArchive:
                 if startPos == 0:
                     return False
         except Exception as ex:
-            logging.error(f"Error during checkFile: {ex}")
+            logging.error(f"Error during checkfile: {ex}")
             return False
 
         try:
@@ -2512,8 +2512,8 @@ class PyInstArchive:
                 _, lengthofPackage, toc, tocLen, pyver = struct.unpack('!8siiii', self.fPtr.read(self.PYINST20_COOKIE_SIZE))
             else:
                 _, lengthofPackage, toc, tocLen, pyver, _ = struct.unpack('!8sIIii64s', self.fPtr.read(self.PYINST21_COOKIE_SIZE))
-        except struct.error as e:
-            logging.error(f"Error unpacking data: {e}")
+        except struct.error as ex:
+            logging.error(f"Error unpacking data: {ex}")
             return False
 
         self.pymaj, self.pymin = (pyver // 100, pyver % 100) if pyver >= 100 else (pyver // 10, pyver % 10)
@@ -2539,8 +2539,8 @@ class PyInstArchive:
 
                 try:
                     entry = struct.unpack(f'!IIIBc{entrySize - nameLen}s', self.fPtr.read(entrySize - 4))
-                except struct.error as e:
-                    logging.error(f"Error unpacking TOC entry: {e}")
+                except struct.error as ex:
+                    logging.error(f"Error unpacking TOC entry: {ex}")
                     return False
 
                 name = entry[5].decode("utf-8", errors="replace").rstrip('\0')
@@ -2613,11 +2613,11 @@ class PyInstArchive:
         os.makedirs(dirName, exist_ok=True)
 
         try:
-            with open(name, 'rb') as f:
-                pyzMagic = f.read(4)
+            with open(name, 'rb') as pyz_f:
+                pyzMagic = pyz_f.read(4)
                 assert pyzMagic == b'PYZ\0' 
 
-                pyzPycMagic = f.read(4)
+                pyzPycMagic = pyz_f.read(4)
 
                 if self.pymaj != sys.version_info.major or self.pymin != sys.version_info.minor:
                     return False
@@ -2627,8 +2627,8 @@ class PyInstArchive:
 
                 try:
                     toc = marshal.load(f)
-                except (EOFError, ValueError, TypeError) as e:
-                    logging.error(f"Error loading PYZ TOC: {e}")
+                except (EOFError, ValueError, TypeError) as ex:
+                    logging.error(f"Error loading PYZ TOC: {ex}")
                     return False
 
                 if isinstance(toc, list):
@@ -2675,7 +2675,7 @@ def is_pyinstaller_archive(file_path):
     try:
         archive = PyInstArchive(file_path)
         if archive.open_file():
-            result = archive.checkFile()
+            result = archive.checkfile()
             return result
     except Exception as e:
         logging.error(f"Error checking if '{file_path}' is a PyInstaller archive: {e}")
@@ -2695,7 +2695,7 @@ def extract_pyinstaller_archive(file_path):
             return None
 
         # Check if the file is a valid PyInstaller archive
-        if not archive.checkFile():
+        if not archive.checkfile():
             logging.error(f"File {file_path} is not a valid PyInstaller archive.")
             return None
 
@@ -3050,7 +3050,7 @@ def scan_file_with_llama32(file_path):
         )
 
         # Tokenize the initial message
-        initial_inputs = llama3_tokenizer(initial_message, return_tensors="pt")
+        initial_inputs = llama32_b_tokenizer(initial_message, return_tensors="pt")
         initial_token_length = initial_inputs['input_ids'].shape[1]
 
         # Define token limits
@@ -3078,12 +3078,12 @@ def scan_file_with_llama32(file_path):
             return None  # Handle error appropriately
 
         # Tokenize the readable file content
-        file_inputs = llama3_tokenizer(readable_file_content, return_tensors="pt")
+        file_inputs = llama32_1b_tokenizer(readable_file_content, return_tensors="pt")
         file_token_length = file_inputs['input_ids'].shape[1]
 
         # Truncate the file content to fit within the remaining tokens
         if file_token_length > remaining_tokens:
-            truncated_file_content = llama3_tokenizer.decode(file_inputs['input_ids'][0, :remaining_tokens], skip_special_tokens=True)
+            truncated_file_content = llama32_1b_tokenizer.decode(file_inputs['input_ids'][0, :remaining_tokens], skip_special_tokens=True)
         else:
             truncated_file_content = readable_file_content
 
@@ -3091,16 +3091,16 @@ def scan_file_with_llama32(file_path):
         combined_message = initial_message + f"File content:\n{truncated_file_content}\n"
 
         # Tokenize the combined message
-        inputs = llama3_tokenizer(combined_message, return_tensors="pt")
+        inputs = llama32_1b_okenizer(combined_message, return_tensors="pt")
 
         # Generate the response with a limited number of tokens
         try:
-            response = accelerator.unwrap_model(llama_model).generate(
+            response = accelerator.unwrap_model(llama321g_model).generate(
                 input_ids=inputs['input_ids'],
                 max_new_tokens=1000,  # Limit the number of tokens in the generated response
                 num_return_sequences=1
             )
-            response = llama3_tokenizer.decode(response[0], skip_special_tokens=True).strip()
+            response = llama32_1b_tokenizer.decode(response[0], skip_special_tokens=True).strip()
         except Exception as ex:
             logging.error(f"Error generating response: {ex}")
             return
