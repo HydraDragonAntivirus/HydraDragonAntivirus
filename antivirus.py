@@ -1722,7 +1722,7 @@ def scan_7z_file(file_path):
         return True, []
     except Exception as ex:
         logging.error(f"Error scanning 7z file: {file_path} - {ex}")
-        return False, str(ex)
+        return False, ""
 
 def is_7z_file(file_path):
     """
@@ -1872,11 +1872,11 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                 if scan_result and virus_name not in ("Clean", ""):
                     if signature_check["is_valid"]:
                         virus_name = "SIG." + virus_name
-                    logging.warning(f"Infected file detected (7Zz): {file_path} - Virus: {virus_name}")
+                    logging.warning(f"Infected file detected (7z): {file_path} - Virus: {virus_name}")
                     return True, virus_name, "7z"
                 logging.info(f"No malware detected in 7z file: {file_path}")
             else:
-                logging.info(f"File is not a valid 7Z archive: {file_path}")
+                logging.info(f"File is not a valid 7z archive: {file_path}")
         except PermissionError:
             logging.error(f"Permission error occurred while scanning 7Z file: {file_path}")
         except FileNotFoundError:
