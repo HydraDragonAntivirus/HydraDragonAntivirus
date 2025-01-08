@@ -2444,12 +2444,12 @@ def is_dotnet_file(file_path):
     return False
 
 class CTOCEntry:
-    def __init__(self, position, cmprsddatasize, uncmprsddatasize, cmprsflag, typeCmprsData, name):
+    def __init__(self, position, cmprsddatasize, uncmprsddatasize, cmprsflag, typecmprsdata, name):
         self.position = position
         self.cmprsddatasize = cmprsddatasize
         self.uncmprsddatasize = uncmprsddatasize
         self.cmprsflag = cmprsflag
-        self.typeCmprsData = typeCmprsData
+        self.typecmprsdata = typecmprsdata
         self.name = name
 
 class PyInstArchive:
@@ -2594,7 +2594,7 @@ class PyInstArchive:
                     self._extractPyz(entry.name)
 
                 # Check for entry points (python scripts or pyc files)
-                if entry.typeCmprsData == b's':
+                if entry.typecmprsdata == b's':
                     print(f"[+] Possible entry point: {entry.name}")
 
                 if self.pycMagic == b'\0' * 4:
@@ -2660,8 +2660,8 @@ class PyInstArchive:
                         if self.pymaj >= 3 and self.pymin >= 7:
                             pyc_f.write(b'\0' * 8)
                         pyc_f.write(data_content)
-        except Exception as e:
-            logging.error(f"Error during PYZ extraction: {e}")
+        except Exception as ex:
+            logging.error(f"Error during PYZ extraction: {ex}")
             return False
 
         return True
@@ -2677,8 +2677,8 @@ def is_pyinstaller_archive(file_path):
         if archive.open_file():
             result = archive.checkfile()
             return result
-    except Exception as e:
-        logging.error(f"Error checking if '{file_path}' is a PyInstaller archive: {e}")
+    except Exception as ex:
+        logging.error(f"Error checking if '{file_path}' is a PyInstaller archive: {ex}")
     
     return False
 
@@ -2717,8 +2717,8 @@ def extract_pyinstaller_archive(file_path):
 
         return pyinstaller_dir if extraction_success else None
 
-    except Exception as e:
-        logging.error(f"An error occurred while extracting PyInstaller archive {file_path}: {e}")
+    except Exception as ex:
+        logging.error(f"An error occurred while extracting PyInstaller archive {file_path}: {ex}")
         return None
 
 def has_known_extension(file_path):
@@ -2726,8 +2726,8 @@ def has_known_extension(file_path):
         ext = os.path.splitext(file_path)[1].lower()
         logging.info(f"Extracted extension '{ext}' for file '{file_path}'")
         return ext in fileTypes
-    except Exception as e:
-        logging.error(f"Error checking extension for file {file_path}: {e}")
+    except Exception as ex:
+        logging.error(f"Error checking extension for file {file_path}: {ex}")
         return False
 
 def is_readable(file_path):
@@ -2778,8 +2778,8 @@ def is_ransomware(file_path):
 
         logging.info(f"File '{file_path}' does not meet ransomware conditions")
         return False
-    except Exception as e:
-        logging.error(f"Error checking ransomware for file {file_path}: {e}")
+    except Exception as ex:
+        logging.error(f"Error checking ransomware for file {file_path}: {ex}")
         return False
 
 def search_files_with_same_extension(directory, extension):
@@ -2827,15 +2827,15 @@ def ransomware_alert(file_path):
                 has_warned_ransomware = True
                 logging.warning(f"User has been notified about potential ransomware in {main_file_path}")
                 print(f"User has been notified about potential ransomware in {main_file_path}")
-    except Exception as e:
-        logging.error(f"Error in ransomware_alert: {e}")
+    except Exception as ex:
+        logging.error(f"Error in ransomware_alert: {ex}")
 
 # Global variables for worm detection
 worm_alerted_files = []
 worm_detected_count = {}
 worm_file_paths = []
 
-def calculate_similarity_worm(features1, features2, threshold=0.86):
+def calculate_similarity_worm(features1, features2):
     """
     Calculate similarity between two dictionaries of features for worm detection.
     Adjusted threshold for worm detection.
@@ -2845,8 +2845,8 @@ def calculate_similarity_worm(features1, features2, threshold=0.86):
         matching_keys = sum(1 for key in common_keys if features1[key] == features2[key])
         similarity = matching_keys / max(len(features1), len(features2)) if max(len(features1), len(features2)) > 0 else 0
         return similarity
-    except Exception as e:
-        logging.error(f"Error calculating similarity: {e}")
+    except Exception as ex:
+        logging.error(f"Error calculating similarity: {ex}")
         return 0  # Return a default value in case of an error
 
 def extract_numeric_worm_features(file_path: str) -> Optional[Dict[str, Any]]:
@@ -2858,8 +2858,8 @@ def extract_numeric_worm_features(file_path: str) -> Optional[Dict[str, Any]]:
         # Reuse the numeric features extraction function for base data
         res.update(extract_numeric_features(file_path) or {})
 
-    except Exception as e:
-        logging.error(f"An error occurred while processing {file_path}: {e}", exc_info=True)
+    except Exception as ex:
+        logging.error(f"An error occurred while processing {file_path}: {ex}", exc_info=True)
 
     return res
 
@@ -3004,8 +3004,8 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: It's a PyInstaller reversed-engineered Python source code directory.")
         else:
             logging.warning(f"{file_path}: File does not match known directories.")
-    except Exception as e:
-        logging.error(f"Error logging directory type for {file_path}: {e}")
+    except Exception as ex:
+        logging.error(f"Error logging directory type for {file_path}: {ex}")
 
 # Function to process the file and analyze it
 def scan_file_with_llama32(file_path):
@@ -3073,8 +3073,8 @@ def scan_file_with_llama32(file_path):
                         line_count += 1
                     else:
                         break
-        except Exception as e:
-            logging.error(f"Error reading file {file_path}: {e}")
+        except Exception as ex:
+            logging.error(f"Error reading file {file_path}: {ex}")
             return None  # Handle error appropriately
 
         # Tokenize the readable file content
@@ -3147,25 +3147,25 @@ def scan_file_with_llama32(file_path):
         try:
             with open(answer_log_path, "a") as answer_log_file:
                 answer_log_file.write(relevant_response + "\n\n")  # Write the raw model response
-        except Exception as e:
-            logging.error(f"Error writing to log file {answer_log_path}: {e}")
+        except Exception as ex:
+            logging.error(f"Error writing to log file {answer_log_path}: {ex}")
 
         log_file_path = os.path.join(script_dir, "log", "Llama32-1B.log")
         try:
             with open(log_file_path, "a") as log_file:
                 log_file.write(final_response + "\n")
-        except Exception as e:
-            logging.error(f"Error writing to log file {log_file_path}: {e}")
+        except Exception as ex:
+            logging.error(f"Error writing to log file {log_file_path}: {ex}")
 
         # If malware is detected (Maybe or Yes), notify the user
         if malware.lower() in ["maybe", "yes"]:
             try:
                 notify_user_for_llama32(file_path, virus_name, malware)
-            except Exception as e:
-                logging.error(f"Error notifying user: {e}")
+            except Exception as ex:
+                logging.error(f"Error notifying user: {ex}")
 
-    except Exception as e:
-        logging.error(f"An unexpected error occurred in scan_file_with_llama32: {e}")
+    except Exception as ex:
+        logging.error(f"An unexpected error occurred in scan_file_with_llama32: {ex}")
 
 def extract_and_return_pyinstaller(file_path):
     """
@@ -3203,8 +3203,8 @@ def decompile_dotnet_file(file_path):
         os.system(ilspy_command)
         logging.info(f".NET content decompiled to {dotnet_output_dir}")
 
-    except Exception as e:
-        logging.error(f"Error decompiling .NET file {file_path}: {e}")
+    except Exception as ex:
+        logging.error(f"Error decompiling .NET file {file_path}: {ex}")
 
 def check_pe_file(file_path, pe_file, signature_check, file_name):
     try:
@@ -3217,8 +3217,8 @@ def check_pe_file(file_path, pe_file, signature_check, file_name):
                 logging.warning(f"Detected fake system file: {file_path}")
                 notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.Generic")
 
-    except Exception as e:
-        logging.error(f"Error checking PE file {file_path}: {e}")
+    except Exception as ex:
+        logging.error(f"Error checking PE file {file_path}: {ex}")
 
 def extract_7z_archive(archive_path, output_dir, seven_zip_path):
     """
@@ -3248,8 +3248,8 @@ def extract_7z_archive(archive_path, output_dir, seven_zip_path):
                 extracted_files.append(os.path.join(output_dir, extracted_file))
         return extracted_files
 
-    except Exception as e:
-        logging.error(f"Error during archive extraction: {e}")
+    except Exception as ex:
+        logging.error(f"Error during archive extraction: {ex}")
         return []
 
 def is_pyc_file(file_path):
@@ -3268,11 +3268,11 @@ def is_pyc_file(file_path):
             logging.info(f"File {file_path} is detected as a Python compiled module by DIE.")
             return True
 
-    except subprocess.SubprocessError as e:
-        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {e}")
+    except subprocess.SubprocessError as ex:
+        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
         return False
-    except Exception as e:
-        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {e}")
+    except Exception as ex:
+        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
         return False
 
 def show_code_with_uncompyle6(file_path, file_name):
@@ -3306,7 +3306,7 @@ def show_code_with_uncompyle6(file_path, file_name):
             entry_data = f.read(struct.calcsize('!IIIBc'))
             if len(entry_data) >= struct.calcsize('!IIIBc'):
                 try:
-                    # Unpack TOC entry to check typeCmprsData
+                    # Unpack TOC entry to check typecmprsdata
                     _, _, _, _, type_cmprs_data = struct.unpack('!IIIBc', entry_data)
                     is_source = (type_cmprs_data == b's')
                 except struct.error:
@@ -3344,8 +3344,8 @@ def show_code_with_uncompyle6(file_path, file_name):
         logging.info(f"Successfully saved to {output_path}")
         return output_path
 
-    except Exception as e:
-        logging.error(f"Error processing python file {file_path}: {e}")
+    except Exception as ex:
+        logging.error(f"Error processing python file {file_path}: {ex}")
         return None
 
 def scan_and_warn(file_path, flag=False):
@@ -3457,8 +3457,8 @@ def scan_and_warn(file_path, flag=False):
             try:
                 logging.info(f"Checking if the file {file_path} contains Nuitka executable.")
                 extract_nuitka_file(file_path)
-            except Exception as e:
-                logging.error(f"Error checking or extracting Nuitka content from {file_path}: {e}")
+            except Exception as ex:
+                logging.error(f"Error checking or extracting Nuitka content from {file_path}: {ex}")
 
         else:
             # If the file content is not valid hex data, perform scanning with Llama-3.2-1B
@@ -3467,8 +3467,8 @@ def scan_and_warn(file_path, flag=False):
                 scan_thread = threading.Thread(target=scan_file_with_llama32, args=(file_path,))
                 scan_thread.start()
                 scan_thread.join()  # Wait for scanning to complete
-            except Exception as e:
-                logging.error(f"Error during scanning with Llama-3.2-1B for file {file_path}: {e}")
+            except Exception as ex:
+                logging.error(f"Error during scanning with Llama-3.2-1B for file {file_path}: {ex}")
 
             # Scan for malware in real-time only for non-hex data
             logging.info(f"Performing real-time malware detection for non-hex data file: {file_path}...")
@@ -3552,8 +3552,8 @@ def scan_and_warn(file_path, flag=False):
 
         return True
 
-    except Exception as e:
-        logging.error(f"Error scanning file {file_path}: {e}")
+    except Exception as ex:
+        logging.error(f"Error scanning file {file_path}: {ex}")
         return False
 
 def monitor_sandbox():
@@ -3602,9 +3602,9 @@ def monitor_sandbox():
                     print(f"File or folder not found: {pathToScan}")
                     logging.warning(f"File or folder not found: {pathToScan}")
 
-    except Exception as e:
-        print(f"An error occurred at monitor_sandbox: {e}")
-        logging.error(f"An error occurred at monitor_sandbox: {e}")
+    except Exception as ex:
+        print(f"An error occurred at monitor_sandbox: {ex}")
+        logging.error(f"An error occurred at monitor_sandbox: {ex}")
     finally:
         win32file.CloseHandle(hDir)
 
@@ -3623,8 +3623,8 @@ def monitor_snort_log():
                 if not line:
                     continue
                 process_alert(line)
-            except Exception as e:
-                print(f"Error processing line: {e}")
+            except Exception as ex:
+                print(f"Error processing line: {ex}")
 
 def check_startup_directories():
     """Monitor startup directories for new files and handle them."""
@@ -3666,8 +3666,8 @@ def check_startup_directories():
                             notify_user_startup(file_path, message)
                             scan_and_warn(file_path)
                             alerted_files.append(file_path)
-        except Exception as e:
-            logging.error(f"An error occurred while checking startup directories: {e}")
+        except Exception as ex:
+            logging.error(f"An error occurred while checking startup directories: {ex}")
 
 def check_hosts_file_for_blocked_antivirus():
     try:
@@ -3700,8 +3700,8 @@ def check_hosts_file_for_blocked_antivirus():
             notify_user_hosts(hosts_path, "HEUR:Win32.Trojan.Hosts.Hijacker.Generic")
             return True
 
-    except Exception as e:
-        logging.error(f"Error reading hosts file: {e}")
+    except Exception as ex:
+        logging.error(f"Error reading hosts file: {ex}")
 
     return False
 
@@ -3759,8 +3759,8 @@ class ScanAndWarnHandler(FileSystemEventHandler):
         try:
             scan_and_warn(file_path)
             logging.info(f"Processed file: {file_path}")
-        except Exception as e:
-            logging.error(f"Error processing file (scan_and_warn) {file_path}: {e}")
+        except Exception as ex:
+            logging.error(f"Error processing file (scan_and_warn) {file_path}: {ex}")
 
     def process_directory(self, dir_path):
         try:
@@ -3769,8 +3769,8 @@ class ScanAndWarnHandler(FileSystemEventHandler):
                     file_path = os.path.join(root, file_name)
                     self.process_file(file_path)
             logging.info(f"Processed all files in directory: {dir_path}")
-        except Exception as e:
-            logging.error(f"Error processing directory {dir_path}: {e}")
+        except Exception as ex:
+            logging.error(f"Error processing directory {dir_path}: {ex}")
 
     def on_any_event(self, event):
         if event.is_directory:
@@ -3810,10 +3810,10 @@ def run_sandboxie_control():
         # Include the '/open' argument to open the Sandboxie control window
         result = subprocess.run([sandboxie_control_path, "/open"], shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         logging.info(f"Sandboxie control output: {result.stdout}")
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Error running Sandboxie control: {e.stderr}")
-    except Exception as e:
-        logging.error(f"Unexpected error running Sandboxie control: {e}")
+    except subprocess.CalledProcessError as ex:
+        logging.error(f"Error running Sandboxie control: {ex.stderr}")
+    except Exception as ex:
+        logging.error(f"Unexpected error running Sandboxie control: {ex}")
 
 # Constants for Windows API calls
 WM_GETTEXT = 0x000D
@@ -4196,12 +4196,12 @@ class Monitor_Message_CommandLine:
             logging.info(f"Finished processing detection for {file_path}. No malware detected (detect_malware).")
             return False  # Indicate no malware detected
 
-        except FileNotFoundError as e:
-            logging.error(f"File not found: {file_path}. Error: {e}")
-        except IsADirectoryError as e:
-            logging.error(f"Expected a file but got a directory: {file_path}. Error: {e}")
-        except Exception as e:
-            logging.error(f"Error handling file {file_path}: {e}")
+        except FileNotFoundError as ex:
+            logging.error(f"File not found: {file_path}. Error: {ex}")
+        except IsADirectoryError as ex:
+            logging.error(f"Expected a file but got a directory: {file_path}. Error: {ex}")
+        except Exception as ex:
+            logging.error(f"Error handling file {file_path}: {ex}")
 
         return None  # Indicate an error occurred
 
@@ -4237,8 +4237,8 @@ class Monitor_Message_CommandLine:
                             else:
                                 logging.info(f"Wrote preprocessed text to {preprocessed_file_path}.")
                                 scan_and_warn(preprocessed_file_path)
-                        except Exception as e:
-                            logging.error(f"Error writing preprocessed text to {preprocessed_file_path}: {e}")
+                        except Exception as ex:
+                            logging.error(f"Error writing preprocessed text to {preprocessed_file_path}: {ex}")
 
                     # Write original text to a file if not empty
                     if text:
@@ -4250,8 +4250,8 @@ class Monitor_Message_CommandLine:
                             else:
                                 logging.info(f"Wrote original text to {original_file_path}.")
                                 scan_and_warn(original_file_path)
-                        except Exception as e:
-                            logging.error(f"Error writing original text to {original_file_path}: {e}")
+                        except Exception as ex:
+                            logging.error(f"Error writing original text to {original_file_path}: {ex}")
 
                 # Capture command lines
                 command_lines = self.capture_command_lines()
@@ -4271,8 +4271,8 @@ class Monitor_Message_CommandLine:
                             else:
                                 logging.info(f"Wrote original command line to {original_command_file_path}.")
                                 scan_and_warn(original_command_file_path)
-                        except Exception as e:
-                            logging.error(f"Error writing original command line to {original_command_file_path}: {e}")
+                        except Exception as ex:
+                            logging.error(f"Error writing original command line to {original_command_file_path}: {ex}")
 
                     # Write preprocessed command line to a file if not empty
                     if preprocessed_command_line:
@@ -4284,11 +4284,11 @@ class Monitor_Message_CommandLine:
                             else:
                                 logging.info(f"Wrote preprocessed command line to {preprocessed_command_file_path}.")
                                 scan_and_warn(preprocessed_command_file_path)
-                        except Exception as e:
-                            logging.error(f"Error writing preprocessed command line to {preprocessed_command_file_path}: {e}")
+                        except Exception as ex:
+                            logging.error(f"Error writing preprocessed command line to {preprocessed_command_file_path}: {ex}")
 
-        except Exception as e:
-            logging.error(f"Error in monitor: {e}")
+        except Exception as ex:
+            logging.error(f"Error in monitor: {ex}")
 
 def monitor_sandboxie_directory():
     """
@@ -4323,8 +4323,8 @@ def monitor_sandboxie_directory():
                                 scan_and_warn(file_path)
                                 file_mod_times[file_path] = last_mod_time
 
-    except Exception as e:
-        logging.error(f"Error in monitor_sandboxie_directory: {e}")
+    except Exception as ex:
+        logging.error(f"Error in monitor_sandboxie_directory: {ex}")
 
 def perform_sandbox_analysis(file_path):
     global main_file_path
@@ -4384,8 +4384,8 @@ class AnalysisThread(QThread):
 def run_sandboxie(file_path):
     try:
         subprocess.run([sandboxie_path, '/box:DefaultBox', file_path], check=True)
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Failed to run Sandboxie on {file_path}: {e}")
+    except subprocess.CalledProcessError as ex:
+        logging.error(f"Failed to run Sandboxie on {file_path}: {ex}")
 
 def main():
     try:
