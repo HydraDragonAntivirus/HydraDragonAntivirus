@@ -1745,12 +1745,23 @@ def scan_7z_file(file_path):
         return False, ""
 
 def is_7z_file(file_path):
-    """Check if the file is a valid 7z archive."""
+    """
+    Check if the file is a valid 7z archive using Detect It Easy console.
+    """
     try:
-        with py7zr.SevenZipFile(file_path, mode='r'):
+        # Run the Detect It Easy console command to analyze the file
+        result = subprocess.run([detectiteasy_console_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        # Check if the output contains the signature "Archive: 7-Zip"
+        if "Archive: 7-Zip" in result.stdout:
             return True
-    except Exception:
-        return False
+
+    except subprocess.SubprocessError as ex:
+        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
+    except Exception as ex:
+        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
+
+    return False
 
 def scan_tar_file(file_path):
     """Scan files within a tar archive."""
@@ -2377,11 +2388,11 @@ def is_nuitka_file(file_path):
     try:
         # Run the DIE console command to analyze the file
         result = subprocess.run([detectiteasy_console_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        
+
         # Check if the output indicates the file is a Nuitka-compiled executable
         if "Nuitka" in result.stdout:
             return True
-        
+
     except subprocess.SubprocessError as ex:
         logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
         return False
