@@ -1713,12 +1713,12 @@ def scan_7z_file(file_path):
 
                 # RLO check
                 if contains_rlo_after_dot(filename):
-                    virus_name = "HEUR:RLO.Suspicious.Name.Encrypted.7Z.Generic"
+                    virus_name = "HEUR:RLO.Suspicious.Name.Encrypted.7z.Generic"
                     logging.warning(
                         f"Filename {filename} in {file_path} contains RLO character after a dot - "
                         f"flagged as {virus_name}"
                     )
-                    notify_rlo_warning(file_path, "7Z", virus_name)
+                    notify_rlo_warning(file_path, "7z", virus_name)
 
                 if is_encrypted(entry):
                     logging.info(f"Skipping encrypted file: {filename}")
@@ -1731,13 +1731,13 @@ def scan_7z_file(file_path):
                 # Check for suspicious conditions: large files in small 7z archives
                 extracted_file_size = os.path.getsize(extracted_file_path)
                 if archive_size < 20 * 1024 * 1024 and extracted_file_size > 650 * 1024 * 1024:
-                    virus_name = "HEUR:Win32.Suspicious.Size.Encrypted.7Z"
+                    virus_name = "HEUR:Win32.Suspicious.Size.Encrypted.7z"
                     logging.warning(
-                        f"7Z file {file_path} is smaller than 20MB but contains a large file: {filename} "
+                        f"7z file {file_path} is smaller than 20MB but contains a large file: {filename} "
                         f"({extracted_file_size / (1024 * 1024)} MB) - flagged as {virus_name}. "
-                        "Potential 7Z bomb or Fake Size detected to avoid VirusTotal detections."
+                        "Potential 7z bomb or Fake Size detected to avoid VirusTotal detections."
                     )
-                    notify_size_warning(file_path, "7Z", virus_name)
+                    notify_size_warning(file_path, "7z", virus_name)
 
         return True, []
     except Exception as ex:
