@@ -139,10 +139,6 @@ import ctypes
 print(f"ctypes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from ctypes.wintypes import HMODULE, DWORD
-print(f"ctypes.wintypes, HMODULE and DWORD module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import ipaddress
 print(f"ipaddress module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -153,10 +149,6 @@ print(f"spacy module loaded in {time.time() - start_time:.6f} seconds")
 start_time = time.time()
 import csv
 print(f"csv module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from elftools.elf.elffile import ELFFile
-print(f"elftools.elf.ELFFile module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import struct
@@ -945,31 +937,19 @@ def load_domains_data():
 
     print("All domain and ip address files loaded successfully!")
 
-# Create a more explicit array definition
-class ModuleArray(ctypes.Array):
-    _type_ = HANDLE
-    _length_ = 1024
-
-hmodules = ModuleArray()
-
 def enum_process_modules(handle):
-    """
-    Enumerate and retrieve loaded modules in a process.
-    Uses the Windows API EnumProcessModulesEx via pymem.
-    """
-    needed = DWORD()
-
+    """Enumerate and retrieve loaded modules in a process."""
+    hModules = (ctypes.c_void_p * 1024)()
+    needed = ctypes.c_ulong()
     if not pymem.ressources.psapi.EnumProcessModulesEx(
-            handle,
-            ctypes.byref(hmodules),
-            ctypes.sizeof(hmodules),
-            ctypes.byref(needed),
-            pymem.ressources.structure.EnumProcessModuleEX.LIST_MODULES_ALL
+        handle,
+        ctypes.byref(hModules),
+        ctypes.sizeof(hModules),
+        ctypes.byref(needed),
+        pymem.ressources.structure.EnumProcessModuleEX.LIST_MODULES_ALL
     ):
         raise RuntimeError("Failed to enumerate process modules")
-
-    module_count = needed.value // ctypes.sizeof(HMODULE)
-    return [hmodules[i] for i in range(module_count)]
+    return [module for module in hModules if module]
 
 def get_module_info(handle, base_addr):
     """Retrieve module information."""
@@ -2526,7 +2506,7 @@ class PyInstArchive:
         self.overlaySize = lengthofpackage + (self.fileSize - self.cookiePos - (self.PYINST20_COOKIE_SIZE if self.pyinstVer == 20 else self.PYINST21_COOKIE_SIZE))
         self.overlayPos = self.fileSize - self.overlaySize
         self.tableOfContentsPos = self.overlayPos + toc
-        self.tableOfContentsSize = tocLen
+        self.tableOfContentsSize = toclen
         return True
 
     def parseTOC(self):

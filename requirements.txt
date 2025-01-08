@@ -9,7 +9,6 @@ watchdog
 notify-py
 pywin32
 pydumpck
-pyelftools
 base32-crockford
 torch
 accelerate
