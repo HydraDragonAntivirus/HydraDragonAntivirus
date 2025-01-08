@@ -1317,9 +1317,18 @@ class RealTimeWebProtectionHandler:
 
     def scan_ip_address(self, ip_address):
         try:
+            # First, check if the IP address is local
+            if is_local_ip(ip_address):
+                message = f"Skipping local IP address: {ip_address}"
+                logging.info(message)
+                print(message)
+                return
+
+            # Check if the IP address has already been scanned (IPv6 or IPv4)
             if ip_address in self.scanned_ipv6_addresses or ip_address in self.scanned_ipv4_addresses:
                 return
 
+            # Determine whether it's an IPv6 or IPv4 address
             if ':' in ip_address:  # IPv6 address
                 self.scanned_ipv6_addresses.append(ip_address)
                 message = f"Scanning IPv6 address: {ip_address}"
@@ -1331,11 +1340,6 @@ class RealTimeWebProtectionHandler:
                 message = f"Scanning IPv4 address: {ip_address}"
                 logging.info(message)
                 print(message)
-                if is_local_ip(ip_address):
-                    message = f"Skipping local IP address: {ip_address}"
-                    logging.info(message)
-                    print(message)
-                    return
                 self.handle_detection('ip_address', ip_address)
         except Exception as ex:
             logging.error(f"Error scanning IP address {ip_address}: {ex}")
