@@ -1193,12 +1193,10 @@ def is_local_ip(ip):
 ip_regex = re.compile(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')
 ipv6_regex = re.compile(r'\b(?:[a-fA-F0-9]{1,4}:){7}[a-fA-F0-9]{1,4}\b')
 domain_regex = re.compile(r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b')
-url_regex = re.compile(r'\b(?:https?://|www\.)[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/[^\s]*)?\b')
-
+url_regex = re.compile(r'\b(?:https?://|www\.)[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/\S*)?\b')
 
 def is_related_to_critical_paths(file_path):
     return file_path.startswith(sandboxie_folder) or file_path == main_file_path
-
 
 class RealTimeWebProtectionHandler:
     def __init__(self):
