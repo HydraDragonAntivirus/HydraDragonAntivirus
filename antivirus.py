@@ -1,7 +1,6 @@
 import os
 import sys
 import logging
-import io
 from datetime import datetime
 import time
 
@@ -66,16 +65,12 @@ from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, Q
 print(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from PySide6.QtCore import Qt, QObject, QThread, Signal, Slot, QMetaObject
+from PySide6.QtCore import QObject, QThread, Signal
 print(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from PySide6.QtGui import QIcon
 print(f"PySide6.QtGui.QIcon module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import sklearn
-print(f"sklearn module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import joblib
@@ -110,10 +105,6 @@ from notifypy import Notify
 print(f"notifypy.Notify module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from concurrent.futures import ThreadPoolExecutor, as_completed
-print(f"concurrent.futures.ThreadPoolExecutor and as_completed loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 from watchdog.observers import Observer
 print(f"watchdog.observers.Observer module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -133,37 +124,31 @@ start_time = time.time()
 from datetime import timedelta
 print(f"datetime.timedelta modules loaded in {time.time() - start_time:.6f} seconds")
 
+import time
 start_time = time.time()
-import winreg
-print(f"winreg module loaded in {time.time() - start_time:.6f} seconds")
 
-start_time = time.time()
-from scapy.all import IP, IPv6, DNS, DNSQR, DNSRR, TCP, UDP, sniff
-print(f"scapy modules (IP, IPv6, DNS, DNSQR, DNSRR, TCP, UDP, sniff) loaded in {time.time() - start_time:.6f} seconds")
+from scapy.layers.inet import IP, TCP, UDP
+from scapy.layers.inet6 import IPv6
+from scapy.layers.dns import DNS, DNSQR, DNSRR
+from scapy.sendrecv import sniff
+
+print(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ctypes
 print(f"ctypes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+from ctypes.wintypes import HMODULE, DWORD
+print(f"ctypes.wintypes, HMODULE and DWORD module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import ipaddress
 print(f"ipaddress module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from sklearn.metrics.pairwise import cosine_similarity
-print(f"sklearn.metrics.pairwise.cosine_similarity module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import numpy as np
-print(f"numpy module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import spacy
 print(f"spacy module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import codecs
-print(f"codecs module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import csv
@@ -960,19 +945,31 @@ def load_domains_data():
 
     print("All domain and ip address files loaded successfully!")
 
+# Create a more explicit array definition
+class ModuleArray(ctypes.Array):
+    _type_ = HANDLE
+    _length_ = 1024
+
+hmodules = ModuleArray()
+
 def enum_process_modules(handle):
-    """Enumerate and retrieve loaded modules in a process."""
-    hmodules = (ctypes.c_void_p * 1024)()
-    needed = ctypes.c_ulong()
+    """
+    Enumerate and retrieve loaded modules in a process.
+    Uses the Windows API EnumProcessModulesEx via pymem.
+    """
+    needed = DWORD()
+
     if not pymem.ressources.psapi.EnumProcessModulesEx(
-        handle,
-        ctypes.byref(hmodules),
-        ctypes.sizeof(hmodules),
-        ctypes.byref(needed),
-        pymem.ressources.structure.EnumProcessModuleEX.LIST_MODULES_ALL
+            handle,
+            ctypes.byref(hmodules),
+            ctypes.sizeof(hmodules),
+            ctypes.byref(needed),
+            pymem.ressources.structure.EnumProcessModuleEX.LIST_MODULES_ALL
     ):
         raise RuntimeError("Failed to enumerate process modules")
-    return [module for module in hmodules if module]
+
+    module_count = needed.value // ctypes.sizeof(HMODULE)
+    return [hmodules[i] for i in range(module_count)]
 
 def get_module_info(handle, base_addr):
     """Retrieve module information."""
@@ -3009,7 +3006,7 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: This is the main file.")
         elif file_path.startswith(memory_dir):
             logging.info(f"{file_path}: It's a dynamic analysis memory dump file.")
-        elif file_path.startswith(pythonsourcecodedir):
+        elif file_path.startswith(python_source_code_dir):
             logging.info(f"{file_path}: It's a PyInstaller reversed-engineered Python source code directory.")
         else:
             logging.warning(f"{file_path}: File does not match known directories.")
@@ -3059,7 +3056,7 @@ def scan_file_with_llama32(file_path):
         )
 
         # Tokenize the initial message
-        initial_inputs = llama32_b_tokenizer(initial_message, return_tensors="pt")
+        initial_inputs = llama32_1b_tokenizer(initial_message, return_tensors="pt")
         initial_token_length = initial_inputs['input_ids'].shape[1]
 
         # Define token limits
@@ -3100,11 +3097,11 @@ def scan_file_with_llama32(file_path):
         combined_message = initial_message + f"File content:\n{truncated_file_content}\n"
 
         # Tokenize the combined message
-        inputs = llama32_1b_okenizer(combined_message, return_tensors="pt")
+        inputs = llama32_1b_tokenizer(combined_message, return_tensors="pt")
 
         # Generate the response with a limited number of tokens
         try:
-            response = accelerator.unwrap_model(llama321g_model).generate(
+            response = accelerator.unwrap_model(llama32_1b_model).generate(
                 input_ids=inputs['input_ids'],
                 max_new_tokens=1000,  # Limit the number of tokens in the generated response
                 num_return_sequences=1
@@ -3534,7 +3531,7 @@ def scan_and_warn(file_path, flag=False):
                     notify_user_fake_size_thread.start()
 
         # Perform real-time scan
-        is_malicious, virus_names = scan_file_real_time(file_path, signature_check, pe_file=pe_file)
+        is_malicious, virus_names, engine_detected = scan_file_real_time(file_path, signature_check, pe_file=pe_file)
 
         # Inside the scan check logic
         if is_malicious:
