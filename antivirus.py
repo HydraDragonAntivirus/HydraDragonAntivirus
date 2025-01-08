@@ -273,6 +273,7 @@ whitelist_domains_data = []
 clamdscan_path = "C:\\Program Files\\ClamAV\\clamdscan.exe"
 freshclam_path = "C:\\Program Files\\ClamAV\\freshclam.exe"
 clamav_file_paths = ["C:\\Program Files\\ClamAV\\database\\daily.cvd", "C:\\Program Files\\ClamAV\\database\\daily.cld"]
+clamav_database_directory_path = "C:\\Program Files\\ClamAV\\database"
 seven_zip_path = "C:\\Program Files\\7-Zip\\7z.exe"  # Path to 7z.exe
 
 os.makedirs(python_source_code_dir, exist_ok=True)
@@ -1937,33 +1938,30 @@ class AntivirusUI(QWidget):
         QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
 
     def update_definitions(self):
-        directory_path = "C:\\Program Files\\ClamAV\\database"
-        file_found = False
-
         try:
-            # Check if either daily.cvd or daily.cld exists
+            # Iterate over the list of ClamAV database files and check each
             for file_path in clamav_file_paths:
                 if os.path.exists(file_path):
-                    file_found = True
-                    file_mod_time = os.path.getmtime(file_path)
-                    file_mod_time = datetime.fromtimestamp(file_mod_time)
-
+                    # File found, check its modification time
+                    file_mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
                     file_age = datetime.now() - file_mod_time
 
                     if file_age > timedelta(hours=6):
+                        # All files in directory must be older than 6 hours
                         all_files_old = True
-                        for root, dirs, files in os.walk(directory_path):
+                        for root, dirs, files in os.walk(clamav_database_directory_path):
                             for file_name in files:
                                 other_file_path = os.path.join(root, file_name)
-                                other_file_mod_time = os.path.getmtime(other_file_path)
-                                other_file_mod_time = datetime.fromtimestamp(other_file_mod_time)
+                                other_file_mod_time = datetime.fromtimestamp(os.path.getmtime(other_file_path))
                                 other_file_age = datetime.now() - other_file_mod_time
                                 if other_file_age <= timedelta(hours=6):
                                     all_files_old = False
                                     break
                             if not all_files_old:
                                 break
+
                         if all_files_old:
+                            # Run freshclam to update definitions
                             result = subprocess.run([freshclam_path], capture_output=True, text=True)
                             if result.returncode == 0:
                                 self.signals.success.emit()
@@ -1977,18 +1975,17 @@ class AntivirusUI(QWidget):
                             return
                     else:
                         print("The database is not older than 6 hours. No update needed.")
-                    return
+                    return  # File checked, exit function
 
             # If neither daily.cvd nor daily.cld exists, run freshclam
-            if not file_found:
-                print("Neither daily.cvd nor daily.cld files exist. Running freshclam.")
-                result = subprocess.run([freshclam_path], capture_output=True, text=True)
-                if result.returncode == 0:
-                    restart_clamd_thread()
-                    self.signals.success.emit()
-                else:
-                    self.signals.failure.emit()
-                    print(f"freshclam failed with output: {result.stdout}\n{result.stderr}")
+            print("Neither daily.cvd nor daily.cld files exist. Running freshclam.")
+            result = subprocess.run([freshclam_path], capture_output=True, text=True)
+            if result.returncode == 0:
+                restart_clamd_thread()
+                self.signals.success.emit()
+            else:
+                self.signals.failure.emit()
+                print(f"freshclam failed with output: {result.stdout}\n{result.stderr}")
 
         except Exception as ex:
             logging.error(f"Error in update_definitions: {ex}")
@@ -2131,9 +2128,9 @@ def process_alert(line):
         logging.error(f"Error matching alert regex: {ex}")
         print(f"Error matching alert regex: {ex}")
 
-def clean_directory(directory_path):
-    for filename in os.listdir(directory_path):
-        file_path = os.path.join(directory_path, filename)
+def clean_directory(log_path):
+    for filename in os.listdir(log_path):
+        file_path = os.path.join(log_path, filename)
         try:
             if os.path.isfile(file_path) or os.path.islink(file_path):
                 os.unlink(file_path)
