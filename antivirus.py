@@ -1334,13 +1334,43 @@ class RealTimeWebProtectionHandler:
                 message = f"Scanning IPv6 address: {ip_address}"
                 logging.info(message)
                 print(message)
-                self.handle_detection('ip_address', ip_address)
+
+                # Check against the IPv6 addresses signatures
+                if ip_address in ipv6_addresses_signatures_data:
+                    self.handle_detection('ip_address', ip_address, 'MALWARE')
+
+                # Check if it is in the IPv6 whitelist
+                elif ip_address in ipv6_whitelist_data:
+                    message = f"IPv6 address {ip_address} is whitelisted"
+                    logging.info(message)
+                    print(message)
+                else:
+                    # Log as unknown but do not trigger handle_detection
+                    message = f"Unknown IPv6 address detected: {ip_address}"
+                    logging.info(message)
+                    print(message)
+
             else:  # IPv4 address
                 self.scanned_ipv4_addresses.append(ip_address)
                 message = f"Scanning IPv4 address: {ip_address}"
                 logging.info(message)
                 print(message)
-                self.handle_detection('ip_address', ip_address)
+
+                # Check against the IPv4 addresses signatures
+                if ip_address in ipv4_addresses_signatures_data:
+                    self.handle_detection('ip_address', ip_address, 'MALWARE')
+
+                # Check if it is in the IPv4 whitelist
+                elif ip_address in ipv4_whitelist_data:
+                    message = f"IPv4 address {ip_address} is whitelisted"
+                    logging.info(message)
+                    print(message)
+                else:
+                    # Log as unknown but do not trigger handle_detection
+                    message = f"Unknown IPv4 address detected: {ip_address}"
+                    logging.info(message)
+                    print(message)
+
         except Exception as ex:
             logging.error(f"Error scanning IP address {ip_address}: {ex}")
             print(f"Error scanning IP address {ip_address}: {ex}")
