@@ -43,7 +43,6 @@ build_options = {
     "packages": ["scapy", "srsly", "blis", "spacy"],
     "includes": ["preshed.maps"],
     "excludes": ["tkinter"],
-    "include_msvcr": True,
     "include_files": [
         (str(model_version_folder), "en_core_web_md"),  # Include the spacy model folder
         (str(transformers_path), "lib/transformers"),       # Include the transformers folder
