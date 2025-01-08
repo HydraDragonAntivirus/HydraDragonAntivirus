@@ -267,13 +267,16 @@ antivirus_domains_data = []
 ipv4_addresses_signatures_data = []
 ipv6_addresses_signatures_data = []
 ipv4_whitelist_data = []
+ipv6_whitelist_data = []
 urlhaus_data = []
 malware_domains_data = []
+malware_domains_mail_data = []
 phishing_domains_data = []
 abuse_domains_data = []
 mining_domains_data = []
 spam_domains_data = []
 whitelist_domains_data = []
+whitelist_domains_mail_data = []
 
 clamdscan_path = "C:\\Program Files\\ClamAV\\clamdscan.exe"
 freshclam_path = "C:\\Program Files\\ClamAV\\freshclam.exe"
@@ -683,7 +686,7 @@ def notify_user_pua(file_path, virus_name, engine_detected):
     notification.message = f"PUA file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
     notification.send()
 
-def notify_user_for_detected_command(self, message):
+def notify_user_for_detected_command(message):
     logging.warning(f"Notification: {message}")
     notification = Notify()
     notification.title = f"Malware Message Alert"
@@ -859,7 +862,7 @@ def load_antivirus_list():
         return []
 
 def load_domains_data():
-    global ipv4_addresses_signatures_data, ipv6_addresses_signatures_data, ipv4_whitelist_data, urlhaus_data, malware_domains_data, phishing_domains_data, abuse_domains_data, mining_domains_data, spam_domains_data, whitelist_domains_data
+    global ipv4_addresses_signatures_data, ipv4_whitelist_data, ipv6_addresses_signatures_data, ipv6_whitelist_data, urlhaus_data, malware_domains_data, malware_domains_mail_data, phishing_domains_data, abuse_domains_data, mining_domains_data, spam_domains_data, whitelist_domains_data, whitelist_domains_mail_data
 
     try:
         # Load IPv4 addresses
@@ -870,6 +873,14 @@ def load_domains_data():
         print(f"Error loading IPv4 Addresses: {ex}")
 
     try:
+        # Load IPv4 whitelist
+        with open(ipv4_whitelist_path, 'r') as whitelist_file:
+            ipv4_whitelist_data = whitelist_file.read().splitlines()
+        print("IPv4 Whitelist loaded successfully!")
+    except Exception as ex:
+        print(f"Error loading IPv4 Whitelist: {ex}")
+
+    try:
         # Load IPv6 addresses
         with open(ipv6_addresses_path, 'r') as ipv6_file:
             ipv6_addresses_signatures_data = ipv6_file.read().splitlines()
@@ -878,12 +889,13 @@ def load_domains_data():
         print(f"Error loading IPv6 Addresses: {ex}")
 
     try:
-        # Load IPv4 whitelist
-        with open(ipv4_whitelist_path, 'r') as whitelist_file:
-            ipv4_whitelist_data = whitelist_file.read().splitlines()
-        print("IPv4 Whitelist loaded successfully!")
+        # Load IPv6 whitelist
+        with open(ipv6_whitelist_path, 'r') as whitelist_file:
+            ipv6_whitelist_data = whitelist_file.read().splitlines()
+        print("IPv6 Whitelist loaded successfully!")
     except Exception as ex:
-        print(f"Error loading IPv4 Whitelist: {ex}")
+        print(f"Error loading IPv6 Whitelist: {ex}")
+        ipv6_whitelist_data = []
 
     try:
         # Load URLhaus data
@@ -904,6 +916,15 @@ def load_domains_data():
     except Exception as ex:
         print(f"Error loading Malware domains: {ex}")
         malware_domains_data = []
+
+    try:
+        # Load malware domains email path
+        with open(malware_domains_mail_path, 'r') as mail_domains_file:
+            malware_domains_mail_data = mail_domains_file.read().splitlines()
+        print("Malware email domains loaded successfully!")
+    except Exception as ex:
+        print(f"Error loading Malware email domains: {ex}")
+        malware_domains_mail_data = []
 
     try:
         # Load phishing domains
