@@ -101,10 +101,6 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - I added en_core_web_md manually to C:\Program Files\HydraDragonAntivirus you can find the spacy path from codechecker\spacyfind.py but you need to rename en_core_web_md folder name which contains config.cfg for an example if version 3.7.1 then it contains a subfolder en_core_web_md.3.8.0 
 - Also you need run "spacy download en_core_web_md"
 
-**Note 11:**
-
-- ALLOW_IPV4.txt = ip4whitelist.txt
-
 **Note 12:**
 
 - Your Windows folder must be in C:\ because some codes are hard coded.
