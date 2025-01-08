@@ -295,6 +295,7 @@ whitelist_domains_data = []
 
 clamdscan_path = "C:\\Program Files\\ClamAV\\clamdscan.exe"
 freshclam_path = "C:\\Program Files\\ClamAV\\freshclam.exe"
+clamav_file_paths = ["C:\\Program Files\\ClamAV\\database\\daily.cvd", "C:\\Program Files\\ClamAV\\database\\daily.cld"]
 seven_zip_path = "C:\\Program Files\\7-Zip\\7z.exe"  # Path to 7z.exe
 
 os.makedirs(python_source_code_dir, exist_ok=True)
@@ -1698,8 +1699,8 @@ def scan_zip_file(file_path):
                     notify_size_warning(file_path, "ZIP", virus_name)
 
         return True, []
-    except Exception as e:
-        logging.error(f"Error scanning zip file: {file_path} - {e}")
+    except Exception as ex:
+        logging.error(f"Error scanning zip file: {file_path} - {ex}")
         return False, ""
 
 def scan_7z_file(file_path):
@@ -1741,8 +1742,8 @@ def scan_7z_file(file_path):
                     notify_size_warning(file_path, "7Z", virus_name)
 
         return True, []
-    except Exception as e:
-        logging.error(f"Error scanning 7z file: {file_path} - {e}")
+    except Exception as ex:
+        logging.error(f"Error scanning 7z file: {file_path} - {ex}")
         return False, ""
 
 def is_7z_file(file_path):
@@ -1792,8 +1793,8 @@ def scan_tar_file(file_path):
                         notify_size_warning(file_path, "TAR", virus_name)
 
         return True, []
-    except Exception as e:
-        logging.error(f"Error scanning tar file: {file_path} - {e}")
+    except Exception as ex:
+        logging.error(f"Error scanning tar file: {file_path} - {ex}")
         return False, ""
 
 def scan_file_real_time(file_path, signature_check, pe_file=False):
@@ -1952,13 +1953,12 @@ class AntivirusUI(QWidget):
         QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
 
     def update_definitions(self):
-        file_paths = ["C:\\Program Files\\ClamAV\\database\\daily.cvd", "C:\\Program Files\\ClamAV\\database\\daily.cld"]
         directory_path = "C:\\Program Files\\ClamAV\\database"
         file_found = False
 
         try:
             # Check if either daily.cvd or daily.cld exists
-            for file_path in file_paths:
+            for file_path in clamav_file_paths:
                 if os.path.exists(file_path):
                     file_found = True
                     file_mod_time = os.path.getmtime(file_path)
@@ -2006,8 +2006,8 @@ class AntivirusUI(QWidget):
                     self.signals.failure.emit()
                     print(f"freshclam failed with output: {result.stdout}\n{result.stderr}")
 
-        except Exception as e:
-            logging.error(f"Error in update_definitions: {e}")
+        except Exception as ex:
+            logging.error(f"Error in update_definitions: {ex}")
             self.signals.failure.emit()
 
     def start_update_definitions_thread(self):
@@ -2111,8 +2111,8 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
             logging.error(f"Access denied to process: {proc.info.get('pid')}")
         except psutil.ZombieProcess:
             logging.error(f"Zombie process encountered: {proc.info.get('pid')}")
-        except Exception as e:
-            logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {e}")
+        except Exception as ex:
+            logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {ex}")
 
 def process_alert(line):
     try:
@@ -2133,19 +2133,19 @@ def process_alert(line):
                     print(f"Malicious activity detected from {src_ip} to {dst_ip} with priority {priority}")
                     try:
                         notify_user_for_hips(ip_address=src_ip, dst_ip_address=dst_ip)
-                    except Exception as e:
-                        logging.error(f"Error notifying user for HIPS (malicious): {e}")
+                    except Exception as ex:
+                        logging.error(f"Error notifying user for HIPS (malicious): {ex}")
                     convert_ip_to_file(src_ip, dst_ip, line.strip(), "Malicious")
                     return True
                 elif priority == 2:
                     convert_ip_to_file(src_ip, dst_ip, line.strip(), "Suspicious")
                     return True
-            except Exception as e:
-                logging.error(f"Error processing alert details: {e}")
-                print(f"Error processing alert details: {e}")
-    except Exception as e:
-        logging.error(f"Error matching alert regex: {e}")
-        print(f"Error matching alert regex: {e}")
+            except Exception as ex:
+                logging.error(f"Error processing alert details: {ex}")
+                print(f"Error processing alert details: {ex}")
+    except Exception as ex:
+        logging.error(f"Error matching alert regex: {ex}")
+        print(f"Error matching alert regex: {ex}")
 
 def clean_directory(directory_path):
     for filename in os.listdir(directory_path):
@@ -2155,8 +2155,8 @@ def clean_directory(directory_path):
                 os.unlink(file_path)
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
-        except Exception as e:
-            logging.error(f'Failed to delete {file_path}. Reason: {e}')
+        except Exception as ex:
+            logging.error(f'Failed to delete {file_path}. Reason: {ex}')
 
 def run_snort():    
     try:
@@ -2167,13 +2167,13 @@ def run_snort():
         logging.info("Snort completed analysis.")
         print("Snort completed analysis.")
 
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Snort encountered an error: {e}")
-        print(f"Snort encountered an error: {e}")
+    except subprocess.CalledProcessError as ex:
+        logging.error(f"Snort encountered an error: {ex}")
+        print(f"Snort encountered an error: {ex}")
 
-    except Exception as e:
-        logging.error(f"Failed to run Snort: {e}")
-        print(f"Failed to run Snort: {e}")
+    except Exception as ex:
+        logging.error(f"Failed to run Snort: {ex}")
+        print(f"Failed to run Snort: {ex}")
 
 def activate_uefi_drive():
     # Check if the platform is Windows
@@ -2182,8 +2182,8 @@ def activate_uefi_drive():
         # Execute the mountvol command
         subprocess.run(mount_command, shell=True, check=True)
         print("UEFI drive activated!")
-    except subprocess.CalledProcessError as e:
-        print(f"Error mounting UEFI drive: {e}")
+    except subprocess.CalledProcessError as ex:
+        print(f"Error mounting UEFI drive: {ex}")
 
 threading.Thread(target=run_snort).start()
 restart_clamd_thread()
@@ -2256,22 +2256,22 @@ def load_llama32_model():
         print(message)
         logging.info(message)
         
-        tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B", local_files_only=True)
-        model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-1B", local_files_only=True)
+        llama3_tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B", local_files_only=True)
+        llama_model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-1B", local_files_only=True)
         
         success_message = "Llama-3.2-1B successfully loaded!"
         print(success_message)
         logging.info(success_message)
         
-        return model, tokenizer
-    except Exception as e:
-        error_message = f"Error loading Llama-3.2-1B model or tokenizer: {e}"
+        return llama_model, llama3_tokenizer
+    except Exception as ex:
+        error_message = f"Error loading Llama-3.2-1B model or tokenizer: {ex}"
         print(error_message)
         logging.error(error_message)
         sys.exit(1)
 
 # Load the Llama-3.2-1B model
-model, tokenizer = load_llama32_model()
+llama_model, llama3_tokenizer = load_llama32_model()
 
 # List to keep track of existing project names
 existing_projects = []
@@ -2288,8 +2288,8 @@ def get_next_project_name(base_name):
         while f"{base_name}_{suffix}" in existing_projects:
             suffix += 1
         return f"{base_name}_{suffix}"
-    except Exception as e:
-        logging.error(f"An error occurred while generating project name: {e}")
+    except Exception as ex:
+        logging.error(f"An error occurred while generating project name: {ex}")
 
 def decompile_file(file_path):
     """Decompile the file using Ghidra."""
@@ -2308,8 +2308,8 @@ def decompile_file(file_path):
         base_project_name = 'temporary'
         try:
             project_name = get_next_project_name(base_project_name)
-        except Exception as e:
-            logging.error(f"Failed to generate project name: {e}")
+        except Exception as ex:
+            logging.error(f"Failed to generate project name: {ex}")
             return  # Exit the function if project name generation fails
 
         existing_projects.append(project_name)
@@ -2336,13 +2336,13 @@ def decompile_file(file_path):
             logging.error(f"Return code: {result.returncode}")
             logging.error(f"Error output: {result.stderr}")
             logging.error(f"Standard output: {result.stdout}")
-    except Exception as e:
-        logging.error(f"An error occurred during decompilation: {e}")
+    except Exception as ex:
+        logging.error(f"An error occurred during decompilation: {ex}")
 
 def extract_original_file_path_from_decompiled(file_path):
     try:
-        with open(file_path, 'r') as file:
-            for line in file:
+        with open(file_path, 'r') as original_file:
+            for line in original_file:
                 if line.startswith("// Original file:"):
                     parts = line.split(':', 2)
                     # Construct the path without using an rf-string
@@ -2384,11 +2384,11 @@ def is_nuitka_file(file_path):
         if "Nuitka" in result.stdout:
             return True
         
-    except subprocess.SubprocessError as e:
-        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {e}")
+    except subprocess.SubprocessError as ex:
+        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
         return False
-    except Exception as e:
-        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {e}")
+    except Exception as ex:
+        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
         return False
 
     return False
@@ -2422,17 +2422,8 @@ def extract_nuitka_file(file_path):
         else:
             logging.info(f"No Nuitka content found in {file_path}")
     
-    except Exception as e:
-        logging.error(f"Error extracting Nuitka file: {e}")
-
-def is_elf_file(file_path):
-    try:
-        with open(file_path, 'rb') as file:
-            elf = ELFFile(file)
-            return elf.header.e_ident[:4] == b'\x7FELF'
-    except Exception as e:
-        logging.error(f"Error checking ELF file status: {e}")
-        return False
+    except Exception as ex:
+        logging.error(f"Error extracting Nuitka file: {ex}")
 
 def is_dotnet_file(file_path):
     try:
@@ -2443,20 +2434,20 @@ def is_dotnet_file(file_path):
         if "Microsoft .NET" in result.stdout or "CLR" in result.stdout:
             return True
         
-    except subprocess.SubprocessError as e:
-        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {e}")
+    except subprocess.SubprocessError as ex:
+        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
         return False
-    except Exception as e:
-        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {e}")
+    except Exception as ex:
+        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
         return False
 
     return False
 
 class CTOCEntry:
-    def __init__(self, position, cmprsdDataSize, uncmprsdDataSize, cmprsFlag, typeCmprsData, name):
+    def __init__(self, position, cmprsddatasize, uncmprsddatasize, cmprsFlag, typeCmprsData, name):
         self.position = position
-        self.cmprsdDataSize = cmprsdDataSize
-        self.uncmprsdDataSize = uncmprsdDataSize
+        self.cmprsddatasize = cmprsddatasize
+        self.uncmprsddatasize = uncmprsddatasize
         self.cmprsFlag = cmprsFlag
         self.typeCmprsData = typeCmprsData
         self.name = name
@@ -2476,8 +2467,8 @@ class PyInstArchive:
             self.fPtr = open(self.filePath, 'rb')
             self.fileSize = os.stat(self.filePath).st_size
             return True
-        except IOError as e:
-            logging.error(f"Error opening file: {e}")
+        except IOError as ex:
+            logging.error(f"Error opening file: {ex}")
             return False
 
     def close(self):
@@ -2502,8 +2493,8 @@ class PyInstArchive:
                 endPos = startPos + len(self.MAGIC) - 1
                 if startPos == 0:
                     return False
-        except Exception as e:
-            logging.error(f"Error during checkFile: {e}")
+        except Exception as ex:
+            logging.error(f"Error during checkFile: {ex}")
             return False
 
         try:
@@ -2563,8 +2554,8 @@ class PyInstArchive:
                 ))
 
                 parsedLen += entrySize
-        except Exception as e:
-            logging.error(f"Error during TOC parsing: {e}")
+        except Exception as ex:
+            logging.error(f"Error during TOC parsing: {ex}")
             return False
 
         return True
@@ -2589,7 +2580,7 @@ class PyInstArchive:
         try:
             for entry in self.tocList:
                 self.fPtr.seek(entry.position, os.SEEK_SET)
-                data_content = self.fPtr.read(entry.cmprsdDataSize)
+                data_content = self.fPtr.read(entry.cmprsddatasize)
                 if entry.cmprsFlag == 1:
                     try:
                         data_content = zlib.decompress(data_content)
@@ -2842,7 +2833,7 @@ def ransomware_alert(file_path):
 # Global variables for worm detection
 worm_alerted_files = []
 worm_detected_count = {}
-file_paths = []
+worm_file_paths = []
 
 def calculate_similarity_worm(features1, features2, threshold=0.86):
     """
@@ -2891,7 +2882,7 @@ def check_worm_similarity(file_path, features_current):
                 worm_detected = True
 
         # Compare with each collected file in the file paths
-        for collected_file_path in file_paths:
+        for collected_file_path in worm_file_paths:
             if collected_file_path != file_path:
                 features_collected = extract_numeric_worm_features(collected_file_path)
                 similarity_collected = calculate_similarity_worm(features_current, features_collected)
@@ -2904,15 +2895,15 @@ def check_worm_similarity(file_path, features_current):
 
     except FileNotFoundError as fnf_error:
         logging.error(f"File not found: {fnf_error}")
-    except Exception as e:
-        logging.error(f"An unexpected error occurred while checking worm similarity for '{file_path}': {e}")
+    except Exception as ex:
+        logging.error(f"An unexpected error occurred while checking worm similarity for '{file_path}': {ex}")
 
     return worm_detected
 
 def worm_alert(file_path):
     global worm_alerted_files
     global worm_detected_count
-    global file_paths
+    global worm_file_paths
 
     if file_path in worm_alerted_files:
         logging.info(f"Worm alert already triggered for {file_path}, skipping...")
@@ -2980,8 +2971,8 @@ def worm_alert(file_path):
                         notify_user_worm(detected_file, "HEUR:Win32.Worm.Classic.Generic.Malware")
                         worm_alerted_files.append(detected_file)
 
-    except Exception as e:
-        logging.error(f"Error in worm detection for file {file_path}: {e}")
+    except Exception as ex:
+        logging.error(f"Error in worm detection for file {file_path}: {ex}")
 
 def log_directory_type(file_path):
     try:
@@ -3059,7 +3050,7 @@ def scan_file_with_llama32(file_path):
         )
 
         # Tokenize the initial message
-        initial_inputs = tokenizer(initial_message, return_tensors="pt")
+        initial_inputs = llama3_tokenizer(initial_message, return_tensors="pt")
         initial_token_length = initial_inputs['input_ids'].shape[1]
 
         # Define token limits
@@ -3087,12 +3078,12 @@ def scan_file_with_llama32(file_path):
             return None  # Handle error appropriately
 
         # Tokenize the readable file content
-        file_inputs = tokenizer(readable_file_content, return_tensors="pt")
+        file_inputs = llama3_tokenizer(readable_file_content, return_tensors="pt")
         file_token_length = file_inputs['input_ids'].shape[1]
 
         # Truncate the file content to fit within the remaining tokens
         if file_token_length > remaining_tokens:
-            truncated_file_content = tokenizer.decode(file_inputs['input_ids'][0, :remaining_tokens], skip_special_tokens=True)
+            truncated_file_content = llama3_tokenizer.decode(file_inputs['input_ids'][0, :remaining_tokens], skip_special_tokens=True)
         else:
             truncated_file_content = readable_file_content
 
@@ -3100,18 +3091,18 @@ def scan_file_with_llama32(file_path):
         combined_message = initial_message + f"File content:\n{truncated_file_content}\n"
 
         # Tokenize the combined message
-        inputs = tokenizer(combined_message, return_tensors="pt")
+        inputs = llama3_tokenizer(combined_message, return_tensors="pt")
 
         # Generate the response with a limited number of tokens
         try:
-            response = accelerator.unwrap_model(model).generate(
+            response = accelerator.unwrap_model(llama_model).generate(
                 input_ids=inputs['input_ids'],
                 max_new_tokens=1000,  # Limit the number of tokens in the generated response
                 num_return_sequences=1
             )
-            response = tokenizer.decode(response[0], skip_special_tokens=True).strip()
-        except Exception as e:
-            logging.error(f"Error generating response: {e}")
+            response = llama3_tokenizer.decode(response[0], skip_special_tokens=True).strip()
+        except Exception as ex:
+            logging.error(f"Error generating response: {ex}")
             return
 
         # Extract the relevant part of the response
@@ -3200,7 +3191,7 @@ def extract_and_return_pyinstaller(file_path):
 
     return extracted_file_paths
 
-def decompile_dotnet_file(file_path, dotnet_dir, ilspycmd_path):
+def decompile_dotnet_file(file_path):
     try:
         logging.info(f"Detected .NET assembly: {file_path}")
         folder_number = 1
@@ -4372,8 +4363,8 @@ def perform_sandbox_analysis(file_path):
 
         logging.info("Sandbox analysis started. Please check log after you close program. There is no limit to scan time.")
 
-    except Exception as e:
-        logging.error(f"An error occurred during sandbox analysis: {e}")
+    except Exception as ex:
+        logging.error(f"An error occurred during sandbox analysis: {ex}")
 
 class AnalysisThread(QThread):
     def __init__(self, file_path):
@@ -4385,8 +4376,8 @@ class AnalysisThread(QThread):
             print(f"Running analysis for: {self.file_path}")  
             logging.info(f"Running analysis for: {self.file_path}")
             perform_sandbox_analysis(self.file_path)
-        except Exception as e:
-            error_message = f"An error occurred during sandbox analysis: {e}"
+        except Exception as ex:
+            error_message = f"An error occurred during sandbox analysis: {ex}"
             logging.error(error_message)
             print(error_message)
 
@@ -4403,8 +4394,8 @@ def main():
         main_gui = AntivirusUI()
         main_gui.show()
         sys.exit(app.exec())
-    except Exception as e:
-        print(f"An error occurred: {e}")
+    except Exception as ex:
+        print(f"An error occurred: {ex}")
 
 if __name__ == "__main__":
     main()
