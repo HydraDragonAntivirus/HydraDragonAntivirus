@@ -230,6 +230,8 @@ commandlineandmessage_dir = os.path.join(script_dir, "commandlineandmessage")
 pe_extracted_dir = os.path.join(script_dir, "pe_extracted")
 zip_extracted_dir = os.path.join(script_dir, "zip_extracted")
 tar_extracted_dir = os.path.join(script_dir, "tar_extracted")
+seven_zip_extracted_dir = os.path.join(script_dir, "seven_zip_extracted")
+general_extracted_dir = os.path.join(script_dir, "general_extracted")
 processed_dir = os.path.join(script_dir, "processed")
 detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
 memory_dir = os.path.join(script_dir, "memory")
@@ -283,6 +285,8 @@ os.makedirs(memory_dir, exist_ok=True)
 os.makedirs(pe_extracted_dir, exist_ok=True)
 os.makedirs(zip_extracted_dir, exist_ok=True)
 os.makedirs(tar_extracted_dir, exist_ok=True)
+os.makedirs(seven_zip_extracted_dir, exist_ok=True)
+os.makedirs(general_extracted_dir, exist_ok=True)
 
 # Counter for ransomware detection
 ransomware_detection_count = 0 
@@ -1636,7 +1640,6 @@ def contains_rlo_after_dot(filename):
     """Check if the filename contains an RLO character after a dot."""
     return ".\u202E" in filename
 
-
 def scan_zip_file(file_path):
     """Scan files within a zip archive."""
     try:
@@ -1701,8 +1704,9 @@ def scan_7z_file(file_path):
                     continue
 
                 # Extract the file
-                extracted_file_path = os.path.join(zip_extracted_dir, filename)
-                archive.extract(entry, target_dir=zip_extracted_dir)
+                extracted_file_path = os.path.join(seven_zip_extracted_dir, filename)
+                # Corrected extraction method
+                archive.extract(path=seven_zip_extracted_dir)
 
                 # Check for suspicious conditions: large files in small 7z archives
                 extracted_file_size = os.path.getsize(extracted_file_path)
@@ -1718,7 +1722,7 @@ def scan_7z_file(file_path):
         return True, []
     except Exception as ex:
         logging.error(f"Error scanning 7z file: {file_path} - {ex}")
-        return False, ""
+        return False, str(ex)
 
 def is_7z_file(file_path):
     """
@@ -1868,9 +1872,9 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                 if scan_result and virus_name not in ("Clean", ""):
                     if signature_check["is_valid"]:
                         virus_name = "SIG." + virus_name
-                    logging.warning(f"Infected file detected (7Z): {file_path} - Virus: {virus_name}")
-                    return True, virus_name, "7Z"
-                logging.info(f"No malware detected in 7Z file: {file_path}")
+                    logging.warning(f"Infected file detected (7Zz): {file_path} - Virus: {virus_name}")
+                    return True, virus_name, "7z"
+                logging.info(f"No malware detected in 7z file: {file_path}")
             else:
                 logging.info(f"File is not a valid 7Z archive: {file_path}")
         except PermissionError:
@@ -2260,7 +2264,7 @@ existing_projects = []
 # List of already scanned files and their modification times
 scanned_files = []
 file_mod_times = {}
-directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, processed_dir, python_source_code_dir]
+directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir]
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
@@ -2979,6 +2983,10 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: PE file extracted.")
         elif file_path.startswith(zip_extracted_dir):
             logging.info(f"{file_path}: ZIP extracted.")
+        elif file_path.startswith(seven_zip_extracted_dir):
+            logging.info(f"{file_path}: 7zip extracted.")
+        elif file_path.startswith(general_extracted_dir):
+            logging.info(f"{file_path}: all extractable files go here.")
         elif file_path.startswith(tar_extracted_dir):
             logging.info(f"{file_path}: TAR extracted.")
         elif file_path.startswith(processed_dir):
@@ -3207,22 +3215,30 @@ def check_pe_file(file_path, pe_file, signature_check, file_name):
     except Exception as ex:
         logging.error(f"Error checking PE file {file_path}: {ex}")
 
-def extract_7z_archive(archive_path, output_dir, seven_zip_path):
+def extract_all_archived_files_with_7z(file_path):
     """
     Extract all files from a 7z archive using 7z.exe.
-    
-    :param archive_path: Path to the 7z archive.
-    :param output_dir: Directory to extract files to.
-    :param seven_zip_path: Path to 7z.exe.
+
+    :param file_path: Path to the archive file.
     :return: List of extracted file paths.
     """
     try:
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+        # Create a unique extraction directory, appending a number if necessary
+        base_output_dir = os.path.splitext(os.path.basename(file_path))[0] + "_extracted"
+        output_dir = base_output_dir
+        counter = 1
 
-        command = [seven_zip_path, "x", archive_path, f"-o{output_dir}", "-y"]
+        # Ensure output directory is unique
+        while os.path.exists(output_dir):
+            output_dir = f"{base_output_dir}{counter}"
+            counter += 1
+
+        logging.info(f"Attempting to extract file {file_path} into {output_dir}...")
+
+        # Extract the archive using 7z.exe
+        command = [seven_zip_path, "x", file_path, f"-o{output_dir}", "-y"]
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        
+
         if result.returncode != 0:
             logging.error(f"7z extraction failed: {result.stderr}")
             return []
@@ -3233,6 +3249,7 @@ def extract_7z_archive(archive_path, output_dir, seven_zip_path):
             if line.startswith("Extracting  "):
                 extracted_file = line[len("Extracting  "):].strip()
                 extracted_files.append(os.path.join(output_dir, extracted_file))
+
         return extracted_files
 
     except Exception as ex:
@@ -3362,24 +3379,6 @@ def scan_and_warn(file_path, flag=False):
        # Extract the file name
         file_name = os.path.basename(file_path)
 
-       # Attempt to extract the file, regardless of its type
-        try:
-            output_dir = os.path.splitext(file_name)[0] + "_extracted"
-
-            logging.info(f"Attempting to extract file {file_path} into {output_dir}...")
-            extracted_files = extract_7z_archive(file_path, output_dir, seven_zip_path)
-
-            if extracted_files:
-                logging.info(f"Extraction successful for {file_path}. Scanning extracted files...")
-                # Recursively scan each extracted file
-                for extracted_file in extracted_files:
-                    logging.info(f"Scanning extracted file: {extracted_file}")
-                    scan_and_warn(extracted_file)
-
-            logging.info(f"File {file_path} is not a valid archive or extraction failed. Proceeding with scanning.")
-        except Exception as extraction_error:
-            logging.warning(f"Error during extraction of {file_path}: {extraction_error}")
-
         # Check if it's a .pyc file and decompile if needed
         if is_pyc_file(file_path):
             logging.info(f"File {file_path} is a .pyc (Python Compiled Module) file. Attempting to decompile...")
@@ -3406,7 +3405,23 @@ def scan_and_warn(file_path, flag=False):
         # Check if the file content is valid hex data
         if is_hex_data(data_content):
             logging.info(f"File {file_path} contains valid hex-encoded data.")
-             
+
+            # Attempt to extract the file, regardless of its type
+            try:
+                logging.info(f"Attempting to extract file {file_path}...")
+                extracted_files = extract_all_archived_files_with_7z(file_path)
+
+                if extracted_files:
+                    logging.info(f"Extraction successful for {file_path}. Scanning extracted files...")
+                    # Recursively scan each extracted file
+                    for extracted_file in extracted_files:
+                        logging.info(f"Scanning extracted file: {extracted_file}")
+                        scan_and_warn(extracted_file)
+
+                logging.info(f"File {file_path} is not a valid archive or extraction failed. Proceeding with scanning.")
+            except Exception as extraction_error:
+                logging.warning(f"Error during extraction of {file_path}: {extraction_error}")
+
             # Decompile the file in a separate thread
             decompile_thread = threading.Thread(target=decompile_file, args=(file_path,))
             decompile_thread.start()
@@ -3415,7 +3430,7 @@ def scan_and_warn(file_path, flag=False):
             signature_check = check_signature(file_path)
             if not isinstance(signature_check, dict):
                 logging.error(f"check_signature did not return a dictionary for file: {file_path}, received: {signature_check}")
-            
+
             # Handle signature results
             if signature_check["has_microsoft_signature"]:
                 logging.info(f"Valid Microsoft signature detected for file: {file_path}")
@@ -3425,12 +3440,12 @@ def scan_and_warn(file_path, flag=False):
             elif signature_check["signature_status_issues"]:
                 logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
                 notify_user_invalid(file_path, "Win32.Suspicious.InvalidSignature")
-            
+
             # Additional checks for PE files and .NET files
             if is_pe_file(file_path):
                 logging.info(f"File {file_path} is a valid PE file.")
                 pe_file = True
-            
+
             # Call analyze_process_memory if the file is a PE file
             if pe_file:
                 logging.info(f"File {file_path} is identified as a PE file. Performing process memory analysis...")
