@@ -940,17 +940,17 @@ def load_domains_data():
 
 def enum_process_modules(handle):
     """Enumerate and retrieve loaded modules in a process."""
-    hModules = (ctypes.c_void_p * 1024)()
+    hmodules = (ctypes.c_void_p * 1024)()
     needed = ctypes.c_ulong()
     if not pymem.ressources.psapi.EnumProcessModulesEx(
         handle,
-        ctypes.byref(hModules),
-        ctypes.sizeof(hModules),
+        ctypes.byref(hmodules),
+        ctypes.sizeof(hmodules),
         ctypes.byref(needed),
         pymem.ressources.structure.EnumProcessModuleEX.LIST_MODULES_ALL
     ):
         raise RuntimeError("Failed to enumerate process modules")
-    return [module for module in hModules if module]
+    return [module for module in hmodules if module]
 
 def get_module_info(handle, base_addr):
     """Retrieve module information."""
