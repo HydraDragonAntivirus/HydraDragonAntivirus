@@ -1263,7 +1263,7 @@ class RealTimeWebProtectionHandler:
             parts = domain.split(".")
             main_domain = domain if len(parts) < 3 else ".".join(parts[-2:])
 
-            # Check against spam domains (highest priority)
+            # Check against spam domains
             if any(main_domain == spam_domain or main_domain.endswith(f".{spam_domain}")
                    for spam_domain in spam_domains_data):
                 self.handle_detection('domain', main_domain, 'SPAM')
@@ -1293,10 +1293,22 @@ class RealTimeWebProtectionHandler:
                 self.handle_detection('domain', main_domain, 'MALWARE')
                 return
 
+            # Check against malware domains in mail data
+            if any(main_domain == malware_mail_domain or main_domain.endswith(f".{malware_mail_domain}")
+                   for malware_mail_domain in malware_domains_mail_data):
+                self.handle_detection('domain', main_domain, 'MALWARE MAIL')
+                return
+
             # Check if domain is whitelisted
             if any(main_domain == whitelist_domain or main_domain.endswith(f".{whitelist_domain}")
                    for whitelist_domain in whitelist_domains_data):
                 logging.info(f"Domain {main_domain} is whitelisted")
+                return
+
+            # Check if domain is whitelisted in mail data
+            if any(main_domain == whitelist_mail_domain or main_domain.endswith(f".{whitelist_mail_domain}")
+                   for whitelist_mail_domain in whitelist_domains_mail_data):
+                logging.info(f"Domain {main_domain} is whitelisted (mail)")
                 return
 
         except Exception as ex:
