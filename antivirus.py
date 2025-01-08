@@ -244,9 +244,10 @@ benign_numeric_features = os.path.join(script_dir, "machinelearning", "benign_nu
 yara_folder_path = os.path.join(script_dir, "yara")
 excluded_rules_dir = os.path.join(script_dir, "excluded")
 excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
-ip_addresses_path = os.path.join(script_dir, "website", "IP_Addresses.txt")
-ipv6_addresses_path = os.path.join(script_dir, "website", "ipv6.txt")
-ipv4_whitelist_path = os.path.join(script_dir, "website", "ipv4whitelist.txt")
+ipv4_addresses_path = os.path.join(script_dir, "website", "IPv4Malware.txt")
+ipv4_whitelist_path = os.path.join(script_dir, "website", "IPv4Whitelist.txt")
+ipv6_addresses_path = os.path.join(script_dir, "website", "IPv6Malware.txt")
+ipv6_whitelist_path = os.path.join(script_dir, "website", "IPv6Whitelist.txt")
 malware_domains_path = os.path.join(script_dir, "website", "MalwareDomains.txt")
 phishing_domains_path = os.path.join(script_dir, "website", "PhishingDomains.txt")
 abuse_domains_path = os.path.join(script_dir, "website", "AbuseDomains.txt")
@@ -261,7 +262,7 @@ yarGen_rule_path = os.path.join(yara_folder_path, "machinelearning.yrc")
 icewater_rule_path = os.path.join(yara_folder_path, "icewater.yrc")
 valhalla_rule_path = os.path.join(yara_folder_path, "valhalla-rules.yrc")
 antivirus_domains_data = []
-ip_addresses_signatures_data = []
+ipv4_addresses_signatures_data = []
 ipv6_addresses_signatures_data = []
 ipv4_whitelist_data = []
 urlhaus_data = []
@@ -680,6 +681,13 @@ def notify_user_pua(file_path, virus_name, engine_detected):
     notification.message = f"PUA file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
     notification.send()
 
+def notify_user_for_detected_command(self, message):
+    logging.warning(f"Notification: {message}")
+    notification = Notify()
+    notification.title = f"Malware Message Alert"
+    notification.message = message
+    notification.send()
+    
 def notify_user_for_llama32(file_path, virus_name, malware_status):
     notification = Notify()
     notification.title = "Llama-3.2-1B Security Alert"
@@ -849,12 +857,12 @@ def load_antivirus_list():
         return []
 
 def load_domains_data():
-    global ip_addresses_signatures_data, ipv6_addresses_signatures_data, ipv4_whitelist_data, urlhaus_data, malware_domains_data, phishing_domains_data, abuse_domains_data, mining_domains_data, spam_domains_data, whitelist_domains_data
+    global ipv4_addresses_signatures_data, ipv6_addresses_signatures_data, ipv4_whitelist_data, urlhaus_data, malware_domains_data, phishing_domains_data, abuse_domains_data, mining_domains_data, spam_domains_data, whitelist_domains_data
 
     try:
         # Load IPv4 addresses
-        with open(ip_addresses_path, 'r') as ip_file:
-            ip_addresses_signatures_data = ip_file.read().splitlines()
+        with open(ipv4_addresses_path, 'r') as ip_file:
+            ipv4_addresses_signatures_data = ip_file.read().splitlines()
         print("IPv4 Addresses loaded successfully!")
     except Exception as ex:
         print(f"Error loading IPv4 Addresses: {ex}")
@@ -1168,12 +1176,6 @@ def is_local_ip(ip):
         return ip_obj.is_private
     except ValueError:
         return False
-
-# Regular expressions for matching IP addresses, IPv6 addresses, domains, and URLs
-ip_regex = re.compile(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')
-ipv6_regex = re.compile(r'\b(?:[a-fA-F0-9]{1,4}:){7}[a-fA-F0-9]{1,4}\b')
-domain_regex = re.compile(r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b')
-url_regex = re.compile(r'\b(?:https?://|www\.)[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/\S*)?\b')
 
 def is_related_to_critical_paths(file_path):
     return file_path.startswith(sandboxie_folder) or file_path == main_file_path
@@ -4034,113 +4036,106 @@ class Monitor_Message_CommandLine:
         doc2 = nlp_spacy_lang(text2)
         return doc1.similarity(doc2)
 
-    def notify_user_for_detected_command(self, message):
-        logging.warning(f"Notification: {message}")
-        notification = Notify()
-        notification.title = f"Malware Message Alert"
-        notification.message = message
-        notification.send()
-
     def process_detected_text_classic(self, text, file_path):
         virus_name = self.known_malware_messages["classic"]["virus_name"]
         message = f"Detected potential anti-vm anti-debug malware: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
-        self.notify_user_for_detected_command(message)
+        notify_user_for_detected_command(message)
 
     def process_detected_text_av(self, text, file_path):
         virus_name = self.known_malware_messages["av"]["virus_name"]
         message = f"Detected potential anti-AV malware: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
-        self.notify_user_for_detected_command(message)
+        notify_user_for_detected_command(message)
 
     def process_detected_text_debugger(self, text, file_path):
         virus_name = self.known_malware_messages["debugger"]["virus_name"]
         message = f"Detected potential anti-debugger malware: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
-        self.notify_user_for_detected_command(message)
+        notify_user_for_detected_command(message)
 
     def process_detected_text_fanmade(self, text, file_path):
         virus_name = self.known_malware_messages["fanmade"]["virus_name"]
         message = f"Detected potential fanmade malware: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
-        self.notify_user_for_detected_command(message)
+        notify_user_for_detected_command(message)
 
     def process_detected_text_rogue(self, text, file_path):
         virus_name = self.known_malware_messages["rogue"]["virus_name"]
         message = f"Detected potential rogue security software: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
-        self.notify_user_for_detected_command(message)
+        notify_user_for_detected_command(message)
 
     def process_detected_text_ransom(self, text, file_path):
         message = f"Potential ransomware detected in text: {text} from {file_path}"
         logging.warning(message)
-        self.notify_user_for_detected_command(message)
+        notify_user_for_detected_command(message)
 
     def process_detected_command_wifi(self, text, file_path):
         virus_name = self.known_malware_messages["wifi"]["virus_name"]
         message = f"Detected Wi-Fi credentials stealing malware: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
-        self.notify_user_for_detected_command(message)
+        notify_user_for_detected_command(message)
 
     def process_detected_command_ransom_shadowcopy(self, text, file_path):
         virus_name = self.known_malware_messages["shadowcopy"]["virus_name"]
         message = f"Detected ransomware shadow copy deletion: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
-        self.notify_user_for_detected_command(message)
+        notify_user_for_detected_command(message)
 
     def process_detected_command_wmic_shadowcopy(self, text, file_path):
         virus_name = self.known_malware_messages["wmic"]["virus_name"]
         message = f"Detected WMIC shadow copy deletion: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
-        self.notify_user_for_detected_command(message)
+        notify_user_for_detected_command(message)
 
     def process_detected_command_copy_to_startup(self, text, file_path):
         virus_name = self.known_malware_messages["startup"]["virus_name"]
         message = f"Detected startup copy malware: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
-        self.notify_user_for_detected_command(message)
+        notify_user_for_detected_command(message)
 
     def process_detected_command_schtasks_temp(self, text, file_path):
         virus_name = self.known_malware_messages["commands"]["schtasks"]["virus_name"]
         message = f"Detected scheduled task creation using temp file: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
-        self.notify_user_for_detected_command(message)
+        notify_user_for_detected_command(message)
 
     def process_detected_command_stop_eventlog(self, text, file_path):
         virus_name = self.known_malware_messages["commands"]["stopeventlog"]["virus_name"]
         message = f"Detected Stop EventLog command execution: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
-        self.notify_user_for_detected_command(message)
+        notify_user_for_detected_command(message)
 
     def process_detected_command_rootkit_koadic(self, text, file_path):
         virus_name = self.known_malware_messages["koadic"]["virus_name"]
         message = f"Detected rootkit behavior associated with Koadic: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
-        self.notify_user_for_detected_command(message)
+        notify_user_for_detected_command(message)
 
     def process_detected_command_fodhelper(self, text, file_path):
         virus_name = self.known_malware_messages["fodhelper"]["virus_name"]
         message = f"Detected UAC bypass attempt using Fodhelper: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
-        self.notify_user_for_detected_command(message)
+        notify_user_for_detected_command(message)
 
     def process_detected_command_antivirus_search(self, text, file_path):
         virus_name = self.known_malware_messages["antivirus"]["virus_name"]
         message = f"Detected search for antivirus processes: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
-        self.notify_user_for_detected_command(message)
+        notify_user_for_detected_command(message)
 
     def process_detected_powershell_iex_download(self, text, file_path):
         virus_name = self.known_malware_messages["powershell_iex_download"]["virus_name"]
         message = f"Detected PowerShell IEX download command: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
-        self.notify_user_for_detected_command(message)
+        notify_user_for_detected_command(message)
 
     def process_detected_command_xmrig(self, text, file_path):
         virus_name = self.known_malware_messages["xmrig"]["virus_name"]
         message = f"Detected XMRig mining activity: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
-        self.notify_user_for_detected_command(message)
+        notify_user_for_detected_command(message)
 
     def detect_malware(self, file_path=None):
         if file_path is None:
