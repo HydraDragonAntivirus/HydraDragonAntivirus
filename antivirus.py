@@ -2569,8 +2569,8 @@ class PyInstArchive:
                     except zlib.error:
                         return False
 
-                with open(entry.name, 'wb') as f:
-                    f.write(data_content)
+                with open(entry.name, 'wb') as entry_f:
+                    entry_f.write(data_content)
 
                 if entry.name.endswith('.pyz'):
                     self._extractPyz(entry.name)
@@ -2591,15 +2591,15 @@ class PyInstArchive:
         return True
 
     def _extractPyz(self, name):
-        dirName = name + '_extracted'
-        os.makedirs(dirName, exist_ok=True)
+        dirname = name + '_extracted'
+        os.makedirs(dirname, exist_ok=True)
 
         try:
             with open(name, 'rb') as pyz_f:
-                pyzMagic = pyz_f.read(4)
-                assert pyzMagic == b'PYZ\0' 
+                pyzmagic = pyz_f.read(4)
+                assert pyzmagic == b'PYZ\0'
 
-                pyzPycMagic = pyz_f.read(4)
+                pyzpycmagic = pyz_f.read(4)
 
                 if self.pymaj != sys.version_info.major or self.pymin != sys.version_info.minor:
                     return False
@@ -2622,9 +2622,9 @@ class PyInstArchive:
                     fileName = fileName.replace('..', '__').replace('.', os.path.sep)
 
                     if ispkg:
-                        filePath = os.path.join(dirName, fileName, '__init__.pyc')
+                        filePath = os.path.join(dirname, fileName, '__init__.pyc')
                     else:
-                        filePath = os.path.join(dirName, fileName + '.pyc')
+                        filePath = os.path.join(dirname, fileName + '.pyc')
 
                     os.makedirs(os.path.dirname(filePath), exist_ok=True)
 
@@ -2637,7 +2637,7 @@ class PyInstArchive:
                         continue
 
                     with open(filePath, 'wb') as pyc_f:
-                        pyc_f.write(pyzPycMagic)
+                        pyc_f.write(pyzpycmagic)
                         pyc_f.write(b'\0' * 4)
                         if self.pymaj >= 3 and self.pymin >= 7:
                             pyc_f.write(b'\0' * 8)
@@ -3822,7 +3822,7 @@ def find_child_windows(parent_hwnd):
     """Find all child windows of the given parent window."""
     child_windows = []
 
-    def enum_child_windows_callback(hwnd, lParam):
+    def enum_child_windows_callback(hwnd):
         child_windows.append(hwnd)
         return True
 
@@ -3834,7 +3834,7 @@ def find_child_windows(parent_hwnd):
 # Function to find windows containing text
 def find_windows_with_text():
     """Find all windows and their child windows."""
-    def enum_windows_callback(hwnd, lParam):
+    def enum_windows_callback(hwnd):
         if ctypes.windll.user32.IsWindowVisible(hwnd):
             window_text = get_window_text(hwnd)
             window_handles.append((hwnd, window_text))
