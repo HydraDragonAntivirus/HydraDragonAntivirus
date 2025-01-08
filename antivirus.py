@@ -2654,14 +2654,22 @@ class PyInstArchive:
                 pycFile.write(self.pycMagic)  # Overwrite the first four bytes with pyc magic
 
 def is_pyinstaller_archive(file_path):
+    """
+    Check if the file is a PyInstaller archive by analyzing it with Detect It Easy.
+    """
     try:
-        archive = PyInstArchive(file_path)
-        if archive.open_file():
-            result = archive.checkfile()
-            return result
+        # Run the Detect It Easy console command to analyze the file
+        result = subprocess.run([detectiteasy_console_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        # Check if the output contains the signature "Packer: PyInstaller" and "Language: Python"
+        if "Packer: PyInstaller" in result.stdout and "Language: Python" in result.stdout:
+            return True
+
+    except subprocess.SubprocessError as ex:
+        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
     except Exception as ex:
-        logging.error(f"Error checking if '{file_path}' is a PyInstaller archive: {ex}")
-    
+        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
+
     return False
 
 def extract_pyinstaller_archive(file_path):
@@ -2672,7 +2680,7 @@ def extract_pyinstaller_archive(file_path):
         archive = PyInstArchive(file_path)
         
         # Open the PyInstaller archive
-        if not archive.open():
+        if not archive.open_file():
             logging.error(f"Failed to open PyInstaller archive: {file_path}")
             return None
 
