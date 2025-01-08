@@ -2444,11 +2444,11 @@ def is_dotnet_file(file_path):
     return False
 
 class CTOCEntry:
-    def __init__(self, position, cmprsddatasize, uncmprsddatasize, cmprsFlag, typeCmprsData, name):
+    def __init__(self, position, cmprsddatasize, uncmprsddatasize, cmprsflag, typeCmprsData, name):
         self.position = position
         self.cmprsddatasize = cmprsddatasize
         self.uncmprsddatasize = uncmprsddatasize
-        self.cmprsFlag = cmprsFlag
+        self.cmprsflag = cmprsflag
         self.typeCmprsData = typeCmprsData
         self.name = name
 
@@ -2478,19 +2478,19 @@ class PyInstArchive:
             pass
 
     def checkfile(self):
-        endPos = self.fileSize
+        endpos = self.fileSize
         searchChunkSize = 8192
 
         try:
             while True:
-                startPos = max(0, endPos - searchChunkSize)
+                startPos = max(0, endpos - searchChunkSize)
                 self.fPtr.seek(startPos, os.SEEK_SET)
-                data_content = self.fPtr.read(endPos - startPos)
+                data_content = self.fPtr.read(endpos - startPos)
                 offs = data_content.rfind(self.MAGIC)
                 if offs != -1:
                     self.cookiePos = startPos + offs
                     break
-                endPos = startPos + len(self.MAGIC) - 1
+                endpos = startPos + len(self.MAGIC) - 1
                 if startPos == 0:
                     return False
         except Exception as ex:
@@ -2501,23 +2501,23 @@ class PyInstArchive:
             self.fPtr.seek(self.cookiePos + self.PYINST20_COOKIE_SIZE, os.SEEK_SET)
             self.pyinstVer = 21 if b'python' in self.fPtr.read(64).lower() else 20
             return True
-        except Exception as e:
-            logging.error(f"Error reading Python version: {e}")
+        except Exception as ex:
+            logging.error(f"Error reading Python version: {ex}")
             return False
 
-    def getCArchiveInfo(self):
+    def getcarchiveinfo(self):
         self.fPtr.seek(self.cookiePos, os.SEEK_SET)
         try:
             if self.pyinstVer == 20:
-                _, lengthofPackage, toc, tocLen, pyver = struct.unpack('!8siiii', self.fPtr.read(self.PYINST20_COOKIE_SIZE))
+                _, lengthofpackage, toc, toclen, pyver = struct.unpack('!8siiii', self.fPtr.read(self.PYINST20_COOKIE_SIZE))
             else:
-                _, lengthofPackage, toc, tocLen, pyver, _ = struct.unpack('!8sIIii64s', self.fPtr.read(self.PYINST21_COOKIE_SIZE))
+                _, lengthofpackage, toc, toclen, pyver, _ = struct.unpack('!8sIIii64s', self.fPtr.read(self.PYINST21_COOKIE_SIZE))
         except struct.error as ex:
             logging.error(f"Error unpacking data: {ex}")
             return False
 
         self.pymaj, self.pymin = (pyver // 100, pyver % 100) if pyver >= 100 else (pyver // 10, pyver % 10)
-        self.overlaySize = lengthofPackage + (self.fileSize - self.cookiePos - (self.PYINST20_COOKIE_SIZE if self.pyinstVer == 20 else self.PYINST21_COOKIE_SIZE))
+        self.overlaySize = lengthofpackage + (self.fileSize - self.cookiePos - (self.PYINST20_COOKIE_SIZE if self.pyinstVer == 20 else self.PYINST21_COOKIE_SIZE))
         self.overlayPos = self.fileSize - self.overlaySize
         self.tableOfContentsPos = self.overlayPos + toc
         self.tableOfContentsSize = tocLen
@@ -2581,7 +2581,7 @@ class PyInstArchive:
             for entry in self.tocList:
                 self.fPtr.seek(entry.position, os.SEEK_SET)
                 data_content = self.fPtr.read(entry.cmprsddatasize)
-                if entry.cmprsFlag == 1:
+                if entry.cmprsflag == 1:
                     try:
                         data_content = zlib.decompress(data_content)
                     except zlib.error:
@@ -2599,8 +2599,8 @@ class PyInstArchive:
 
                 if self.pycMagic == b'\0' * 4:
                     self.barePycList.append(entry.name + '.pyc')
-        except Exception as e:
-            logging.error(f"Error during file extraction: {e}")
+        except Exception as ex:
+            logging.error(f"Error during file extraction: {ex}")
             return False
 
         # Fix bare pyc files if necessary
@@ -2700,7 +2700,7 @@ def extract_pyinstaller_archive(file_path):
             return None
 
         # Retrieve CArchive info from the archive
-        if not archive.getCArchiveInfo():
+        if not archive.getcarchiveinfo():
             logging.error(f"Failed to get CArchive info from {file_path}.")
             return None
 
@@ -2742,8 +2742,8 @@ def is_readable(file_path):
     except UnicodeDecodeError:
         logging.error(f"UnicodeDecodeError while reading file '{file_path}'")
         return False
-    except Exception as e:
-        logging.error(f"Error reading file {file_path}: {e}")
+    except Exception as ex:
+        logging.error(f"Error reading file {file_path}: {ex}")
         return False
 
 def is_ransomware(file_path):
@@ -2792,8 +2792,8 @@ def search_files_with_same_extension(directory, extension):
                     files_with_same_extension.append(os.path.join(root, file))
         logging.info(f"Found {len(files_with_same_extension)} files with extension '{extension}'")
         return files_with_same_extension
-    except Exception as e:
-        logging.error(f"Error searching for files with extension '{extension}' in directory '{directory}': {e}")
+    except Exception as ex:
+        logging.error(f"Error searching for files with extension '{extension}' in directory '{directory}': {ex}")
         return []
 
 def ransomware_alert(file_path):
