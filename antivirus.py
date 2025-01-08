@@ -2103,12 +2103,12 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
                                 logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious. Alert Line: {alert_line}")
                                 print(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious. Alert Line: {alert_line}")
 
+        except psutil.ZombieProcess:
+            logging.error(f"Zombie process encountered: {proc.info.get('pid')}")
         except psutil.NoSuchProcess:
             logging.error(f"Process no longer exists: {proc.info.get('pid')}")
         except psutil.AccessDenied:
             logging.error(f"Access denied to process: {proc.info.get('pid')}")
-        except psutil.ZombieProcess:
-            logging.error(f"Zombie process encountered: {proc.info.get('pid')}")
         except Exception as ex:
             logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {ex}")
 
