@@ -1,7 +1,6 @@
 yara-python
 yara-x
 joblib
-scikit-learn
 pefile
 psutil
 PySide6
