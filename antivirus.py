@@ -3361,44 +3361,36 @@ def check_pe_file(file_path, pe_file, signature_check, file_name):
         logging.error(f"Error checking PE file {file_path}: {ex}")
 
 def extract_all_files_with_7z(file_path):
-    """
-    Extract all files using 7z.exe directly under the general_extracted_dir.
-    
-    :param file_path: Path to the file to extract.
-    :return: List of extracted file paths.
-    """
     try:
         counter = 1
         base_output_dir = os.path.join(general_extracted_dir, os.path.splitext(os.path.basename(file_path))[0])
 
-        # Ensure output directory is unique under the base directory
+        # Ensure output directory is unique
         while os.path.exists(f"{base_output_dir}_{counter}"):
             counter += 1
 
         output_dir = f"{base_output_dir}_{counter}"
+        os.makedirs(output_dir, exist_ok=True)
 
         logging.info(f"Attempting to extract file {file_path} into {output_dir}...")
 
-        # Extract the archive using 7z.exe
+        # Run the 7z extraction
         command = [seven_zip_path, "x", file_path, f"-o{output_dir}", "-y", "-snl", "-spe"]
-        # Extract the files using 7z.exe
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
         if result.returncode != 0:
-            logging.error(f"7z extraction failed: {result.stderr}")
+            logging.error(f"7z extraction failed with return code {result.returncode}: {result.stderr}")
             return []
 
-        # Parse output to get list of extracted files
-        extracted_files = []
-        for line in result.stdout.splitlines():
-            if line.startswith("Extracting  "):
-                extracted_file = line[len("Extracting  "):].strip()
-                extracted_files.append(os.path.join(output_dir, extracted_file))
+        logging.info(f"7z extraction successful for {file_path}.")
 
+        # Parse the extracted files
+        extracted_files = [os.path.join(output_dir, line[len("Extracting  "):].strip())
+                           for line in result.stdout.splitlines() if line.startswith("Extracting  ")]
         return extracted_files
 
     except Exception as ex:
-        logging.error(f"Error during extraction: {ex}")
+        logging.error(f"Error during 7z extraction: {ex}")
         return []
 
 def is_pyc_file(file_path):
