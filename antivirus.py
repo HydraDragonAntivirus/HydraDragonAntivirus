@@ -2658,7 +2658,7 @@ class PyInstArchive:
             return False
 
         # Fix bare pyc files if necessary
-        self._fixBarePycs()
+        self._fixbarepycs()
 
         return True
 
@@ -2720,7 +2720,7 @@ class PyInstArchive:
 
         return True
 
-    def _fixBarePycs(self):
+    def _fixbarepycs(self):
         for pycFile in self.barePycList:
             with open(pycFile, 'r+b') as pycFile:
                 pycFile.write(self.pycMagic)  # Overwrite the first four bytes with pyc magic
