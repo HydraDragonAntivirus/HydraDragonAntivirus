@@ -2518,8 +2518,19 @@ def scan_rsrc_directory(extracted_files):
     except Exception as ex:
         logging.error(f"Error during RCDATA file scanning: {ex}")
 
+    """Recursively scan a directory for .exe files and check if they are Nuitka executables."""
+    found_executables = []
+    for root, _, files in os.walk(directory):
+        for file in files:
+            if file.lower().endswith('.exe'):
+                file_path = os.path.join(root, file)
+                nuitka_type = is_nuitka_file(file_path)
+                if nuitka_type:
+                    found_executables.append((file_path, nuitka_type))
+    return found_executables
+
 def extract_nuitka_file(file_path, nuitka_type):
-    """Detect Nuitka type, extract Nuitka executable content, and send extracted files to scan_and_warn."""
+    """Detect Nuitka type, extract Nuitka executable content, and scan for additional Nuitka executables"""
     try:  
         if nuitka_type == "Nuitka OneFile":
             logging.info(f"Nuitka OneFile executable detected in {file_path}")
@@ -2542,18 +2553,22 @@ def extract_nuitka_file(file_path, nuitka_type):
             if result.returncode == 0:
                 logging.info(f"Successfully extracted Nuitka OneFile: {file_path} to {nuitka_output_dir}")
                 
-                # Send the extracted files to scan_and_warn
-                extracted_files = os.listdir(nuitka_output_dir)
-                for extracted_file in extracted_files:
-                    extracted_file_path = os.path.join(nuitka_output_dir, extracted_file)
-                    scan_and_warn(extracted_file_path)
+                # Scan the extracted directory for additional Nuitka executables
+                logging.info(f"Scanning extracted directory for additional Nuitka executables...")
+                found_executables = scan_directory_for_executables(nuitka_output_dir)
+                
+                # Process any found normal Nuitka executables
+                for exe_path, exe_type in found_executables:
+                    if exe_type == "Nuitka":
+                        logging.info(f"Found normal Nuitka executable in extracted files: {exe_path}")
+                        extract_nuitka_file(exe_path, exe_type)
             else:
                 logging.error(f"Failed to extract Nuitka OneFile: {file_path}. Error: {result.stderr}")
         
         elif nuitka_type == "Nuitka":
             logging.info(f"Nuitka executable detected in {file_path}")
             
-            # Use 7z to extract the Nuitka file
+            # Use enhanced 7z extraction
             extracted_files = extract_all_files_with_7z(file_path)
 
             if extracted_files:
@@ -2563,10 +2578,10 @@ def extract_nuitka_file(file_path, nuitka_type):
                 for extracted_file in extracted_files:
                     scan_and_warn(extracted_file)
 
-                # After extracting and scanning, scan rsrc if needed
+                # Scan for RSRC/RCDATA resources
                 scan_rsrc_directory(extracted_files)
             else:
-                logging.error(f"Failed to extract files from Nuitka executable: {file_path}")
+                logging.error(f"Failed to extract normal Nuitka executable: {file_path}")
         
         else:
             logging.info(f"No Nuitka content found in {file_path}")
