@@ -2525,28 +2525,16 @@ def extract_nuitka_file(file_path, nuitka_type):
             if result.returncode == 0:
                 logging.info(f"Successfully extracted Nuitka OneFile: {file_path} to {nuitka_output_dir}")
                 
-                # Extract using 7z for any files inside the OneFile output
-                extracted_files = extract_all_archived_files_with_7z(nuitka_output_dir)
-                
-                # Send all files to scan_and_warn
+                # Send the extracted files to scan_and_warn
+                extracted_files = os.listdir(nuitka_output_dir)
                 for extracted_file in extracted_files:
-                    scan_and_warn(extracted_file)
+                    extracted_file_path = os.path.join(nuitka_output_dir, extracted_file)
+                    scan_and_warn(extracted_file_path)
             else:
                 logging.error(f"Failed to extract Nuitka OneFile: {file_path}. Error: {result.stderr}")
         
         elif nuitka_type == "Nuitka":
             logging.info(f"Nuitka executable detected in {file_path}")
-            
-            # Find the next available directory number for standard Nuitka extraction
-            folder_number = 1
-            while os.path.exists(f"{nuitka_dir}_{folder_number}"):
-                folder_number += 1
-            nuitka_output_dir = f"{nuitka_dir}_{folder_number}"
-            
-            if not os.path.exists(nuitka_output_dir):
-                os.makedirs(nuitka_output_dir)
-
-            logging.info(f"Extracting Nuitka file {file_path} to {nuitka_output_dir}")
             
             # Use 7z to extract the Nuitka file
             extracted_files = extract_all_archived_files_with_7z(file_path)
