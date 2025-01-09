@@ -2980,7 +2980,6 @@ def worm_alert(file_path):
 
         # Extract features
         features_current = extract_numeric_worm_features(file_path)
-        worm_detected = False
         is_critical = file_path.startswith(main_drive_path) or file_path.startswith(critical_directory) or file_path.startswith(sandbox_critical_directory)
 
         if is_critical:
@@ -3732,7 +3731,7 @@ def check_startup_directories():
                                 message = f"Confirmed malware with suspicious extension detected: {file_path}\nVirus: {malware_type}"
                             else:
                                 malware_type = "HEUR:Win32.Startup.Suspicious.Generic.Malware"
-                                message = f"Suspicious startup file detected: {file_path}}\nVirus: {malware_type}"
+                                message = f"Suspicious startup file detected: {file_path}\nVirus: {malware_type}"
 
                             logging.warning(f"Suspicious or malicious startup file detected in {directory}: {file}")
                             print(f"Suspicious or malicious startup file detected in {directory}: {file}")
