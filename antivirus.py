@@ -3384,9 +3384,17 @@ def extract_all_files_with_7z(file_path):
 
         logging.info(f"7z extraction successful for {file_path}.")
 
-        # Parse the extracted files
-        extracted_files = [os.path.join(output_dir, line[len("Extracting  "):].strip())
-                           for line in result.stdout.splitlines() if line.startswith("Extracting  ")]
+        # Gather all files in the output directory after extraction
+        extracted_files = []
+        for root, _, files in os.walk(output_dir):
+            for name in files:
+                extracted_files.append(os.path.join(root, name))
+
+        if not extracted_files:
+            logging.warning(f"No files were extracted from {file_path}.")
+        else:
+            logging.info(f"Extracted {len(extracted_files)} files from {file_path}.")
+
         return extracted_files
 
     except Exception as ex:
