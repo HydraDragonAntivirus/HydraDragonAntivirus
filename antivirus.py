@@ -2645,7 +2645,7 @@ class PyInstArchive:
                     entry_f.write(data_content)
 
                 if entry.name.endswith('.pyz'):
-                    self._extractPyz(entry.name)
+                    self._extractpyz(entry.name)
 
                 # Check for entry points (python scripts or pyc files)
                 if entry.typecmprsdata == b's':
@@ -2662,7 +2662,7 @@ class PyInstArchive:
 
         return True
 
-    def _extractPyz(self, name):
+    def _extractpyz(self, name):
         dirname = name + '_extracted'
         os.makedirs(dirname, exist_ok=True)
 
@@ -2795,8 +2795,8 @@ def has_known_extension(file_path):
 def is_readable(file_path):
     try:
         logging.info(f"Attempting to read file '{file_path}'")
-        with open(file_path, 'r') as file:
-            file_data = file.read(1024)
+        with open(file_path, 'r') as readable_file:
+            file_data = readable_file.read(1024)
             if file_data:  # Check if file has readable content
                 logging.info(f"File '{file_path}' is readable")
                 return True
@@ -2849,9 +2849,9 @@ def search_files_with_same_extension(directory, extension):
         logging.info(f"Searching for files with extension '{extension}' in directory '{directory}'")
         files_with_same_extension = []
         for root, _, files in os.walk(directory):
-            for file in files:
-                if file.endswith(extension):
-                    files_with_same_extension.append(os.path.join(root, file))
+            for search_file in files:
+                if search_file.endswith(extension):
+                    files_with_same_extension.append(os.path.join(root, search_file))
         logging.info(f"Found {len(files_with_same_extension)} files with extension '{extension}'")
         return files_with_same_extension
     except Exception as ex:
@@ -2878,10 +2878,10 @@ def ransomware_alert(file_path):
                 if ext:
                     directory = os.path.dirname(file_path)
                     files_with_same_extension = search_files_with_same_extension(directory, ext)
-                    for file in files_with_same_extension:
-                        logging.info(f"Checking file '{file}' with same extension '{ext}'")
-                        if is_ransomware(file):
-                            logging.warning(f"File '{file}' might also be related to ransomware")
+                    for ransom_file in files_with_same_extension:
+                        logging.info(f"Checking file '{ransom_file}' with same extension '{ext}'")
+                        if is_ransomware(ransom_file):
+                            logging.warning(f"File '{ransom_file}' might also be related to ransomware")
 
             # Notify user if the detection count reaches the threshold
             if ransomware_detection_count >= 10:
@@ -3240,22 +3240,22 @@ def extract_and_return_pyinstaller(file_path):
     :param file_path: Path to the PyInstaller archive.
     :return: A list of extracted file paths.
     """
-    extracted_file_paths = []  # List to store the paths of the extracted files
+    extracted_pyinstaller_file_paths = []  # List to store the paths of the extracted files
 
     # Extract PyInstaller archive
-    pyinstaller_dir = extract_pyinstaller_archive(file_path)
+    pyinstaller_archive = extract_pyinstaller_archive(file_path)
     
-    if pyinstaller_dir:
-        logging.info(f"PyInstaller archive extracted to {pyinstaller_dir}")
+    if pyinstaller_archive:
+        logging.info(f"PyInstaller archive extracted to {pyinstaller_archive}")
         
         # Traverse the extracted files
-        for root, dirs, files in os.walk(pyinstaller_dir):
-            for file in files:
-                extracted_file_path = os.path.join(root, file)
+        for root, dirs, files in os.walk(pyinstaller_archive):
+            for pyinstaller_file in files:
+                extracted_file_path = os.path.join(root, pyinstaller_file)
                 # Add the file path to the list of extracted file paths
-                extracted_file_paths.append(extracted_file_path)
+                extracted_pyinstaller_file_paths.append(extracted_file_path)
 
-    return extracted_file_paths
+    return extracted_pyinstaller_file_paths
 
 def decompile_dotnet_file(file_path):
     try:
