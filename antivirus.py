@@ -2582,10 +2582,10 @@ class PyInstArchive:
     def parsetoc(self):
         self.fPtr.seek(self.tableOfContentsPos, os.SEEK_SET)
         self.tocList = []
-        parsedLen = 0
+        parsedlen = 0
 
         try:
-            while parsedLen < self.tableOfContentsSize:
+            while parsedlen < self.tableOfContentsSize:
                 entrysize = struct.unpack('!i', self.fPtr.read(4))[0]
 
                 if entrysize <= 0 or entrysize > self.fileSize - self.tableOfContentsPos:
@@ -2609,14 +2609,14 @@ class PyInstArchive:
                     name
                 ))
 
-                parsedLen += entrysize
+                parsedlen += entrysize
         except Exception as ex:
             logging.error(f"Error during TOC parsing: {ex}")
             return False
 
         return True
 
-    def extractFiles(self):
+    def extractfiles(self):
         # Create the directory for python source code if it doesn't exist
         if not os.path.exists(python_source_code_dir):
             os.makedirs(python_source_code_dir)
@@ -2772,7 +2772,7 @@ def extract_pyinstaller_archive(file_path):
             return None
 
         # Extract files to the specified pyinstaller_dir
-        extraction_success = archive.extractFiles()
+        extraction_success = archive.extractfiles()
         
         # Close the archive
         archive.close()
