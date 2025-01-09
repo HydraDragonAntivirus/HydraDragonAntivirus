@@ -2445,58 +2445,51 @@ def is_nuitka_file(file_path):
 
 def scan_rsrc_directory(extracted_files):
     """
-    Look for .rsrc\\RCDATA\\ folder in the extracted files, extract the last line
-    of the last source file, and save it for further processing.
-    
+    Look for files whose paths contain .rsrc\\RCDATA and process them.
+    Extract the last line of these files and save it for further processing.
+
     :param extracted_files: List of files extracted by 7z.
     """
     try:
         for extracted_file in extracted_files:
-            # Check if extracted_file is a directory and look for .rsrc\RCDATA folder within it
-            if os.path.isdir(extracted_file):
-                rsrc_folder_path = os.path.join(extracted_file, ".rsrc", "RCDATA")
-                if os.path.exists(rsrc_folder_path):
-                    logging.info(f"Found RCDATA folder in {rsrc_folder_path}")
+            # Check if the file path contains .rsrc\RCDATA
+            if ".rsrc\\RCDATA" in extracted_file or ".rsrc/RCDATA" in extracted_file:
+                logging.info(f"Processing RCDATA file: {extracted_file}")
 
-                    rsrc_files = sorted(os.listdir(rsrc_folder_path))
-                    if rsrc_files:
-                        # Get the last file in the sorted list
-                        last_rsrc_file = rsrc_files[-1]
-                        last_file_path = os.path.join(rsrc_folder_path, last_rsrc_file)
-                        logging.info(f"Processing the last file in RCDATA: {last_file_path}")
+                # Ensure the path refers to an actual file
+                if os.path.isfile(extracted_file):
+                    try:
+                        # Read the last line of the file with error handling for invalid UTF-8
+                        with open(extracted_file, "r", encoding="utf-8", errors="replace") as f:
+                            lines = f.readlines()
+                            if lines:
+                                last_line = lines[-1].strip()  # Get the last line
+                                logging.info(f"Extracted last line from {extracted_file}: {last_line}")
 
-                        # Read the last line of the source file
-                        try:
-                            with open(last_file_path, "r", encoding="utf-8") as f:
-                                lines = f.readlines()
-                                if lines:
-                                    last_line = lines[-1].strip()  # Get the last line, remove extra whitespace
-                                    logging.info(f"Extracted last line from {last_file_path}: {last_line}")
+                                # Save the last line to a uniquely named file
+                                base_name = os.path.splitext(os.path.basename(extracted_file))[0]
+                                save_path = os.path.join(nuitka_source_code_dir, f"{base_name}_last_line.txt")
+                                counter = 1
+                                while os.path.exists(save_path):
+                                    save_path = os.path.join(
+                                        nuitka_source_code_dir, f"{base_name}_last_line_{counter}.txt"
+                                    )
+                                    counter += 1
 
-                                    # Save the last line to a file in nuitka_source_code_dir
-                                    base_name = os.path.splitext(os.path.basename(last_file_path))[0]
-                                    save_path = os.path.join(nuitka_source_code_dir, f"{base_name}_last_line.txt")
-                                    counter = 1
-                                    while os.path.exists(save_path):
-                                        save_path = os.path.join(
-                                            nuitka_source_code_dir, f"{base_name}_last_line_{counter}.txt"
-                                        )
-                                        counter += 1
-
-                                    with open(save_path, "w", encoding="utf-8") as save_file:
-                                        save_file.write(last_line)
-                                    logging.info(f"Saved last line from {last_file_path} to {save_path}")
-                                else:
-                                    logging.info(f"File {last_file_path} is empty.")
-                        except Exception as ex:
-                            logging.error(f"Error reading file {last_file_path}: {ex}")
-                    else:
-                        logging.info("No files found in RCDATA folder.")
+                                with open(save_path, "w", encoding="utf-8") as save_file:
+                                    save_file.write(last_line)
+                                logging.info(f"Saved last line from {extracted_file} to {save_path}")
+                            else:
+                                logging.info(f"File {extracted_file} is empty.")
+                    except Exception as ex:
+                        logging.error(f"Error reading file {extracted_file}: {ex}")
                 else:
-                    logging.info(f"No RCDATA folder found in {extracted_file}")
+                    logging.warning(f"Path {extracted_file} is not a valid file.")
+            else:
+                logging.debug(f"Skipping non-RCDATA file: {extracted_file}")
 
     except Exception as ex:
-        logging.error(f"Error during RCDATA scanning: {ex}")
+        logging.error(f"Error during RCDATA file scanning: {ex}")
 
 def extract_nuitka_file(file_path, nuitka_type):
     """Detect Nuitka type, extract Nuitka executable content, and send extracted files to scan_and_warn."""
