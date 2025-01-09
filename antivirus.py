@@ -2464,7 +2464,7 @@ def scan_rsrc_directory(extracted_files):
                             lines = f.readlines()
                             if lines:
                                 # Get the last line and clean it
-                                last_line = lines[-1].strip().replace('\x00', '')  # Remove NULL characters
+                                last_line = lines[-1].strip().replace('\x00', '').replace('\x01', '')  # Remove NULL and \x01 characters
                                 logging.info(f"Extracted last line from {extracted_file}: {last_line}")
 
                                 # Save the last line to a uniquely named file
