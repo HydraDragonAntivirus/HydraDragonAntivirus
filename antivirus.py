@@ -2447,12 +2447,24 @@ def is_nuitka_file(file_path):
 
     return None
 
-def scan_rsrc_directory(extracted_files):
+def clean_text(input_text):
+    """
+    Remove non-printable ASCII control characters from the input text.
+
+    :param input_text: The string to clean.
+    :return: Cleaned text with control characters removed.
+    """
+    # Remove non-printable characters (ASCII 0-31 and 127)
+    cleaned_text = re.sub(r'[\x00-\x1F\x7F]+', '', input_text)
+    return cleaned_text
+
+def scan_rsrc_directory(extracted_files, nuitka_source_code_dir):
     """
     Look for files whose paths contain .rsrc\\RCDATA and process them.
-    Extract the last line of these files and save it for further processing.
+    Extract the last line of these files, clean it, and save it for further processing.
 
     :param extracted_files: List of files extracted by 7z.
+    :param nuitka_source_code_dir: Directory to save the cleaned last lines.
     """
     try:
         for extracted_file in extracted_files:
@@ -2463,21 +2475,20 @@ def scan_rsrc_directory(extracted_files):
                 # Ensure the path refers to an actual file
                 if os.path.isfile(extracted_file):
                     try:
-                        # Read the last line of the file with error handling for invalid UTF-8
+                        # Read the last 11 lines of the file, handling invalid UTF-8 gracefully
                         with open(extracted_file, "r", encoding="utf-8", errors="ignore") as f:
                             lines = f.readlines()
                             if lines:
-                                # Get the last line
-                                last_line = lines[-1].strip()
+                                # Get the last 11 lines
+                                last_lines = lines[-11:]
 
-                                # Create a translation table to remove non-printable characters
-                                printable_chars = string.printable  # All printable characters
-                                remove_unwanted_chars = str.maketrans('', '', ''.join(set(last_line) - set(printable_chars)))
-                                
-                                # Clean the text
-                                last_line = last_line.translate(remove_unwanted_chars)
+                                # Join all last lines into a single string
+                                last_line = ''.join(last_lines).strip()
 
-                                logging.info(f"Extracted last line from {extracted_file}: {last_line}")
+                                # Clean the text by removing non-printable characters
+                                last_line = clean_text(last_line)
+
+                                logging.info(f"Extracted and cleaned last line from {extracted_file}: {last_line}")
 
                                 # Save the last line to a uniquely named file
                                 base_name = os.path.splitext(os.path.basename(extracted_file))[0]
