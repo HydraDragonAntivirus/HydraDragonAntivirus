@@ -2518,6 +2518,7 @@ def scan_rsrc_directory(extracted_files):
     except Exception as ex:
         logging.error(f"Error during RCDATA file scanning: {ex}")
 
+def scan_directory_for_executables(directory):
     """Recursively scan a directory for .exe files and check if they are Nuitka executables."""
     found_executables = []
     for root, _, files in os.walk(directory):
