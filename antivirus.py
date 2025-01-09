@@ -2535,19 +2535,19 @@ class PyInstArchive:
 
     def checkfile(self):
         endpos = self.fileSize
-        searchChunkSize = 8192
+        searchchunksize = 8192
 
         try:
             while True:
-                startPos = max(0, endpos - searchChunkSize)
-                self.fPtr.seek(startPos, os.SEEK_SET)
-                data_content = self.fPtr.read(endpos - startPos)
+                startpos = max(0, endpos - searchchunksize)
+                self.fPtr.seek(startpos, os.SEEK_SET)
+                data_content = self.fPtr.read(endpos - startpos)
                 offs = data_content.rfind(self.MAGIC)
                 if offs != -1:
-                    self.cookiePos = startPos + offs
+                    self.cookiePos = startpos + offs
                     break
-                endpos = startPos + len(self.MAGIC) - 1
-                if startPos == 0:
+                endpos = startpos + len(self.MAGIC) - 1
+                if startpos == 0:
                     return False
         except Exception as ex:
             logging.error(f"Error during checkfile: {ex}")
@@ -2579,7 +2579,7 @@ class PyInstArchive:
         self.tableOfContentsSize = toclen
         return True
 
-    def parseTOC(self):
+    def parsetoc(self):
         self.fPtr.seek(self.tableOfContentsPos, os.SEEK_SET)
         self.tocList = []
         parsedLen = 0
@@ -2767,7 +2767,7 @@ def extract_pyinstaller_archive(file_path):
             return None
 
         # Parse the Table of Contents (TOC) from the archive
-        if not archive.parseTOC():
+        if not archive.parsetoc():
             logging.error(f"Failed to parse TOC from {file_path}.")
             return None
 
