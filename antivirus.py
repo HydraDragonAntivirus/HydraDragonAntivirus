@@ -2514,14 +2514,14 @@ class PyInstArchive:
     PYINST21_COOKIE_SIZE = 24 + 64
 
     def __init__(self, path):
-        self.filePath = path
+        self.py_filepath = path
         self.pycMagic = b'\0' * 4
         self.barePycList = []  # List of pyc files whose headers need to be fixed
 
     def open_file(self):
         try:
-            self.fPtr = open(self.filePath, 'rb')
-            self.fileSize = os.stat(self.filePath).st_size
+            self.fPtr = open(self.py_filepath, 'rb')
+            self.fileSize = os.stat(self.py_filepath).st_size
             return True
         except IOError as ex:
             logging.error(f"Error opening file: {ex}")
@@ -2591,10 +2591,10 @@ class PyInstArchive:
                 if entrySize <= 0 or entrySize > self.fileSize - self.tableOfContentsPos:
                     return False
 
-                nameLen = struct.calcsize('!iIIIBc')
+                namelen = struct.calcsize('!iIIIBc')
 
                 try:
-                    entry = struct.unpack(f'!IIIBc{entrySize - nameLen}s', self.fPtr.read(entrySize - 4))
+                    entry = struct.unpack(f'!IIIBc{entrySize - namelen}s', self.fPtr.read(entrySize - 4))
                 except struct.error as ex:
                     logging.error(f"Error unpacking TOC entry: {ex}")
                     return False
@@ -2622,14 +2622,14 @@ class PyInstArchive:
             os.makedirs(python_source_code_dir)
 
         folder_number = 1
-        base_extraction_dir = os.path.join(script_dir, os.path.basename(self.filePath) + '_extracted')
+        base_extraction_dir = os.path.join(script_dir, os.path.basename(self.py_filepath) + '_extracted')
 
         while os.path.exists(f"{base_extraction_dir}_{folder_number}"):
             folder_number += 1
 
-        extractionDir = f"{base_extraction_dir}_{folder_number}"
-        os.makedirs(extractionDir, exist_ok=True)
-        os.chdir(extractionDir)
+        extractiondir = f"{base_extraction_dir}_{folder_number}"
+        os.makedirs(extractiondir, exist_ok=True)
+        os.chdir(extractiondir)
 
         try:
             for entry in self.tocList:
@@ -2676,8 +2676,8 @@ class PyInstArchive:
                 if self.pymaj != sys.version_info.major or self.pymin != sys.version_info.minor:
                     return False
 
-                tocPosition = struct.unpack('!i', f.read(4))[0]
-                f.seek(tocPosition, os.SEEK_SET)
+                tocposition = struct.unpack('!i', f.read(4))[0]
+                f.seek(tocposition, os.SEEK_SET)
 
                 try:
                     toc = marshal.load(f)
@@ -2690,25 +2690,25 @@ class PyInstArchive:
 
                 for key, (ispkg, pos, length) in toc.items():
                     f.seek(pos, os.SEEK_SET)
-                    fileName = key.decode("utf-8", errors="replace")
-                    fileName = fileName.replace('..', '__').replace('.', os.path.sep)
+                    py_filename = key.decode("utf-8", errors="replace")
+                    py_filename = py_filename.replace('..', '__').replace('.', os.path.sep)
 
                     if ispkg:
-                        filePath = os.path.join(dirname, fileName, '__init__.pyc')
+                        py_filepath = os.path.join(dirname, py_filename, '__init__.pyc')
                     else:
-                        filePath = os.path.join(dirname, fileName + '.pyc')
+                        py_filepath = os.path.join(dirname, py_filename + '.pyc')
 
-                    os.makedirs(os.path.dirname(filePath), exist_ok=True)
+                    os.makedirs(os.path.dirname(py_filepath), exist_ok=True)
 
                     data_content = f.read(length)
                     try:
                         data_content = zlib.decompress(data_content)
                     except zlib.error:
-                        with open(filePath + '.encrypted', 'wb') as e_f:
+                        with open(py_filepath + '.encrypted', 'wb') as e_f:
                             e_f.write(data_content)
                         continue
 
-                    with open(filePath, 'wb') as pyc_f:
+                    with open(pyfilepath, 'wb') as pyc_f:
                         pyc_f.write(pyzpycmagic)
                         pyc_f.write(b'\0' * 4)
                         if self.pymaj >= 3 and self.pymin >= 7:
