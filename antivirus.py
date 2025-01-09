@@ -2248,23 +2248,23 @@ activate_uefi_drive() # Call the UEFI function
 load_domains_data()
 load_antivirus_list()
 # Load excluded rules from text file
-with open(excluded_rules_path, "r") as file:
-        excluded_rules = file.read()
+with open(excluded_rules_path, "r") as excluded_file:
+        excluded_rules = excluded_file.read()
         print("YARA Excluded Rules Definitions loaded!")
 
 # Load malicious file names from JSON file
-with open(malicious_file_names, 'r') as f:
-    malicious_file_names = json.load(f)
+with open(malicious_file_names, 'r') as malicious_file:
+    malicious_file_names = json.load(malicious_file)
     print("Machine Learning Definitions loaded!")
 
 # Load malicious numeric features from pickle file
-with open(malicious_numeric_features, 'rb') as f:
-    malicious_numeric_features = joblib.load(f)
+with open(malicious_numeric_features, 'rb') as malicious_numeric_file:
+    malicious_numeric_features = joblib.load(malicious_numeric_file)
     print("Malicious Feature Signatures loaded!")
 
 # Load benign numeric features from pickle file
-with open(benign_numeric_features, 'rb') as f:
-    benign_numeric_features = joblib.load(f)
+with open(benign_numeric_features, 'rb') as benign_numeric_file:
+    benign_numeric_features = joblib.load(benign_numeric_file)
     print("Benign Feature Signatures loaded!")
 
 print("Machine Learning AI Signatures loaded!")
@@ -2299,8 +2299,8 @@ except yara.Error as e:
 
 try:
     # Load the precompiled rule from the .yrc file using yara_x
-    with open(yaraxtr_yrc_path, 'rb') as f:
-        yaraxtr_rule = yara_x.Rules.deserialize_from(f)
+    with open(yaraxtr_yrc_path, 'rb') as yara_x_f:
+        yaraxtr_rule = yara_x.Rules.deserialize_from(yara_x_f)
     print("YARA-X Rules Definitions loaded!")
 except Exception as e:
     print(f"Error loading YARA-X rules: {e}")
@@ -3405,8 +3405,8 @@ def show_code_with_uncompyle6(file_path, file_name):
             version += 1
 
         # Decompile the file
-        with open(file_path, "rb") as f:
-            decompiled_code = uncompyle6.pyeval.evaluate(f)
+        with open(file_path, "rb") as dec_f:
+            decompiled_code = uncompyle6.pyeval.evaluate(dec_f)
 
         if decompiled_code is None:
             logging.error(f"Failed to decompile {file_path}")
@@ -4330,8 +4330,8 @@ class Monitor_Message_CommandLine:
                     # Write original command line to a file if not empty
                     if command_line:
                         try:
-                            with open(original_command_file_path, 'w', encoding="utf-8", errors="replace") as file:
-                                file.write(command_line[:1_000_000])
+                            with open(original_command_file_path, 'w', encoding="utf-8", errors="replace") as original_file:
+                                original_file.write(command_line[:1_000_000])
                             if os.path.getsize(original_command_file_path) == 0:
                                 logging.error(f"Original command line file is empty: {original_command_file_path}.")
                             else:
