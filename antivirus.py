@@ -2586,15 +2586,15 @@ class PyInstArchive:
 
         try:
             while parsedLen < self.tableOfContentsSize:
-                entrySize = struct.unpack('!i', self.fPtr.read(4))[0]
+                entrysize = struct.unpack('!i', self.fPtr.read(4))[0]
 
-                if entrySize <= 0 or entrySize > self.fileSize - self.tableOfContentsPos:
+                if entrysize <= 0 or entrysize > self.fileSize - self.tableOfContentsPos:
                     return False
 
                 namelen = struct.calcsize('!iIIIBc')
 
                 try:
-                    entry = struct.unpack(f'!IIIBc{entrySize - namelen}s', self.fPtr.read(entrySize - 4))
+                    entry = struct.unpack(f'!IIIBc{entrysize - namelen}s', self.fPtr.read(entrysize - 4))
                 except struct.error as ex:
                     logging.error(f"Error unpacking TOC entry: {ex}")
                     return False
@@ -2609,7 +2609,7 @@ class PyInstArchive:
                     name
                 ))
 
-                parsedLen += entrySize
+                parsedLen += entrysize
         except Exception as ex:
             logging.error(f"Error during TOC parsing: {ex}")
             return False
