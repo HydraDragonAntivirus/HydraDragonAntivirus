@@ -2676,11 +2676,11 @@ class PyInstArchive:
                 if self.pymaj != sys.version_info.major or self.pymin != sys.version_info.minor:
                     return False
 
-                tocposition = struct.unpack('!i', f.read(4))[0]
-                f.seek(tocposition, os.SEEK_SET)
+                tocposition = struct.unpack('!i', pyz_f.read(4))[0]
+                pyz_f.seek(tocposition, os.SEEK_SET)
 
                 try:
-                    toc = marshal.load(f)
+                    toc = marshal.load(pyz_f)
                 except (EOFError, ValueError, TypeError) as ex:
                     logging.error(f"Error loading PYZ TOC: {ex}")
                     return False
@@ -2689,7 +2689,7 @@ class PyInstArchive:
                     toc = dict(toc)
 
                 for key, (ispkg, pos, length) in toc.items():
-                    f.seek(pos, os.SEEK_SET)
+                    pyz_f.seek(pos, os.SEEK_SET)
                     py_filename = key.decode("utf-8", errors="replace")
                     py_filename = py_filename.replace('..', '__').replace('.', os.path.sep)
 
@@ -2700,7 +2700,7 @@ class PyInstArchive:
 
                     os.makedirs(os.path.dirname(py_filepath), exist_ok=True)
 
-                    data_content = f.read(length)
+                    data_content = pyz_f.read(length)
                     try:
                         data_content = zlib.decompress(data_content)
                     except zlib.error:
@@ -3132,8 +3132,8 @@ def scan_file_with_llama32(file_path):
 
         try:
             # Read the file with UTF-8 encoding
-            with open(file_path, 'r', encoding="utf-8", errors="replace") as file:
-                for line in file:
+            with open(file_path, 'r', encoding="utf-8", errors="replace") as llama_file:
+                for line in llama_file:
                     if line_count < max_lines:
                         readable_file_content += line
                         line_count += 1
@@ -3439,8 +3439,8 @@ def scan_and_warn(file_path, flag=False):
             logging.error(f"Invalid file_path type: {type(file_path).__name__}")
             return False
 
-        with open(file_path, 'rb') as file:
-            data_content = file.read()
+        with open(file_path, 'rb') as scan_file:
+            data_content = scan_file.read()
 
         # Check if the file is empty
         if os.path.getsize(file_path) == 0:
@@ -3587,8 +3587,8 @@ def scan_and_warn(file_path, flag=False):
 
         # Check for fake file size
         if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
-            with open(file_path, 'rb') as file:
-                file_content_read = file.read(100 * 1024 * 1024)
+            with open(file_path, 'rb') as fake_file:
+                file_content_read = fake_file.read(100 * 1024 * 1024)
                 if file_content_read == b'\x00' * 100 * 1024 * 1024:  # 100MB of continuous `0x00` bytes
                     logging.warning(f"File {file_path} is flagged as HEUR:FakeSize.Generic")
                     fake_size = "HEUR:FakeSize.Generic"
@@ -4218,8 +4218,8 @@ class Monitor_Message_CommandLine:
 
         try:
             file_content = []
-            with open(file_path, 'r', encoding="utf-8", errors="replace") as file:
-                for line_number, line in enumerate(file):
+            with open(file_path, 'r', encoding="utf-8", errors="replace") as monitor_file:
+                for line_number, line in enumerate(monitor_file):
                     if line_number < 1000000:  # Only read the first 1 million lines
                         file_content.append(line)
                     else:
@@ -4296,8 +4296,8 @@ class Monitor_Message_CommandLine:
                     # Write preprocessed text to a file if not empty
                     if preprocessed_text:
                         try:
-                            with open(preprocessed_file_path, 'w', encoding="utf-8", errors="replace") as file:
-                                file.write(preprocessed_text[:1_000_000])
+                            with open(preprocessed_file_path, 'w', encoding="utf-8", errors="replace") as pre_proc_file:
+                                pre_proc_file.write(preprocessed_text[:1_000_000])
                             if os.path.getsize(preprocessed_file_path) == 0:
                                 logging.error(f"Preprocessed file is empty: {preprocessed_file_path}.")
                             else:
@@ -4309,8 +4309,8 @@ class Monitor_Message_CommandLine:
                     # Write original text to a file if not empty
                     if text:
                         try:
-                            with open(original_file_path, 'w', encoding="utf-8", errors="replace") as file:
-                                file.write(text[:1_000_000])
+                            with open(original_file_path, 'w', encoding="utf-8", errors="replace") as original_text_file:
+                                original_text_file.write(text[:1_000_000])
                             if os.path.getsize(original_file_path) == 0:
                                 logging.error(f"Original file is empty: {original_file_path}.")
                             else:
