@@ -25,13 +25,13 @@ logging.basicConfig(
 )
 
 # Redirect stdout to console log
-sys.stdout = open(console_log_file, "w", encoding="utf-8", errors="replace")
+sys.stdout = open(console_log_file, "w", encoding="utf-8", errors="ignore")
 
 # Redirect stderr to console log
-sys.stderr = open(console_log_file, "w", encoding="utf-8", errors="replace")
+sys.stderr = open(console_log_file, "w", encoding="utf-8", errors="ignore")
 
 # Redirect stdin to a log file
-sys.stdin = open(stdin_log_file, "w+", encoding="utf-8", errors="replace")
+sys.stdin = open(stdin_log_file, "w+", encoding="utf-8", errors="ignore")
 
 # Logging for application initialization
 logging.info("Application started at %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
@@ -468,7 +468,7 @@ def remove_magic_bytes(data_content):
     try:
         if is_hex_data(data_content):
             # Convert binary data to hex representation for easier pattern removal
-            hex_data = binascii.hexlify(data_content).decode("utf-8", errors="replace")
+            hex_data = binascii.hexlify(data_content).decode("utf-8", errors="ignore")
 
             # Remove magic bytes by applying regex patterns
             for magic_byte in magic_bytes.keys():
@@ -480,13 +480,13 @@ def remove_magic_bytes(data_content):
         else:
             try:
                 # Decode the data using UTF-8
-                decoded_content = data_content.decode("utf-8", errors="replace")
+                decoded_content = data_content.decode("utf-8", errors="ignore")
             except (AttributeError, TypeError) as ex:
                 logging.error(f"Error decoding data: {ex}")
                 return data_content  # Return original data if decoding fails
 
             # Convert decoded content back to bytes for magic byte removal
-            hex_data = binascii.hexlify(decoded_content.encode("utf-8")).decode(errors="replace")
+            hex_data = binascii.hexlify(decoded_content.encode("utf-8")).decode(errors="ignore")
 
             for magic_byte in magic_bytes.keys():
                 pattern = re.compile(rf'{magic_bytes[magic_byte].replace(" ", "")}', re.IGNORECASE)
@@ -2464,7 +2464,7 @@ def scan_rsrc_directory(extracted_files):
                 if os.path.isfile(extracted_file):
                     try:
                         # Read the last line of the file with error handling for invalid UTF-8
-                        with open(extracted_file, "r", encoding="utf-8", errors="replace") as f:
+                        with open(extracted_file, "r", encoding="utf-8", errors="ignore") as f:
                             lines = f.readlines()
                             if lines:
                                 # Get the last line
@@ -2678,7 +2678,7 @@ class PyInstArchive:
                     logging.error(f"Error unpacking TOC entry: {ex}")
                     return False
 
-                name = entry[5].decode("utf-8", errors="replace").rstrip('\0')
+                name = entry[5].decode("utf-8", errors="ignore").rstrip('\0')
                 self.tocList.append(CTOCEntry(
                     self.overlayPos + entry[0],
                     entry[1],
@@ -2769,7 +2769,7 @@ class PyInstArchive:
 
                 for key, (ispkg, pos, length) in toc.items():
                     pyz_f.seek(pos, os.SEEK_SET)
-                    py_filename = key.decode("utf-8", errors="replace")
+                    py_filename = key.decode("utf-8", errors="ignore")
                     py_filename = py_filename.replace('..', '__').replace('.', os.path.sep)
 
                     if ispkg:
@@ -3212,7 +3212,7 @@ def scan_file_with_llama32(file_path):
 
         try:
             # Read the file with UTF-8 encoding
-            with open(file_path, 'r', encoding="utf-8", errors="replace") as llama_file:
+            with open(file_path, 'r', encoding="utf-8", errors="ignore") as llama_file:
                 for line in llama_file:
                     if line_count < max_lines:
                         readable_file_content += line
@@ -4304,7 +4304,7 @@ class MonitorMessageCommandLine:
 
         try:
             file_content = []
-            with open(file_path, 'r', encoding="utf-8", errors="replace") as monitor_file:
+            with open(file_path, 'r', encoding="utf-8", errors="ignore") as monitor_file:
                 for line_number, line in enumerate(monitor_file):
                     if line_number < 1000000:  # Only read the first 1 million lines
                         file_content.append(line)
@@ -4382,7 +4382,7 @@ class MonitorMessageCommandLine:
                     # Write preprocessed text to a file if not empty
                     if preprocessed_text:
                         try:
-                            with open(preprocessed_file_path, 'w', encoding="utf-8", errors="replace") as pre_proc_file:
+                            with open(preprocessed_file_path, 'w', encoding="utf-8", errors="ignore") as pre_proc_file:
                                 pre_proc_file.write(preprocessed_text[:1_000_000])
                             if os.path.getsize(preprocessed_file_path) == 0:
                                 logging.error(f"Preprocessed file is empty: {preprocessed_file_path}.")
@@ -4395,7 +4395,7 @@ class MonitorMessageCommandLine:
                     # Write original text to a file if not empty
                     if text:
                         try:
-                            with open(original_file_path, 'w', encoding="utf-8", errors="replace") as original_text_file:
+                            with open(original_file_path, 'w', encoding="utf-8", errors="ignore") as original_text_file:
                                 original_text_file.write(text[:1_000_000])
                             if os.path.getsize(original_file_path) == 0:
                                 logging.error(f"Original file is empty: {original_file_path}.")
@@ -4416,7 +4416,7 @@ class MonitorMessageCommandLine:
                     # Write original command line to a file if not empty
                     if command_line:
                         try:
-                            with open(original_command_file_path, 'w', encoding="utf-8", errors="replace") as original_file:
+                            with open(original_command_file_path, 'w', encoding="utf-8", errors="ignore") as original_file:
                                 original_file.write(command_line[:1_000_000])
                             if os.path.getsize(original_command_file_path) == 0:
                                 logging.error(f"Original command line file is empty: {original_command_file_path}.")
@@ -4429,7 +4429,7 @@ class MonitorMessageCommandLine:
                     # Write preprocessed command line to a file if not empty
                     if preprocessed_command_line:
                         try:
-                            with open(preprocessed_command_file_path, 'w', encoding="utf-8", errors="replace") as file:
+                            with open(preprocessed_command_file_path, 'w', encoding="utf-8", errors="ignore") as file:
                                 file.write(preprocessed_command_line[:1_000_000])
                             if os.path.getsize(preprocessed_command_file_path) == 0:
                                 logging.error(f"Preprocessed command line file is empty: {preprocessed_command_file_path}.")
