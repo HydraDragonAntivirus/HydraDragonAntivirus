@@ -3365,7 +3365,7 @@ def extract_all_archived_files_with_7z(file_path):
         logging.info(f"Attempting to extract file {file_path} into {output_dir}...")
 
         # Extract the archive using 7z.exe
-        command = [seven_zip_path, "x", file_path, f"-o{output_dir}", "-y"]
+        command = [seven_zip_path, "x", file_path, f"-o{output_dir}", "-y", "-snl", "-spe"]
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
         if result.returncode != 0:
