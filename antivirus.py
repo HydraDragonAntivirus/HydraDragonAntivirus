@@ -2534,8 +2534,8 @@ def extract_nuitka_file(file_path, nuitka_type):
             logging.info(f"Nuitka executable detected in {file_path}")
             
             # Use 7z to extract the Nuitka file
-            extracted_files = extract_all_archived_files_with_7z(file_path)
-            
+            extracted_files = extract_all_files_with_7z(file_path)
+
             if extracted_files:
                 logging.info(f"Successfully extracted files from Nuitka executable: {file_path}")
                 
