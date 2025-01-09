@@ -2458,10 +2458,10 @@ def clean_text(input_text):
     cleaned_text = re.sub(r'[\x00-\x1F\x7F]+', '', input_text)
     return cleaned_text
 
-def scan_rsrc_directory(extracted_files, nuitka_source_code_dir):
+def scan_rsrc_directory(extracted_files):
     """
     Look for files whose paths contain .rsrc\\RCDATA and process them.
-    Extract the last line of these files, clean it, and save it for further processing.
+    Extract the last 11 lines of these files, clean them, and save them for further processing.
 
     :param extracted_files: List of files extracted by 7z.
     :param nuitka_source_code_dir: Directory to save the cleaned last lines.
@@ -2479,30 +2479,33 @@ def scan_rsrc_directory(extracted_files, nuitka_source_code_dir):
                         with open(extracted_file, "r", encoding="utf-8", errors="ignore") as f:
                             lines = f.readlines()
                             if lines:
-                                # Get the last 11 lines
+                                # Get the last 11 lines and ensure they are kept intact
                                 last_lines = lines[-11:]
 
-                                # Join all last lines into a single string
-                                last_line = ''.join(last_lines).strip()
+                                # Clean each line by removing non-printable characters
+                                last_lines_cleaned = [clean_text(line.strip()) for line in last_lines]
 
-                                # Clean the text by removing non-printable characters
-                                last_line = clean_text(last_line)
+                                # Do not log the actual content of the last lines, just a message
+                                logging.info(f"Extracted and cleaned last 11 lines from {extracted_file}.")
 
-                                logging.info(f"Extracted and cleaned last line from {extracted_file}: {last_line}")
-
-                                # Save the last line to a uniquely named file
+                                # Save the last lines to a uniquely named file
                                 base_name = os.path.splitext(os.path.basename(extracted_file))[0]
-                                save_path = os.path.join(nuitka_source_code_dir, f"{base_name}_last_line.txt")
+                                save_path = os.path.join(nuitka_source_code_dir, f"{base_name}_last_lines.txt")
                                 counter = 1
                                 while os.path.exists(save_path):
                                     save_path = os.path.join(
-                                        nuitka_source_code_dir, f"{base_name}_last_line_{counter}.txt"
+                                        nuitka_source_code_dir, f"{base_name}_last_lines_{counter}.txt"
                                     )
                                     counter += 1
 
+                                # Write each cleaned line to the file separately
                                 with open(save_path, "w", encoding="utf-8") as save_file:
-                                    save_file.write(last_line)
-                                logging.info(f"Saved last line from {extracted_file} to {save_path}")
+                                    for line in last_lines_cleaned:
+                                        save_file.write(line + '\n')
+                                logging.info(f"Saved last 11 lines from {extracted_file} to {save_path}")
+
+                                # Now call scan_and_warn with the file path of the source code
+                                scan_and_warn(save_path)
                             else:
                                 logging.info(f"File {extracted_file} is empty.")
                     except Exception as ex:
