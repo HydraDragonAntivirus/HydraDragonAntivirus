@@ -3731,8 +3731,8 @@ def check_startup_directories():
                                 malware_type = "HEUR:Win32.Startup.Suspicious.Extension.Generic.Malware"
                                 message = f"Confirmed malware with suspicious extension detected: {file_path}\nVirus: {malware_type}"
                             else:
-                                malware_type = "HEUR:Win32.Startup.Generic.Malware"
-                                message = f"Suspicious startup file detected: {file_path}"
+                                malware_type = "HEUR:Win32.Startup.Suspicious.Generic.Malware"
+                                message = f"Suspicious startup file detected: {file_path}}\nVirus: {malware_type}"
 
                             logging.warning(f"Suspicious or malicious startup file detected in {directory}: {file}")
                             print(f"Suspicious or malicious startup file detected in {directory}: {file}")
