@@ -2203,7 +2203,7 @@ def process_alert(line):
         logging.error(f"Error matching alert regex: {ex}")
         print(f"Error matching alert regex: {ex}")
 
-def clean_directory(log_folder):
+def clean_directory():
     for filename in os.listdir(log_folder):
         file_path = os.path.join(log_folder, filename)
         try:
