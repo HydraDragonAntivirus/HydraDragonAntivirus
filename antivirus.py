@@ -2708,7 +2708,7 @@ class PyInstArchive:
                             e_f.write(data_content)
                         continue
 
-                    with open(pyfilepath, 'wb') as pyc_f:
+                    with open(py_filepath, 'wb') as pyc_f:
                         pyc_f.write(pyzpycmagic)
                         pyc_f.write(b'\0' * 4)
                         if self.pymaj >= 3 and self.pymin >= 7:
@@ -3373,12 +3373,12 @@ def show_code_with_uncompyle6(file_path, file_name):
 
         # Check if it's source code using PyInstaller's method
         is_source = False
-        with open(file_path, "rb") as f:
+        with open(file_path, "rb") as pyc_file:
             # Skip pyc header
-            f.seek(16)
+            pyc_file.seek(16)
 
             # Try to read TOC entry structure
-            entry_data = f.read(struct.calcsize('!IIIBc'))
+            entry_data = pyc_file.read(struct.calcsize('!IIIBc'))
             if len(entry_data) >= struct.calcsize('!IIIBc'):
                 try:
                     # Unpack TOC entry to check typecmprsdata
