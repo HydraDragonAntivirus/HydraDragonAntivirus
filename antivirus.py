@@ -226,6 +226,7 @@ dotnet_dir = os.path.join(script_dir, "dotnet")
 nuitka_dir = os.path.join(script_dir, "nuitka")
 pyintstaller_dir = os.path.join(script_dir, "pyinstaller")
 python_source_code_dir = os.path.join(script_dir, "pythonsourcecode")
+nuitka_source_code_dir = os.path.join(script_dir, "nuitkasourcecode")
 commandlineandmessage_dir = os.path.join(script_dir, "commandlineandmessage")
 pe_extracted_dir = os.path.join(script_dir, "pe_extracted")
 zip_extracted_dir = os.path.join(script_dir, "zip_extracted")
@@ -285,6 +286,7 @@ clamav_database_directory_path = "C:\\Program Files\\ClamAV\\database"
 seven_zip_path = "C:\\Program Files\\7-Zip\\7z.exe"  # Path to 7z.exe
 
 os.makedirs(python_source_code_dir, exist_ok=True)
+os.makedirs(nuitka_source_code_dir, exist_ok=True)
 os.makedirs(commandlineandmessage_dir, exist_ok=True)
 os.makedirs(processed_dir, exist_ok=True)
 os.makedirs(memory_dir, exist_ok=True)
@@ -2335,7 +2337,7 @@ existing_projects = []
 # List of already scanned files and their modification times
 scanned_files = []
 file_mod_times = {}
-directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir]
+directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, nuitka_source_code_dir]
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
@@ -2434,29 +2436,124 @@ def is_nuitka_file(file_path):
     """Check if the file is a Nuitka executable using Detect It Easy."""
     try:
         # Run the DIE console command to analyze the file
+        logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
         result = subprocess.run([detectiteasy_console_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-        # Check if the output indicates the file is a Nuitka-compiled executable
-        if "Nuitka" in result.stdout:
-            return True
+        # Check for Nuitka executable and OneFile
+        if "Nuitka[OneFile]" in result.stdout:
+            logging.info(f"File {file_path} is a Nuitka OneFile executable.")
+            return "Nuitka OneFile"
+        elif "Nuitka" in result.stdout:
+            logging.info(f"File {file_path} is a Nuitka executable.")
+            return "Nuitka"
+        else:
+            logging.info(f"File {file_path} is not a Nuitka executable.")
 
     except subprocess.SubprocessError as ex:
         logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
-        return False
+        return None
     except Exception as ex:
         logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
-        return False
+        return None
 
-    return False
+    return None
 
-def extract_nuitka_file(file_path):
-    """Extract Nuitka file content into uniquely named folders."""
+def check_and_extract_nuitka(file_path, nutika_type):
+    """Check if the file is Nuitka and extract accordingly."""
     try:
-        # Check if the file is a Nuitka executable
-        if is_nuitka_file(file_path):
+        if nuitka_type == "Nuitka OneFile":
+            logging.info(f"File {file_path} is a Nuitka OneFile executable.")
+            # Call extract_nuitka_file for OneFile extraction
+            extract_nuitka_file(file_path, nuitka_type)
+
+        elif nuitka_type == "Nuitka":
+            logging.info(f"File {file_path} is a standard Nuitka executable.")
+            # Call extract_nuitka_file for standard Nuitka extraction
+            extract_nuitka_file(file_path, nuitka_type)
+        
+        else:
+            logging.info(f"File {file_path} is not a Nuitka executable.")
+
+    except Exception as ex:
+        logging.error(f"Error checking or extracting Nuitka content from {file_path}: {ex}")
+
+def scan_rsrc_directory(extracted_files):
+    """
+    Look for .rsrc\\RCDATA\\ folder in the extracted files, save the last resource file to the
+    nuitka_source_code_dir with incremental suffixes, and scan with scan_and_warn.
+    
+    :param extracted_files: List of files extracted by 7z.
+    """
+    try:
+        for extracted_file in extracted_files:
+            rsrc_folder_path = os.path.join(extracted_file, ".rsrc", "RCDATA")
+            if os.path.exists(rsrc_folder_path):
+                logging.info(f"Found RCDATA folder in {rsrc_folder_path}")
+
+                rsrc_files = os.listdir(rsrc_folder_path)
+                if rsrc_files:
+                    last_rsrc_file = rsrc_files[-1]
+                    last_file_path = os.path.join(rsrc_folder_path, last_rsrc_file)
+                    logging.info(f"Scanning the last file in RCDATA: {last_file_path}")
+                    
+                    # Save the last file to the nuitka_source_code_dir with incremental suffixes
+                    save_path = os.path.join(nuitka_source_code_dir, f"{os.path.basename(last_file_path)}")
+                    counter = 1
+                    while os.path.exists(save_path):
+                        save_path = os.path.join(nuitka_source_code_dir, f"{os.path.basename(last_file_path).split('.')[0]}_{counter}.{os.path.splitext(last_file_path)[1]}")
+                        counter += 1
+
+                    shutil.copy(last_file_path, save_path)
+                    logging.info(f"Saved resource file {last_file_path} as {save_path}")
+
+                    # Send the saved file to scan_and_warn
+                    scan_and_warn(save_path)
+
+                else:
+                    logging.info("No files found in RCDATA folder.")
+            else:
+                logging.info(f"No RCDATA folder found in {extracted_file}")
+
+    except Exception as ex:
+        logging.error(f"Error during RCDATA scanning: {ex}")
+
+def extract_nuitka_file(file_path, nuitka_type):
+    """Detect Nuitka type, extract Nuitka executable content, and send extracted files to scan_and_warn."""
+    try:  
+        if nuitka_type == "Nuitka OneFile":
+            logging.info(f"Nuitka OneFile executable detected in {file_path}")
+            
+            # Find the next available directory number for OneFile extraction
+            folder_number = 1
+            while os.path.exists(f"{nuitka_dir}_OneFile_{folder_number}"):
+                folder_number += 1
+            nuitka_output_dir = f"{nuitka_dir}_OneFile_{folder_number}"
+            
+            if not os.path.exists(nuitka_output_dir):
+                os.makedirs(nuitka_output_dir)
+
+            logging.info(f"Extracting Nuitka OneFile {file_path} to {nuitka_output_dir}")
+            
+            # Use nuitka_extractor for OneFile extraction
+            command = [nuitka_extractor_path, "-output", nuitka_output_dir, file_path]
+            result = subprocess.run(command, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                logging.info(f"Successfully extracted Nuitka OneFile: {file_path} to {nuitka_output_dir}")
+                
+                # Extract using 7z for any files inside the OneFile output
+                extracted_files = extract_all_archived_files_with_7z(nuitka_output_dir)
+                
+                # Send all files to scan_and_warn
+                for extracted_file in extracted_files:
+                    scan_and_warn(extracted_file)
+            else:
+                logging.error(f"Failed to extract Nuitka OneFile: {file_path}. Error: {result.stderr}")
+        
+        elif nuitka_type == "Nuitka":
             logging.info(f"Nuitka executable detected in {file_path}")
             
-            # Find the next available directory number
+            # Find the next available directory number for standard Nuitka extraction
             folder_number = 1
             while os.path.exists(f"{nuitka_dir}_{folder_number}"):
                 folder_number += 1
@@ -2467,14 +2564,21 @@ def extract_nuitka_file(file_path):
 
             logging.info(f"Extracting Nuitka file {file_path} to {nuitka_output_dir}")
             
-            # Use nuitka_extractor to extract the file
-            command = [nuitka_extractor_path, "-output", nuitka_output_dir, file_path]
-            result = subprocess.run(command, capture_output=True, text=True)
+            # Use 7z to extract the Nuitka file
+            extracted_files = extract_all_archived_files_with_7z(file_path)
             
-            if result.returncode == 0:
-                logging.info(f"Successfully extracted Nuitka file: {file_path} to {nuitka_output_dir}")
+            if extracted_files:
+                logging.info(f"Successfully extracted files from Nuitka executable: {file_path}")
+                
+                # Send the extracted files to scan_and_warn
+                for extracted_file in extracted_files:
+                    scan_and_warn(extracted_file)
+
+                # After extracting and scanning, scan rsrc if needed
+                scan_rsrc_directory(extracted_files)
             else:
-                logging.error(f"Failed to extract Nuitka file: {file_path}. Error: {result.stderr}")
+                logging.error(f"Failed to extract files from Nuitka executable: {file_path}")
+        
         else:
             logging.info(f"No Nuitka content found in {file_path}")
     
@@ -3067,6 +3171,8 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: It's a dynamic analysis memory dump file.")
         elif file_path.startswith(python_source_code_dir):
             logging.info(f"{file_path}: It's a PyInstaller reversed-engineered Python source code directory.")
+        elif file_path.startswith(nuitka_source_code_dir):
+            logging.info(f"{file_path}: It's a Nuitka reversed-engineered Python source code directory.")
         else:
             logging.warning(f"{file_path}: File does not match known directories.")
     except Exception as ex:
@@ -3525,13 +3631,19 @@ def scan_and_warn(file_path, flag=False):
                 dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(file_path,))
                 dotnet_thread.start()
 
-            # Check if the file contains Nuitka and extract if present
-            try:
-                logging.info(f"Checking if the file {file_path} contains Nuitka executable.")
-                extract_nuitka_file(file_path)
-            except Exception as ex:
-                logging.error(f"Error checking or extracting Nuitka content from {file_path}: {ex}")
+            # Check if the file contains Nuitka executable
+            nuitka_type = is_nuitka_file(file_path)
 
+            # Only proceed with extraction if Nuitka is detected
+            if nuitka_type:
+                try:
+                    logging.info(f"Checking if the file {file_path} contains Nuitka executable of type: {nuitka_type}")
+                    # Pass both the file path and Nuitka type to the check_and_extract_nuitka function
+                    check_and_extract_nuitka(file_path, nuitka_type)
+                except Exception as ex:
+                    logging.error(f"Error checking or extracting Nuitka content from {file_path}: {ex}")
+            else:
+                logging.info(f"No Nuitka executable detected in {file_path}")
         else:
             # If the file content is not valid hex data, perform scanning with Llama-3.2-1B
             logging.info(f"File {file_path} does not contain valid hex-encoded data. Scanning with Llama-3.2-1B...")
