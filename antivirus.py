@@ -4165,13 +4165,13 @@ class Monitor_Message_CommandLine:
         notify_user_for_detected_command(message)
 
     def process_detected_command_schtasks_temp(self, text, file_path):
-        virus_name = self.known_malware_messages["commands"]["schtasks"]["virus_name"]
+        virus_name = self.known_malware_messages["schtasks"]["virus_name"]
         message = f"Detected scheduled task creation using temp file: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
         notify_user_for_detected_command(message)
 
     def process_detected_command_stop_eventlog(self, text, file_path):
-        virus_name = self.known_malware_messages["commands"]["stopeventlog"]["virus_name"]
+        virus_name = self.known_malware_messages["stopeventlog"]["virus_name"]
         message = f"Detected Stop EventLog command execution: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
         notify_user_for_detected_command(message)
