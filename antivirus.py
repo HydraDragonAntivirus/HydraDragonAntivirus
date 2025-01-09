@@ -2417,21 +2417,6 @@ def extract_original_file_path_from_decompiled(file_path):
         logging.error(f"An error occurred while extracting the original file path: {ex}")
         return None
 
-def ensure_unique_folder(base_folder):
-    """Create a uniquely named folder by appending a number if necessary."""
-    folder = base_folder
-    counter = 1
-    try:
-        while os.path.exists(folder):
-            folder = f"{base_folder}_{counter}"
-            counter += 1
-        os.makedirs(folder)
-    except Exception as ex:
-        logging.error(f"Error creating folder '{folder}': {ex}")
-        return None  # Return None if an error occurs
-
-    return folder
-
 def is_nuitka_file(file_path):
     """Check if the file is a Nuitka executable using Detect It Easy."""
     try:
