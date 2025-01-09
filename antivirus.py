@@ -2203,9 +2203,9 @@ def process_alert(line):
         logging.error(f"Error matching alert regex: {ex}")
         print(f"Error matching alert regex: {ex}")
 
-def clean_directory(log_path):
-    for filename in os.listdir(log_path):
-        file_path = os.path.join(log_path, filename)
+def clean_directory(log_folder):
+    for filename in os.listdir(log_folder):
+        file_path = os.path.join(log_folder, filename)
         try:
             if os.path.isfile(file_path) or os.path.islink(file_path):
                 os.unlink(file_path)
@@ -2216,7 +2216,7 @@ def clean_directory(log_path):
 
 def run_snort():    
     try:
-        clean_directory(log_folder)
+        clean_directory()
         # Run snort without capturing output
         subprocess.run(snort_command, check=True)
         
