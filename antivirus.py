@@ -2443,25 +2443,6 @@ def is_nuitka_file(file_path):
 
     return None
 
-def check_and_extract_nuitka(file_path, nuitka_type):
-    """Check if the file is Nuitka and extract accordingly."""
-    try:
-        if nuitka_type == "Nuitka OneFile":
-            logging.info(f"File {file_path} is a Nuitka OneFile executable.")
-            # Call extract_nuitka_file for OneFile extraction
-            extract_nuitka_file(file_path, nuitka_type)
-
-        elif nuitka_type == "Nuitka":
-            logging.info(f"File {file_path} is a standard Nuitka executable.")
-            # Call extract_nuitka_file for standard Nuitka extraction
-            extract_nuitka_file(file_path, nuitka_type)
-        
-        else:
-            logging.info(f"File {file_path} is not a Nuitka executable.")
-
-    except Exception as ex:
-        logging.error(f"Error checking or extracting Nuitka content from {file_path}: {ex}")
-
 def scan_rsrc_directory(extracted_files):
     """
     Look for .rsrc\\RCDATA\\ folder in the extracted files, save the last resource file to the
@@ -3611,7 +3592,7 @@ def scan_and_warn(file_path, flag=False):
                 try:
                     logging.info(f"Checking if the file {file_path} contains Nuitka executable of type: {nuitka_type}")
                     # Pass both the file path and Nuitka type to the check_and_extract_nuitka function
-                    check_and_extract_nuitka(file_path, nuitka_type)
+                    extract_nuitka_file(file_path, nuitka_type)
                 except Exception as ex:
                     logging.error(f"Error checking or extracting Nuitka content from {file_path}: {ex}")
             else:
