@@ -2465,7 +2465,6 @@ def check_and_extract_nuitka(file_path, nuitka_type):
 def scan_rsrc_directory(extracted_files):
     """
     Look for .rsrc\\RCDATA\\ folder in the extracted files, save the last resource file to the
-    nuitka_source_code_dir with incremental suffixes, and scan with scan_and_warn.
     
     :param extracted_files: List of files extracted by 7z.
     """
