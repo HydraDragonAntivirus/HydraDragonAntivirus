@@ -3360,11 +3360,11 @@ def check_pe_file(file_path, pe_file, signature_check, file_name):
     except Exception as ex:
         logging.error(f"Error checking PE file {file_path}: {ex}")
 
-def extract_all_archived_files_with_7z(file_path):
+def extract_all_files_with_7z(file_path):
     """
-    Extract all files from a 7z archive using 7z.exe.
-
-    :param file_path: Path to the archive file.
+    Extract all files using 7z.exe directly under the general_extracted_dir.
+    
+    :param file_path: Path to the file to extract.
     :return: List of extracted file paths.
     """
     try:
@@ -3397,7 +3397,7 @@ def extract_all_archived_files_with_7z(file_path):
         return extracted_files
 
     except Exception as ex:
-        logging.error(f"Error during archive extraction: {ex}")
+        logging.error(f"Error during extraction: {ex}")
         return []
 
 def is_pyc_file(file_path):
@@ -3553,7 +3553,7 @@ def scan_and_warn(file_path, flag=False):
             # Attempt to extract the file, regardless of its type
             try:
                 logging.info(f"Attempting to extract file {file_path}...")
-                extracted_files = extract_all_archived_files_with_7z(file_path)
+                extracted_files = extract_all_files_with_7z(file_path)
 
                 if extracted_files:
                     logging.info(f"Extraction successful for {file_path}. Scanning extracted files...")
