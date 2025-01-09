@@ -3368,15 +3368,14 @@ def extract_all_archived_files_with_7z(file_path):
     :return: List of extracted file paths.
     """
     try:
-        # Create a unique extraction directory, appending a number if necessary
-        base_output_dir = os.path.splitext(os.path.basename(file_path))[0] + "_extracted"
-        output_dir = base_output_dir
         counter = 1
+        base_output_dir = os.path.join(general_extracted_dir, os.path.splitext(os.path.basename(file_path))[0])
 
-        # Ensure output directory is unique
-        while os.path.exists(output_dir):
-            output_dir = f"{base_output_dir}{counter}"
+        # Ensure output directory is unique under the base directory
+        while os.path.exists(f"{base_output_dir}_{counter}"):
             counter += 1
+
+        output_dir = f"{base_output_dir}_{counter}"
 
         logging.info(f"Attempting to extract file {file_path} into {output_dir}...")
 
