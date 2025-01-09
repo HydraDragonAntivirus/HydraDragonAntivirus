@@ -3381,6 +3381,7 @@ def extract_all_files_with_7z(file_path):
 
         # Extract the archive using 7z.exe
         command = [seven_zip_path, "x", file_path, f"-o{output_dir}", "-y", "-snl", "-spe"]
+        # Extract the files using 7z.exe
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
         if result.returncode != 0:
