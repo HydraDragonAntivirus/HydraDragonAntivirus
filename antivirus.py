@@ -202,6 +202,10 @@ start_time = time.time()
 from typing import Optional, Dict, Any
 print(f"typing.Optional, Dict and Any module loaded in {time.time() - start_time:.6f} seconds")
 
+start_time = time.time()
+import string
+print(f"string module loaded in {time.time() - start_time:.6f} seconds")
+
 # Calculate and print total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
@@ -2463,8 +2467,16 @@ def scan_rsrc_directory(extracted_files):
                         with open(extracted_file, "r", encoding="utf-8", errors="replace") as f:
                             lines = f.readlines()
                             if lines:
-                                # Get the last line and clean it
-                                last_line = lines[-1].strip().replace('\x00', '').replace('\x01', '')  # Remove NULL and \x01 characters
+                                # Get the last line
+                                last_line = lines[-1].strip()
+
+                                # Create a translation table to remove non-printable characters
+                                printable_chars = string.printable  # All printable characters
+                                remove_unwanted_chars = str.maketrans('', '', ''.join(set(last_line) - set(printable_chars)))
+                                
+                                # Clean the text
+                                last_line = last_line.translate(remove_unwanted_chars)
+
                                 logging.info(f"Extracted last line from {extracted_file}: {last_line}")
 
                                 # Save the last line to a uniquely named file
