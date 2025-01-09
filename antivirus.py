@@ -2458,7 +2458,7 @@ def is_nuitka_file(file_path):
 
     return None
 
-def check_and_extract_nuitka(file_path, nutika_type):
+def check_and_extract_nuitka(file_path, nuitka_type):
     """Check if the file is Nuitka and extract accordingly."""
     try:
         if nuitka_type == "Nuitka OneFile":
