@@ -3939,7 +3939,7 @@ def find_windows_with_text():
     ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
     return window_handles
 
-class Monitor_Message_CommandLine:
+class MonitorMessageCommandLine:
     def __init__(self):
         self.known_malware_messages = {
             "classic": {
@@ -4409,7 +4409,7 @@ def perform_sandbox_analysis(file_path):
         # Set main file path globally
         main_file_path = file_path
 
-        monitor_message = Monitor_Message_CommandLine()
+        monitor_message = MonitorMessageCommandLine()
 
         # Monitor Snort log for new lines and process alerts
         threading.Thread(target=monitor_snort_log).start()
