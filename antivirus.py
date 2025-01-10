@@ -2464,7 +2464,6 @@ def scan_rsrc_directory(extracted_files):
     Extract the last 11 lines of these files, clean them, and save them for further processing.
 
     :param extracted_files: List of files extracted by 7z.
-    :param nuitka_source_code_dir: Directory to save the cleaned last lines.
     """
     try:
         for extracted_file in extracted_files:
