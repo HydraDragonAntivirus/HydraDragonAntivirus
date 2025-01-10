@@ -282,6 +282,11 @@ mining_domains_data = []
 spam_domains_data = []
 whitelist_domains_data = []
 whitelist_domains_mail_data = []
+# Scanned entities with "_general" suffix
+scanned_urls_general = []
+scanned_domains_general = []
+scanned_ipv4_addresses_general = []
+scanned_ipv6_addresses_general = []
 
 clamdscan_path = "C:\\Program Files\\ClamAV\\clamdscan.exe"
 freshclam_path = "C:\\Program Files\\ClamAV\\freshclam.exe"
@@ -680,6 +685,168 @@ def calculate_similarity(features1, features2):
     similarity = matching_keys / max(len(features1), len(features2))
     return similarity
 
+# Check for Discord webhook URLs
+def contains_discord_webhook_code(decompiled_code):
+    """
+    Check if the decompiled code contains a Discord webhook URL.
+    """
+    if "https://discord.com/api/webhooks/" in decompiled_code:
+        logging.warning("Malicious Discord webhook URL detected in source code.")
+        return True
+    return False
+
+# Scan for domains, URLs, and IPs in the decompiled code
+def scan_code_for_links(decompiled_code):
+    """
+    Scan the decompiled code for domains, URLs, and IP addresses.
+    """
+    # Scan for URLs
+    urls = re.findall(r'https?://[^\s/$.?#].[^\s]*', decompiled_code)
+    for url in urls:
+        scan_url_general(url)
+
+    # Scan for domains (simplified regex)
+    domains = re.findall(r'[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', decompiled_code)
+    for domain in domains:
+        scan_domain_general(domain)
+
+    # Scan for IP addresses (IPv4)
+    ipv4_addresses = re.findall(r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)', decompiled_code)
+    for ip in ipv4_addresses:
+        scan_ip_address_general(ip)
+
+    # Scan for IP addresses (IPv6)
+    ipv6_addresses = re.findall(r'([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}', decompiled_code)
+    for ip in ipv6_addresses:
+        scan_ip_address_general(ip)
+
+# Generalized scan for domains
+def scan_domain_general(domain):
+    try:
+        if domain in scanned_domains_general:
+            logging.info(f"Domain {domain} has already been scanned.")
+            return
+
+        scanned_domains_general.append(domain)  # Add to the scanned list
+        logging.info(f"Scanning domain: {domain}")
+
+        # Check for malicious domains
+        if any(domain.lower() == malicious_domain or domain.lower().endswith(f".{malicious_domain}") for malicious_domain in malicious_domains):
+            logging.warning(f"Malicious domain detected: {domain}")
+            notify_user_for_malicious_source_code(domain, 'HEUR:Win32.SourceCode.Malicious.Domain')
+            return
+
+        # Check if domain is whitelisted
+        if any(domain.lower() == whitelisted_domain or domain.lower().endswith(f".{whitelisted_domain}") for whitelisted_domain in whitelisted_domains):
+            logging.info(f"Domain {domain} is whitelisted")
+            return
+
+        logging.info(f"Domain {domain} is not malicious or whitelisted")
+        print(f"Domain {domain} is not malicious or whitelisted")
+
+    except Exception as ex:
+        logging.error(f"Error scanning domain {domain}: {ex}")
+        print(f"Error scanning domain {domain}: {ex}")
+
+# Generalized scan for URLs
+def scan_url_general(url):
+    try:
+        if url in scanned_urls_general:
+            logging.info(f"URL {url} has already been scanned.")
+            return
+
+        scanned_urls_general.append(url)  # Add to the scanned list
+        logging.info(f"Scanning URL: {url}")
+
+        # Check against the URLhaus database
+        for entry in urlhaus_data:
+            if entry['url'] in url:
+                message = (
+                    f"URL {url} matches the URLhaus signatures.\n"
+                    f"ID: {entry['id']}\n"
+                    f"Date Added: {entry['dateadded']}\n"
+                    f"URL Status: {entry['url_status']}\n"
+                    f"Last Online: {entry['last_online']}\n"
+                    f"Threat: {entry['threat']}\n"
+                    f"Tags: {entry['tags']}\n"
+                    f"URLhaus Link: {entry['urlhaus_link']}\n"
+                    f"Reporter: {entry['reporter']}"
+                )
+                logging.warning(message)
+                print(message)
+
+                # Notify the user about the malicious URL
+                notify_user_for_malicious_source_code(url, 'HEUR:Win32.SourceCode.URLhaus.Match')
+                return
+
+        logging.info(f"No match found for URL: {url}")
+        print(f"No match found for URL: {url}")
+
+    except Exception as ex:
+        logging.error(f"Error scanning URL {url}: {ex}")
+        print(f"Error scanning URL {url}: {ex}")
+
+# Generalized scan for IP addresses
+def scan_ip_address_general(ip_address):
+    try:
+        # Check if the IP address is local
+        if is_local_ip(ip_address):
+            message = f"Skipping local IP address: {ip_address}"
+            logging.info(message)
+            print(message)
+            return
+
+        # Check if the IP address has already been scanned
+        if ip_address in scanned_ipv4_addresses_general or ip_address in scanned_ipv6_addresses_general:
+            message = f"IP address {ip_address} has already been scanned."
+            logging.info(message)
+            print(message)
+            return
+
+        # Determine if it's an IPv4 or IPv6 address using regex
+        if re.match(IPv6_pattern, ip_address):  # IPv6
+            scanned_ipv6_addresses_general.append(ip_address)
+            message = f"Scanning IPv6 address: {ip_address}"
+            logging.info(message)
+            print(message)
+
+            # Check if it matches malicious signatures
+            if ip_address in ipv6_addresses_signatures_data:
+                logging.warning(f"Malicious IPv6 address detected: {ip_address}")
+                notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.SourceCode.Malware.IPv6')
+
+            elif ip_address in ipv6_whitelist_data:
+                logging.info(f"IPv6 address {ip_address} is whitelisted")
+                return
+            else:
+                logging.info(f"Unknown IPv6 address detected: {ip_address}")
+                print(f"Unknown IPv6 address detected: {ip_address}")
+
+        elif re.match(IPv4_pattern, ip_address):  # IPv4
+            scanned_ipv4_addresses_general.append(ip_address)
+            message = f"Scanning IPv4 address: {ip_address}"
+            logging.info(message)
+            print(message)
+
+            # Check if it matches malicious signatures
+            if ip_address in ipv4_addresses_signatures_data:
+                logging.warning(f"Malicious IPv4 address detected: {ip_address}")
+                notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.SourceCode.Malware.IPv4')
+
+            elif ip_address in ipv4_whitelist_data:
+                logging.info(f"IPv4 address {ip_address} is whitelisted")
+                return
+            else:
+                logging.info(f"Unknown IPv4 address detected: {ip_address}")
+                print(f"Unknown IPv4 address detected: {ip_address}")
+        else:
+            logging.debug(f"Invalid IP address format detected: {ip_address}")
+            print(f"Invalid IP address format detected: {ip_address}")
+
+    except Exception as ex:
+        logging.error(f"Error scanning IP address {ip_address}: {ex}")
+        print(f"Error scanning IP address {ip_address}: {ex}")
+
 def notify_user(file_path, virus_name, engine_detected): 
     notification = Notify()
     notification.title = "Malware Alert"
@@ -691,6 +858,17 @@ def notify_user_pua(file_path, virus_name, engine_detected):
     notification.title = "PUA Alert"
     notification.message = f"PUA file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
     notification.send()
+
+def notify_user_for_malicious_source_code(file_path, virus_name):
+    """
+    Sends a notification about malicious source code detected.
+    """
+    notification_title = f"Malicious Source Code detected: {virus_name}"
+    notification_message = f"Suspicious source code detected in: {file_path}\nVirus: {virus_name}"
+    logging.warning(notification_title)
+    logging.warning(notification_message)
+    print(notification_title)
+    print(notification_message)
 
 def notify_user_for_detected_command(message):
     logging.warning(f"Notification: {message}")
@@ -770,7 +948,6 @@ def notify_user_fake_size(file_path, virus_name):
     notification.title = "Fake Size Alert"
     notification.message = f"Fake size file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
-
 
 def notify_user_startup(file_path, message):
     """Notify the user about suspicious or malicious startup files."""
@@ -2460,9 +2637,10 @@ def clean_text(input_text):
 
 def scan_rsrc_directory(extracted_files):
     """
-    Look for files whose paths contain .rsrc\\RCDATA and process them.
-    Extract the last 11 lines of these files, clean them, and save them for further processing.
-
+    Scans all files in the extracted_files list for .rsrc\\RCDATA, extracts
+    the last 11 lines, cleans them, and performs scans for domains, URLs, IP addresses,
+    and Discord webhooks.
+    
     :param extracted_files: List of files extracted by 7z.
     """
     try:
@@ -2484,7 +2662,7 @@ def scan_rsrc_directory(extracted_files):
                                 # Clean each line by removing non-printable characters
                                 last_lines_cleaned = [clean_text(line.strip()) for line in last_lines]
 
-                                # Do not log the actual content of the last lines, just a message
+                                # Log the success without showing actual content
                                 logging.info(f"Extracted and cleaned last 11 lines from {extracted_file}.")
 
                                 # Save the last lines to a uniquely named file
@@ -2503,8 +2681,18 @@ def scan_rsrc_directory(extracted_files):
                                         save_file.write(line + '\n')
                                 logging.info(f"Saved last 11 lines from {extracted_file} to {save_path}")
 
-                                # Now call scan_and_warn with the file path of the source code
-                                scan_and_warn(save_path)
+                                # Now scan the entire file content as well
+                                rsrc_content = ''.join(lines)  # Use the entire content of the file
+
+                                # Perform the scans
+                                # Scan for domains, URLs, IPs, and Discord webhook URLs in the full content
+                                scan_code_for_links(rsrc_content)
+
+                                # Check for Discord webhook URLs as well
+                                if contains_discord_webhook_code(rsrc_content):
+                                    logging.warning("Discord webhook URL found in the RCDATA file.")
+                                    notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Nuitka.Stealer.Generic.Malware')
+
                             else:
                                 logging.info(f"File {extracted_file} is empty.")
                     except Exception as ex:
@@ -2528,66 +2716,6 @@ def scan_directory_for_executables(directory):
                 if nuitka_type:
                     found_executables.append((file_path, nuitka_type))
     return found_executables
-
-def extract_nuitka_file(file_path, nuitka_type):
-    """Detect Nuitka type, extract Nuitka executable content, and scan for additional Nuitka executables"""
-    try:  
-        if nuitka_type == "Nuitka OneFile":
-            logging.info(f"Nuitka OneFile executable detected in {file_path}")
-            
-            # Find the next available directory number for OneFile extraction
-            folder_number = 1
-            while os.path.exists(f"{nuitka_dir}_OneFile_{folder_number}"):
-                folder_number += 1
-            nuitka_output_dir = f"{nuitka_dir}_OneFile_{folder_number}"
-            
-            if not os.path.exists(nuitka_output_dir):
-                os.makedirs(nuitka_output_dir)
-
-            logging.info(f"Extracting Nuitka OneFile {file_path} to {nuitka_output_dir}")
-            
-            # Use nuitka_extractor for OneFile extraction
-            command = [nuitka_extractor_path, "-output", nuitka_output_dir, file_path]
-            result = subprocess.run(command, capture_output=True, text=True)
-            
-            if result.returncode == 0:
-                logging.info(f"Successfully extracted Nuitka OneFile: {file_path} to {nuitka_output_dir}")
-                
-                # Scan the extracted directory for additional Nuitka executables
-                logging.info(f"Scanning extracted directory for additional Nuitka executables...")
-                found_executables = scan_directory_for_executables(nuitka_output_dir)
-                
-                # Process any found normal Nuitka executables
-                for exe_path, exe_type in found_executables:
-                    if exe_type == "Nuitka":
-                        logging.info(f"Found normal Nuitka executable in extracted files: {exe_path}")
-                        extract_nuitka_file(exe_path, exe_type)
-            else:
-                logging.error(f"Failed to extract Nuitka OneFile: {file_path}. Error: {result.stderr}")
-        
-        elif nuitka_type == "Nuitka":
-            logging.info(f"Nuitka executable detected in {file_path}")
-            
-            # Use enhanced 7z extraction
-            extracted_files = extract_all_files_with_7z(file_path)
-
-            if extracted_files:
-                logging.info(f"Successfully extracted files from Nuitka executable: {file_path}")
-                
-                # Send the extracted files to scan_and_warn
-                for extracted_file in extracted_files:
-                    scan_and_warn(extracted_file)
-
-                # Scan for RSRC/RCDATA resources
-                scan_rsrc_directory(extracted_files)
-            else:
-                logging.error(f"Failed to extract normal Nuitka executable: {file_path}")
-        
-        else:
-            logging.info(f"No Nuitka content found in {file_path}")
-    
-    except Exception as ex:
-        logging.error(f"Error extracting Nuitka file: {ex}")
 
 def is_dotnet_file(file_path):
     try:
@@ -2725,10 +2853,6 @@ class PyInstArchive:
         return True
 
     def extractfiles(self):
-        # Create the directory for python source code if it doesn't exist
-        if not os.path.exists(python_source_code_dir):
-            os.makedirs(python_source_code_dir)
-
         folder_number = 1
         base_extraction_dir = os.path.join(script_dir, os.path.basename(self.py_filepath) + '_extracted')
 
@@ -3462,11 +3586,13 @@ def is_pyc_file(file_path):
 def show_code_with_uncompyle6(file_path, file_name):
     """
     Decompiles a .pyc file and saves it with appropriate naming based on
-    PyInstaller's entry point detection method.
+    PyInstaller's entry point detection method. Scans the decompiled code for
+    malicious content such as Discord webhooks, IP addresses, domains, and URLs.
 
     Args:
         file_path: Path to the .pyc file to decompile
         file_name: The name of the .pyc file to be decompiled
+
     Returns:
         Path to the decompiled source file, or None if decompilation fails
     """
@@ -3520,6 +3646,14 @@ def show_code_with_uncompyle6(file_path, file_name):
         if decompiled_code is None:
             logging.error(f"Failed to decompile {file_path}")
             return None
+
+        # Check for malicious source code (Discord webhook)
+        if contains_discord_webhook_code(decompiled_code):
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Pyinstaller.Stealer.Generic.Malware')
+            return None
+
+        # Scan the decompiled code for domains, URLs, and IP addresses
+        scan_code_for_links(decompiled_code)
 
         # Save the decompiled code
         with open(output_path, "w") as output_file:
@@ -3743,6 +3877,66 @@ def scan_and_warn(file_path, flag=False):
     except Exception as ex:
         logging.error(f"Error scanning file {file_path}: {ex}")
         return False
+
+def extract_nuitka_file(file_path, nuitka_type):
+    """Detect Nuitka type, extract Nuitka executable content, and scan for additional Nuitka executables"""
+    try:  
+        if nuitka_type == "Nuitka OneFile":
+            logging.info(f"Nuitka OneFile executable detected in {file_path}")
+            
+            # Find the next available directory number for OneFile extraction
+            folder_number = 1
+            while os.path.exists(f"{nuitka_dir}_OneFile_{folder_number}"):
+                folder_number += 1
+            nuitka_output_dir = f"{nuitka_dir}_OneFile_{folder_number}"
+            
+            if not os.path.exists(nuitka_output_dir):
+                os.makedirs(nuitka_output_dir)
+
+            logging.info(f"Extracting Nuitka OneFile {file_path} to {nuitka_output_dir}")
+            
+            # Use nuitka_extractor for OneFile extraction
+            command = [nuitka_extractor_path, "-output", nuitka_output_dir, file_path]
+            result = subprocess.run(command, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                logging.info(f"Successfully extracted Nuitka OneFile: {file_path} to {nuitka_output_dir}")
+                
+                # Scan the extracted directory for additional Nuitka executables
+                logging.info(f"Scanning extracted directory for additional Nuitka executables...")
+                found_executables = scan_directory_for_executables(nuitka_output_dir)
+                
+                # Process any found normal Nuitka executables
+                for exe_path, exe_type in found_executables:
+                    if exe_type == "Nuitka":
+                        logging.info(f"Found normal Nuitka executable in extracted files: {exe_path}")
+                        extract_nuitka_file(exe_path, exe_type)
+            else:
+                logging.error(f"Failed to extract Nuitka OneFile: {file_path}. Error: {result.stderr}")
+        
+        elif nuitka_type == "Nuitka":
+            logging.info(f"Nuitka executable detected in {file_path}")
+            
+            # Use enhanced 7z extraction
+            extracted_files = extract_all_files_with_7z(file_path)
+
+            if extracted_files:
+                logging.info(f"Successfully extracted files from Nuitka executable: {file_path}")
+                
+                # Send the extracted files to scan_and_warn
+                for extracted_file in extracted_files:
+                    scan_and_warn(extracted_file)
+
+                # Scan for RSRC/RCDATA resources
+                scan_rsrc_directory(extracted_files)
+            else:
+                logging.error(f"Failed to extract normal Nuitka executable: {file_path}")
+        
+        else:
+            logging.info(f"No Nuitka content found in {file_path}")
+    
+    except Exception as ex:
+        logging.error(f"Error extracting Nuitka file: {ex}")
 
 def monitor_sandbox():
     if not os.path.exists(sandboxie_folder):
