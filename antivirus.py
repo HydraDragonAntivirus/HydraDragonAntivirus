@@ -734,13 +734,13 @@ def scan_domain_general(domain):
         logging.info(f"Scanning domain: {domain}")
 
         # Check for malicious domains
-        if any(domain.lower() == malicious_domain or domain.lower().endswith(f".{malicious_domain}") for malicious_domain in malicious_domains_data):
+        if any(domain.lower() == malicious_domain or domain.lower().endswith(f".{malicious_domain}") for malicious_domain in malware_domains_data):
             logging.warning(f"Malicious domain detected: {domain}")
             notify_user_for_malicious_source_code(domain, 'HEUR:Win32.SourceCode.Malicious.Domain')
             return
 
         # Check if domain is whitelisted
-        if any(domain.lower() == whitelisted_domain or domain.lower().endswith(f".{whitelisted_domain}") for whitelisted_domain in whitelisted_domains_data):
+        if any(domain.lower() == whitelisted_domain or domain.lower().endswith(f".{whitelisted_domain}") for whitelisted_domain in whitelist_domains_data):
             logging.info(f"Domain {domain} is whitelisted")
             return
 
@@ -2694,7 +2694,7 @@ def scan_rsrc_directory(extracted_files):
                                 # Check for Discord webhook URLs as well
                                 if contains_discord_webhook_code(rsrc_content):
                                     logging.warning("Discord webhook URL found in the RCDATA file.")
-                                    notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Nuitka.Stealer.Generic.Malware')
+                                    notify_user_for_malicious_source_code(extracted_file, 'HEUR:Win32.Discord.Nuitka.Stealer.Generic.Malware')
 
                             else:
                                 logging.info(f"File {extracted_file} is empty.")
