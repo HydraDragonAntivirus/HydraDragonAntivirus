@@ -3924,13 +3924,18 @@ def extract_nuitka_file(file_path, nuitka_type):
         if nuitka_type == "Nuitka OneFile":
             logging.info(f"Nuitka OneFile executable detected in {file_path}")
             
+            # Extract the file name (without extension) to include in the folder name
+            file_name_without_extension = os.path.splitext(os.path.basename(file_path))[0]
+            
             # Find the next available directory number for OneFile extraction
             folder_number = 1
-            while os.path.exists(os.path.join(nuitka_dir, f"OneFile_{folder_number}")):
+            while os.path.exists(os.path.join(nuitka_dir, f"OneFile_{file_name_without_extension}_{folder_number}")):
                 folder_number += 1
-            nuitka_output_dir = os.path.join(nuitka_dir, f"OneFile_{folder_number}")
-            
-            os.makedirs(nuitka_output_dir)
+                
+            # Create the new directory with the executable file name and folder number
+            nuitka_output_dir = os.path.join(nuitka_dir, f"OneFile_{file_name_without_extension}_{folder_number}")
+
+            os.makedirs(nuitka_output_dir, exist_ok=True)
 
             logging.info(f"Extracting Nuitka OneFile {file_path} to {nuitka_output_dir}")
             
