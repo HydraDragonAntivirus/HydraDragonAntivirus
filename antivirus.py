@@ -2709,8 +2709,19 @@ def scan_rsrc_directory(extracted_files):
         logging.error(f"Error during RCDATA file scanning: {ex}")
 
 def scan_directory_for_executables(directory):
-    """Recursively scan a directory for .exe files and check if they are Nuitka executables."""
+    """Recursively scan a directory for .dll and .exe files and check if they are Nuitka executables, then check other files."""
     found_executables = []
+    
+    # First, look for .dll files
+    for root, _, files in os.walk(directory):
+        for file in files:
+            if file.lower().endswith('.dll'):
+                file_path = os.path.join(root, file)
+                nuitka_type = is_nuitka_file(file_path)
+                if nuitka_type:
+                    found_executables.append((file_path, nuitka_type))
+
+    # Then, look for .exe files
     for root, _, files in os.walk(directory):
         for file in files:
             if file.lower().endswith('.exe'):
@@ -2718,6 +2729,19 @@ def scan_directory_for_executables(directory):
                 nuitka_type = is_nuitka_file(file_path)
                 if nuitka_type:
                     found_executables.append((file_path, nuitka_type))
+    
+    # Finally, check other files (non .exe and non .dll) for Nuitka executability
+    for root, _, files in os.walk(directory):
+        for file in files:
+            file_path = os.path.join(root, file)
+            if not file.lower().endswith(('.exe', '.dll')):  # Skip .exe and .dll files
+                nuitka_type = is_nuitka_file(file_path)
+                if nuitka_type:
+                    found_executables.append((file_path, nuitka_type))
+                else:
+                    # Optionally log files that are not Nuitka executables
+                    logging.info(f"Found file that is not a Nuitka executable: {file_path}")
+
     return found_executables
 
 def is_dotnet_file(file_path):
