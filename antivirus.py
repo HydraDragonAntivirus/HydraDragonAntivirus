@@ -2609,14 +2609,14 @@ def is_nuitka_file(file_path):
         result = subprocess.run([detectiteasy_console_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
         # Check for Nuitka executable and OneFile
-        if "Nuitka[OneFile]" in result.stdout:
+        if "Packer: Nuitka[OneFile]" in result.stdout:
             logging.info(f"File {file_path} is a Nuitka OneFile executable.")
             return "Nuitka OneFile"
-        elif "Nuitka" in result.stdout:
+        elif "Packer: Nuitka" in result.stdout:
             logging.info(f"File {file_path} is a Nuitka executable.")
             return "Nuitka"
         else:
-            logging.info(f"File {file_path} is not a Nuitka executable.")
+            logging.info(f"File {file_path} is not a Nuitka executable. Result: {result.stdout}")
 
     except subprocess.SubprocessError as ex:
         logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
