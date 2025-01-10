@@ -294,6 +294,9 @@ clamav_file_paths = ["C:\\Program Files\\ClamAV\\database\\daily.cvd", "C:\\Prog
 clamav_database_directory_path = "C:\\Program Files\\ClamAV\\database"
 seven_zip_path = "C:\\Program Files\\7-Zip\\7z.exe"  # Path to 7z.exe
 
+IPv4_pattern = r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$'  # Simple IPv4 regex
+IPv6_pattern = r'^(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$'  # Simple IPv6 regex
+
 os.makedirs(python_source_code_dir, exist_ok=True)
 os.makedirs(nuitka_source_code_dir, exist_ok=True)
 os.makedirs(commandlineandmessage_dir, exist_ok=True)
@@ -731,13 +734,13 @@ def scan_domain_general(domain):
         logging.info(f"Scanning domain: {domain}")
 
         # Check for malicious domains
-        if any(domain.lower() == malicious_domain or domain.lower().endswith(f".{malicious_domain}") for malicious_domain in malicious_domains):
+        if any(domain.lower() == malicious_domain or domain.lower().endswith(f".{malicious_domain}") for malicious_domain in malicious_domains_data):
             logging.warning(f"Malicious domain detected: {domain}")
             notify_user_for_malicious_source_code(domain, 'HEUR:Win32.SourceCode.Malicious.Domain')
             return
 
         # Check if domain is whitelisted
-        if any(domain.lower() == whitelisted_domain or domain.lower().endswith(f".{whitelisted_domain}") for whitelisted_domain in whitelisted_domains):
+        if any(domain.lower() == whitelisted_domain or domain.lower().endswith(f".{whitelisted_domain}") for whitelisted_domain in whitelisted_domains_data):
             logging.info(f"Domain {domain} is whitelisted")
             return
 
