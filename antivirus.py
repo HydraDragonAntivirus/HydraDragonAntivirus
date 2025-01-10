@@ -3494,16 +3494,48 @@ def extract_and_return_pyinstaller(file_path):
     return extracted_pyinstaller_file_paths
 
 def decompile_dotnet_file(file_path):
+    """
+    Decompiles a .NET assembly using ILSpy and scans all decompiled .cs files 
+    for URLs, IP addresses, domains, and Discord webhooks.
+
+    :param file_path: Path to the .NET assembly file.
+    """
     try:
         logging.info(f"Detected .NET assembly: {file_path}")
+
+        # Create a unique directory for decompiled output
         folder_number = 1
         while os.path.exists(f"{dotnet_dir}_{folder_number}"):
             folder_number += 1
         dotnet_output_dir = f"{dotnet_dir}_{folder_number}"
         os.makedirs(dotnet_output_dir, exist_ok=True)
+
+        # Run ILSpy decompilation command
         ilspy_command = f"{ilspycmd_path} -o {dotnet_output_dir} {file_path}"
         os.system(ilspy_command)
         logging.info(f".NET content decompiled to {dotnet_output_dir}")
+
+        # Scan all .cs files in the output directory
+        for root, _, files in os.walk(dotnet_output_dir):
+            for file in files:
+                if file.endswith(".cs"):  # Only process .cs files
+                    cs_file_path = os.path.join(root, file)
+                    logging.info(f"Scanning .cs file: {cs_file_path}")
+
+                    try:
+                        # Read the content of the .cs file
+                        with open(cs_file_path, "r", encoding="utf-8", errors="ignore") as f:
+                            cs_file_content = f.read()
+
+                        # Scan for links, IPs, domains, and Discord webhooks
+                        scan_code_for_links(cs_file_content)
+
+                        if contains_discord_webhook_code(cs_file_content):
+                            logging.warning(f"Discord webhook URL detected in .NET source code file: {cs_file_path}")
+                            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.DotNET.Stealer.Generic.Malware')
+                        
+                    except Exception as ex:
+                        logging.error(f"Error scanning .cs file {cs_file_path}: {ex}")
 
     except Exception as ex:
         logging.error(f"Error decompiling .NET file {file_path}: {ex}")
