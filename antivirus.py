@@ -688,17 +688,26 @@ def calculate_similarity(features1, features2):
     similarity = matching_keys / max(len(features1), len(features2))
     return similarity
 
-# Check for Discord webhook URLs
+# Check for Discord webhook URLs and invite links
 def contains_discord_code(decompiled_code):
     """
     Check if the decompiled code contains a Discord webhook URL or a Discord invite link.
     """
-    if "https://discord.com/api/webhooks/" in decompiled_code:
-        logging.warning("Malicious Discord webhook URL detected in source code.")
+    # Regular expressions for Discord links
+    discord_webhook_pattern = r'https://discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
+    discord_invite_pattern = r'https://discord\.gg/[A-Za-z0-9]+'
+
+    # Search for matches
+    discord_webhook_matches = re.findall(discord_webhook_pattern, decompiled_code)
+    discord_invite_matches = re.findall(discord_invite_pattern, decompiled_code)
+
+    # Logging results
+    if discord_webhook_matches:
+        logging.warning(f"Malicious Discord webhook URLs detected: {discord_webhook_matches}")
         return True
 
-    if "https://discord.gg/" in decompiled_code:
-        logging.info("Discord invite link detected in source code.")
+    if discord_invite_matches:
+        logging.info(f"Discord invite links detected: {discord_invite_matches}")
 
     return False
 
@@ -2645,7 +2654,7 @@ def clean_text(input_text):
 def scan_rsrc_directory(extracted_files):
     """
     Scans all files in the extracted_files list for .rsrc\\RCDATA, extracts
-    the last 11 lines, cleans them, and performs scans for domains, URLs, IP addresses,
+    the last 11 lines, the full source code, cleans them, and performs scans for domains, URLs, IP addresses,
     and Discord webhooks.
     
     :param extracted_files: List of files extracted by 7z.
@@ -2659,47 +2668,61 @@ def scan_rsrc_directory(extracted_files):
                 # Ensure the path refers to an actual file
                 if os.path.isfile(extracted_file):
                     try:
-                        # Read the last 11 lines of the file, handling invalid UTF-8 gracefully
+                        # Read the full content of the file, handling invalid UTF-8 gracefully
                         with open(extracted_file, "r", encoding="utf-8", errors="ignore") as f:
                             lines = f.readlines()
                             if lines:
-                                # Get the last 11 lines and ensure they are kept intact
+                                # Get the last 11 lines
                                 last_lines = lines[-11:]
 
-                                # Clean each line by removing non-printable characters
+                                # Clean the last lines
                                 last_lines_cleaned = [clean_text(line.strip()) for line in last_lines]
 
-                                # Log the success without showing actual content
+                                # Log the success of processing last 11 lines
                                 logging.info(f"Extracted and cleaned last 11 lines from {extracted_file}.")
 
-                                # Save the last lines to a uniquely named file
+                                # Save the last 11 lines to a uniquely named file
                                 base_name = os.path.splitext(os.path.basename(extracted_file))[0]
-                                save_path = os.path.join(nuitka_source_code_dir, f"{base_name}_last_lines.txt")
+                                last_lines_path = os.path.join(nuitka_source_code_dir, f"{base_name}_last_lines.txt")
                                 counter = 1
-                                while os.path.exists(save_path):
-                                    save_path = os.path.join(
+                                while os.path.exists(last_lines_path):
+                                    last_lines_path = os.path.join(
                                         nuitka_source_code_dir, f"{base_name}_last_lines_{counter}.txt"
                                     )
                                     counter += 1
 
-                                # Write each cleaned line to the file separately
-                                with open(save_path, "w", encoding="utf-8") as save_file:
+                                # Write each cleaned line to the file
+                                with open(last_lines_path, "w", encoding="utf-8") as save_file:
                                     for line in last_lines_cleaned:
                                         save_file.write(line + '\n')
-                                logging.info(f"Saved last 11 lines from {extracted_file} to {save_path}")
+                                logging.info(f"Saved last 11 lines from {extracted_file} to {last_lines_path}")
 
-                                # Now scan the entire file content as well
+                                # Save the full source code to a separate file
+                                full_code_path = os.path.join(nuitka_source_code_dir, f"{base_name}_full_code.txt")
+                                counter = 1
+                                while os.path.exists(full_code_path):
+                                    full_code_path = os.path.join(
+                                        nuitka_source_code_dir, f"{base_name}_full_code_{counter}.txt"
+                                    )
+                                    counter += 1
+
+                                # Write the full content to the file
+                                with open(full_code_path, "w", encoding="utf-8") as full_code_file:
+                                    full_code_file.writelines(lines)
+                                logging.info(f"Saved full source code from {extracted_file} to {full_code_path}")
+
+                                # Scan the entire file content
                                 rsrc_content = ''.join(lines)  # Use the entire content of the file
 
                                 # Perform the scans
-                                # Scan for domains, URLs, IPs, and Discord webhook URLs in the full content
                                 scan_code_for_links(rsrc_content)
 
                                 # Check for Discord webhook URLs as well
                                 if contains_discord_code(rsrc_content):
                                     logging.warning("Discord webhook URL found in the RCDATA file.")
-                                    notify_user_for_malicious_source_code(extracted_file, 'HEUR:Win32.Discord.Nuitka.Stealer.Generic.Malware')
-
+                                    notify_user_for_malicious_source_code(
+                                        extracted_file, 'HEUR:Win32.Discord.Nuitka.Stealer.Generic.Malware'
+                                    )
                             else:
                                 logging.info(f"File {extracted_file} is empty.")
                     except Exception as ex:
