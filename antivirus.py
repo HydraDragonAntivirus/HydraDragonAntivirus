@@ -688,22 +688,28 @@ def calculate_similarity(features1, features2):
     similarity = matching_keys / max(len(features1), len(features2))
     return similarity
 
-# Check for Discord webhook URLs and invite links
+# Check for Discord webhook URLs and invite links (including Canary)
 def contains_discord_code(decompiled_code):
     """
-    Check if the decompiled code contains a Discord webhook URL or a Discord invite link.
+    Check if the decompiled code contains a Discord webhook URL, Canary webhook URL, or a Discord invite link.
     """
     # Regular expressions for Discord links
     discord_webhook_pattern = r'https://discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
+    discord_canary_webhook_pattern = r'https://canary\.discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
     discord_invite_pattern = r'https://discord\.gg/[A-Za-z0-9]+'
 
     # Search for matches
     discord_webhook_matches = re.findall(discord_webhook_pattern, decompiled_code)
+    discord_canary_webhook_matches = re.findall(discord_canary_webhook_pattern, decompiled_code)
     discord_invite_matches = re.findall(discord_invite_pattern, decompiled_code)
 
     # Logging results
     if discord_webhook_matches:
         logging.warning(f"Malicious Discord webhook URLs detected: {discord_webhook_matches}")
+        return True
+
+    if discord_canary_webhook_matches:
+        logging.warning(f"Malicious Discord Canary webhook URLs detected: {discord_canary_webhook_matches}")
         return True
 
     if discord_invite_matches:
