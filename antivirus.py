@@ -980,7 +980,6 @@ def notify_user_startup(file_path, message):
     notification.message = f"File: {file_path}\n{message}"
     notification.send()
 
-
 def notify_user_uefi(file_path, virus_name):
     notification = Notify()
     notification.title = "UEFI Malware Alert"
