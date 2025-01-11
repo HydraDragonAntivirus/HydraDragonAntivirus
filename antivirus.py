@@ -1029,7 +1029,6 @@ def notify_user_for_web(domain=None, ip_address=None, url=None, file_path=None, 
 
     notification.send()
 
-
 def notify_user_for_hips(ip_address=None, dst_ip_address=None):
     notification = Notify()
     notification.title = "Malicious Activity Detected"
