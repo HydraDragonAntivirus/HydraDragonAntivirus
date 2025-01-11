@@ -2452,27 +2452,40 @@ activate_uefi_drive() # Call the UEFI function
 load_domains_data()
 load_antivirus_list()
 
-# Load malicious file names from JSON file
-with open(malicious_file_names, 'r') as malicious_file:
-    malicious_file_names = json.load(malicious_file)
-    print("Machine Learning Definitions loaded!")
+try:
+    # Load malicious file names from JSON file
+    with open(malicious_file_names, 'r') as malicious_file:
+        malicious_file_names = json.load(malicious_file)
+        print("Machine Learning Definitions loaded!")
+except Exception as e:
+    print(f"Error loading malicious file names: {e}")
 
-# Load malicious numeric features from pickle file
-with open(malicious_numeric_features, 'rb') as malicious_numeric_file:
-    malicious_numeric_features = joblib.load(malicious_numeric_file)
-    print("Malicious Feature Signatures loaded!")
+try:
+    # Load malicious numeric features from pickle file
+    with open(malicious_numeric_features, 'rb') as malicious_numeric_file:
+        malicious_numeric_features = joblib.load(malicious_numeric_file)
+        print("Malicious Feature Signatures loaded!")
+except Exception as e:
+    print(f"Error loading malicious numeric features: {e}")
 
-# Load benign numeric features from pickle file
-with open(benign_numeric_features, 'rb') as benign_numeric_file:
-    benign_numeric_features = joblib.load(benign_numeric_file)
-    print("Benign Feature Signatures loaded!")
+try:
+    # Load benign numeric features from pickle file
+    with open(benign_numeric_features, 'rb') as benign_numeric_file:
+        benign_numeric_features = joblib.load(benign_numeric_file)
+        print("Benign Feature Signatures loaded!")
+except Exception as e:
+    print(f"Error loading benign numeric features: {e}")
 
 print("Machine Learning AI Signatures loaded!")
 
-# Load excluded rules from text file
-with open(excluded_rules_path, "r") as excluded_file:
+try:
+    # Load excluded rules from text file
+    with open(excluded_rules_path, "r") as excluded_file:
         excluded_rules = excluded_file.read()
         print("YARA Excluded Rules Definitions loaded!")
+except Exception as e:
+    print(f"Error loading excluded rules: {e}")
+
 
 try:
     # Load the precompiled yarGen rules from the .yrc file
