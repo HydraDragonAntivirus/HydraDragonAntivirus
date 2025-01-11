@@ -2742,19 +2742,13 @@ def scan_rsrc_directory(extracted_files):
         logging.error(f"Error during RCDATA file scanning: {ex}")
 
 def scan_directory_for_executables(directory):
-    """Recursively scan a directory for .dll and .exe files and check if they are Nuitka executables, then check other files."""
+    """
+    Recursively scan a directory for .exe, .dll, and other files, prioritizing Nuitka executables.
+    If an .exe file is found and confirmed as Nuitka, stop further scanning.
+    """
     found_executables = []
-    
-    # First, look for .dll files
-    for root, _, files in os.walk(directory):
-        for file in files:
-            if file.lower().endswith('.dll'):
-                file_path = os.path.join(root, file)
-                nuitka_type = is_nuitka_file(file_path)
-                if nuitka_type:
-                    found_executables.append((file_path, nuitka_type))
 
-    # Then, look for .exe files
+    # Look for .exe files first
     for root, _, files in os.walk(directory):
         for file in files:
             if file.lower().endswith('.exe'):
@@ -2762,8 +2756,19 @@ def scan_directory_for_executables(directory):
                 nuitka_type = is_nuitka_file(file_path)
                 if nuitka_type:
                     found_executables.append((file_path, nuitka_type))
-    
-    # Finally, check other files (non .exe and non .dll) for Nuitka executability
+                    return found_executables  # Stop scanning further as .exe is found
+
+    # If no .exe found, look for .dll files
+    for root, _, files in os.walk(directory):
+        for file in files:
+            if file.lower().endswith('.dll'):
+                file_path = os.path.join(root, file)
+                nuitka_type = is_nuitka_file(file_path)
+                if nuitka_type:
+                    found_executables.append((file_path, nuitka_type))
+                    return found_executables  # Stop scanning further as .dll is found
+
+    # If no .exe or .dll found, check other files
     for root, _, files in os.walk(directory):
         for file in files:
             file_path = os.path.join(root, file)
@@ -2771,9 +2776,7 @@ def scan_directory_for_executables(directory):
                 nuitka_type = is_nuitka_file(file_path)
                 if nuitka_type:
                     found_executables.append((file_path, nuitka_type))
-                else:
-                    # Optionally log files that are not Nuitka executables
-                    logging.info(f"Found file that is not a Nuitka executable: {file_path}")
+                    return found_executables  # Stop scanning further as Nuitka file is found
 
     return found_executables
 
