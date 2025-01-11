@@ -2486,7 +2486,6 @@ try:
 except Exception as e:
     print(f"Error loading excluded rules: {e}")
 
-
 try:
     # Load the precompiled yarGen rules from the .yrc file
     yarGen_rule = yara.load(yarGen_rule_path)
