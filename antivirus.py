@@ -2451,10 +2451,6 @@ clean_directories()
 activate_uefi_drive() # Call the UEFI function
 load_domains_data()
 load_antivirus_list()
-# Load excluded rules from text file
-with open(excluded_rules_path, "r") as excluded_file:
-        excluded_rules = excluded_file.read()
-        print("YARA Excluded Rules Definitions loaded!")
 
 # Load malicious file names from JSON file
 with open(malicious_file_names, 'r') as malicious_file:
@@ -2472,6 +2468,11 @@ with open(benign_numeric_features, 'rb') as benign_numeric_file:
     print("Benign Feature Signatures loaded!")
 
 print("Machine Learning AI Signatures loaded!")
+
+# Load excluded rules from text file
+with open(excluded_rules_path, "r") as excluded_file:
+        excluded_rules = excluded_file.read()
+        print("YARA Excluded Rules Definitions loaded!")
 
 try:
     # Load the precompiled yarGen rules from the .yrc file
