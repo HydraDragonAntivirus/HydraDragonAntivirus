@@ -4022,13 +4022,13 @@ def extract_nuitka_file(file_path, nuitka_type):
             logging.info(f"Nuitka executable detected in {file_path}")
             
             # Use enhanced 7z extraction
-            extracted_files = extract_all_files_with_7z(file_path)
+            extracted_files_nuitka = extract_all_files_with_7z(file_path)
 
-            if extracted_files:
+            if extracted_files_nuitka:
                 logging.info(f"Successfully extracted files from Nuitka executable: {file_path}")
                 
                 # Send the extracted files to scan_and_warn
-                for extracted_file in extracted_files:
+                for extracted_file in extracted_files_nuitka:
                     scan_and_warn(extracted_file)
 
                 # Scan for RSRC/RCDATA resources
