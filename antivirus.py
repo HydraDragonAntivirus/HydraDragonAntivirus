@@ -720,25 +720,25 @@ def contains_discord_code(decompiled_code):
 # Scan for domains, URLs, and IPs in the decompiled code
 def scan_code_for_links(decompiled_code):
     """
-    Scan the decompiled code for domains, URLs, and IP addresses.
+    Scan the decompiled code for domains, URLs, and IP addresses, removing duplicates.
     """
     # Scan for URLs
-    urls = re.findall(r'https?://[^\s/$.?#].[^\s]*', decompiled_code)
+    urls = set(re.findall(r'https?://[^\s/$.?#].[^\s]*', decompiled_code))
     for url in urls:
         scan_url_general(url)
 
     # Scan for domains (simplified regex)
-    domains = re.findall(r'[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', decompiled_code)
+    domains = set(re.findall(r'[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', decompiled_code))
     for domain in domains:
         scan_domain_general(domain)
 
     # Scan for IP addresses (IPv4)
-    ipv4_addresses = re.findall(r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)', decompiled_code)
+    ipv4_addresses = set(re.findall(r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)', decompiled_code))
     for ip in ipv4_addresses:
         scan_ip_address_general(ip)
 
     # Scan for IP addresses (IPv6)
-    ipv6_addresses = re.findall(r'([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}', decompiled_code)
+    ipv6_addresses = set(re.findall(r'([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}', decompiled_code))
     for ip in ipv6_addresses:
         scan_ip_address_general(ip)
 
