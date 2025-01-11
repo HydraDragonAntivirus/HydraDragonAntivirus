@@ -689,7 +689,7 @@ def calculate_similarity(features1, features2):
     return similarity
 
 # Check for Discord webhook URLs
-def contains_discord_webhook_code(decompiled_code):
+def contains_discord_code(decompiled_code):
     """
     Check if the decompiled code contains a Discord webhook URL or a Discord invite link.
     """
@@ -2696,7 +2696,7 @@ def scan_rsrc_directory(extracted_files):
                                 scan_code_for_links(rsrc_content)
 
                                 # Check for Discord webhook URLs as well
-                                if contains_discord_webhook_code(rsrc_content):
+                                if contains_discord_code(rsrc_content):
                                     logging.warning("Discord webhook URL found in the RCDATA file.")
                                     notify_user_for_malicious_source_code(extracted_file, 'HEUR:Win32.Discord.Nuitka.Stealer.Generic.Malware')
 
@@ -3558,7 +3558,7 @@ def decompile_dotnet_file(file_path):
                         # Scan for links, IPs, domains, and Discord webhooks
                         scan_code_for_links(cs_file_content)
 
-                        if contains_discord_webhook_code(cs_file_content):
+                        if contains_discord_code(cs_file_content):
                             logging.warning(f"Discord webhook URL detected in .NET source code file: {cs_file_path}")
                             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.DotNET.Stealer.Generic.Malware')
                         
@@ -3711,7 +3711,7 @@ def show_code_with_uncompyle6(file_path, file_name):
             return None
 
         # Check for malicious source code (Discord webhook)
-        if contains_discord_webhook_code(decompiled_code):
+        if contains_discord_code(decompiled_code):
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Pyinstaller.Stealer.Generic.Malware')
             return None
 
