@@ -691,11 +691,15 @@ def calculate_similarity(features1, features2):
 # Check for Discord webhook URLs
 def contains_discord_webhook_code(decompiled_code):
     """
-    Check if the decompiled code contains a Discord webhook URL.
+    Check if the decompiled code contains a Discord webhook URL or a Discord invite link.
     """
     if "https://discord.com/api/webhooks/" in decompiled_code:
         logging.warning("Malicious Discord webhook URL detected in source code.")
         return True
+
+    if "https://discord.gg/" in decompiled_code:
+        logging.info("Discord invite link detected in source code.")
+
     return False
 
 # Scan for domains, URLs, and IPs in the decompiled code
