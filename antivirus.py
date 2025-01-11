@@ -24,19 +24,35 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
 )
 
-# Redirect stdout to console log
-sys.stdout = open(console_log_file, "w", encoding="utf-8", errors="ignore")
+class DualStream:
+    """Custom stream that writes to both the console and a file."""
+    def __init__(self, file_path):
+        self.console = sys.__stdout__  # Original stdout (console)
+        self.file = open(file_path, "w", encoding="utf-8", errors="ignore")
 
-# Redirect stderr to console log
-sys.stderr = open(console_log_file, "w", encoding="utf-8", errors="ignore")
+    def write(self, message):
+        # Write to the console and file
+        self.console.write(message)
+        self.file.write(message)
+        self.console.flush()
+        self.file.flush()
 
-# Redirect stdin to a log file
+    def flush(self):
+        # Ensure that both streams are flushed
+        self.console.flush()
+        self.file.flush()
+
+# Redirect stdout and stderr to our DualStream class
+sys.stdout = DualStream(console_log_file)
+sys.stderr = DualStream(console_log_file)
+
+# Redirect stdin to a log file (keeping as original behavior)
 sys.stdin = open(stdin_log_file, "w+", encoding="utf-8", errors="ignore")
 
 # Logging for application initialization
 logging.info("Application started at %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-# Record the start time for total duration
+# Start timing total duration
 total_start_time = time.time()
 
 # Measure and print time taken for each import
