@@ -1473,10 +1473,6 @@ class RealTimeWebProtectionHandler:
             logging.info(message)
             print(message)
 
-            if domain.lower() == 'www.com':
-                self.handle_detection('domain', domain)
-                return
-
             if domain.lower().startswith("www.") and not domain.lower().endswith(".com"):
                 domain = domain[4:]
 

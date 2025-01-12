@@ -1,0 +1,23 @@
+Invalid Domains Report
+====================
+
+
+AbuseDomains.txt:
+  - www.be: Missing TLD
+  - www.com: Missing TLD
+
+PhishingDomains.txt:
+  - www.trustwa: Missing TLD
+
+MalwareDomains.txt:
+  - www.fr: Missing TLD
+  - www.google: Missing TLD
+  - www.net: Missing TLD
+  - www.sex: Missing TLD
+  - www.xxx: Missing TLD
+
+WhiteListDomainsMail.txt:
+  - www.mu: Missing TLD
+
+WhiteListDomains.txt:
+  - www.mu: Missing TLD
