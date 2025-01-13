@@ -195,10 +195,6 @@ import inspect
 print(f"pymem module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from typing import Dict, Any
-print(f"typing.Optional, Dict and Any module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import zstandard
 print(f"zstandard module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -214,8 +210,8 @@ start_time = time.time()
 import macholib.mach_o
 print(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
 
-from typing import Optional, Tuple, BinaryIO
-print(f"typing, Optional, Tuple, BinaryIO module loaded in {time.time() - start_time:.6f} seconds")
+from typing import Optional, Tuple, BinaryIO, Dict, Any
+print(f"typing, Optional, Tuple, BinaryIO, Dict and Any module loaded in {time.time() - start_time:.6f} seconds")
 
 # Calculate and print total time
 total_end_time = time.time()
@@ -2179,7 +2175,9 @@ class CompressionFlag:
 
 class PayloadError(Exception):
     """Custom exception for payload processing errors"""
-    pass
+    def __init__(self, message):
+        super().__init__(message)
+        logging.error(f"PayloadError: {message}")
 
 class NuitkaPayload:
     MAGIC_KA = b'KA'
@@ -4504,81 +4502,62 @@ def scan_and_warn(file_path, flag=False):
 def extract_nuitka_file(file_path, nuitka_type):
     """
     Detect Nuitka type, extract Nuitka executable content, and scan for additional Nuitka executables.
-
     :param file_path: Path to the Nuitka executable file.
     :param nuitka_type: Type of Nuitka executable ("Nuitka OneFile" or "Nuitka").
     """
-    try:  
+    try:
         if nuitka_type == "Nuitka OneFile":
             logging.info(f"Nuitka OneFile executable detected in {file_path}")
-            
+
             # Extract the file name (without extension) to include in the folder name
             file_name_without_extension = os.path.splitext(os.path.basename(file_path))[0]
-            
+
             # Find the next available directory number for OneFile extraction
             folder_number = 1
             while os.path.exists(os.path.join(nuitka_dir, f"OneFile_{file_name_without_extension}_{folder_number}")):
                 folder_number += 1
-                
+
             # Create the new directory with the executable file name and folder number
             nuitka_output_dir = os.path.join(nuitka_dir, f"OneFile_{file_name_without_extension}_{folder_number}")
-
             os.makedirs(nuitka_output_dir, exist_ok=True)
 
             logging.info(f"Extracting Nuitka OneFile {file_path} to {nuitka_output_dir}")
-            
-            # Instead of calling nuitka_extractor, we directly handle the extraction process here
-            try:
-                # Extract using 7z or another method directly
-                extracted_files = extract_all_files_with_7z(file_path)
 
-                if extracted_files:
-                    logging.info(f"Successfully extracted files from Nuitka OneFile: {file_path}")
-                    
-                    # Send the extracted files to scan_and_warn
-                    for extracted_file in extracted_files:
-                        scan_and_warn(extracted_file)
+            # Use NuitkaExtractor for extraction
+            extractor = NuitkaExtractor(file_path, nuitka_output_dir)
+            extractor.extract()
 
-                    # Scan for RSRC/RCDATA resources
-                    scan_rsrc_directory(extracted_files)
+            # Scan the extracted directory for additional Nuitka executables
+            logging.info(f"Scanning extracted directory for additional Nuitka executables...")
+            found_executables = scan_directory_for_executables(nuitka_output_dir)
 
-                    # Scan the extracted directory for additional Nuitka executables
-                    logging.info(f"Scanning extracted directory for additional Nuitka executables...")
-                    found_executables = scan_directory_for_executables(nuitka_output_dir)
+            # Process any found normal Nuitka executables
+            for exe_path, exe_type in found_executables:
+                if exe_type == "Nuitka":
+                    logging.info(f"Found normal Nuitka executable in extracted files: {exe_path}")
+                    extract_nuitka_file(exe_path, exe_type)
 
-                    # Process any found normal Nuitka executables
-                    for exe_path, exe_type in found_executables:
-                        if exe_type == "Nuitka":
-                            logging.info(f"Found normal Nuitka executable in extracted files: {exe_path}")
-                            extract_nuitka_file(exe_path, exe_type)
-                else:
-                    logging.error(f"Failed to extract Nuitka OneFile: {file_path}")
-            except Exception as ex:
-                logging.error(f"Failed to extract Nuitka OneFile with error: {ex}")
-        
         elif nuitka_type == "Nuitka":
             logging.info(f"Nuitka executable detected in {file_path}")
-            
-            # Use enhanced 7z extraction
-            extracted_files_nuitka = extract_all_files_with_7z(file_path)
 
-            if extracted_files_nuitka:
-                logging.info(f"Successfully extracted files from Nuitka executable: {file_path}")
-                
-                # Send the extracted files to scan_and_warn
-                for extracted_file in extracted_files_nuitka:
-                    scan_and_warn(extracted_file)
+            # Extract the Nuitka executable
+            file_name_without_extension = os.path.splitext(os.path.basename(file_path))[0]
+            nuitka_output_dir = os.path.join(nuitka_dir, f"Nuitka_{file_name_without_extension}")
+            os.makedirs(nuitka_output_dir, exist_ok=True)
 
-                # Scan for RSRC/RCDATA resources
-                scan_rsrc_directory(extracted_files_nuitka)
-            else:
-                logging.error(f"Failed to extract normal Nuitka executable: {file_path}")
-        
+            logging.info(f"Extracting Nuitka executable {file_path} to {nuitka_output_dir}")
+
+            # Use NuitkaExtractor for extraction
+            extractor = NuitkaExtractor(file_path, nuitka_output_dir)
+            extractor.extract()
+
         else:
             logging.info(f"No Nuitka content found in {file_path}")
-    
+
+    except PayloadError as ex:
+        logging.error(f"Payload error while extracting Nuitka file: {ex}")
     except Exception as ex:
-        logging.error(f"Error extracting Nuitka file: {ex}")
+        logging.error(f"Unexpected error while extracting Nuitka file: {ex}")
 
 def monitor_sandbox():
     if not os.path.exists(sandboxie_folder):
