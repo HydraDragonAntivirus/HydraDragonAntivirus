@@ -36,7 +36,7 @@ func LocateRCDataEnd(pe_path string) int64 {
 		fmt.Println("[!] Error while parsing file!")
 		return -1
 	}
-	
+
 	// https://github.com/Nuitka/Nuitka/blob/b4ae0b6701533c22be732837db49ce5b5f5a90ce/nuitka/build/static_src/OnefileBootstrap.c#L216
 	if pe.HasResource {
 		for _, entry := range pe.Resources.Entries {
