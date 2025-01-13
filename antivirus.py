@@ -2217,8 +2217,8 @@ class NuitkaPayload:
                 dctx = zstandard.ZstdDecompressor()
                 # Create a stream reader with a large read size
                 return dctx.stream_reader(stream, read_size=8192)
-            except zstandard.ZstdError as e:
-                raise PayloadError(f"Failed to initialize decompression: {str(e)}")
+            except zstandard.ZstdError as ex:
+                raise PayloadError(f"Failed to initialize decompression: {str(ex)}")
         return stream
 
 class NuitkaExtractor:
@@ -2426,10 +2426,10 @@ class NuitkaExtractor:
             
             logging.info(f"[+] Successfully extracted {total_files} files to {self.output_dir}")
             
-        except PayloadError as e:
-            logging.error(f"[!] {str(e)}")
-        except Exception as e:
-            logging.error(f"[!] Unexpected error: {str(e)}")
+        except PayloadError as ex:
+            logging.error(f"[!] {str(ex)}")
+        except Exception as ex:
+            logging.error(f"[!] Unexpected error: {str(ex)}")
 
 def scan_zip_file(file_path):
     """Scan files within a zip archive."""
@@ -2973,24 +2973,24 @@ try:
     with open(malicious_file_names, 'r') as malicious_file:
         malicious_file_names = json.load(malicious_file)
         print("Machine Learning Definitions loaded!")
-except Exception as e:
-    print(f"Error loading malicious file names: {e}")
+except Exception as ex:
+    print(f"Error loading malicious file names: {ex}")
 
 try:
     # Load malicious numeric features from pickle file
     with open(malicious_numeric_features, 'rb') as malicious_numeric_file:
         malicious_numeric_features = joblib.load(malicious_numeric_file)
         print("Malicious Feature Signatures loaded!")
-except Exception as e:
-    print(f"Error loading malicious numeric features: {e}")
+except Exception as ex:
+    print(f"Error loading malicious numeric features: {ex}")
 
 try:
     # Load benign numeric features from pickle file
     with open(benign_numeric_features, 'rb') as benign_numeric_file:
         benign_numeric_features = joblib.load(benign_numeric_file)
         print("Benign Feature Signatures loaded!")
-except Exception as e:
-    print(f"Error loading benign numeric features: {e}")
+except Exception as ex:
+    print(f"Error loading benign numeric features: {ex}")
 
 print("Machine Learning AI Signatures loaded!")
 
@@ -2999,44 +2999,44 @@ try:
     with open(excluded_rules_path, "r") as excluded_file:
         excluded_rules = excluded_file.read()
         print("YARA Excluded Rules Definitions loaded!")
-except Exception as e:
-    print(f"Error loading excluded rules: {e}")
+except Exception as ex:
+    print(f"Error loading excluded rules: {ex}")
 
 try:
     # Load the precompiled yarGen rules from the .yrc file
     yarGen_rule = yara.load(yarGen_rule_path)
     print("yarGen Rules Definitions loaded!")
-except yara.Error as e:
-    print(f"Error loading precompiled YARA rule: {e}")
+except yara.Error as ex:
+    print(f"Error loading precompiled YARA rule: {ex}")
 
 try:
     # Load the precompiled icewater rules from the .yrc file
     icewater_rule = yara.load(icewater_rule_path)
     print("Icewater Rules Definitions loaded!")
-except yara.Error as e:
-    print(f"Error loading precompiled YARA rule: {e}")
+except yara.Error as ex:
+    print(f"Error loading precompiled YARA rule: {ex}")
 
 try:
     # Load the precompiled valhalla rules from the .yrc file
     valhalla_rule = yara.load(valhalla_rule_path)
     print("Vallhalla Demo Rules Definitions loaded!")
-except yara.Error as e:
-    print(f"Error loading precompiled YARA rule: {e}")
+except yara.Error as ex:
+    print(f"Error loading precompiled YARA rule: {ex}")
 
 try:
     # Load the precompiled rules from the .yrc file
     compiled_rule = yara.load(compiled_rule_path)
     print("YARA Rules Definitions loaded!")
-except yara.Error as e:
-    print(f"Error loading precompiled YARA rule: {e}")
+except yara.Error as ex:
+    print(f"Error loading precompiled YARA rule: {ex}")
 
 try:
     # Load the precompiled rule from the .yrc file using yara_x
     with open(yaraxtr_yrc_path, 'rb') as yara_x_f:
         yaraxtr_rule = yara_x.Rules.deserialize_from(yara_x_f)
     print("YARA-X Rules Definitions loaded!")
-except Exception as e:
-    print(f"Error loading YARA-X rules: {e}")
+except Exception as ex:
+    print(f"Error loading YARA-X rules: {ex}")
 
 # Function to load Llama-3.2-1B model and tokenizer
 def load_llama32_1b_model():
