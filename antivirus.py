@@ -3,6 +3,7 @@ import sys
 import logging
 from datetime import datetime
 import time
+import io
 
 # Set script directory
 script_dir = os.getcwd()
@@ -23,27 +24,10 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
 )
 
-class DualStream:
-    """Custom stream that writes to both the console and a file."""
-    def __init__(self, file_path):
-        self.console = sys.__stdout__  # Original stdout (console)
-        self.file = open(file_path, "w", encoding="utf-8", errors="ignore")
-
-    def write(self, message):
-        # Write to the console and file
-        self.console.write(message)
-        self.file.write(message)
-        self.console.flush()
-        self.file.flush()
-
-    def flush(self):
-        # Ensure that both streams are flushed
-        self.console.flush()
-        self.file.flush()
-
-# Redirect stdout and stderr to our DualStream class
-sys.stdout = DualStream(console_log_file)
-sys.stderr = DualStream(console_log_file)
+# Set the default encoding to UTF-8 for standard output and input, with error handling set to 'ignore'
+sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-8', errors='ignore')
+sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-8', errors='ignore')
+sys.stdin = io.TextIOWrapper(sys.stdin.detach(), encoding='utf-8', errors='ignore')
 
 # Logging for application initialization
 logging.info("Application started at %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
