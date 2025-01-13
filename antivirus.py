@@ -15,7 +15,6 @@ if not os.path.exists(log_directory):
 # Separate log files for different purposes
 console_log_file = os.path.join(log_directory, "antivirusconsole.log")
 application_log_file = os.path.join(log_directory, "antivirus.log")
-stdin_log_file = os.path.join(log_directory, "antivirusstdin.log")
 
 # Configure logging for application log
 logging.basicConfig(
@@ -45,9 +44,6 @@ class DualStream:
 # Redirect stdout and stderr to our DualStream class
 sys.stdout = DualStream(console_log_file)
 sys.stderr = DualStream(console_log_file)
-
-# Redirect stdin to a log file (keeping as original behavior)
-sys.stdin = open(stdin_log_file, "w+", encoding="utf-8", errors="ignore")
 
 # Logging for application initialization
 logging.info("Application started at %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
