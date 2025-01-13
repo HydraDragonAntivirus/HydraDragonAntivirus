@@ -211,7 +211,7 @@ func main() {
 	flag.Parse()
 
 	if len(flag.Args()) == 0 || *outputDir == "" {
-		fmt.Println("Usage: nuitka-extractor <output_directory> -output <filename>")
+		fmt.Println("Usage: nuitka-extractor -output <output_directory> <filename>")
 		return
 	}
 
