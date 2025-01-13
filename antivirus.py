@@ -195,8 +195,27 @@ import inspect
 print(f"pymem module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 print(f"typing.Optional, Dict and Any module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import zstandard
+print(f"zstandard module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from elftools.elf.elffile import ELFFile
+print(f"elftools.elf.effile, ELFFile module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import macholib.MachO
+print(f"macholib.Mach0 module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import macholib.mach_o
+print(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
+
+from typing import Optional, Tuple, BinaryIO
+print(f"typing, Optional, Tuple, BinaryIO module loaded in {time.time() - start_time:.6f} seconds")
 
 # Calculate and print total time
 total_end_time = time.time()
@@ -234,7 +253,6 @@ detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
 memory_dir = os.path.join(script_dir, "memory")
 detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
-nuitka_extractor_path = os.path.join(script_dir, "nuitka-extractor.exe")
 malicious_file_names = os.path.join(script_dir, "machinelearning", "malicious_file_names.json")
 malicious_numeric_features = os.path.join(script_dir, "machinelearning", "malicious_numeric.pkl")
 benign_numeric_features = os.path.join(script_dir, "machinelearning", "benign_numeric.pkl")
@@ -2098,6 +2116,48 @@ def is_pe_file(file_path):
         print(f"Error occurred while checking if file is PE: {ex}")
         return False
 
+def is_elf_file(file_path):
+    """Check if the file at the specified path is an ELF file using Detect It Easy."""
+    try:
+        logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
+        result = subprocess.run([detectiteasy_console_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        # Check for ELF format
+        if "ELF" in result.stdout:
+            logging.info(f"File {file_path} is an ELF file.")
+            return True
+        else:
+            logging.info(f"File {file_path} is not an ELF file. Result: {result.stdout}")
+            return False
+
+    except subprocess.SubprocessError as ex:
+        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
+        return False
+    except Exception as ex:
+        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
+        return False
+
+def is_macho_file(file_path):
+    """Check if the file at the specified path is a Mach-O file using Detect It Easy."""
+    try:
+        logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
+        result = subprocess.run([detectiteasy_console_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        # Check for Mach-O format
+        if "Mach-O" in result.stdout:
+            logging.info(f"File {file_path} is a Mach-O file.")
+            return True
+        else:
+            logging.info(f"File {file_path} is not a Mach-O file. Result: {result.stdout}")
+            return False
+
+    except subprocess.SubprocessError as ex:
+        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
+        return False
+    except Exception as ex:
+        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
+        return False
+
 def is_encrypted(zip_info):
     """Check if a ZIP entry is encrypted."""
     return zip_info.flag_bits & 0x1 != 0
@@ -2105,6 +2165,271 @@ def is_encrypted(zip_info):
 def contains_rlo_after_dot(filename):
     """Check if the filename contains an RLO character after a dot."""
     return ".\u202E" in filename
+
+class FileType:
+    UNKNOWN = -1
+    ELF = 0
+    PE = 1
+    MACHO = 2
+
+class CompressionFlag:
+    UNKNOWN = -1
+    NON_COMPRESSED = 0
+    COMPRESSED = 1
+
+class PayloadError(Exception):
+    """Custom exception for payload processing errors"""
+    pass
+
+class NuitkaPayload:
+    MAGIC_KA = b'KA'
+    MAGIC_UNCOMPRESSED = ord('X')
+    MAGIC_COMPRESSED = ord('Y')
+    
+    def __init__(self, data: bytes, offset: int, size: int):
+        self.data = data
+        self.offset = offset
+        self.size = size
+        self.compression = CompressionFlag.UNKNOWN
+        self._validate()
+    
+    def _validate(self):
+        """Validate payload magic and set compression flag"""
+        if not self.data.startswith(self.MAGIC_KA):
+            raise PayloadError("Invalid Nuitka payload magic")
+        
+        magic_type = self.data[2]
+        if magic_type == self.MAGIC_UNCOMPRESSED:
+            self.compression = CompressionFlag.NON_COMPRESSED
+        elif magic_type == self.MAGIC_COMPRESSED:
+            self.compression = CompressionFlag.COMPRESSED
+        else:
+            raise PayloadError(f"Unknown compression magic: {magic_type}")
+    
+    def get_stream(self) -> BinaryIO:
+        """Get a file-like object for reading the payload"""
+        # Skip the 3-byte magic header
+        payload_data = self.data[3:]
+        stream = io.BytesIO(payload_data)
+        
+        if self.compression == CompressionFlag.COMPRESSED:
+            try:
+                dctx = zstandard.ZstdDecompressor()
+                # Create a stream reader with a large read size
+                return dctx.stream_reader(stream, read_size=8192)
+            except zstandard.ZstdError as e:
+                raise PayloadError(f"Failed to initialize decompression: {str(e)}")
+        return stream
+
+class NuitkaExtractor:
+    def __init__(self, filepath: str, output_dir: str):
+        self.filepath = filepath
+        self.output_dir = output_dir
+        self.file_type = FileType.UNKNOWN
+        self.payload: Optional[NuitkaPayload] = None
+    
+    def _detect_file_type(self) -> int:
+        """Detect the executable file type using Detect It Easy methods"""
+        if is_nuitka_file(self.filepath):
+            return FileType.PE  # Assuming Nuitka files are detected as PE files
+        elif is_pe_file(self.filepath):
+            return FileType.PE
+        elif is_elf_file(self.filepath):
+            return FileType.ELF
+        elif is_macho_file(self.filepath):
+            return FileType.MACHO
+        return FileType.UNKNOWN
+
+    def _find_pe_resource(self, pe: pefile.PE) -> Tuple[Optional[int], Optional[int]]:
+        """Find the Nuitka resource in PE file"""
+        try:
+            for entry in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+                if hasattr(entry, 'directory'):
+                    for entry1 in entry.directory.entries:
+                        if entry1.id == 27:  # Nuitka's resource ID
+                            if hasattr(entry1, 'directory'):
+                                data_entry = entry1.directory.entries[0]
+                                if hasattr(data_entry, 'data'):
+                                    offset = pe.get_offset_from_rva(data_entry.data.struct.OffsetToData)
+                                    size = data_entry.data.struct.Size
+                                    return offset, size
+        except Exception:
+            pass
+        return None, None
+
+    def _extract_pe_payload(self) -> Optional[NuitkaPayload]:
+        """Extract payload from PE file"""
+        try:
+            pe = pefile.PE(self.filepath, fast_load=False)
+            
+            # Find RT_RCDATA resource with ID 27
+            if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
+                raise PayloadError("No resource directory found")
+            
+            offset, size = self._find_pe_resource(pe)
+            if offset is None or size is None:
+                raise PayloadError("No Nuitka payload found in PE resources")
+            
+            # Read the payload data
+            with open(self.filepath, 'rb') as f:
+                f.seek(offset)
+                payload_data = f.read(size)
+                
+            return NuitkaPayload(payload_data, offset, size)
+            
+        except Exception as ex:
+            raise PayloadError(f"PE payload extraction failed: {str(ex)}")
+
+    def _extract_elf_payload(self) -> Optional[NuitkaPayload]:
+        """Extract payload from ELF file"""
+        try:
+            with open(self.filepath, 'rb') as f:
+                elf = ELFFile(f)
+                
+                # Find last section to locate appended data
+                last_section = max(elf.iter_sections(), 
+                                 key=lambda s: s.header.sh_offset + s.header.sh_size)
+                
+                # Read trailer for payload size
+                f.seek(-8, io.SEEK_END)
+                payload_size = struct.unpack('<Q', f.read(8))[0]
+                
+                # Read payload
+                payload_offset = last_section.header.sh_offset + last_section.sh_size
+                f.seek(payload_offset)
+                payload_data = f.read(payload_size)
+                
+                return NuitkaPayload(payload_data, payload_offset, payload_size)
+                
+        except Exception as ex:
+            raise PayloadError(f"ELF payload extraction failed: {str(ex)}")
+
+    def _extract_macho_payload(self) -> Optional[NuitkaPayload]:
+        """Extract payload from Mach-O file"""
+        try:
+            macho = macholib.MachO.MachO(self.filepath)
+            
+            for header in macho.headers:
+                for cmd in header.commands:
+                    if cmd[0].cmd in (macholib.mach_o.LC_SEGMENT, macholib.mach_o.LC_SEGMENT_64):
+                        for section in cmd[1].sections:
+                            if section[0].decode('utf-8') == 'payload':
+                                offset = section[2]
+                                size = section[3]
+                                
+                                with open(self.filepath, 'rb') as f:
+                                    f.seek(offset)
+                                    payload_data = f.read(size)
+                                    return NuitkaPayload(payload_data, offset, size)
+                                    
+            raise PayloadError("No payload section found in Mach-O file")
+            
+        except Exception as ex:
+            raise PayloadError(f"Mach-O payload extraction failed: {str(ex)}")
+
+    def _read_string(self, stream: BinaryIO, is_wide: bool = False) -> Optional[str]:
+        """Read a null-terminated string from the stream"""
+        result = bytearray()
+        while True:
+            char = stream.read(2 if is_wide else 1)
+            if not char or char == b'\0' * len(char):
+                break
+            result.extend(char)
+        
+        if not result:
+            return None
+            
+        try:
+            return result.decode('utf-16-le' if is_wide else 'utf-8')
+        except UnicodeDecodeError:
+            return None
+
+    def _extract_files(self, stream: BinaryIO):
+        """Extract files from the payload stream"""
+        total_files = 0
+        os.makedirs(self.output_dir, exist_ok=True)
+
+        try:
+            while True:
+                # Read filename
+                filename = self._read_string(stream, is_wide=(self.file_type == FileType.PE))
+                if not filename:
+                    break
+
+                # Read file flags for ELF
+                if self.file_type == FileType.ELF:
+                    stream.read(1)  # Skip flags
+
+                # Read file size
+                size_data = stream.read(8)
+                if not size_data or len(size_data) != 8:
+                    break
+                    
+                file_size = struct.unpack('<Q', size_data)[0]
+
+                # Sanitize output path
+                safe_output_dir = str(self.output_dir).replace('..', '__')
+                outpath = os.path.join(safe_output_dir, filename)
+                os.makedirs(os.path.dirname(outpath), exist_ok=True)
+
+                # Extract file
+                try:
+                    with open(outpath, 'wb') as f:
+                        remaining = file_size
+                        while remaining > 0:
+                            chunk_size = min(remaining, 8192)
+                            data = stream.read(chunk_size)
+                            if not data:
+                                logging.warning(f"Incomplete read for {filename}")
+                                break
+                            f.write(data)
+                            remaining -= len(data)
+                    total_files += 1
+                    logging.info(f"[+] Extracted: {filename}")
+                except Exception as ex:
+                    logging.error(f"Failed to extract {filename}: {ex}")
+                    continue
+
+        except Exception as ex:
+            logging.error(f"Extraction error: {ex}")
+
+        return total_files
+
+    def extract(self):
+        """Main extraction process"""
+        try:
+            # Detect file type using the new detection methods
+            self.file_type = self._detect_file_type()
+            if self.file_type == FileType.UNKNOWN:
+                raise PayloadError("Unsupported file type")
+            
+            logging.info(f"[+] Processing: {self.filepath}")
+            logging.info(f"[+] Detected file type: {['ELF', 'PE', 'MACHO'][self.file_type]}")
+
+            # Extract payload based on file type
+            if self.file_type == FileType.PE:
+                self.payload = self._extract_pe_payload()
+            elif self.file_type == FileType.ELF:
+                self.payload = self._extract_elf_payload()
+            else:  # MACHO
+                self.payload = self._extract_macho_payload()
+            
+            if not self.payload:
+                raise PayloadError("Failed to extract payload")
+            
+            logging.info(f"[+] Payload size: {self.payload.size} bytes")
+            logging.info(f"[+] Compression: {'Yes' if self.payload.compression == CompressionFlag.COMPRESSED else 'No'}")
+            
+            # Extract files from payload
+            stream = self.payload.get_stream()
+            total_files = self._extract_files(stream)
+            
+            logging.info(f"[+] Successfully extracted {total_files} files to {self.output_dir}")
+            
+        except PayloadError as e:
+            logging.error(f"[!] {str(e)}")
+        except Exception as e:
+            logging.error(f"[!] Unexpected error: {str(e)}")
 
 def scan_zip_file(file_path):
     """Scan files within a zip archive."""
@@ -4202,24 +4527,34 @@ def extract_nuitka_file(file_path, nuitka_type):
 
             logging.info(f"Extracting Nuitka OneFile {file_path} to {nuitka_output_dir}")
             
-            # Use nuitka_extractor for OneFile extraction
-            command = [nuitka_extractor_path, "-output", nuitka_output_dir, file_path]
-            result = subprocess.run(command, capture_output=True, text=True)
-            
-            if result.returncode == 0:
-                logging.info(f"Successfully extracted Nuitka OneFile: {file_path} to {nuitka_output_dir}")
-                
-                # Scan the extracted directory for additional Nuitka executables
-                logging.info(f"Scanning extracted directory for additional Nuitka executables...")
-                found_executables = scan_directory_for_executables(nuitka_output_dir)
-                
-                # Process any found normal Nuitka executables
-                for exe_path, exe_type in found_executables:
-                    if exe_type == "Nuitka":
-                        logging.info(f"Found normal Nuitka executable in extracted files: {exe_path}")
-                        extract_nuitka_file(exe_path, exe_type)
-            else:
-                logging.error(f"Failed to extract Nuitka OneFile: {file_path}. Error: {result.stderr}")
+            # Instead of calling nuitka_extractor, we directly handle the extraction process here
+            try:
+                # Extract using 7z or another method directly
+                extracted_files = extract_all_files_with_7z(file_path)
+
+                if extracted_files:
+                    logging.info(f"Successfully extracted files from Nuitka OneFile: {file_path}")
+                    
+                    # Send the extracted files to scan_and_warn
+                    for extracted_file in extracted_files:
+                        scan_and_warn(extracted_file)
+
+                    # Scan for RSRC/RCDATA resources
+                    scan_rsrc_directory(extracted_files)
+
+                    # Scan the extracted directory for additional Nuitka executables
+                    logging.info(f"Scanning extracted directory for additional Nuitka executables...")
+                    found_executables = scan_directory_for_executables(nuitka_output_dir)
+
+                    # Process any found normal Nuitka executables
+                    for exe_path, exe_type in found_executables:
+                        if exe_type == "Nuitka":
+                            logging.info(f"Found normal Nuitka executable in extracted files: {exe_path}")
+                            extract_nuitka_file(exe_path, exe_type)
+                else:
+                    logging.error(f"Failed to extract Nuitka OneFile: {file_path}")
+            except Exception as ex:
+                logging.error(f"Failed to extract Nuitka OneFile with error: {ex}")
         
         elif nuitka_type == "Nuitka":
             logging.info(f"Nuitka executable detected in {file_path}")
