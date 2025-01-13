@@ -105,6 +105,10 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 
 - Your Windows folder must be in C:\ because some codes are hard coded.
 
+**Note 13:**
+
+- If you are testing a rootkit, please enable "bcdedit testsigning on" to allow the rootkit to run on your machine for analysis.
+
 ## Internet Access In Sandboxie
 - HIPS detection shouldn't work if you don't open the Internet in Sandboxie. To enable it go to: Sandbox -> DefaultBox -> Sandbox Settings -> Restrictions -> Internet Access -> Click "BLock All Programs" then click "Allow All Programs" then save it and you're done!.  https://sandboxie-plus.com/sandboxie/restrictionssettings/
 
