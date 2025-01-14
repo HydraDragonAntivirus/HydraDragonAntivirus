@@ -756,8 +756,7 @@ def scan_code_for_links(decompiled_code):
         scan_url_general(url)
 
     # Scan for domains (simplified regex)
-    domains = set(re.findall(r'[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', decompiled_code))
-    for domain in domains:
+    for domain in urls:
         scan_domain_general(domain)
 
     # Scan for IP addresses (IPv4)
@@ -776,11 +775,12 @@ def scan_domain_general(domain):
         # Convert domain to lowercase for consistent comparison
         domain_lower = domain.lower()
 
+        # Extract the main domain (e.g., example.com)
+        parsed_url = urlparse(url)
+        main_domain = parsed_url.netloc
+
         if domain_lower in scanned_domains_general:
             logging.info(f"Domain {domain_lower} has already been scanned.")
-            logging.warning(f"Malicious domain detected: {domain_lower}")
-            # Notify the user for malicious source code detection
-            notify_user_for_malicious_source_code(domain_lower, 'HEUR:Win32.SourceCode.Malicious.Domain')
             return
 
         # Add the domain to the scanned list
@@ -809,6 +809,12 @@ def scan_domain_general(domain):
         if domain_lower in phishing_sub_domains_data:
             logging.warning(f"Phishing subdomain detected: {domain_lower}")
             notify_user_for_malicious_source_code(domain_lower, 'HEUR:Win32.SourceCode.Phishing.SubDomain')
+            return
+
+        # Check against malware mail domains
+        if domain_lower in malware_mail_sub_domains_data:
+            logging.warning(f"Malware mail subdomain detected: {domain_lower}")
+            notify_user_for_malicious_source_code(domain_lower, 'HEUR:Win32.SourceCode.Malware.Mail.SubDomain')
             return
 
         # Check against malware subdomains
@@ -841,16 +847,16 @@ def scan_domain_general(domain):
             notify_user_for_malicious_source_code(domain_lower, 'HEUR:Win32.SourceCode.Phishing.Domain')
             return
 
-        # Check against malware domains
-        if domain_lower in malware_domains_data:
-            logging.warning(f"Malware domain detected: {domain_lower}")
-            notify_user_for_malicious_source_code(domain_lower, 'HEUR:Win32.SourceCode.Malware.Domain')
-            return
-
         # Check against malware mail domains
         if domain_lower in malware_domains_mail_data:
             logging.warning(f"Malware mail domain detected: {domain_lower}")
             notify_user_for_malicious_source_code(domain_lower, 'HEUR:Win32.SourceCode.Malware.Mail.Domain')
+            return
+
+        # Check against malware domains
+        if domain_lower in malware_domains_data:
+            logging.warning(f"Malware domain detected: {domain_lower}")
+            notify_user_for_malicious_source_code(domain_lower, 'HEUR:Win32.SourceCode.Malware.Domain')
             return
 
         # Check if domain is whitelisted
