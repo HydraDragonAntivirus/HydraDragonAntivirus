@@ -4250,6 +4250,34 @@ def extract_base64_string(line):
     match = re.search(r"'([^']+)'|\"([^\"]+)\"", line)
     return match.group(1) or match.group(2) if match else None
 
+def save_to_file(file_path, content):
+    """
+    Saves content to a file in the 'python_source_code_dir' directory and returns the file path.
+
+    Args:
+        file_path: Path to the file.
+        content: Content to save.
+
+    Returns:
+        file_path: Path to the saved file.
+    """
+    python_source_code_dir = "python_source_code_dir"  # Define your directory here
+
+    # Ensure the directory exists
+    if not os.path.exists(python_source_code_dir):
+        os.makedirs(python_source_code_dir)
+
+    # Update the file path to save within the specified directory
+    file_path = os.path.join(python_source_code_dir, file_path)
+
+    try:
+        with open(file_path, 'w', encoding='utf-8') as file:
+            file.write(content)
+        return file_path
+    except Exception as ex:
+        logging.error(f"Error saving file {file_path}: {ex}")
+        return None
+
 def process_decompiled_code(output_file):
     """
     Processes the decompiled code to extract and decrypt payloads.
@@ -4275,11 +4303,15 @@ def process_decompiled_code(output_file):
         # First decryption
         intermediate_data = DecryptString(key, tag, nonce, encrypted_data)
         temp_file = 'intermediate_data.py'
-        save_to_file(temp_file, intermediate_data)
+        saved_temp_file = save_to_file(temp_file, intermediate_data)
 
         # Process intermediate data
-        with open(temp_file, 'r', encoding='utf-8') as temp:
-            intermediate_content = temp.read()
+        if saved_temp_file:
+            with open(saved_temp_file, 'r', encoding='utf-8') as temp:
+                intermediate_content = temp.read()
+        else:
+            logging.error("Failed to save intermediate data.")
+            return
 
         key_2 = decode_base64_from_line(extract_line(intermediate_content, "key = "))
         tag_2 = decode_base64_from_line(extract_line(intermediate_content, "tag = "))
@@ -4289,25 +4321,16 @@ def process_decompiled_code(output_file):
         # Second decryption
         final_decrypted_data = DecryptString(key_2, tag_2, nonce_2, encrypted_data_2)
         source_code_file = 'exela_stealer_last_stage.py'
-        save_to_file(source_code_file, final_decrypted_data)
-
- def save_to_file(file_path, content):
-    """
-    Saves content to a file.
-
-    Args:
-        file_path: Path to the file.
-        content: Content to save.
-    """
-    with open(file_path, 'w', encoding='utf-8') as file:
-        file.write(content) 
+        source_code_path = save_to_file(source_code_file, final_decrypted_data)
 
         # Process final stage and extract webhook URLs
         webhooks = extract_webhooks(final_decrypted_data)
         if webhooks:
             logging.warning(f"[+] Webhook URLs found: {webhooks}")
-            notify_user_for_malicious_source_code(, 'HEUR:Win32.Discord.Pyinstaller.Exela.V2.Stealer.Generic.Malware')
-
+            if source_code_path:
+                notify_user_for_malicious_source_code(source_code_path, 'HEUR:Win32.Discord.Pyinstaller.Exela.V2.Stealer.Generic.Malware')
+            else:
+                logging.error("Failed to save the final decrypted source code.")
         else:
             logging.error("[!] No webhook URLs found.")
 
@@ -4345,8 +4368,8 @@ def show_code_with_uncompyle6(file_path, file_name):
         logging.info(f"Processing python file: {file_path}")
 
         # Create output directory if needed
-        if not os.path.exists('python_source_code_dir'):
-            os.makedirs('python_source_code_dir')
+        if not os.path.exists(python_source_code_dir):
+            os.makedirs(python_source_code_dir)
 
         # Use base_name derived from file_name (without extension)
         base_name = os.path.splitext(file_name)[0]
@@ -4372,12 +4395,12 @@ def show_code_with_uncompyle6(file_path, file_name):
         while True:
             if is_source:
                 output_path = os.path.join(
-                    'python_source_code_dir',
+                    python_source_code_dir,
                     f"{base_name}_{version}_source_code.py"
                 )
             else:
                 output_path = os.path.join(
-                    'python_source_code_dir',
+                    python_source_code_dir,
                     f"{base_name}_{version}_decompile.py"
                 )
             if not os.path.exists(output_path):
