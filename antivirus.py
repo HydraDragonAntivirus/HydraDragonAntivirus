@@ -209,8 +209,13 @@ start_time = time.time()
 import macholib.mach_o
 print(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
 
+start_time = time.time()
 from typing import Optional, Tuple, BinaryIO, Dict, Any
 print(f"typing, Optional, Tuple, BinaryIO, Dict and Any module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+print(f"cryptography.hazmat.primitives.ciphers, Cipher, algorithms, modes module loaded in {time.time() - start_time:.6f} seconds")
 
 # Calculate and print total time
 total_end_time = time.time()
