@@ -4234,17 +4234,6 @@ def decode_base64_from_line(line):
     base64_str = extract_base64_string(line)
     return base64.b64decode(add_base64_padding(base64_str))
 
-def save_to_file(file_path, content):
-    """
-    Saves content to a file.
-
-    Args:
-        file_path: Path to the file.
-        content: Content to save.
-    """
-    with open(file_path, 'w', encoding='utf-8') as file:
-        file.write(content)
-
 def DecryptString(key, tag, nonce, _input):
     cipher = Cipher(algorithms.AES(key), modes.GCM(nonce, tag))
     decryptor = cipher.decryptor()
@@ -4302,12 +4291,25 @@ def process_decompiled_code(output_file):
         source_code_file = 'exela_stealer_last_stage.py'
         save_to_file(source_code_file, final_decrypted_data)
 
+ def save_to_file(file_path, content):
+    """
+    Saves content to a file.
+
+    Args:
+        file_path: Path to the file.
+        content: Content to save.
+    """
+    with open(file_path, 'w', encoding='utf-8') as file:
+        file.write(content) 
+
         # Process final stage and extract webhook URLs
         webhooks = extract_webhooks(final_decrypted_data)
         if webhooks:
-            logging.info(f"[+] Webhook URLs found: {webhooks}")
+            logging.warning(f"[+] Webhook URLs found: {webhooks}")
+            notify_user_for_malicious_source_code(, 'HEUR:Win32.Discord.Pyinstaller.Exela.V2.Stealer.Generic.Malware')
+
         else:
-            logging.warning("[!] No webhook URLs found.")
+            logging.error("[!] No webhook URLs found.")
 
     except Exception as ex:
         logging.error(f"Error during payload extraction: {ex}")
