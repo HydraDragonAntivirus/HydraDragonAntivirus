@@ -325,6 +325,10 @@ seven_zip_path = "C:\\Program Files\\7-Zip\\7z.exe"  # Path to 7z.exe
 
 IPv4_pattern = r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$'  # Simple IPv4 regex
 IPv6_pattern = r'^(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$'  # Simple IPv6 regex
+# Regular expressions for Discord links
+discord_webhook_pattern = r'https://discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
+discord_canary_webhook_pattern = r'https://canary\.discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
+discord_invite_pattern = r'https://discord\.gg/[A-Za-z0-9]+'
 
 os.makedirs(python_source_code_dir, exist_ok=True)
 os.makedirs(nuitka_source_code_dir, exist_ok=True)
@@ -722,11 +726,6 @@ def contains_discord_code(decompiled_code):
     """
     Check if the decompiled code contains a Discord webhook URL, Canary webhook URL, or a Discord invite link.
     """
-    # Regular expressions for Discord links
-    discord_webhook_pattern = r'https://discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
-    discord_canary_webhook_pattern = r'https://canary\.discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
-    discord_invite_pattern = r'https://discord\.gg/[A-Za-z0-9]+'
-
     # Search for matches
     discord_webhook_matches = re.findall(discord_webhook_pattern, decompiled_code)
     discord_canary_webhook_matches = re.findall(discord_canary_webhook_pattern, decompiled_code)
@@ -4208,6 +4207,125 @@ def is_pyc_file(file_path):
         logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
         return False
 
+def process_decompiled_code(file_path):
+    """
+    Processes the decompiled code to extract and decrypt payloads.
+
+    Args:
+        file_path: Path to the decompiled code file.
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            content = file.read()
+
+        # Extract key, tag, nonce, and encrypted data
+        key_line = extract_line(content, "key = ")
+        tag_line = extract_line(content, "tag = ")
+        nonce_line = extract_line(content, "nonce = ")
+        encrypted_data_line = extract_line(content, "encrypted_data")
+
+        key = decode_base64_from_line(key_line)
+        tag = decode_base64_from_line(tag_line)
+        nonce = decode_base64_from_line(nonce_line)
+        encrypted_data = decode_base64_from_line(encrypted_data_line)
+
+        # First decryption
+        intermediate_data = DecryptString(key, tag, nonce, encrypted_data)
+        temp_file = 'intermediate_data.py'
+        save_to_file(temp_file, intermediate_data)
+
+        # Process intermediate data
+        with open(temp_file, 'r', encoding='utf-8') as temp:
+            intermediate_content = temp.read()
+
+        key_2 = decode_base64_from_line(extract_line(intermediate_content, "key = "))
+        tag_2 = decode_base64_from_line(extract_line(intermediate_content, "tag = "))
+        nonce_2 = decode_base64_from_line(extract_line(intermediate_content, "nonce = "))
+        encrypted_data_2 = decode_base64_from_line(extract_line(intermediate_content, "encrypted_data"))
+
+        # Second decryption
+        final_decrypted_data = DecryptString(key_2, tag_2, nonce_2, encrypted_data_2)
+        source_code_file = 'exela_stealer_last_stage.py'
+        save_to_file(source_code_file, final_decrypted_data)
+
+        # Process final stage and extract webhook URLs
+        webhooks = extract_webhooks(final_decrypted_data)
+        if webhooks:
+            logging.info(f"[+] Webhook URLs found: {webhooks}")
+        else:
+            logging.warning("[!] No webhook URLs found.")
+
+    except Exception as ex:
+        logging.error(f"Error during payload extraction: {ex}")
+
+def extract_line(content, prefix):
+    """
+    Extracts a line from the content that starts with the given prefix.
+
+    Args:
+        content: Content to search.
+        prefix: Line prefix to look for.
+
+    Returns:
+        The matched line or None.
+    """
+    lines = [line for line in content.splitlines() if line.startswith(prefix)]
+    return lines[0] if lines else None
+
+def decode_base64_from_line(line):
+    """
+    Decodes a base64 string from a given line.
+
+    Args:
+        line: The line containing the base64 string.
+
+    Returns:
+        Decoded bytes.
+    """
+    base64_str = extract_base64_string(line)
+    return base64.b64decode(add_base64_padding(base64_str))
+
+def save_to_file(file_path, content):
+    """
+    Saves content to a file.
+
+    Args:
+        file_path: Path to the file.
+        content: Content to save.
+    """
+    with open(file_path, 'w', encoding='utf-8') as file:
+        file.write(content)
+
+def DecryptString(key, tag, nonce, _input):
+    cipher = Cipher(algorithms.AES(key), modes.GCM(nonce, tag))
+    decryptor = cipher.decryptor()
+    decrypted_data = decryptor.update(_input) + decryptor.finalize()
+    return decrypted_data.decode(errors="ignore")
+
+def add_base64_padding(b64_string):
+    padding = len(b64_string) % 4
+    if padding != 0:
+        b64_string += '=' * (4 - padding)
+    return b64_string
+
+def extract_base64_string(line):
+    match = re.search(r"'([^']+)'|\"([^\"]+)\"", line)
+    return match.group(1) or match.group(2) if match else None
+
+def extract_webhooks(content):
+    """
+    Extracts webhook URLs (regular and Canary versions) from the content.
+
+    Args:
+        content: The content to scan for Discord webhooks.
+
+    Returns:
+        A list of webhook URLs found in the content.
+    """
+    # Combine matches from both patterns
+    webhooks = re.findall(discord_webhook_pattern, content) + re.findall(discord_canary_webhook_pattern, content)
+    return webhooks
+
 def show_code_with_uncompyle6(file_path, file_name):
     """
     Decompiles a .pyc file and saves it with appropriate naming based on
@@ -4285,6 +4403,10 @@ def show_code_with_uncompyle6(file_path, file_name):
             output_file.write(decompiled_code)
 
         logging.info(f"Successfully saved to {output_path}")
+
+        # Process the decompiled code further
+        process_decompiled_code(output_path)
+
         return output_path
 
     except Exception as ex:
