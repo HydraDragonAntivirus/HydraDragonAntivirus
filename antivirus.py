@@ -4207,57 +4207,6 @@ def is_pyc_file(file_path):
         logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
         return False
 
-def process_decompiled_code(file_path):
-    """
-    Processes the decompiled code to extract and decrypt payloads.
-
-    Args:
-        file_path: Path to the decompiled code file.
-    """
-    try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            content = file.read()
-
-        # Extract key, tag, nonce, and encrypted data
-        key_line = extract_line(content, "key = ")
-        tag_line = extract_line(content, "tag = ")
-        nonce_line = extract_line(content, "nonce = ")
-        encrypted_data_line = extract_line(content, "encrypted_data")
-
-        key = decode_base64_from_line(key_line)
-        tag = decode_base64_from_line(tag_line)
-        nonce = decode_base64_from_line(nonce_line)
-        encrypted_data = decode_base64_from_line(encrypted_data_line)
-
-        # First decryption
-        intermediate_data = DecryptString(key, tag, nonce, encrypted_data)
-        temp_file = 'intermediate_data.py'
-        save_to_file(temp_file, intermediate_data)
-
-        # Process intermediate data
-        with open(temp_file, 'r', encoding='utf-8') as temp:
-            intermediate_content = temp.read()
-
-        key_2 = decode_base64_from_line(extract_line(intermediate_content, "key = "))
-        tag_2 = decode_base64_from_line(extract_line(intermediate_content, "tag = "))
-        nonce_2 = decode_base64_from_line(extract_line(intermediate_content, "nonce = "))
-        encrypted_data_2 = decode_base64_from_line(extract_line(intermediate_content, "encrypted_data"))
-
-        # Second decryption
-        final_decrypted_data = DecryptString(key_2, tag_2, nonce_2, encrypted_data_2)
-        source_code_file = 'exela_stealer_last_stage.py'
-        save_to_file(source_code_file, final_decrypted_data)
-
-        # Process final stage and extract webhook URLs
-        webhooks = extract_webhooks(final_decrypted_data)
-        if webhooks:
-            logging.info(f"[+] Webhook URLs found: {webhooks}")
-        else:
-            logging.warning("[!] No webhook URLs found.")
-
-    except Exception as ex:
-        logging.error(f"Error during payload extraction: {ex}")
-
 def extract_line(content, prefix):
     """
     Extracts a line from the content that starts with the given prefix.
@@ -4311,6 +4260,57 @@ def add_base64_padding(b64_string):
 def extract_base64_string(line):
     match = re.search(r"'([^']+)'|\"([^\"]+)\"", line)
     return match.group(1) or match.group(2) if match else None
+
+def process_decompiled_code(output_file):
+    """
+    Processes the decompiled code to extract and decrypt payloads.
+
+    Args:
+        output_file: Path to the decompiled code file.
+    """
+    try:
+        with open(output_file, 'r', encoding='utf-8') as file:
+            content = file.read()
+
+        # Extract key, tag, nonce, and encrypted data
+        key_line = extract_line(content, "key = ")
+        tag_line = extract_line(content, "tag = ")
+        nonce_line = extract_line(content, "nonce = ")
+        encrypted_data_line = extract_line(content, "encrypted_data")
+
+        key = decode_base64_from_line(key_line)
+        tag = decode_base64_from_line(tag_line)
+        nonce = decode_base64_from_line(nonce_line)
+        encrypted_data = decode_base64_from_line(encrypted_data_line)
+
+        # First decryption
+        intermediate_data = DecryptString(key, tag, nonce, encrypted_data)
+        temp_file = 'intermediate_data.py'
+        save_to_file(temp_file, intermediate_data)
+
+        # Process intermediate data
+        with open(temp_file, 'r', encoding='utf-8') as temp:
+            intermediate_content = temp.read()
+
+        key_2 = decode_base64_from_line(extract_line(intermediate_content, "key = "))
+        tag_2 = decode_base64_from_line(extract_line(intermediate_content, "tag = "))
+        nonce_2 = decode_base64_from_line(extract_line(intermediate_content, "nonce = "))
+        encrypted_data_2 = decode_base64_from_line(extract_line(intermediate_content, "encrypted_data"))
+
+        # Second decryption
+        final_decrypted_data = DecryptString(key_2, tag_2, nonce_2, encrypted_data_2)
+        source_code_file = 'exela_stealer_last_stage.py'
+        save_to_file(source_code_file, final_decrypted_data)
+
+        # Process final stage and extract webhook URLs
+        webhooks = extract_webhooks(final_decrypted_data)
+        if webhooks:
+            logging.info(f"[+] Webhook URLs found: {webhooks}")
+        else:
+            logging.warning("[!] No webhook URLs found.")
+
+    except Exception as ex:
+        logging.error(f"Error during payload extraction: {ex}")
 
 def extract_webhooks(content):
     """
