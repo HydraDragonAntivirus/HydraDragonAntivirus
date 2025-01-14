@@ -4698,9 +4698,15 @@ def extract_nuitka_file(file_path, nuitka_type):
 
             logging.info(f"Extracting Nuitka executable {file_path} to {nuitka_output_dir}")
 
-            # Use NuitkaExtractor for extraction
-            extractor = NuitkaExtractor(file_path, nuitka_output_dir)
-            extractor.extract()
+            # Use enhanced 7z extraction
+            extracted_files = extract_all_files_with_7z(file_path)
+
+            if extracted_files:
+                logging.info(f"Successfully extracted files from Nuitka executable: {file_path}")
+                # Scan for RSRC/RCDATA resources
+                scan_rsrc_directory(extracted_files)
+            else:
+                logging.error(f"Failed to extract normal Nuitka executable: {file_path}")
 
         else:
             logging.info(f"No Nuitka content found in {file_path}")
