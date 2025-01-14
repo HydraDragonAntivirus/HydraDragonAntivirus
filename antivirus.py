@@ -754,10 +754,7 @@ def scan_code_for_links(decompiled_code):
     urls = set(re.findall(r'https?://[^\s/$.?#].[^\s]*', decompiled_code))
     for url in urls:
         scan_url_general(url)
-
-    # Scan for domains (simplified regex)
-    for domain in urls:
-        scan_domain_general(domain)
+        scan_domain_general(url)
 
     # Scan for IP addresses (IPv4)
     ipv4_addresses = set(re.findall(r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)', decompiled_code))
@@ -770,120 +767,95 @@ def scan_code_for_links(decompiled_code):
         scan_ip_address_general(ip)
 
 # Generalized scan for domains
-def scan_domain_general(domain):
+
+def scan_domain_general(url):
     try:
-        # Convert domain to lowercase for consistent comparison
-        domain_lower = domain.lower()
+        # First check if input is a URL or just a domain
+        if not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
 
-        # Extract the main domain (e.g., example.com)
+        # Parse the URL
         parsed_url = urlparse(url)
-        main_domain = parsed_url.netloc
+        if not parsed_url.netloc:
+            raise ValueError("Invalid URL or domain format")
 
-        if domain_lower in scanned_domains_general:
-            logging.info(f"Domain {domain_lower} has already been scanned.")
+        # Convert to lowercase for consistent comparison
+        full_domain = parsed_url.netloc.lower()
+        
+        # Split into main domain and subdomain
+        domain_parts = full_domain.split('.')
+        
+        # Handle cases like 'example.com' vs 'subdomain.example.com'
+        if len(domain_parts) > 2:
+            main_domain = '.'.join(domain_parts[-2:])
+            subdomain = '.'.join(domain_parts[:-2])
+        else:
+            main_domain = full_domain
+            subdomain = None
+
+        # Check if already scanned
+        if full_domain in scanned_domains_general:
+            logging.info(f"Domain {full_domain} has already been scanned.")
             return
 
-        # Add the domain to the scanned list
-        scanned_domains_general.append(domain_lower)
-        logging.info(f"Scanning domain: {domain_lower}")
+        # Add to scanned list
+        scanned_domains_general.append(full_domain)
+        logging.info(f"Scanning domain: {full_domain}")
+        logging.info(f"Main domain: {main_domain}")
+        if subdomain:
+            logging.info(f"Subdomain: {subdomain}")
 
-        # Check against spam subdomains
-        if domain_lower in spam_sub_domains_data:
-            logging.warning(f"Spam subdomain detected: {domain_lower}")
-            notify_user_for_malicious_source_code(domain_lower, 'HEUR:Win32.SourceCode.Spam.SubDomain')
-            return
+        # First check whitelists to potentially skip other checks
+        whitelist_checks = [
+            (full_domain in whitelist_domains_data, "domain"),
+            (full_domain in whitelist_domains_mail_data, "mail domain"),
+            (full_domain in whitelist_sub_domains_data, "subdomain"),
+            (full_domain in whitelist_mail_sub_domains_data, "mail subdomain")
+        ]
+        
+        for is_whitelisted, whitelist_type in whitelist_checks:
+            if is_whitelisted:
+                logging.info(f"Domain {full_domain} is whitelisted ({whitelist_type})")
+                return
 
-        # Check against mining subdomains
-        if domain_lower in mining_sub_domains_data:
-            logging.warning(f"Mining subdomain detected: {domain_lower}")
-            notify_user_for_malicious_source_code(domain_lower, 'HEUR:Win32.SourceCode.Mining.SubDomain')
-            return
+        # Subdomain checks (if subdomain exists)
+        if subdomain:
+            subdomain_checks = [
+                (spam_sub_domains_data, "Spam", "HEUR:Win32.SourceCode.Spam.SubDomain"),
+                (mining_sub_domains_data, "Mining", "HEUR:Win32.SourceCode.Mining.SubDomain"),
+                (abuse_sub_domains_data, "Abuse", "HEUR:Win32.SourceCode.Abuse.SubDomain"),
+                (phishing_sub_domains_data, "Phishing", "HEUR:Win32.SourceCode.Phishing.SubDomain"),
+                (malware_mail_sub_domains_data, "Malware mail", "HEUR:Win32.SourceCode.Malware.Mail.SubDomain"),
+                (malware_sub_domains_data, "Malware", "HEUR:Win32.SourceCode.Malware.SubDomain")
+            ]
+            
+            for database, threat_type, heur_code in subdomain_checks:
+                if full_domain in database:
+                    logging.warning(f"{threat_type} subdomain detected: {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, heur_code)
+                    return
 
-        # Check against abuse subdomains
-        if domain_lower in abuse_sub_domains_data:
-            logging.warning(f"Abuse subdomain detected: {domain_lower}")
-            notify_user_for_malicious_source_code(domain_lower, 'HEUR:Win32.SourceCode.Abuse.SubDomain')
-            return
+        # Main domain checks
+        domain_checks = [
+            (spam_domains_data, "Spam", "HEUR:Win32.SourceCode.Spam.Domain"),
+            (mining_domains_data, "Mining", "HEUR:Win32.SourceCode.Mining.Domain"),
+            (abuse_domains_data, "Abuse", "HEUR:Win32.SourceCode.Abuse.Domain"),
+            (phishing_domains_data, "Phishing", "HEUR:Win32.SourceCode.Phishing.Domain"),
+            (malware_domains_mail_data, "Malware mail", "HEUR:Win32.SourceCode.Malware.Mail.Domain"),
+            (malware_domains_data, "Malware", "HEUR:Win32.SourceCode.Malware.Domain")
+        ]
+        
+        for database, threat_type, heur_code in domain_checks:
+            if main_domain in database:
+                logging.warning(f"{threat_type} domain detected: {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, heur_code)
+                return
 
-        # Check against phishing subdomains
-        if domain_lower in phishing_sub_domains_data:
-            logging.warning(f"Phishing subdomain detected: {domain_lower}")
-            notify_user_for_malicious_source_code(domain_lower, 'HEUR:Win32.SourceCode.Phishing.SubDomain')
-            return
-
-        # Check against malware mail domains
-        if domain_lower in malware_mail_sub_domains_data:
-            logging.warning(f"Malware mail subdomain detected: {domain_lower}")
-            notify_user_for_malicious_source_code(domain_lower, 'HEUR:Win32.SourceCode.Malware.Mail.SubDomain')
-            return
-
-        # Check against malware subdomains
-        if domain_lower in malware_sub_domains_data:
-            logging.warning(f"Malware subdomain detected: {domain_lower}")
-            notify_user_for_malicious_source_code(domain_lower, 'HEUR:Win32.SourceCode.Malware.SubDomain')
-            return
-
-        # Check against spam domains
-        if domain_lower in spam_domains_data:
-            logging.warning(f"Spam domain detected: {domain_lower}")
-            notify_user_for_malicious_source_code(domain_lower, 'HEUR:Win32.SourceCode.Spam.Domain')
-            return
-
-        # Check against mining domains
-        if domain_lower in mining_domains_data:
-            logging.warning(f"Mining domain detected: {domain_lower}")
-            notify_user_for_malicious_source_code(domain_lower, 'HEUR:Win32.SourceCode.Mining.Domain')
-            return
-
-        # Check against abuse domains
-        if domain_lower in abuse_domains_data:
-            logging.warning(f"Abuse domain detected: {domain_lower}")
-            notify_user_for_malicious_source_code(domain_lower, 'HEUR:Win32.SourceCode.Abuse.Domain')
-            return
-
-        # Check against phishing domains
-        if domain_lower in phishing_domains_data:
-            logging.warning(f"Phishing domain detected: {domain_lower}")
-            notify_user_for_malicious_source_code(domain_lower, 'HEUR:Win32.SourceCode.Phishing.Domain')
-            return
-
-        # Check against malware mail domains
-        if domain_lower in malware_domains_mail_data:
-            logging.warning(f"Malware mail domain detected: {domain_lower}")
-            notify_user_for_malicious_source_code(domain_lower, 'HEUR:Win32.SourceCode.Malware.Mail.Domain')
-            return
-
-        # Check against malware domains
-        if domain_lower in malware_domains_data:
-            logging.warning(f"Malware domain detected: {domain_lower}")
-            notify_user_for_malicious_source_code(domain_lower, 'HEUR:Win32.SourceCode.Malware.Domain')
-            return
-
-        # Check if domain is whitelisted
-        if domain_lower in whitelist_domains_data:
-            logging.info(f"Domain {domain_lower} is whitelisted (domain)")
-            return
-
-        # Check if domain is whitelisted in mail data
-        if domain_lower in whitelist_domains_mail_data:
-            logging.info(f"Domain {domain_lower} is whitelisted (mail domain)")
-            return
-
-        # Check if domain is whitelisted in subdomains
-        if domain_lower in whitelist_sub_domains_data:
-            logging.info(f"Domain {domain_lower} is whitelisted (subdomain)")
-            return
-
-        # Check if domain is whitelisted in mail subdomains
-        if domain_lower in whitelist_mail_sub_domains_data:
-            logging.info(f"Domain {domain_lower} is whitelisted (mail subdomain)")
-            return
-
-        logging.info(f"Domain {domain_lower} passed all checks.")
+        logging.info(f"Domain {full_domain} passed all checks.")
 
     except Exception as ex:
-        logging.error(f"Error scanning domain {domain}: {ex}")
-        print(f"Error scanning domain {domain}: {ex}")
+        logging.error(f"Error scanning domain {url}: {ex}")
+        print(f"Error scanning domain {url}: {ex}")
 
 # Generalized scan for URLs
 def scan_url_general(url):
