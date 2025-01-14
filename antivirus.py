@@ -120,7 +120,6 @@ start_time = time.time()
 from datetime import timedelta
 print(f"datetime.timedelta modules loaded in {time.time() - start_time:.6f} seconds")
 
-import time
 start_time = time.time()
 
 from scapy.layers.inet import IP, TCP, UDP
