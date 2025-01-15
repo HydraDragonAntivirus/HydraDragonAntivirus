@@ -2834,7 +2834,7 @@ fake_system_files = [
 def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
     """
     Convert IP addresses to associated file paths.
-    This function will only warn the user and simulate the detection of files.
+    This function will log the status and simulate the detection of files.
     """
     for proc in psutil.process_iter(['pid', 'name', 'exe']):
         try:
@@ -2852,13 +2852,21 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
                                 continue
 
                             signature_info = check_valid_signature_only(file_path)
-                            if not signature_info["is_valid"]:
-                                logging.warning(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature. Alert Line: {alert_line}")
-                                print(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature. Alert Line: {alert_line}")
-                                notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status)
+                            if status == "Info":
+                                if not signature_info["is_valid"]:
+                                    logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has an invalid or no signature. Alert Line: {alert_line}")
+                                    print(f"[INFO] File {file_path} associated with IP {src_ip} or {dst_ip} has an invalid or no signature. Alert Line: {alert_line}")
+                                else:
+                                    logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature. Alert Line: {alert_line}")
+                                    print(f"[INFO] File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature. Alert Line: {alert_line}")
                             else:
-                                logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious. Alert Line: {alert_line}")
-                                print(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious. Alert Line: {alert_line}")
+                                if not signature_info["is_valid"]:
+                                    logging.warning(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature. Alert Line: {alert_line}")
+                                    print(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature. Alert Line: {alert_line}")
+                                    notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status)
+                                else:
+                                    logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious. Alert Line: {alert_line}")
+                                    print(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious. Alert Line: {alert_line}")
 
         except psutil.ZombieProcess:
             logging.error(f"Zombie process encountered: {proc.info.get('pid')}")
@@ -2894,6 +2902,9 @@ def process_alert(line):
                     return True
                 elif priority == 2:
                     convert_ip_to_file(src_ip, dst_ip, line.strip(), "Suspicious")
+                    return True
+                elif priority == 3:
+                    convert_ip_to_file(src_ip, dst_ip, line.strip(), "Info")
                     return True
             except Exception as ex:
                 logging.error(f"Error processing alert details: {ex}")
