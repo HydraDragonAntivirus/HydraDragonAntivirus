@@ -50,6 +50,158 @@ class PEFeatures:
     size_info: Dict[str, int]
     characteristics: Dict[str, int]
 
+class PEFeatureExtractor:
+    def __init__(self):
+        self.features_cache = {}
+
+    def _calculate_entropy(self, data: bytes) -> float:
+        """Calculate Shannon entropy of binary data."""
+        if not data:
+            return 0.0
+        
+        entropy = 0
+        for x in range(256):
+            p_x = float(data.count(x)) / len(data)
+            if p_x > 0:
+                entropy += - p_x * np.log2(p_x)
+        return entropy
+
+    def _calculate_md5(self, file_path: str) -> str:
+        """Calculate MD5 hash of file."""
+        hasher = hashlib.md5()
+        with open(file_path, 'rb') as f:
+            hasher.update(f.read())
+        return hasher.hexdigest()
+
+    def extract_section_data(self, section) -> Dict[str, Any]:
+        """Extract comprehensive section data including entropy."""
+        raw_data = section.get_data()
+        return {
+            'name': section.Name.decode(errors='ignore').strip('\x00'),
+            'virtual_size': section.Misc_VirtualSize,
+            'virtual_address': section.VirtualAddress,
+            'raw_size': section.SizeOfRawData,
+            'pointer_to_raw_data': section.PointerToRawData,
+            'characteristics': section.Characteristics,
+            'entropy': self._calculate_entropy(raw_data),
+            'raw_data_size': len(raw_data) if raw_data else 0
+        }
+
+    def extract_imports(self, pe) -> List[Dict[str, Any]]:
+        """Extract detailed import information."""
+        imports = []
+        if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT'):
+            for entry in pe.DIRECTORY_ENTRY_IMPORT:
+                dll_imports = {
+                    'dll_name': entry.dll.decode() if entry.dll else None,
+                    'imports': [{
+                        'name': imp.name.decode() if imp.name else None,
+                        'address': imp.address,
+                        'ordinal': imp.ordinal
+                    } for imp in entry.imports]
+                }
+                imports.append(dll_imports)
+        return imports
+
+    def extract_exports(self, pe) -> List[Dict[str, Any]]:
+        """Extract detailed export information."""
+        exports = []
+        if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT'):
+            for exp in pe.DIRECTORY_ENTRY_EXPORT.symbols:
+                export_info = {
+                    'name': exp.name.decode() if exp.name else None,
+                    'address': exp.address,
+                    'ordinal': exp.ordinal,
+                    'forwarder': exp.forwarder.decode() if exp.forwarder else None
+                }
+                exports.append(export_info)
+        return exports
+
+    def extract_features(self, file_path: str, rank: Optional[int] = None, is_malicious: bool = False) -> Optional[Dict[str, Any]]:
+        """Extract comprehensive PE file features."""
+        if file_path in self.features_cache:
+            return self.features_cache[file_path]
+
+        try:
+            pe = pefile.PE(file_path)
+            features = {
+                'file_info': {
+                    'path': file_path,
+                    'name': os.path.basename(file_path),
+                    'size': os.path.getsize(file_path),
+                    'md5': self._calculate_md5(file_path),
+                    'rank': rank,
+                    'is_malicious': is_malicious
+                },
+                
+                'headers': {
+                    'optional_header': {
+                        'major_linker_version': pe.OPTIONAL_HEADER.MajorLinkerVersion,
+                        'minor_linker_version': pe.OPTIONAL_HEADER.MinorLinkerVersion,
+                        'size_of_code': pe.OPTIONAL_HEADER.SizeOfCode,
+                        'size_of_initialized_data': pe.OPTIONAL_HEADER.SizeOfInitializedData,
+                        'size_of_uninitialized_data': pe.OPTIONAL_HEADER.SizeOfUninitializedData,
+                        'address_of_entry_point': pe.OPTIONAL_HEADER.AddressOfEntryPoint,
+                        'base_of_code': pe.OPTIONAL_HEADER.BaseOfCode,
+                        'image_base': pe.OPTIONAL_HEADER.ImageBase,
+                        'section_alignment': pe.OPTIONAL_HEADER.SectionAlignment,
+                        'file_alignment': pe.OPTIONAL_HEADER.FileAlignment,
+                        'major_os_version': pe.OPTIONAL_HEADER.MajorOperatingSystemVersion,
+                        'minor_os_version': pe.OPTIONAL_HEADER.MinorOperatingSystemVersion,
+                        'subsystem': pe.OPTIONAL_HEADER.Subsystem,
+                        'dll_characteristics': pe.OPTIONAL_HEADER.DllCharacteristics,
+                    },
+                    'file_header': {
+                        'machine': pe.FILE_HEADER.Machine,
+                        'number_of_sections': pe.FILE_HEADER.NumberOfSections,
+                        'time_date_stamp': pe.FILE_HEADER.TimeDateStamp,
+                        'characteristics': pe.FILE_HEADER.Characteristics,
+                    }
+                },
+                
+                'sections': [self.extract_section_data(section) for section in pe.sections],
+                'imports': self.extract_imports(pe),
+                'exports': self.extract_exports(pe),
+                
+                'resources': [],
+                'debug_info': []
+            }
+
+            # Extract resources
+            if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
+                for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+                    if hasattr(resource_type, 'directory'):
+                        for resource_id in resource_type.directory.entries:
+                            if hasattr(resource_id, 'directory'):
+                                for resource_lang in resource_id.directory.entries:
+                                    if hasattr(resource_lang, 'data'):
+                                        res_data = {
+                                            'type_id': resource_type.id,
+                                            'resource_id': resource_id.id,
+                                            'lang_id': resource_lang.id,
+                                            'size': resource_lang.data.struct.Size,
+                                            'codepage': resource_lang.data.struct.CodePage,
+                                        }
+                                        features['resources'].append(res_data)
+
+            # Extract debug information
+            if hasattr(pe, 'DIRECTORY_ENTRY_DEBUG'):
+                for debug in pe.DIRECTORY_ENTRY_DEBUG:
+                    debug_info = {
+                        'type': debug.struct.Type,
+                        'timestamp': debug.struct.TimeDateStamp,
+                        'version': f"{debug.struct.MajorVersion}.{debug.struct.MinorVersion}",
+                        'size': debug.struct.SizeOfData,
+                    }
+                    features['debug_info'].append(debug_info)
+
+            self.features_cache[file_path] = features
+            return features
+
+        except Exception as e:
+            logging.error(f"Error extracting features from {file_path}: {str(e)}")
+            return None
+
 class PEAnalyzer:
     def __init__(self):
         logging.info("PEAnalyzer initialized.")
@@ -298,10 +450,11 @@ class PESignatureCompiler:
             self.rules = json.load(f)
 
 class PESignatureEngine:
-    def __init__(self, analyzer: PEAnalyzer):
+    def __init__(self, analyzer: PEAnalyzer, feature_extractor: PEFeatureExtractor):
         logging.info("PESignatureEngine initialized.")
         self.analyzer = analyzer
         self.compiler = PESignatureCompiler()
+        self.feature_extractor = feature_extractor
 
     def load_rules(self, rules_file: str) -> None:
         logging.debug(f"Loading rules from {rules_file}")
@@ -310,7 +463,9 @@ class PESignatureEngine:
     def scan_file(self, file_path: str) -> List[Dict]:
         logging.debug(f"Scanning file: {file_path}")
         matches = []
-        features = self.analyzer.analyze_pe(file_path)
+
+        # Use PEFeatureExtractor to extract features
+        features = self.feature_extractor.extract_features(file_path)
 
         if not features:
             logging.warning(f"File {file_path} analysis failed.")
@@ -337,6 +492,7 @@ class PESignatureEngine:
             'other': []
         }
 
+        # Check string matches
         for str_name, pattern in rule['strings'].items():
             found = False
             for section_name, section_data in features.sections.items():
@@ -353,6 +509,7 @@ class PESignatureEngine:
                     break
 
         try:
+            # Check conditions like entropy
             if self._evaluate_conditions(rule['conditions'], features, matches):
                 return matches
         except Exception as e:
@@ -361,16 +518,13 @@ class PESignatureEngine:
         return None
 
     def _evaluate_conditions(self, conditions: List[str], features: PEFeatures, matches: Dict) -> bool:
-        # Check for entropy in all sections (not just .text)
+        # Check entropy condition
         for condition in conditions:
             if 'entropy' in condition.lower():
                 section_name = condition.split()[0]
                 min_entropy = float(condition.split()[2])
 
-                if section_name == "pe.sections['.text']":
-                    section_name = ".text"  # Handle .text explicitly if needed
-
-                # Check if any section has the required entropy value
+                # Check section entropy against condition
                 matched_entropy = False
                 for section_name, section_data in features.sections.items():
                     if section_data.get('entropy', 0) > min_entropy:
@@ -380,7 +534,6 @@ class PESignatureEngine:
                 if not matched_entropy:
                     return False  # Return False if no section matches the entropy condition
 
-        # Check other conditions
         return bool(matches['strings'] or matches['sections'] or matches['imports'])
 
 def example_usage():
