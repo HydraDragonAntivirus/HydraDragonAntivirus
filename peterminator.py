@@ -554,32 +554,3 @@ class PESignatureEngine:
                     return False  # Return False if no section matches the entropy condition
 
         return bool(matches['strings'] or matches['sections'] or matches['imports'])
-
-def example_usage():
-    analyzer = PEAnalyzer()
-    engine = PESignatureEngine(analyzer)
-
-    rule = """
-    rule SuspiciousPE
-    meta:
-        description = "Detects suspicious PE characteristics"
-        author = "Security Analyst"
-        severity = "high"
-    strings:
-        $suspicious_api1 = "VirtualAlloc"
-        $suspicious_api2 = "WriteProcessMemory"
-        $hex_pattern = { 4D 5A 90 00 }
-    condition:
-        pe.sections[".text"].entropy > 7.0 and
-        ($suspicious_api1 or $suspicious_api2) and
-        $hex_pattern
-    """
-
-    engine.compiler.add_rule(rule)
-    engine.compiler.save_rules("compiled_rules.json")
-
-    results = engine.scan_file("sample.exe")
-    print(json.dumps(results, indent=2))
-
-if __name__ == "__main__":
-    example_usage()
