@@ -749,7 +749,7 @@ def scan_code_for_links(decompiled_code):
     Scan the decompiled code for domains, URLs, and IP addresses, removing duplicates.
     """
     # Scan for URLs
-    urls = set(re.findall(r'https?://[^\s/$.?#].[^\s]*', decompiled_code))
+    urls = set(re.findall(r'https?://[^\s/$.?#].\S*', decompiled_code))
     for url in urls:
         scan_url_general(url)
         scan_domain_general(url)
