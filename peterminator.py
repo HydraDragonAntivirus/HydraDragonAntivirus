@@ -3,6 +3,8 @@ import json
 import re
 import logging
 import math
+import os
+import subprocess
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -38,23 +40,7 @@ class PEFeatures:
 
 class PEAnalyzer:
     def __init__(self):
-        self._initialize_patterns()
-
-    def _initialize_patterns(self):
-        self.suspicious_patterns = {
-            'apis': [
-                rb'VirtualAlloc', rb'WriteProcessMemory', rb'CreateRemoteThread',
-                rb'LoadLibrary', rb'GetProcAddress', rb'CreateProcess',
-                rb'WSASocket', rb'connect', rb'InternetOpen'
-            ],
-            'strings': [
-                rb'cmd\.exe', rb'powershell', rb'http://', rb'https://',
-                rb'\\pipe\\', rb'TEMP', rb'KERNEL32', rb'SHELL32'
-            ],
-            'packer': [
-                rb'UPX\d', rb'ASPack', rb'PECompact', rb'FSG', rb'MPRESS'
-            ]
-        }
+        pass
 
     def _calculate_entropy(self, data: bytes) -> float:
         if not data:
@@ -92,6 +78,41 @@ class PEAnalyzer:
 
         return strings
 
+    def _analyze_with_die(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """
+        Analyze a file using Detect It Easy (DIE) and return parsed results.
+        
+        Args:
+            file_path (str): Path to the file to be analyzed.
+
+        Returns:
+            Optional[Dict[str, Any]]: Parsed results from DIE, or None if an error occurs.
+        """
+        try:
+            if not os.path.exists(detectiteasy_console_path):
+                raise FileNotFoundError(f"DIE executable not found at {detectiteasy_console_path}")
+
+            # Execute DIE with the provided file path
+            result = subprocess.run(
+                [detectiteasy_console_path, file_path, "/json"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+
+            # Check for errors during execution
+            if result.returncode != 0:
+                logging.error(f"DIE analysis failed: {result.stderr.strip()}")
+                return None
+
+            # Parse and return JSON output from DIE
+            die_output = result.stdout.strip()
+            return json.loads(die_output)
+
+        except Exception as e:
+            logging.error(f"Error during DIE analysis for {file_path}: {e}")
+            return None
+
     def _analyze_sections(self, pe: pefile.PE) -> Dict[str, Dict]:
         sections = {}
         for section in pe.sections:
@@ -105,22 +126,9 @@ class PEAnalyzer:
                 'characteristics': section.Characteristics,
                 'entropy': self._calculate_entropy(data),
                 'md5': hashlib.md5(data).hexdigest(),
-                'strings': self._extract_strings(data),
-                'patterns': self._find_patterns(data)
+                'strings': self._extract_strings(data)
             }
         return sections
-
-    def _find_patterns(self, data: bytes) -> Dict[str, List[int]]:
-        matches = {}
-        for category, patterns in self.suspicious_patterns.items():
-            category_matches = []
-            for pattern in patterns:
-                positions = [m.start() for m in re.finditer(pattern, data)]
-                if positions:
-                    category_matches.extend(positions)
-            if category_matches:
-                matches[category] = sorted(category_matches)
-        return matches
 
     def _analyze_imports(self, pe: pefile.PE) -> Dict[str, List[str]]:
         imports = {}
