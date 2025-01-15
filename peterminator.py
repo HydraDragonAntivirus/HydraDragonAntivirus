@@ -284,73 +284,60 @@ class PESignatureCompiler:
         self.rules = []
 
     def add_rule(self, rule_content: str) -> None:
+        """Add a rule from JSON content."""
         logging.debug("Adding rule.")
         try:
-            compiled_rule = self._compile_rule(rule_content)
-            self.rules.append(compiled_rule)
+            # Parse JSON if the input is a string
+            if isinstance(rule_content, str):
+                rule_dict = json.loads(rule_content)
+            else:
+                rule_dict = rule_content
+
+            # If it's a list of rules, process each rule individually
+            if isinstance(rule_dict, list):
+                for rule in rule_dict:
+                    self.process_rule(rule)
+            else:
+                # Process single rule
+                self.process_rule(rule_dict)
+
+        except json.JSONDecodeError as e:
+            logging.error(f"Error parsing rule JSON: {e}")
         except Exception as e:
             logging.error(f"Error compiling rule: {e}")
 
-    def _compile_rule(self, rule_content: str) -> Dict:
-        logging.debug("Compiling rule.")
-        lines = rule_content.strip().split('\n')
-        rule_dict = {
-            'meta': {},
-            'strings': {},
-            'conditions': []
+    def process_rule(self, rule_dict: dict) -> None:
+        """Validate and compile a single rule."""
+        # Validate required fields
+        required_fields = ['rule', 'meta', 'strings', 'conditions']
+        if not all(field in rule_dict for field in required_fields):
+            missing = [f for f in required_fields if f not in rule_dict]
+            logging.error(f"Missing required fields in rule: {missing}")
+            return
+
+        # Convert the rule format to internal representation
+        compiled_rule = {
+            'name': rule_dict['rule'],
+            'meta': rule_dict['meta'],
+            'strings': rule_dict['strings'],
+            'conditions': rule_dict['conditions']
         }
 
-        current_section = None
-        for line in lines:
-            line = line.strip()
-
-            # Remove sideway comments (everything after #)
-            if '#' in line:
-                line = line.split('#', 1)[0].strip()
-
-            # Skip empty lines after removing comments
-            if not line:
-                continue
-
-            if line.startswith('rule '):
-                rule_dict['name'] = line[5:].strip()
-            elif line == 'meta:':
-                current_section = 'meta'
-            elif line == 'strings:':
-                current_section = 'strings'
-            elif line == 'condition:':
-                current_section = 'condition'
-            elif current_section == 'meta':
-                key, value = line.split('=', 1)
-                rule_dict['meta'][key.strip()] = value.strip().strip('"')
-            elif current_section == 'strings':
-                if '=' in line:
-                    name, pattern = line.split('=', 1)
-                    rule_dict['strings'][name.strip()] = pattern.strip().strip('"')
-            elif current_section == 'condition':
-                rule_dict['conditions'].append(line)
-
-        logging.debug(f"Compiled rule: {rule_dict}")
-        return rule_dict
-
-    def save_rules(self, output_file: str) -> None:
-        """Save the compiled rules to a file."""
-        logging.debug(f"Saving rules to {output_file}")
-        try:
-            with open(output_file, 'w') as f:
-                json.dump(self.rules, f, indent=2)
-            logging.info(f"Successfully saved {len(self.rules)} rules to {output_file}")
-        except Exception as e:
-            logging.error(f"Error saving rules to {output_file}: {e}")
+        self.rules.append(compiled_rule)
+        logging.debug(f"Successfully added rule: {compiled_rule['name']}")
 
     def load_rules(self, input_file: str) -> None:
         """Load compiled rules from a file."""
         logging.debug(f"Loading rules from {input_file}")
         try:
             with open(input_file, 'r') as f:
-                self.rules = json.load(f)
+                loaded_rules = f.read()
+            
+            # Add each loaded rule through the add_rule method for validation
+            for rule in loaded_rules.split('\n\n'):  # Assume rules are separated by double newline
+                self.add_rule(rule)
+                
             logging.info(f"Successfully loaded {len(self.rules)} rules from {input_file}")
-            logging.debug(f"Loaded rules: {self.rules}")  # Debugging loaded rules
         except Exception as e:
             logging.error(f"Error loading rules from {input_file}: {e}")
             raise
@@ -551,6 +538,8 @@ class PESignatureEngine:
                 logging.error(f"Failed to analyze file: {file_path}")
                 return matches
 
+            logging.debug(f"Extracted Features: {features}")
+
             # Process each rule
             for rule in self.compiler.rules:
                 try:
@@ -644,32 +633,14 @@ def main():
     """Main entry point for PE signature scanning."""
     # Set up argument parser
     parser = argparse.ArgumentParser(description="PE Signature Compiler and Analyzer")
-    parser.add_argument('action', choices=['compile', 'scan'], help="Action to perform: compile rules or scan file")
+    parser.add_argument('action', choices=['scan'], help="Action to perform: scan file")
     parser.add_argument('--rules', type=str, help="Path to the rules file")
     parser.add_argument('--file', type=str, help="Path to the PE file or directory to scan")
-    parser.add_argument('--output', type=str, help="Path to save compiled rules (only for compile action)")
 
     # Parse arguments
     args = parser.parse_args()
 
-    if args.action == 'compile':
-        if not args.rules or not args.output:
-            logging.error("Both --rules and --output must be specified for compile action.")
-            sys.exit(1)
-
-        # Compile signatures from rule file
-        try:
-            compiler = PESignatureCompiler()
-            with open(args.rules, 'r') as rule_file:
-                rules_content = rule_file.read()
-                compiler.add_rule(rules_content)
-            compiler.save_rules(args.output)
-            logging.info(f"Compiled rules saved to {args.output}")
-        except Exception as e:
-            logging.error(f"Error compiling rules: {e}")
-            sys.exit(1)
-
-    elif args.action == 'scan':
+    if args.action == 'scan':
         if not args.file or not os.path.exists(args.file):
             logging.error("A valid file path or directory must be specified for scan action.")
             sys.exit(1)
