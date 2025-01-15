@@ -396,168 +396,217 @@ class PESignatureCompiler:
                 self.rules = json.load(f)
 
 class PESignatureEngine:
-            def __init__(self):
-                logging.info("PESignatureEngine initialized.")
-                self.analyzer = PEAnalyzer()
-                self.feature_extractor = PEFeatureExtractor()
-                self.compiler = PESignatureCompiler()
+    def __init__(self):
+        logging.info("PESignatureEngine initialized.")
+        self.analyzer = PEAnalyzer()
+        self.feature_extractor = PEFeatureExtractor()
+        self.compiler = PESignatureCompiler()
 
-            def load_rules(self, rules_file: str) -> None:
-                logging.debug(f"Loading rules from {rules_file}")
-                self.compiler.load_rules(rules_file)
+    def load_rules(self, rules_file: str) -> None:
+        logging.debug(f"Loading rules from {rules_file}")
+        try:
+            self.compiler.load_rules(rules_file)
+        except Exception as e:
+            logging.error(f"Error loading rules from {rules_file}: {e}")
+            raise
 
-            def scan_file(self, file_path: str) -> List[Dict]:
-                logging.debug(f"Scanning file: {file_path}")
-                matches = []
+    def scan_file(self, file_path: str) -> List[Dict]:
+        logging.debug(f"Scanning file: {file_path}")
+        matches = []
 
-                # Get features from both analyzers for comprehensive analysis
-                analyzer_features = self.analyzer.analyze_pe(file_path)
-                extractor_features = self.feature_extractor.extract_features(file_path)
+        # Get features from both analyzers for comprehensive analysis
+        try:
+            analyzer_features = self.analyzer.analyze_pe(file_path)
+            extractor_features = self.feature_extractor.extract_features(file_path)
+        except Exception as e:
+            logging.error(f"Error analyzing file {file_path}: {e}")
+            return matches  # Early return if analysis fails
 
-                if not analyzer_features or not extractor_features:
-                    logging.warning(f"File {file_path} analysis failed.")
-                    return matches
+        # Debug logs for features
+        logging.debug(f"Analyzer features: {analyzer_features}")
+        logging.debug(f"Extractor features: {extractor_features}")
 
-                # Combine features for complete analysis
-                combined_features = self._combine_features(analyzer_features, extractor_features)
+        if not analyzer_features or not extractor_features:
+            logging.warning(f"File {file_path} analysis failed.")
+            return matches
 
-                for rule in self.compiler.rules:
-                    match_result = self._evaluate_rule(rule, combined_features)
-                    if match_result:
-                        matches.append({
-                            'rule': rule['name'],
-                            'meta': rule['meta'],
-                            'matches': match_result
-                        })
+        # Combine features for complete analysis
+        try:
+            combined_features = self._combine_features(analyzer_features, extractor_features)
+        except Exception as e:
+            logging.error(f"Error combining features for file {file_path}: {e}")
+            return matches
 
-                severity = self.classify_severity(matches)
-                logging.info(f"File {file_path} is classified as: {severity}")
+        # Process each rule
+        for rule in self.compiler.rules:
+            try:
+                match_result = self._evaluate_rule(rule, combined_features)
+                if match_result:
+                    match_info = {
+                        'rule': rule['name'],
+                        'meta': rule['meta'],
+                        'matches': match_result
+                    }
+                    matches.append(match_info)
+            except Exception as e:
+                logging.error(f"Error evaluating rule {rule['name']} for file {file_path}: {e}")
 
-                return matches
+        # Log matches
+        if matches:
+            logging.info(f"File {file_path} matches the following rules:")
+            for match in matches:
+                logging.info(f"Rule: {match['rule']}")
+                for match_type, match_data in match.items():
+                    if match_type != 'rule':
+                        logging.info(f"  {match_type}: {match_data}")
+        else:
+            logging.info(f"No matches found for {file_path}. File is clean.")
 
-            def _combine_features(self, analyzer_features: PEFeatures, extractor_features: Dict) -> PEFeatures:
-                """Combine features from both analyzers for comprehensive analysis."""
-                # Start with analyzer features as base
-                combined = analyzer_features
+        # Classify severity
+        try:
+            severity = self.classify_severity(matches)
+            logging.info(f"File {file_path} is classified as: {severity}")
+        except Exception as e:
+            logging.error(f"Error classifying severity for file {file_path}: {e}")
+            severity = "Unknown"
 
-                # Add additional information from extractor if not present
-                if 'debug_info' in extractor_features:
-                    combined.characteristics['debug_info'] = extractor_features['debug_info']
+        return matches
 
-                # Merge section information
-                for section_name, section_data in extractor_features['sections']:
-                    if section_name in combined.sections:
-                        combined.sections[section_name].update({
-                            'pointer_to_raw_data': section_data['pointer_to_raw_data'],
-                            'raw_data_size': section_data['raw_data_size']
-                        })
+    def _combine_features(self, analyzer_features: PEFeatures, extractor_features: Dict) -> PEFeatures:
+        """Combine features from both analyzers for comprehensive analysis."""
+        try:
+            # Start with analyzer features as base
+            combined = analyzer_features
 
-                return combined
+            # Add additional information from extractor if not present
+            if 'debug_info' in extractor_features:
+                combined.characteristics['debug_info'] = extractor_features['debug_info']
 
-            def _evaluate_rule(self, rule: Dict, features: PEFeatures) -> Optional[Dict]:
-                logging.debug(f"Evaluating rule: {rule['name']}")
-                matches = {
-                    'strings': {},
-                    'sections': {},
-                    'imports': [],
-                    'other': []
-                }
+            # Merge section information
+            for section_name, section_data in extractor_features.get('sections', {}).items():
+                if section_name in combined.sections:
+                    combined.sections[section_name].update({
+                        'pointer_to_raw_data': section_data['pointer_to_raw_data'],
+                        'raw_data_size': section_data['raw_data_size']
+                    })
 
-                # Check string matches
-                for str_name, pattern in rule['strings'].items():
-                    found = False
-                    # Check in sections
-                    for section_name, section_data in features.sections.items():
-                        for string in section_data['strings']:
-                            if re.search(pattern.encode(), string['value'].encode()):
-                                matches['strings'][str_name] = {
-                                    'section': section_name,
-                                    'offset': string['offset'],
-                                    'value': string['value']
-                                }
-                                found = True
-                                break
-                        if found:
+            return combined
+        except Exception as e:
+            logging.error(f"Error combining features: {e}")
+            raise
+
+    def _evaluate_rule(self, rule: Dict, features: PEFeatures) -> Optional[Dict]:
+        logging.debug(f"Evaluating rule: {rule['name']}")
+        matches = {
+            'strings': {},
+            'sections': {},
+            'imports': [],
+            'other': []
+        }
+
+        # Check string matches
+        try:
+            for str_name, pattern in rule.get('strings', {}).items():
+                found = False
+                # Check in sections
+                for section_name, section_data in features.sections.items():
+                    for string in section_data.get('strings', []):
+                        if re.search(pattern.encode(), string['value'].encode()):
+                            matches['strings'][str_name] = {
+                                'section': section_name,
+                                'offset': string['offset'],
+                                'value': string['value']
+                            }
+                            found = True
                             break
+                    if found:
+                        break
 
-                    # Check in full file strings if not found in sections
-                    if not found:
-                        for string in features.strings:
-                            if re.search(pattern.encode(), string['value'].encode()):
-                                matches['strings'][str_name] = {
-                                    'section': 'global',
-                                    'offset': string['offset'],
-                                    'value': string['value']
-                                }
-                                break
+                # Check in full file strings if not found in sections
+                if not found:
+                    for string in features.strings:
+                        if re.search(pattern.encode(), string['value'].encode()):
+                            matches['strings'][str_name] = {
+                                'section': 'global',
+                                'offset': string['offset'],
+                                'value': string['value']
+                            }
+                            break
+        except Exception as e:
+            logging.error(f"Error checking strings for rule {rule['name']}: {e}")
+            raise
 
-                # Check conditions
+        # Check conditions
+        try:
+            if self._evaluate_conditions(rule.get('conditions', []), features, matches):
+                return matches
+        except Exception as e:
+            logging.error(f"Error evaluating conditions for rule {rule['name']}: {e}")
+
+        return None if not any(matches.values()) else matches
+
+    def _evaluate_conditions(self, conditions: List[str], features: PEFeatures, matches: Dict) -> bool:
+        for condition in conditions:
+            try:
+                # Check entropy conditions
+                if 'entropy' in condition.lower():
+                    section_name = condition.split()[0]
+                    min_entropy = float(condition.split()[2])
+
+                    if section_name == 'file':
+                        if features.entropy_values.get('full', 0) <= min_entropy:
+                            return False
+                    else:
+                        section_entropy = features.entropy_values.get('sections', {}).get(section_name, 0)
+                        if section_entropy <= min_entropy:
+                            return False
+
+                # Check import conditions
+                elif 'import' in condition.lower():
+                    import_name = condition.split('"')[1]
+                    if not any(import_name in dll_imports for dll_imports in features.imports.values()):
+                        return False
+
+                # Check section conditions
+                elif 'section' in condition.lower():
+                    section_name = condition.split('"')[1]
+                    if section_name not in features.sections:
+                        return False
+
+                # Check size conditions
+                elif 'size' in condition.lower():
+                    size_type = condition.split('.')[0]
+                    min_size = int(condition.split()[2])
+                    if features.size_info.get(size_type, 0) <= min_size:
+                        return False
+            except Exception as e:
+                logging.error(f"Error evaluating condition {condition}: {e}")
+                continue
+
+        return True
+
+    def classify_severity(self, matches: List[Dict]) -> str:
+        """Classify the severity of the file based on the match results."""
+        if not matches:
+            return "Clean"
+
+        max_severity = 0
+        for match in matches:
+            if 'severity' in match['meta']:
                 try:
-                    if self._evaluate_conditions(rule['conditions'], features, matches):
-                        return matches
-                except Exception as e:
-                    logging.error(f"Error evaluating conditions: {e}")
+                    severity = int(match['meta']['severity'])
+                    max_severity = max(max_severity, severity)
+                except ValueError:
+                    continue
 
-                return None if not any(matches.values()) else matches
-
-            def _evaluate_conditions(self, conditions: List[str], features: PEFeatures, matches: Dict) -> bool:
-                for condition in conditions:
-                    # Check entropy conditions
-                    if 'entropy' in condition.lower():
-                        section_name = condition.split()[0]
-                        min_entropy = float(condition.split()[2])
-
-                        if section_name == 'file':
-                            if features.entropy_values.get('full', 0) <= min_entropy:
-                                return False
-                        else:
-                            section_entropy = features.entropy_values.get('sections', {}).get(section_name, 0)
-                            if section_entropy <= min_entropy:
-                                return False
-
-                    # Check import conditions
-                    elif 'import' in condition.lower():
-                        import_name = condition.split('"')[1]
-                        if not any(import_name in dll_imports for dll_imports in features.imports.values()):
-                            return False
-
-                    # Check section conditions
-                    elif 'section' in condition.lower():
-                        section_name = condition.split('"')[1]
-                        if section_name not in features.sections:
-                            return False
-
-                    # Check size conditions
-                    elif 'size' in condition.lower():
-                        size_type = condition.split('.')[0]
-                        min_size = int(condition.split()[2])
-                        if features.size_info.get(size_type, 0) <= min_size:
-                            return False
-
-                return True
-
-            def classify_severity(self, matches: List[Dict]) -> str:
-                """Classify the severity of the file based on the match results."""
-                if not matches:
-                    return "Clean"
-
-                max_severity = 0
-                for match in matches:
-                    if 'severity' in match['meta']:
-                        try:
-                            severity = int(match['meta']['severity'])
-                            max_severity = max(max_severity, severity)
-                        except ValueError:
-                            continue
-
-                if max_severity == 0:
-                    return "Clean"
-                elif max_severity <= 40:
-                    return "Suspicious (Low)"
-                elif max_severity <= 70:
-                    return "Suspicious (High)"
-                else:
-                    return "Malicious"
+        if max_severity == 0:
+            return "Clean"
+        elif max_severity <= 40:
+            return "Suspicious (Low)"
+        elif max_severity <= 70:
+            return "Suspicious (High)"
+        else:
+            return "Malicious"
 
 def main():
     """Main entry point for PE signature scanning."""
