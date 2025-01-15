@@ -1,4 +1,3 @@
-import hashlib
 import json
 import re
 import logging
@@ -66,13 +65,6 @@ class PEFeatureExtractor:
                 entropy += - p_x * np.log2(p_x)
         return entropy
 
-    def _calculate_md5(self, file_path: str) -> str:
-        """Calculate MD5 hash of file."""
-        hasher = hashlib.md5()
-        with open(file_path, 'rb') as f:
-            hasher.update(f.read())
-        return hasher.hexdigest()
-
     def extract_section_data(self, section) -> Dict[str, Any]:
         """Extract comprehensive section data including entropy."""
         raw_data = section.get_data()
@@ -129,7 +121,6 @@ class PEFeatureExtractor:
                     'path': file_path,
                     'name': os.path.basename(file_path),
                     'size': os.path.getsize(file_path),
-                    'md5': self._calculate_md5(file_path),
                     'rank': rank,
                 },
                 
@@ -284,7 +275,6 @@ class PEAnalyzer:
                 'raw_size': section.SizeOfRawData,
                 'characteristics': section.Characteristics,
                 'entropy': self._calculate_entropy(data),
-                'md5': hashlib.md5(data).hexdigest(),
                 'strings': self._extract_strings(data)
             }
         logging.debug(f"Analyzed {len(sections)} sections.")
