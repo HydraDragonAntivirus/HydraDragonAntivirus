@@ -9,7 +9,6 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from enum import Enum, auto
 import pefile
-import logging
 
 # Set script directory
 script_dir = os.getcwd()
@@ -362,17 +361,26 @@ class PESignatureEngine:
         return None
 
     def _evaluate_conditions(self, conditions: List[str], features: PEFeatures, matches: Dict) -> bool:
-        logging.debug("Evaluating conditions.")
+        # Check for entropy in all sections (not just .text)
         for condition in conditions:
             if 'entropy' in condition.lower():
                 section_name = condition.split()[0]
                 min_entropy = float(condition.split()[2])
-                if section_name not in features.sections:
-                    logging.error(f"Section '{section_name}' not found in PE features.")
-                    return False
-                if features.sections[section_name].get('entropy', 0) < min_entropy:
-                    logging.debug(f"Condition failed for entropy in section {section_name}.")
-                    return False
+
+                if section_name == "pe.sections['.text']":
+                    section_name = ".text"  # Handle .text explicitly if needed
+
+                # Check if any section has the required entropy value
+                matched_entropy = False
+                for section_name, section_data in features.sections.items():
+                    if section_data.get('entropy', 0) > min_entropy:
+                        matched_entropy = True
+                        break
+
+                if not matched_entropy:
+                    return False  # Return False if no section matches the entropy condition
+
+        # Check other conditions
         return bool(matches['strings'] or matches['sections'] or matches['imports'])
 
 def example_usage():
