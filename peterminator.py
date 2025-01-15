@@ -117,7 +117,7 @@ class PEFeatureExtractor:
                 exports.append(export_info)
         return exports
 
-    def extract_features(self, file_path: str, rank: Optional[int] = None, is_malicious: bool = False) -> Optional[Dict[str, Any]]:
+    def extract_features(self, file_path: str, rank: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Extract comprehensive PE file features."""
         if file_path in self.features_cache:
             return self.features_cache[file_path]
@@ -131,7 +131,6 @@ class PEFeatureExtractor:
                     'size': os.path.getsize(file_path),
                     'md5': self._calculate_md5(file_path),
                     'rank': rank,
-                    'is_malicious': is_malicious
                 },
                 
                 'headers': {
