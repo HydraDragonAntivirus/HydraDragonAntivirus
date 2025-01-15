@@ -9,6 +9,8 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from enum import Enum, auto
 import pefile
+import sys
+import argparse
 
 # Set script directory
 script_dir = os.getcwd()
@@ -393,7 +395,7 @@ class PESignatureCompiler:
             with open(input_file, 'r') as f:
                 self.rules = json.load(f)
 
-        class PESignatureEngine:
+class PESignatureEngine:
             def __init__(self):
                 logging.info("PESignatureEngine initialized.")
                 self.analyzer = PEAnalyzer()
@@ -557,5 +559,64 @@ class PESignatureCompiler:
                 else:
                     return "Malicious"
 
-        # Initialize logging for the module
-        logging.info("PE Analysis module initialized successfully.")
+def main():
+    """Main entry point for PE signature scanning."""
+    # Set up argument parser
+    parser = argparse.ArgumentParser(description="PE Signature Compiler and Analyzer")
+    parser.add_argument('action', choices=['compile', 'scan'], help="Action to perform: compile rules or scan file")
+    parser.add_argument('--rules', type=str, help="Path to the rules file")
+    parser.add_argument('--file', type=str, help="Path to the PE file to scan")
+    parser.add_argument('--output', type=str, help="Path to save compiled rules (only for compile action)")
+
+    # Parse arguments
+    args = parser.parse_args()
+
+    if args.action == 'compile':
+        if not args.rules or not args.output:
+            logging.error("Both --rules and --output must be specified for compile action.")
+            sys.exit(1)
+        # Compile signatures from rule file
+        try:
+            compiler = PESignatureCompiler()
+            with open(args.rules, 'r') as rule_file:
+                rules_content = rule_file.read()
+                compiler.add_rule(rules_content)
+            compiler.save_rules(args.output)
+            logging.info(f"Compiled rules saved to {args.output}")
+        except Exception as e:
+            logging.error(f"Error compiling rules: {e}")
+            sys.exit(1)
+
+    elif args.action == 'scan':
+        if not args.file or not os.path.exists(args.file):
+            logging.error("A valid file path must be specified for scan action.")
+            sys.exit(1)
+
+        # Perform the scanning
+        try:
+            signature_engine = PESignatureEngine()
+
+            # Load the rules
+            if args.rules and os.path.exists(args.rules):
+                signature_engine.load_rules(args.rules)
+            else:
+                logging.warning("No rules file specified or file doesn't exist, using default rules.")
+
+            # Scan the PE file
+            matches = signature_engine.scan_file(args.file)
+
+            if matches:
+                logging.info(f"File {args.file} matches the following rules:")
+                for match in matches:
+                    logging.info(f"Rule: {match['rule']}")
+                    for match_type, match_data in match.items():
+                        if match_type != 'rule':
+                            logging.info(f"  {match_type}: {match_data}")
+            else:
+                logging.info(f"No matches found for {args.file}. File is clean.")
+        except Exception as e:
+            logging.error(f"Error scanning file: {e}")
+            sys.exit(1)
+
+if __name__ == "__main__":
+    main()
