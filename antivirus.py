@@ -13,8 +13,6 @@ log_directory = os.path.join(script_dir, "log")
 if not os.path.exists(log_directory):
     os.makedirs(log_directory)
 
-# Separate log files for different purposes
-console_log_file = os.path.join(log_directory, "antivirusconsole.log")
 application_log_file = os.path.join(log_directory, "antivirus.log")
 
 # Configure logging for application log
