@@ -31,3 +31,4 @@ porcupine.ndb
 # Directories
 /coverage
 __pycache__/
+/log

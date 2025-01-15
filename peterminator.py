@@ -9,12 +9,25 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from enum import Enum, auto
 import pefile
+import logging
 
 # Set script directory
 script_dir = os.getcwd()
 
 detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
 detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
+
+# Define log directories and files
+log_directory = os.path.join(script_dir, "log")
+if not os.path.exists(log_directory):
+    os.makedirs(log_directory)
+
+application_log_file = os.path.join(log_directory, "peterminator.log")
+
+# Configure logging
+logging.basicConfig(filename=application_log_file,
+                    level=logging.DEBUG,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 
 class RuleType(Enum):
     STRING_MATCH = auto()
@@ -40,9 +53,10 @@ class PEFeatures:
 
 class PEAnalyzer:
     def __init__(self):
-        pass
-
+        logging.info("PEAnalyzer initialized.")
+    
     def _calculate_entropy(self, data: bytes) -> float:
+        logging.debug("Calculating entropy.")
         if not data:
             return 0.0
         entropy = 0
@@ -50,9 +64,11 @@ class PEAnalyzer:
             p_x = float(data.count(x)) / len(data)
             if p_x > 0:
                 entropy += -p_x * math.log2(p_x)
+        logging.debug(f"Calculated entropy: {entropy}")
         return entropy
 
     def _extract_strings(self, data: bytes, min_length: int = 4) -> List[Dict[str, Any]]:
+        logging.debug("Extracting strings from data.")
         strings = []
 
         ascii_pattern = f'[\x20-\x7e]{{{min_length},}}'
@@ -76,18 +92,11 @@ class PEAnalyzer:
             except UnicodeDecodeError:
                 continue
 
+        logging.debug(f"Extracted {len(strings)} strings.")
         return strings
 
     def _analyze_with_die(self, file_path: str) -> Optional[Dict[str, Any]]:
-        """
-        Analyze a file using Detect It Easy (DIE) and return parsed results.
-        
-        Args:
-            file_path (str): Path to the file to be analyzed.
-
-        Returns:
-            Optional[Dict[str, Any]]: Parsed results from DIE, or None if an error occurs.
-        """
+        logging.debug(f"Analyzing file {file_path} with DIE.")
         try:
             if not os.path.exists(detectiteasy_console_path):
                 raise FileNotFoundError(f"DIE executable not found at {detectiteasy_console_path}")
@@ -100,13 +109,12 @@ class PEAnalyzer:
                 text=True
             )
 
-            # Check for errors during execution
             if result.returncode != 0:
                 logging.error(f"DIE analysis failed: {result.stderr.strip()}")
                 return None
 
-            # Parse and return JSON output from DIE
             die_output = result.stdout.strip()
+            logging.debug("DIE analysis completed successfully.")
             return json.loads(die_output)
 
         except Exception as e:
@@ -114,6 +122,7 @@ class PEAnalyzer:
             return None
 
     def _analyze_sections(self, pe: pefile.PE) -> Dict[str, Dict]:
+        logging.debug("Analyzing sections.")
         sections = {}
         for section in pe.sections:
             name = section.Name.decode(errors='ignore').rstrip('\x00')
@@ -128,9 +137,11 @@ class PEAnalyzer:
                 'md5': hashlib.md5(data).hexdigest(),
                 'strings': self._extract_strings(data)
             }
+        logging.debug(f"Analyzed {len(sections)} sections.")
         return sections
 
     def _analyze_imports(self, pe: pefile.PE) -> Dict[str, List[str]]:
+        logging.debug("Analyzing imports.")
         imports = {}
         if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT'):
             for entry in pe.DIRECTORY_ENTRY_IMPORT:
@@ -139,9 +150,11 @@ class PEAnalyzer:
                     imp.name.decode() if imp.name else f'ord_{imp.ordinal}'
                     for imp in entry.imports
                 ]
+        logging.debug(f"Analyzed {len(imports)} imports.")
         return imports
 
     def analyze_pe(self, file_path: str) -> Optional[PEFeatures]:
+        logging.debug(f"Starting analysis for file: {file_path}")
         try:
             pe = pefile.PE(file_path)
             with open(file_path, 'rb') as f:
@@ -158,7 +171,7 @@ class PEAnalyzer:
                 size_info=self._get_size_info(pe),
                 characteristics=self._get_characteristics(pe)
             )
-
+            logging.debug(f"Analysis completed for file: {file_path}")
             return features
 
         except Exception as e:
@@ -166,14 +179,17 @@ class PEAnalyzer:
             return None
 
     def _get_exports(self, pe: pefile.PE) -> List[str]:
+        logging.debug("Extracting exports.")
         exports = []
         if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT'):
             for exp in pe.DIRECTORY_ENTRY_EXPORT.symbols:
                 if exp.name:
                     exports.append(exp.name.decode())
+        logging.debug(f"Extracted {len(exports)} exports.")
         return exports
 
     def _analyze_resources(self, pe: pefile.PE) -> List[Dict]:
+        logging.debug("Analyzing resources.")
         resources = []
         if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
             for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
@@ -189,36 +205,47 @@ class PEAnalyzer:
                                         'size': resource_lang.data.struct.Size,
                                         'codepage': resource_lang.data.struct.CodePage
                                     })
+        logging.debug(f"Extracted {len(resources)} resources.")
         return resources
 
     def _analyze_iat(self, pe: pefile.PE) -> Dict[str, int]:
+        logging.debug("Analyzing IAT.")
         iat = {}
         if hasattr(pe, 'DIRECTORY_ENTRY_IAT'):
             for entry in pe.DIRECTORY_ENTRY_IAT:
                 if entry.name:
                     iat[entry.name.decode()] = entry.struct.FirstThunk
+        logging.debug(f"Extracted {len(iat)} IAT entries.")
         return iat
 
     def _get_size_info(self, pe: pefile.PE) -> Dict[str, int]:
-        return {
+        logging.debug("Getting size info.")
+        size_info = {
             'image_size': pe.OPTIONAL_HEADER.SizeOfImage,
             'headers_size': pe.OPTIONAL_HEADER.SizeOfHeaders,
             'code_size': pe.OPTIONAL_HEADER.SizeOfCode,
             'data_size': pe.OPTIONAL_HEADER.SizeOfInitializedData
         }
+        logging.debug(f"Size info: {size_info}")
+        return size_info
 
     def _get_characteristics(self, pe: pefile.PE) -> Dict[str, int]:
-        return {
+        logging.debug("Getting characteristics.")
+        characteristics = {
             'file_characteristics': pe.FILE_HEADER.Characteristics,
             'dll_characteristics': pe.OPTIONAL_HEADER.DllCharacteristics,
             'subsystem': pe.OPTIONAL_HEADER.Subsystem
         }
+        logging.debug(f"Characteristics: {characteristics}")
+        return characteristics
 
 class PESignatureCompiler:
     def __init__(self):
+        logging.info("PESignatureCompiler initialized.")
         self.rules = []
 
     def add_rule(self, rule_content: str) -> None:
+        logging.debug("Adding rule.")
         try:
             compiled_rule = self._compile_rule(rule_content)
             self.rules.append(compiled_rule)
@@ -226,6 +253,7 @@ class PESignatureCompiler:
             logging.error(f"Error compiling rule: {e}")
 
     def _compile_rule(self, rule_content: str) -> Dict:
+        logging.debug("Compiling rule.")
         lines = rule_content.strip().split('\n')
         rule_dict = {
             'meta': {},
@@ -257,29 +285,36 @@ class PESignatureCompiler:
             elif current_section == 'condition':
                 rule_dict['conditions'].append(line)
 
+        logging.debug(f"Compiled rule: {rule_dict}")
         return rule_dict
 
     def save_rules(self, output_file: str) -> None:
+        logging.debug(f"Saving rules to {output_file}")
         with open(output_file, 'w') as f:
             json.dump(self.rules, f, indent=2)
 
     def load_rules(self, input_file: str) -> None:
+        logging.debug(f"Loading rules from {input_file}")
         with open(input_file, 'r') as f:
             self.rules = json.load(f)
 
 class PESignatureEngine:
     def __init__(self, analyzer: PEAnalyzer):
+        logging.info("PESignatureEngine initialized.")
         self.analyzer = analyzer
         self.compiler = PESignatureCompiler()
 
     def load_rules(self, rules_file: str) -> None:
+        logging.debug(f"Loading rules from {rules_file}")
         self.compiler.load_rules(rules_file)
 
     def scan_file(self, file_path: str) -> List[Dict]:
+        logging.debug(f"Scanning file: {file_path}")
         matches = []
         features = self.analyzer.analyze_pe(file_path)
 
         if not features:
+            logging.warning(f"File {file_path} analysis failed.")
             return matches
 
         for rule in self.compiler.rules:
@@ -291,9 +326,11 @@ class PESignatureEngine:
                     'matches': match_result
                 })
 
+        logging.debug(f"Scan completed for file: {file_path}")
         return matches
 
     def _evaluate_rule(self, rule: Dict, features: PEFeatures) -> Optional[Dict]:
+        logging.debug(f"Evaluating rule: {rule['name']}")
         matches = {
             'strings': {},
             'sections': {},
@@ -325,11 +362,16 @@ class PESignatureEngine:
         return None
 
     def _evaluate_conditions(self, conditions: List[str], features: PEFeatures, matches: Dict) -> bool:
+        logging.debug("Evaluating conditions.")
         for condition in conditions:
             if 'entropy' in condition.lower():
                 section_name = condition.split()[0]
                 min_entropy = float(condition.split()[2])
-                if features.sections[section_name]['entropy'] < min_entropy:
+                if section_name not in features.sections:
+                    logging.error(f"Section '{section_name}' not found in PE features.")
+                    return False
+                if features.sections[section_name].get('entropy', 0) < min_entropy:
+                    logging.debug(f"Condition failed for entropy in section {section_name}.")
                     return False
         return bool(matches['strings'] or matches['sections'] or matches['imports'])
 
