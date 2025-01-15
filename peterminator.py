@@ -8,6 +8,12 @@ from dataclasses import dataclass
 from enum import Enum, auto
 import pefile
 
+# Set script directory
+script_dir = os.getcwd()
+
+detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
+detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
+
 class RuleType(Enum):
     STRING_MATCH = auto()
     SECTION_PATTERN = auto()
