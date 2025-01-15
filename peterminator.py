@@ -369,7 +369,7 @@ class PESignatureEngine:
         logging.debug(f"Scanning file: {file_path}")
         matches = []
 
-        # Get features from both analyzers for comprehensive analysis
+        # Get features from the analyzer
         try:
             analyzer_features = self.analyzer.analyze_pe(file_path)
             if hasattr(analyzer_features, "to_dict"):
@@ -377,36 +377,17 @@ class PESignatureEngine:
             elif hasattr(analyzer_features, "__dict__"):
                 analyzer_features = analyzer_features.__dict__
 
-            extractor_features = self.feature_extractor.extract_features(file_path)
-            if hasattr(extractor_features, "to_dict"):
-                extractor_features = extractor_features.to_dict()
-            elif hasattr(extractor_features, "__dict__"):
-                extractor_features = extractor_features.__dict__
-
         except Exception as e:
             logging.error(f"Error analyzing file {file_path}: {e}")
             return matches  # Early return if analysis fails
 
         # Debug logs for features
         logging.debug(f"Analyzer features (type: {type(analyzer_features)}): {analyzer_features}")
-        logging.debug(f"Extractor features (type: {type(extractor_features)}): {extractor_features}")
-
-        if not isinstance(analyzer_features, dict) or not isinstance(extractor_features, dict):
-            logging.error(
-                f"Expected dictionaries for features, got {type(analyzer_features)} and {type(extractor_features)}.")
-            return matches
-
-        # Combine features for complete analysis
-        try:
-            combined_features = self._combine_features(analyzer_features, extractor_features)
-        except Exception as e:
-            logging.error(f"Error combining features for file {file_path}: {e}")
-            return matches
 
         # Process each rule
         for rule in self.compiler.rules:
             try:
-                match_result = self._evaluate_rule(rule, combined_features)
+                match_result = self._evaluate_rule(rule, analyzer_features)
                 if match_result:
                     match_info = {
                         'rule': rule['name'],
@@ -437,126 +418,6 @@ class PESignatureEngine:
             severity = "Unknown"
 
         return matches
-
-    def _evaluate_rule(self, rule: Dict, features: PEFeatures) -> Optional[Dict]:
-        logging.debug(f"Evaluating rule: {rule['name']}")
-        matches = {
-            'strings': {},
-            'sections': {},
-            'imports': [],
-            'other': []
-        }
-
-        # Check string matches
-        try:
-            for str_name, pattern in rule.get('strings', {}).items():
-                found = False
-                # Check in sections
-                for section_name, section_data in features.sections.items():
-                    for string in section_data.get('strings', []):
-                        if re.search(pattern.encode(), string['value'].encode()):
-                            matches['strings'][str_name] = {
-                                'section': section_name,
-                                'offset': string['offset'],
-                                'value': string['value']
-                            }
-                            found = True
-                            break
-                    if found:
-                        break
-
-                # Check in full file strings if not found in sections
-                if not found:
-                    for string in features.strings:
-                        if re.search(pattern.encode(), string['value'].encode()):
-                            matches['strings'][str_name] = {
-                                'section': 'global',
-                                'offset': string['offset'],
-                                'value': string['value']
-                            }
-                            break
-        except Exception as e:
-            logging.error(f"Error checking strings for rule {rule['name']}: {e}")
-            raise
-
-        # Check conditions
-        try:
-            if self._evaluate_conditions(rule.get('conditions', []), features, matches):
-                return matches
-        except Exception as e:
-            logging.error(f"Error evaluating conditions for rule {rule['name']}: {e}")
-
-        return None if not any(matches.values()) else matches
-
-    def _evaluate_conditions(self, conditions: List[str], features: PEFeatures, matches: Dict) -> bool:
-        for condition in conditions:
-            try:
-                tokens = condition.split()
-                if not tokens:
-                    continue
-
-                # Check entropy conditions
-                if 'entropy' in condition.lower():
-                    section_name = tokens[0]
-                    min_entropy = float(tokens[2])
-
-                    if section_name == 'file':
-                        if features.entropy_values.get('full', 0) <= min_entropy:
-                            return False
-                    else:
-                        section_entropy = features.entropy_values.get('sections', {}).get(section_name, 0)
-                        if section_entropy <= min_entropy:
-                            return False
-
-                # Check import conditions
-                elif 'import' in condition.lower():
-                    import_name = condition.split('"')[1]
-                    if not any(import_name in dll_imports for dll_imports in features.imports.values()):
-                        return False
-
-                # Check section conditions
-                elif 'section' in condition.lower():
-                    section_name = condition.split('"')[1]
-                    if section_name not in features.sections:
-                        return False
-
-                # Check size conditions
-                elif 'size' in condition.lower():
-                    size_type = tokens[0].split('.')[0]
-                    min_size = int(tokens[2])
-                    if features.size_info.get(size_type, 0) <= min_size:
-                        return False
-            except ValueError as e:
-                logging.error(f"Error parsing condition '{condition}': {e}")
-            except Exception as e:
-                logging.error(f"Error evaluating condition '{condition}': {e}")
-                continue
-
-        return True
-
-    def _combine_features(self, features1: Dict, features2: Dict) -> Dict:
-        combined_features = {}
-
-        try:
-            for key, value in features1.items():
-                combined_features[key] = value
-
-            for key, value in features2.items():
-                if key not in combined_features:
-                    combined_features[key] = value
-                else:
-                    if isinstance(value, list) and isinstance(combined_features[key], list):
-                        combined_features[key] = list(set(combined_features[key] + value))
-                    elif isinstance(value, set) and isinstance(combined_features[key], set):
-                        combined_features[key].update(value)
-                    else:
-                        combined_features[key] = value
-        except Exception as e:
-            logging.error(f"Error combining features: {e}")
-        finally:
-            logging.debug(f"Combined features: {combined_features}")
-
-        return combined_features
 
     def _evaluate_rule(self, rule: Dict, features: Dict) -> Optional[Dict]:
         logging.debug(f"Evaluating rule: {rule['name']}")
@@ -621,10 +482,10 @@ class PESignatureEngine:
                     min_entropy = float(tokens[2])
 
                     if section_name == 'file':
-                        if features['entropy'].get('full', 0) <= min_entropy:
+                        if features.get('entropy', {}).get('full', 0) <= min_entropy:
                             return False
                     else:
-                        section_entropy = features['entropy'].get('sections', {}).get(section_name, 0)
+                        section_entropy = features.get('entropy', {}).get('sections', {}).get(section_name, 0)
                         if section_entropy <= min_entropy:
                             return False
 
@@ -644,7 +505,7 @@ class PESignatureEngine:
                 elif 'size' in condition.lower():
                     size_type = tokens[0].split('.')[0]
                     min_size = int(tokens[2])
-                    if features['size_info'].get(size_type, 0) <= min_size:
+                    if features.get('size_info', {}).get(size_type, 0) <= min_size:
                         return False
             except ValueError as e:
                 logging.error(f"Error parsing condition '{condition}': {e}")
