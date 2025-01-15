@@ -70,18 +70,22 @@ class PEAnalyzer:
 
     def extract_section_data(self, section) -> Dict[str, Any]:
         """Extract comprehensive section data including entropy."""
-        raw_data = section.get_data()
-        return {
-            'name': section.Name.decode(errors='ignore').strip('\x00'),
-            'virtual_size': section.Misc_VirtualSize,
-            'virtual_address': section.VirtualAddress,
-            'raw_size': section.SizeOfRawData,
-            'pointer_to_raw_data': section.PointerToRawData,
-            'characteristics': section.Characteristics,
-            'entropy': self._calculate_entropy(raw_data),
-            'raw_data_size': len(raw_data) if raw_data else 0,
-            'raw_data': raw_data
-        }
+        try:
+            raw_data = section.get_data()
+            return {
+                'name': section.Name.decode(errors='ignore').strip('\x00'),
+                'virtual_size': section.Misc_VirtualSize,
+                'virtual_address': section.VirtualAddress,
+                'raw_size': section.SizeOfRawData,
+                'pointer_to_raw_data': section.PointerToRawData,
+                'characteristics': section.Characteristics,
+                'entropy': self._calculate_entropy(raw_data),
+                'raw_data_size': len(raw_data) if raw_data else 0,
+                'raw_data': raw_data
+            }
+        except Exception as e:
+            logging.error(f"Error extracting section data: {e}")
+            return {}
 
     def extract_imports(self, pe) -> List[Dict[str, Any]]:
         """Extract detailed import information."""
@@ -114,7 +118,6 @@ class PEAnalyzer:
         return exports
 
     def _extract_strings(self, data: bytes, min_length: int = 4) -> List[Dict[str, Any]]:
-        """Extract ASCII and Unicode strings from binary data."""
         strings = []
         try:
             ascii_pattern = f'[\x20-\x7e]{{{min_length},}}'
@@ -183,6 +186,11 @@ class PEAnalyzer:
 
         try:
             pe = pefile.PE(file_path)
+
+            # Extract sections with validation
+            valid_sections = [self.extract_section_data(section) for section in pe.sections]
+            valid_sections = [s for s in valid_sections if isinstance(s, dict) and 'name' in s]
+
             features = {
                 'file_info': {
                     'path': file_path,
@@ -214,8 +222,7 @@ class PEAnalyzer:
                         'characteristics': pe.FILE_HEADER.Characteristics,
                     }
                 },
-                # Convert sections to a dictionary using section name as the key
-                'sections': {s['name']: s for s in [self.extract_section_data(section) for section in pe.sections]},
+                'sections': {s['name']: s for s in valid_sections},
                 'imports': self.extract_imports(pe),
                 'exports': self.extract_exports(pe),
                 'resources': [],
@@ -269,13 +276,25 @@ class PEAnalyzer:
             with open(file_path, 'rb') as f:
                 file_data = f.read()
 
+            # Validate 'sections' format
+            sections = features.get('sections', {})
+            if not isinstance(sections, dict):
+                logging.error(f"Invalid format for 'sections': {sections}")
+                return None
+
+            # Validate and log strings
+            extracted_strings = self._extract_strings(file_data)
+            if not isinstance(extracted_strings, list):
+                logging.error(f"Invalid output from _extract_strings: {extracted_strings}")
+                return None
+
             return {
                 **features,
                 'die_info': die_analysis,
-                'strings': self._extract_strings(file_data),
+                'strings': extracted_strings,
                 'entropy': {
                     'full': self._calculate_entropy(file_data),
-                    'sections': {s['name']: s['entropy'] for s in features['sections']}
+                    'sections': {name: data.get('entropy', 0) for name, data in sections.items()}
                 }
             }
         except Exception as e:
@@ -373,119 +392,209 @@ class PESignatureEngine:
             logging.error(f"Error loading rules from {rules_file}: {e}")
             raise
 
+    def _evaluate_rule(self, rule: Dict, features: Dict) -> Optional[Dict]:
+        """
+        Evaluate a rule against PE file features.
+
+        Args:
+            rule (Dict): Rule dictionary containing strings and conditions
+            features (Dict): Extracted PE file features
+
+        Returns:
+            Optional[Dict]: Dictionary of matches if rule conditions are met, None otherwise
+        """
+        try:
+            if not all(isinstance(x, dict) for x in [rule, features]):
+                logging.error("Invalid input types for rule evaluation")
+                return None
+
+            # Build matches dictionary for string patterns
+            matches = {}
+            for imp in features.get('imports', []):
+                if not isinstance(imp, dict):
+                    continue
+
+                dll_name = imp.get('dll_name', '').lower()
+                imports_list = imp.get('imports', [])
+
+                if not isinstance(imports_list, list):
+                    continue
+
+                for imp_detail in imports_list:
+                    if not isinstance(imp_detail, dict):
+                        continue
+
+                    imp_name = imp_detail.get('name', '')
+                    if not imp_name:
+                        continue
+
+                    # Check each string pattern against the import
+                    for pattern_id, pattern in rule.get('strings', {}).items():
+                        if pattern.lower() in imp_name.lower():
+                            if pattern_id not in matches:
+                                matches[pattern_id] = []
+                            matches[pattern_id].append({
+                                'dll': dll_name,
+                                'import': imp_name,
+                                'address': imp_detail.get('address'),
+                                'ordinal': imp_detail.get('ordinal')
+                            })
+
+            # Evaluate each condition
+            all_conditions_met = True
+            matched_conditions = []
+
+            for condition in rule.get('conditions', []):
+                if not isinstance(condition, str):
+                    continue
+
+                condition = condition.strip().lower()
+
+                # Handle entropy conditions
+                if condition.startswith('entropy.'):
+                    try:
+                        parts = condition.split()
+                        if len(parts) != 3:
+                            continue
+
+                        threshold = float(parts[2])
+                        if parts[0] == 'entropy.full':
+                            actual = features.get('entropy', {}).get('full', 0)
+                            comparison = actual >= threshold
+                        else:
+                            continue
+
+                        if not comparison:
+                            all_conditions_met = False
+                            break
+                        matched_conditions.append(condition)
+                    except (ValueError, TypeError):
+                        continue
+
+                # Handle section entropy conditions
+                elif condition.startswith('sections['):
+                    try:
+                        section_name = condition[9:].split(']')[0].strip('"')
+                        parts = condition.split()
+                        if len(parts) != 3:
+                            continue
+
+                        threshold = float(parts[2])
+                        section_entropy = features.get('entropy', {}).get('sections', {}).get(section_name, 0)
+
+                        if section_entropy < threshold:
+                            all_conditions_met = False
+                            break
+                        matched_conditions.append(condition)
+                    except (ValueError, TypeError, IndexError):
+                        continue
+
+                # Handle import conditions
+                elif condition.startswith('any of import'):
+                    try:
+                        # Extract DLL name and API names
+                        import_str = condition[13:-1]  # Remove 'any of import(' and ')'
+                        parts = [p.strip().strip('"') for p in import_str.split(',')]
+
+                        if not parts:
+                            continue
+
+                        dll_name = parts[0].lower()
+                        api_patterns = parts[1:]
+
+                        # Check if any of the specified APIs are imported from the DLL
+                        found_match = False
+                        for imp in features.get('imports', []):
+                            if not isinstance(imp, dict):
+                                continue
+
+                            if imp.get('dll_name', '').lower() == dll_name:
+                                for api_pattern in api_patterns:
+                                    for imp_detail in imp.get('imports', []):
+                                        if not isinstance(imp_detail, dict):
+                                            continue
+
+                                        imp_name = imp_detail.get('name', '').lower()
+                                        if api_pattern.lower() in imp_name:
+                                            found_match = True
+                                            break
+                                    if found_match:
+                                        break
+                            if found_match:
+                                break
+
+                        if not found_match:
+                            all_conditions_met = False
+                            break
+                        matched_conditions.append(condition)
+                    except Exception as e:
+                        logging.error(f"Error evaluating import condition: {e}")
+                        continue
+
+                # Handle IAT conditions
+                elif 'iat[' in condition:
+                    try:
+                        api_name = condition.split('[')[1].split(']')[0].strip('"')
+                        parts = condition.split()
+                        if len(parts) != 3:
+                            continue
+
+                        threshold = int(parts[2])
+                        iat_count = len([imp for imp in features.get('imports', [])
+                                         if any(detail.get('name') == api_name
+                                                for detail in imp.get('imports', []))])
+
+                        if iat_count <= threshold:
+                            all_conditions_met = False
+                            break
+                        matched_conditions.append(condition)
+                    except (ValueError, TypeError, IndexError):
+                        continue
+
+            if all_conditions_met and matched_conditions:
+                return {
+                    'matches': matches,
+                    'matched_conditions': matched_conditions
+                }
+
+            return None
+
+        except Exception as e:
+            logging.error(f"Error evaluating rule: {e}")
+            return None
+
     def scan_file(self, file_path: str) -> List[Dict]:
         logging.debug(f"Scanning file: {file_path}")
         matches = []
 
-        # Get features from the analyzer
         try:
-            analyzer_features = self.analyzer.analyze_pe(file_path)
-            if hasattr(analyzer_features, "to_dict"):
-                analyzer_features = analyzer_features.to_dict()
-            elif hasattr(analyzer_features, "__dict__"):
-                analyzer_features = analyzer_features.__dict__
-
-        except Exception as e:
-            logging.error(f"Error analyzing file {file_path}: {e}")
-            return matches  # Early return if analysis fails
-
-        # Process each rule
-        for rule in self.compiler.rules:
-            try:
-                match_result = self._evaluate_rule(rule, analyzer_features)
-                if match_result:
-                    match_info = {
-                        'rule': rule['name'],
-                        'meta': rule['meta'],
-                        'matches': match_result
-                    }
-                    matches.append(match_info)
-            except Exception as e:
-                logging.error(f"Error evaluating rule {rule['name']} for file {file_path}: {e}")
-
-        # Log matches
-        if matches:
-            logging.info(f"File {file_path} matches the following rules:")
-            for match in matches:
-                logging.info(f"Rule: {match['rule']}")
-                for match_type, match_data in match.items():
-                    if match_type != 'rule':
-                        logging.info(f"  {match_type}: {match_data}")
-        else:
-            logging.info(f"No matches found for {file_path}. File is clean.")
-
-        # Classify severity
-        try:
-            severity = self.classify_severity(matches)
-            logging.info(f"File {file_path} is classified as: {severity}")
-        except Exception as e:
-            logging.error(f"Error classifying severity for file {file_path}: {e}")
-            severity = "Unknown"
-
-        return matches
-
-        def _evaluate_rule(self, rule: Dict, features: Dict) -> Optional[Dict]:
-            logging.debug(f"Evaluating rule: {rule['name']}")
-            matches = {
-                'strings': {},
-                'sections': {},
-                'imports': [],
-                'other': []
-            }
-
-            # Defensive check for missing sections
-            sections = features.get('sections')
-            if sections is None:
-                logging.error(f"Sections missing in features for rule {rule['name']}.")
-                return None
-
-            # Check string matches
-            try:
-                strings_field = rule.get('strings')
-                if not strings_field:
-                    logging.warning(f"No strings provided for rule {rule['name']}. Skipping string matching.")
-                elif not isinstance(strings_field, (dict, list)):
-                    raise ValueError(f"Invalid 'strings' type in rule {rule['name']} (expected dict or list).")
-
-                if isinstance(strings_field, list):
-                    strings_field = {f"string_{i}": pattern for i, pattern in enumerate(strings_field)}
-
-                # Iterate through sections safely
-                for str_name, pattern in strings_field.items():
-                    pattern = pattern.encode()
-                    for section_name, section_data in sections.items():
-                        if section_data.get('strings') is None:
-                            logging.warning(f"No strings data in section: {section_name}. Skipping.")
-                            continue
-
-                        for string in section_data['strings']:
-                            if re.search(pattern, string['value'].encode()):
-                                matches['strings'][str_name] = {
-                                    'section': section_name,
-                                    'offset': string['offset'],
-                                    'value': string['value']
-                                }
-            except Exception as e:
-                logging.error(f"Error checking strings for rule {rule['name']}: {e}")
-                return None
-
-            # Check conditions
-            try:
-                if self._evaluate_conditions(rule.get('conditions', []), features, matches):
-                    return matches
-            except Exception as e:
-                logging.error(f"Error evaluating conditions for rule {rule['name']}: {e}")
-
-            return None if not any(matches.values()) else matches
-
-        # Condition check
-        try:
-            if self._evaluate_conditions(rule.get('conditions', []), features, matches):
+            # Get features from the analyzer
+            features = self.analyzer.analyze_pe(file_path)
+            if not features:
+                logging.error(f"Failed to analyze file: {file_path}")
                 return matches
-        except Exception as e:
-            logging.error(f"Error evaluating conditions for rule {rule['name']}: {e}")
 
-        return None if not any(matches.values()) else matches
+            logging.debug(f"Analyzed features: {features}")
+
+            # Process each rule
+            for rule in self.compiler.rules:
+                try:
+                    match_result = self._evaluate_rule(rule, features)
+                    if match_result:
+                        match_info = {
+                            'rule': rule['name'],
+                            'meta': rule['meta'],
+                            'matches': match_result
+                        }
+                        matches.append(match_info)
+                except Exception as e:
+                    logging.error(f"Error evaluating rule {rule['name']} for file {file_path}: {e}")
+
+        except Exception as e:
+            logging.error(f"Error scanning file: {e}")
+
+        logging.debug(f"Matches found: {matches}")
+        return matches
 
     def _evaluate_conditions(self, conditions: List[str], features: Dict, matches: Dict) -> bool:
         for condition in conditions:
@@ -562,7 +671,7 @@ def main():
     parser = argparse.ArgumentParser(description="PE Signature Compiler and Analyzer")
     parser.add_argument('action', choices=['compile', 'scan'], help="Action to perform: compile rules or scan file")
     parser.add_argument('--rules', type=str, help="Path to the rules file")
-    parser.add_argument('--file', type=str, help="Path to the PE file to scan")
+    parser.add_argument('--file', type=str, help="Path to the PE file or directory to scan")
     parser.add_argument('--output', type=str, help="Path to save compiled rules (only for compile action)")
 
     # Parse arguments
@@ -587,7 +696,7 @@ def main():
 
     elif args.action == 'scan':
         if not args.file or not os.path.exists(args.file):
-            logging.error("A valid file path must be specified for scan action.")
+            logging.error("A valid file path or directory must be specified for scan action.")
             sys.exit(1)
 
         # Perform the scanning
@@ -601,18 +710,36 @@ def main():
             else:
                 logging.warning("No rules file specified or file doesn't exist, using default rules.")
 
-            # Scan the PE file
-            matches = signature_engine.scan_file(args.file)
-
-            if matches:
-                logging.info(f"File {args.file} matches the following rules:")
-                for match in matches:
-                    logging.info(f"Rule: {match['rule']}")
-                    for match_type, match_data in match.items():
-                        if match_type != 'rule':
-                            logging.info(f"  {match_type}: {match_data}")
+            # Check if it's a directory or a single file
+            if os.path.isdir(args.file):
+                logging.info(f"Scanning all files in directory: {args.file}")
+                for root, _, files in os.walk(args.file):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        logging.info(f"Scanning file: {file_path}")
+                        matches = signature_engine.scan_file(file_path)
+                        if matches:
+                            logging.info(f"File {file_path} matches the following rules:")
+                            for match in matches:
+                                logging.info(f"Rule: {match['rule']}")
+                                for match_type, match_data in match.items():
+                                    if match_type != 'rule':
+                                        logging.info(f"  {match_type}: {match_data}")
+                        else:
+                            logging.info(f"No matches found for {file_path}. File is clean.")
             else:
-                logging.info(f"No matches found for {args.file}. File is clean.")
+                # Scan a single file
+                logging.info(f"Scanning file: {args.file}")
+                matches = signature_engine.scan_file(args.file)
+                if matches:
+                    logging.info(f"File {args.file} matches the following rules:")
+                    for match in matches:
+                        logging.info(f"Rule: {match['rule']}")
+                        for match_type, match_data in match.items():
+                            if match_type != 'rule':
+                                logging.info(f"  {match_type}: {match_data}")
+                else:
+                    logging.info(f"No matches found for {args.file}. File is clean.")
         except Exception as e:
             logging.error(f"Error scanning file: {e}")
             sys.exit(1)
