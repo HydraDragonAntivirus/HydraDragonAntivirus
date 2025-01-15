@@ -306,6 +306,12 @@ class PESignatureCompiler:
         current_section = None
         for line in lines:
             line = line.strip()
+
+            # Remove sideway comments (everything after #)
+            if '#' in line:
+                line = line.split('#', 1)[0].strip()
+
+            # Skip empty lines after removing comments
             if not line:
                 continue
 
