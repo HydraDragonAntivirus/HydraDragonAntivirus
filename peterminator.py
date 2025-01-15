@@ -480,8 +480,38 @@ class PESignatureEngine:
                 })
 
         logging.debug(f"Scan completed for file: {file_path}")
+        
+        # Classify the severity of the file based on the scan results
+        severity = self.classify_severity(matches)
+        logging.info(f"File {file_path} is classified as: {severity}")
+        
         return matches
 
+    def classify_severity(self, matches: List[Dict]) -> str:
+        """Classify the severity of the file based on the match results."""
+        severity = 0  # default is clean
+        
+        # Calculate severity based on matches
+        for match in matches:
+            for rule in match['rule']:
+                # Based on rule severity or certain conditions, increase severity
+                if "severity" in rule['meta']:
+                    try:
+                        rule_severity = int(rule['meta']['severity'])
+                        severity = max(severity, rule_severity)
+                    except ValueError:
+                        continue
+        
+        # Classify based on severity value
+        if severity == 0:
+            return "Clean"
+        elif 0 < severity <= 50:
+            return "Suspicious"
+        elif 50 < severity <= 100:
+            return "Infected"
+        else:
+            return "Unknown"
+    
     def _evaluate_rule(self, rule: Dict, features: PEFeatures) -> Optional[Dict]:
         logging.debug(f"Evaluating rule: {rule['name']}")
         matches = {
