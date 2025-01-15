@@ -1,7 +1,6 @@
 import json
 import re
 import logging
-import math
 import os
 import subprocess
 import numpy as np
@@ -52,20 +51,21 @@ class PEFeatures:
     size_info: Dict[str, int]
     characteristics: Dict[str, int]
 
-class PEFeatureExtractor:
+class PEAnalyzer:
     def __init__(self):
+        logging.info("PEAnalyzer initialized.")
         self.features_cache = {}
 
     def _calculate_entropy(self, data: bytes) -> float:
         """Calculate Shannon entropy of binary data."""
         if not data:
             return 0.0
-        
+
         entropy = 0
         for x in range(256):
             p_x = float(data.count(x)) / len(data)
             if p_x > 0:
-                entropy += - p_x * np.log2(p_x)
+                entropy += -p_x * np.log2(p_x)
         return entropy
 
     def extract_section_data(self, section) -> Dict[str, Any]:
@@ -113,6 +113,69 @@ class PEFeatureExtractor:
                 exports.append(export_info)
         return exports
 
+    def _extract_strings(self, data: bytes, min_length: int = 4) -> List[Dict[str, Any]]:
+        """Extract ASCII and Unicode strings from binary data."""
+        strings = []
+        try:
+            ascii_pattern = f'[\x20-\x7e]{{{min_length},}}'
+            for match in re.finditer(ascii_pattern.encode(), data):
+                strings.append({
+                    'type': 'ascii',
+                    'value': match.group().decode('ascii', errors='ignore'),
+                    'offset': match.start(),
+                    'size': len(match.group())
+                })
+
+            unicode_pattern = f'(?:[\x20-\x7e]\x00){{{min_length},}}'
+            for match in re.finditer(unicode_pattern.encode(), data):
+                try:
+                    strings.append({
+                        'type': 'unicode',
+                        'value': match.group().decode('utf-16le', errors='ignore'),
+                        'offset': match.start(),
+                        'size': len(match.group())
+                    })
+                except UnicodeDecodeError:
+                    continue
+        except Exception as e:
+            logging.error(f"Error extracting strings: {e}")
+        return strings
+
+    def _analyze_iat(self, pe) -> Dict[str, int]:
+        """Analyze the Import Address Table (IAT)."""
+        iat = {}
+        try:
+            if hasattr(pe, 'DIRECTORY_ENTRY_IAT'):
+                for entry in pe.DIRECTORY_ENTRY_IAT:
+                    if entry.name:
+                        iat[entry.name.decode()] = entry.struct.FirstThunk
+        except Exception as e:
+            logging.error(f"Error analyzing IAT: {e}")
+        return iat
+
+    def _analyze_with_die(self, file_path: str) -> Optional[str]:
+        """Analyze a file using Detect It Easy (DIE) without JSON output."""
+        try:
+            if not os.path.exists(detectiteasy_console_path):
+                raise FileNotFoundError(f"DIE executable not found at {detectiteasy_console_path}")
+
+            result = subprocess.run(
+                [detectiteasy_console_path, file_path],  # No /json argument for text output
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+
+            if result.returncode != 0:
+                logging.error(f"DIE analysis failed: {result.stderr.strip()}")
+                return None
+
+            die_output = result.stdout.strip()
+            return die_output  # Return the standard text output from DIE
+        except Exception as e:
+            logging.error(f"Error during DIE analysis for {file_path}: {e}")
+            return None
+
     def extract_features(self, file_path: str, rank: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Extract comprehensive PE file features."""
         if file_path in self.features_cache:
@@ -127,7 +190,6 @@ class PEFeatureExtractor:
                     'size': os.path.getsize(file_path),
                     'rank': rank,
                 },
-                
                 'headers': {
                     'optional_header': {
                         'major_linker_version': pe.OPTIONAL_HEADER.MajorLinkerVersion,
@@ -152,13 +214,12 @@ class PEFeatureExtractor:
                         'characteristics': pe.FILE_HEADER.Characteristics,
                     }
                 },
-                
                 'sections': [self.extract_section_data(section) for section in pe.sections],
                 'imports': self.extract_imports(pe),
                 'exports': self.extract_exports(pe),
-                
                 'resources': [],
-                'debug_info': []
+                'debug_info': [],
+                'iat': self._analyze_iat(pe)
             }
 
             # Extract resources
@@ -191,150 +252,34 @@ class PEFeatureExtractor:
 
             self.features_cache[file_path] = features
             return features
-
         except Exception as e:
-            logging.error(f"Error extracting features from {file_path}: {str(e)}")
+            logging.error(f"Error extracting features from {file_path}: {e}")
             return None
 
-class PEAnalyzer:
-    def __init__(self):
-        logging.info("PEAnalyzer initialized.")
-        self.feature_extractor = PEFeatureExtractor()
-    
-    def _calculate_entropy(self, data: bytes) -> float:
-        logging.debug("Calculating entropy.")
-        if not data:
-            return 0.0
-        entropy = 0
-        for x in range(256):
-            p_x = float(data.count(x)) / len(data)
-            if p_x > 0:
-                entropy += -p_x * math.log2(p_x)
-        logging.debug(f"Calculated entropy: {entropy}")
-        return entropy
-
-    def _extract_strings(self, data: bytes, min_length: int = 4) -> List[Dict[str, Any]]:
-        logging.debug("Extracting strings from data.")
-        strings = []
-
-        ascii_pattern = f'[\x20-\x7e]{{{min_length},}}'
-        for match in re.finditer(ascii_pattern.encode(), data):
-            strings.append({
-                'type': 'ascii',
-                'value': match.group().decode('ascii'),
-                'offset': match.start(),
-                'size': len(match.group())
-            })
-
-        unicode_pattern = f'(?:[\x20-\x7e]\x00){{{min_length},}}'
-        for match in re.finditer(unicode_pattern.encode(), data):
-            try:
-                strings.append({
-                    'type': 'unicode',
-                    'value': match.group().decode('utf-16le'),
-                    'offset': match.start(),
-                    'size': len(match.group())
-                })
-            except UnicodeDecodeError:
-                continue
-
-        logging.debug(f"Extracted {len(strings)} strings.")
-        return strings
-
-    def _analyze_with_die(self, file_path: str) -> Optional[Dict[str, Any]]:
-        logging.debug(f"Analyzing file {file_path} with DIE.")
+    def analyze_pe(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Analyze a PE file comprehensively."""
         try:
-            if not os.path.exists(detectiteasy_console_path):
-                raise FileNotFoundError(f"DIE executable not found at {detectiteasy_console_path}")
-
-            result = subprocess.run(
-                [detectiteasy_console_path, file_path, "/json"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-
-            if result.returncode != 0:
-                logging.error(f"DIE analysis failed: {result.stderr.strip()}")
-                return None
-
-            die_output = result.stdout.strip()
-            logging.debug("DIE analysis completed successfully.")
-            return json.loads(die_output)
-
-        except Exception as e:
-            logging.error(f"Error during DIE analysis for {file_path}: {e}")
-            return None
-
-    def analyze_pe(self, file_path: str) -> Optional[PEFeatures]:
-        logging.debug(f"Starting analysis for file: {file_path}")
-        try:
-            # Use feature extractor for basic features
-            features = self.feature_extractor.extract_features(file_path)
+            features = self.extract_features(file_path)
             if not features:
                 return None
 
-            # Additional analysis with DIE
             die_analysis = self._analyze_with_die(file_path)
 
-            # Read file for string extraction
             with open(file_path, 'rb') as f:
                 file_data = f.read()
 
-            # Combine all features into PEFeatures format
-            pe_features = PEFeatures(
-                sections={section['name']: {
-                    'virtual_address': section['virtual_address'],
-                    'virtual_size': section['virtual_size'],
-                    'raw_size': section['raw_size'],
-                    'characteristics': section['characteristics'],
-                    'entropy': section['entropy'],
-                    'strings': self._extract_strings(section['raw_data'])
-                } for section in features['sections']},
-                imports={entry['dll_name']: [imp['name'] for imp in entry['imports']] 
-                        for entry in features['imports'] if entry['dll_name']},
-                exports=[exp['name'] for exp in features['exports'] if exp['name']],
-                resources=features['resources'],
-                strings=self._extract_strings(file_data),
-                entropy_values={
+            return {
+                **features,
+                'die_info': die_analysis,
+                'strings': self._extract_strings(file_data),
+                'entropy': {
                     'full': self._calculate_entropy(file_data),
-                    'sections': {section['name']: section['entropy'] for section in features['sections']}
-                },
-                iat=self._analyze_iat(file_path),
-                size_info={
-                    'image_size': features['headers']['optional_header']['size_of_code'],
-                    'headers_size': features['headers']['optional_header']['size_of_initialized_data'],
-                    'code_size': features['headers']['optional_header']['size_of_code'],
-                    'data_size': features['headers']['optional_header']['size_of_initialized_data']
-                },
-                characteristics={
-                    'file_characteristics': features['headers']['file_header']['characteristics'],
-                    'dll_characteristics': features['headers']['optional_header']['dll_characteristics'],
-                    'subsystem': features['headers']['optional_header']['subsystem'],
-                    'die_info': die_analysis if die_analysis else {}
+                    'sections': {s['name']: s['entropy'] for s in features['sections']}
                 }
-            )
-            
-            logging.debug(f"Analysis completed for file: {file_path}")
-            return pe_features
-
+            }
         except Exception as e:
             logging.error(f"Error analyzing {file_path}: {e}")
             return None
-
-    def _analyze_iat(self, file_path: str) -> Dict[str, int]:
-        logging.debug("Analyzing IAT.")
-        iat = {}
-        try:
-            pe = pefile.PE(file_path)
-            if hasattr(pe, 'DIRECTORY_ENTRY_IAT'):
-                for entry in pe.DIRECTORY_ENTRY_IAT:
-                    if entry.name:
-                        iat[entry.name.decode()] = entry.struct.FirstThunk
-        except Exception as e:
-            logging.error(f"Error analyzing IAT: {e}")
-        logging.debug(f"Extracted {len(iat)} IAT entries.")
-        return iat
 
 class PESignatureCompiler:
     def __init__(self):
@@ -382,24 +327,34 @@ class PESignatureCompiler:
             elif current_section == 'condition':
                 rule_dict['conditions'].append(line)
 
-            logging.debug(f"Compiled rule: {rule_dict}")
-            return rule_dict
+        logging.debug(f"Compiled rule: {rule_dict}")
+        return rule_dict
 
-        def save_rules(self, output_file: str) -> None:
-            logging.debug(f"Saving rules to {output_file}")
+    def save_rules(self, output_file: str) -> None:
+        """Save the compiled rules to a file."""
+        logging.debug(f"Saving rules to {output_file}")
+        try:
             with open(output_file, 'w') as f:
                 json.dump(self.rules, f, indent=2)
+            logging.info(f"Successfully saved {len(self.rules)} rules to {output_file}")
+        except Exception as e:
+            logging.error(f"Error saving rules to {output_file}: {e}")
 
-        def load_rules(self, input_file: str) -> None:
-            logging.debug(f"Loading rules from {input_file}")
+    def load_rules(self, input_file: str) -> None:
+        """Load compiled rules from a file."""
+        logging.debug(f"Loading rules from {input_file}")
+        try:
             with open(input_file, 'r') as f:
                 self.rules = json.load(f)
+            logging.info(f"Successfully loaded {len(self.rules)} rules from {input_file}")
+        except Exception as e:
+            logging.error(f"Error loading rules from {input_file}: {e}")
+            raise
 
 class PESignatureEngine:
     def __init__(self):
         logging.info("PESignatureEngine initialized.")
-        self.analyzer = PEAnalyzer()
-        self.feature_extractor = PEFeatureExtractor()
+        self.analyzer = PEAnalyzer()  # Now using PEAnalyzer only
         self.compiler = PESignatureCompiler()
 
     def load_rules(self, rules_file: str) -> None:
@@ -417,17 +372,28 @@ class PESignatureEngine:
         # Get features from both analyzers for comprehensive analysis
         try:
             analyzer_features = self.analyzer.analyze_pe(file_path)
+            if hasattr(analyzer_features, "to_dict"):
+                analyzer_features = analyzer_features.to_dict()
+            elif hasattr(analyzer_features, "__dict__"):
+                analyzer_features = analyzer_features.__dict__
+
             extractor_features = self.feature_extractor.extract_features(file_path)
+            if hasattr(extractor_features, "to_dict"):
+                extractor_features = extractor_features.to_dict()
+            elif hasattr(extractor_features, "__dict__"):
+                extractor_features = extractor_features.__dict__
+
         except Exception as e:
             logging.error(f"Error analyzing file {file_path}: {e}")
             return matches  # Early return if analysis fails
 
         # Debug logs for features
-        logging.debug(f"Analyzer features: {analyzer_features}")
-        logging.debug(f"Extractor features: {extractor_features}")
+        logging.debug(f"Analyzer features (type: {type(analyzer_features)}): {analyzer_features}")
+        logging.debug(f"Extractor features (type: {type(extractor_features)}): {extractor_features}")
 
-        if not analyzer_features or not extractor_features:
-            logging.warning(f"File {file_path} analysis failed.")
+        if not isinstance(analyzer_features, dict) or not isinstance(extractor_features, dict):
+            logging.error(
+                f"Expected dictionaries for features, got {type(analyzer_features)} and {type(extractor_features)}.")
             return matches
 
         # Combine features for complete analysis
@@ -471,29 +437,6 @@ class PESignatureEngine:
             severity = "Unknown"
 
         return matches
-
-    def _combine_features(self, analyzer_features: PEFeatures, extractor_features: Dict) -> PEFeatures:
-        """Combine features from both analyzers for comprehensive analysis."""
-        try:
-            # Start with analyzer features as base
-            combined = analyzer_features
-
-            # Add additional information from extractor if not present
-            if 'debug_info' in extractor_features:
-                combined.characteristics['debug_info'] = extractor_features['debug_info']
-
-            # Merge section information
-            for section_name, section_data in extractor_features.get('sections', {}).items():
-                if section_name in combined.sections:
-                    combined.sections[section_name].update({
-                        'pointer_to_raw_data': section_data['pointer_to_raw_data'],
-                        'raw_data_size': section_data['raw_data_size']
-                    })
-
-            return combined
-        except Exception as e:
-            logging.error(f"Error combining features: {e}")
-            raise
 
     def _evaluate_rule(self, rule: Dict, features: PEFeatures) -> Optional[Dict]:
         logging.debug(f"Evaluating rule: {rule['name']}")
@@ -548,10 +491,14 @@ class PESignatureEngine:
     def _evaluate_conditions(self, conditions: List[str], features: PEFeatures, matches: Dict) -> bool:
         for condition in conditions:
             try:
+                tokens = condition.split()
+                if not tokens:
+                    continue
+
                 # Check entropy conditions
                 if 'entropy' in condition.lower():
-                    section_name = condition.split()[0]
-                    min_entropy = float(condition.split()[2])
+                    section_name = tokens[0]
+                    min_entropy = float(tokens[2])
 
                     if section_name == 'file':
                         if features.entropy_values.get('full', 0) <= min_entropy:
@@ -575,12 +522,134 @@ class PESignatureEngine:
 
                 # Check size conditions
                 elif 'size' in condition.lower():
-                    size_type = condition.split('.')[0]
-                    min_size = int(condition.split()[2])
+                    size_type = tokens[0].split('.')[0]
+                    min_size = int(tokens[2])
                     if features.size_info.get(size_type, 0) <= min_size:
                         return False
+            except ValueError as e:
+                logging.error(f"Error parsing condition '{condition}': {e}")
             except Exception as e:
-                logging.error(f"Error evaluating condition {condition}: {e}")
+                logging.error(f"Error evaluating condition '{condition}': {e}")
+                continue
+
+        return True
+
+    def _combine_features(self, features1: Dict, features2: Dict) -> Dict:
+        combined_features = {}
+
+        try:
+            for key, value in features1.items():
+                combined_features[key] = value
+
+            for key, value in features2.items():
+                if key not in combined_features:
+                    combined_features[key] = value
+                else:
+                    if isinstance(value, list) and isinstance(combined_features[key], list):
+                        combined_features[key] = list(set(combined_features[key] + value))
+                    elif isinstance(value, set) and isinstance(combined_features[key], set):
+                        combined_features[key].update(value)
+                    else:
+                        combined_features[key] = value
+        except Exception as e:
+            logging.error(f"Error combining features: {e}")
+        finally:
+            logging.debug(f"Combined features: {combined_features}")
+
+        return combined_features
+
+    def _evaluate_rule(self, rule: Dict, features: Dict) -> Optional[Dict]:
+        logging.debug(f"Evaluating rule: {rule['name']}")
+        matches = {
+            'strings': {},
+            'sections': {},
+            'imports': [],
+            'other': []
+        }
+
+        # Check string matches
+        try:
+            for str_name, pattern in rule.get('strings', {}).items():
+                found = False
+                # Check in sections
+                for section_name, section_data in features.get('sections', {}).items():
+                    for string in section_data.get('strings', []):
+                        if re.search(pattern.encode(), string['value'].encode()):
+                            matches['strings'][str_name] = {
+                                'section': section_name,
+                                'offset': string['offset'],
+                                'value': string['value']
+                            }
+                            found = True
+                            break
+                    if found:
+                        break
+
+                # Check in full file strings if not found in sections
+                if not found:
+                    for string in features.get('strings', []):
+                        if re.search(pattern.encode(), string['value'].encode()):
+                            matches['strings'][str_name] = {
+                                'section': 'global',
+                                'offset': string['offset'],
+                                'value': string['value']
+                            }
+                            break
+        except Exception as e:
+            logging.error(f"Error checking strings for rule {rule['name']}: {e}")
+            raise
+
+        # Check conditions
+        try:
+            if self._evaluate_conditions(rule.get('conditions', []), features, matches):
+                return matches
+        except Exception as e:
+            logging.error(f"Error evaluating conditions for rule {rule['name']}: {e}")
+
+        return None if not any(matches.values()) else matches
+
+    def _evaluate_conditions(self, conditions: List[str], features: Dict, matches: Dict) -> bool:
+        for condition in conditions:
+            try:
+                tokens = condition.split()
+                if not tokens:
+                    continue
+
+                # Check entropy conditions
+                if 'entropy' in condition.lower():
+                    section_name = tokens[0]
+                    min_entropy = float(tokens[2])
+
+                    if section_name == 'file':
+                        if features['entropy'].get('full', 0) <= min_entropy:
+                            return False
+                    else:
+                        section_entropy = features['entropy'].get('sections', {}).get(section_name, 0)
+                        if section_entropy <= min_entropy:
+                            return False
+
+                # Check import conditions
+                elif 'import' in condition.lower():
+                    import_name = condition.split('"')[1]
+                    if not any(import_name in dll_imports for dll_imports in features.get('imports', [])):
+                        return False
+
+                # Check section conditions
+                elif 'section' in condition.lower():
+                    section_name = condition.split('"')[1]
+                    if section_name not in features.get('sections', {}):
+                        return False
+
+                # Check size conditions
+                elif 'size' in condition.lower():
+                    size_type = tokens[0].split('.')[0]
+                    min_size = int(tokens[2])
+                    if features['size_info'].get(size_type, 0) <= min_size:
+                        return False
+            except ValueError as e:
+                logging.error(f"Error parsing condition '{condition}': {e}")
+            except Exception as e:
+                logging.error(f"Error evaluating condition '{condition}': {e}")
                 continue
 
         return True
