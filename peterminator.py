@@ -214,7 +214,8 @@ class PEAnalyzer:
                         'characteristics': pe.FILE_HEADER.Characteristics,
                     }
                 },
-                'sections': [self.extract_section_data(section) for section in pe.sections],
+                # Convert sections to a dictionary using section name as the key
+                'sections': {s['name']: s for s in [self.extract_section_data(section) for section in pe.sections]},
                 'imports': self.extract_imports(pe),
                 'exports': self.extract_exports(pe),
                 'resources': [],
@@ -353,6 +354,7 @@ class PESignatureCompiler:
             with open(input_file, 'r') as f:
                 self.rules = json.load(f)
             logging.info(f"Successfully loaded {len(self.rules)} rules from {input_file}")
+            logging.debug(f"Loaded rules: {self.rules}")  # Debugging loaded rules
         except Exception as e:
             logging.error(f"Error loading rules from {input_file}: {e}")
             raise
@@ -386,9 +388,6 @@ class PESignatureEngine:
         except Exception as e:
             logging.error(f"Error analyzing file {file_path}: {e}")
             return matches  # Early return if analysis fails
-
-        # Debug logs for features
-        logging.debug(f"Analyzer features (type: {type(analyzer_features)}): {analyzer_features}")
 
         # Process each rule
         for rule in self.compiler.rules:
@@ -425,48 +424,61 @@ class PESignatureEngine:
 
         return matches
 
-    def _evaluate_rule(self, rule: Dict, features: Dict) -> Optional[Dict]:
-        logging.debug(f"Evaluating rule: {rule['name']}")
-        matches = {
-            'strings': {},
-            'sections': {},
-            'imports': [],
-            'other': []
-        }
+        def _evaluate_rule(self, rule: Dict, features: Dict) -> Optional[Dict]:
+            logging.debug(f"Evaluating rule: {rule['name']}")
+            matches = {
+                'strings': {},
+                'sections': {},
+                'imports': [],
+                'other': []
+            }
 
-        # Check string matches
-        try:
-            for str_name, pattern in rule.get('strings', {}).items():
-                found = False
-                # Check in sections
-                for section_name, section_data in features.get('sections', {}).items():
-                    for string in section_data.get('strings', []):
-                        if re.search(pattern.encode(), string['value'].encode()):
-                            matches['strings'][str_name] = {
-                                'section': section_name,
-                                'offset': string['offset'],
-                                'value': string['value']
-                            }
-                            found = True
-                            break
-                    if found:
-                        break
+            # Defensive check for missing sections
+            sections = features.get('sections')
+            if sections is None:
+                logging.error(f"Sections missing in features for rule {rule['name']}.")
+                return None
 
-                # Check in full file strings if not found in sections
-                if not found:
-                    for string in features.get('strings', []):
-                        if re.search(pattern.encode(), string['value'].encode()):
-                            matches['strings'][str_name] = {
-                                'section': 'global',
-                                'offset': string['offset'],
-                                'value': string['value']
-                            }
-                            break
-        except Exception as e:
-            logging.error(f"Error checking strings for rule {rule['name']}: {e}")
-            raise
+            # Check string matches
+            try:
+                strings_field = rule.get('strings')
+                if not strings_field:
+                    logging.warning(f"No strings provided for rule {rule['name']}. Skipping string matching.")
+                elif not isinstance(strings_field, (dict, list)):
+                    raise ValueError(f"Invalid 'strings' type in rule {rule['name']} (expected dict or list).")
 
-        # Check conditions
+                if isinstance(strings_field, list):
+                    strings_field = {f"string_{i}": pattern for i, pattern in enumerate(strings_field)}
+
+                # Iterate through sections safely
+                for str_name, pattern in strings_field.items():
+                    pattern = pattern.encode()
+                    for section_name, section_data in sections.items():
+                        if section_data.get('strings') is None:
+                            logging.warning(f"No strings data in section: {section_name}. Skipping.")
+                            continue
+
+                        for string in section_data['strings']:
+                            if re.search(pattern, string['value'].encode()):
+                                matches['strings'][str_name] = {
+                                    'section': section_name,
+                                    'offset': string['offset'],
+                                    'value': string['value']
+                                }
+            except Exception as e:
+                logging.error(f"Error checking strings for rule {rule['name']}: {e}")
+                return None
+
+            # Check conditions
+            try:
+                if self._evaluate_conditions(rule.get('conditions', []), features, matches):
+                    return matches
+            except Exception as e:
+                logging.error(f"Error evaluating conditions for rule {rule['name']}: {e}")
+
+            return None if not any(matches.values()) else matches
+
+        # Condition check
         try:
             if self._evaluate_conditions(rule.get('conditions', []), features, matches):
                 return matches
@@ -560,6 +572,7 @@ def main():
         if not args.rules or not args.output:
             logging.error("Both --rules and --output must be specified for compile action.")
             sys.exit(1)
+
         # Compile signatures from rule file
         try:
             compiler = PESignatureCompiler()
@@ -583,6 +596,7 @@ def main():
 
             # Load the rules
             if args.rules and os.path.exists(args.rules):
+                logging.info(f"Loading rules from {args.rules}")
                 signature_engine.load_rules(args.rules)
             else:
                 logging.warning("No rules file specified or file doesn't exist, using default rules.")
