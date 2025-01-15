@@ -5,11 +5,10 @@ import os
 import subprocess
 import numpy as np
 from typing import Dict, List, Any, Optional
-from dataclasses import dataclass
-from enum import Enum, auto
 import pefile
 import sys
 import argparse
+from tqdm import tqdm
 
 # Set script directory
 script_dir = os.getcwd()
@@ -28,28 +27,6 @@ application_log_file = os.path.join(log_directory, "peterminator.log")
 logging.basicConfig(filename=application_log_file,
                    level=logging.DEBUG,
                    format='%(asctime)s - %(levelname)s - %(message)s')
-
-class RuleType(Enum):
-    STRING_MATCH = auto()
-    SECTION_PATTERN = auto()
-    IMPORT_CHECK = auto()
-    ENTROPY_CHECK = auto()
-    RESOURCE_CHECK = auto()
-    IAT_PATTERN = auto()
-    SIZE_CHECK = auto()
-    CUSTOM = auto()
-
-@dataclass
-class PEFeatures:
-    sections: Dict[str, Dict]
-    imports: Dict[str, List[str]]
-    exports: List[str]
-    resources: List[Dict]
-    strings: List[Dict]
-    entropy_values: Dict[str, float]
-    iat: Dict[str, int]
-    size_info: Dict[str, int]
-    characteristics: Dict[str, int]
 
 class PEAnalyzer:
     def __init__(self):
@@ -708,28 +685,40 @@ def main():
             else:
                 logging.warning("No rules file specified or file doesn't exist, using default rules.")
 
+            files_scanned = 0
+            files_clean = 0
+            files_with_matches = 0
+
             # Check if it's a directory or a single file
             if os.path.isdir(args.file):
                 logging.info(f"Scanning all files in directory: {args.file}")
+                all_files = []
                 for root, _, files in os.walk(args.file):
                     for file in files:
-                        file_path = os.path.join(root, file)
-                        logging.info(f"Scanning file: {file_path}")
-                        matches = signature_engine.scan_file(file_path)
-                        if matches:
-                            logging.info(f"File {file_path} matches the following rules:")
-                            for match in matches:
-                                logging.info(f"Rule: {match['rule']}")
-                                for match_type, match_data in match.items():
-                                    if match_type != 'rule':
-                                        logging.info(f"  {match_type}: {match_data}")
-                        else:
-                            logging.info(f"No matches found for {file_path}. File is clean.")
+                        all_files.append(os.path.join(root, file))
+
+                # Use tqdm for progress tracking
+                for file_path in tqdm(all_files, desc="Scanning files", unit="file"):
+                    files_scanned += 1
+                    matches = signature_engine.scan_file(file_path)
+                    if matches:
+                        files_with_matches += 1
+                        logging.info(f"File {file_path} matches the following rules:")
+                        for match in matches:
+                            logging.info(f"Rule: {match['rule']}")
+                            for match_type, match_data in match.items():
+                                if match_type != 'rule':
+                                    logging.info(f"  {match_type}: {match_data}")
+                    else:
+                        files_clean += 1
+
             else:
                 # Scan a single file
                 logging.info(f"Scanning file: {args.file}")
+                files_scanned += 1
                 matches = signature_engine.scan_file(args.file)
                 if matches:
+                    files_with_matches += 1
                     logging.info(f"File {args.file} matches the following rules:")
                     for match in matches:
                         logging.info(f"Rule: {match['rule']}")
@@ -737,7 +726,14 @@ def main():
                             if match_type != 'rule':
                                 logging.info(f"  {match_type}: {match_data}")
                 else:
-                    logging.info(f"No matches found for {args.file}. File is clean.")
+                    files_clean += 1
+
+            # Print a summary of the scan results
+            logging.info(f"Scan Summary:")
+            logging.info(f"Total files scanned: {files_scanned}")
+            logging.info(f"Clean files: {files_clean}")
+            logging.info(f"Files with matches: {files_with_matches}")
+
         except Exception as e:
             logging.error(f"Error scanning file: {e}")
             sys.exit(1)
