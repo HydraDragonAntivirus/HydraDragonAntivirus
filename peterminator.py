@@ -574,8 +574,6 @@ class PESignatureEngine:
                 logging.error(f"Failed to analyze file: {file_path}")
                 return matches
 
-            logging.debug(f"Analyzed features: {features}")
-
             # Process each rule
             for rule in self.compiler.rules:
                 try:
