@@ -4,6 +4,7 @@ import logging
 import math
 import os
 import subprocess
+import numpy as np
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -24,8 +25,8 @@ application_log_file = os.path.join(log_directory, "peterminator.log")
 
 # Configure logging
 logging.basicConfig(filename=application_log_file,
-                    level=logging.DEBUG,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+                   level=logging.DEBUG,
+                   format='%(asctime)s - %(levelname)s - %(message)s')
 
 class RuleType(Enum):
     STRING_MATCH = auto()
@@ -76,7 +77,8 @@ class PEFeatureExtractor:
             'pointer_to_raw_data': section.PointerToRawData,
             'characteristics': section.Characteristics,
             'entropy': self._calculate_entropy(raw_data),
-            'raw_data_size': len(raw_data) if raw_data else 0
+            'raw_data_size': len(raw_data) if raw_data else 0,
+            'raw_data': raw_data
         }
 
     def extract_imports(self, pe) -> List[Dict[str, Any]]:
@@ -195,6 +197,7 @@ class PEFeatureExtractor:
 class PEAnalyzer:
     def __init__(self):
         logging.info("PEAnalyzer initialized.")
+        self.feature_extractor = PEFeatureExtractor()
     
     def _calculate_entropy(self, data: bytes) -> float:
         logging.debug("Calculating entropy.")
@@ -242,7 +245,6 @@ class PEAnalyzer:
             if not os.path.exists(detectiteasy_console_path):
                 raise FileNotFoundError(f"DIE executable not found at {detectiteasy_console_path}")
 
-            # Execute DIE with the provided file path
             result = subprocess.run(
                 [detectiteasy_console_path, file_path, "/json"],
                 stdout=subprocess.PIPE,
@@ -262,122 +264,75 @@ class PEAnalyzer:
             logging.error(f"Error during DIE analysis for {file_path}: {e}")
             return None
 
-    def _analyze_sections(self, pe: pefile.PE) -> Dict[str, Dict]:
-        logging.debug("Analyzing sections.")
-        sections = {}
-        for section in pe.sections:
-            name = section.Name.decode(errors='ignore').rstrip('\x00')
-            data = section.get_data()
-
-            sections[name] = {
-                'virtual_address': section.VirtualAddress,
-                'virtual_size': section.Misc_VirtualSize,
-                'raw_size': section.SizeOfRawData,
-                'characteristics': section.Characteristics,
-                'entropy': self._calculate_entropy(data),
-                'strings': self._extract_strings(data)
-            }
-        logging.debug(f"Analyzed {len(sections)} sections.")
-        return sections
-
-    def _analyze_imports(self, pe: pefile.PE) -> Dict[str, List[str]]:
-        logging.debug("Analyzing imports.")
-        imports = {}
-        if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT'):
-            for entry in pe.DIRECTORY_ENTRY_IMPORT:
-                dll_name = entry.dll.decode()
-                imports[dll_name] = [
-                    imp.name.decode() if imp.name else f'ord_{imp.ordinal}'
-                    for imp in entry.imports
-                ]
-        logging.debug(f"Analyzed {len(imports)} imports.")
-        return imports
-
     def analyze_pe(self, file_path: str) -> Optional[PEFeatures]:
         logging.debug(f"Starting analysis for file: {file_path}")
         try:
-            pe = pefile.PE(file_path)
-            with open(file_path, 'rb') as f:
-                data = f.read()
+            # Use feature extractor for basic features
+            features = self.feature_extractor.extract_features(file_path)
+            if not features:
+                return None
 
-            features = PEFeatures(
-                sections=self._analyze_sections(pe),
-                imports=self._analyze_imports(pe),
-                exports=self._get_exports(pe),
-                resources=self._analyze_resources(pe),
-                strings=self._extract_strings(data),
-                entropy_values={'full': self._calculate_entropy(data)},
-                iat=self._analyze_iat(pe),
-                size_info=self._get_size_info(pe),
-                characteristics=self._get_characteristics(pe)
+            # Additional analysis with DIE
+            die_analysis = self._analyze_with_die(file_path)
+
+            # Read file for string extraction
+            with open(file_path, 'rb') as f:
+                file_data = f.read()
+
+            # Combine all features into PEFeatures format
+            pe_features = PEFeatures(
+                sections={section['name']: {
+                    'virtual_address': section['virtual_address'],
+                    'virtual_size': section['virtual_size'],
+                    'raw_size': section['raw_size'],
+                    'characteristics': section['characteristics'],
+                    'entropy': section['entropy'],
+                    'strings': self._extract_strings(section['raw_data'])
+                } for section in features['sections']},
+                imports={entry['dll_name']: [imp['name'] for imp in entry['imports']] 
+                        for entry in features['imports'] if entry['dll_name']},
+                exports=[exp['name'] for exp in features['exports'] if exp['name']],
+                resources=features['resources'],
+                strings=self._extract_strings(file_data),
+                entropy_values={
+                    'full': self._calculate_entropy(file_data),
+                    'sections': {section['name']: section['entropy'] for section in features['sections']}
+                },
+                iat=self._analyze_iat(file_path),
+                size_info={
+                    'image_size': features['headers']['optional_header']['size_of_code'],
+                    'headers_size': features['headers']['optional_header']['size_of_initialized_data'],
+                    'code_size': features['headers']['optional_header']['size_of_code'],
+                    'data_size': features['headers']['optional_header']['size_of_initialized_data']
+                },
+                characteristics={
+                    'file_characteristics': features['headers']['file_header']['characteristics'],
+                    'dll_characteristics': features['headers']['optional_header']['dll_characteristics'],
+                    'subsystem': features['headers']['optional_header']['subsystem'],
+                    'die_info': die_analysis if die_analysis else {}
+                }
             )
+            
             logging.debug(f"Analysis completed for file: {file_path}")
-            return features
+            return pe_features
 
         except Exception as e:
             logging.error(f"Error analyzing {file_path}: {e}")
             return None
 
-    def _get_exports(self, pe: pefile.PE) -> List[str]:
-        logging.debug("Extracting exports.")
-        exports = []
-        if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT'):
-            for exp in pe.DIRECTORY_ENTRY_EXPORT.symbols:
-                if exp.name:
-                    exports.append(exp.name.decode())
-        logging.debug(f"Extracted {len(exports)} exports.")
-        return exports
-
-    def _analyze_resources(self, pe: pefile.PE) -> List[Dict]:
-        logging.debug("Analyzing resources.")
-        resources = []
-        if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-            for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
-                if hasattr(resource_type, 'directory'):
-                    for resource_id in resource_type.directory.entries:
-                        if hasattr(resource_id, 'directory'):
-                            for resource_lang in resource_id.directory.entries:
-                                if hasattr(resource_lang, 'data'):
-                                    resources.append({
-                                        'type': resource_type.id,
-                                        'name': resource_id.id,
-                                        'language': resource_lang.id,
-                                        'size': resource_lang.data.struct.Size,
-                                        'codepage': resource_lang.data.struct.CodePage
-                                    })
-        logging.debug(f"Extracted {len(resources)} resources.")
-        return resources
-
-    def _analyze_iat(self, pe: pefile.PE) -> Dict[str, int]:
+    def _analyze_iat(self, file_path: str) -> Dict[str, int]:
         logging.debug("Analyzing IAT.")
         iat = {}
-        if hasattr(pe, 'DIRECTORY_ENTRY_IAT'):
-            for entry in pe.DIRECTORY_ENTRY_IAT:
-                if entry.name:
-                    iat[entry.name.decode()] = entry.struct.FirstThunk
+        try:
+            pe = pefile.PE(file_path)
+            if hasattr(pe, 'DIRECTORY_ENTRY_IAT'):
+                for entry in pe.DIRECTORY_ENTRY_IAT:
+                    if entry.name:
+                        iat[entry.name.decode()] = entry.struct.FirstThunk
+        except Exception as e:
+            logging.error(f"Error analyzing IAT: {e}")
         logging.debug(f"Extracted {len(iat)} IAT entries.")
         return iat
-
-    def _get_size_info(self, pe: pefile.PE) -> Dict[str, int]:
-        logging.debug("Getting size info.")
-        size_info = {
-            'image_size': pe.OPTIONAL_HEADER.SizeOfImage,
-            'headers_size': pe.OPTIONAL_HEADER.SizeOfHeaders,
-            'code_size': pe.OPTIONAL_HEADER.SizeOfCode,
-            'data_size': pe.OPTIONAL_HEADER.SizeOfInitializedData
-        }
-        logging.debug(f"Size info: {size_info}")
-        return size_info
-
-    def _get_characteristics(self, pe: pefile.PE) -> Dict[str, int]:
-        logging.debug("Getting characteristics.")
-        characteristics = {
-            'file_characteristics': pe.FILE_HEADER.Characteristics,
-            'dll_characteristics': pe.OPTIONAL_HEADER.DllCharacteristics,
-            'subsystem': pe.OPTIONAL_HEADER.Subsystem
-        }
-        logging.debug(f"Characteristics: {characteristics}")
-        return characteristics
 
 class PESignatureCompiler:
     def __init__(self):
@@ -425,132 +380,182 @@ class PESignatureCompiler:
             elif current_section == 'condition':
                 rule_dict['conditions'].append(line)
 
-        logging.debug(f"Compiled rule: {rule_dict}")
-        return rule_dict
+            logging.debug(f"Compiled rule: {rule_dict}")
+            return rule_dict
 
-    def save_rules(self, output_file: str) -> None:
-        logging.debug(f"Saving rules to {output_file}")
-        with open(output_file, 'w') as f:
-            json.dump(self.rules, f, indent=2)
+        def save_rules(self, output_file: str) -> None:
+            logging.debug(f"Saving rules to {output_file}")
+            with open(output_file, 'w') as f:
+                json.dump(self.rules, f, indent=2)
 
-    def load_rules(self, input_file: str) -> None:
-        logging.debug(f"Loading rules from {input_file}")
-        with open(input_file, 'r') as f:
-            self.rules = json.load(f)
+        def load_rules(self, input_file: str) -> None:
+            logging.debug(f"Loading rules from {input_file}")
+            with open(input_file, 'r') as f:
+                self.rules = json.load(f)
 
-class PESignatureEngine:
-    def __init__(self, analyzer: PEAnalyzer, feature_extractor: PEFeatureExtractor):
-        logging.info("PESignatureEngine initialized.")
-        self.analyzer = analyzer
-        self.compiler = PESignatureCompiler()
-        self.feature_extractor = feature_extractor
+        class PESignatureEngine:
+            def __init__(self):
+                logging.info("PESignatureEngine initialized.")
+                self.analyzer = PEAnalyzer()
+                self.feature_extractor = PEFeatureExtractor()
+                self.compiler = PESignatureCompiler()
 
-    def load_rules(self, rules_file: str) -> None:
-        logging.debug(f"Loading rules from {rules_file}")
-        self.compiler.load_rules(rules_file)
+            def load_rules(self, rules_file: str) -> None:
+                logging.debug(f"Loading rules from {rules_file}")
+                self.compiler.load_rules(rules_file)
 
-    def scan_file(self, file_path: str) -> List[Dict]:
-        logging.debug(f"Scanning file: {file_path}")
-        matches = []
+            def scan_file(self, file_path: str) -> List[Dict]:
+                logging.debug(f"Scanning file: {file_path}")
+                matches = []
 
-        # Use PEFeatureExtractor to extract features
-        features = self.feature_extractor.extract_features(file_path)
+                # Get features from both analyzers for comprehensive analysis
+                analyzer_features = self.analyzer.analyze_pe(file_path)
+                extractor_features = self.feature_extractor.extract_features(file_path)
 
-        if not features:
-            logging.warning(f"File {file_path} analysis failed.")
-            return matches
+                if not analyzer_features or not extractor_features:
+                    logging.warning(f"File {file_path} analysis failed.")
+                    return matches
 
-        for rule in self.compiler.rules:
-            match_result = self._evaluate_rule(rule, features)
-            if match_result:
-                matches.append({
-                    'rule': rule['name'],
-                    'meta': rule['meta'],
-                    'matches': match_result
-                })
+                # Combine features for complete analysis
+                combined_features = self._combine_features(analyzer_features, extractor_features)
 
-        logging.debug(f"Scan completed for file: {file_path}")
-        
-        # Classify the severity of the file based on the scan results
-        severity = self.classify_severity(matches)
-        logging.info(f"File {file_path} is classified as: {severity}")
-        
-        return matches
+                for rule in self.compiler.rules:
+                    match_result = self._evaluate_rule(rule, combined_features)
+                    if match_result:
+                        matches.append({
+                            'rule': rule['name'],
+                            'meta': rule['meta'],
+                            'matches': match_result
+                        })
 
-    def classify_severity(self, matches: List[Dict]) -> str:
-        """Classify the severity of the file based on the match results."""
-        severity = 0  # default is clean
-        
-        # Calculate severity based on matches
-        for match in matches:
-            for rule in match['rule']:
-                # Based on rule severity or certain conditions, increase severity
-                if "severity" in rule['meta']:
-                    try:
-                        rule_severity = int(rule['meta']['severity'])
-                        severity = max(severity, rule_severity)
-                    except ValueError:
-                        continue
-        
-        # Classify based on severity value
-        if severity == 0:
-            return "Clean"
-        elif 0 < severity <= 50:
-            return "Suspicious"
-        elif 50 < severity <= 100:
-            return "Infected"
-        else:
-            return "Unknown"
-    
-    def _evaluate_rule(self, rule: Dict, features: PEFeatures) -> Optional[Dict]:
-        logging.debug(f"Evaluating rule: {rule['name']}")
-        matches = {
-            'strings': {},
-            'sections': {},
-            'imports': [],
-            'other': []
-        }
+                severity = self.classify_severity(matches)
+                logging.info(f"File {file_path} is classified as: {severity}")
 
-        # Check string matches
-        for str_name, pattern in rule['strings'].items():
-            found = False
-            for section_name, section_data in features.sections.items():
-                for string in section_data['strings']:
-                    if re.search(pattern.encode(), string['value'].encode()):
-                        matches['strings'][str_name] = {
-                            'section': section_name,
-                            'offset': string['offset'],
-                            'value': string['value']
-                        }
-                        found = True
-                        break
-                if found:
-                    break
-
-        try:
-            # Check conditions like entropy
-            if self._evaluate_conditions(rule['conditions'], features, matches):
                 return matches
-        except Exception as e:
-            logging.error(f"Error evaluating conditions: {e}")
 
-        return None
+            def _combine_features(self, analyzer_features: PEFeatures, extractor_features: Dict) -> PEFeatures:
+                """Combine features from both analyzers for comprehensive analysis."""
+                # Start with analyzer features as base
+                combined = analyzer_features
 
-    def _evaluate_conditions(self, conditions: List[str], features: PEFeatures, matches: Dict) -> bool:
-        # Check entropy condition
-        for condition in conditions:
-            if 'entropy' in condition.lower():
-                section_name = condition.split()[0]
-                min_entropy = float(condition.split()[2])
+                # Add additional information from extractor if not present
+                if 'debug_info' in extractor_features:
+                    combined.characteristics['debug_info'] = extractor_features['debug_info']
 
-                # Check section entropy against condition
-                matched_entropy = False
-                for section_name, section_data in features.sections.items():
-                    if section_data.get('entropy', 0) > min_entropy:
-                        matched_entropy = True
-                        break
+                # Merge section information
+                for section_name, section_data in extractor_features['sections']:
+                    if section_name in combined.sections:
+                        combined.sections[section_name].update({
+                            'pointer_to_raw_data': section_data['pointer_to_raw_data'],
+                            'raw_data_size': section_data['raw_data_size']
+                        })
 
-                if not matched_entropy:
-                    return False  # Return False if no section matches the entropy condition
+                return combined
 
-        return bool(matches['strings'] or matches['sections'] or matches['imports'])
+            def _evaluate_rule(self, rule: Dict, features: PEFeatures) -> Optional[Dict]:
+                logging.debug(f"Evaluating rule: {rule['name']}")
+                matches = {
+                    'strings': {},
+                    'sections': {},
+                    'imports': [],
+                    'other': []
+                }
+
+                # Check string matches
+                for str_name, pattern in rule['strings'].items():
+                    found = False
+                    # Check in sections
+                    for section_name, section_data in features.sections.items():
+                        for string in section_data['strings']:
+                            if re.search(pattern.encode(), string['value'].encode()):
+                                matches['strings'][str_name] = {
+                                    'section': section_name,
+                                    'offset': string['offset'],
+                                    'value': string['value']
+                                }
+                                found = True
+                                break
+                        if found:
+                            break
+
+                    # Check in full file strings if not found in sections
+                    if not found:
+                        for string in features.strings:
+                            if re.search(pattern.encode(), string['value'].encode()):
+                                matches['strings'][str_name] = {
+                                    'section': 'global',
+                                    'offset': string['offset'],
+                                    'value': string['value']
+                                }
+                                break
+
+                # Check conditions
+                try:
+                    if self._evaluate_conditions(rule['conditions'], features, matches):
+                        return matches
+                except Exception as e:
+                    logging.error(f"Error evaluating conditions: {e}")
+
+                return None if not any(matches.values()) else matches
+
+            def _evaluate_conditions(self, conditions: List[str], features: PEFeatures, matches: Dict) -> bool:
+                for condition in conditions:
+                    # Check entropy conditions
+                    if 'entropy' in condition.lower():
+                        section_name = condition.split()[0]
+                        min_entropy = float(condition.split()[2])
+
+                        if section_name == 'file':
+                            if features.entropy_values.get('full', 0) <= min_entropy:
+                                return False
+                        else:
+                            section_entropy = features.entropy_values.get('sections', {}).get(section_name, 0)
+                            if section_entropy <= min_entropy:
+                                return False
+
+                    # Check import conditions
+                    elif 'import' in condition.lower():
+                        import_name = condition.split('"')[1]
+                        if not any(import_name in dll_imports for dll_imports in features.imports.values()):
+                            return False
+
+                    # Check section conditions
+                    elif 'section' in condition.lower():
+                        section_name = condition.split('"')[1]
+                        if section_name not in features.sections:
+                            return False
+
+                    # Check size conditions
+                    elif 'size' in condition.lower():
+                        size_type = condition.split('.')[0]
+                        min_size = int(condition.split()[2])
+                        if features.size_info.get(size_type, 0) <= min_size:
+                            return False
+
+                return True
+
+            def classify_severity(self, matches: List[Dict]) -> str:
+                """Classify the severity of the file based on the match results."""
+                if not matches:
+                    return "Clean"
+
+                max_severity = 0
+                for match in matches:
+                    if 'severity' in match['meta']:
+                        try:
+                            severity = int(match['meta']['severity'])
+                            max_severity = max(max_severity, severity)
+                        except ValueError:
+                            continue
+
+                if max_severity == 0:
+                    return "Clean"
+                elif max_severity <= 40:
+                    return "Suspicious (Low)"
+                elif max_severity <= 70:
+                    return "Suspicious (High)"
+                else:
+                    return "Malicious"
+
+        # Initialize logging for the module
+        logging.info("PE Analysis module initialized successfully.")
