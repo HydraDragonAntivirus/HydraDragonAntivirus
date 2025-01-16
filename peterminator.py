@@ -282,16 +282,20 @@ class PESignatureCompiler:
     def __init__(self):
         logging.info("PESignatureCompiler initialized.")
         self.rules = []
+        self.private_rules = []
 
     def add_rule(self, rule_content: str) -> None:
         """Add a rule from JSON content."""
         logging.debug("Adding rule.")
         try:
-            # Parse JSON if the input is a string
+            # Ensure rule_content is in dictionary format
             if isinstance(rule_content, str):
-                rule_dict = json.loads(rule_content)
+                rule_dict = json.loads(rule_content)  # Parse JSON string into a dictionary
+            elif isinstance(rule_content, dict):
+                rule_dict = rule_content  # Use the content directly if it's already a dictionary
             else:
-                rule_dict = rule_content
+                logging.error(f"Invalid rule content type: {type(rule_content)}")
+                return
 
             # If it's a list of rules, process each rule individually
             if isinstance(rule_dict, list):
@@ -305,6 +309,32 @@ class PESignatureCompiler:
             logging.error(f"Error parsing rule JSON: {e}")
         except Exception as e:
             logging.error(f"Error compiling rule: {e}")
+
+    def add_private_rule(self, rule_content: str) -> None:
+        """Add a private rule from JSON content."""
+        logging.debug("Adding private rule.")
+        try:
+            # Ensure rule_content is in dictionary format
+            if isinstance(rule_content, str):
+                rule_dict = json.loads(rule_content)  # Parse JSON string into a dictionary
+            elif isinstance(rule_content, dict):
+                rule_dict = rule_content  # Use the content directly if it's already a dictionary
+            else:
+                logging.error(f"Invalid private rule content type: {type(rule_content)}")
+                return
+
+            # If it's a list of rules, process each rule individually
+            if isinstance(rule_dict, list):
+                for rule in rule_dict:
+                    self.process_private_rule(rule)
+            else:
+                # Process single private rule
+                self.process_private_rule(rule_dict)
+
+        except json.JSONDecodeError as e:
+            logging.error(f"Error parsing private rule JSON: {e}")
+        except Exception as e:
+            logging.error(f"Error compiling private rule: {e}")
 
     def process_rule(self, rule_dict: dict) -> None:
         """Validate and compile a single rule."""
@@ -325,6 +355,32 @@ class PESignatureCompiler:
 
         self.rules.append(compiled_rule)
         logging.debug(f"Successfully added rule: {compiled_rule['name']}")
+
+    def process_private_rule(self, rule_dict: dict) -> None:
+        """Validate and compile a private rule."""
+        # Validate required fields for private rules (could be stricter)
+        required_fields = ['rule', 'meta', 'strings', 'conditions', 'private']
+        if not all(field in rule_dict for field in required_fields):
+            missing = [f for f in required_fields if f not in rule_dict]
+            logging.error(f"Missing required fields in private rule: {missing}")
+            return
+
+        # Ensure the 'private' field is correctly set
+        if not rule_dict['private']:
+            logging.error("Private rule must have 'private' set to True.")
+            return
+
+        # Convert the rule format to internal representation
+        compiled_private_rule = {
+            'name': rule_dict['rule'],
+            'meta': rule_dict['meta'],
+            'strings': rule_dict['strings'],
+            'conditions': rule_dict['conditions'],
+            'private': rule_dict['private']  # Add 'private' field
+        }
+
+        self.private_rules.append(compiled_private_rule)
+        logging.debug(f"Successfully added private rule: {compiled_private_rule['name']}")
 
 class PESignatureEngine:
     def __init__(self):
@@ -486,24 +542,27 @@ class PESignatureEngine:
                 matches['confidence_scores']['conditions'] = met_conditions / total_conditions
                 logging.debug(f"Condition match confidence: {matches['confidence_scores']['conditions']}")
 
-            # Calculate overall confidence score
-            weights = {
-                'strings': 0.3,
-                'imports': 0.3,
-                'sections': 0.2,
-                'conditions': 0.2
-            }
+                # Calculate overall confidence score
+                weights = {
+                    'strings': 0.3,
+                    'imports': 0.3,
+                    'sections': 0.2,
+                    'conditions': 0.2
+                }
 
-            overall_confidence = sum(
-                score * weights[category]
-                for category, score in matches['confidence_scores'].items()
-            )
+                # Ensure overall_confidence is always computed
+                overall_confidence = sum(
+                    score * weights.get(category, 0)
+                    for category, score in matches['confidence_scores'].items()
+                )
 
-            matches['overall_confidence'] = round(overall_confidence, 2)
-            logging.debug(f"Overall confidence: {matches['overall_confidence']}")
+                # Check if confidence values are valid before rounding
+                matches['overall_confidence'] = round(overall_confidence, 2) if overall_confidence >= 0 else 0.00
 
-            logging.debug(f"Final matches: {matches}")
-            return matches
+                logging.debug(f"Overall confidence: {matches['overall_confidence']}")
+
+                logging.debug(f"Final matches: {matches}")
+                return matches
 
         except Exception as e:
             logging.error(f"Error in _evaluate_rule: {e}")
@@ -518,12 +577,12 @@ class PESignatureEngine:
             if isinstance(rules_data, list):
                 for rule in rules_data:
                     if rule.get('private', False):
-                        self.add_private_rule(rule)
+                        self.compiler.add_private_rule(rule)
                     else:
                         self.compiler.add_rule(rule)
             elif isinstance(rules_data, dict):
                 if rules_data.get('private', False):
-                    self.add_private_rule(rules_data)
+                    self.compiler.add_private_rule(rules_data)
                 else:
                     self.compiler.add_rule(rules_data)
                     
@@ -533,29 +592,63 @@ class PESignatureEngine:
             logging.error(f"Error loading rules from {rules_file}: {e}")
             raise
 
+    def calculate_overall_confidence(self, rule: dict, match_result: dict) -> float:
+        """Calculate overall confidence based on matched conditions."""
+        try:
+            # Extract confidence scores from match_result
+            confidence_scores = match_result.get('confidence_scores', {})
+            string_confidence = confidence_scores.get('strings', 0.0)
+            import_confidence = confidence_scores.get('imports', 0.0)
+            section_confidence = confidence_scores.get('sections', 0.0)
+            condition_confidence = confidence_scores.get('conditions', 0.0)
+
+            # Compute overall confidence by averaging individual scores
+            total_confidence = (string_confidence + import_confidence + section_confidence + condition_confidence) / 4
+
+            # Log the confidence values
+            logging.debug(f"String Confidence: {string_confidence}")
+            logging.debug(f"Import Confidence: {import_confidence}")
+            logging.debug(f"Section Confidence: {section_confidence}")
+            logging.debug(f"Condition Confidence: {condition_confidence}")
+            logging.debug(f"Calculated Overall Confidence: {total_confidence}")
+
+            return total_confidence
+        except KeyError as e:
+            logging.error(f"Missing confidence score key: {e}")
+            return 0.0  # Default to 0.0 if there's a missing key
+
     def scan_file(self, file_path: str) -> List[Dict]:
         """Scan a PE file and return matches against loaded rules."""
         logging.debug(f"Scanning file: {file_path}")
         matches = []
 
         try:
+            # Analyze the PE file using the analyzer (assuming the 'analyze_pe' method provides relevant features)
             features = self.analyzer.analyze_pe(file_path)
             if not features:
                 logging.error(f"Failed to analyze file: {file_path}")
                 return matches
 
-            # Process each rule
+            # Initialize a list to store rule matches
             for rule in self.compiler.rules:
                 try:
+                    # Evaluate rule match result for the current file
                     match_result = self._evaluate_rule(rule, features)
                     if match_result:
+                        # Calculate overall confidence
+                        rule_confidence = self.calculate_overall_confidence(rule, match_result)
+
+                        match_result['overall_confidence'] = rule_confidence  # Ensure confidence is included
+
                         match_info = {
                             'rule': rule.get('rule'),
                             'meta': rule.get('meta', {}),
-                            'matches': match_result
+                            'matches': match_result,
+                            'confidence': rule_confidence
                         }
                         matches.append(match_info)
-                        logging.debug(f"Rule '{rule.get('rule')}' matched")
+                        logging.debug(f"Rule '{rule.get('rule', 'unknown')}' matched with confidence {rule_confidence}")
+
                 except Exception as e:
                     logging.error(f"Error evaluating rule {rule.get('rule', 'unknown')} for file {file_path}: {e}")
                     continue
