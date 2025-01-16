@@ -847,22 +847,59 @@ def main():
 
         logging.info(f"Extracting features from {len(clean_files)} clean files and {len(malware_files)} malware files.")
 
-        training_data = []
-        for file_path in tqdm(clean_files + malware_files, desc="Extracting features", unit="file"):
+        clean_strings = set()  # To store unique strings from clean files
+        malware_strings = set()  # To store unique strings from malware files
+
+        # Extract strings from clean files
+        for file_path in tqdm(clean_files, desc="Extracting clean strings", unit="file"):
             features = pe_analyzer.analyze_pe(file_path)
             if features:
-                # Determine classification: clean, malware, or unknown
-                if file_path in clean_files:
-                    classification = "clean"  # The file is clean
-                    label = 0  # Clean files get label 0
-                elif file_path in malware_files:
-                    classification = "malware"  # The file is malware
-                    label = 1  # Malware files get label 1
-                else:
-                    classification = "unknown"  # If the file is not in either, classify as unknown
-                    label = -1  # Unknown files get label -1
+                extracted_strings = features.get("strings", [])
+                meaningful_strings = {
+                    string["value"]
+                    for string in extracted_strings
+                    if len(string["value"]) >= 4  # Ensure the string has at least 4 characters
+                       and filter_meaningful_words(word_tokenize(string["value"]))  # Apply NLTK filtering
+                }
+                clean_strings.update(meaningful_strings)
 
-                # Extract strings and filter meaningful ones, separately for clean and malware files
+        # Extract strings from malware files
+        for file_path in tqdm(malware_files, desc="Extracting malware strings", unit="file"):
+            features = pe_analyzer.analyze_pe(file_path)
+            if features:
+                extracted_strings = features.get("strings", [])
+                meaningful_strings = {
+                    string["value"]
+                    for string in extracted_strings
+                    if len(string["value"]) >= 4  # Ensure the string has at least 4 characters
+                       and filter_meaningful_words(word_tokenize(string["value"]))  # Apply NLTK filtering
+                }
+                malware_strings.update(meaningful_strings)
+
+        # Compare clean and malware strings, removing overlap
+        overlapping_strings = clean_strings.intersection(malware_strings)
+        clean_strings -= overlapping_strings  # Remove overlapping strings from clean set
+        malware_strings -= overlapping_strings  # Remove overlapping strings from malware set
+
+        # Store training data while ensuring the proper string classification
+        training_data = []
+        for file_path in tqdm(clean_files + malware_files, desc="Constructing training samples", unit="file"):
+            features = pe_analyzer.analyze_pe(file_path)
+            if features:
+                # Determine classification: clean or malware
+                if file_path in clean_files:
+                    classification = "clean"  # Clean file
+                    label = 0  # Clean files get label 0
+                    strings_to_add = clean_strings  # Add only clean strings
+                elif file_path in malware_files:
+                    classification = "malware"  # Malware file
+                    label = 1  # Malware files get label 1
+                    strings_to_add = malware_strings  # Add only malware strings
+                else:
+                    classification = "unknown"  # Unknown file
+                    label = -1  # Unknown label
+
+                # Append strings relevant to classification
                 extracted_strings = features.get("strings", [])
                 meaningful_strings = [
                     {
@@ -872,41 +909,26 @@ def main():
                         "size": string["size"]
                     }
                     for string in extracted_strings
-                    if len(string["value"]) >= 4  # Ensure the string has at least 4 characters
+                    if string["value"] in strings_to_add  # Only include strings that are unique to this category
+                       and len(string["value"]) >= 4  # Ensure the string has at least 4 characters
                        and filter_meaningful_words(word_tokenize(string["value"]))  # Apply NLTK filtering
                 ]
 
-                # For malware files, only add malware strings
-                if classification == "malware":
-                    # Append only the strings found in malware files
-                    signature = {
-                        "file_name": os.path.basename(file_path),
-                        "file_path": file_path,
-                        "headers": features["headers"],
-                        "sections": features["sections"],  # Keeping the section info
-                        "entropy": features["entropy"],
-                        "imports": features["imports"],
-                        "strings": meaningful_strings,  # Save only filtered meaningful strings
-                        "label": label,
-                        "classification": classification  # Add classification info
-                    }
-                    training_data.append(signature)
+                # Construct the signature for the current file
+                signature = {
+                    "file_name": os.path.basename(file_path),
+                    "file_path": file_path,
+                    "headers": features["headers"],
+                    "sections": features["sections"],  # Keeping the section info
+                    "entropy": features["entropy"],
+                    "imports": features["imports"],
+                    "strings": meaningful_strings,  # Add only unique strings
+                    "label": label,
+                    "classification": classification  # Add classification info
+                }
 
-                # For clean files, only add clean strings
-                if classification == "clean":
-                    # Append only the strings found in clean files
-                    signature = {
-                        "file_name": os.path.basename(file_path),
-                        "file_path": file_path,
-                        "headers": features["headers"],
-                        "sections": features["sections"],  # Keeping the section info
-                        "entropy": features["entropy"],
-                        "imports": features["imports"],
-                        "strings": meaningful_strings,  # Save only filtered meaningful strings
-                        "label": label,
-                        "classification": classification  # Add classification info
-                    }
-                    training_data.append(signature)
+                # Append the signature to the training data
+                training_data.append(signature)
 
         logging.info(f"Feature extraction complete. Total training samples: {len(training_data)}")
 
