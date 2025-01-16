@@ -336,6 +336,7 @@ class PESignatureEngine:
 
     def _evaluate_rule(self, rule: Dict, features: Dict) -> Optional[Dict]:
         """Enhanced rule evaluation with confidence scoring."""
+        """Enhanced rule evaluation with detailed debug logging."""
         try:
             matches = {
                 'strings': [],
@@ -352,9 +353,13 @@ class PESignatureEngine:
                 }
             }
 
+            logging.debug("Starting rule evaluation.")
+            logging.debug(f"Rule: {rule}")
+
             # Handle strings
             total_strings = len(rule.get('strings', []))
             if total_strings > 0:
+                logging.debug(f"Processing {total_strings} string patterns...")
                 for string_def in rule.get('strings', []):
                     if isinstance(string_def, dict):
                         pattern_value = string_def.get('value', '')
@@ -363,20 +368,24 @@ class PESignatureEngine:
                         for file_string in features.get('strings', []):
                             string_value = file_string.get('value', '')
                             if pattern_value.lower() in string_value.lower():
-                                matches['strings'].append({
+                                match_detail = {
                                     'pattern': pattern_value,
                                     'matched': string_value,
                                     'type': pattern_type,
                                     'offset': file_string.get('offset')
-                                })
+                                }
+                                matches['strings'].append(match_detail)
+                                logging.debug(f"Matched string: {match_detail}")
 
                 # Calculate string match confidence
                 matches['confidence_scores']['strings'] = len(matches['strings']) / total_strings
+                logging.debug(f"String match confidence: {matches['confidence_scores']['strings']}")
 
             # Handle imports
             total_imports = sum(len(imp.get('imports', [])) for imp in rule.get('imports', []))
             matched_imports = 0
 
+            logging.debug(f"Processing imports with total_imports={total_imports}...")
             for import_def in rule.get('imports', []):
                 dll_name = import_def.get('dll_name', '').lower()
                 import_list = import_def.get('imports', [])
@@ -388,20 +397,24 @@ class PESignatureEngine:
                             for feature_imp_detail in feature_imp.get('imports', []):
                                 if req_name.lower() == feature_imp_detail.get('name', '').lower():
                                     matched_imports += 1
-                                    matches['imports'].append({
+                                    match_detail = {
                                         'dll': dll_name,
                                         'import': req_name,
                                         'address': feature_imp_detail.get('address')
-                                    })
+                                    }
+                                    matches['imports'].append(match_detail)
+                                    logging.debug(f"Matched import: {match_detail}")
 
             if total_imports > 0:
                 matches['confidence_scores']['imports'] = matched_imports / total_imports
+                logging.debug(f"Import match confidence: {matches['confidence_scores']['imports']}")
 
             # Handle sections
             rule_sections = rule.get('sections', {})
             total_sections = len(rule_sections)
             matched_sections = 0
 
+            logging.debug(f"Processing sections with total_sections={total_sections}...")
             for section_name, section_data in features.get('sections', {}).items():
                 if section_name in rule_sections:
                     required_section = rule_sections[section_name]
@@ -419,53 +432,63 @@ class PESignatureEngine:
 
                     if section_matches and total_props > 0:
                         matched_sections += 1
-                        matches['sections'].append({
+                        match_detail = {
                             'name': section_name,
                             'data': section_data,
                             'match_quality': matched_props / total_props
-                        })
+                        }
+                        matches['sections'].append(match_detail)
+                        logging.debug(f"Matched section: {match_detail}")
 
             if total_sections > 0:
                 matches['confidence_scores']['sections'] = matched_sections / total_sections
+                logging.debug(f"Section match confidence: {matches['confidence_scores']['sections']}")
 
-            # Evaluate conditions and calculate condition confidence
+            # Evaluate conditions
             conditions = rule.get('conditions', {})
             total_conditions = len(conditions)
             met_conditions = 0
 
+            logging.debug(f"Processing conditions with total_conditions={total_conditions}...")
             if conditions:
                 # Check minimum imports
                 min_imports = conditions.get('min_imports', 0)
                 if len(matches['imports']) >= min_imports:
                     met_conditions += 1
                     matches['conditions_met'].append('min_imports')
+                    logging.debug(f"Condition 'min_imports' met.")
 
                 # Check minimum sections
                 min_sections = conditions.get('min_sections', 0)
                 if len(matches['sections']) >= min_sections:
                     met_conditions += 1
                     matches['conditions_met'].append('min_sections')
+                    logging.debug(f"Condition 'min_sections' met.")
 
                 # Check entropy threshold
                 entropy_threshold = conditions.get('entropy_threshold', 0)
                 if features.get('entropy', {}).get('full', 0) >= entropy_threshold:
                     met_conditions += 1
                     matches['conditions_met'].append('entropy_threshold')
+                    logging.debug(f"Condition 'entropy_threshold' met.")
 
                 # Check required IAT imports
                 iat_imports = conditions.get('iat_imports', [])
                 if all(imp in features.get('iat', {}) for imp in iat_imports):
                     met_conditions += 1
                     matches['conditions_met'].append('iat_imports')
+                    logging.debug(f"Condition 'iat_imports' met.")
 
                 # Check required section names
                 section_names = conditions.get('section_names', [])
                 if all(name in features.get('sections', {}) for name in section_names):
                     met_conditions += 1
                     matches['conditions_met'].append('section_names')
+                    logging.debug(f"Condition 'section_names' met.")
 
             if total_conditions > 0:
                 matches['confidence_scores']['conditions'] = met_conditions / total_conditions
+                logging.debug(f"Condition match confidence: {matches['confidence_scores']['conditions']}")
 
             # Calculate overall confidence score
             weights = {
@@ -481,10 +504,16 @@ class PESignatureEngine:
             )
 
             matches['overall_confidence'] = round(overall_confidence, 2)
+            logging.debug(f"Overall confidence: {matches['overall_confidence']}")
 
             # Return matches only if minimum confidence threshold is met
             MIN_CONFIDENCE_THRESHOLD = 0.5
-            return matches if overall_confidence >= MIN_CONFIDENCE_THRESHOLD else None
+            if overall_confidence >= MIN_CONFIDENCE_THRESHOLD:
+                logging.debug(f"Final matches: {matches}")
+                return matches
+            else:
+                logging.debug("Overall confidence below threshold. No match returned.")
+                return None
 
         except Exception as e:
             logging.error(f"Error in _evaluate_rule: {e}")
