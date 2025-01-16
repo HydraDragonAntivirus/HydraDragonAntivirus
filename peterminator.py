@@ -562,21 +562,25 @@ class PESignatureEngine:
                 matches['confidence_scores']['conditions'] = met_conditions / total_conditions
                 logging.debug(f"Condition match confidence: {matches['confidence_scores']['conditions']}")
 
-                # Calculate overall confidence score
-                weights = {
-                    'strings': 0.3,
-                    'imports': 0.3,
-                    'sections': 0.2,
-                    'conditions': 0.2
-                }
+            # Calculate overall confidence score
+            weights = {
+                'strings': 0.3,
+                'imports': 0.3,
+                'sections': 0.2,
+                'conditions': 0.2
+            }
 
-                overall_confidence = sum(
-                    score * weights.get(category, 0)
-                    for category, score in matches['confidence_scores'].items()
-                )
+            overall_confidence = sum(
+                score * weights.get(category, 0)
+                for category, score in matches['confidence_scores'].items()
+            )
 
-                matches['overall_confidence'] = round(overall_confidence, 2)
-                logging.debug(f"Overall confidence: {matches['overall_confidence']}")
+            # Handle cases where all confidence scores are zero
+            if all(score == 0 for score in matches['confidence_scores'].values()):
+                overall_confidence = 0.0
+
+            matches['overall_confidence'] = round(overall_confidence, 2)
+            logging.debug(f"Overall confidence: {matches['overall_confidence']}")
 
             logging.debug(f"Final matches: {matches}")
             return matches
@@ -657,37 +661,21 @@ class PESignatureEngine:
             logging.error(f"Error scanning file {file_path}: {e}")
             return matches
 
-    def calculate_overall_confidence(self, rule: dict, match_result: dict) -> float:
-        """Calculate overall confidence based on matched conditions."""
-        try:
-            # Extract confidence scores from match_result
-            confidence_scores = match_result.get('confidence_scores', {})
-            string_confidence = confidence_scores.get('strings', 0.0)
-            import_confidence = confidence_scores.get('imports', 0.0)
-            section_confidence = confidence_scores.get('sections', 0.0)
-            condition_confidence = confidence_scores.get('conditions', 0.0)
-
-            # Compute overall confidence by averaging individual scores
-            total_confidence = (string_confidence + import_confidence + section_confidence + condition_confidence) / 4
-
-            # Log the confidence values
-            logging.debug(f"String Confidence: {string_confidence}")
-            logging.debug(f"Import Confidence: {import_confidence}")
-            logging.debug(f"Section Confidence: {section_confidence}")
-            logging.debug(f"Condition Confidence: {condition_confidence}")
-            logging.debug(f"Calculated Overall Confidence: {total_confidence}")
-
-            return total_confidence
-        except KeyError as e:
-            logging.error(f"Missing confidence score key: {e}")
-            return 0.0
-
 def log_match_details(match, min_confidence):
     """Logs detailed information about a match."""
     # Calculate overall confidence if not present
     if 'overall_confidence' not in match and 'confidence_scores' in match:
-        engine = PESignatureEngine()
-        match['overall_confidence'] = engine.calculate_overall_confidence({}, match)
+        weights = {
+            'strings': 0.3,
+            'imports': 0.3,
+            'sections': 0.2,
+            'conditions': 0.2
+        }
+        overall_confidence = sum(
+            score * weights.get(category, 0)
+            for category, score in match['confidence_scores'].items()
+        )
+        match['overall_confidence'] = round(overall_confidence, 2)
     elif 'overall_confidence' not in match and 'confidence' in match:
         match['overall_confidence'] = match['confidence']
     else:
