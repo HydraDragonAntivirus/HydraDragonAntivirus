@@ -326,28 +326,205 @@ class PESignatureCompiler:
         self.rules.append(compiled_rule)
         logging.debug(f"Successfully added rule: {compiled_rule['name']}")
 
-    def load_rules(self, input_file: str) -> None:
-        """Load compiled rules from a file."""
-        logging.debug(f"Loading rules from {input_file}")
-        try:
-            with open(input_file, 'r') as f:
-                loaded_rules = f.read()
-            
-            # Add each loaded rule through the add_rule method for validation
-            for rule in loaded_rules.split('\n\n'):  # Assume rules are separated by double newline
-                self.add_rule(rule)
-                
-            logging.info(f"Successfully loaded {len(self.rules)} rules from {input_file}")
-        except Exception as e:
-            logging.error(f"Error loading rules from {input_file}: {e}")
-            raise
-
 class PESignatureEngine:
     def __init__(self):
         logging.info("PESignatureEngine initialized.")
         self.analyzer = PEAnalyzer()
         self.compiler = PESignatureCompiler()
         self.rules = []
+        self.private_rules = {}  # Store private rules separately
+
+    def add_private_rule(self, rule: Dict) -> None:
+        """Add a private rule that can be referenced by other rules."""
+        if not rule.get('name'):
+            logging.error("Private rule must have a name")
+            return
+            
+        self.private_rules[rule['name']] = rule
+        logging.debug(f"Added private rule: {rule['name']}")
+
+    def _compile_regex(self, pattern: str) -> Optional[re.Pattern]:
+        """Safely compile a regex pattern."""
+        try:
+            if pattern.startswith('/') and pattern.rfind('/') > 0:
+                # Extract flags from the regex pattern (e.g., /pattern/i)
+                last_slash = pattern.rfind('/')
+                pattern_content = pattern[1:last_slash]
+                flags_str = pattern[last_slash + 1:]
+                
+                # Convert string flags to re module flags
+                flags = 0
+                if 'i' in flags_str:
+                    flags |= re.IGNORECASE
+                if 'm' in flags_str:
+                    flags |= re.MULTILINE
+                if 's' in flags_str:
+                    flags |= re.DOTALL
+                    
+                return re.compile(pattern_content, flags)
+            else:
+                return re.compile(pattern)
+        except re.error as e:
+            logging.error(f"Invalid regex pattern '{pattern}': {e}")
+            return None
+
+    def _evaluate_rule(self, rule: Dict, features: Dict) -> Optional[Dict]:
+        """Enhanced rule evaluation with regex support."""
+        try:
+            matches = {
+                'strings': [],
+                'imports': [],
+                'sections': [],
+                'resources': [],
+                'headers': [],
+                'private_rule_matches': []
+            }
+
+            # Process strings section
+            for pattern_id, pattern in rule.get('strings', {}).items():
+                is_regex = False
+                regex_pattern = None
+                
+                if isinstance(pattern, dict):
+                    # Handle structured string definitions
+                    pattern_type = pattern.get('type', 'plain')
+                    pattern_value = pattern.get('value', '')
+                    is_regex = pattern_type == 'regex'
+                    if is_regex:
+                        regex_pattern = self._compile_regex(pattern_value)
+                elif isinstance(pattern, str):
+                    # Check if it's a regex pattern (starts and ends with /)
+                    if pattern.startswith('/') and pattern.rfind('/') > 0:
+                        is_regex = True
+                        regex_pattern = self._compile_regex(pattern)
+                    pattern_value = pattern
+
+                # Check file strings
+                for file_string in features.get('strings', []):
+                    string_value = file_string.get('value', '')
+                    if is_regex and regex_pattern:
+                        if regex_pattern.search(string_value):
+                            matches['strings'].append({
+                                'pattern_id': pattern_id,
+                                'string': string_value,
+                                'offset': file_string.get('offset'),
+                                'type': 'regex_match'
+                            })
+                    elif not is_regex and pattern_value.lower() in string_value.lower():
+                        matches['strings'].append({
+                            'pattern_id': pattern_id,
+                            'string': string_value,
+                            'offset': file_string.get('offset'),
+                            'type': 'plain_match'
+                        })
+
+            # Check imports with regex support
+            for imp in features.get('imports', []):
+                dll_name = imp.get('dll_name', '').lower()
+                for imp_detail in imp.get('imports', []):
+                    imp_name = imp_detail.get('name', '')
+                    if imp_name:
+                        for pattern_id, pattern in rule.get('strings', {}).items():
+                            if isinstance(pattern, dict) and pattern.get('type') == 'regex':
+                                regex_pattern = self._compile_regex(pattern['value'])
+                                if regex_pattern and regex_pattern.search(imp_name):
+                                    matches['imports'].append({
+                                        'pattern_id': pattern_id,
+                                        'dll': dll_name,
+                                        'import': imp_name,
+                                        'type': 'regex_match'
+                                    })
+                            elif isinstance(pattern, str):
+                                if pattern.startswith('/'):
+                                    regex_pattern = self._compile_regex(pattern)
+                                    if regex_pattern and regex_pattern.search(imp_name):
+                                        matches['imports'].append({
+                                            'pattern_id': pattern_id,
+                                            'dll': dll_name,
+                                            'import': imp_name,
+                                            'type': 'regex_match'
+                                        })
+                                elif pattern.lower() in imp_name.lower():
+                                    matches['imports'].append({
+                                        'pattern_id': pattern_id,
+                                        'dll': dll_name,
+                                        'import': imp_name,
+                                        'type': 'plain_match'
+                                    })
+
+            # Evaluate private rules
+            for condition in rule.get('conditions', []):
+                if isinstance(condition, str) and 'private.' in condition:
+                    private_rule_name = condition.split('private.')[1].strip()
+                    if private_rule_name in self.private_rules:
+                        private_match = self._evaluate_rule(self.private_rules[private_rule_name], features)
+                        if private_match:
+                            matches['private_rule_matches'].append({
+                                'rule_name': private_rule_name,
+                                'matches': private_match
+                            })
+
+            # Evaluate conditions
+            all_conditions_met = True
+            for condition in rule.get('conditions', []):
+                condition = str(condition).lower().strip()
+                
+                # Handle private rule conditions
+                if condition.startswith('private.'):
+                    private_rule_name = condition.split('private.')[1].strip()
+                    if not any(m['rule_name'] == private_rule_name for m in matches['private_rule_matches']):
+                        all_conditions_met = False
+                        break
+                
+                # Handle other conditions as before
+                elif condition == "any of strings" and not matches['strings']:
+                    all_conditions_met = False
+                    break
+                elif condition == "any of imports" and not matches['imports']:
+                    all_conditions_met = False
+                    break
+                elif condition.startswith('entropy.'):
+                    try:
+                        parts = condition.split()
+                        threshold = float(parts[2])
+                        if parts[0] == 'entropy.full':
+                            actual = features.get('entropy', {}).get('full', 0)
+                            if actual < threshold:
+                                all_conditions_met = False
+                                break
+                    except (ValueError, IndexError):
+                        all_conditions_met = False
+                        break
+
+            return matches if all_conditions_met else None
+
+        except Exception as e:
+            logging.error(f"Error in _evaluate_rule: {e}")
+            return None
+
+    def load_rules(self, rules_file: str) -> None:
+        """Load rules including private rules from a JSON file."""
+        try:
+            with open(rules_file, 'r') as f:
+                rules_data = json.load(f)
+                
+            if isinstance(rules_data, list):
+                for rule in rules_data:
+                    if rule.get('private', False):
+                        self.add_private_rule(rule)
+                    else:
+                        self.compiler.add_rule(rule)
+            elif isinstance(rules_data, dict):
+                if rules_data.get('private', False):
+                    self.add_private_rule(rules_data)
+                else:
+                    self.compiler.add_rule(rules_data)
+                    
+            logging.info(f"Loaded {len(self.compiler.rules)} public rules and {len(self.private_rules)} private rules")
+            
+        except Exception as e:
+            logging.error(f"Error loading rules from {rules_file}: {e}")
+            raise
 
     def scan_file(self, file_path: str) -> List[Dict]:
         """
@@ -390,110 +567,6 @@ class PESignatureEngine:
         except Exception as e:
             logging.error(f"Error scanning file {file_path}: {e}")
             return matches
-
-    def _evaluate_rule(self, rule: Dict, features: Dict) -> Optional[Dict]:
-        """Evaluate a single rule against the PE file features."""
-        try:
-            matches = {
-                'strings': [],
-                'imports': [],
-                'sections': [],
-                'resources': [],
-                'headers': []
-            }
-
-            # Check imports
-            for imp in features.get('imports', []):
-                dll_name = imp.get('dll_name', '').lower()
-                for imp_detail in imp.get('imports', []):
-                    imp_name = imp_detail.get('name', '')
-                    if imp_name:
-                        # Check against rule strings
-                        for pattern_id, pattern in rule.get('strings', {}).items():
-                            if isinstance(pattern, str) and pattern.lower() in imp_name.lower():
-                                matches['imports'].append({
-                                    'pattern_id': pattern_id,
-                                    'dll': dll_name,
-                                    'import': imp_name,
-                                    'address': imp_detail.get('address'),
-                                    'ordinal': imp_detail.get('ordinal')
-                                })
-
-            # Check section characteristics
-            for section_name, section_data in features.get('sections', {}).items():
-                section_entropy = section_data.get('entropy', 0)
-                if section_entropy > 7.0:  # High entropy check
-                    matches['sections'].append({
-                        'name': section_name,
-                        'entropy': section_entropy,
-                        'characteristics': section_data.get('characteristics')
-                    })
-
-            # Check strings in file
-            for file_string in features.get('strings', []):
-                for pattern_id, pattern in rule.get('strings', {}).items():
-                    if isinstance(pattern, str) and pattern.lower() in file_string.get('value', '').lower():
-                        matches['strings'].append({
-                            'pattern_id': pattern_id,
-                            'string': file_string.get('value'),
-                            'offset': file_string.get('offset'),
-                            'type': file_string.get('type')
-                        })
-
-            # Evaluate conditions
-            all_conditions_met = True
-            for condition in rule.get('conditions', []):
-                condition = condition.lower().strip()
-                
-                # Handle basic string presence conditions
-                if condition == "any of strings" and not matches['strings']:
-                    all_conditions_met = False
-                    break
-                    
-                # Handle import conditions
-                elif condition == "any of imports" and not matches['imports']:
-                    all_conditions_met = False
-                    break
-                    
-                # Handle entropy conditions
-                elif condition.startswith('entropy.'):
-                    try:
-                        parts = condition.split()
-                        threshold = float(parts[2])
-                        if parts[0] == 'entropy.full':
-                            actual = features.get('entropy', {}).get('full', 0)
-                            if actual < threshold:
-                                all_conditions_met = False
-                                break
-                    except (ValueError, IndexError):
-                        all_conditions_met = False
-                        break
-
-            return matches if all_conditions_met else None
-
-        except Exception as e:
-            logging.error(f"Error in _evaluate_rule: {e}")
-            return None
-
-    def load_rules(self, rules_file: str) -> None:
-        """Load rules from a JSON file."""
-        try:
-            with open(rules_file, 'r') as f:
-                rules_data = json.load(f)
-                
-            if isinstance(rules_data, list):
-                for rule in rules_data:
-                    self.compiler.add_rule(rule)
-            elif isinstance(rules_data, dict):
-                self.compiler.add_rule(rules_data)
-            else:
-                raise ValueError("Invalid rules format - must be JSON object or array")
-                
-            logging.info(f"Successfully loaded {len(self.compiler.rules)} rules")
-            
-        except Exception as e:
-            logging.error(f"Error loading rules from {rules_file}: {e}")
-            raise
 
 def main():
     """Main entry point for PE signature scanning."""
