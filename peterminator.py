@@ -352,9 +352,6 @@ class PESignatureEngine:
                 }
             }
 
-            logging.debug("Starting rule evaluation.")
-            logging.debug(f"Rule: {rule}")
-
             # Handle strings
             total_strings = len(rule.get('strings', []))
             if total_strings > 0:
@@ -505,14 +502,8 @@ class PESignatureEngine:
             matches['overall_confidence'] = round(overall_confidence, 2)
             logging.debug(f"Overall confidence: {matches['overall_confidence']}")
 
-            # Return matches only if minimum confidence threshold is met
-            MIN_CONFIDENCE_THRESHOLD = 0.5
-            if overall_confidence >= MIN_CONFIDENCE_THRESHOLD:
-                logging.debug(f"Final matches: {matches}")
+            logging.debug(f"Final matches: {matches}")
                 return matches
-            else:
-                logging.debug("Overall confidence below threshold. No match returned.")
-                return None
 
         except Exception as e:
             logging.error(f"Error in _evaluate_rule: {e}")
@@ -575,20 +566,64 @@ class PESignatureEngine:
             logging.error(f"Error scanning file {file_path}: {e}")
             return matches
 
+def log_match_details(match, min_confidence):
+    """Logs detailed information about a match."""
+    if match['overall_confidence'] < min_confidence:
+        logging.debug(f"Skipping low-confidence match: {match['rule']} (Confidence: {match['overall_confidence']})")
+        return
+
+    logging.info(f"  Rule: {match['rule']} (Confidence: {match['overall_confidence']})")
+
+    # Log matched strings
+    if "strings" in match and match["strings"]:
+        logging.info("  Matched Strings:")
+        for string_match in match["strings"]:
+            logging.info(f"    Pattern: {string_match['pattern']} | Matched: {string_match['matched']}")
+
+    # Log matched imports
+    if "imports" in match and match["imports"]:
+        logging.info("  Matched Imports:")
+        for import_match in match["imports"]:
+            logging.info(f"    DLL: {import_match['dll']} | Import: {import_match['import']} | Address: {import_match.get('address')}")
+
+    # Log matched sections
+    if "sections" in match and match["sections"]:
+        logging.info("  Matched Sections:")
+        for section_match in match["sections"]:
+            logging.info(f"    Section: {section_match['name']} | Entropy: {section_match['entropy']} | Match Quality: {section_match['match_quality']}")
+
+    # Log conditions met
+    if "conditions_met" in match and match["conditions_met"]:
+        logging.info("  Conditions Met:")
+        for condition in match["conditions_met"]:
+            logging.info(f"    {condition}")
+
 def main():
     """Main entry point for PE signature scanning."""
+    # Set up logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[logging.StreamHandler(sys.stdout)]
+    )
+
     # Set up argument parser
     parser = argparse.ArgumentParser(description="PE Signature Compiler and Analyzer")
     parser.add_argument('action', choices=['scan'], help="Action to perform: scan file")
     parser.add_argument('--rules', type=str, help="Path to the rules file")
-    parser.add_argument('--file', type=str, help="Path to the PE file or directory to scan")
+    parser.add_argument('--file', type=str, required=True, help="Path to the PE file or directory to scan")
+    parser.add_argument('--min-confidence', type=float, default=0.5, help="Minimum confidence threshold for matches")
+    parser.add_argument('--verbose', action='store_true', help="Enable verbose logging for debugging")
 
     # Parse arguments
     args = parser.parse_args()
 
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+
     if args.action == 'scan':
         if not args.file or not os.path.exists(args.file):
-            logging.error("A valid file path or directory must be specified for scan action.")
+            logging.error("A valid file path or directory must be specified for the scan action.")
             sys.exit(1)
 
         # Perform the scanning
@@ -600,7 +635,7 @@ def main():
                 logging.info(f"Loading rules from {args.rules}")
                 signature_engine.load_rules(args.rules)
             else:
-                logging.warning("No rules file specified or file doesn't exist, using default rules.")
+                logging.warning("No rules file specified or file doesn't exist. Using default rules.")
 
             files_scanned = 0
             files_clean = 0
@@ -622,10 +657,7 @@ def main():
                         files_with_matches += 1
                         logging.info(f"File {file_path} matches the following rules:")
                         for match in matches:
-                            logging.info(f"Rule: {match['rule']}")
-                            for match_type, match_data in match.items():
-                                if match_type != 'rule':
-                                    logging.info(f"  {match_type}: {match_data}")
+                            log_match_details(match, args.min_confidence)
                     else:
                         files_clean += 1
 
@@ -638,21 +670,18 @@ def main():
                     files_with_matches += 1
                     logging.info(f"File {args.file} matches the following rules:")
                     for match in matches:
-                        logging.info(f"Rule: {match['rule']}")
-                        for match_type, match_data in match.items():
-                            if match_type != 'rule':
-                                logging.info(f"  {match_type}: {match_data}")
+                        log_match_details(match, args.min_confidence)
                 else:
                     files_clean += 1
 
             # Print a summary of the scan results
-            logging.info(f"Scan Summary:")
-            logging.info(f"Total files scanned: {files_scanned}")
-            logging.info(f"Clean files: {files_clean}")
-            logging.info(f"Files with matches: {files_with_matches}")
+            logging.info("Scan Summary:")
+            logging.info(f"  Total files scanned: {files_scanned}")
+            logging.info(f"  Clean files: {files_clean}")
+            logging.info(f"  Files with matches: {files_with_matches}")
 
         except Exception as e:
-            logging.error(f"Error scanning file: {e}")
+            logging.error(f"Error during scanning: {e}")
             sys.exit(1)
 
 if __name__ == "__main__":
