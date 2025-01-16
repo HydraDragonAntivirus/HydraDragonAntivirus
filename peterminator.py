@@ -668,7 +668,7 @@ def log_match_details(match, min_confidence):
         logging.debug(f"Skipping low-confidence match: {match['rule']} (Confidence: {match['overall_confidence']})")
         return
 
-    logging.info(f"  Rule: {match['rule']} (Confidence: {match['overall_confidence']:.4f})")
+    logging.warning(f"  Rule: {match['rule']} (Confidence: {match['overall_confidence']:.4f})")
 
     # Log matched strings
     if match.get("strings"):
@@ -730,9 +730,7 @@ def main():
             if args.rules and os.path.exists(args.rules):
                 logging.info(f"Loading rules from {args.rules}")
                 signature_engine.load_rules(args.rules)
-            else:
-                logging.warning("No rules file specified or file doesn't exist. Using default rules.")
-
+    
             files_scanned = 0
             files_clean = 0
             files_with_matches = 0
