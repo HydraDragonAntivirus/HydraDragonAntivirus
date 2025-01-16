@@ -10,11 +10,15 @@ import sys
 import argparse
 from tqdm import tqdm
 import nltk
+from difflib import SequenceMatcher
+import string
+
+script_dir = os.getcwd()
 
 # Ensure that necessary NLTK resources are available
 nltk.download('punkt')
-nltk.download('punkt_tab')
 nltk.download('words')
+nltk.download('punkt_tab')
 
 from nltk.corpus import words
 from nltk.tokenize import word_tokenize
@@ -22,33 +26,41 @@ from nltk.tokenize import word_tokenize
 # Create a set of English words for faster lookup, only including words with 4 or more characters
 nltk_words = set(word for word in words.words() if len(word) >= 4)
 
-# A filter function to keep only meaningful words, remove duplicates, and ensure each word is at least 4 characters long
-def filter_meaningful_words(word_list):
-    """
-    Filter out non-English, meaningless strings, duplicates, and words shorter than 4 characters.
-    :param word_list: List of words (strings) to filter.
-    :return: List of unique, meaningful English words with at least 4 characters.
-    """
-    # Remove duplicates by converting the list to a set
-    return list(set(word for word in word_list if word.isalpha() and word.lower() in nltk_words and len(word) >= 4))
-
-# Set script directory
-script_dir = os.getcwd()
-
 detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
 detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 
-# Define log directories and files
-log_directory = os.path.join(script_dir, "log")
-if not os.path.exists(log_directory):
-    os.makedirs(log_directory)
+def filter_meaningful_words(word_list: List[str]) -> List[str]:
+    """
+    Filter out non-English, meaningless strings, duplicates, and words shorter than 4 characters.
+    
+    Args:
+        word_list: List of words to filter
+        
+    Returns:
+        List of unique, meaningful English words with at least 4 characters
+    """
+    # Convert to lowercase for comparison
+    word_list = [word.lower() for word in word_list]
+    
+    # Remove duplicates and apply filters
+    filtered_words = []
+    seen_words = set()
+    
+    for word in word_list:
+        if (
+            word not in seen_words and
+            word.isalpha() and
+            len(word) >= 4 and
+            word in nltk_words
+        ):
+            filtered_words.append(word)
+            seen_words.add(word)
+    
+    return filtered_words
 
-application_log_file = os.path.join(log_directory, "peterminator.log")
-
-# Configure logging
-logging.basicConfig(filename=application_log_file,
-                   level=logging.DEBUG,
-                   format='%(asctime)s - %(levelname)s - %(message)s')
+def calculate_string_similarity(str1: str, str2: str) -> float:
+    """Calculate similarity ratio between two strings."""
+    return SequenceMatcher(None, str1.lower(), str2.lower()).ratio()
 
 class PEAnalyzer:
     def __init__(self):
@@ -262,36 +274,66 @@ class PEAnalyzer:
             return None
 
     def analyze_pe(self, file_path: str) -> Optional[Dict[str, Any]]:
-        """Analyze a PE file comprehensively."""
+        """Analyze a PE file comprehensively with enhanced logging and string filtering."""
         try:
             features = self.extract_features(file_path)
             if not features:
+                logging.error(f"Failed to extract features from {file_path}")
                 return None
 
             die_analysis = self._analyze_with_die(file_path)
+            logging.info(f"DIE analysis completed for {file_path}")
 
             with open(file_path, 'rb') as f:
                 file_data = f.read()
 
-            # Validate 'sections' format
+            # Validate 'sections' format with detailed logging
             sections = features.get('sections', {})
             if not isinstance(sections, dict):
-                logging.error(f"Invalid format for 'sections': {sections}")
+                logging.error(f"Invalid format for 'sections': {type(sections)}")
                 return None
 
-            # Validate and log strings
-            extracted_strings = self._extract_strings(file_data)
-            if not isinstance(extracted_strings, list):
-                logging.error(f"Invalid output from _extract_strings: {extracted_strings}")
+            # Enhanced string extraction with filtering
+            raw_strings = self._extract_strings(file_data)
+            if not isinstance(raw_strings, list):
+                logging.error(f"Invalid output from _extract_strings: {type(raw_strings)}")
                 return None
+
+            # Filter and deduplicate strings
+            filtered_strings = {}  # Use dict for deduplication
+            for string_entry in raw_strings:
+                string_value = string_entry['value']
+
+                # Apply filtering criteria
+                if (len(string_value) >= 4 and  # Length check
+                        not string_value.isdigit() and  # Not just numbers
+                        not all(c in string.punctuation for c in string_value)):  # Not just punctuation
+
+                    # Use string value as key for deduplication
+                    if string_value not in filtered_strings:
+                        filtered_strings[string_value] = string_entry
+                        logging.debug(f"Accepted string: {string_value[:50]}... at offset {string_entry['offset']}")
+                    else:
+                        logging.debug(f"Duplicate string found: {string_value[:50]}...")
+
+            logging.info(f"String analysis: Found {len(raw_strings)} strings, {len(filtered_strings)} after filtering")
+
+            # Calculate entropy scores
+            full_entropy = self._calculate_entropy(file_data)
+            section_entropies = {name: data.get('entropy', 0) for name, data in sections.items()}
+
+            # Log entropy analysis
+            logging.info(f"File entropy: {full_entropy:.4f}")
+            for section_name, entropy in section_entropies.items():
+                logging.info(f"Section {section_name} entropy: {entropy:.4f}")
 
             return {
                 **features,
                 'die_info': die_analysis,
-                'strings': extracted_strings,
+                'strings': list(filtered_strings.values()),
                 'entropy': {
-                    'full': self._calculate_entropy(file_data),
-                    'sections': {name: data.get('entropy', 0) for name, data in sections.items()}
+                    'full': full_entropy,
+                    'sections': section_entropies
                 }
             }
         except Exception as e:
@@ -350,146 +392,147 @@ class PESignatureCompiler:
         logging.debug(f"Successfully added rule: {compiled_rule['name']}")
 
 class PESignatureEngine:
-    def __init__(self):
+    def __init__(self, similarity_threshold=0.9):
         logging.info("PESignatureEngine initialized.")
         self.analyzer = PEAnalyzer()
         self.compiler = PESignatureCompiler()
         self.rules = []
+        self.similarity_threshold = similarity_threshold  # Store threshold as an instance variable
 
     def _evaluate_rule(self, rule: dict, features: dict) -> dict:
         """Enhanced rule evaluation with detailed debug logging."""
+        if not isinstance(rule, dict):
+            logging.error(f"Invalid rule format: {type(rule)}")
+            return {}
+
+        rule_name = rule.get('name', 'unknown')
+        logging.debug(f"Starting evaluation of rule: {rule_name}")
+
         try:
+            # Initialize matches dictionary
             matches = {
                 'strings': [],
                 'imports': [],
-                'sections': [],
-                'resources': [],
-                'headers': [],
-                'conditions_met': [],
+                'near_matches': {
+                    'strings': [],
+                    'imports': [],
+                },
                 'confidence_scores': {
                     'strings': 0.0,
                     'imports': 0.0,
-                    'sections': 0.0,
-                    'conditions': 0.0
-                }
+                },
             }
 
-            # Handle strings
-            total_strings = len(rule.get('strings', []))
+            # Process strings
+            rule_strings = rule.get('strings', [])
+            feature_strings = features.get('strings', [])
+            total_strings = len(rule_strings)
+
             if total_strings > 0:
-                for string_def in rule.get('strings', []):
+                for string_def in rule_strings:
                     pattern_value = string_def.get('value', '')
-                    for file_string in features.get('strings', []):
-                        string_value = file_string.get('value', '')
-                        if pattern_value.lower() in string_value.lower():
-                            match_detail = {
+                    best_match = None
+                    best_similarity = 0.0
+
+                    for feature_string in feature_strings:
+                        string_value = feature_string.get('value', '')
+                        similarity = calculate_string_similarity(pattern_value, string_value)
+
+                        if similarity == 1.0:
+                            matches['strings'].append({
                                 'pattern': pattern_value,
                                 'matched': string_value,
-                                'offset': file_string.get('offset')
+                                'offset': feature_string.get('offset'),
+                            })
+                            break
+                        elif similarity >= self.similarity_threshold and similarity > best_similarity:
+                            best_match = {
+                                'pattern': pattern_value,
+                                'matched': string_value,
+                                'offset': feature_string.get('offset'),
+                                'similarity': similarity,
                             }
-                            matches['strings'].append(match_detail)
+                            best_similarity = similarity
 
-                matches['confidence_scores']['strings'] = len(
-                    matches['strings']) / total_strings if total_strings > 0 else 0
+                    if best_match:
+                        matches['near_matches']['strings'].append(best_match)
 
-            # Handle imports
-            total_imports = sum(len(imp.get('imports', [])) for imp in rule.get('imports', []))
-            matched_imports = 0
-            for import_def in rule.get('imports', []):
-                dll_name = import_def.get('dll_name', '').lower()
-                import_list = import_def.get('imports', [])
+                matches['confidence_scores']['strings'] = (
+                    len(matches['strings']) +
+                    sum(match['similarity'] for match in matches['near_matches']['strings'])
+                ) / total_strings
 
-                for feature_imp in features.get('imports', []):
-                    if feature_imp.get('dll_name', '').lower() == dll_name:
-                        for required_imp in import_list:
-                            req_name = required_imp.get('name', '')
-                            for feature_imp_detail in feature_imp.get('imports', []):
-                                if req_name.lower() == feature_imp_detail.get('name', '').lower():
-                                    matched_imports += 1
-                                    match_detail = {
-                                        'dll': dll_name,
-                                        'import': req_name,
-                                        'address': feature_imp_detail.get('address')
-                                    }
-                                    matches['imports'].append(match_detail)
+            # Process imports
+            rule_imports = rule.get('imports', [])
+            feature_imports = features.get('imports', [])
+            total_imports = sum(len(imp.get('imports', [])) for imp in rule_imports)
 
-            matches['confidence_scores']['imports'] = matched_imports / total_imports if total_imports > 0 else 0
+            if total_imports > 0:
+                for import_def in rule_imports:
+                    dll_name = import_def.get('dll_name', '').lower()
+                    import_list = import_def.get('imports', [])
 
-            # Handle sections
-            rule_sections = rule.get('sections', {})
-            total_sections = len(rule_sections)
-            matched_sections = 0
-            for section_name, section_data in features.get('sections', {}).items():
-                if section_name in rule_sections:
-                    required_section = rule_sections[section_name]
-                    section_matches = True
-                    total_props = 0
-                    matched_props = 0
-                    for key, value in required_section.items():
-                        if key in section_data:
-                            total_props += 1
-                            if section_data.get(key) == value:
-                                matched_props += 1
-                            else:
-                                section_matches = False
-                    if section_matches and total_props > 0:
-                        matched_sections += 1
-                        match_detail = {
-                            'name': section_name,
-                            'data': section_data,
-                            'match_quality': matched_props / total_props
-                        }
-                        matches['sections'].append(match_detail)
+                    for feature_import in feature_imports:
+                        if feature_import.get('dll_name', '').lower() == dll_name:
+                            for required_import in import_list:
+                                req_name = required_import.get('name', '')
+                                for feature_imp in feature_import.get('imports', []):
+                                    feat_name = feature_imp.get('name', '')
+                                    similarity = calculate_string_similarity(req_name, feat_name)
 
-            matches['confidence_scores']['sections'] = matched_sections / total_sections if total_sections > 0 else 0
+                                    if similarity == 1.0:
+                                        matches['imports'].append({
+                                            'dll': dll_name,
+                                            'import': req_name,
+                                            'address': feature_imp.get('address'),
+                                        })
+                                    elif similarity >= self.similarity_threshold:
+                                        matches['near_matches']['imports'].append({
+                                            'dll': dll_name,
+                                            'required': req_name,
+                                            'found': feat_name,
+                                            'similarity': similarity,
+                                        })
 
-            # Evaluate conditions
-            conditions = rule.get('conditions', {})
-            total_conditions = len(conditions)
-            met_conditions = 0
-
-            if conditions:
-                # Check conditions like min_imports, min_sections, etc.
-                if 'min_imports' in conditions:
-                    min_imports = conditions.get('min_imports', 0)
-                    if matched_imports >= min_imports:
-                        met_conditions += 1
-
-                if 'min_sections' in conditions:
-                    min_sections = conditions.get('min_sections', 0)
-                    if matched_sections >= min_sections:
-                        met_conditions += 1
-
-            matches['confidence_scores'][
-                'conditions'] = met_conditions / total_conditions if total_conditions > 0 else 0
+                matches['confidence_scores']['imports'] = len(matches['imports']) / total_imports
 
             # Calculate overall confidence
-            weights = {
-                'strings': 0.3,
-                'imports': 0.3,
-                'sections': 0.2,
-                'conditions': 0.2
-            }
-
-            overall_confidence = sum(
-                score * weights.get(category, 0)
-                for category, score in matches['confidence_scores'].items()
+            matches['overall_confidence'] = round(
+                0.5 * matches['confidence_scores']['strings'] +
+                0.5 * matches['confidence_scores']['imports'], 3
             )
-
-            # Ensure no division by zero if all scores are zero
-            matches['overall_confidence'] = round(overall_confidence, 2) if overall_confidence > 0 else 0.0
-
-            logging.debug(f"Overall confidence: {matches['overall_confidence']}")
 
             return matches
 
         except Exception as e:
-            logging.error(f"Error in _evaluate_rule: {e}")
+            logging.error(f"Error evaluating rule {rule_name}: {str(e)}")
             return {}
 
-    def scan_file(self, file_path: str) -> List[Dict]:
-        """Scan a PE file and return matches against loaded rules."""
-        logging.debug(f"Scanning file: {file_path}")
+    def load_rules(self, rules_file: str) -> None:
+        """Load rules from a JSON file."""
+        try:
+            with open(rules_file, 'r') as f:
+                rules_data = json.load(f)
+
+            if isinstance(rules_data, list):
+                for rule in rules_data:
+                    self.compiler.add_rule(rule)
+            elif isinstance(rules_data, dict):
+                self.compiler.add_rule(rules_data)
+
+            logging.info(f"Loaded {len(self.compiler.rules)} rules")
+
+        except Exception as e:
+            logging.error(f"Error loading rules from {rules_file}: {e}")
+            raise
+
+    def scan_file(self, file_path: str) -> list:
+        """Scan a PE file with enhanced logging and near-match detection."""
+        if not os.path.exists(file_path):
+            logging.error(f"Invalid file path: {file_path}")
+            return []
+
+        logging.info(f"Scanning file: {file_path}")
         matches = []
 
         try:
@@ -499,110 +542,18 @@ class PESignatureEngine:
                 return matches
 
             for rule in self.compiler.rules:
-                try:
-                    rule_name = rule.get('name', 'unknown')  # Get rule name from the compiled rule
-
-                    # Evaluate rule match result for the current file
-                    match_result = self._evaluate_rule(rule, features)
-
-                    if match_result:  # If we have matches
-                        match_info = {
-                            'rule': rule_name,
-                            'meta': rule.get('meta', {}),
-                            'strings': match_result.get('strings', []),
-                            'imports': match_result.get('imports', []),
-                            'sections': match_result.get('sections', []),
-                            'conditions_met': match_result.get('conditions_met', []),
-                            'overall_confidence': match_result.get('overall_confidence', 0.0)  # Ensure default value
-                        }
-
-                        matches.append(match_info)
-
-                        # Log confidence scores by force
-                        logging.info(
-                            f"Rule '{rule_name}' matched. Confidence: {match_info['overall_confidence']}. "
-                            f"Details: {match_info}"
-                        )
-
-                except Exception as e:
-                    logging.error(f"Error evaluating rule {rule.get('name', 'unknown')} for file {file_path}: {e}")
-                    continue
+                result = self._evaluate_rule(rule, features)
+                if result and result['overall_confidence'] > 0:
+                    matches.append({
+                        'rule': rule.get('name', 'unknown'),
+                        'matches': result,
+                    })
 
             return matches
 
         except Exception as e:
-            logging.error(f"Error scanning file {file_path}: {e}")
-            return matches
-
-    def load_rules(self, rules_file: str) -> None:
-        """Load rules from a JSON file."""
-        try:
-            with open(rules_file, 'r') as f:
-                rules_data = json.load(f)
-
-            if isinstance(rules_data, list):
-                for i, rule in enumerate(rules_data):
-                    if 'rule' not in rule:
-                        rule['rule'] = f"rule_{i}"
-                    else:
-                        self.compiler.add_rule(rule)
-            elif isinstance(rules_data, dict):
-                if 'rule' not in rules_data:
-                    rules_data['rule'] = "rule_0"
-                else:
-                    self.compiler.add_rule(rules_data)
-
-            logging.info(f"Loaded {len(self.compiler.rules)} rules")
-
-        except Exception as e:
-            logging.error(f"Error loading rules from {rules_file}: {e}")
-            raise
-
-        def scan_file(self, file_path: str) -> List[Dict]:
-            """Scan a PE file and return matches against loaded rules."""
-            logging.debug(f"Scanning file: {file_path}")
-            matches = []
-
-            try:
-                # Analyze the PE file using the analyzer
-                features = self.analyzer.analyze_pe(file_path)
-                if not features:
-                    logging.error(f"Failed to analyze file: {file_path}")
-                    return matches
-
-                # Evaluate each rule
-                for rule in self.compiler.rules:
-                    try:
-                        rule_name = rule.get('name', 'unknown')  # Get rule name from the compiled rule
-
-                        # Evaluate rule match result for the current file
-                        match_result = self._evaluate_rule(rule, features)
-
-                        if match_result:  # If we have matches
-                            match_info = {
-                                'rule': rule_name,
-                                'meta': rule.get('meta', {}),
-                                'strings': match_result.get('strings', []),
-                                'imports': match_result.get('imports', []),
-                                'sections': match_result.get('sections', []),
-                                'conditions_met': match_result.get('conditions_met', []),
-                                'overall_confidence': match_result.get('overall_confidence', "unknown")
-                                # Use "unknown" instead of 0.0
-                            }
-
-                            matches.append(match_info)
-                            logging.debug(
-                                f"Rule '{rule_name}' matched with confidence {match_info['overall_confidence']}")
-
-                    except Exception as e:
-                        logging.error(f"Error evaluating rule {rule.get('name', 'unknown')} for file {file_path}: {e}")
-                        continue
-
-                return matches
-
-            except Exception as e:
-                logging.error(f"Error scanning file {file_path}: {e}")
-                return matches
+            logging.error(f"Error scanning file {file_path}: {str(e)}")
+            return []
 
 def main():
     """Main entry point for PE signature scanning and training."""
@@ -626,7 +577,7 @@ def main():
             logging.error("A valid file path or directory must be specified for the scan action.")
             sys.exit(1)
 
-        signature_engine = PESignatureEngine()
+        signature_engine = PESignatureEngine(similarity_threshold=args.min_confidence)
 
         # Load rules if provided
         if args.rules and os.path.exists(args.rules):
@@ -663,64 +614,104 @@ def main():
         for file_path in tqdm(all_files, desc="Scanning files", unit="file"):
             files_scanned += 1
             matches = signature_engine.scan_file(file_path)
-
-            # Compare features with training data
             features = signature_engine.analyzer.analyze_pe(file_path)
-            match_found = False
-            file_class = 'unknown'  # Default classification
+
+            # Enhanced matching analysis
+            match_details = {
+                'confidence_scores': [],
+                'string_matches': [],
+                'section_matches': [],
+                'entropy_matches': []
+            }
 
             if features and training_data:
                 for entry in training_data:
-                    headers_match = entry.get('headers')
-                    sections_match = entry.get('sections')
-                    entropy_match = entry.get('entropy')
-                    die_info_match = entry.get('die_info')
+                    # Calculate string similarity
+                    entry_strings = set(s['value'] for s in entry.get('strings', []))
+                    feature_strings = set(s['value'] for s in features.get('strings', []))
+                    string_overlap = len(entry_strings.intersection(feature_strings))
+                    string_similarity = string_overlap / max(len(entry_strings), len(feature_strings)) if max(
+                        len(entry_strings), len(feature_strings)) > 0 else 0
 
-                    # Compare these fields with the current file's features
-                    if headers_match and features.get('headers') == headers_match:
-                        matches.append({'rule': 'Training Match', 'label': entry['label'], 'confidence': 1.0})
-                        match_found = True
-                        file_class = 'clean' if entry['label'] == 0 else 'malware'
-                    elif sections_match and features.get('sections') == sections_match:
-                        matches.append({'rule': 'Training Match', 'label': entry['label'], 'confidence': 1.0})
-                        match_found = True
-                        file_class = 'clean' if entry['label'] == 0 else 'malware'
-                    elif entropy_match and features.get('entropy') == entropy_match:
-                        matches.append({'rule': 'Training Match', 'label': entry['label'], 'confidence': 1.0})
-                        match_found = True
-                        file_class = 'clean' if entry['label'] == 0 else 'malware'
-                    elif die_info_match and features.get('die_info') == die_info_match:
-                        matches.append({'rule': 'Training Match', 'label': entry['label'], 'confidence': 1.0})
-                        match_found = True
-                        file_class = 'clean' if entry['label'] == 0 else 'malware'
+                    # Calculate section similarity
+                    section_match = all(
+                        section in features.get('sections', {})
+                        for section in entry.get('sections', {})
+                    )
 
-            # If no match found, classify as unknown
-            if not match_found:
-                file_class = 'unknown'
+                    # Calculate entropy similarity
+                    entry_entropy = entry.get('entropy', {}).get('full', 0)
+                    feature_entropy = features.get('entropy', {}).get('full', 0)
+                    entropy_similarity = 1 - abs(entry_entropy - feature_entropy) / max(entry_entropy,
+                                                                                        feature_entropy) if max(
+                        entry_entropy, feature_entropy) > 0 else 0
 
-            # Increment appropriate classification counters
-            if file_class == 'clean':
-                files_clean += 1
-            elif file_class == 'malware':
-                files_malware += 1
+                    # Calculate overall confidence
+                    confidence = (string_similarity * 0.4 +
+                                  (1 if section_match else 0) * 0.3 +
+                                  entropy_similarity * 0.3)
+
+                    match_details['confidence_scores'].append(confidence)
+
+                    if string_overlap > 0:
+                        match_details['string_matches'].append({
+                            'matched_strings': entry_strings.intersection(feature_strings),
+                            'similarity': string_similarity
+                        })
+
+                    if section_match:
+                        match_details['section_matches'].append({
+                            'matching_sections': list(entry.get('sections', {}).keys())
+                        })
+
+                    if entropy_similarity > 0.8:  # High entropy similarity threshold
+                        match_details['entropy_matches'].append({
+                            'similarity': entropy_similarity,
+                            'reference_entropy': entry_entropy,
+                            'sample_entropy': feature_entropy
+                        })
+
+                    if confidence >= args.min_confidence:
+                        matches.append({
+                            'rule': 'Training Match',
+                            'label': entry.get('label', 'unknown'),
+                            'confidence': confidence
+                        })
+
+            # Enhanced logging of match details
+            logging.info(f"\nAnalysis results for {file_path}:")
+            logging.info(
+                f"Overall confidence scores: {[f'{score:.4f}' for score in match_details['confidence_scores']]}")
+
+            if match_details['string_matches']:
+                logging.info("\nString matches:")
+                for match in match_details['string_matches']:
+                    logging.info(f"- Similarity: {match['similarity']:.4f}")
+                    logging.info(f"- Matched strings: {list(match['matched_strings'])[:5]}")  # Show first 5 matches
+
+            if match_details['section_matches']:
+                logging.info("\nSection matches:")
+                for match in match_details['section_matches']:
+                    logging.info(f"- Matching sections: {match['matching_sections']}")
+
+            if match_details['entropy_matches']:
+                logging.info("\nEntropy matches:")
+                for match in match_details['entropy_matches']:
+                    logging.info(f"- Similarity: {match['similarity']:.4f}")
+                    logging.info(f"- Reference: {match['reference_entropy']:.4f}")
+                    logging.info(f"- Sample: {match['sample_entropy']:.4f}")
+
+            # Classification logging
+            if matches and any(m['confidence'] >= args.min_confidence for m in matches):
+                classification = 'malware' if any(m['label'] == 1 for m in matches) else 'clean'
+                confidence = max(m['confidence'] for m in matches)
+                logging.warning(f"\nFile classified as {classification} with confidence {confidence:.4f}")
             else:
-                files_unknown += 1
-
-            # Log the file classification
-            logging.info(f"File: {file_path} classified as {file_class}")
-
-            # **Show matches section even if no matches are found, based on confidence threshold**
-            logging.info(f"Matches for {file_path}:")
-            if matches:
-                for match in matches:
-                    if match['confidence'] >= args.min_confidence:  # Compare with the threshold
-                        logging.warning(
-                            f"  Rule: {match['rule']}, Label: {match['label']}, Confidence: {match['confidence']}")
-                    else:
-                        logging.info(
-                            f"  Rule: {match['rule']}, Label: {match['label']}, Confidence: {match['confidence']}")
-            else:
-                logging.info("  No matches found for this file.")
+                logging.info("\nFile classification: unknown")
+                if matches:
+                    logging.info("Below threshold matches found:")
+                    for match in matches:
+                        logging.info(f"- Rule: {match['rule']}, Confidence: {match['confidence']:.4f}")
 
         logging.info("Scan Summary:")
         logging.info(f"  Total files scanned: {files_scanned}")
@@ -778,51 +769,62 @@ def main():
 
         # Store training data while ensuring the proper string classification
         training_data = []
-        training_data = []
-        processed_files = set()  # Track processed files to avoid duplication
 
-        for file_path in tqdm(set(clean_files + malware_files), desc="Constructing training samples", unit="file"):
-            if file_path in processed_files:  # Skip already processed files
-                continue
+        logging.info(f"Feature extraction complete. Total training samples: {len(training_data)}")
+        training_data = []
+        processed_files = set()  # Track processed files to avoid duplicates
+
+        # Deduplicate clean and malware files
+        unique_clean_files = set(clean_files)
+        unique_malware_files = set(malware_files)
+
+        # Ensure clean_strings and malware_strings are disjoint and deduplicated
+        clean_strings = set(clean_strings) - set(malware_strings)
+        malware_strings = set(malware_strings) - set(clean_strings)
+
+        # Process each file exactly once
+        for file_path in tqdm(unique_clean_files.union(unique_malware_files), desc="Constructing training samples", unit="file"):
+            normalized_path = os.path.abspath(file_path)  # Normalize file paths
+            if normalized_path in processed_files:
+                continue  # Skip already processed files
+            processed_files.add(normalized_path)  # Mark as processed
 
             features = pe_analyzer.analyze_pe(file_path)
             if features:
-                processed_files.add(file_path)  # Mark the file as processed
-
                 # Determine classification: clean or malware
-                if file_path in clean_files:
+                if file_path in unique_clean_files:
                     classification = "clean"
                     label = 0
                     strings_to_add = clean_strings
-                elif file_path in malware_files:
+                elif file_path in unique_malware_files:
                     classification = "malware"
                     label = 1
                     strings_to_add = malware_strings
                 else:
-                    classification = "unknown"
-                    label = -1
+                    continue  # Skip files that don't belong to either category
 
                 # Extract meaningful strings, avoiding duplicates
                 extracted_strings = features.get("strings", [])
-                meaningful_strings = list({string["value"]: string for string in extracted_strings if (
-                        string["value"] in strings_to_add and len(string["value"]) >= 4
-                        and filter_meaningful_words(word_tokenize(string["value"]))
-                )}.values())
+                meaningful_strings = list({
+                                              string["value"]: string
+                                              for string in extracted_strings
+                                              if string["value"] in strings_to_add
+                                                 and len(string["value"]) >= 4
+                                                 and filter_meaningful_words(word_tokenize(string["value"]))
+                                          }.values())
 
                 # Construct the signature
                 signature = {
                     "file_name": os.path.basename(file_path),
-                    "file_path": file_path,
+                    "file_path": normalized_path,  # Use normalized path for deduplication
                     **features,
                     "label": label,
                     "classification": classification,
                 }
 
-                # Avoid duplicate signatures
-                if signature not in training_data:
+                # Avoid duplicate signatures in training_data
+                if not any(sig["file_path"] == signature["file_path"] for sig in training_data):
                     training_data.append(signature)
-
-        logging.info(f"Feature extraction complete. Total training samples: {len(training_data)}")
 
         # Save training data to JSON file
         training_data_path = "training_data.json"
