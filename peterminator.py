@@ -335,7 +335,7 @@ class PESignatureEngine:
         self.private_rules = {}
 
     def _evaluate_rule(self, rule: Dict, features: Dict) -> Optional[Dict]:
-        """Enhanced rule evaluation with support for the new rule format."""
+        """Enhanced rule evaluation with confidence scoring."""
         try:
             matches = {
                 'strings': [],
@@ -343,18 +343,23 @@ class PESignatureEngine:
                 'sections': [],
                 'resources': [],
                 'headers': [],
-                'conditions_met': []
+                'conditions_met': [],
+                'confidence_scores': {
+                    'strings': 0.0,
+                    'imports': 0.0,
+                    'sections': 0.0,
+                    'conditions': 0.0
+                }
             }
 
-            # Handle strings (now as a list)
-            rule_strings = rule.get('strings', [])
-            if isinstance(rule_strings, list):
-                for string_def in rule_strings:
+            # Handle strings
+            total_strings = len(rule.get('strings', []))
+            if total_strings > 0:
+                for string_def in rule.get('strings', []):
                     if isinstance(string_def, dict):
                         pattern_value = string_def.get('value', '')
                         pattern_type = string_def.get('type', 'ascii')
-                        
-                        # Check file strings
+
                         for file_string in features.get('strings', []):
                             string_value = file_string.get('value', '')
                             if pattern_value.lower() in string_value.lower():
@@ -365,81 +370,121 @@ class PESignatureEngine:
                                     'offset': file_string.get('offset')
                                 })
 
+                # Calculate string match confidence
+                matches['confidence_scores']['strings'] = len(matches['strings']) / total_strings
+
             # Handle imports
-            rule_imports = rule.get('imports', [])
-            if isinstance(rule_imports, list):
-                for import_def in rule_imports:
-                    dll_name = import_def.get('dll_name', '').lower()
-                    import_list = import_def.get('imports', [])
-                    
-                    for feature_imp in features.get('imports', []):
-                        if feature_imp.get('dll_name', '').lower() == dll_name:
-                            for required_imp in import_list:
-                                req_name = required_imp.get('name', '')
-                                for feature_imp_detail in feature_imp.get('imports', []):
-                                    if req_name.lower() == feature_imp_detail.get('name', '').lower():
-                                        matches['imports'].append({
-                                            'dll': dll_name,
-                                            'import': req_name,
-                                            'address': feature_imp_detail.get('address')
-                                        })
+            total_imports = sum(len(imp.get('imports', [])) for imp in rule.get('imports', []))
+            matched_imports = 0
+
+            for import_def in rule.get('imports', []):
+                dll_name = import_def.get('dll_name', '').lower()
+                import_list = import_def.get('imports', [])
+
+                for feature_imp in features.get('imports', []):
+                    if feature_imp.get('dll_name', '').lower() == dll_name:
+                        for required_imp in import_list:
+                            req_name = required_imp.get('name', '')
+                            for feature_imp_detail in feature_imp.get('imports', []):
+                                if req_name.lower() == feature_imp_detail.get('name', '').lower():
+                                    matched_imports += 1
+                                    matches['imports'].append({
+                                        'dll': dll_name,
+                                        'import': req_name,
+                                        'address': feature_imp_detail.get('address')
+                                    })
+
+            if total_imports > 0:
+                matches['confidence_scores']['imports'] = matched_imports / total_imports
 
             # Handle sections
             rule_sections = rule.get('sections', {})
+            total_sections = len(rule_sections)
+            matched_sections = 0
+
             for section_name, section_data in features.get('sections', {}).items():
                 if section_name in rule_sections:
                     required_section = rule_sections[section_name]
-                    if all(
-                        section_data.get(key) == value 
-                        for key, value in required_section.items()
-                        if key in section_data
-                    ):
+                    section_matches = True
+                    total_props = 0
+                    matched_props = 0
+
+                    for key, value in required_section.items():
+                        if key in section_data:
+                            total_props += 1
+                            if section_data.get(key) == value:
+                                matched_props += 1
+                            else:
+                                section_matches = False
+
+                    if section_matches and total_props > 0:
+                        matched_sections += 1
                         matches['sections'].append({
                             'name': section_name,
-                            'data': section_data
+                            'data': section_data,
+                            'match_quality': matched_props / total_props
                         })
 
-            # Evaluate conditions
+            if total_sections > 0:
+                matches['confidence_scores']['sections'] = matched_sections / total_sections
+
+            # Evaluate conditions and calculate condition confidence
             conditions = rule.get('conditions', {})
-            all_conditions_met = True
+            total_conditions = len(conditions)
+            met_conditions = 0
 
             if conditions:
                 # Check minimum imports
                 min_imports = conditions.get('min_imports', 0)
-                if len(matches['imports']) < min_imports:
-                    all_conditions_met = False
-                else:
+                if len(matches['imports']) >= min_imports:
+                    met_conditions += 1
                     matches['conditions_met'].append('min_imports')
 
                 # Check minimum sections
                 min_sections = conditions.get('min_sections', 0)
-                if len(matches['sections']) < min_sections:
-                    all_conditions_met = False
-                else:
+                if len(matches['sections']) >= min_sections:
+                    met_conditions += 1
                     matches['conditions_met'].append('min_sections')
 
                 # Check entropy threshold
                 entropy_threshold = conditions.get('entropy_threshold', 0)
-                if features.get('entropy', {}).get('full', 0) < entropy_threshold:
-                    all_conditions_met = False
-                else:
+                if features.get('entropy', {}).get('full', 0) >= entropy_threshold:
+                    met_conditions += 1
                     matches['conditions_met'].append('entropy_threshold')
 
                 # Check required IAT imports
                 iat_imports = conditions.get('iat_imports', [])
-                if not all(imp in features.get('iat', {}) for imp in iat_imports):
-                    all_conditions_met = False
-                else:
+                if all(imp in features.get('iat', {}) for imp in iat_imports):
+                    met_conditions += 1
                     matches['conditions_met'].append('iat_imports')
 
                 # Check required section names
                 section_names = conditions.get('section_names', [])
-                if not all(name in features.get('sections', {}) for name in section_names):
-                    all_conditions_met = False
-                else:
+                if all(name in features.get('sections', {}) for name in section_names):
+                    met_conditions += 1
                     matches['conditions_met'].append('section_names')
 
-            return matches if all_conditions_met else None
+            if total_conditions > 0:
+                matches['confidence_scores']['conditions'] = met_conditions / total_conditions
+
+            # Calculate overall confidence score
+            weights = {
+                'strings': 0.3,
+                'imports': 0.3,
+                'sections': 0.2,
+                'conditions': 0.2
+            }
+
+            overall_confidence = sum(
+                score * weights[category]
+                for category, score in matches['confidence_scores'].items()
+            )
+
+            matches['overall_confidence'] = round(overall_confidence, 2)
+
+            # Return matches only if minimum confidence threshold is met
+            MIN_CONFIDENCE_THRESHOLD = 0.5
+            return matches if overall_confidence >= MIN_CONFIDENCE_THRESHOLD else None
 
         except Exception as e:
             logging.error(f"Error in _evaluate_rule: {e}")
