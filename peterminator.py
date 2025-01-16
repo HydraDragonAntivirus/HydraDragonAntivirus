@@ -693,18 +693,26 @@ def log_match_details(match, min_confidence):
     else:
         match['overall_confidence'] = 0.0
 
+    # Initialize empty confidence scores if not present
+    if 'confidence_scores' not in match:
+        match['confidence_scores'] = {
+            'strings': 0.0,
+            'imports': 0.0,
+            'sections': 0.0,
+            'conditions': 0.0
+        }
+
     # Log all confidence scores first
     logging.info(f"\nMatch Details for Rule: {match['rule']}")
     logging.info("Confidence Scores:")
 
-    if 'confidence_scores' in match:
-        confidence_scores = match['confidence_scores']
-        logging.info(f"  Strings Confidence: {confidence_scores.get('strings', 0.0):.4f}")
-        logging.info(f"  Imports Confidence: {confidence_scores.get('imports', 0.0):.4f}")
-        logging.info(f"  Sections Confidence: {confidence_scores.get('sections', 0.0):.4f}")
-        logging.info(f"  Conditions Confidence: {confidence_scores.get('conditions', 0.0):.4f}")
-
+    confidence_scores = match['confidence_scores']
+    logging.info(f"  Strings Confidence: {confidence_scores.get('strings', 0.0):.4f}")
+    logging.info(f"  Imports Confidence: {confidence_scores.get('imports', 0.0):.4f}")
+    logging.info(f"  Sections Confidence: {confidence_scores.get('sections', 0.0):.4f}")
+    logging.info(f"  Conditions Confidence: {confidence_scores.get('conditions', 0.0):.4f}")
     logging.info(f"  Overall Confidence: {match['overall_confidence']:.4f}")
+    logging.info(f"  Classification: {match.get('classification', 'unknown')}")
 
     if match['overall_confidence'] < min_confidence:
         logging.debug(f"Skipping detailed match info due to low confidence (threshold: {min_confidence})")
@@ -735,10 +743,6 @@ def log_match_details(match, min_confidence):
         logging.info("\nConditions Met:")
         for condition in match["conditions_met"]:
             logging.info(f"  {condition}")
-
-    # Log classification (clean, malware, or unknown)
-    if match.get("classification"):
-        logging.info(f"\nClassification: {match['classification']}")
 
 def main():
     """Main entry point for PE signature scanning and training."""
