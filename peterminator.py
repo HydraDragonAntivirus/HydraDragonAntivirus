@@ -390,7 +390,7 @@ class PESignatureEngine:
         self.rules = []
         self.private_rules = {}
 
-    def _evaluate_rule(self, rule: Dict, features: Dict) -> Optional[Dict]:
+    def _evaluate_rule(self, rule: dict, features: dict) -> dict:
         """Enhanced rule evaluation with detailed debug logging."""
         try:
             matches = {
@@ -429,8 +429,8 @@ class PESignatureEngine:
                                 matches['strings'].append(match_detail)
                                 logging.debug(f"Matched string: {match_detail}")
 
-                # Calculate string match confidence
-                matches['confidence_scores']['strings'] = len(matches['strings']) / total_strings
+                matches['confidence_scores']['strings'] = len(
+                    matches['strings']) / total_strings if total_strings > 0 else 0
                 logging.debug(f"String match confidence: {matches['confidence_scores']['strings']}")
 
             # Handle imports
@@ -550,72 +550,48 @@ class PESignatureEngine:
                     'conditions': 0.2
                 }
 
-                # Ensure overall_confidence is always computed
                 overall_confidence = sum(
                     score * weights.get(category, 0)
                     for category, score in matches['confidence_scores'].items()
                 )
 
-                # Check if confidence values are valid before rounding
-                matches['overall_confidence'] = round(overall_confidence, 2) if overall_confidence >= 0 else 0.00
-
+                matches['overall_confidence'] = round(overall_confidence, 2)
                 logging.debug(f"Overall confidence: {matches['overall_confidence']}")
 
-                logging.debug(f"Final matches: {matches}")
-                return matches
+            logging.debug(f"Final matches: {matches}")
+            return matches
 
         except Exception as e:
             logging.error(f"Error in _evaluate_rule: {e}")
-            return None
+            return {}
 
     def load_rules(self, rules_file: str) -> None:
         """Load rules including private rules from a JSON file."""
         try:
             with open(rules_file, 'r') as f:
                 rules_data = json.load(f)
-                
+
             if isinstance(rules_data, list):
-                for rule in rules_data:
+                for i, rule in enumerate(rules_data):
+                    if 'rule' not in rule:
+                        rule['rule'] = f"rule_{i}"
                     if rule.get('private', False):
                         self.compiler.add_private_rule(rule)
                     else:
                         self.compiler.add_rule(rule)
             elif isinstance(rules_data, dict):
+                if 'rule' not in rules_data:
+                    rules_data['rule'] = "rule_0"
                 if rules_data.get('private', False):
                     self.compiler.add_private_rule(rules_data)
                 else:
                     self.compiler.add_rule(rules_data)
-                    
+
             logging.info(f"Loaded {len(self.compiler.rules)} public rules and {len(self.private_rules)} private rules")
-            
+
         except Exception as e:
             logging.error(f"Error loading rules from {rules_file}: {e}")
             raise
-
-    def calculate_overall_confidence(self, rule: dict, match_result: dict) -> float:
-        """Calculate overall confidence based on matched conditions."""
-        try:
-            # Extract confidence scores from match_result
-            confidence_scores = match_result.get('confidence_scores', {})
-            string_confidence = confidence_scores.get('strings', 0.0)
-            import_confidence = confidence_scores.get('imports', 0.0)
-            section_confidence = confidence_scores.get('sections', 0.0)
-            condition_confidence = confidence_scores.get('conditions', 0.0)
-
-            # Compute overall confidence by averaging individual scores
-            total_confidence = (string_confidence + import_confidence + section_confidence + condition_confidence) / 4
-
-            # Log the confidence values
-            logging.debug(f"String Confidence: {string_confidence}")
-            logging.debug(f"Import Confidence: {import_confidence}")
-            logging.debug(f"Section Confidence: {section_confidence}")
-            logging.debug(f"Condition Confidence: {condition_confidence}")
-            logging.debug(f"Calculated Overall Confidence: {total_confidence}")
-
-            return total_confidence
-        except KeyError as e:
-            logging.error(f"Missing confidence score key: {e}")
-            return 0.0  # Default to 0.0 if there's a missing key
 
     def scan_file(self, file_path: str) -> List[Dict]:
         """Scan a PE file and return matches against loaded rules."""
@@ -640,14 +616,15 @@ class PESignatureEngine:
 
                         match_result['overall_confidence'] = rule_confidence  # Ensure confidence is included
 
+                        rule_name = rule.get('rule', 'unknown')
                         match_info = {
-                            'rule': rule.get('rule'),
+                            'rule': rule_name,
                             'meta': rule.get('meta', {}),
                             'matches': match_result,
                             'confidence': rule_confidence
                         }
                         matches.append(match_info)
-                        logging.debug(f"Rule '{rule.get('rule', 'unknown')}' matched with confidence {rule_confidence}")
+                        logging.debug(f"Rule '{rule_name}' matched with confidence {rule_confidence}")
 
                 except Exception as e:
                     logging.error(f"Error evaluating rule {rule.get('rule', 'unknown')} for file {file_path}: {e}")
@@ -658,6 +635,32 @@ class PESignatureEngine:
         except Exception as e:
             logging.error(f"Error scanning file {file_path}: {e}")
             return matches
+
+    def calculate_overall_confidence(self, rule: dict, match_result: dict) -> float:
+        """Calculate overall confidence based on matched conditions."""
+        try:
+            # Extract confidence scores from match_result
+            confidence_scores = match_result.get('confidence_scores', {})
+            string_confidence = confidence_scores.get('strings', 0.0)
+            import_confidence = confidence_scores.get('imports', 0.0)
+            section_confidence = confidence_scores.get('sections', 0.0)
+            condition_confidence = confidence_scores.get('conditions', 0.0)
+
+            # Compute overall confidence by averaging individual scores
+            total_confidence = (string_confidence + import_confidence + section_confidence + condition_confidence) / 4
+
+            # Log the confidence values
+            logging.debug(f"String Confidence: {string_confidence}")
+            logging.debug(f"Import Confidence: {import_confidence}")
+            logging.debug(f"Section Confidence: {section_confidence}")
+            logging.debug(f"Condition Confidence: {condition_confidence}")
+            logging.debug(f"Calculated Overall Confidence: {total_confidence}")
+
+            return total_confidence
+        except KeyError as e:
+            logging.error(f"Missing confidence score key: {e}")
+            return 0.0
+
 
 def log_match_details(match, min_confidence):
     """Logs detailed information about a match."""
