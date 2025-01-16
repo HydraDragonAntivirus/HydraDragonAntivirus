@@ -611,57 +611,51 @@ class PESignatureEngine:
             logging.error(f"Error loading rules from {rules_file}: {e}")
             raise
 
-    def scan_file(self, file_path: str) -> List[Dict]:
-        """Scan a PE file and return matches against loaded rules."""
-        logging.debug(f"Scanning file: {file_path}")
-        matches = []
+        def scan_file(self, file_path: str) -> List[Dict]:
+            """Scan a PE file and return matches against loaded rules."""
+            logging.debug(f"Scanning file: {file_path}")
+            matches = []
 
-        try:
-            # Analyze the PE file using the analyzer
-            features = self.analyzer.analyze_pe(file_path)
-            if not features:
-                logging.error(f"Failed to analyze file: {file_path}")
+            try:
+                # Analyze the PE file using the analyzer
+                features = self.analyzer.analyze_pe(file_path)
+                if not features:
+                    logging.error(f"Failed to analyze file: {file_path}")
+                    return matches
+
+                # Evaluate each rule
+                for rule in self.compiler.rules:
+                    try:
+                        rule_name = rule.get('name', 'unknown')  # Get rule name from the compiled rule
+
+                        # Evaluate rule match result for the current file
+                        match_result = self._evaluate_rule(rule, features)
+
+                        if match_result:  # If we have matches
+                            match_info = {
+                                'rule': rule_name,
+                                'meta': rule.get('meta', {}),
+                                'strings': match_result.get('strings', []),
+                                'imports': match_result.get('imports', []),
+                                'sections': match_result.get('sections', []),
+                                'conditions_met': match_result.get('conditions_met', []),
+                                'overall_confidence': match_result.get('overall_confidence', "unknown")
+                                # Use "unknown" instead of 0.0
+                            }
+
+                            matches.append(match_info)
+                            logging.debug(
+                                f"Rule '{rule_name}' matched with confidence {match_info['overall_confidence']}")
+
+                    except Exception as e:
+                        logging.error(f"Error evaluating rule {rule.get('name', 'unknown')} for file {file_path}: {e}")
+                        continue
+
                 return matches
 
-            # Evaluate each rule
-            for rule in self.compiler.rules:
-                try:
-                    rule_name = rule.get('name', 'unknown')  # Get rule name from the compiled rule
-
-                    # Evaluate rule match result for the current file
-                    match_result = self._evaluate_rule(rule, features)
-
-                    if match_result:  # If we have matches
-                        match_info = {
-                            'rule': rule_name,
-                            'meta': rule.get('meta', {}),
-                            'strings': match_result.get('strings', []),
-                            'imports': match_result.get('imports', []),
-                            'sections': match_result.get('sections', []),
-                            'conditions_met': match_result.get('conditions_met', []),
-                            'overall_confidence': match_result.get('overall_confidence', 0.0)
-                        }
-
-                        matches.append(match_info)
-                        logging.debug(f"Rule '{rule_name}' matched with confidence {match_info['overall_confidence']}")
-
-                except Exception as e:
-                    logging.error(f"Error evaluating rule {rule.get('name', 'unknown')} for file {file_path}: {e}")
-                    continue
-
-            if matches:
-                # If matches were found, log the match details
-                logging.info(f"Found matches for file: {file_path}")
-            else:
-                # If no matches were found, log the overall confidence (set to 0.0 in this case)
-                logging.info(f"No matches found for file: {file_path}")
-                logging.info(f"Overall confidence: 0.0")
-
-            return matches
-
-        except Exception as e:
-            logging.error(f"Error scanning file {file_path}: {e}")
-            return matches
+            except Exception as e:
+                logging.error(f"Error scanning file {file_path}: {e}")
+                return matches
 
 def main():
     """Main entry point for PE signature scanning and training."""
@@ -673,11 +667,13 @@ def main():
     parser.add_argument('--file', type=str, help="Path to the PE file or directory to scan (required for scan)")
     parser.add_argument('--clean-dir', type=str, help="Directory containing clean files for training")
     parser.add_argument('--malware-dir', type=str, help="Directory containing malware files for training")
-    parser.add_argument('--max-files', type=int, default=1000, help="Maximum number of files to process during training or scanning")
+    parser.add_argument('--max-files', type=int, default=1000,
+                        help="Maximum number of files to process during training or scanning")
     parser.add_argument('--min-confidence', type=float, default=0.9, help="Minimum confidence threshold for matches")
 
     # Parse arguments
     args = parser.parse_args()
+
     if args.action == 'scan':
         if not args.file or not os.path.exists(args.file):
             logging.error("A valid file path or directory must be specified for the scan action.")
@@ -758,7 +754,22 @@ def main():
             else:
                 files_unknown += 1
 
+            # Log the file classification
             logging.info(f"File: {file_path} classified as {file_class}")
+
+            # **Show matches section even if no matches are found, based on confidence threshold**
+            logging.info(f"Matches for {file_path}:")
+            if matches:
+                for match in matches:
+                    if match['confidence'] >= args.min_confidence:  # Compare with the threshold
+                        logging.warning(
+                            f"  Rule: {match['rule']}, Label: {match['label']}, Confidence: {match['confidence']}")
+                    else:
+                        logging.info(
+                            f"  Rule: {match['rule']}, Label: {match['label']}, Confidence: {match['confidence']}")
+            else:
+                logging.info("  No matches found for this file.")
+
         logging.info("Scan Summary:")
         logging.info(f"  Total files scanned: {files_scanned}")
         logging.info(f"  Clean files: {files_clean}")
@@ -818,6 +829,9 @@ def main():
         for file_path in tqdm(clean_files + malware_files, desc="Constructing training samples", unit="file"):
             features = pe_analyzer.analyze_pe(file_path)
             if features:
+                # Default value for strings_to_add
+                strings_to_add = set()
+
                 # Determine classification: clean or malware
                 if file_path in clean_files:
                     classification = "clean"  # Clean file
@@ -846,7 +860,7 @@ def main():
                        and filter_meaningful_words(word_tokenize(string["value"]))  # Apply NLTK filtering
                 ]
 
-                # Construct the signature for the current file
+                # Construct the signature for the current file with die_info
                 signature = {
                     "file_name": os.path.basename(file_path),
                     "file_path": file_path,
@@ -855,6 +869,7 @@ def main():
                     "entropy": features["entropy"],
                     "imports": features["imports"],
                     "strings": meaningful_strings,  # Add only unique strings
+                    "die_info": features.get("die_info", {}),  # Include die_info here
                     "label": label,
                     "classification": classification  # Add classification info
                 }
