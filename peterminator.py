@@ -335,7 +335,6 @@ class PESignatureEngine:
         self.private_rules = {}
 
     def _evaluate_rule(self, rule: Dict, features: Dict) -> Optional[Dict]:
-        """Enhanced rule evaluation with confidence scoring."""
         """Enhanced rule evaluation with detailed debug logging."""
         try:
             matches = {
