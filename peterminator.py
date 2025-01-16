@@ -9,6 +9,7 @@ import pefile
 import sys
 import argparse
 from tqdm import tqdm
+import base64
 
 # Set script directory
 script_dir = os.getcwd()
@@ -707,12 +708,6 @@ def log_match_details(match, min_confidence):
 
 def main():
     """Main entry point for PE signature scanning and training."""
-    # Set up logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[logging.StreamHandler(sys.stdout)]
-    )
 
     # Set up argument parser
     parser = argparse.ArgumentParser(description="PE Signature Compiler, Analyzer, and Trainer")
@@ -737,9 +732,19 @@ def main():
             sys.exit(1)
 
         signature_engine = PESignatureEngine()
+        
+        # Load rules if provided
         if args.rules and os.path.exists(args.rules):
             logging.info(f"Loading rules from {args.rules}")
             signature_engine.load_rules(args.rules)
+
+        # Load training data
+        training_data = []
+        training_data_path = "training_data.json"
+        if os.path.exists(training_data_path):
+            logging.info(f"Loading training data from {training_data_path}")
+            with open(training_data_path, 'r') as f:
+                training_data = json.load(f)
 
         files_scanned = 0
         files_clean = 0
@@ -748,7 +753,9 @@ def main():
         all_files = []
         if os.path.isdir(args.file):
             logging.info(f"Scanning directory: {args.file}")
-            all_files.extend([os.path.join(args.file, f) for f in os.listdir(args.file)])
+            all_files.extend([os.path.join(args.file, f) for f in os.listdir(args.file) if os.path.isfile(os.path.join(args.file, f))])
+        else:
+            all_files.append(args.file)
 
         # Limit to max-files (1000 by default)
         all_files = all_files[:args.max_files]
@@ -756,6 +763,18 @@ def main():
         for file_path in tqdm(all_files, desc="Scanning files", unit="file"):
             files_scanned += 1
             matches = signature_engine.scan_file(file_path)
+
+            # Compare features with training data
+            features = signature_engine.analyzer.analyze_pe(file_path)
+            if features and training_data:
+                for entry in training_data:
+                    stored_features = entry['features']
+                    label = entry['label']
+                    
+                    # Example comparison logic
+                    if stored_features.get("headers") == features.get("headers"):
+                        matches.append({'rule': 'Training Match', 'label': label, 'confidence': 1.0})
+
             if matches:
                 files_with_matches += 1
                 for match in matches:
@@ -769,29 +788,62 @@ def main():
         logging.info(f"  Files with matches: {files_with_matches}")
 
     elif args.action == 'train':
-        if not args.clean_dir or not os.path.exists(args.clean_dir) or not args.malware_dir or not os.path.exists(args.malware_dir):
+        if not args.clean_dir or not os.path.exists(args.clean_dir) or not args.malware_dir or not os.path.exists(
+                args.malware_dir):
             logging.error("Valid clean and malware directories must be specified for training.")
             sys.exit(1)
 
         pe_analyzer = PEAnalyzer()
-        clean_files = [os.path.join(args.clean_dir, f) for f in os.listdir(args.clean_dir)][:args.max_files]
-        malware_files = [os.path.join(args.malware_dir, f) for f in os.listdir(args.malware_dir)][:args.max_files]
+        clean_files = [os.path.join(args.clean_dir, f) for f in os.listdir(args.clean_dir) if
+                       os.path.isfile(os.path.join(args.clean_dir, f))][:args.max_files]
+        malware_files = [os.path.join(args.malware_dir, f) for f in os.listdir(args.malware_dir) if
+                         os.path.isfile(os.path.join(args.malware_dir, f))][:args.max_files]
 
         logging.info(f"Extracting features from {len(clean_files)} clean files and {len(malware_files)} malware files.")
 
         training_data = []
         for file_path in tqdm(clean_files + malware_files, desc="Extracting features", unit="file"):
-            features = pe_analyzer.extract_features(file_path)
+            features = pe_analyzer.analyze_pe(file_path)
             if features:
-                label = 0 if file_path in clean_files else 1  # 0 for clean, 1 for malware
-                training_data.append((features, label))
+                # Assign label: 0 for clean (benign), 1 for malware
+                label = 0 if file_path in clean_files else 1
+
+                # Remove raw_data from sections but keep other details
+                sections_cleaned = {
+                    name: {
+                        "virtual_size": section.get("virtual_size"),
+                        "virtual_address": section.get("virtual_address"),
+                        "entropy": section.get("entropy"),
+                        "characteristics": section.get("characteristics"),
+                        "raw_size": section.get("raw_size"),
+                        "pointer_to_raw_data": section.get("pointer_to_raw_data")
+                    }
+                    for name, section in features.get("sections", {}).items()
+                }
+
+                # Construct the signature
+                signature = {
+                    "file_name": os.path.basename(file_path),
+                    "file_path": file_path,
+                    "headers": features["headers"],  # Include header details
+                    "sections": sections_cleaned,  # Include cleaned sections without raw_data
+                    "entropy": features["entropy"],  # Include entropy summary
+                    "imports": features["imports"],  # Keep imports for all files
+                    "strings": features.get("strings", []),  # Keep strings for all files
+                    "label": label
+                }
+
+                # Append the signature to the training data
+                training_data.append(signature)
 
         logging.info(f"Feature extraction complete. Total training samples: {len(training_data)}")
-        
-        # Save training data (could be extended with ML training later)
-        with open("training_data.json", "w") as f:
-            json.dump(training_data, f)
-        logging.info("Training data saved.")
+
+        # Save training data to JSON file
+        training_data_path = "training_data.json"
+        with open(training_data_path, "w") as f:
+            json.dump(training_data, f, indent=4)
+
+        logging.info(f"Training data saved to {training_data_path}.")
 
 if __name__ == "__main__":
     main()
