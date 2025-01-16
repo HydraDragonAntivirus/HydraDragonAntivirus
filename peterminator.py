@@ -782,12 +782,17 @@ def main():
             features = signature_engine.analyzer.analyze_pe(file_path)
             if features and training_data:
                 for entry in training_data:
-                    stored_features = entry['features']
-                    label = entry['label']
+                    headers_match = entry.get('headers')
+                    sections_match = entry.get('sections')
+                    entropy_match = entry.get('entropy')
 
-                    # Example comparison logic
-                    if stored_features.get("headers") == features.get("headers"):
-                        matches.append({'rule': 'Training Match', 'label': label, 'confidence': 1.0})
+                    # Compare these fields with the current file's features
+                    if headers_match and features.get('headers') == headers_match:
+                        matches.append({'rule': 'Training Match', 'label': entry['label'], 'confidence': 1.0})
+                    if sections_match and features.get('sections') == sections_match:
+                        matches.append({'rule': 'Training Match', 'label': entry['label'], 'confidence': 1.0})
+                    if entropy_match and features.get('entropy') == entropy_match:
+                        matches.append({'rule': 'Training Match', 'label': entry['label'], 'confidence': 1.0})
 
             if matches:
                 files_with_matches += 1
