@@ -9,7 +9,6 @@ import pefile
 import sys
 import argparse
 from tqdm import tqdm
-import base64
 import nltk
 
 # Ensure that necessary NLTK resources are available
@@ -56,10 +55,6 @@ class PEAnalyzer:
         logging.info("PEAnalyzer initialized.")
         self.features_cache = {}
 
-    def _bytes_to_base64(self, data: bytes) -> str:
-        """Convert bytes data to a base64-encoded string."""
-        return base64.b64encode(data).decode('utf-8')
-
     def _calculate_entropy(self, data: bytes) -> float:
         """Calculate Shannon entropy of binary data."""
         if not data:
@@ -85,7 +80,6 @@ class PEAnalyzer:
                 'characteristics': section.Characteristics,
                 'entropy': self._calculate_entropy(raw_data),
                 'raw_data_size': len(raw_data) if raw_data else 0,
-                'raw_data': self._bytes_to_base64(raw_data)  # Convert to base64
             }
         except Exception as e:
             logging.error(f"Error extracting section data: {e}")
