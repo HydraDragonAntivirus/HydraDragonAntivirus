@@ -20,17 +20,18 @@ nltk.download('words')
 from nltk.corpus import words
 from nltk.tokenize import word_tokenize
 
-# A filter function to keep only meaningful words
+# Create a set of English words for faster lookup, only including words with 4 or more characters
+nltk_words = set(word for word in words.words() if len(word) >= 4)
+
+# A filter function to keep only meaningful words, remove duplicates, and ensure each word is at least 4 characters long
 def filter_meaningful_words(word_list):
     """
-    Filter out non-English or meaningless strings.
+    Filter out non-English, meaningless strings, duplicates, and words shorter than 4 characters.
     :param word_list: List of words (strings) to filter.
-    :return: List of meaningful English words.
+    :return: List of unique, meaningful English words with at least 4 characters.
     """
-    return [word for word in word_list if word.isalpha() and word.lower() in nltk_words]
-
-# Load NLTK word corpus
-nltk_words = set(words.words())
+    # Remove duplicates by converting the list to a set
+    return list(set(word for word in word_list if word.isalpha() and word.lower() in nltk_words and len(word) >= 4))
 
 # Set script directory
 script_dir = os.getcwd()
@@ -745,7 +746,7 @@ def main():
             sys.exit(1)
 
         signature_engine = PESignatureEngine()
-        
+
         # Load rules if provided
         if args.rules and os.path.exists(args.rules):
             logging.info(f"Loading rules from {args.rules}")
@@ -783,7 +784,7 @@ def main():
                 for entry in training_data:
                     stored_features = entry['features']
                     label = entry['label']
-                    
+
                     # Example comparison logic
                     if stored_features.get("headers") == features.get("headers"):
                         matches.append({'rule': 'Training Match', 'label': label, 'confidence': 1.0})
@@ -831,7 +832,8 @@ def main():
                         "size": string["size"]
                     }
                     for string in extracted_strings
-                    if filter_meaningful_words(word_tokenize(string["value"]))  # Apply NLTK filtering
+                    if len(string["value"]) >= 4  # Ensure the string has at least 4 characters
+                    and filter_meaningful_words(word_tokenize(string["value"]))  # Apply NLTK filtering
                 ]
 
                 # Remove raw_data and keep other relevant features
