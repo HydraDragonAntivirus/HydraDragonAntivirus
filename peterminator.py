@@ -727,6 +727,7 @@ def main():
                     headers_match = entry.get('headers')
                     sections_match = entry.get('sections')
                     entropy_match = entry.get('entropy')
+                    die_info_match = entry.get('die_info')
 
                     # Compare these fields with the current file's features
                     if headers_match and features.get('headers') == headers_match:
@@ -738,6 +739,10 @@ def main():
                         match_found = True
                         file_class = 'clean' if entry['label'] == 0 else 'malware'
                     elif entropy_match and features.get('entropy') == entropy_match:
+                        matches.append({'rule': 'Training Match', 'label': entry['label'], 'confidence': 1.0})
+                        match_found = True
+                        file_class = 'clean' if entry['label'] == 0 else 'malware'
+                    elif die_info_match and features.get('die_info') == die_info_match:
                         matches.append({'rule': 'Training Match', 'label': entry['label'], 'confidence': 1.0})
                         match_found = True
                         file_class = 'clean' if entry['label'] == 0 else 'malware'
@@ -860,7 +865,7 @@ def main():
                        and filter_meaningful_words(word_tokenize(string["value"]))  # Apply NLTK filtering
                 ]
 
-                # Construct the signature for the current file with all features
+                # Construct the signature for the current file with die_info
                 signature = {
                     "file_name": os.path.basename(file_path),
                     "file_path": file_path,
