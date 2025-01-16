@@ -133,14 +133,14 @@ class PEAnalyzer:
             logging.error(f"Error analyzing IAT: {e}")
         return iat
 
-    def _analyze_with_die(self, file_path: str) -> Optional[str]:
-        """Analyze a file using Detect It Easy (DIE) without JSON output."""
+    def _analyze_with_die(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Analyze a file using Detect It Easy (DIE) with JSON output."""
         try:
             if not os.path.exists(detectiteasy_console_path):
                 raise FileNotFoundError(f"DIE executable not found at {detectiteasy_console_path}")
 
             result = subprocess.run(
-                [detectiteasy_console_path, file_path],  # No /json argument for text output
+                [detectiteasy_console_path, file_path, '--json'],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True
@@ -150,8 +150,14 @@ class PEAnalyzer:
                 logging.error(f"DIE analysis failed: {result.stderr.strip()}")
                 return None
 
-            die_output = result.stdout.strip()
-            return die_output  # Return the standard text output from DIE
+            try:
+                die_output = json.loads(result.stdout)
+            except json.JSONDecodeError as e:
+                logging.error(f"Error parsing DIE JSON output: {e}")
+                return None
+
+            return die_output
+
         except Exception as e:
             logging.error(f"Error during DIE analysis for {file_path}: {e}")
             return None
