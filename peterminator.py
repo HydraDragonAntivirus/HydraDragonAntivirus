@@ -766,7 +766,11 @@ def main():
         all_files = []
         if os.path.isdir(args.file):
             logging.info(f"Scanning directory: {args.file}")
-            all_files.extend([os.path.join(args.file, f) for f in os.listdir(args.file) if os.path.isfile(os.path.join(args.file, f))])
+
+            # Walk through all subdirectories and files
+            for root, dirs, files in os.walk(args.file):
+                for file_name in files:
+                    all_files.append(os.path.join(root, file_name))
         else:
             all_files.append(args.file)
 
@@ -816,10 +820,12 @@ def main():
 
             logging.info(f"File: {file_path} classified as {file_class}")
 
-            # Log match details if there are any matches
+            # Now check the threshold for the matches
+            # Only log matches that meet the min-confidence threshold
             if matches:
                 for match in matches:
-                    log_match_details(match, args.min_confidence)
+                    if match['confidence'] >= args.min_confidence:  # Check the confidence threshold
+                        log_match_details(match, args.min_confidence)
 
         logging.info("Scan Summary:")
         logging.info(f"  Total files scanned: {files_scanned}")
