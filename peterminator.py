@@ -503,7 +503,7 @@ class PESignatureEngine:
             logging.debug(f"Overall confidence: {matches['overall_confidence']}")
 
             logging.debug(f"Final matches: {matches}")
-                return matches
+            return matches
 
         except Exception as e:
             logging.error(f"Error in _evaluate_rule: {e}")
