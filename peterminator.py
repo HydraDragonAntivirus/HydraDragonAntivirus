@@ -33,6 +33,10 @@ class PEAnalyzer:
         logging.info("PEAnalyzer initialized.")
         self.features_cache = {}
 
+    def _bytes_to_base64(self, data: bytes) -> str:
+        """Convert bytes data to a base64-encoded string."""
+        return base64.b64encode(data).decode('utf-8')
+
     def _calculate_entropy(self, data: bytes) -> float:
         """Calculate Shannon entropy of binary data."""
         if not data:
@@ -58,7 +62,7 @@ class PEAnalyzer:
                 'characteristics': section.Characteristics,
                 'entropy': self._calculate_entropy(raw_data),
                 'raw_data_size': len(raw_data) if raw_data else 0,
-                'raw_data': raw_data
+                'raw_data': self._bytes_to_base64(raw_data)  # Convert to base64
             }
         except Exception as e:
             logging.error(f"Error extracting section data: {e}")
@@ -95,6 +99,7 @@ class PEAnalyzer:
         return exports
 
     def _extract_strings(self, data: bytes, min_length: int = 4) -> List[Dict[str, Any]]:
+        """Extract ASCII and Unicode strings from the binary data."""
         strings = []
         try:
             ascii_pattern = f'[\x20-\x7e]{{{min_length},}}'
@@ -701,7 +706,7 @@ def log_match_details(match, min_confidence):
             logging.info(f"    {condition}")
 
 def main():
-    """Main entry point for PE signature scanning."""
+    """Main entry point for PE signature scanning and training."""
     # Set up logging
     logging.basicConfig(
         level=logging.INFO,
@@ -710,10 +715,13 @@ def main():
     )
 
     # Set up argument parser
-    parser = argparse.ArgumentParser(description="PE Signature Compiler and Analyzer")
-    parser.add_argument('action', choices=['scan'], help="Action to perform: scan file")
+    parser = argparse.ArgumentParser(description="PE Signature Compiler, Analyzer, and Trainer")
+    parser.add_argument('action', choices=['scan', 'train'], help="Action to perform: scan file or train model")
     parser.add_argument('--rules', type=str, help="Path to the rules file")
-    parser.add_argument('--file', type=str, required=True, help="Path to the PE file or directory to scan")
+    parser.add_argument('--file', type=str, help="Path to the PE file or directory to scan (required for scan)")
+    parser.add_argument('--clean-dir', type=str, help="Directory containing clean files for training")
+    parser.add_argument('--malware-dir', type=str, help="Directory containing malware files for training")
+    parser.add_argument('--max-files', type=int, default=1000, help="Maximum number of files to process during training or scanning")
     parser.add_argument('--min-confidence', type=float, default=0.5, help="Minimum confidence threshold for matches")
     parser.add_argument('--verbose', action='store_true', help="Enable verbose logging for debugging")
 
@@ -728,61 +736,62 @@ def main():
             logging.error("A valid file path or directory must be specified for the scan action.")
             sys.exit(1)
 
-        # Perform the scanning
-        try:
-            signature_engine = PESignatureEngine()
+        signature_engine = PESignatureEngine()
+        if args.rules and os.path.exists(args.rules):
+            logging.info(f"Loading rules from {args.rules}")
+            signature_engine.load_rules(args.rules)
 
-            # Load the rules
-            if args.rules and os.path.exists(args.rules):
-                logging.info(f"Loading rules from {args.rules}")
-                signature_engine.load_rules(args.rules)
-    
-            files_scanned = 0
-            files_clean = 0
-            files_with_matches = 0
+        files_scanned = 0
+        files_clean = 0
+        files_with_matches = 0
 
-            # Check if it's a directory or a single file
-            if os.path.isdir(args.file):
-                logging.info(f"Scanning all files in directory: {args.file}")
-                all_files = []
-                for root, _, files in os.walk(args.file):
-                    for file in files:
-                        all_files.append(os.path.join(root, file))
+        all_files = []
+        if os.path.isdir(args.file):
+            logging.info(f"Scanning directory: {args.file}")
+            all_files.extend([os.path.join(args.file, f) for f in os.listdir(args.file)])
 
-                # Use tqdm for progress tracking
-                for file_path in tqdm(all_files, desc="Scanning files", unit="file"):
-                    files_scanned += 1
-                    matches = signature_engine.scan_file(file_path)
-                    if matches:
-                        files_with_matches += 1
-                        logging.info(f"File {file_path} matches the following rules:")
-                        for match in matches:
-                            log_match_details(match, args.min_confidence)
-                    else:
-                        files_clean += 1
+        # Limit to max-files (1000 by default)
+        all_files = all_files[:args.max_files]
 
+        for file_path in tqdm(all_files, desc="Scanning files", unit="file"):
+            files_scanned += 1
+            matches = signature_engine.scan_file(file_path)
+            if matches:
+                files_with_matches += 1
+                for match in matches:
+                    log_match_details(match, args.min_confidence)
             else:
-                # Scan a single file
-                logging.info(f"Scanning file: {args.file}")
-                files_scanned += 1
-                matches = signature_engine.scan_file(args.file)
-                if matches:
-                    files_with_matches += 1
-                    logging.info(f"File {args.file} matches the following rules:")
-                    for match in matches:
-                        log_match_details(match, args.min_confidence)
-                else:
-                    files_clean += 1
+                files_clean += 1
 
-            # Print a summary of the scan results
-            logging.info("Scan Summary:")
-            logging.info(f"  Total files scanned: {files_scanned}")
-            logging.info(f"  Clean files: {files_clean}")
-            logging.info(f"  Files with matches: {files_with_matches}")
+        logging.info("Scan Summary:")
+        logging.info(f"  Total files scanned: {files_scanned}")
+        logging.info(f"  Clean files: {files_clean}")
+        logging.info(f"  Files with matches: {files_with_matches}")
 
-        except Exception as e:
-            logging.error(f"Error during scanning: {e}")
+    elif args.action == 'train':
+        if not args.clean_dir or not os.path.exists(args.clean_dir) or not args.malware_dir or not os.path.exists(args.malware_dir):
+            logging.error("Valid clean and malware directories must be specified for training.")
             sys.exit(1)
+
+        pe_analyzer = PEAnalyzer()
+        clean_files = [os.path.join(args.clean_dir, f) for f in os.listdir(args.clean_dir)][:args.max_files]
+        malware_files = [os.path.join(args.malware_dir, f) for f in os.listdir(args.malware_dir)][:args.max_files]
+
+        logging.info(f"Extracting features from {len(clean_files)} clean files and {len(malware_files)} malware files.")
+
+        training_data = []
+        for file_path in tqdm(clean_files + malware_files, desc="Extracting features", unit="file"):
+            features = pe_analyzer.extract_features(file_path)
+            if features:
+                label = 0 if file_path in clean_files else 1  # 0 for clean, 1 for malware
+                training_data.append((features, label))
+
+        logging.info(f"Feature extraction complete. Total training samples: {len(training_data)}")
+        
+        # Save training data (could be extended with ML training later)
+        with open("training_data.json", "w") as f:
+            json.dump(training_data, f)
+        logging.info("Training data saved.")
 
 if __name__ == "__main__":
     main()
