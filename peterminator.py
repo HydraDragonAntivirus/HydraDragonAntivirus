@@ -29,6 +29,18 @@ nltk_words = set(word for word in words.words() if len(word) >= 4)
 detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
 detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 
+# Define log directories and files
+log_directory = os.path.join(script_dir, "log")
+if not os.path.exists(log_directory):
+    os.makedirs(log_directory)
+
+application_log_file = os.path.join(log_directory, "peterminator.log")
+
+# Configure logging
+logging.basicConfig(filename=application_log_file,
+                   level=logging.DEBUG,
+                   format='%(asctime)s - %(levelname)s - %(message)s')
+
 def filter_meaningful_words(word_list: List[str]) -> List[str]:
     """
     Filter out non-English, meaningless strings, duplicates, and words shorter than 4 characters.
