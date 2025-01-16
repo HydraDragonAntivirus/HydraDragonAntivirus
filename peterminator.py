@@ -862,7 +862,7 @@ def main():
                     classification = "unknown"  # If the file is not in either, classify as unknown
                     label = -1  # Unknown files get label -1
 
-                # Extract strings and filter meaningful ones
+                # Extract strings and filter meaningful ones, separately for clean and malware files
                 extracted_strings = features.get("strings", [])
                 meaningful_strings = [
                     {
@@ -876,34 +876,37 @@ def main():
                        and filter_meaningful_words(word_tokenize(string["value"]))  # Apply NLTK filtering
                 ]
 
-                # Remove raw_data and keep other relevant features
-                sections_cleaned = {
-                    name: {
-                        "virtual_size": section.get("virtual_size"),
-                        "virtual_address": section.get("virtual_address"),
-                        "entropy": section.get("entropy"),
-                        "characteristics": section.get("characteristics"),
-                        "raw_size": section.get("raw_size"),
-                        "pointer_to_raw_data": section.get("pointer_to_raw_data")
+                # For malware files, only add malware strings
+                if classification == "malware":
+                    # Append only the strings found in malware files
+                    signature = {
+                        "file_name": os.path.basename(file_path),
+                        "file_path": file_path,
+                        "headers": features["headers"],
+                        "sections": features["sections"],  # Keeping the section info
+                        "entropy": features["entropy"],
+                        "imports": features["imports"],
+                        "strings": meaningful_strings,  # Save only filtered meaningful strings
+                        "label": label,
+                        "classification": classification  # Add classification info
                     }
-                    for name, section in features.get("sections", {}).items()
-                }
+                    training_data.append(signature)
 
-                # Construct the signature
-                signature = {
-                    "file_name": os.path.basename(file_path),
-                    "file_path": file_path,
-                    "headers": features["headers"],
-                    "sections": sections_cleaned,
-                    "entropy": features["entropy"],
-                    "imports": features["imports"],
-                    "strings": meaningful_strings,  # Save only filtered meaningful strings
-                    "label": label,
-                    "classification": classification  # Add classification info
-                }
-
-                # Append the signature to the training data
-                training_data.append(signature)
+                # For clean files, only add clean strings
+                if classification == "clean":
+                    # Append only the strings found in clean files
+                    signature = {
+                        "file_name": os.path.basename(file_path),
+                        "file_path": file_path,
+                        "headers": features["headers"],
+                        "sections": features["sections"],  # Keeping the section info
+                        "entropy": features["entropy"],
+                        "imports": features["imports"],
+                        "strings": meaningful_strings,  # Save only filtered meaningful strings
+                        "label": label,
+                        "classification": classification  # Add classification info
+                    }
+                    training_data.append(signature)
 
         logging.info(f"Feature extraction complete. Total training samples: {len(training_data)}")
 
