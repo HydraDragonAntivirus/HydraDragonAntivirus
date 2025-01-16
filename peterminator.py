@@ -684,11 +684,14 @@ class PESignatureEngine:
 
 def log_match_details(match, min_confidence):
     """Logs detailed information about a match."""
-    if match['overall_confidence'] < min_confidence:
-        logging.debug(f"Skipping low-confidence match: {match['rule']} (Confidence: {match['overall_confidence']})")
+    # Check for either 'overall_confidence' or 'confidence' key
+    confidence = match.get('overall_confidence', match.get('confidence', 0.0))
+
+    if confidence < min_confidence:
+        logging.debug(f"Skipping low-confidence match: {match['rule']} (Confidence: {confidence})")
         return
 
-    logging.warning(f"  Rule: {match['rule']} (Confidence: {match['overall_confidence']:.4f})")
+    logging.warning(f"  Rule: {match['rule']} (Confidence: {confidence:.4f})")
 
     # Log matched strings
     if match.get("strings"):
@@ -700,13 +703,15 @@ def log_match_details(match, min_confidence):
     if match.get("imports"):
         logging.info("  Matched Imports:")
         for import_match in match["imports"]:
-            logging.info(f"    DLL: {import_match['dll']} | Import: {import_match['import']} | Address: {import_match.get('address')}")
+            logging.info(
+                f"    DLL: {import_match['dll']} | Import: {import_match['import']} | Address: {import_match.get('address')}")
 
     # Log matched sections
     if match.get("sections"):
         logging.info("  Matched Sections:")
         for section_match in match["sections"]:
-            logging.info(f"    Section: {section_match['name']} | Match Quality: {section_match.get('match_quality', 0):.4f}")
+            logging.info(
+                f"    Section: {section_match['name']} | Match Quality: {section_match.get('match_quality', 0):.4f}")
 
     # Log conditions met
     if match.get("conditions_met"):
@@ -729,7 +734,7 @@ def main():
     parser.add_argument('--clean-dir', type=str, help="Directory containing clean files for training")
     parser.add_argument('--malware-dir', type=str, help="Directory containing malware files for training")
     parser.add_argument('--max-files', type=int, default=1000, help="Maximum number of files to process during training or scanning")
-    parser.add_argument('--min-confidence', type=float, default=0.5, help="Minimum confidence threshold for matches")
+    parser.add_argument('--min-confidence', type=float, default=0.9, help="Minimum confidence threshold for matches")
     parser.add_argument('--verbose', action='store_true', help="Enable verbose logging for debugging")
 
     # Parse arguments
