@@ -684,44 +684,61 @@ class PESignatureEngine:
 
 def log_match_details(match, min_confidence):
     """Logs detailed information about a match."""
-    # Check for either 'overall_confidence' or 'confidence' key
-    confidence = match.get('overall_confidence', match.get('confidence', 0.0))
+    # Calculate overall confidence if not present
+    if 'overall_confidence' not in match and 'confidence_scores' in match:
+        engine = PESignatureEngine()
+        match['overall_confidence'] = engine.calculate_overall_confidence({}, match)
+    elif 'overall_confidence' not in match and 'confidence' in match:
+        match['overall_confidence'] = match['confidence']
+    else:
+        match['overall_confidence'] = 0.0
 
-    if confidence < min_confidence:
-        logging.debug(f"Skipping low-confidence match: {match['rule']} (Confidence: {confidence})")
+    # Log all confidence scores first
+    logging.info(f"\nMatch Details for Rule: {match['rule']}")
+    logging.info("Confidence Scores:")
+
+    if 'confidence_scores' in match:
+        confidence_scores = match['confidence_scores']
+        logging.info(f"  Strings Confidence: {confidence_scores.get('strings', 0.0):.4f}")
+        logging.info(f"  Imports Confidence: {confidence_scores.get('imports', 0.0):.4f}")
+        logging.info(f"  Sections Confidence: {confidence_scores.get('sections', 0.0):.4f}")
+        logging.info(f"  Conditions Confidence: {confidence_scores.get('conditions', 0.0):.4f}")
+
+    logging.info(f"  Overall Confidence: {match['overall_confidence']:.4f}")
+
+    if match['overall_confidence'] < min_confidence:
+        logging.debug(f"Skipping detailed match info due to low confidence (threshold: {min_confidence})")
         return
-
-    logging.warning(f"  Rule: {match['rule']} (Confidence: {confidence:.4f})")
 
     # Log matched strings
     if match.get("strings"):
-        logging.info("  Matched Strings:")
+        logging.info("\nMatched Strings:")
         for string_match in match["strings"]:
-            logging.info(f"    Pattern: {string_match['pattern']} | Matched: {string_match['matched']}")
+            logging.info(f"  Pattern: {string_match['pattern']} | Matched: {string_match['matched']}")
 
     # Log matched imports
     if match.get("imports"):
-        logging.info("  Matched Imports:")
+        logging.info("\nMatched Imports:")
         for import_match in match["imports"]:
             logging.info(
-                f"    DLL: {import_match['dll']} | Import: {import_match['import']} | Address: {import_match.get('address')}")
+                f"  DLL: {import_match['dll']} | Import: {import_match['import']} | Address: {import_match.get('address')}")
 
     # Log matched sections
     if match.get("sections"):
-        logging.info("  Matched Sections:")
+        logging.info("\nMatched Sections:")
         for section_match in match["sections"]:
             logging.info(
-                f"    Section: {section_match['name']} | Match Quality: {section_match.get('match_quality', 0):.4f}")
+                f"  Section: {section_match['name']} | Match Quality: {section_match.get('match_quality', 0):.4f}")
 
     # Log conditions met
     if match.get("conditions_met"):
-        logging.info("  Conditions Met:")
+        logging.info("\nConditions Met:")
         for condition in match["conditions_met"]:
-            logging.info(f"    {condition}")
+            logging.info(f"  {condition}")
 
     # Log classification (clean, malware, or unknown)
     if match.get("classification"):
-        logging.info(f"  Classification: {match['classification']}")
+        logging.info(f"\nClassification: {match['classification']}")
 
 def main():
     """Main entry point for PE signature scanning and training."""
