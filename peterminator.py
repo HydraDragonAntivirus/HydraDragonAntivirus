@@ -10,6 +10,27 @@ import sys
 import argparse
 from tqdm import tqdm
 import base64
+import nltk
+
+# Ensure that necessary NLTK resources are available
+nltk.download('punkt')
+nltk.download('punkt_tab')
+nltk.download('words')
+
+from nltk.corpus import words
+from nltk.tokenize import word_tokenize
+
+# A filter function to keep only meaningful words
+def filter_meaningful_words(word_list):
+    """
+    Filter out non-English or meaningless strings.
+    :param word_list: List of words (strings) to filter.
+    :return: List of meaningful English words.
+    """
+    return [word for word in word_list if word.isalpha() and word.lower() in nltk_words]
+
+# Load NLTK word corpus
+nltk_words = set(words.words())
 
 # Set script directory
 script_dir = os.getcwd()
@@ -100,10 +121,13 @@ class PEAnalyzer:
         return exports
 
     def _extract_strings(self, data: bytes, min_length: int = 4) -> List[Dict[str, Any]]:
-        """Extract ASCII and Unicode strings from the binary data."""
+        """Extract ASCII strings from the binary data."""
         strings = []
         try:
+            # Define the regex pattern to match ASCII strings of at least `min_length` characters
             ascii_pattern = f'[\x20-\x7e]{{{min_length},}}'
+
+            # Find matches using the ASCII pattern
             for match in re.finditer(ascii_pattern.encode(), data):
                 strings.append({
                     'type': 'ascii',
@@ -111,20 +135,9 @@ class PEAnalyzer:
                     'offset': match.start(),
                     'size': len(match.group())
                 })
-
-            unicode_pattern = f'(?:[\x20-\x7e]\x00){{{min_length},}}'
-            for match in re.finditer(unicode_pattern.encode(), data):
-                try:
-                    strings.append({
-                        'type': 'unicode',
-                        'value': match.group().decode('utf-16le', errors='ignore'),
-                        'offset': match.start(),
-                        'size': len(match.group())
-                    })
-                except UnicodeDecodeError:
-                    continue
         except Exception as e:
             logging.error(f"Error extracting strings: {e}")
+
         return strings
 
     def _analyze_iat(self, pe) -> Dict[str, int]:
@@ -808,7 +821,20 @@ def main():
                 # Assign label: 0 for clean (benign), 1 for malware
                 label = 0 if file_path in clean_files else 1
 
-                # Remove raw_data from sections but keep other details
+                # Extract strings and filter meaningful ones
+                extracted_strings = features.get("strings", [])
+                meaningful_strings = [
+                    {
+                        "type": string["type"],
+                        "value": string["value"],
+                        "offset": string["offset"],
+                        "size": string["size"]
+                    }
+                    for string in extracted_strings
+                    if filter_meaningful_words(word_tokenize(string["value"]))  # Apply NLTK filtering
+                ]
+
+                # Remove raw_data and keep other relevant features
                 sections_cleaned = {
                     name: {
                         "virtual_size": section.get("virtual_size"),
@@ -825,11 +851,11 @@ def main():
                 signature = {
                     "file_name": os.path.basename(file_path),
                     "file_path": file_path,
-                    "headers": features["headers"],  # Include header details
-                    "sections": sections_cleaned,  # Include cleaned sections without raw_data
-                    "entropy": features["entropy"],  # Include entropy summary
-                    "imports": features["imports"],  # Keep imports for all files
-                    "strings": features.get("strings", []),  # Keep strings for all files
+                    "headers": features["headers"],
+                    "sections": sections_cleaned,
+                    "entropy": features["entropy"],
+                    "imports": features["imports"],
+                    "strings": meaningful_strings,  # Save only filtered meaningful strings
                     "label": label
                 }
 
