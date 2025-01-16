@@ -714,10 +714,6 @@ def log_match_details(match, min_confidence):
     logging.info(f"  Overall Confidence: {match['overall_confidence']:.4f}")
     logging.info(f"  Classification: {match.get('classification', 'unknown')}")
 
-    if match['overall_confidence'] < min_confidence:
-        logging.debug(f"Skipping detailed match info due to low confidence (threshold: {min_confidence})")
-        return
-
     # Log matched strings
     if match.get("strings"):
         logging.info("\nMatched Strings:")
@@ -847,11 +843,10 @@ def main():
             logging.info(f"File: {file_path} classified as {file_class}")
 
             # Now check the threshold for the matches
-            # Only log matches that meet the min-confidence threshold
+            # Log all matches regardless of classification
             if matches:
                 for match in matches:
-                    if match['confidence'] >= args.min_confidence:  # Check the confidence threshold
-                        log_match_details(match, args.min_confidence)
+                    log_match_details(match, args.min_confidence)
 
         logging.info("Scan Summary:")
         logging.info(f"  Total files scanned: {files_scanned}")
