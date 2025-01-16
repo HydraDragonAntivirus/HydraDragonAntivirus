@@ -431,33 +431,24 @@ class PESignatureEngine:
             # Handle strings
             total_strings = len(rule.get('strings', []))
             if total_strings > 0:
-                logging.debug(f"Processing {total_strings} string patterns...")
                 for string_def in rule.get('strings', []):
-                    if isinstance(string_def, dict):
-                        pattern_value = string_def.get('value', '')
-                        pattern_type = string_def.get('type', 'ascii')
-
-                        for file_string in features.get('strings', []):
-                            string_value = file_string.get('value', '')
-                            if pattern_value.lower() in string_value.lower():
-                                match_detail = {
-                                    'pattern': pattern_value,
-                                    'matched': string_value,
-                                    'type': pattern_type,
-                                    'offset': file_string.get('offset')
-                                }
-                                matches['strings'].append(match_detail)
-                                logging.debug(f"Matched string: {match_detail}")
+                    pattern_value = string_def.get('value', '')
+                    for file_string in features.get('strings', []):
+                        string_value = file_string.get('value', '')
+                        if pattern_value.lower() in string_value.lower():
+                            match_detail = {
+                                'pattern': pattern_value,
+                                'matched': string_value,
+                                'offset': file_string.get('offset')
+                            }
+                            matches['strings'].append(match_detail)
 
                 matches['confidence_scores']['strings'] = len(
                     matches['strings']) / total_strings if total_strings > 0 else 0
-                logging.debug(f"String match confidence: {matches['confidence_scores']['strings']}")
 
             # Handle imports
             total_imports = sum(len(imp.get('imports', [])) for imp in rule.get('imports', []))
             matched_imports = 0
-
-            logging.debug(f"Processing imports with total_imports={total_imports}...")
             for import_def in rule.get('imports', []):
                 dll_name = import_def.get('dll_name', '').lower()
                 import_list = import_def.get('imports', [])
@@ -475,25 +466,19 @@ class PESignatureEngine:
                                         'address': feature_imp_detail.get('address')
                                     }
                                     matches['imports'].append(match_detail)
-                                    logging.debug(f"Matched import: {match_detail}")
 
-            if total_imports > 0:
-                matches['confidence_scores']['imports'] = matched_imports / total_imports
-                logging.debug(f"Import match confidence: {matches['confidence_scores']['imports']}")
+            matches['confidence_scores']['imports'] = matched_imports / total_imports if total_imports > 0 else 0
 
             # Handle sections
             rule_sections = rule.get('sections', {})
             total_sections = len(rule_sections)
             matched_sections = 0
-
-            logging.debug(f"Processing sections with total_sections={total_sections}...")
             for section_name, section_data in features.get('sections', {}).items():
                 if section_name in rule_sections:
                     required_section = rule_sections[section_name]
                     section_matches = True
                     total_props = 0
                     matched_props = 0
-
                     for key, value in required_section.items():
                         if key in section_data:
                             total_props += 1
@@ -501,7 +486,6 @@ class PESignatureEngine:
                                 matched_props += 1
                             else:
                                 section_matches = False
-
                     if section_matches and total_props > 0:
                         matched_sections += 1
                         match_detail = {
@@ -510,59 +494,30 @@ class PESignatureEngine:
                             'match_quality': matched_props / total_props
                         }
                         matches['sections'].append(match_detail)
-                        logging.debug(f"Matched section: {match_detail}")
 
-            if total_sections > 0:
-                matches['confidence_scores']['sections'] = matched_sections / total_sections
-                logging.debug(f"Section match confidence: {matches['confidence_scores']['sections']}")
+            matches['confidence_scores']['sections'] = matched_sections / total_sections if total_sections > 0 else 0
 
             # Evaluate conditions
             conditions = rule.get('conditions', {})
             total_conditions = len(conditions)
             met_conditions = 0
 
-            logging.debug(f"Processing conditions with total_conditions={total_conditions}...")
             if conditions:
-                # Check minimum imports
-                min_imports = conditions.get('min_imports', 0)
-                if len(matches['imports']) >= min_imports:
-                    met_conditions += 1
-                    matches['conditions_met'].append('min_imports')
-                    logging.debug(f"Condition 'min_imports' met.")
+                # Check conditions like min_imports, min_sections, etc.
+                if 'min_imports' in conditions:
+                    min_imports = conditions.get('min_imports', 0)
+                    if matched_imports >= min_imports:
+                        met_conditions += 1
 
-                # Check minimum sections
-                min_sections = conditions.get('min_sections', 0)
-                if len(matches['sections']) >= min_sections:
-                    met_conditions += 1
-                    matches['conditions_met'].append('min_sections')
-                    logging.debug(f"Condition 'min_sections' met.")
+                if 'min_sections' in conditions:
+                    min_sections = conditions.get('min_sections', 0)
+                    if matched_sections >= min_sections:
+                        met_conditions += 1
 
-                # Check entropy threshold
-                entropy_threshold = conditions.get('entropy_threshold', 0)
-                if features.get('entropy', {}).get('full', 0) >= entropy_threshold:
-                    met_conditions += 1
-                    matches['conditions_met'].append('entropy_threshold')
-                    logging.debug(f"Condition 'entropy_threshold' met.")
+            matches['confidence_scores'][
+                'conditions'] = met_conditions / total_conditions if total_conditions > 0 else 0
 
-                # Check required IAT imports
-                iat_imports = conditions.get('iat_imports', [])
-                if all(imp in features.get('iat', {}) for imp in iat_imports):
-                    met_conditions += 1
-                    matches['conditions_met'].append('iat_imports')
-                    logging.debug(f"Condition 'iat_imports' met.")
-
-                # Check required section names
-                section_names = conditions.get('section_names', [])
-                if all(name in features.get('sections', {}) for name in section_names):
-                    met_conditions += 1
-                    matches['conditions_met'].append('section_names')
-                    logging.debug(f"Condition 'section_names' met.")
-
-            if total_conditions > 0:
-                matches['confidence_scores']['conditions'] = met_conditions / total_conditions
-                logging.debug(f"Condition match confidence: {matches['confidence_scores']['conditions']}")
-
-            # Calculate overall confidence score
+            # Calculate overall confidence
             weights = {
                 'strings': 0.3,
                 'imports': 0.3,
@@ -575,19 +530,58 @@ class PESignatureEngine:
                 for category, score in matches['confidence_scores'].items()
             )
 
-            # Handle cases where all confidence scores are zero
-            if all(score == 0 for score in matches['confidence_scores'].values()):
-                overall_confidence = 0.0
+            # Ensure no division by zero if all scores are zero
+            matches['overall_confidence'] = round(overall_confidence, 2) if overall_confidence > 0 else 0.0
 
-            matches['overall_confidence'] = round(overall_confidence, 2)
             logging.debug(f"Overall confidence: {matches['overall_confidence']}")
 
-            logging.debug(f"Final matches: {matches}")
             return matches
 
         except Exception as e:
             logging.error(f"Error in _evaluate_rule: {e}")
             return {}
+
+    def scan_file(self, file_path: str) -> List[Dict]:
+        """Scan a PE file and return matches against loaded rules."""
+        logging.debug(f"Scanning file: {file_path}")
+        matches = []
+
+        try:
+            features = self.analyzer.analyze_pe(file_path)
+            if not features:
+                logging.error(f"Failed to analyze file: {file_path}")
+                return matches
+
+            for rule in self.compiler.rules:
+                try:
+                    rule_name = rule.get('name', 'unknown')  # Get rule name from the compiled rule
+
+                    # Evaluate rule match result for the current file
+                    match_result = self._evaluate_rule(rule, features)
+
+                    if match_result:  # If we have matches
+                        match_info = {
+                            'rule': rule_name,
+                            'meta': rule.get('meta', {}),
+                            'strings': match_result.get('strings', []),
+                            'imports': match_result.get('imports', []),
+                            'sections': match_result.get('sections', []),
+                            'conditions_met': match_result.get('conditions_met', []),
+                            'overall_confidence': match_result.get('overall_confidence', 0.0)
+                        }
+
+                        matches.append(match_info)
+                        logging.debug(f"Rule '{rule_name}' matched with confidence {match_info['overall_confidence']}")
+
+                except Exception as e:
+                    logging.error(f"Error evaluating rule {rule.get('name', 'unknown')} for file {file_path}: {e}")
+                    continue
+
+            return matches
+
+        except Exception as e:
+            logging.error(f"Error scanning file {file_path}: {e}")
+            return matches
 
     def load_rules(self, rules_file: str) -> None:
         """Load rules including private rules from a JSON file."""
@@ -655,78 +649,19 @@ class PESignatureEngine:
                     logging.error(f"Error evaluating rule {rule.get('name', 'unknown')} for file {file_path}: {e}")
                     continue
 
+            if matches:
+                # If matches were found, log the match details
+                logging.info(f"Found matches for file: {file_path}")
+            else:
+                # If no matches were found, log the overall confidence (set to 0.0 in this case)
+                logging.info(f"No matches found for file: {file_path}")
+                logging.info(f"Overall confidence: 0.0")
+
             return matches
 
         except Exception as e:
             logging.error(f"Error scanning file {file_path}: {e}")
             return matches
-
-def log_match_details(match, min_confidence):
-    """Logs detailed information about a match."""
-    # Calculate overall confidence if not present
-    if 'overall_confidence' not in match and 'confidence_scores' in match:
-        weights = {
-            'strings': 0.3,
-            'imports': 0.3,
-            'sections': 0.2,
-            'conditions': 0.2
-        }
-        overall_confidence = sum(
-            score * weights.get(category, 0)
-            for category, score in match['confidence_scores'].items()
-        )
-        match['overall_confidence'] = round(overall_confidence, 2)
-    elif 'overall_confidence' not in match and 'confidence' in match:
-        match['overall_confidence'] = match['confidence']
-    else:
-        match['overall_confidence'] = 0.0
-
-    # Initialize empty confidence scores if not present
-    if 'confidence_scores' not in match:
-        match['confidence_scores'] = {
-            'strings': 0.0,
-            'imports': 0.0,
-            'sections': 0.0,
-            'conditions': 0.0
-        }
-
-    # Log all confidence scores first
-    logging.info(f"\nMatch Details for Rule: {match['rule']}")
-    logging.info("Confidence Scores:")
-
-    confidence_scores = match['confidence_scores']
-    logging.info(f"  Strings Confidence: {confidence_scores.get('strings', 0.0):.4f}")
-    logging.info(f"  Imports Confidence: {confidence_scores.get('imports', 0.0):.4f}")
-    logging.info(f"  Sections Confidence: {confidence_scores.get('sections', 0.0):.4f}")
-    logging.info(f"  Conditions Confidence: {confidence_scores.get('conditions', 0.0):.4f}")
-    logging.info(f"  Overall Confidence: {match['overall_confidence']:.4f}")
-    logging.info(f"  Classification: {match.get('classification', 'unknown')}")
-
-    # Log matched strings
-    if match.get("strings"):
-        logging.info("\nMatched Strings:")
-        for string_match in match["strings"]:
-            logging.info(f"  Pattern: {string_match['pattern']} | Matched: {string_match['matched']}")
-
-    # Log matched imports
-    if match.get("imports"):
-        logging.info("\nMatched Imports:")
-        for import_match in match["imports"]:
-            logging.info(
-                f"  DLL: {import_match['dll']} | Import: {import_match['import']} | Address: {import_match.get('address')}")
-
-    # Log matched sections
-    if match.get("sections"):
-        logging.info("\nMatched Sections:")
-        for section_match in match["sections"]:
-            logging.info(
-                f"  Section: {section_match['name']} | Match Quality: {section_match.get('match_quality', 0):.4f}")
-
-    # Log conditions met
-    if match.get("conditions_met"):
-        logging.info("\nConditions Met:")
-        for condition in match["conditions_met"]:
-            logging.info(f"  {condition}")
 
 def main():
     """Main entry point for PE signature scanning and training."""
@@ -740,14 +675,9 @@ def main():
     parser.add_argument('--malware-dir', type=str, help="Directory containing malware files for training")
     parser.add_argument('--max-files', type=int, default=1000, help="Maximum number of files to process during training or scanning")
     parser.add_argument('--min-confidence', type=float, default=0.9, help="Minimum confidence threshold for matches")
-    parser.add_argument('--verbose', action='store_true', help="Enable verbose logging for debugging")
 
     # Parse arguments
     args = parser.parse_args()
-
-    if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
-
     if args.action == 'scan':
         if not args.file or not os.path.exists(args.file):
             logging.error("A valid file path or directory must be specified for the scan action.")
@@ -829,13 +759,6 @@ def main():
                 files_unknown += 1
 
             logging.info(f"File: {file_path} classified as {file_class}")
-
-            # Now check the threshold for the matches
-            # Log all matches regardless of classification
-            if matches:
-                for match in matches:
-                    log_match_details(match, args.min_confidence)
-
         logging.info("Scan Summary:")
         logging.info(f"  Total files scanned: {files_scanned}")
         logging.info(f"  Clean files: {files_clean}")

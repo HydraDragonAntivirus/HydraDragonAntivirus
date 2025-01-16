@@ -18,7 +18,7 @@ application_log_file = os.path.join(log_directory, "antivirus.log")
 # Configure logging for application log
 logging.basicConfig(
     filename=application_log_file,
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
 )
 
