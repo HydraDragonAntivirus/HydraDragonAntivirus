@@ -599,35 +599,36 @@ class PESignatureEngine:
         matches = []
 
         try:
-            # Analyze the PE file using the analyzer (assuming the 'analyze_pe' method provides relevant features)
+            # Analyze the PE file using the analyzer
             features = self.analyzer.analyze_pe(file_path)
             if not features:
                 logging.error(f"Failed to analyze file: {file_path}")
                 return matches
 
-            # Initialize a list to store rule matches
+            # Evaluate each rule
             for rule in self.compiler.rules:
                 try:
+                    rule_name = rule.get('name', 'unknown')  # Get rule name from the compiled rule
+
                     # Evaluate rule match result for the current file
                     match_result = self._evaluate_rule(rule, features)
-                    if match_result:
-                        # Calculate overall confidence
-                        rule_confidence = self.calculate_overall_confidence(rule, match_result)
 
-                        match_result['overall_confidence'] = rule_confidence  # Ensure confidence is included
-
-                        rule_name = rule.get('rule', 'unknown')
+                    if match_result:  # If we have matches
                         match_info = {
                             'rule': rule_name,
                             'meta': rule.get('meta', {}),
-                            'matches': match_result,
-                            'confidence': rule_confidence
+                            'strings': match_result.get('strings', []),
+                            'imports': match_result.get('imports', []),
+                            'sections': match_result.get('sections', []),
+                            'conditions_met': match_result.get('conditions_met', []),
+                            'overall_confidence': match_result.get('overall_confidence', 0.0)
                         }
+
                         matches.append(match_info)
-                        logging.debug(f"Rule '{rule_name}' matched with confidence {rule_confidence}")
+                        logging.debug(f"Rule '{rule_name}' matched with confidence {match_info['overall_confidence']}")
 
                 except Exception as e:
-                    logging.error(f"Error evaluating rule {rule.get('rule', 'unknown')} for file {file_path}: {e}")
+                    logging.error(f"Error evaluating rule {rule.get('name', 'unknown')} for file {file_path}: {e}")
                     continue
 
             return matches
@@ -661,35 +662,34 @@ class PESignatureEngine:
             logging.error(f"Missing confidence score key: {e}")
             return 0.0
 
-
 def log_match_details(match, min_confidence):
     """Logs detailed information about a match."""
     if match['overall_confidence'] < min_confidence:
         logging.debug(f"Skipping low-confidence match: {match['rule']} (Confidence: {match['overall_confidence']})")
         return
 
-    logging.info(f"  Rule: {match['rule']} (Confidence: {match['overall_confidence']})")
+    logging.info(f"  Rule: {match['rule']} (Confidence: {match['overall_confidence']:.4f})")
 
     # Log matched strings
-    if "strings" in match and match["strings"]:
+    if match.get("strings"):
         logging.info("  Matched Strings:")
         for string_match in match["strings"]:
             logging.info(f"    Pattern: {string_match['pattern']} | Matched: {string_match['matched']}")
 
     # Log matched imports
-    if "imports" in match and match["imports"]:
+    if match.get("imports"):
         logging.info("  Matched Imports:")
         for import_match in match["imports"]:
             logging.info(f"    DLL: {import_match['dll']} | Import: {import_match['import']} | Address: {import_match.get('address')}")
 
     # Log matched sections
-    if "sections" in match and match["sections"]:
+    if match.get("sections"):
         logging.info("  Matched Sections:")
         for section_match in match["sections"]:
-            logging.info(f"    Section: {section_match['name']} | Entropy: {section_match['entropy']} | Match Quality: {section_match['match_quality']}")
+            logging.info(f"    Section: {section_match['name']} | Match Quality: {section_match.get('match_quality', 0):.4f}")
 
     # Log conditions met
-    if "conditions_met" in match and match["conditions_met"]:
+    if match.get("conditions_met"):
         logging.info("  Conditions Met:")
         for condition in match["conditions_met"]:
             logging.info(f"    {condition}")
