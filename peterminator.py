@@ -860,16 +860,11 @@ def main():
                        and filter_meaningful_words(word_tokenize(string["value"]))  # Apply NLTK filtering
                 ]
 
-                # Construct the signature for the current file with die_info
+                # Construct the signature for the current file with all features
                 signature = {
                     "file_name": os.path.basename(file_path),
                     "file_path": file_path,
-                    "headers": features["headers"],
-                    "sections": features["sections"],  # Keeping the section info
-                    "entropy": features["entropy"],
-                    "imports": features["imports"],
-                    "strings": meaningful_strings,  # Add only unique strings
-                    "die_info": features.get("die_info", {}),  # Include die_info here
+                    **features,  # Include all features (headers, sections, entropy, imports, etc.)
                     "label": label,
                     "classification": classification  # Add classification info
                 }
