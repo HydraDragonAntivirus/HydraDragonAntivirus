@@ -720,6 +720,10 @@ def log_match_details(match, min_confidence):
         for condition in match["conditions_met"]:
             logging.info(f"    {condition}")
 
+    # Log classification (clean, malware, or unknown)
+    if match.get("classification"):
+        logging.info(f"  Classification: {match['classification']}")
+
 def main():
     """Main entry point for PE signature scanning and training."""
 
@@ -762,7 +766,8 @@ def main():
 
         files_scanned = 0
         files_clean = 0
-        files_with_matches = 0
+        files_malware = 0
+        files_unknown = 0
 
         all_files = []
         if os.path.isdir(args.file):
@@ -780,6 +785,9 @@ def main():
 
             # Compare features with training data
             features = signature_engine.analyzer.analyze_pe(file_path)
+            match_found = False
+            file_class = 'unknown'  # Default classification
+
             if features and training_data:
                 for entry in training_data:
                     headers_match = entry.get('headers')
@@ -789,22 +797,41 @@ def main():
                     # Compare these fields with the current file's features
                     if headers_match and features.get('headers') == headers_match:
                         matches.append({'rule': 'Training Match', 'label': entry['label'], 'confidence': 1.0})
-                    if sections_match and features.get('sections') == sections_match:
+                        match_found = True
+                        file_class = 'clean' if entry['label'] == 0 else 'malware'
+                    elif sections_match and features.get('sections') == sections_match:
                         matches.append({'rule': 'Training Match', 'label': entry['label'], 'confidence': 1.0})
-                    if entropy_match and features.get('entropy') == entropy_match:
+                        match_found = True
+                        file_class = 'clean' if entry['label'] == 0 else 'malware'
+                    elif entropy_match and features.get('entropy') == entropy_match:
                         matches.append({'rule': 'Training Match', 'label': entry['label'], 'confidence': 1.0})
+                        match_found = True
+                        file_class = 'clean' if entry['label'] == 0 else 'malware'
 
+            # If no match found, classify as unknown
+            if not match_found:
+                file_class = 'unknown'
+
+            # Increment appropriate classification counters
+            if file_class == 'clean':
+                files_clean += 1
+            elif file_class == 'malware':
+                files_malware += 1
+            else:
+                files_unknown += 1
+
+            logging.info(f"File: {file_path} classified as {file_class}")
+
+            # Log match details if there are any matches
             if matches:
-                files_with_matches += 1
                 for match in matches:
                     log_match_details(match, args.min_confidence)
-            else:
-                files_clean += 1
 
         logging.info("Scan Summary:")
         logging.info(f"  Total files scanned: {files_scanned}")
         logging.info(f"  Clean files: {files_clean}")
-        logging.info(f"  Files with matches: {files_with_matches}")
+        logging.info(f"  Malware files: {files_malware}")
+        logging.info(f"  Unknown files: {files_unknown}")
 
     elif args.action == 'train':
         if not args.clean_dir or not os.path.exists(args.clean_dir) or not args.malware_dir or not os.path.exists(
@@ -824,8 +851,16 @@ def main():
         for file_path in tqdm(clean_files + malware_files, desc="Extracting features", unit="file"):
             features = pe_analyzer.analyze_pe(file_path)
             if features:
-                # Assign label: 0 for clean (benign), 1 for malware
-                label = 0 if file_path in clean_files else 1
+                # Determine classification: clean, malware, or unknown
+                if file_path in clean_files:
+                    classification = "clean"  # The file is clean
+                    label = 0  # Clean files get label 0
+                elif file_path in malware_files:
+                    classification = "malware"  # The file is malware
+                    label = 1  # Malware files get label 1
+                else:
+                    classification = "unknown"  # If the file is not in either, classify as unknown
+                    label = -1  # Unknown files get label -1
 
                 # Extract strings and filter meaningful ones
                 extracted_strings = features.get("strings", [])
@@ -838,7 +873,7 @@ def main():
                     }
                     for string in extracted_strings
                     if len(string["value"]) >= 4  # Ensure the string has at least 4 characters
-                    and filter_meaningful_words(word_tokenize(string["value"]))  # Apply NLTK filtering
+                       and filter_meaningful_words(word_tokenize(string["value"]))  # Apply NLTK filtering
                 ]
 
                 # Remove raw_data and keep other relevant features
@@ -863,7 +898,8 @@ def main():
                     "entropy": features["entropy"],
                     "imports": features["imports"],
                     "strings": meaningful_strings,  # Save only filtered meaningful strings
-                    "label": label
+                    "label": label,
+                    "classification": classification  # Add classification info
                 }
 
                 # Append the signature to the training data
