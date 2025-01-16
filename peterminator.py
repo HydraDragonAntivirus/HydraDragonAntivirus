@@ -345,289 +345,155 @@ class PESignatureCompiler:
 class PESignatureEngine:
     def __init__(self):
         logging.info("PESignatureEngine initialized.")
-        self.analyzer = PEAnalyzer()  # Now using PEAnalyzer only
+        self.analyzer = PEAnalyzer()
         self.compiler = PESignatureCompiler()
-
-    def load_rules(self, rules_file: str) -> None:
-        logging.debug(f"Loading rules from {rules_file}")
-        try:
-            self.compiler.load_rules(rules_file)
-        except Exception as e:
-            logging.error(f"Error loading rules from {rules_file}: {e}")
-            raise
-
-    def _evaluate_rule(self, rule: Dict, features: Dict) -> Optional[Dict]:
-        """
-        Evaluate a rule against PE file features.
-
-        Args:
-            rule (Dict): Rule dictionary containing strings and conditions
-            features (Dict): Extracted PE file features
-
-        Returns:
-            Optional[Dict]: Dictionary of matches if rule conditions are met, None otherwise
-        """
-        try:
-            if not all(isinstance(x, dict) for x in [rule, features]):
-                logging.error("Invalid input types for rule evaluation")
-                return None
-
-            # Build matches dictionary for string patterns
-            matches = {}
-            for imp in features.get('imports', []):
-                if not isinstance(imp, dict):
-                    continue
-
-                dll_name = imp.get('dll_name', '').lower()
-                imports_list = imp.get('imports', [])
-
-                if not isinstance(imports_list, list):
-                    continue
-
-                for imp_detail in imports_list:
-                    if not isinstance(imp_detail, dict):
-                        continue
-
-                    imp_name = imp_detail.get('name', '')
-                    if not imp_name:
-                        continue
-
-                    # Check each string pattern against the import
-                    for pattern_id, pattern in rule.get('strings', {}).items():
-                        if pattern.lower() in imp_name.lower():
-                            if pattern_id not in matches:
-                                matches[pattern_id] = []
-                            matches[pattern_id].append({
-                                'dll': dll_name,
-                                'import': imp_name,
-                                'address': imp_detail.get('address'),
-                                'ordinal': imp_detail.get('ordinal')
-                            })
-
-            # Evaluate each condition
-            all_conditions_met = True
-            matched_conditions = []
-
-            for condition in rule.get('conditions', []):
-                if not isinstance(condition, str):
-                    continue
-
-                condition = condition.strip().lower()
-
-                # Handle entropy conditions
-                if condition.startswith('entropy.'):
-                    try:
-                        parts = condition.split()
-                        if len(parts) != 3:
-                            continue
-
-                        threshold = float(parts[2])
-                        if parts[0] == 'entropy.full':
-                            actual = features.get('entropy', {}).get('full', 0)
-                            comparison = actual >= threshold
-                        else:
-                            continue
-
-                        if not comparison:
-                            all_conditions_met = False
-                            break
-                        matched_conditions.append(condition)
-                    except (ValueError, TypeError):
-                        continue
-
-                # Handle section entropy conditions
-                elif condition.startswith('sections['):
-                    try:
-                        section_name = condition[9:].split(']')[0].strip('"')
-                        parts = condition.split()
-                        if len(parts) != 3:
-                            continue
-
-                        threshold = float(parts[2])
-                        section_entropy = features.get('entropy', {}).get('sections', {}).get(section_name, 0)
-
-                        if section_entropy < threshold:
-                            all_conditions_met = False
-                            break
-                        matched_conditions.append(condition)
-                    except (ValueError, TypeError, IndexError):
-                        continue
-
-                # Handle import conditions
-                elif condition.startswith('any of import'):
-                    try:
-                        # Extract DLL name and API names
-                        import_str = condition[13:-1]  # Remove 'any of import(' and ')'
-                        parts = [p.strip().strip('"') for p in import_str.split(',')]
-
-                        if not parts:
-                            continue
-
-                        dll_name = parts[0].lower()
-                        api_patterns = parts[1:]
-
-                        # Check if any of the specified APIs are imported from the DLL
-                        found_match = False
-                        for imp in features.get('imports', []):
-                            if not isinstance(imp, dict):
-                                continue
-
-                            if imp.get('dll_name', '').lower() == dll_name:
-                                for api_pattern in api_patterns:
-                                    for imp_detail in imp.get('imports', []):
-                                        if not isinstance(imp_detail, dict):
-                                            continue
-
-                                        imp_name = imp_detail.get('name', '').lower()
-                                        if api_pattern.lower() in imp_name:
-                                            found_match = True
-                                            break
-                                    if found_match:
-                                        break
-                            if found_match:
-                                break
-
-                        if not found_match:
-                            all_conditions_met = False
-                            break
-                        matched_conditions.append(condition)
-                    except Exception as e:
-                        logging.error(f"Error evaluating import condition: {e}")
-                        continue
-
-                # Handle IAT conditions
-                elif 'iat[' in condition:
-                    try:
-                        api_name = condition.split('[')[1].split(']')[0].strip('"')
-                        parts = condition.split()
-                        if len(parts) != 3:
-                            continue
-
-                        threshold = int(parts[2])
-                        iat_count = len([imp for imp in features.get('imports', [])
-                                         if any(detail.get('name') == api_name
-                                                for detail in imp.get('imports', []))])
-
-                        if iat_count <= threshold:
-                            all_conditions_met = False
-                            break
-                        matched_conditions.append(condition)
-                    except (ValueError, TypeError, IndexError):
-                        continue
-
-            if all_conditions_met and matched_conditions:
-                return {
-                    'matches': matches,
-                    'matched_conditions': matched_conditions
-                }
-
-            return None
-
-        except Exception as e:
-            logging.error(f"Error evaluating rule: {e}")
-            return None
+        self.rules = []
 
     def scan_file(self, file_path: str) -> List[Dict]:
+        """
+        Scan a PE file and return matches against loaded rules.
+        
+        Args:
+            file_path (str): Path to the PE file to scan
+            
+        Returns:
+            List[Dict]: List of matches, each containing rule name, meta info, and match details
+        """
         logging.debug(f"Scanning file: {file_path}")
         matches = []
 
         try:
-            # Get features from the analyzer
+            # Extract features using the analyzer
             features = self.analyzer.analyze_pe(file_path)
             if not features:
                 logging.error(f"Failed to analyze file: {file_path}")
                 return matches
 
-            logging.debug(f"Extracted Features: {features}")
-
-            # Process each rule
+            # Check each rule against the features
             for rule in self.compiler.rules:
                 try:
                     match_result = self._evaluate_rule(rule, features)
-                    if match_result:
+                    if match_result and any(match_result.values()):  # Check if any matches were found
                         match_info = {
                             'rule': rule['name'],
-                            'meta': rule['meta'],
+                            'meta': rule.get('meta', {}),
                             'matches': match_result
                         }
                         matches.append(match_info)
+                        logging.debug(f"Rule '{rule['name']}' matched")
                 except Exception as e:
-                    logging.error(f"Error evaluating rule {rule['name']} for file {file_path}: {e}")
+                    logging.error(f"Error evaluating rule {rule.get('name', 'unknown')} for file {file_path}: {e}")
+                    continue
+
+            return matches
 
         except Exception as e:
-            logging.error(f"Error scanning file: {e}")
+            logging.error(f"Error scanning file {file_path}: {e}")
+            return matches
 
-        logging.debug(f"Matches found: {matches}")
-        return matches
+    def _evaluate_rule(self, rule: Dict, features: Dict) -> Optional[Dict]:
+        """Evaluate a single rule against the PE file features."""
+        try:
+            matches = {
+                'strings': [],
+                'imports': [],
+                'sections': [],
+                'resources': [],
+                'headers': []
+            }
 
-    def _evaluate_conditions(self, conditions: List[str], features: Dict, matches: Dict) -> bool:
-        for condition in conditions:
-            try:
-                tokens = condition.split()
-                if not tokens:
-                    continue
+            # Check imports
+            for imp in features.get('imports', []):
+                dll_name = imp.get('dll_name', '').lower()
+                for imp_detail in imp.get('imports', []):
+                    imp_name = imp_detail.get('name', '')
+                    if imp_name:
+                        # Check against rule strings
+                        for pattern_id, pattern in rule.get('strings', {}).items():
+                            if isinstance(pattern, str) and pattern.lower() in imp_name.lower():
+                                matches['imports'].append({
+                                    'pattern_id': pattern_id,
+                                    'dll': dll_name,
+                                    'import': imp_name,
+                                    'address': imp_detail.get('address'),
+                                    'ordinal': imp_detail.get('ordinal')
+                                })
 
-                # Check entropy conditions
-                if 'entropy' in condition.lower():
-                    section_name = tokens[0]
-                    min_entropy = float(tokens[2])
+            # Check section characteristics
+            for section_name, section_data in features.get('sections', {}).items():
+                section_entropy = section_data.get('entropy', 0)
+                if section_entropy > 7.0:  # High entropy check
+                    matches['sections'].append({
+                        'name': section_name,
+                        'entropy': section_entropy,
+                        'characteristics': section_data.get('characteristics')
+                    })
 
-                    if section_name == 'file':
-                        if features.get('entropy', {}).get('full', 0) <= min_entropy:
-                            return False
-                    else:
-                        section_entropy = features.get('entropy', {}).get('sections', {}).get(section_name, 0)
-                        if section_entropy <= min_entropy:
-                            return False
+            # Check strings in file
+            for file_string in features.get('strings', []):
+                for pattern_id, pattern in rule.get('strings', {}).items():
+                    if isinstance(pattern, str) and pattern.lower() in file_string.get('value', '').lower():
+                        matches['strings'].append({
+                            'pattern_id': pattern_id,
+                            'string': file_string.get('value'),
+                            'offset': file_string.get('offset'),
+                            'type': file_string.get('type')
+                        })
 
-                # Check import conditions
-                elif 'import' in condition.lower():
-                    import_name = condition.split('"')[1]
-                    if not any(import_name in dll_imports for dll_imports in features.get('imports', [])):
-                        return False
+            # Evaluate conditions
+            all_conditions_met = True
+            for condition in rule.get('conditions', []):
+                condition = condition.lower().strip()
+                
+                # Handle basic string presence conditions
+                if condition == "any of strings" and not matches['strings']:
+                    all_conditions_met = False
+                    break
+                    
+                # Handle import conditions
+                elif condition == "any of imports" and not matches['imports']:
+                    all_conditions_met = False
+                    break
+                    
+                # Handle entropy conditions
+                elif condition.startswith('entropy.'):
+                    try:
+                        parts = condition.split()
+                        threshold = float(parts[2])
+                        if parts[0] == 'entropy.full':
+                            actual = features.get('entropy', {}).get('full', 0)
+                            if actual < threshold:
+                                all_conditions_met = False
+                                break
+                    except (ValueError, IndexError):
+                        all_conditions_met = False
+                        break
 
-                # Check section conditions
-                elif 'section' in condition.lower():
-                    section_name = condition.split('"')[1]
-                    if section_name not in features.get('sections', {}):
-                        return False
+            return matches if all_conditions_met else None
 
-                # Check size conditions
-                elif 'size' in condition.lower():
-                    size_type = tokens[0].split('.')[0]
-                    min_size = int(tokens[2])
-                    if features.get('size_info', {}).get(size_type, 0) <= min_size:
-                        return False
-            except ValueError as e:
-                logging.error(f"Error parsing condition '{condition}': {e}")
-            except Exception as e:
-                logging.error(f"Error evaluating condition '{condition}': {e}")
-                continue
+        except Exception as e:
+            logging.error(f"Error in _evaluate_rule: {e}")
+            return None
 
-        return True
-
-    def classify_severity(self, matches: List[Dict]) -> str:
-        """Classify the severity of the file based on the match results."""
-        if not matches:
-            return "Clean"
-
-        max_severity = 0
-        for match in matches:
-            if 'severity' in match['meta']:
-                try:
-                    severity = int(match['meta']['severity'])
-                    max_severity = max(max_severity, severity)
-                except ValueError:
-                    continue
-
-        if max_severity == 0:
-            return "Clean"
-        elif max_severity <= 40:
-            return "Suspicious (Low)"
-        elif max_severity <= 70:
-            return "Suspicious (High)"
-        else:
-            return "Malicious"
+    def load_rules(self, rules_file: str) -> None:
+        """Load rules from a JSON file."""
+        try:
+            with open(rules_file, 'r') as f:
+                rules_data = json.load(f)
+                
+            if isinstance(rules_data, list):
+                for rule in rules_data:
+                    self.compiler.add_rule(rule)
+            elif isinstance(rules_data, dict):
+                self.compiler.add_rule(rules_data)
+            else:
+                raise ValueError("Invalid rules format - must be JSON object or array")
+                
+            logging.info(f"Successfully loaded {len(self.compiler.rules)} rules")
+            
+        except Exception as e:
+            logging.error(f"Error loading rules from {rules_file}: {e}")
+            raise
 
 def main():
     """Main entry point for PE signature scanning."""
