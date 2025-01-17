@@ -1051,27 +1051,22 @@ class PESignatureCompiler:
         logging.info("PESignatureCompiler initialized.")
         self.rules = []
 
-    def add_rule(self, rule_content: str) -> None:
-        """Add a rule from JSON content."""
+    def add_rule(self, rule_content: dict) -> None:
+        """Add a rule from content."""
         try:
-            # Ensure rule_content is in dictionary format
-            if isinstance(rule_content, str):
-                rule_dict = json.loads(rule_content)  # Parse JSON string into a dictionary
-            elif isinstance(rule_content, dict):
-                rule_dict = rule_content  # Use the content directly if it's already a dictionary
+            if isinstance(rule_content, dict):
+                self.process_rule(rule_content)  # Process single rule
+            elif isinstance(rule_content, list):
+                for rule in rule_content:  # Process list of rules
+                    if isinstance(rule, dict):
+                        self.process_rule(rule)
+                    else:
+                        logging.error(f"Invalid rule format in list: {type(rule)}")
             else:
                 logging.error(f"Invalid rule content type: {type(rule_content)}")
-                return
 
-            # If it's a list of rules, process each rule individually
-            if isinstance(rule_dict, list):
-                for rule in rule_dict:
-                    self.process_rule(rule)
-
-        except json.JSONDecodeError as e:
-            logging.error(f"Error parsing rule JSON: {e}")
         except Exception as e:
-            logging.error(f"Error compiling rule: {e}")
+            logging.error(f"Error processing rule: {e}")
 
     def process_rule(self, rule_dict: dict) -> None:
         """Validate and compile a single rule into a signature format that matches training data.
@@ -1244,15 +1239,7 @@ class PESignatureEngine:
             raise
 
     def scan_file(self, file_path: str) -> tuple:
-        """Scan a PE file with enhanced logging and near-match detection.
-
-        Args:
-            file_path (str): The path to the PE file to scan.
-
-        Returns:
-            tuple: A tuple containing (matches, features, confidence) where confidence is the average
-            confidence score across all matches.
-        """
+        """Scan a PE file with enhanced logging and near-match detection."""
         if not os.path.exists(file_path):
             logging.error(f"Invalid file path: {file_path}")
             return [], None, 0.0
@@ -1268,9 +1255,14 @@ class PESignatureEngine:
                 logging.error(f"Failed to analyze file: {file_path}")
                 return matches, features, overall_confidence
 
+            # Add debug logging
+            logging.debug(f"Number of rules to evaluate: {len(self.compiler.rules)}")
+
             confidence_scores = []
             for rule in self.compiler.rules:
                 result = self._evaluate_rule(rule, features)
+                logging.debug(f"Rule evaluation result: {result}")  # Add debug logging
+
                 if result and result['overall_confidence'] > 0:
                     confidence_scores.append(result['overall_confidence'])
                     matches.append({
@@ -1278,14 +1270,19 @@ class PESignatureEngine:
                         'matches': result,
                     })
 
+            # Add debug logging for confidence calculation
+            logging.debug(f"Confidence scores collected: {confidence_scores}")
+
             # Calculate average confidence if we have matches
             if confidence_scores:
                 overall_confidence = sum(confidence_scores) / len(confidence_scores)
+                logging.debug(f"Calculated overall confidence: {overall_confidence}")
 
             return matches, features, overall_confidence
 
         except Exception as e:
             logging.error(f"Error scanning file {file_path}: {str(e)}")
+            logging.exception("Full traceback:")  # Add full traceback
             return [], features, 0.0
 
 def scan_action(args):
