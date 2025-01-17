@@ -200,7 +200,7 @@ class PEAnalyzer:
             logging.error(f"Error during DIE analysis for {file_path}: {e}")
             return None
 
-    def extract_features(self, file_path: str, rank: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    def extract_features(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Extract comprehensive PE file features."""
         if file_path in self.features_cache:
             return self.features_cache[file_path]
@@ -217,7 +217,6 @@ class PEAnalyzer:
                     'path': file_path,
                     'name': os.path.basename(file_path),
                     'size': os.path.getsize(file_path),
-                    'rank': rank,
                 },
                 'headers': {
                     'optional_header': {
