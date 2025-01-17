@@ -744,7 +744,6 @@ def main():
 
         logging.info(f"Extracting features from {len(clean_files)} clean files and {len(malware_files)} malware files.")
 
-        # Data structures for clean and malware strings
         clean_file_strings = {}  # To track strings per clean file
         malware_file_strings = {}  # To track strings per malware file
         all_clean_strings = set()  # To track all clean strings across files
@@ -778,21 +777,20 @@ def main():
                 malware_file_strings[file_path] = meaningful_strings
                 all_malware_strings.update(meaningful_strings)
 
-        # Ensure clean and malware strings are disjoint
+        # Deduplicate overlapping strings between clean and malware sets
         overlapping_strings = all_clean_strings.intersection(all_malware_strings)
         logging.info(f"Removing {len(overlapping_strings)} overlapping strings.")
+
+        # Remove overlapping strings only if they appear across files from both categories
         for file_path in clean_file_strings:
             clean_file_strings[file_path] -= overlapping_strings
         for file_path in malware_file_strings:
             malware_file_strings[file_path] -= overlapping_strings
-        all_clean_strings -= overlapping_strings
-        all_malware_strings -= overlapping_strings
 
-        # Store training data
+        # Now construct the training samples ensuring uniqueness of strings per file category
         training_data = []
         processed_files = set()
 
-        # Construct training samples
         for file_path in tqdm(clean_files + malware_files, desc="Constructing training samples", unit="file"):
             normalized_path = os.path.abspath(file_path)
             if normalized_path in processed_files:
@@ -801,6 +799,7 @@ def main():
 
             features = pe_analyzer.analyze_pe(file_path)
             if features:
+                # Determine classification: clean or malware
                 if file_path in clean_files:
                     classification = "clean"
                     label = 0
@@ -812,8 +811,10 @@ def main():
                 else:
                     continue
 
+                # Skip if no valid strings
                 if not strings_to_add:
-                    logging.warning(f"No valid strings for file: {file_path}, skipping.")
+                    logging.warning(
+                        f"Skipping file with no valid strings: {file_path}, classification: {classification}")
                     continue
 
                 extracted_strings = features.get("strings", [])
@@ -834,6 +835,7 @@ def main():
                 if not any(sig["file_path"] == signature["file_path"] for sig in training_data):
                     training_data.append(signature)
 
+        # Save the training data to a JSON file
         training_data_path = "training_data.json"
         with open(training_data_path, "w") as f:
             json.dump(training_data, f, indent=4)
