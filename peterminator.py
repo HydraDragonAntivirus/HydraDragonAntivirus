@@ -323,7 +323,7 @@ class PEAnalyzer:
             return {}
 
     def _analyze_delay_imports(self, pe) -> List[Dict[str, Any]]:
-        """Analyze delay-load imports."""
+        """Analyze delay-load imports with error handling for missing attributes."""
         try:
             delay_imports = []
             if hasattr(pe, 'DIRECTORY_ENTRY_DELAY_IMPORT'):
@@ -336,20 +336,20 @@ class PEAnalyzer:
                             'ordinal': imp.ordinal,
                         }
                         imports.append(import_info)
-                    
+
                     delay_import = {
                         'dll': entry.dll.decode() if entry.dll else None,
-                        'attributes': entry.struct.Attributes,
-                        'name': entry.struct.Name,
-                        'handle': entry.struct.Handle,
-                        'iat': entry.struct.IAT,
-                        'bound_iat': entry.struct.BoundIAT,
-                        'unload_iat': entry.struct.UnloadIAT,
-                        'timestamp': entry.struct.TimeDateStamp,
+                        'attributes': getattr(entry.struct, 'Attributes', None),  # Use getattr for safe access
+                        'name': getattr(entry.struct, 'Name', None),
+                        'handle': getattr(entry.struct, 'Handle', None),
+                        'iat': getattr(entry.struct, 'IAT', None),
+                        'bound_iat': getattr(entry.struct, 'BoundIAT', None),
+                        'unload_iat': getattr(entry.struct, 'UnloadIAT', None),
+                        'timestamp': getattr(entry.struct, 'TimeDateStamp', None),
                         'imports': imports
                     }
                     delay_imports.append(delay_import)
-                    
+
             return delay_imports
         except Exception as e:
             logging.error(f"Error analyzing delay imports: {e}")
@@ -473,7 +473,7 @@ class PEAnalyzer:
             return []
 
     def _analyze_bound_imports(self, pe) -> List[Dict[str, Any]]:
-        """Analyze bound imports."""
+        """Analyze bound imports with robust error handling."""
         try:
             bound_imports = []
             if hasattr(pe, 'DIRECTORY_ENTRY_BOUND_IMPORT'):
@@ -483,16 +483,20 @@ class PEAnalyzer:
                         'timestamp': bound_imp.struct.TimeDateStamp,
                         'references': []
                     }
-                    
-                    for ref in bound_imp.references:
-                        reference = {
-                            'name': ref.name.decode() if ref.name else None,
-                            'timestamp': ref.struct.TimeDateStamp
-                        }
-                        bound_import['references'].append(reference)
-                        
+
+                    # Check if `references` exists
+                    if hasattr(bound_imp, 'references') and bound_imp.references:
+                        for ref in bound_imp.references:
+                            reference = {
+                                'name': ref.name.decode() if ref.name else None,
+                                'timestamp': getattr(ref.struct, 'TimeDateStamp', None)
+                            }
+                            bound_import['references'].append(reference)
+                    else:
+                        logging.warning(f"Bound import {bound_import['name']} has no references.")
+
                     bound_imports.append(bound_import)
-                    
+
             return bound_imports
         except Exception as e:
             logging.error(f"Error analyzing bound imports: {e}")
