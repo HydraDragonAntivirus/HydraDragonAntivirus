@@ -744,11 +744,8 @@ def main():
 
         logging.info(f"Extracting features from {len(clean_files)} clean files and {len(malware_files)} malware files.")
 
-        # Data structures to store unique strings per category
-        clean_strings = {}  # Store unique clean strings for each file
-        malware_strings = {}  # Store unique malware strings for each file
-        all_clean_strings = set()  # All clean strings across all files
-        all_malware_strings = set()  # All malware strings across all files
+        clean_strings = set()  # To store unique strings from clean files
+        malware_strings = set()  # To store unique strings from malware files
 
         # Extract strings from clean files
         for file_path in tqdm(clean_files, desc="Extracting clean strings", unit="file"):
@@ -761,8 +758,7 @@ def main():
                     if len(string["value"]) >= 4  # Ensure the string has at least 4 characters
                        and filter_meaningful_words(word_tokenize(string["value"]))  # Apply NLTK filtering
                 }
-                clean_strings[file_path] = meaningful_strings
-                all_clean_strings.update(meaningful_strings)
+                clean_strings.update(meaningful_strings)
 
         # Extract strings from malware files
         for file_path in tqdm(malware_files, desc="Extracting malware strings", unit="file"):
@@ -775,62 +771,72 @@ def main():
                     if len(string["value"]) >= 4  # Ensure the string has at least 4 characters
                        and filter_meaningful_words(word_tokenize(string["value"]))  # Apply NLTK filtering
                 }
-                malware_strings[file_path] = meaningful_strings
-                all_malware_strings.update(meaningful_strings)
+                malware_strings.update(meaningful_strings)
 
-        # Identify common strings (present in both clean and malware sets)
-        common_strings = all_clean_strings.intersection(all_malware_strings)
-        logging.info(f"Found {len(common_strings)} common strings.")
+        # Compare clean and malware strings, removing overlap
+        overlapping_strings = clean_strings.intersection(malware_strings)
+        clean_strings -= overlapping_strings  # Remove overlapping strings from clean set
+        malware_strings -= overlapping_strings  # Remove overlapping strings from malware set
 
-        # Generate rules for each file
+        # Store training data while ensuring the proper string classification
         training_data = []
-        processed_files = set()
+        logging.info(f"Feature extraction complete. Total training samples: {len(training_data)}")
+        processed_files = set()  # Track processed files to avoid duplicates
 
-        for file_path in tqdm(clean_files + malware_files, desc="Constructing training samples", unit="file"):
-            normalized_path = os.path.abspath(file_path)
+        # Deduplicate clean and malware files
+        unique_clean_files = set(clean_files)
+        unique_malware_files = set(malware_files)
+
+        # Ensure clean_strings and malware_strings are disjoint and deduplicated
+        clean_strings = set(clean_strings) - set(malware_strings)
+        malware_strings = set(malware_strings) - set(clean_strings)
+
+        # Process each file exactly once
+        for file_path in tqdm(unique_clean_files.union(unique_malware_files), desc="Constructing training samples",
+                              unit="file"):
+            normalized_path = os.path.abspath(file_path)  # Normalize file paths
             if normalized_path in processed_files:
-                continue
-            processed_files.add(normalized_path)
+                continue  # Skip already processed files
+            processed_files.add(normalized_path)  # Mark as processed
 
             features = pe_analyzer.analyze_pe(file_path)
             if features:
                 # Determine classification: clean or malware
-                if file_path in clean_files:
+                if file_path in unique_clean_files:
                     classification = "clean"
                     label = 0
-                    file_strings = clean_strings.get(file_path, set())  # Unique strings for this file
-                    rules = {
-                        f"benign_{string}" for string in file_strings if string not in common_strings
-                    }
-                    rules.update(f"common_{string}" for string in file_strings if string in common_strings)
-
-                elif file_path in malware_files:
+                    strings_to_add = clean_strings
+                elif file_path in unique_malware_files:
                     classification = "malware"
                     label = 1
-                    file_strings = malware_strings.get(file_path, set())  # Unique strings for this file
-                    rules = {
-                        f"malicious_{string}" for string in file_strings if string not in common_strings
-                    }
-                    rules.update(f"common_{string}" for string in file_strings if string in common_strings)
-
+                    strings_to_add = malware_strings
                 else:
                     continue  # Skip files that don't belong to either category
 
-                # Construct the signature with the generated rules
+                # Extract meaningful strings, avoiding duplicates
+                extracted_strings = features.get("strings", [])
+                meaningful_strings = list({
+                                              string["value"]: string
+                                              for string in extracted_strings
+                                              if string["value"] in strings_to_add
+                                                 and len(string["value"]) >= 4
+                                                 and filter_meaningful_words(word_tokenize(string["value"]))
+                                          }.values())
+
+                # Construct the signature
                 signature = {
                     "file_name": os.path.basename(file_path),
-                    "file_path": normalized_path,
+                    "file_path": normalized_path,  # Use normalized path for deduplication
                     **features,
                     "label": label,
                     "classification": classification,
-                    "generated_rules": list(rules),  # Include the generated rules
                 }
 
-                # Avoid duplicates in the training data
+                # Avoid duplicate signatures in training_data
                 if not any(sig["file_path"] == signature["file_path"] for sig in training_data):
                     training_data.append(signature)
 
-        # Save the training data to a JSON file
+        # Save training data to JSON file
         training_data_path = "training_data.json"
         with open(training_data_path, "w") as f:
             json.dump(training_data, f, indent=4)
