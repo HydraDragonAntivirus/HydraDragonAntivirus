@@ -694,24 +694,6 @@ def main():
             logging.info(
                 f"Overall confidence scores: {[f'{score:.4f}' for score in match_details['confidence_scores']]}")
 
-            if match_details['string_matches']:
-                logging.info("\nString matches:")
-                for match in match_details['string_matches']:
-                    logging.info(f"- Similarity: {match['similarity']:.4f}")
-                    logging.info(f"- Matched strings: {list(match['matched_strings'])[:5]}")  # Show first 5 matches
-
-            if match_details['section_matches']:
-                logging.info("\nSection matches:")
-                for match in match_details['section_matches']:
-                    logging.info(f"- Matching sections: {match['matching_sections']}")
-
-            if match_details['entropy_matches']:
-                logging.info("\nEntropy matches:")
-                for match in match_details['entropy_matches']:
-                    logging.info(f"- Similarity: {match['similarity']:.4f}")
-                    logging.info(f"- Reference: {match['reference_entropy']:.4f}")
-                    logging.info(f"- Sample: {match['sample_entropy']:.4f}")
-
             # Classification logging
             if matches and any(m['confidence'] >= args.min_confidence for m in matches):
                 classification = 'malware' if any(m['label'] == 1 for m in matches) else 'clean'
