@@ -1232,20 +1232,28 @@ class PESignatureEngine:
             logging.error(f"Error loading rules from {rules_file}: {e}")
             raise
 
-    def scan_file(self, file_path: str) -> list:
-        """Scan a PE file with enhanced logging and near-match detection."""
+    def scan_file(self, file_path: str) -> tuple:
+        """Scan a PE file with enhanced logging and near-match detection.
+
+        Args:
+            file_path (str): The path to the PE file to scan.
+
+        Returns:
+            tuple: A tuple containing a list of matches and the extracted features.
+        """
         if not os.path.exists(file_path):
             logging.error(f"Invalid file path: {file_path}")
-            return []
+            return [], None
 
         logging.info(f"Scanning file: {file_path}")
         matches = []
+        features = None
 
         try:
             features = self.analyzer.analyze_pe(file_path)
             if not features:
                 logging.error(f"Failed to analyze file: {file_path}")
-                return matches
+                return matches, features
 
             for rule in self.compiler.rules:
                 result = self._evaluate_rule(rule, features)
@@ -1255,11 +1263,11 @@ class PESignatureEngine:
                         'matches': result,
                     })
 
-            return matches
+            return matches, features
 
         except Exception as e:
             logging.error(f"Error scanning file {file_path}: {str(e)}")
-            return []
+            return [], features
 
 def main():
     """Main entry point for PE signature scanning and training."""
@@ -1318,8 +1326,7 @@ def main():
 
         for file_path in tqdm(all_files, desc="Scanning files", unit="file"):
             files_scanned += 1
-            matches = signature_engine.scan_file(file_path)
-            features = signature_engine.analyzer.analyze_pe(file_path)
+            matches, features = signature_engine.scan_file(file_path)
 
             # Enhanced matching analysis
             match_details = {
