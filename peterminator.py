@@ -403,7 +403,7 @@ class PESignatureCompiler:
         logging.debug(f"Successfully added rule: {compiled_rule['name']}")
 
 class PESignatureEngine:
-    def __init__(self, similarity_threshold=0.9):
+    def __init__(self, similarity_threshold):
         logging.info("PESignatureEngine initialized.")
         self.analyzer = PEAnalyzer()
         self.compiler = PESignatureCompiler()
@@ -691,14 +691,22 @@ def main():
 
             # Enhanced logging of match details
             logging.info(f"\nAnalysis results for {file_path}:")
-            logging.info(
-                f"Overall confidence scores: {[f'{score:.4f}' for score in match_details['confidence_scores']]}")
+
+            # Extract confidence scores from matches
+            confidence_scores = [m['confidence'] for m in matches if 'confidence' in m]
+
+            if confidence_scores:
+                # Compute overall confidence as an average of all matched rule confidences
+                overall_confidence = sum(confidence_scores) / len(confidence_scores)
+                logging.info(f"Overall Confidence Score: {overall_confidence:.4f}")
+            else:
+                overall_confidence = 0.0  # No matches found
+                logging.info("Overall Confidence Score: 0.0000")
 
             # Classification logging
-            if matches and any(m['confidence'] >= args.min_confidence for m in matches):
+            if overall_confidence >= args.min_confidence:
                 classification = 'malware' if any(m['label'] == 1 for m in matches) else 'clean'
-                confidence = max(m['confidence'] for m in matches)
-                logging.warning(f"\nFile classified as {classification} with confidence {confidence:.4f}")
+                logging.warning(f"\nFile classified as {classification} with confidence {overall_confidence:.4f}")
             else:
                 logging.info("\nFile classification: unknown")
                 if matches:
