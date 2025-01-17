@@ -744,10 +744,11 @@ def main():
 
         logging.info(f"Extracting features from {len(clean_files)} clean files and {len(malware_files)} malware files.")
 
-        clean_file_strings = {}  # To track strings per clean file
-        malware_file_strings = {}  # To track strings per malware file
-        all_clean_strings = set()  # To track all clean strings across files
-        all_malware_strings = set()  # To track all malware strings across files
+        # Data structures to store unique strings per category
+        clean_strings = {}  # Store unique clean strings for each file
+        malware_strings = {}  # Store unique malware strings for each file
+        all_clean_strings = set()  # All clean strings across all files
+        all_malware_strings = set()  # All malware strings across all files
 
         # Extract strings from clean files
         for file_path in tqdm(clean_files, desc="Extracting clean strings", unit="file"):
@@ -760,7 +761,7 @@ def main():
                     if len(string["value"]) >= 4  # Ensure the string has at least 4 characters
                        and filter_meaningful_words(word_tokenize(string["value"]))  # Apply NLTK filtering
                 }
-                clean_file_strings[file_path] = meaningful_strings
+                clean_strings[file_path] = meaningful_strings
                 all_clean_strings.update(meaningful_strings)
 
         # Extract strings from malware files
@@ -774,20 +775,14 @@ def main():
                     if len(string["value"]) >= 4  # Ensure the string has at least 4 characters
                        and filter_meaningful_words(word_tokenize(string["value"]))  # Apply NLTK filtering
                 }
-                malware_file_strings[file_path] = meaningful_strings
+                malware_strings[file_path] = meaningful_strings
                 all_malware_strings.update(meaningful_strings)
 
-        # Deduplicate overlapping strings between clean and malware sets
-        overlapping_strings = all_clean_strings.intersection(all_malware_strings)
-        logging.info(f"Removing {len(overlapping_strings)} overlapping strings.")
+        # Identify common strings (present in both clean and malware sets)
+        common_strings = all_clean_strings.intersection(all_malware_strings)
+        logging.info(f"Found {len(common_strings)} common strings.")
 
-        # Remove overlapping strings only if they appear across files from both categories
-        for file_path in clean_file_strings:
-            clean_file_strings[file_path] -= overlapping_strings
-        for file_path in malware_file_strings:
-            malware_file_strings[file_path] -= overlapping_strings
-
-        # Now construct the training samples ensuring uniqueness of strings per file category
+        # Generate rules for each file
         training_data = []
         processed_files = set()
 
@@ -803,35 +798,35 @@ def main():
                 if file_path in clean_files:
                     classification = "clean"
                     label = 0
-                    strings_to_add = clean_file_strings.get(file_path, set())
+                    file_strings = clean_strings.get(file_path, set())  # Unique strings for this file
+                    rules = {
+                        f"benign_{string}" for string in file_strings if string not in common_strings
+                    }
+                    rules.update(f"common_{string}" for string in file_strings if string in common_strings)
+
                 elif file_path in malware_files:
                     classification = "malware"
                     label = 1
-                    strings_to_add = malware_file_strings.get(file_path, set())
+                    file_strings = malware_strings.get(file_path, set())  # Unique strings for this file
+                    rules = {
+                        f"malicious_{string}" for string in file_strings if string not in common_strings
+                    }
+                    rules.update(f"common_{string}" for string in file_strings if string in common_strings)
+
                 else:
-                    continue
+                    continue  # Skip files that don't belong to either category
 
-                # Skip if no valid strings
-                if not strings_to_add:
-                    logging.warning(
-                        f"Skipping file with no valid strings: {file_path}, classification: {classification}")
-                    continue
-
-                extracted_strings = features.get("strings", [])
-                meaningful_strings = list({
-                                              string["value"]: string
-                                              for string in extracted_strings
-                                              if string["value"] in strings_to_add
-                                          }.values())
-
+                # Construct the signature with the generated rules
                 signature = {
                     "file_name": os.path.basename(file_path),
                     "file_path": normalized_path,
                     **features,
                     "label": label,
                     "classification": classification,
+                    "generated_rules": list(rules),  # Include the generated rules
                 }
 
+                # Avoid duplicates in the training data
                 if not any(sig["file_path"] == signature["file_path"] for sig in training_data):
                     training_data.append(signature)
 
