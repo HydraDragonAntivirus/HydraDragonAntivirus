@@ -704,7 +704,6 @@ def main():
                 classification = 'malware' if any(m['label'] == 1 for m in matches) else 'clean'
                 confidence = max(m['confidence'] for m in matches)
                 logging.warning(f"\nFile classified as {classification} with confidence {confidence:.4f}")
-                logging.info(f"Total confidence: {total_confidence:.4f}")
                 logging.info(f"Average confidence: {avg_confidence:.4f}")
             else:
                 logging.info("\nFile classification: unknown")
@@ -712,7 +711,6 @@ def main():
                     logging.info("Below threshold matches found:")
                     for match in matches:
                         logging.info(f"- Rule: {match['rule']}, Confidence: {match['confidence']:.4f}")
-                logging.info(f"Total confidence: {total_confidence:.4f}")
                 logging.info(f"Average confidence: {avg_confidence:.4f}")
 
         logging.info("Scan Summary:")
