@@ -333,20 +333,10 @@ class PEAnalyzer:
                     # Use string value as key for deduplication
                     if string_value not in filtered_strings:
                         filtered_strings[string_value] = string_entry
-                        logging.debug(f"Accepted string: {string_value[:50]}... at offset {string_entry['offset']}")
-                    else:
-                        logging.debug(f"Duplicate string found: {string_value[:50]}...")
-
-            logging.info(f"String analysis: Found {len(raw_strings)} strings, {len(filtered_strings)} after filtering")
 
             # Calculate entropy scores
             full_entropy = self._calculate_entropy(file_data)
             section_entropies = {name: data.get('entropy', 0) for name, data in sections.items()}
-
-            # Log entropy analysis
-            logging.info(f"File entropy: {full_entropy:.4f}")
-            for section_name, entropy in section_entropies.items():
-                logging.info(f"Section {section_name} entropy: {entropy:.4f}")
 
             return {
                 **features,
