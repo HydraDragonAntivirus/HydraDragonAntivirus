@@ -209,59 +209,62 @@ class PEAnalyzer:
         try:
             pe = pefile.PE(file_path)
             base_features = self.extract_features(file_path)
-            
+
             if not base_features:
                 return None
-                
+
             # Add rich header analysis
             rich_header = self._analyze_rich_header(pe)
-            
+
             # Add certificate analysis
             certificates = self._analyze_certificates(pe)
-            
+
             # Add delay import analysis
             delay_imports = self._analyze_delay_imports(pe)
-            
+
             # Add TLS callback analysis
             tls_callbacks = self._analyze_tls_callbacks(pe)
-            
+
             # Add load config analysis
             load_config = self._analyze_load_config(pe)
-            
+
             # Add relocation analysis
             relocations = self._analyze_relocations(pe)
-            
+
             # Add bound import analysis
             bound_imports = self._analyze_bound_imports(pe)
-            
+
             # Add section characteristics analysis
             section_characteristics = self._analyze_section_characteristics(pe)
-            
+
             # Add header analysis
             extended_header_info = self._analyze_extended_headers(pe)
-            
+
             # Add resource analysis
             resource_details = self._analyze_resources(pe)
-            
+
             # Add overlay analysis
             overlay_info = self._analyze_overlay(pe, file_path)
-            
+
             # DOS Stub analysis
             dos_stub = self._analyze_dos_stub(pe)
-            
+
             # Add anomaly detection
             anomalies = self._detect_anomalies(pe)
-            
+
             # Add packer detection
             packer_info = self._detect_packers(pe)
-            
-            # Add string pattern analysis
-            string_patterns = self._analyze_string_patterns(base_features.get('strings', []))
-            
+
+            # Combine the list of strings into one single string for analysis
+            combined_content = ' '.join(base_features.get('strings', []))
+
+            # Call the analyze_string_patterns function with the combined string content
+            string_patterns = self._analyze_string_patterns(combined_content)
+
             # Add imports/exports patterns
             import_patterns = self._analyze_import_patterns(base_features.get('imports', []))
             export_patterns = self._analyze_export_patterns(base_features.get('exports', []))
-            
+
             enhanced_features = {
                 **base_features,
                 'enhanced_analysis': {
@@ -286,9 +289,9 @@ class PEAnalyzer:
                     }
                 }
             }
-            
+
             return enhanced_features
-            
+
         except Exception as e:
             logging.error(f"Error in enhanced feature extraction for {file_path}: {e}")
             return None
@@ -439,25 +442,31 @@ class PEAnalyzer:
             return {}
 
     def _analyze_relocations(self, pe) -> List[Dict[str, Any]]:
-        """Analyze base relocations."""
+        """Analyze base relocations with summarized entries."""
         try:
             relocations = []
             if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC'):
                 for base_reloc in pe.DIRECTORY_ENTRY_BASERELOC:
+                    # Summarize relocation entries
+                    entry_types = {}
+                    offsets = []
+
+                    for entry in base_reloc.entries:
+                        entry_types[entry.type] = entry_types.get(entry.type, 0) + 1
+                        offsets.append(entry.rva - base_reloc.struct.VirtualAddress)
+
                     reloc_info = {
                         'virtual_address': base_reloc.struct.VirtualAddress,
                         'size_of_block': base_reloc.struct.SizeOfBlock,
-                        'entries': []
+                        'summary': {
+                            'total_entries': len(base_reloc.entries),
+                            'types': entry_types,  # Counts of each relocation type
+                            'offset_range': (min(offsets), max(offsets)) if offsets else None
+                        }
                     }
-                    
-                    for entry in base_reloc.entries:
-                        reloc_info['entries'].append({
-                            'type': entry.type,
-                            'relative_offset': entry.rva - base_reloc.struct.VirtualAddress
-                        })
-                        
+
                     relocations.append(reloc_info)
-                    
+
             return relocations
         except Exception as e:
             logging.error(f"Error analyzing relocations: {e}")
@@ -834,84 +843,95 @@ class PEAnalyzer:
             logging.error(f"Error detecting packers: {e}")
             return {}
 
-    def _analyze_string_patterns(self, strings: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Analyze patterns in extracted strings."""
+    def _analyze_string_patterns(self, content: str) -> Dict[str, List[Dict[str, str]]]:
+        """
+        Analyzes content for various patterns including URLs, emails, IPs, paths,
+        commands, registry keys, and API calls.
+
+        Args:
+            content: String content to analyze
+
+        Returns:
+            Dictionary containing discovered patterns with their values
+        """
         try:
             patterns = {
                 'urls': [],
                 'emails': [],
                 'ips': [],
                 'paths': [],
-                'commands': [],
                 'registry_keys': [],
-                'potential_api_calls': []
+                'potential_api_calls': [],
+                'discord_webhooks': []
             }
-            
-            # Compile regex patterns
-            url_pattern = re.compile(r'https?://[^\s<>"]+|www\.[^\s<>"]+')
+
+            # Enhanced URL pattern to catch more variants
+            url_pattern = re.compile(
+                r'(?:https?:\/\/(?:www\.)?[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(?:\/[^\s]*)?|'
+                r'(?:www\.)[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(?:\/[^\s]*)?)'
+            )
+
+            # Discord webhook pattern
+            discord_pattern = re.compile(
+                r'(?:https?:\/\/)?(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/\d+\/[\w-]+'
+            )
+
+            # Other patterns
             email_pattern = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}')
             ip_pattern = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
-            path_pattern = re.compile(r'[a-zA-Z]:\\[^\s<>"|?*]+|/[^\s<>"|?*]+')
+            path_pattern = re.compile(r'(?:[a-zA-Z]:\\[^\s<>"|?*]+|/[^\s<>"|?*]+)')
             registry_pattern = re.compile(r'HKEY_[^\s\\]+\\[^\s]+')
-            api_pattern = re.compile(r'\b(?:Create|Get|Set|Open|Close|Read|Write|Send|Recv|Load|Free|Alloc|Connect)[A-Z]\w+\b')
-            
-            for string_entry in strings:
-                string_value = string_entry['value']
-                
-                # Extract patterns
-                urls = url_pattern.findall(string_value)
-                emails = email_pattern.findall(string_value)
-                ips = ip_pattern.findall(string_value)
-                paths = path_pattern.findall(string_value)
-                registry_keys = registry_pattern.findall(string_value)
-                api_calls = api_pattern.findall(string_value)
-                
-                # Add unique findings with their offsets
-                for url in urls:
-                    if url not in patterns['urls']:
-                        patterns['urls'].append({
-                            'value': url,
-                            'offset': string_entry['offset']
-                        })
-                        
-                for email in emails:
-                    if email not in patterns['emails']:
-                        patterns['emails'].append({
-                            'value': email,
-                            'offset': string_entry['offset']
-                        })
-                        
-                for ip in ips:
-                    if ip not in patterns['ips']:
-                        patterns['ips'].append({
-                            'value': ip,
-                            'offset': string_entry['offset']
-                        })
-                        
-                for path in paths:
-                    if path not in patterns['paths']:
-                        patterns['paths'].append({
-                            'value': path,
-                            'offset': string_entry['offset']
-                        })
-                        
-                for key in registry_keys:
-                    if key not in patterns['registry_keys']:
-                        patterns['registry_keys'].append({
-                            'value': key,
-                            'offset': string_entry['offset']
-                        })
-                        
-                for api in api_calls:
-                    if api not in patterns['potential_api_calls']:
-                        patterns['potential_api_calls'].append({
-                            'value': api,
-                            'offset': string_entry['offset']
-                        })
-            
+            api_pattern = re.compile(
+                r'\b(?:Create|Get|Set|Open|Close|Read|Write|Send|Recv|Load|Free|Alloc|Connect)[A-Z]\w+\b'
+            )
+
+            # Find all matches in the content
+            urls = url_pattern.finditer(content)
+            discord_urls = discord_pattern.finditer(content)
+            emails = email_pattern.finditer(content)
+            ips = ip_pattern.finditer(content)
+            paths = path_pattern.finditer(content)
+            registry_keys = registry_pattern.finditer(content)
+            api_calls = api_pattern.finditer(content)
+
+            # Helper function to add unique findings
+            def add_unique_finding(category: str, match: re.Match):
+                value = match.group()
+                start_pos = match.start()
+
+                # Check if value already exists in the category
+                if not any(item['value'] == value for item in patterns[category]):
+                    patterns[category].append({
+                        'value': value,
+                        'offset': start_pos
+                    })
+
+            # Process all matches
+            for match in urls:
+                add_unique_finding('urls', match)
+
+            for match in discord_urls:
+                add_unique_finding('discord_webhooks', match)
+
+            for match in emails:
+                add_unique_finding('emails', match)
+
+            for match in ips:
+                add_unique_finding('ips', match)
+
+            for match in paths:
+                add_unique_finding('paths', match)
+
+            for match in registry_keys:
+                add_unique_finding('registry_keys', match)
+
+            for match in api_calls:
+                add_unique_finding('potential_api_calls', match)
+
             return patterns
+
         except Exception as e:
-            logging.error(f"Error analyzing string patterns: {e}")
+            logging.error(f"Error analyzing patterns: {e}")
             return {}
 
     def _analyze_import_patterns(self, imports: List[Dict[str, Any]]) -> Dict[str, Any]:
