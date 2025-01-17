@@ -303,7 +303,6 @@ class PEAnalyzer:
                 return None
 
             die_analysis = self._analyze_with_die(file_path)
-            logging.info(f"DIE analysis completed for {file_path}")
 
             with open(file_path, 'rb') as f:
                 file_data = f.read()
@@ -697,8 +696,6 @@ def main():
             # Log match details
             logging.info(f"\nAnalysis results for {file_path}:")
             logging.info(f"Average confidence: {avg_confidence:.4f}")
-            logging.info(
-                f"Overall confidence scores: {[f'{score:.4f}' for score in match_details['confidence_scores']]}")
 
             # Classification based on average confidence
             if avg_confidence >= args.min_confidence:
