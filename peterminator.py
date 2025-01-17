@@ -691,27 +691,31 @@ def main():
             # Enhanced logging of match details
             logging.info(f"\nAnalysis results for {file_path}:")
 
-            # Extract confidence scores from matches
-            confidence_scores = [m['confidence'] for m in matches if 'confidence' in m]
+            # Extract all confidence scores from matches, including low-confidence ones
+            all_confidence_scores = [m['confidence'] for m in matches if 'confidence' in m]
 
-            if confidence_scores:
-                # Compute overall confidence as an average of all matched rule confidences
-                overall_confidence = sum(confidence_scores) / len(confidence_scores)
+            if all_confidence_scores:
+                # Compute overall confidence as an average of all matched rule confidences (not filtering by threshold)
+                overall_confidence = sum(all_confidence_scores) / len(all_confidence_scores)
+                max_confidence = max(all_confidence_scores)  # Get the highest match confidence
                 logging.info(f"Overall Confidence Score: {overall_confidence:.4f}")
             else:
                 overall_confidence = 0.0  # No matches found
+                max_confidence = 0.0
                 logging.info("Overall Confidence Score: 0.0000")
 
-            # Classification logging
-            if overall_confidence >= args.min_confidence:
+            # Apply min-confidence threshold for classification (but not for calculation)
+            if max_confidence >= args.min_confidence:
                 classification = 'malware' if any(m['label'] == 1 for m in matches) else 'clean'
-                logging.warning(f"\nFile classified as {classification} with confidence {overall_confidence:.4f}")
+                logging.warning(
+                    f"\nFile classified as {classification} with highest match confidence {max_confidence:.4f}")
             else:
-                logging.info("\nFile classification: unknown")
+                logging.info("\nFile classification: unknown (Below Confidence Threshold)")
                 if matches:
                     logging.info("Below threshold matches found:")
                     for match in matches:
-                        logging.info(f"- Rule: {match['rule']}, Confidence: {match['confidence']:.4f}")
+                        logging.info(
+                            f"- Rule: {match['rule']}, Confidence: {match['confidence']:.4f} (Threshold: {args.min_confidence:.2f})")
 
         logging.info("Scan Summary:")
         logging.info(f"  Total files scanned: {files_scanned}")
