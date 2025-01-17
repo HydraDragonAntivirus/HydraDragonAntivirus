@@ -11,7 +11,7 @@ import argparse
 from tqdm import tqdm
 import nltk
 from difflib import SequenceMatcher
-import string
+import struct
 
 script_dir = os.getcwd()
 
@@ -51,30 +51,30 @@ COMMON_PE_STRINGS = {
 def filter_meaningful_words(word_list: List[str]) -> List[str]:
     """
     Filter out non-English, meaningless strings, duplicates, and words shorter than 4 characters.
-    
+
     Args:
         word_list: List of words to filter
-        
+
     Returns:
         List of unique, meaningful English words with at least 4 characters
     """
     # Convert to lowercase for comparison
     word_list = [word.lower() for word in word_list]
-    
+
     # Remove duplicates and apply filters
     filtered_words = []
     seen_words = set()
-    
+
     for word in word_list:
         if (
-            word not in seen_words and
-            word.isalpha() and
-            len(word) >= 4 and
-            word in nltk_words
+                word not in seen_words and
+                word.isalpha() and
+                len(word) >= 4 and
+                word in nltk_words
         ):
             filtered_words.append(word)
             seen_words.add(word)
-    
+
     return filtered_words
 
 def calculate_string_similarity(str1: str, str2: str) -> float:
@@ -91,124 +91,22 @@ class PEAnalyzer:
         if not data:
             return 0.0
 
-        entropy = 0
-        for x in range(256):
-            p_x = float(data.count(x)) / len(data)
-            if p_x > 0:
-                entropy += -p_x * np.log2(p_x)
+        # Frequency count of each byte value (0 to 255)
+        byte_counts = [0] * 256
+        for byte in data:
+            byte_counts[byte] += 1
+
+        # Total number of bytes in the data
+        data_length = len(data)
+
+        # Calculate entropy using Shannon formula
+        entropy = 0.0
+        for count in byte_counts:
+            if count > 0:
+                p_x = count / data_length
+                entropy -= p_x * np.log2(p_x)
+
         return entropy
-
-    def extract_section_data(self, section) -> Dict[str, Any]:
-        """Extract comprehensive section data including entropy."""
-        try:
-            raw_data = section.get_data()
-            return {
-                'name': section.Name.decode(errors='ignore').strip('\x00'),
-                'virtual_size': section.Misc_VirtualSize,
-                'virtual_address': section.VirtualAddress,
-                'raw_size': section.SizeOfRawData,
-                'pointer_to_raw_data': section.PointerToRawData,
-                'characteristics': section.Characteristics,
-                'entropy': self._calculate_entropy(raw_data),
-                'raw_data_size': len(raw_data) if raw_data else 0,
-            }
-        except Exception as e:
-            logging.error(f"Error extracting section data: {e}")
-            return {}
-
-    def extract_imports(self, pe) -> List[Dict[str, Any]]:
-        """Extract detailed import information."""
-        imports = []
-        if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT'):
-            for entry in pe.DIRECTORY_ENTRY_IMPORT:
-                dll_imports = {
-                    'dll_name': entry.dll.decode() if entry.dll else None,
-                    'imports': [{
-                        'name': imp.name.decode() if imp.name else None,
-                        'address': imp.address,
-                        'ordinal': imp.ordinal
-                    } for imp in entry.imports]
-                }
-                imports.append(dll_imports)
-        return imports
-
-    def extract_exports(self, pe) -> List[Dict[str, Any]]:
-        """Extract detailed export information."""
-        exports = []
-        if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT'):
-            for exp in pe.DIRECTORY_ENTRY_EXPORT.symbols:
-                export_info = {
-                    'name': exp.name.decode() if exp.name else None,
-                    'address': exp.address,
-                    'ordinal': exp.ordinal,
-                    'forwarder': exp.forwarder.decode() if exp.forwarder else None
-                }
-                exports.append(export_info)
-        return exports
-
-    def _extract_strings(self, data: bytes, min_length: int = 4) -> List[Dict[str, Any]]:
-        """Extract ASCII strings from binary data, filtering out common PE headers."""
-        strings = []
-        try:
-            ascii_pattern = f'[\x20-\x7e]{{{min_length},}}'
-            for match in re.finditer(ascii_pattern.encode(), data):
-                string_value = match.group().decode('ascii', errors='ignore').strip()
-
-                # Skip common PE header strings
-                if string_value in COMMON_PE_STRINGS or string_value.lower() in (s.lower() for s in COMMON_PE_STRINGS):
-                    continue
-
-                strings.append({
-                    'type': 'ascii',
-                    'value': string_value,
-                    'offset': match.start(),
-                    'size': len(string_value)
-                })
-        except Exception as e:
-            logging.error(f"Error extracting strings: {e}")
-
-        return strings
-
-    def _analyze_iat(self, pe) -> Dict[str, int]:
-        """Analyze the Import Address Table (IAT)."""
-        iat = {}
-        try:
-            if hasattr(pe, 'DIRECTORY_ENTRY_IAT'):
-                for entry in pe.DIRECTORY_ENTRY_IAT:
-                    if entry.name:
-                        iat[entry.name.decode()] = entry.struct.FirstThunk
-        except Exception as e:
-            logging.error(f"Error analyzing IAT: {e}")
-        return iat
-
-    def _analyze_with_die(self, file_path: str) -> Optional[Dict[str, Any]]:
-        """Analyze a file using Detect It Easy (DIE) with JSON output."""
-        try:
-            if not os.path.exists(detectiteasy_console_path):
-                raise FileNotFoundError(f"DIE executable not found at {detectiteasy_console_path}")
-
-            result = subprocess.run(
-                [detectiteasy_console_path, file_path, '--json'],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-
-            if result.returncode != 0:
-                logging.error(f"DIE analysis failed: {result.stderr.strip()}")
-                return None
-
-            try:
-                die_output = json.loads(result.stdout)
-            except json.JSONDecodeError as e:
-                logging.error(f"Error parsing DIE JSON output: {e}")
-                return None
-
-            return die_output
-
-        except Exception as e:
-            logging.error(f"Error during DIE analysis for {file_path}: {e}")
-            return None
 
     def extract_features(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Extract comprehensive PE file features."""
@@ -217,10 +115,6 @@ class PEAnalyzer:
 
         try:
             pe = pefile.PE(file_path)
-
-            # Extract sections with validation
-            valid_sections = [self.extract_section_data(section) for section in pe.sections]
-            valid_sections = [s for s in valid_sections if isinstance(s, dict) and 'name' in s]
 
             features = {
                 'file_info': {
@@ -252,41 +146,14 @@ class PEAnalyzer:
                         'characteristics': pe.FILE_HEADER.Characteristics,
                     }
                 },
-                'sections': {s['name']: s for s in valid_sections},
-                'imports': self.extract_imports(pe),
-                'exports': self.extract_exports(pe),
-                'resources': [],
-                'debug_info': [],
-                'iat': self._analyze_iat(pe)
+                'sections': {
+                    section.Name.decode(errors='ignore').strip('\x00'): {
+                        'virtual_size': section.Misc_VirtualSize,
+                        'raw_size': section.SizeOfRawData,
+                        'entropy': self._calculate_entropy(section.get_data()),
+                    } for section in pe.sections
+                }
             }
-
-            # Extract resources
-            if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-                for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
-                    if hasattr(resource_type, 'directory'):
-                        for resource_id in resource_type.directory.entries:
-                            if hasattr(resource_id, 'directory'):
-                                for resource_lang in resource_id.directory.entries:
-                                    if hasattr(resource_lang, 'data'):
-                                        res_data = {
-                                            'type_id': resource_type.id,
-                                            'resource_id': resource_id.id,
-                                            'lang_id': resource_lang.id,
-                                            'size': resource_lang.data.struct.Size,
-                                            'codepage': resource_lang.data.struct.CodePage,
-                                        }
-                                        features['resources'].append(res_data)
-
-            # Extract debug information
-            if hasattr(pe, 'DIRECTORY_ENTRY_DEBUG'):
-                for debug in pe.DIRECTORY_ENTRY_DEBUG:
-                    debug_info = {
-                        'type': debug.struct.Type,
-                        'timestamp': debug.struct.TimeDateStamp,
-                        'version': f"{debug.struct.MajorVersion}.{debug.struct.MinorVersion}",
-                        'size': debug.struct.SizeOfData,
-                    }
-                    features['debug_info'].append(debug_info)
 
             self.features_cache[file_path] = features
             return features
@@ -294,60 +161,844 @@ class PEAnalyzer:
             logging.error(f"Error extracting features from {file_path}: {e}")
             return None
 
-    def analyze_pe(self, file_path: str) -> Optional[Dict[str, Any]]:
-        """Analyze a PE file comprehensively with enhanced logging and string filtering."""
+    def _analyze_with_die(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Analyze a file using Detect It Easy (DIE) with JSON output."""
         try:
-            features = self.extract_features(file_path)
-            if not features:
-                logging.error(f"Failed to extract features from {file_path}")
+            if not os.path.exists(detectiteasy_console_path):
+                raise FileNotFoundError(f"DIE executable not found at {detectiteasy_console_path}")
+
+            result = subprocess.run(
+                [detectiteasy_console_path, file_path, '--json'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+
+            if result.returncode != 0:
+                logging.error(f"DIE analysis failed: {result.stderr.strip()}")
+                return None
+
+            try:
+                die_output = json.loads(result.stdout)
+            except json.JSONDecodeError as e:
+                logging.error(f"Error parsing DIE JSON output: {e}")
+                return None
+
+            return die_output
+
+        except Exception as e:
+            logging.error(f"Error during DIE analysis for {file_path}: {e}")
+            return None
+
+    def extract_enhanced_features(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Extract comprehensive PE file features with additional analysis."""
+        try:
+            pe = pefile.PE(file_path)
+            base_features = self.extract_features(file_path)
+            
+            if not base_features:
+                return None
+                
+            # Add rich header analysis
+            rich_header = self._analyze_rich_header(pe)
+            
+            # Add certificate analysis
+            certificates = self._analyze_certificates(pe)
+            
+            # Add delay import analysis
+            delay_imports = self._analyze_delay_imports(pe)
+            
+            # Add TLS callback analysis
+            tls_callbacks = self._analyze_tls_callbacks(pe)
+            
+            # Add load config analysis
+            load_config = self._analyze_load_config(pe)
+            
+            # Add relocation analysis
+            relocations = self._analyze_relocations(pe)
+            
+            # Add bound import analysis
+            bound_imports = self._analyze_bound_imports(pe)
+            
+            # Add section characteristics analysis
+            section_characteristics = self._analyze_section_characteristics(pe)
+            
+            # Add header analysis
+            extended_header_info = self._analyze_extended_headers(pe)
+            
+            # Add resource analysis
+            resource_details = self._analyze_resources(pe)
+            
+            # Add overlay analysis
+            overlay_info = self._analyze_overlay(pe, file_path)
+            
+            # DOS Stub analysis
+            dos_stub = self._analyze_dos_stub(pe)
+            
+            # Add anomaly detection
+            anomalies = self._detect_anomalies(pe)
+            
+            # Add packer detection
+            packer_info = self._detect_packers(pe)
+            
+            # Add string pattern analysis
+            string_patterns = self._analyze_string_patterns(base_features.get('strings', []))
+            
+            # Add imports/exports patterns
+            import_patterns = self._analyze_import_patterns(base_features.get('imports', []))
+            export_patterns = self._analyze_export_patterns(base_features.get('exports', []))
+            
+            enhanced_features = {
+                **base_features,
+                'enhanced_analysis': {
+                    'rich_header': rich_header,
+                    'certificates': certificates,
+                    'delay_imports': delay_imports,
+                    'tls_callbacks': tls_callbacks,
+                    'load_config': load_config,
+                    'relocations': relocations,
+                    'bound_imports': bound_imports,
+                    'section_characteristics': section_characteristics,
+                    'extended_headers': extended_header_info,
+                    'resource_details': resource_details,
+                    'overlay': overlay_info,
+                    'dos_stub': dos_stub,
+                    'anomalies': anomalies,
+                    'packer_detection': packer_info,
+                    'patterns': {
+                        'strings': string_patterns,
+                        'imports': import_patterns,
+                        'exports': export_patterns
+                    }
+                }
+            }
+            
+            return enhanced_features
+            
+        except Exception as e:
+            logging.error(f"Error in enhanced feature extraction for {file_path}: {e}")
+            return None
+
+    def _analyze_certificates(self, pe) -> Dict[str, Any]:
+        """Analyze security certificates."""
+        try:
+            cert_info = {}
+            if hasattr(pe, 'DIRECTORY_ENTRY_SECURITY'):
+                cert_info['virtual_address'] = pe.DIRECTORY_ENTRY_SECURITY.VirtualAddress
+                cert_info['size'] = pe.DIRECTORY_ENTRY_SECURITY.Size
+                
+                # Extract certificate attributes if available
+                if hasattr(pe, 'VS_FIXEDFILEINFO'):
+                    cert_info['fixed_file_info'] = {
+                        'signature': pe.VS_FIXEDFILEINFO.Signature,
+                        'struct_version': pe.VS_FIXEDFILEINFO.StrucVersion,
+                        'file_version': f"{pe.VS_FIXEDFILEINFO.FileVersionMS >> 16}.{pe.VS_FIXEDFILEINFO.FileVersionMS & 0xFFFF}.{pe.VS_FIXEDFILEINFO.FileVersionLS >> 16}.{pe.VS_FIXEDFILEINFO.FileVersionLS & 0xFFFF}",
+                        'product_version': f"{pe.VS_FIXEDFILEINFO.ProductVersionMS >> 16}.{pe.VS_FIXEDFILEINFO.ProductVersionMS & 0xFFFF}.{pe.VS_FIXEDFILEINFO.ProductVersionLS >> 16}.{pe.VS_FIXEDFILEINFO.ProductVersionLS & 0xFFFF}",
+                        'file_flags': pe.VS_FIXEDFILEINFO.FileFlags,
+                        'file_os': pe.VS_FIXEDFILEINFO.FileOS,
+                        'file_type': pe.VS_FIXEDFILEINFO.FileType,
+                        'file_subtype': pe.VS_FIXEDFILEINFO.FileSubtype,
+                    }
+            
+            return cert_info
+        except Exception as e:
+            logging.error(f"Error analyzing certificates: {e}")
+            return {}
+
+    def _analyze_delay_imports(self, pe) -> List[Dict[str, Any]]:
+        """Analyze delay-load imports."""
+        try:
+            delay_imports = []
+            if hasattr(pe, 'DIRECTORY_ENTRY_DELAY_IMPORT'):
+                for entry in pe.DIRECTORY_ENTRY_DELAY_IMPORT:
+                    imports = []
+                    for imp in entry.imports:
+                        import_info = {
+                            'name': imp.name.decode() if imp.name else None,
+                            'address': imp.address,
+                            'ordinal': imp.ordinal,
+                        }
+                        imports.append(import_info)
+                    
+                    delay_import = {
+                        'dll': entry.dll.decode() if entry.dll else None,
+                        'attributes': entry.struct.Attributes,
+                        'name': entry.struct.Name,
+                        'handle': entry.struct.Handle,
+                        'iat': entry.struct.IAT,
+                        'bound_iat': entry.struct.BoundIAT,
+                        'unload_iat': entry.struct.UnloadIAT,
+                        'timestamp': entry.struct.TimeDateStamp,
+                        'imports': imports
+                    }
+                    delay_imports.append(delay_import)
+                    
+            return delay_imports
+        except Exception as e:
+            logging.error(f"Error analyzing delay imports: {e}")
+            return []
+
+    def _analyze_tls_callbacks(self, pe) -> Dict[str, Any]:
+        """Analyze TLS (Thread Local Storage) callbacks."""
+        try:
+            tls_callbacks = {}
+            if hasattr(pe, 'DIRECTORY_ENTRY_TLS'):
+                tls = pe.DIRECTORY_ENTRY_TLS.struct
+                tls_callbacks = {
+                    'start_address_raw_data': tls.StartAddressOfRawData,
+                    'end_address_raw_data': tls.EndAddressOfRawData,
+                    'address_of_index': tls.AddressOfIndex,
+                    'address_of_callbacks': tls.AddressOfCallBacks,
+                    'size_of_zero_fill': tls.SizeOfZeroFill,
+                    'characteristics': tls.Characteristics,
+                    'callbacks': []
+                }
+
+                # Extract callback addresses manually
+                address_of_callbacks = tls.AddressOfCallBacks
+                if address_of_callbacks:
+                    callback_array = self._get_callback_addresses(pe, address_of_callbacks)
+                    if callback_array:
+                        tls_callbacks['callbacks'] = callback_array
+
+            return tls_callbacks
+        except Exception as e:
+            logging.error(f"Error analyzing TLS callbacks: {e}")
+            return {}
+
+    def _get_callback_addresses(self, pe, address_of_callbacks):
+        """Extract callback addresses from the TLS structure."""
+        callback_addresses = []
+        try:
+            # Ensure the address_of_callbacks is valid and within bounds
+            if address_of_callbacks is None or address_of_callbacks == 0:
+                logging.warning("Invalid address_of_callbacks: None or zero.")
+                return callback_addresses
+
+            # Check if the address_of_callbacks is within a valid section
+            section = self._get_section_for_rva(pe, address_of_callbacks)
+            if section is None:
+                return callback_addresses
+
+            # Read callback data from the section
+            callback_data = pe.get_data(address_of_callbacks, 8)  # Read 8 bytes (pointer size)
+            while callback_data:
+                callback_address = struct.unpack('<Q', callback_data[:8])[0]  # Unpack address
+                if callback_address:
+                    callback_addresses.append(callback_address)
+                callback_data = callback_data[8:]  # Move to the next callback address
+        except Exception as e:
+            logging.error(f"Error extracting callback addresses: {e}")
+        return callback_addresses
+
+    def _get_section_for_rva(self, pe, rva):
+        """Check if the RVA is within any section."""
+        for section in pe.sections:
+            if section.contains(rva):
+                return section
+        return None
+
+    def _analyze_load_config(self, pe) -> Dict[str, Any]:
+        """Analyze load configuration."""
+        try:
+            load_config = {}
+            if hasattr(pe, 'DIRECTORY_ENTRY_LOAD_CONFIG'):
+                config = pe.DIRECTORY_ENTRY_LOAD_CONFIG.struct
+                load_config = {
+                    'size': config.Size,
+                    'timestamp': config.TimeDateStamp,
+                    'major_version': config.MajorVersion,
+                    'minor_version': config.MinorVersion,
+                    'global_flags_clear': config.GlobalFlagsClear,
+                    'global_flags_set': config.GlobalFlagsSet,
+                    'critical_section_default_timeout': config.CriticalSectionDefaultTimeout,
+                    'decommit_free_block_threshold': config.DeCommitFreeBlockThreshold,
+                    'decommit_total_free_threshold': config.DeCommitTotalFreeThreshold,
+                    'security_cookie': config.SecurityCookie,
+                    'se_handler_table': config.SEHandlerTable,
+                    'se_handler_count': config.SEHandlerCount
+                }
+                
+            return load_config
+        except Exception as e:
+            logging.error(f"Error analyzing load config: {e}")
+            return {}
+
+    def _analyze_relocations(self, pe) -> List[Dict[str, Any]]:
+        """Analyze base relocations."""
+        try:
+            relocations = []
+            if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC'):
+                for base_reloc in pe.DIRECTORY_ENTRY_BASERELOC:
+                    reloc_info = {
+                        'virtual_address': base_reloc.struct.VirtualAddress,
+                        'size_of_block': base_reloc.struct.SizeOfBlock,
+                        'entries': []
+                    }
+                    
+                    for entry in base_reloc.entries:
+                        reloc_info['entries'].append({
+                            'type': entry.type,
+                            'relative_offset': entry.rva - base_reloc.struct.VirtualAddress
+                        })
+                        
+                    relocations.append(reloc_info)
+                    
+            return relocations
+        except Exception as e:
+            logging.error(f"Error analyzing relocations: {e}")
+            return []
+
+    def _analyze_bound_imports(self, pe) -> List[Dict[str, Any]]:
+        """Analyze bound imports."""
+        try:
+            bound_imports = []
+            if hasattr(pe, 'DIRECTORY_ENTRY_BOUND_IMPORT'):
+                for bound_imp in pe.DIRECTORY_ENTRY_BOUND_IMPORT:
+                    bound_import = {
+                        'name': bound_imp.name.decode() if bound_imp.name else None,
+                        'timestamp': bound_imp.struct.TimeDateStamp,
+                        'references': []
+                    }
+                    
+                    for ref in bound_imp.references:
+                        reference = {
+                            'name': ref.name.decode() if ref.name else None,
+                            'timestamp': ref.struct.TimeDateStamp
+                        }
+                        bound_import['references'].append(reference)
+                        
+                    bound_imports.append(bound_import)
+                    
+            return bound_imports
+        except Exception as e:
+            logging.error(f"Error analyzing bound imports: {e}")
+            return []
+
+    def _analyze_section_characteristics(self, pe) -> Dict[str, Dict[str, Any]]:
+        """Analyze detailed section characteristics."""
+        try:
+            characteristics = {}
+            for section in pe.sections:
+                section_name = section.Name.decode(errors='ignore').strip('\x00')
+                flags = section.Characteristics
+                
+                # Decode section characteristics flags
+                section_flags = {
+                    'CODE': bool(flags & 0x20),
+                    'INITIALIZED_DATA': bool(flags & 0x40),
+                    'UNINITIALIZED_DATA': bool(flags & 0x80),
+                    'MEM_DISCARDABLE': bool(flags & 0x2000000),
+                    'MEM_NOT_CACHED': bool(flags & 0x4000000),
+                    'MEM_NOT_PAGED': bool(flags & 0x8000000),
+                    'MEM_SHARED': bool(flags & 0x10000000),
+                    'MEM_EXECUTE': bool(flags & 0x20000000),
+                    'MEM_READ': bool(flags & 0x40000000),
+                    'MEM_WRITE': bool(flags & 0x80000000)
+                }
+                
+                characteristics[section_name] = {
+                    'flags': section_flags,
+                    'entropy': self._calculate_entropy(section.get_data()),
+                    'size_ratio': section.SizeOfRawData / pe.OPTIONAL_HEADER.SizeOfImage if pe.OPTIONAL_HEADER.SizeOfImage else 0,
+                    'pointer_to_raw_data': section.PointerToRawData,
+                    'pointer_to_relocations': section.PointerToRelocations,
+                    'pointer_to_line_numbers': section.PointerToLinenumbers,
+                    'number_of_relocations': section.NumberOfRelocations,
+                    'number_of_line_numbers': section.NumberOfLinenumbers,
+                }
+            
+            return characteristics
+        except Exception as e:
+            logging.error(f"Error analyzing section characteristics: {e}")
+            return {}
+
+    def _analyze_extended_headers(self, pe) -> Dict[str, Any]:
+        """Analyze extended header information."""
+        try:
+            headers = {
+                'dos_header': {
+                    'e_magic': pe.DOS_HEADER.e_magic,
+                    'e_cblp': pe.DOS_HEADER.e_cblp,
+                    'e_cp': pe.DOS_HEADER.e_cp,
+                    'e_crlc': pe.DOS_HEADER.e_crlc,
+                    'e_cparhdr': pe.DOS_HEADER.e_cparhdr,
+                    'e_minalloc': pe.DOS_HEADER.e_minalloc,
+                    'e_maxalloc': pe.DOS_HEADER.e_maxalloc,
+                    'e_ss': pe.DOS_HEADER.e_ss,
+                    'e_sp': pe.DOS_HEADER.e_sp,
+                    'e_csum': pe.DOS_HEADER.e_csum,
+                    'e_ip': pe.DOS_HEADER.e_ip,
+                    'e_cs': pe.DOS_HEADER.e_cs,
+                    'e_lfarlc': pe.DOS_HEADER.e_lfarlc,
+                    'e_ovno': pe.DOS_HEADER.e_ovno,
+                    'e_oemid': pe.DOS_HEADER.e_oemid,
+                    'e_oeminfo': pe.DOS_HEADER.e_oeminfo
+                },
+                'nt_headers': {}
+            }
+
+            # Ensure NT_HEADERS exists and contains FileHeader
+            if hasattr(pe, 'NT_HEADERS') and pe.NT_HEADERS is not None:
+                nt_headers = pe.NT_HEADERS
+                if hasattr(nt_headers, 'FileHeader'):
+                    headers['nt_headers'] = {
+                        'signature': nt_headers.Signature,
+                        'machine': nt_headers.FileHeader.Machine,
+                        'number_of_sections': nt_headers.FileHeader.NumberOfSections,
+                        'time_date_stamp': nt_headers.FileHeader.TimeDateStamp,
+                        'characteristics': nt_headers.FileHeader.Characteristics
+                    }
+
+            return headers
+        except Exception as e:
+            logging.error(f"Error analyzing extended headers: {e}")
+            return {}
+
+    def _analyze_rich_header(self, pe) -> Dict[str, Any]:
+        """Analyze Rich header details."""
+        try:
+            rich_header = {}
+            if hasattr(pe, 'RICH_HEADER') and pe.RICH_HEADER is not None:
+                rich_header['checksum'] = getattr(pe.RICH_HEADER, 'checksum', None)
+                rich_header['values'] = pe.RICH_HEADER.values
+                rich_header['clear_data'] = pe.RICH_HEADER.clear_data
+                rich_header['key'] = pe.RICH_HEADER.key
+                rich_header['raw_data'] = pe.RICH_HEADER.raw_data
+
+                # Decode CompID and build number information
+                compid_info = []
+                for i in range(0, len(pe.RICH_HEADER.values), 2):
+                    if i + 1 < len(pe.RICH_HEADER.values):
+                        comp_id = pe.RICH_HEADER.values[i] >> 16
+                        build_number = pe.RICH_HEADER.values[i] & 0xFFFF
+                        count = pe.RICH_HEADER.values[i + 1]
+                        compid_info.append({
+                            'comp_id': comp_id,
+                            'build_number': build_number,
+                            'count': count
+                        })
+                rich_header['comp_id_info'] = compid_info
+
+            return rich_header
+        except Exception as e:
+            logging.error(f"Error analyzing Rich header: {e}")
+            return {}
+
+    def _analyze_resources(self, pe) -> Dict[str, Any]:
+        """Detailed analysis of resources."""
+        try:
+            resources = {
+                'entries': [],
+                'languages': set(),
+                'types': set()
+            }
+            
+            if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
+                for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+                    type_id = resource_type.id
+                    if resource_type.id is not None:
+                        # Map common resource types
+                        type_mappings = {
+                            1: 'RT_CURSOR',
+                            2: 'RT_BITMAP',
+                            3: 'RT_ICON',
+                            4: 'RT_MENU',
+                            5: 'RT_DIALOG',
+                            6: 'RT_STRING',
+                            7: 'RT_FONTDIR',
+                            8: 'RT_FONT',
+                            9: 'RT_ACCELERATOR',
+                            10: 'RT_RCDATA',
+                            11: 'RT_MESSAGETABLE',
+                            12: 'RT_GROUP_CURSOR',
+                            14: 'RT_GROUP_ICON',
+                            16: 'RT_VERSION',
+                            17: 'RT_DLGINCLUDE',
+                            19: 'RT_PLUGPLAY',
+                            20: 'RT_VXD',
+                            21: 'RT_ANICURSOR',
+                            22: 'RT_ANIICON',
+                            23: 'RT_HTML',
+                            24: 'RT_MANIFEST'
+                        }
+                        type_name = type_mappings.get(type_id, f'UNKNOWN_{type_id}')
+                        resources['types'].add(type_name)
+                        
+                        for resource_id in resource_type.directory.entries:
+                            for resource_lang in resource_id.directory.entries:
+                                lang_id = resource_lang.data.lang
+                                resources['languages'].add(lang_id)
+                                
+                                resource_data = {
+                                    'type': type_name,
+                                    'id': resource_id.id,
+                                    'language': lang_id,
+                                    'sublanguage': resource_lang.data.sublang,
+                                    'size': resource_lang.data.struct.Size,
+                                    'code_page': resource_lang.data.struct.CodePage,
+                                    'offset': resource_lang.data.struct.OffsetToData,
+                                }
+                                resources['entries'].append(resource_data)
+            
+            # Convert sets to lists for JSON serialization
+            resources['languages'] = list(resources['languages'])
+            resources['types'] = list(resources['types'])
+            return resources
+        except Exception as e:
+            logging.error(f"Error analyzing resources: {e}")
+            return {}
+
+    def _analyze_overlay(self, pe, file_path: str) -> Dict[str, Any]:
+        """Analyze file overlay (data appended after the PE structure)."""
+        try:
+            overlay_info = {
+                'exists': False,
+                'offset': 0,
+                'size': 0,
+                'entropy': 0.0
+            }
+            
+            # Calculate the end of the PE structure
+            last_section = max(pe.sections, key=lambda s: s.PointerToRawData + s.SizeOfRawData)
+            end_of_pe = last_section.PointerToRawData + last_section.SizeOfRawData
+            
+            # Get file size
+            file_size = os.path.getsize(file_path)
+            
+            # Check for overlay
+            if file_size > end_of_pe:
+                with open(file_path, 'rb') as f:
+                    f.seek(end_of_pe)
+                    overlay_data = f.read()
+                    
+                    overlay_info['exists'] = True
+                    overlay_info['offset'] = end_of_pe
+                    overlay_info['size'] = len(overlay_data)
+                    overlay_info['entropy'] = self._calculate_entropy(overlay_data)
+            
+            return overlay_info
+        except Exception as e:
+            logging.error(f"Error analyzing overlay: {e}")
+            return {}
+
+    def _analyze_dos_stub(self, pe) -> Dict[str, Any]:
+        """Analyze DOS stub program."""
+        try:
+            dos_stub = {
+                'exists': False,
+                'size': 0,
+                'entropy': 0.0,
+            }
+            
+            if hasattr(pe, 'DOS_HEADER'):
+                stub_offset = pe.DOS_HEADER.e_lfanew - 64  # Typical DOS stub starts after DOS header
+                if stub_offset > 0:
+                    dos_stub_data = pe.__data__[64:pe.DOS_HEADER.e_lfanew]
+                    if dos_stub_data:
+                        dos_stub['exists'] = True
+                        dos_stub['size'] = len(dos_stub_data)
+                        dos_stub['entropy'] = self._calculate_entropy(dos_stub_data)
+
+            return dos_stub
+        except Exception as e:
+            logging.error(f"Error analyzing DOS stub: {e}")
+            return {}
+
+    def _detect_anomalies(self, pe) -> List[Dict[str, Any]]:
+        """Detect various PE file anomalies."""
+        try:
+            anomalies = []
+            
+            # Check section alignment
+            if pe.OPTIONAL_HEADER.SectionAlignment < pe.OPTIONAL_HEADER.FileAlignment:
+                anomalies.append({
+                    'type': 'alignment',
+                    'description': 'Section alignment is smaller than file alignment',
+                    'severity': 'high'
+                })
+            
+            # Check for suspicious section names
+            suspicious_sections = ['.text', '.data', '.rdata', '.idata', '.edata', '.pdata', '.rsrc', '.reloc']
+            for section in pe.sections:
+                section_name = section.Name.decode(errors='ignore').strip('\x00')
+                if section_name not in suspicious_sections:
+                    anomalies.append({
+                        'type': 'section_name',
+                        'description': f'Unusual section name: {section_name}',
+                        'severity': 'medium'
+                    })
+            
+            # Check for suspicious characteristics
+            for section in pe.sections:
+                if section.Characteristics & 0xE0000000:  # Check if section is both writable and executable
+                    anomalies.append({
+                        'type': 'section_permissions',
+                        'description': f'Section {section.Name.decode(errors="ignore").strip()} has suspicious permissions',
+                        'severity': 'high'
+                    })
+            
+            # Check for suspicious entry point
+            for section in pe.sections:
+                if (pe.OPTIONAL_HEADER.AddressOfEntryPoint >= section.VirtualAddress and
+                    pe.OPTIONAL_HEADER.AddressOfEntryPoint < (section.VirtualAddress + section.Misc_VirtualSize)):
+                    if section.Name.decode(errors='ignore').strip('\x00') != '.text':
+                        anomalies.append({
+                            'type': 'entry_point',
+                            'description': f'Entry point in unusual section: {section.Name.decode(errors="ignore").strip()}',
+                            'severity': 'high'
+                        })
+            
+            return anomalies
+        except Exception as e:
+            logging.error(f"Error detecting anomalies: {e}")
+            return []
+
+    def _detect_packers(self, pe) -> Dict[str, Any]:
+        """Detect potential packer signatures."""
+        try:
+            packer_info = {
+                'detected': False,
+                'probable_packers': [],
+                'section_entropy': {},
+                'indicators': []
+            }
+
+            # Common packer section names
+            packer_sections = {
+                'UPX': ['.UPX', 'UPX'],
+                'ASPack': ['.aspack', 'ASPack'],
+                'PECompact': ['.PECOMPACT'],
+                'FSG': ['FSG'],
+                'MPRESS': ['.MPRESS1', '.MPRESS2'],
+                'Themida': ['Themida'],
+                'VMProtect': ['.vmp'],
+                'Enigma': ['.enigma']
+            }
+
+            # Check section names
+            for section in pe.sections:
+                section_name = section.Name.decode(errors='ignore').strip('\x00')
+                section_entropy = self._calculate_entropy(section.get_data())
+                packer_info['section_entropy'][section_name] = section_entropy
+
+                # Check against known packer section names
+                for packer, patterns in packer_sections.items():
+                    if any(pattern in section_name for pattern in patterns):
+                        packer_info['detected'] = True
+                        if packer not in packer_info['probable_packers']:
+                            packer_info['probable_packers'].append(packer)
+
+                # High entropy check
+                if section_entropy > 7.0:
+                    packer_info['indicators'].append({
+                        'type': 'high_entropy',
+                        'section': section_name,
+                        'entropy': section_entropy
+                    })
+
+            # Check for other packing indicators
+            if len(pe.sections) < 3:  # Unusually few sections
+                packer_info['indicators'].append({
+                    'type': 'few_sections',
+                    'count': len(pe.sections)
+                })
+
+            # Check for imports if they exist
+            if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT') and pe.DIRECTORY_ENTRY_IMPORT is not None:
+                if len(pe.DIRECTORY_ENTRY_IMPORT) < 3:
+                    packer_info['indicators'].append({
+                        'type': 'few_imports',
+                        'count': len(pe.DIRECTORY_ENTRY_IMPORT)
+                    })
+
+            return packer_info
+        except Exception as e:
+            logging.error(f"Error detecting packers: {e}")
+            return {}
+
+    def _analyze_string_patterns(self, strings: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze patterns in extracted strings."""
+        try:
+            patterns = {
+                'urls': [],
+                'emails': [],
+                'ips': [],
+                'paths': [],
+                'commands': [],
+                'registry_keys': [],
+                'potential_api_calls': []
+            }
+            
+            # Compile regex patterns
+            url_pattern = re.compile(r'https?://[^\s<>"]+|www\.[^\s<>"]+')
+            email_pattern = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}')
+            ip_pattern = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
+            path_pattern = re.compile(r'[a-zA-Z]:\\[^\s<>"|?*]+|/[^\s<>"|?*]+')
+            registry_pattern = re.compile(r'HKEY_[^\s\\]+\\[^\s]+')
+            api_pattern = re.compile(r'\b(?:Create|Get|Set|Open|Close|Read|Write|Send|Recv|Load|Free|Alloc|Connect)[A-Z]\w+\b')
+            
+            for string_entry in strings:
+                string_value = string_entry['value']
+                
+                # Extract patterns
+                urls = url_pattern.findall(string_value)
+                emails = email_pattern.findall(string_value)
+                ips = ip_pattern.findall(string_value)
+                paths = path_pattern.findall(string_value)
+                registry_keys = registry_pattern.findall(string_value)
+                api_calls = api_pattern.findall(string_value)
+                
+                # Add unique findings with their offsets
+                for url in urls:
+                    if url not in patterns['urls']:
+                        patterns['urls'].append({
+                            'value': url,
+                            'offset': string_entry['offset']
+                        })
+                        
+                for email in emails:
+                    if email not in patterns['emails']:
+                        patterns['emails'].append({
+                            'value': email,
+                            'offset': string_entry['offset']
+                        })
+                        
+                for ip in ips:
+                    if ip not in patterns['ips']:
+                        patterns['ips'].append({
+                            'value': ip,
+                            'offset': string_entry['offset']
+                        })
+                        
+                for path in paths:
+                    if path not in patterns['paths']:
+                        patterns['paths'].append({
+                            'value': path,
+                            'offset': string_entry['offset']
+                        })
+                        
+                for key in registry_keys:
+                    if key not in patterns['registry_keys']:
+                        patterns['registry_keys'].append({
+                            'value': key,
+                            'offset': string_entry['offset']
+                        })
+                        
+                for api in api_calls:
+                    if api not in patterns['potential_api_calls']:
+                        patterns['potential_api_calls'].append({
+                            'value': api,
+                            'offset': string_entry['offset']
+                        })
+            
+            return patterns
+        except Exception as e:
+            logging.error(f"Error analyzing string patterns: {e}")
+            return {}
+
+    def _analyze_import_patterns(self, imports: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze patterns in imports."""
+        try:
+            patterns = {
+                'categories': {
+                    'network': [],
+                    'crypto': [],
+                    'filesystem': [],
+                    'gui': [],
+                    'process': [],
+                    'registry': [],
+                    'system': []
+                },
+                'statistics': {
+                    'total_dlls': 0,
+                    'total_imports': 0,
+                    'dlls_by_count': {},
+                    'most_common_imports': []
+                }
+            }
+            
+            # Category keywords
+            categories = {
+                'network': ['ws2_32', 'wininet', 'socket', 'connect', 'internet', 'url', 'ftp', 'http'],
+                'crypto': ['crypt', 'ssl', 'tls', 'cipher', 'decrypt', 'encrypt'],
+                'filesystem': ['file', 'directory', 'folder', 'path', 'drive'],
+                'gui': ['user32', 'gdi32', 'window', 'dialog', 'menu', 'button'],
+                'process': ['process', 'thread', 'job', 'token', 'handle'],
+                'registry': ['reg', 'registry', 'hkey'],
+                'system': ['system32', 'kernel32', 'ntdll', 'advapi32']
+            }
+            
+            all_imports = []
+            for dll in imports:
+
+                dll_name = dll.get('dll_name', '').lower()
+                patterns['statistics']['total_dlls'] += 1
+                dll_imports = dll.get('imports', [])
+                patterns['statistics']['total_imports'] += len(dll_imports)
+
+                # Count DLL occurrences
+                if dll_name not in patterns['statistics']['dlls_by_count']:
+                    patterns['statistics']['dlls_by_count'][dll_name] = 0
+                patterns['statistics']['dlls_by_count'][dll_name] += 1
+
+                for imp in dll_imports:
+                    imp_name = imp.get('name', '').lower()
+
+                    # Match imports to categories
+                    for category, keywords in categories.items():
+                        if any(keyword in imp_name for keyword in keywords):
+                            patterns['categories'][category].append({
+                                'dll': dll_name,
+                                'import': imp_name
+                            })
+
+            # Identify most common imports
+            sorted_imports = sorted(patterns['statistics']['dlls_by_count'].items(), key=lambda x: x[1], reverse=True)
+            patterns['statistics']['most_common_imports'] = sorted_imports[:5]
+
+            return patterns
+        except Exception as e:
+            logging.error(f"Error analyzing import patterns: {e}")
+            return {}
+
+    def _analyze_export_patterns(self, exports: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze patterns in exports."""
+        try:
+            patterns = {
+                'common_exports': [],
+                'total_exports': len(exports)
+            }
+
+            # Common export function names (example set, expand as needed)
+            common_exports = ['DllMain', 'DllRegisterServer', 'DllUnregisterServer', 'DllGetClassObject']
+
+            for exp in exports:
+                exp_name = exp.get('name', '').lower()
+                if exp_name in common_exports:
+                    patterns['common_exports'].append(exp_name)
+
+            return patterns
+        except Exception as e:
+            logging.error(f"Error analyzing export patterns: {e}")
+            return {}
+
+    def analyze_pe(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Analyze a PE file comprehensively with enhanced logging and feature extraction."""
+        try:
+            base_features = self.extract_enhanced_features(file_path)
+            if not base_features:
+                logging.error(f"Failed to extract base features from {file_path}")
                 return None
 
             die_analysis = self._analyze_with_die(file_path)
 
-            with open(file_path, 'rb') as f:
-                file_data = f.read()
-
-            # Validate 'sections' format with detailed logging
-            sections = features.get('sections', {})
-            if not isinstance(sections, dict):
-                logging.error(f"Invalid format for 'sections': {type(sections)}")
-                return None
-
-            # Enhanced string extraction with filtering
-            raw_strings = self._extract_strings(file_data)
-            if not isinstance(raw_strings, list):
-                logging.error(f"Invalid output from _extract_strings: {type(raw_strings)}")
-                return None
-
-            # Filter and deduplicate strings
-            filtered_strings = {}  # Use dict for deduplication
-            for string_entry in raw_strings:
-                string_value = string_entry['value']
-
-                # Apply filtering criteria
-                if (len(string_value) >= 4 and  # Length check
-                        not string_value.isdigit() and  # Not just numbers
-                        not all(c in string.punctuation for c in string_value)):  # Not just punctuation
-
-                    # Use string value as key for deduplication
-                    if string_value not in filtered_strings:
-                        filtered_strings[string_value] = string_entry
-
-            # Calculate entropy scores
-            full_entropy = self._calculate_entropy(file_data)
-            section_entropies = {name: data.get('entropy', 0) for name, data in sections.items()}
-
             return {
-                **features,
-                'die_info': die_analysis,
-                'strings': list(filtered_strings.values()),
-                'entropy': {
-                    'full': full_entropy,
-                    'sections': section_entropies
-                }
+                'base_features': base_features,
+                'die_analysis': die_analysis
             }
         except Exception as e:
-            logging.error(f"Error analyzing {file_path}: {e}")
+            logging.error(f"Error analyzing PE file {file_path}: {e}")
             return None
 
 class PESignatureCompiler:
