@@ -1053,7 +1053,6 @@ class PESignatureCompiler:
 
     def add_rule(self, rule_content: str) -> None:
         """Add a rule from JSON content."""
-        logging.debug("Adding rule.")
         try:
             # Ensure rule_content is in dictionary format
             if isinstance(rule_content, str):
@@ -1340,7 +1339,7 @@ def scan_action(args):
         else:
             classification = "unknown"
             files_unknown += 1
-            logging.info(f"\nFile {file_path} classified as {classification} (No matches found)")
+            logging.info(f"\nFile {file_path} classified as {classification} Confidence: {confidence:.4f}")
     
     # Summary logging
     logging.info("Scan Summary:")
