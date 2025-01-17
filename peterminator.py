@@ -403,7 +403,7 @@ class PESignatureCompiler:
         logging.debug(f"Successfully added rule: {compiled_rule['name']}")
 
 class PESignatureEngine:
-    def __init__(self, similarity_threshold):
+    def __init__(self, similarity_threshold = 0.9):
         logging.info("PESignatureEngine initialized.")
         self.analyzer = PEAnalyzer()
         self.compiler = PESignatureCompiler()
@@ -576,8 +576,7 @@ def main():
     parser.add_argument('--file', type=str, help="Path to the PE file or directory to scan (required for scan)")
     parser.add_argument('--clean-dir', type=str, help="Directory containing clean files for training")
     parser.add_argument('--malware-dir', type=str, help="Directory containing malware files for training")
-    parser.add_argument('--max-files', type=int, default=1000,
-                        help="Maximum number of files to process during training or scanning")
+    parser.add_argument('--max-files', type=int, default=1000, help="Maximum number of files to process during training or scanning")
     parser.add_argument('--min-confidence', type=float, default=0.9, help="Minimum confidence threshold for matches")
 
     # Parse arguments
@@ -675,7 +674,7 @@ def main():
                             'matching_sections': list(entry.get('sections', {}).keys())
                         })
 
-                    if entropy_similarity > 0.8:  # High entropy similarity threshold
+                    if entropy_similarity > 0.7:  # Recommended entropy similarity threshold
                         match_details['entropy_matches'].append({
                             'similarity': entropy_similarity,
                             'reference_entropy': entry_entropy,
