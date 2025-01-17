@@ -688,31 +688,33 @@ def main():
                             'confidence': confidence
                         })
 
-            # Enhanced logging of match details
-            logging.info(f"\nAnalysis results for {file_path}:")
-
-            # Calculate total confidence and log details
-            if matches:
-                total_confidence = sum(m['confidence'] for m in matches)
-                avg_confidence = total_confidence / len(matches) if matches else 0
+            # Calculate average confidence for the file
+            if match_details['confidence_scores']:
+                avg_confidence = sum(match_details['confidence_scores']) / len(match_details['confidence_scores'])
             else:
-                total_confidence = 0
                 avg_confidence = 0
 
-            # Classification logging
-            if matches and any(m['confidence'] >= args.min_confidence for m in matches):
-                classification = 'malware' if any(m['label'] == 1 for m in matches) else 'clean'
-                confidence = max(m['confidence'] for m in matches)
-                logging.warning(f"\nFile classified as {classification} with confidence {confidence:.4f}")
-                logging.info(f"Average confidence: {avg_confidence:.4f}")
-            else:
-                logging.info("\nFile classification: unknown")
-                if matches:
-                    logging.info("Below threshold matches found:")
-                    for match in matches:
-                        logging.info(f"- Rule: {match['rule']}, Confidence: {match['confidence']:.4f}")
-                logging.info(f"Average confidence: {avg_confidence:.4f}")
+            # Log match details
+            logging.info(f"\nAnalysis results for {file_path}:")
+            logging.info(f"Average confidence: {avg_confidence:.4f}")
+            logging.info(
+                f"Overall confidence scores: {[f'{score:.4f}' for score in match_details['confidence_scores']]}")
 
+            # Classification based on average confidence
+            if avg_confidence >= args.min_confidence:
+                classification = 'malware'
+                files_malware += 1
+                logging.warning(f"\nFile classified as {classification} with average confidence {avg_confidence:.4f}")
+            else:
+                classification = 'clean'
+                files_clean += 1
+                logging.info(f"\nFile classified as {classification} with average confidence {avg_confidence:.4f}")
+
+            if not matches:
+                files_unknown += 1
+                logging.info(f"\nFile classification: unknown")
+
+        # Summary logging
         logging.info("Scan Summary:")
         logging.info(f"  Total files scanned: {files_scanned}")
         logging.info(f"  Clean files: {files_clean}")
