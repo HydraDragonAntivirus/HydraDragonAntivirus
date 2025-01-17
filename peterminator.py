@@ -91,19 +91,15 @@ class PEAnalyzer:
         if not data:
             return 0.0
 
-        # Frequency count of each byte value (0 to 255)
-        byte_counts = [0] * 256
-        for byte in data:
-            byte_counts[byte] += 1
+        # Convert the bytes data into a list of byte values (integers 0-255)
+        byte_counts = [data.count(i) for i in range(256)]
+        total_bytes = len(data)
 
-        # Total number of bytes in the data
-        data_length = len(data)
-
-        # Calculate entropy using Shannon formula
         entropy = 0.0
         for count in byte_counts:
             if count > 0:
-                p_x = count / data_length
+                # Calculate probability of each byte and its contribution to entropy
+                p_x = count / total_bytes
                 entropy -= p_x * np.log2(p_x)
 
         return entropy
