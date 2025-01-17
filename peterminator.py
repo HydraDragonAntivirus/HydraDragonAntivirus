@@ -744,11 +744,12 @@ def main():
 
         logging.info(f"Extracting features from {len(clean_files)} clean files and {len(malware_files)} malware files.")
 
-        # Process clean files first to establish baseline of benign strings
-        clean_strings = set()  # Store unique strings from clean files
+        # Initialize sets to store clean and malware strings
+        clean_strings = set()  # Unique clean strings
+        malware_strings = set()  # Unique malware strings
 
-        # Extract strings from clean files - these take precedence
-        for file_path in tqdm(clean_files, desc="Extracting clean strings", unit="file"):
+        # Process clean files first to establish baseline of benign strings
+        for file_path in tqdm(unique_clean_files, desc="Extracting clean strings", unit="file"):
             features = pe_analyzer.analyze_pe(file_path)
             if features:
                 extracted_strings = features.get("strings", [])
@@ -760,12 +761,11 @@ def main():
                 }
                 clean_strings.update(meaningful_strings)
 
-        # Now process malware files, ensuring uniqueness of malicious strings
-        malware_strings = set()  # Store unique strings from malware files
+        # Process malware files, ensuring uniqueness of malicious strings
         malware_string_counts = {}  # Track occurrence count of each string in malware files
 
         # First pass: count occurrences of strings in malware files
-        for file_path in tqdm(malware_files, desc="Counting malware strings", unit="file"):
+        for file_path in tqdm(unique_malware_files, desc="Counting malware strings", unit="file"):
             features = pe_analyzer.analyze_pe(file_path)
             if features:
                 extracted_strings = features.get("strings", [])
@@ -783,13 +783,23 @@ def main():
             if count == 1  # Only keep strings that appear exactly once
         }
 
+        # Set to track processed file contents (ignoring paths and hashes)
+        processed_content = set()  # Store unique content signatures
+
         # Process each file exactly once with unique string sets
         for file_path in tqdm(unique_clean_files.union(unique_malware_files), desc="Constructing training samples",
                               unit="file"):
             normalized_path = os.path.abspath(file_path)
-            if normalized_path in processed_files:
+
+            # Skip files we've already processed based on their content
+            file_content = None
+            with open(file_path, 'rb') as f:
+                file_content = f.read()
+
+            # Check if this file content has already been processed
+            if file_content in processed_content:
                 continue
-            processed_files.add(normalized_path)
+            processed_content.add(file_content)
 
             features = pe_analyzer.analyze_pe(file_path)
             if features:
@@ -828,6 +838,7 @@ def main():
                     "classification": classification,
                 }
 
+                # Avoid adding duplicates based on content signature
                 if not any(sig["file_path"] == signature["file_path"] for sig in training_data):
                     training_data.append(signature)
 
