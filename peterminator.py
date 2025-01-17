@@ -744,12 +744,11 @@ def main():
 
         logging.info(f"Extracting features from {len(clean_files)} clean files and {len(malware_files)} malware files.")
 
-        # Initialize sets to store clean and malware strings
-        clean_strings = set()  # Unique clean strings
-        malware_strings = set()  # Unique malware strings
+        clean_strings = set()  # To store unique strings from clean files
+        malware_strings = set()  # To store unique strings from malware files
 
-        # Process clean files first to establish baseline of benign strings
-        for file_path in tqdm(unique_clean_files, desc="Extracting clean strings", unit="file"):
+        # Extract strings from clean files
+        for file_path in tqdm(clean_files, desc="Extracting clean strings", unit="file"):
             features = pe_analyzer.analyze_pe(file_path)
             if features:
                 extracted_strings = features.get("strings", [])
@@ -761,84 +760,80 @@ def main():
                 }
                 clean_strings.update(meaningful_strings)
 
-        # Process malware files, ensuring uniqueness of malicious strings
-        malware_string_counts = {}  # Track occurrence count of each string in malware files
-
-        # First pass: count occurrences of strings in malware files
-        for file_path in tqdm(unique_malware_files, desc="Counting malware strings", unit="file"):
+        # Extract strings from malware files
+        for file_path in tqdm(malware_files, desc="Extracting malware strings", unit="file"):
             features = pe_analyzer.analyze_pe(file_path)
             if features:
                 extracted_strings = features.get("strings", [])
-                for string in extracted_strings:
-                    string_value = string["value"]
-                    if (len(string_value) >= 4
-                            and filter_meaningful_words(word_tokenize(string_value))
-                            and string_value not in clean_strings):  # Exclude clean strings
-                        malware_string_counts[string_value] = malware_string_counts.get(string_value, 0) + 1
+                meaningful_strings = {
+                    string["value"]
+                    for string in extracted_strings
+                    if len(string["value"]) >= 4  # Ensure the string has at least 4 characters
+                       and filter_meaningful_words(word_tokenize(string["value"]))  # Apply NLTK filtering
+                }
+                malware_strings.update(meaningful_strings)
 
-        # Add only strings that appear in exactly one malware file
-        malware_strings = {
-            string_value
-            for string_value, count in malware_string_counts.items()
-            if count == 1  # Only keep strings that appear exactly once
-        }
+        # Compare clean and malware strings, removing overlap
+        overlapping_strings = clean_strings.intersection(malware_strings)
+        clean_strings -= overlapping_strings  # Remove overlapping strings from clean set
+        malware_strings -= overlapping_strings  # Remove overlapping strings from malware set
 
-        # Set to track processed file contents (ignoring paths and hashes)
-        processed_content = set()  # Store unique content signatures
+        # Store training data while ensuring the proper string classification
+        training_data = []
 
-        # Process each file exactly once with unique string sets
-        for file_path in tqdm(unique_clean_files.union(unique_malware_files), desc="Constructing training samples",
-                              unit="file"):
-            normalized_path = os.path.abspath(file_path)
+        logging.info(f"Feature extraction complete. Total training samples: {len(training_data)}")
+        training_data = []
+        processed_files = set()  # Track processed files to avoid duplicates
 
-            # Skip files we've already processed based on their content
-            file_content = None
-            with open(file_path, 'rb') as f:
-                file_content = f.read()
+        # Deduplicate clean and malware files
+        unique_clean_files = set(clean_files)
+        unique_malware_files = set(malware_files)
 
-            # Check if this file content has already been processed
-            if file_content in processed_content:
-                continue
-            processed_content.add(file_content)
+        # Ensure clean_strings and malware_strings are disjoint and deduplicated
+        clean_strings = set(clean_strings) - set(malware_strings)
+        malware_strings = set(malware_strings) - set(clean_strings)
+
+        # Process each file exactly once
+        for file_path in tqdm(unique_clean_files.union(unique_malware_files), desc="Constructing training samples", unit="file"):
+            normalized_path = os.path.abspath(file_path)  # Normalize file paths
+            if normalized_path in processed_files:
+                continue  # Skip already processed files
+            processed_files.add(normalized_path)  # Mark as processed
 
             features = pe_analyzer.analyze_pe(file_path)
             if features:
+                # Determine classification: clean or malware
                 if file_path in unique_clean_files:
                     classification = "clean"
                     label = 0
-                    relevant_strings = clean_strings
+                    strings_to_add = clean_strings
                 elif file_path in unique_malware_files:
                     classification = "malware"
                     label = 1
-                    relevant_strings = malware_strings  # Now contains only unique malicious strings
+                    strings_to_add = malware_strings
                 else:
-                    continue
+                    continue  # Skip files that don't belong to either category
 
-                # Extract strings that match our unique sets
+                # Extract meaningful strings, avoiding duplicates
                 extracted_strings = features.get("strings", [])
-                meaningful_strings = []
-                seen_strings = set()  # Track strings we've already added
+                meaningful_strings = list({
+                                              string["value"]: string
+                                              for string in extracted_strings
+                                              if string["value"] in strings_to_add
+                                                 and len(string["value"]) >= 4
+                                                 and filter_meaningful_words(word_tokenize(string["value"]))
+                                          }.values())
 
-                for string in extracted_strings:
-                    string_value = string["value"]
-                    if (string_value in relevant_strings and
-                            string_value not in seen_strings and
-                            len(string_value) >= 4 and
-                            filter_meaningful_words(word_tokenize(string_value))):
-                        meaningful_strings.append(string)
-                        seen_strings.add(string_value)
-
-                # Construct the signature with unique strings
+                # Construct the signature
                 signature = {
                     "file_name": os.path.basename(file_path),
-                    "file_path": normalized_path,
+                    "file_path": normalized_path,  # Use normalized path for deduplication
                     **features,
-                    "strings": meaningful_strings,
                     "label": label,
                     "classification": classification,
                 }
 
-                # Avoid adding duplicates based on content signature
+                # Avoid duplicate signatures in training_data
                 if not any(sig["file_path"] == signature["file_path"] for sig in training_data):
                     training_data.append(signature)
 
