@@ -691,27 +691,29 @@ def main():
             # Enhanced logging of match details
             logging.info(f"\nAnalysis results for {file_path}:")
 
-            # Extract confidence scores from matches
-            confidence_scores = [m['confidence'] for m in matches if 'confidence' in m]
-
-            if confidence_scores:
-                # Compute overall confidence as an average of all matched rule confidences
-                overall_confidence = sum(confidence_scores) / len(confidence_scores)
-                logging.info(f"Overall Confidence Score: {overall_confidence:.4f}")
+            # Calculate total confidence and log details
+            if matches:
+                total_confidence = sum(m['confidence'] for m in matches)
+                avg_confidence = total_confidence / len(matches) if matches else 0
             else:
-                overall_confidence = 0.0  # No matches found
-                logging.info("Overall Confidence Score: 0.0000")
+                total_confidence = 0
+                avg_confidence = 0
 
             # Classification logging
-            if overall_confidence >= args.min_confidence:
+            if matches and any(m['confidence'] >= args.min_confidence for m in matches):
                 classification = 'malware' if any(m['label'] == 1 for m in matches) else 'clean'
-                logging.warning(f"\nFile classified as {classification} with confidence {overall_confidence:.4f}")
+                confidence = max(m['confidence'] for m in matches)
+                logging.warning(f"\nFile classified as {classification} with confidence {confidence:.4f}")
+                logging.info(f"Total confidence: {total_confidence:.4f}")
+                logging.info(f"Average confidence: {avg_confidence:.4f}")
             else:
                 logging.info("\nFile classification: unknown")
                 if matches:
                     logging.info("Below threshold matches found:")
                     for match in matches:
                         logging.info(f"- Rule: {match['rule']}, Confidence: {match['confidence']:.4f}")
+                logging.info(f"Total confidence: {total_confidence:.4f}")
+                logging.info(f"Average confidence: {avg_confidence:.4f}")
 
         logging.info("Scan Summary:")
         logging.info(f"  Total files scanned: {files_scanned}")
