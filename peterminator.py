@@ -1068,9 +1068,6 @@ class PESignatureCompiler:
             if isinstance(rule_dict, list):
                 for rule in rule_dict:
                     self.process_rule(rule)
-            else:
-                # Process single rule
-                self.process_rule(rule_dict)
 
         except json.JSONDecodeError as e:
             logging.error(f"Error parsing rule JSON: {e}")
@@ -1078,24 +1075,41 @@ class PESignatureCompiler:
             logging.error(f"Error compiling rule: {e}")
 
     def process_rule(self, rule_dict: dict) -> None:
-        """Validate and compile a single rule."""
-        # Validate required fields
-        required_fields = ['rule', 'meta', 'strings', 'conditions']
-        if not all(field in rule_dict for field in required_fields):
-            missing = [f for f in required_fields if f not in rule_dict]
-            logging.error(f"Missing required fields in rule: {missing}")
-            return
+        """Validate and compile a single rule into a signature format that matches training data.
 
-        # Convert the rule format to internal representation
-        compiled_rule = {
-            'name': rule_dict['rule'],
-            'meta': rule_dict['meta'],
-            'strings': rule_dict['strings'],
-            'conditions': rule_dict['conditions']
-        }
+        Args:
+            rule_dict (dict): Dictionary containing the features and classification
+        """
+        try:
+            # Basic validation of input
+            if not isinstance(rule_dict, dict):
+                logging.error("Invalid rule format: Rule must be a dictionary.")
+                return
 
-        self.rules.append(compiled_rule)
-        logging.debug(f"Successfully added rule: {compiled_rule['name']}")
+            # Extract/normalize the file path info
+            file_name = rule_dict.get('file_name', '')
+            normalized_path = os.path.normpath(file_name) if file_name else ''
+
+            # Construct the signature matching training data format
+            signature = {
+                "file_name": os.path.basename(file_name),
+                "file_path": normalized_path,
+                "label": rule_dict.get('label', 'unknown'),
+                "classification": rule_dict.get('classification', 'unknown')
+            }
+
+            # Add all remaining features from the rule_dict
+            signature.update(rule_dict)
+
+            # Check for duplicates before adding
+            if not any(existing_rule["file_path"] == signature["file_path"] for existing_rule in self.rules):
+                self.rules.append(signature)
+                logging.debug(f"Successfully added rule: {signature['file_name']}")
+            else:
+                logging.warning(f"Skipping duplicate rule: {signature['file_name']}")
+
+        except Exception as e:
+            logging.error(f"Error processing rule: {str(e)}")
 
 class PESignatureEngine:
     def __init__(self, similarity_threshold = 0.9):
@@ -1223,8 +1237,6 @@ class PESignatureEngine:
             if isinstance(rules_data, list):
                 for rule in rules_data:
                     self.compiler.add_rule(rule)
-            elif isinstance(rules_data, dict):
-                self.compiler.add_rule(rules_data)
 
             logging.info(f"Loaded {len(self.compiler.rules)} rules")
 
@@ -1239,35 +1251,103 @@ class PESignatureEngine:
             file_path (str): The path to the PE file to scan.
 
         Returns:
-            tuple: A tuple containing a list of matches and the extracted features.
+            tuple: A tuple containing (matches, features, confidence) where confidence is the average
+            confidence score across all matches.
         """
         if not os.path.exists(file_path):
             logging.error(f"Invalid file path: {file_path}")
-            return [], None
+            return [], None, 0.0
 
         logging.info(f"Scanning file: {file_path}")
         matches = []
         features = None
+        overall_confidence = 0.0
 
         try:
             features = self.analyzer.analyze_pe(file_path)
             if not features:
                 logging.error(f"Failed to analyze file: {file_path}")
-                return matches, features
+                return matches, features, overall_confidence
 
+            confidence_scores = []
             for rule in self.compiler.rules:
                 result = self._evaluate_rule(rule, features)
                 if result and result['overall_confidence'] > 0:
+                    confidence_scores.append(result['overall_confidence'])
                     matches.append({
                         'rule': rule.get('name', 'unknown'),
                         'matches': result,
                     })
 
-            return matches, features
+            # Calculate average confidence if we have matches
+            if confidence_scores:
+                overall_confidence = sum(confidence_scores) / len(confidence_scores)
+
+            return matches, features, overall_confidence
 
         except Exception as e:
             logging.error(f"Error scanning file {file_path}: {str(e)}")
-            return [], features
+            return [], features, 0.0
+
+def scan_action(args):
+    """Handle the scan action with improved confidence handling."""
+    if not args.file or not os.path.exists(args.file):
+        logging.error("A valid file path or directory must be specified for the scan action.")
+        sys.exit(1)
+    
+    signature_engine = PESignatureEngine(similarity_threshold=args.min_confidence)
+    
+    # Load rules if provided
+    if args.rules and os.path.exists(args.rules):
+        logging.info(f"Loading rules from {args.rules}")
+        signature_engine.load_rules(args.rules)
+    
+    files_scanned = files_clean = files_malware = files_unknown = 0
+    
+    # Collect all files to scan
+    all_files = []
+    if os.path.isdir(args.file):
+        logging.info(f"Scanning directory: {args.file}")
+        for root, dirs, files in os.walk(args.file):
+            for file_name in files:
+                all_files.append(os.path.join(root, file_name))
+    else:
+        all_files.append(args.file)
+    
+    # Limit to max-files (1000 by default)
+    all_files = all_files[:args.max_files]
+    
+    # Process each file
+    for file_path in tqdm(all_files, desc="Scanning files", unit="file"):
+        files_scanned += 1
+        matches, features, confidence = signature_engine.scan_file(file_path)
+        
+        if matches:
+            # Classification based on confidence score
+            classification = "malware" if confidence >= args.min_confidence else "clean"
+            if classification == "malware":
+                files_malware += 1
+                logging.warning(
+                    f"\nFile {file_path} classified as {classification} "
+                    f"Confidence: {confidence:.4f}"
+                )
+            else:
+                files_clean += 1
+                logging.info(
+                    f"\nFile {file_path} classified as {classification} "
+                    f"Confidence: {confidence:.4f}"
+                )
+        else:
+            classification = "unknown"
+            files_unknown += 1
+            logging.info(f"\nFile {file_path} classified as {classification} (No matches found)")
+    
+    # Summary logging
+    logging.info("Scan Summary:")
+    logging.info(f"  Total files scanned: {files_scanned}")
+    logging.info(f"  Clean files: {files_clean}")
+    logging.info(f"  Malware files: {files_malware}")
+    logging.info(f"  Unknown files: {files_unknown}")
 
 def main():
     """Main entry point for PE signature scanning and training."""
@@ -1286,67 +1366,7 @@ def main():
     args = parser.parse_args()
 
     if args.action == 'scan':
-        if not args.file or not os.path.exists(args.file):
-            logging.error("A valid file path or directory must be specified for the scan action.")
-            sys.exit(1)
-
-        signature_engine = PESignatureEngine(similarity_threshold=args.min_confidence)
-
-        # Load rules if provided
-        if args.rules and os.path.exists(args.rules):
-            logging.info(f"Loading rules from {args.rules}")
-            signature_engine.load_rules(args.rules)
-
-        files_scanned = 0
-        files_clean = 0
-        files_malware = 0
-        files_unknown = 0
-
-        all_files = []
-        if os.path.isdir(args.file):
-            logging.info(f"Scanning directory: {args.file}")
-
-            # Walk through all subdirectories and files
-            for root, dirs, files in os.walk(args.file):
-                for file_name in files:
-                    all_files.append(os.path.join(root, file_name))
-        else:
-            all_files.append(args.file)
-
-        # Limit to max-files (1000 by default)
-        all_files = all_files[:args.max_files]
-
-        for file_path in tqdm(all_files, desc="Scanning files", unit="file"):
-            files_scanned += 1
-            matches, features = signature_engine.scan_file(file_path)
-
-            if matches:
-                # Extract the highest confidence score from matches
-                highest_confidence = max(
-                    match['matches'].get('overall_confidence', 0) for match in matches
-                )
-
-                # Classification based on confidence score
-                classification = "malware" if highest_confidence >= args.min_confidence else "clean"
-                if classification == "malware":
-                    files_malware += 1
-                    logging.warning(
-                        f"\nFile {file_path} classified as {classification} (Confidence: {highest_confidence:.4f})")
-                else:
-                    files_clean += 1
-                    logging.info(
-                        f"\nFile {file_path} classified as {classification} (Confidence: {highest_confidence:.4f})")
-            else:
-                classification = "unknown"
-                files_unknown += 1
-                logging.info(f"\nFile {file_path} classified as {classification} (No matches found)")
-
-        # Summary logging
-        logging.info("Scan Summary:")
-        logging.info(f"  Total files scanned: {files_scanned}")
-        logging.info(f"  Clean files: {files_clean}")
-        logging.info(f"  Malware files: {files_malware}")
-        logging.info(f"  Unknown files: {files_unknown}")
+        scan_action(args)
 
     elif args.action == 'train':
         if not args.clean_dir or not os.path.exists(args.clean_dir) or not args.malware_dir or not os.path.exists(
