@@ -3194,11 +3194,8 @@ def scan_rsrc_directory(extracted_files):
                         with open(extracted_file, "r", encoding="utf-8", errors="ignore") as f:
                             lines = f.readlines()
                             if lines:
-                                # Get the last 11 lines
-                                last_lines = lines[-11:]
-
                                 # Clean the last lines
-                                last_lines_cleaned = [clean_text(line.strip()) for line in last_lines]
+                                lines_cleaned = [clean_text(line.strip()) for line in lines]
 
                                 # Log the success of processing last 11 lines
                                 logging.info(f"Extracted and cleaned last 11 lines from {extracted_file}.")
@@ -3215,7 +3212,7 @@ def scan_rsrc_directory(extracted_files):
 
                                 # Write each cleaned line to the file
                                 with open(last_lines_path, "w", encoding="utf-8") as save_file:
-                                    for line in last_lines_cleaned:
+                                    for line in lines_cleaned:
                                         save_file.write(line + '\n')
                                 logging.info(f"Saved last 11 lines from {extracted_file} to {last_lines_path}")
 

@@ -86,6 +86,24 @@ class PEAnalyzer:
         logging.info("PEAnalyzer initialized.")
         self.features_cache = {}
 
+    def _bytes_to_hex(self, data):
+        """Convert bytes to hexadecimal string."""
+        if isinstance(data, bytes):
+            return data.hex()
+        return data
+
+    def _serialize_data(self, obj):
+        """Recursively serialize data structures containing bytes."""
+        if isinstance(obj, dict):
+            return {key: self._serialize_data(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [self._serialize_data(item) for item in obj]
+        elif isinstance(obj, bytes):
+            return self._bytes_to_hex(obj)
+        elif isinstance(obj, set):
+            return list(obj)  # Convert sets to lists for JSON serialization
+        return obj
+
     def _calculate_entropy(self, data: list) -> float:
         """Calculate Shannon entropy of data (provided as a list of integers)."""
         if not data:
@@ -557,10 +575,10 @@ class PEAnalyzer:
             rich_header = {}
             if hasattr(pe, 'RICH_HEADER') and pe.RICH_HEADER is not None:
                 rich_header['checksum'] = getattr(pe.RICH_HEADER, 'checksum', None)
-                rich_header['values'] = pe.RICH_HEADER.values
-                rich_header['clear_data'] = pe.RICH_HEADER.clear_data
-                rich_header['key'] = pe.RICH_HEADER.key
-                rich_header['raw_data'] = pe.RICH_HEADER.raw_data
+                rich_header['values'] = self._serialize_data(pe.RICH_HEADER.values)
+                rich_header['clear_data'] = self._serialize_data(pe.RICH_HEADER.clear_data)
+                rich_header['key'] = self._serialize_data(pe.RICH_HEADER.key)
+                rich_header['raw_data'] = self._serialize_data(pe.RICH_HEADER.raw_data)
 
                 # Decode CompID and build number information
                 compid_info = []
@@ -991,11 +1009,15 @@ class PEAnalyzer:
                 return None
 
             die_analysis = self._analyze_with_die(file_path)
-
-            return {
+            
+            # Serialize the entire result to ensure JSON compatibility
+            result = {
                 'base_features': base_features,
                 'die_analysis': die_analysis
             }
+            
+            return self._serialize_data(result)
+            
         except Exception as e:
             logging.error(f"Error analyzing PE file {file_path}: {e}")
             return None
