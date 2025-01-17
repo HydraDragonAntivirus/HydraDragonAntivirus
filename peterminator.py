@@ -1297,14 +1297,6 @@ def main():
             logging.info(f"Loading rules from {args.rules}")
             signature_engine.load_rules(args.rules)
 
-        # Load training data
-        training_data = []
-        training_data_path = "training_data.json"
-        if os.path.exists(training_data_path):
-            logging.info(f"Loading training data from {training_data_path}")
-            with open(training_data_path, 'r') as f:
-                training_data = json.load(f)
-
         files_scanned = 0
         files_clean = 0
         files_malware = 0
@@ -1328,91 +1320,26 @@ def main():
             files_scanned += 1
             matches, features = signature_engine.scan_file(file_path)
 
-            # Enhanced matching analysis
-            match_details = {
-                'confidence_scores': [],
-                'string_matches': [],
-                'section_matches': [],
-                'entropy_matches': []
-            }
+            if matches:
+                # Extract the highest confidence score from matches
+                highest_confidence = max(
+                    match['matches'].get('overall_confidence', 0) for match in matches
+                )
 
-            if features and training_data:
-                for entry in training_data:
-                    # Calculate string similarity
-                    entry_strings = set(s['value'] for s in entry.get('strings', []))
-                    feature_strings = set(s['value'] for s in features.get('strings', []))
-                    string_overlap = len(entry_strings.intersection(feature_strings))
-                    string_similarity = string_overlap / max(len(entry_strings), len(feature_strings)) if max(
-                        len(entry_strings), len(feature_strings)) > 0 else 0
-
-                    # Calculate section similarity
-                    section_match = all(
-                        section in features.get('sections', {})
-                        for section in entry.get('sections', {})
-                    )
-
-                    # Calculate entropy similarity
-                    entry_entropy = entry.get('entropy', {}).get('full', 0)
-                    feature_entropy = features.get('entropy', {}).get('full', 0)
-                    entropy_similarity = 1 - abs(entry_entropy - feature_entropy) / max(entry_entropy,
-                                                                                        feature_entropy) if max(
-                        entry_entropy, feature_entropy) > 0 else 0
-
-                    # Calculate overall confidence
-                    confidence = (string_similarity * 0.4 +
-                                  (1 if section_match else 0) * 0.3 +
-                                  entropy_similarity * 0.3)
-
-                    match_details['confidence_scores'].append(confidence)
-
-                    if string_overlap > 0:
-                        match_details['string_matches'].append({
-                            'matched_strings': entry_strings.intersection(feature_strings),
-                            'similarity': string_similarity
-                        })
-
-                    if section_match:
-                        match_details['section_matches'].append({
-                            'matching_sections': list(entry.get('sections', {}).keys())
-                        })
-
-                    if entropy_similarity > 0.7:  # Recommended entropy similarity threshold
-                        match_details['entropy_matches'].append({
-                            'similarity': entropy_similarity,
-                            'reference_entropy': entry_entropy,
-                            'sample_entropy': feature_entropy
-                        })
-
-                    if confidence >= args.min_confidence:
-                        matches.append({
-                            'rule': 'Training Match',
-                            'label': entry.get('label', 'unknown'),
-                            'confidence': confidence
-                        })
-
-            # Calculate average confidence for the file
-            if match_details['confidence_scores']:
-                avg_confidence = sum(match_details['confidence_scores']) / len(match_details['confidence_scores'])
+                # Classification based on confidence score
+                classification = "malware" if highest_confidence >= args.min_confidence else "clean"
+                if classification == "malware":
+                    files_malware += 1
+                    logging.warning(
+                        f"\nFile {file_path} classified as {classification} (Confidence: {highest_confidence:.4f})")
+                else:
+                    files_clean += 1
+                    logging.info(
+                        f"\nFile {file_path} classified as {classification} (Confidence: {highest_confidence:.4f})")
             else:
-                avg_confidence = 0
-
-            # Log match details
-            logging.info(f"\nAnalysis results for {file_path}:")
-            logging.info(f"Average confidence: {avg_confidence:.4f}")
-
-            # Classification based on average confidence
-            if avg_confidence >= args.min_confidence:
-                classification = 'malware'
-                files_malware += 1
-                logging.warning(f"\nFile classified as {classification} with average confidence {avg_confidence:.4f}")
-            else:
-                classification = 'clean'
-                files_clean += 1
-                logging.info(f"\nFile classified as {classification} with average confidence {avg_confidence:.4f}")
-
-            if not matches:
+                classification = "unknown"
                 files_unknown += 1
-                logging.info(f"\nFile classification: unknown")
+                logging.info(f"\nFile {file_path} classified as {classification} (No matches found)")
 
         # Summary logging
         logging.info("Scan Summary:")
