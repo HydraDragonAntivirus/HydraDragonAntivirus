@@ -86,20 +86,19 @@ class PEAnalyzer:
         logging.info("PEAnalyzer initialized.")
         self.features_cache = {}
 
-    def _calculate_entropy(self, data: bytes) -> float:
-        """Calculate Shannon entropy of binary data."""
+    def _calculate_entropy(self, data: list) -> float:
+        """Calculate Shannon entropy of data (provided as a list of integers)."""
         if not data:
             return 0.0
 
-        # Convert the bytes data into a list of byte values (integers 0-255)
-        byte_counts = [data.count(i) for i in range(256)]
-        total_bytes = len(data)
+        total_items = len(data)
+        value_counts = [data.count(i) for i in range(256)]  # Count occurrences of each byte (0-255)
 
         entropy = 0.0
-        for count in byte_counts:
+        for count in value_counts:
             if count > 0:
-                # Calculate probability of each byte and its contribution to entropy
-                p_x = count / total_bytes
+                # Calculate probability of each value and its contribution to entropy
+                p_x = count / total_items
                 entropy -= p_x * np.log2(p_x)
 
         return entropy
@@ -146,7 +145,8 @@ class PEAnalyzer:
                     section.Name.decode(errors='ignore').strip('\x00'): {
                         'virtual_size': section.Misc_VirtualSize,
                         'raw_size': section.SizeOfRawData,
-                        'entropy': self._calculate_entropy(section.get_data()),
+                        # Convert section data to a list of integers and calculate entropy
+                        'entropy': self._calculate_entropy(list(section.get_data())),
                     } for section in pe.sections
                 }
             }
@@ -495,7 +495,7 @@ class PEAnalyzer:
                 
                 characteristics[section_name] = {
                     'flags': section_flags,
-                    'entropy': self._calculate_entropy(section.get_data()),
+                    'entropy': self._calculate_entropy(list(section.get_data())),
                     'size_ratio': section.SizeOfRawData / pe.OPTIONAL_HEADER.SizeOfImage if pe.OPTIONAL_HEADER.SizeOfImage else 0,
                     'pointer_to_raw_data': section.PointerToRawData,
                     'pointer_to_relocations': section.PointerToRelocations,
@@ -671,8 +671,8 @@ class PEAnalyzer:
                     overlay_info['exists'] = True
                     overlay_info['offset'] = end_of_pe
                     overlay_info['size'] = len(overlay_data)
-                    overlay_info['entropy'] = self._calculate_entropy(overlay_data)
-            
+                    overlay_info['entropy'] = self._calculate_entropy(list(overlay_data))
+
             return overlay_info
         except Exception as e:
             logging.error(f"Error analyzing overlay: {e}")
@@ -694,7 +694,7 @@ class PEAnalyzer:
                     if dos_stub_data:
                         dos_stub['exists'] = True
                         dos_stub['size'] = len(dos_stub_data)
-                        dos_stub['entropy'] = self._calculate_entropy(dos_stub_data)
+                        dos_stub['entropy'] = self._calculate_entropy(list(dos_stub_data))
 
             return dos_stub
         except Exception as e:
@@ -775,7 +775,10 @@ class PEAnalyzer:
             # Check section names
             for section in pe.sections:
                 section_name = section.Name.decode(errors='ignore').strip('\x00')
-                section_entropy = self._calculate_entropy(section.get_data())
+                section_data = section.get_data()
+
+                # Convert section data to a list of integers and calculate entropy
+                section_entropy = self._calculate_entropy(list(section_data))
                 packer_info['section_entropy'][section_name] = section_entropy
 
                 # Check against known packer section names
