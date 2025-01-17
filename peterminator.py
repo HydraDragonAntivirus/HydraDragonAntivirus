@@ -41,6 +41,13 @@ logging.basicConfig(filename=application_log_file,
                    level=logging.DEBUG,
                    format='%(asctime)s - %(levelname)s - %(message)s')
 
+COMMON_PE_STRINGS = {
+    "!This program cannot be run in DOS mode.",
+    "Rich",  # Rich header signature
+    "PE",    # Standard PE file signature
+    ".text", ".data", ".rdata", ".bss", ".idata", ".edata", ".rsrc", ".reloc"  # Common section names
+}
+
 def filter_meaningful_words(word_list: List[str]) -> List[str]:
     """
     Filter out non-English, meaningless strings, duplicates, and words shorter than 4 characters.
@@ -140,19 +147,22 @@ class PEAnalyzer:
         return exports
 
     def _extract_strings(self, data: bytes, min_length: int = 4) -> List[Dict[str, Any]]:
-        """Extract ASCII strings from the binary data."""
+        """Extract ASCII strings from binary data, filtering out common PE headers."""
         strings = []
         try:
-            # Define the regex pattern to match ASCII strings of at least `min_length` characters
             ascii_pattern = f'[\x20-\x7e]{{{min_length},}}'
-
-            # Find matches using the ASCII pattern
             for match in re.finditer(ascii_pattern.encode(), data):
+                string_value = match.group().decode('ascii', errors='ignore').strip()
+
+                # Skip common PE header strings
+                if string_value in COMMON_PE_STRINGS or string_value.lower() in (s.lower() for s in COMMON_PE_STRINGS):
+                    continue
+
                 strings.append({
                     'type': 'ascii',
-                    'value': match.group().decode('ascii', errors='ignore'),
+                    'value': string_value,
                     'offset': match.start(),
-                    'size': len(match.group())
+                    'size': len(string_value)
                 })
         except Exception as e:
             logging.error(f"Error extracting strings: {e}")
