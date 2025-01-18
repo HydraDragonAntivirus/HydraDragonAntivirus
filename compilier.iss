@@ -33,6 +33,7 @@ SetupIconFile=C:\Users\victim\Documents\oldstuff\HydraDragonAV.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+DiskSpanning=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
