@@ -1172,29 +1172,28 @@ class PESignatureEngine:
             logging.error(f"Invalid rule format: {type(rule)}")
             return {}
 
-        rule_name = rule.get('name', 'unknown')
-        logging.debug(f"Starting evaluation of rule: {rule_name}")
+        file_name = features.get('file_info', {}).get('name', 'unknown_file')
+        file_path = features.get('file_info', {}).get('path', 'unknown_path')
+        logging.debug(f"Starting evaluation of rule for file: {file_name} at {file_path}")
 
-        # Ensure features contains the necessary keys
-        if not isinstance(features, dict):
-            logging.error(f"Invalid features format: {type(features)}")
-            return {}
-
-        # Construct the signature
-        signature = {
-            "rule_name": rule_name,
-            "strings": features.get('strings', []),
-            "imports": features.get('imports', []),
+        # Construct the result dictionary
+        result = {
+            "file_name": file_name,
+            "file_path": file_path,
+            "strings": [],
+            "imports": [],
+            "sections": [],
             "confidence_scores": {
                 "strings": 0.0,
                 "imports": 0.0,
+                "sections": 0.0,
             },
             "label": None,
             "classification": None,
         }
 
         try:
-            def process_matches(rule_items, feature_items, category):
+            def process_matches(rule_items, feature_items):
                 """Helper function to process exact and near matches."""
                 total_items = len(rule_items)
                 exact_matches = []
@@ -1241,9 +1240,9 @@ class PESignatureEngine:
             rule_strings = rule.get('strings', [])
             feature_strings = features.get('strings', [])
 
-            exact_strings, near_strings, string_confidence = process_matches(rule_strings, feature_strings, 'strings')
-            signature['strings'] = exact_strings + near_strings
-            signature['confidence_scores']['strings'] = string_confidence
+            exact_strings, near_strings, string_confidence = process_matches(rule_strings, feature_strings)
+            result['strings'] = exact_strings + near_strings
+            result['confidence_scores']['strings'] = string_confidence
 
             # Process imports
             rule_imports = rule.get('imports', [])
@@ -1252,9 +1251,7 @@ class PESignatureEngine:
             exact_imports, near_imports, import_confidence = process_matches(
                 [
                     {
-                        'value': f"{imp.get('dll_name', '').lower()}::{imp_name.get('name', '')}",
-                        'dll_name': imp.get('dll_name', '').lower(),
-                        'name': imp_name.get('name', '')
+                        'value': f"{imp.get('dll_name', '').lower()}::{imp_name.get('name', '')}"
                     }
                     for imp in rule_imports
                     for imp_name in imp.get('imports', [])
@@ -1262,30 +1259,50 @@ class PESignatureEngine:
                 [
                     {
                         'value': f"{feat_imp.get('dll_name', '').lower()}::{feat_name.get('name', '')}",
-                        'dll_name': feat_imp.get('dll_name', '').lower(),
-                        'name': feat_name.get('name', ''),
                         'offset': feat_name.get('address')
                     }
                     for feat_imp in feature_imports
                     for feat_name in feat_imp.get('imports', [])
-                ],
-                'imports'
+                ]
             )
 
-            signature['imports'] = exact_imports + near_imports
-            signature['confidence_scores']['imports'] = import_confidence
+            result['imports'] = exact_imports + near_imports
+            result['confidence_scores']['imports'] = import_confidence
+
+            # Process sections
+            rule_sections = rule.get('sections', [])
+            feature_sections = features.get('sections', {}).items()
+
+            exact_sections, near_sections, section_confidence = process_matches(
+                [
+                    {"value": f"{name}::{section.get('entropy', '')}::virtual_size::{section.get('virtual_size', 0)}"}
+                    for name, section in rule_sections
+                ],
+                [
+                    {"value": f"{name}::{section.get('entropy', '')}::virtual_size::{section.get('virtual_size', 0)}"}
+                    for name, section in feature_sections
+                ]
+            )
+
+            result['sections'] = exact_sections + near_sections
+            result['confidence_scores']['sections'] = section_confidence
 
             # Calculate overall confidence
-            signature['confidence_scores']['overall'] = round(
-                0.5 * signature['confidence_scores']['strings'] +
-                0.5 * signature['confidence_scores']['imports'], 3
+            overall_confidence = round(
+                (
+                    0.33 * result['confidence_scores']['strings'] +
+                    0.33 * result['confidence_scores']['imports'] +
+                    0.34 * result['confidence_scores']['sections']
+                ), 3
             )
 
-            return signature
+            result['overall_confidence'] = overall_confidence
+
+            return result
 
         except Exception as e:
-            logging.error(f"Error evaluating rule {rule_name}: {str(e)}")
-            return signature
+            logging.error(f"Error evaluating rule for file {file_name}: {str(e)}")
+            return result
 
     def load_rules(self, rules_file: str) -> None:
         """Load rules from a JSON file."""
