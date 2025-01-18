@@ -12,6 +12,7 @@ from tqdm import tqdm
 import nltk
 from difflib import SequenceMatcher
 import struct
+import ipaddress
 
 script_dir = os.getcwd()
 
