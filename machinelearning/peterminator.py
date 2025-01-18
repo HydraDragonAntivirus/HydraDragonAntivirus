@@ -145,7 +145,7 @@ class PEAnalyzer:
                     'path': file_path,
                     'name': os.path.basename(file_path),
                     'size': os.path.getsize(file_path),
-                    'md5': self.calculate_md5(file_path),
+                    'md5': calculate_md5(file_path),
                 },
                 'headers': {
                     'optional_header': {
