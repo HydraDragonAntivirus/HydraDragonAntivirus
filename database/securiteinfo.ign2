@@ -90,6 +90,9 @@ PUA.Win.Packer.InterplaysMveFi-1
 PUA.Win.File.Pemalform-9786668-0
 Win.Packer.MalwareCrypter-6620810-1
 Win.Packed.Mikey-9859574-0
+Win.Malware.Johnnie-10038100-0
+Win.Packed.Mikey-9859688-0
+Win.Malware.Rugmi-10040069-0
 # False positives from SaneSecurity and other 3rd parties
 Sanesecurity.Malware.26368.JsHeur
 Sanesecurity.Malware.26399.JsHeur
