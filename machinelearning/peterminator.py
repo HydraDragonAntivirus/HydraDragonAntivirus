@@ -40,13 +40,13 @@ application_log_file = os.path.join(log_directory, "peterminator.log")
 
 # Configure logging
 logging.basicConfig(filename=application_log_file,
-                   level=logging.DEBUG,
-                   format='%(asctime)s - %(levelname)s - %(message)s')
+                    level=logging.DEBUG,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 
 COMMON_PE_STRINGS = {
     "!This program cannot be run in DOS mode.",
     "Rich",  # Rich header signature
-    "PE",    # Standard PE file signature
+    "PE",  # Standard PE file signature
     ".text", ".data", ".rdata", ".bss", ".idata", ".edata", ".rsrc", ".reloc"  # Common section names
 }
 
@@ -82,6 +82,15 @@ def filter_meaningful_words(word_list: List[str]) -> List[str]:
 def calculate_string_similarity(str1: str, str2: str) -> float:
     """Calculate similarity ratio between two strings."""
     return SequenceMatcher(None, str1.lower(), str2.lower()).ratio()
+
+# Helper function to calculate MD5
+def calculate_md5(file_path: str) -> Optional[str]:
+    try:
+        with open(file_path, 'rb') as f:
+            return hashlib.md5(f.read()).hexdigest()
+    except Exception as e:
+        logging.error(f"Error calculating MD5 for {file_path}: {str(e)}")
+        return None
 
 class PEAnalyzer:
     def __init__(self):
@@ -136,6 +145,7 @@ class PEAnalyzer:
                     'path': file_path,
                     'name': os.path.basename(file_path),
                     'size': os.path.getsize(file_path),
+                    'md5': self.calculate_md5(file_path),
                 },
                 'headers': {
                     'optional_header': {
@@ -302,7 +312,7 @@ class PEAnalyzer:
             if hasattr(pe, 'DIRECTORY_ENTRY_SECURITY'):
                 cert_info['virtual_address'] = pe.DIRECTORY_ENTRY_SECURITY.VirtualAddress
                 cert_info['size'] = pe.DIRECTORY_ENTRY_SECURITY.Size
-                
+
                 # Extract certificate attributes if available
                 if hasattr(pe, 'VS_FIXEDFILEINFO'):
                     cert_info['fixed_file_info'] = {
@@ -315,7 +325,7 @@ class PEAnalyzer:
                         'file_type': pe.VS_FIXEDFILEINFO.FileType,
                         'file_subtype': pe.VS_FIXEDFILEINFO.FileSubtype,
                     }
-            
+
             return cert_info
         except Exception as e:
             logging.error(f"Error analyzing certificates: {e}")
@@ -434,7 +444,7 @@ class PEAnalyzer:
                     'se_handler_table': config.SEHandlerTable,
                     'se_handler_count': config.SEHandlerCount
                 }
-                
+
             return load_config
         except Exception as e:
             logging.error(f"Error analyzing load config: {e}")
@@ -508,7 +518,7 @@ class PEAnalyzer:
             for section in pe.sections:
                 section_name = section.Name.decode(errors='ignore').strip('\x00')
                 flags = section.Characteristics
-                
+
                 # Decode section characteristics flags
                 section_flags = {
                     'CODE': bool(flags & 0x20),
@@ -522,7 +532,7 @@ class PEAnalyzer:
                     'MEM_READ': bool(flags & 0x40000000),
                     'MEM_WRITE': bool(flags & 0x80000000)
                 }
-                
+
                 characteristics[section_name] = {
                     'flags': section_flags,
                     'entropy': self._calculate_entropy(list(section.get_data())),
@@ -533,7 +543,7 @@ class PEAnalyzer:
                     'number_of_relocations': section.NumberOfRelocations,
                     'number_of_line_numbers': section.NumberOfLinenumbers,
                 }
-            
+
             return characteristics
         except Exception as e:
             logging.error(f"Error analyzing section characteristics: {e}")
@@ -619,7 +629,7 @@ class PEAnalyzer:
                 'languages': set(),
                 'types': set()
             }
-            
+
             if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
                 for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
                     type_id = resource_type.id
@@ -650,12 +660,12 @@ class PEAnalyzer:
                         }
                         type_name = type_mappings.get(type_id, f'UNKNOWN_{type_id}')
                         resources['types'].add(type_name)
-                        
+
                         for resource_id in resource_type.directory.entries:
                             for resource_lang in resource_id.directory.entries:
                                 lang_id = resource_lang.data.lang
                                 resources['languages'].add(lang_id)
-                                
+
                                 resource_data = {
                                     'type': type_name,
                                     'id': resource_id.id,
@@ -666,7 +676,7 @@ class PEAnalyzer:
                                     'offset': resource_lang.data.struct.OffsetToData,
                                 }
                                 resources['entries'].append(resource_data)
-            
+
             # Convert sets to lists for JSON serialization
             resources['languages'] = list(resources['languages'])
             resources['types'] = list(resources['types'])
@@ -684,20 +694,20 @@ class PEAnalyzer:
                 'size': 0,
                 'entropy': 0.0
             }
-            
+
             # Calculate the end of the PE structure
             last_section = max(pe.sections, key=lambda s: s.PointerToRawData + s.SizeOfRawData)
             end_of_pe = last_section.PointerToRawData + last_section.SizeOfRawData
-            
+
             # Get file size
             file_size = os.path.getsize(file_path)
-            
+
             # Check for overlay
             if file_size > end_of_pe:
                 with open(file_path, 'rb') as f:
                     f.seek(end_of_pe)
                     overlay_data = f.read()
-                    
+
                     overlay_info['exists'] = True
                     overlay_info['offset'] = end_of_pe
                     overlay_info['size'] = len(overlay_data)
@@ -716,7 +726,7 @@ class PEAnalyzer:
                 'size': 0,
                 'entropy': 0.0,
             }
-            
+
             if hasattr(pe, 'DOS_HEADER'):
                 stub_offset = pe.DOS_HEADER.e_lfanew - 64  # Typical DOS stub starts after DOS header
                 if stub_offset > 0:
@@ -735,7 +745,7 @@ class PEAnalyzer:
         """Detect various PE file anomalies."""
         try:
             anomalies = []
-            
+
             # Check section alignment
             if pe.OPTIONAL_HEADER.SectionAlignment < pe.OPTIONAL_HEADER.FileAlignment:
                 anomalies.append({
@@ -743,7 +753,7 @@ class PEAnalyzer:
                     'description': 'Section alignment is smaller than file alignment',
                     'severity': 'high'
                 })
-            
+
             # Check for suspicious section names
             suspicious_sections = ['.text', '.data', '.rdata', '.idata', '.edata', '.pdata', '.rsrc', '.reloc']
             for section in pe.sections:
@@ -754,7 +764,7 @@ class PEAnalyzer:
                         'description': f'Unusual section name: {section_name}',
                         'severity': 'medium'
                     })
-            
+
             # Check for suspicious characteristics
             for section in pe.sections:
                 if section.Characteristics & 0xE0000000:  # Check if section is both writable and executable
@@ -763,18 +773,18 @@ class PEAnalyzer:
                         'description': f'Section {section.Name.decode(errors="ignore").strip()} has suspicious permissions',
                         'severity': 'high'
                     })
-            
+
             # Check for suspicious entry point
             for section in pe.sections:
                 if (pe.OPTIONAL_HEADER.AddressOfEntryPoint >= section.VirtualAddress and
-                    pe.OPTIONAL_HEADER.AddressOfEntryPoint < (section.VirtualAddress + section.Misc_VirtualSize)):
+                        pe.OPTIONAL_HEADER.AddressOfEntryPoint < (section.VirtualAddress + section.Misc_VirtualSize)):
                     if section.Name.decode(errors='ignore').strip('\x00') != '.text':
                         anomalies.append({
                             'type': 'entry_point',
                             'description': f'Entry point in unusual section: {section.Name.decode(errors="ignore").strip()}',
                             'severity': 'high'
                         })
-            
+
             return anomalies
         except Exception as e:
             logging.error(f"Error detecting anomalies: {e}")
@@ -849,7 +859,7 @@ class PEAnalyzer:
     def clean_text(self, input_text: str) -> str:
         """
         Remove non-printable ASCII control characters from the input text.
-        
+
         Args:
             input_text: The string to clean.
         Returns:
@@ -860,7 +870,7 @@ class PEAnalyzer:
     def process_file(self, file_path: str) -> Optional[List[str]]:
         """
         Process a file and return cleaned lines.
-        
+
         Args:
             file_path: Path to the file to process
         Returns:
@@ -888,7 +898,7 @@ class PEAnalyzer:
         """
         Analyzes content for various patterns including URLs, emails, IPs, paths,
         commands, registry keys, and API calls.
-        
+
         Args:
             content: String content to analyze
         Returns:
@@ -920,7 +930,8 @@ class PEAnalyzer:
             email_pattern = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}')
             ip_pattern = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
             path_pattern = re.compile(r'(?:[a-zA-Z]:\\[^\s<>"|?*]+|/[^\s<>"|?*]+)')
-            registry_pattern = re.compile(r'^(HKEY_LOCAL_MACHINE|HKEY_CURRENT_USER|HKEY_CLASSES_ROOT|HKEY_USERS|HKEY_CURRENT_CONFIG|HKLM|HKCU|HKCR|HKU|HKCC)\\([A-Za-z0-9_]+\\)*[A-Za-z0-9_]+')
+            registry_pattern = re.compile(
+                r'^(HKEY_LOCAL_MACHINE|HKEY_CURRENT_USER|HKEY_CLASSES_ROOT|HKEY_USERS|HKEY_CURRENT_CONFIG|HKLM|HKCU|HKCR|HKU|HKCC)\\([A-Za-z0-9_]+\\)*[A-Za-z0-9_]+')
             api_pattern = re.compile(
                 r'\b(?:Create|Get|Set|Open|Close|Read|Write|Send|Recv|Load|Free|Alloc|Connect)[A-Z]\w+\b'
             )
@@ -979,7 +990,7 @@ class PEAnalyzer:
     def analyze_file(self, file_path: str) -> Optional[Dict[str, List[Dict[str, str]]]]:
         """
         Process and analyze a file for patterns.
-        
+
         Args:
             file_path: Path to the file to analyze
         Returns:
@@ -1012,7 +1023,7 @@ class PEAnalyzer:
                     'most_common_imports': []
                 }
             }
-            
+
             # Category keywords
             categories = {
                 'network': ['ws2_32', 'wininet', 'socket', 'connect', 'internet', 'url', 'ftp', 'http'],
@@ -1023,7 +1034,7 @@ class PEAnalyzer:
                 'registry': ['reg', 'registry', 'hkey'],
                 'system': ['system32', 'kernel32', 'ntdll', 'advapi32']
             }
-            
+
             all_imports = []
             for dll in imports:
 
@@ -1087,18 +1098,19 @@ class PEAnalyzer:
                 return None
 
             die_analysis = self._analyze_with_die(file_path)
-            
+
             # Serialize the entire result to ensure JSON compatibility
             result = {
                 'base_features': base_features,
-                'die_analysis': die_analysis
+                'die_analysis': die_analysis,
             }
-            
+
             return self._serialize_data(result)
-            
+
         except Exception as e:
             logging.error(f"Error analyzing PE file {file_path}: {e}")
             return None
+
 
 class PESignatureCompiler:
     def __init__(self):
@@ -1142,6 +1154,7 @@ class PESignatureCompiler:
             signature = {
                 "file_name": os.path.basename(file_name),
                 "file_path": normalized_path,
+                'md5': calculate_md5(file_path),
                 "label": rule_dict.get('label', 'unknown'),
                 "classification": rule_dict.get('classification', 'unknown')
             }
@@ -1159,8 +1172,9 @@ class PESignatureCompiler:
         except Exception as e:
             logging.error(f"Error processing rule: {str(e)}")
 
+
 class PESignatureEngine:
-    def __init__(self, similarity_threshold = 0.9):
+    def __init__(self, similarity_threshold=0.9):
         logging.info("PESignatureEngine initialized.")
         self.analyzer = PEAnalyzer()
         self.compiler = PESignatureCompiler()
@@ -1398,6 +1412,7 @@ class PESignatureEngine:
             logging.exception("Full traceback:")  # Add full traceback
             return [], features, 0.0
 
+
 def scan_action(args):
     """Handle the scan action with improved confidence handling."""
     if not args.file or not os.path.exists(args.file):
@@ -1473,7 +1488,8 @@ def main():
     parser.add_argument('--file', type=str, help="Path to the PE file or directory to scan (required for scan)")
     parser.add_argument('--clean-dir', type=str, help="Directory containing clean files for training")
     parser.add_argument('--malware-dir', type=str, help="Directory containing malware files for training")
-    parser.add_argument('--max-files', type=int, default=1000, help="Maximum number of files to process during training or scanning")
+    parser.add_argument('--max-files', type=int, default=1000,
+                        help="Maximum number of files to process during training or scanning")
     parser.add_argument('--min-confidence', type=float, default=0.9, help="Minimum confidence threshold for matches")
 
     # Parse arguments
@@ -1501,15 +1517,6 @@ def main():
 
         clean_strings = set()  # To store unique strings from clean files
         malware_strings = set()  # To store unique strings from malware files
-
-        # Helper function to calculate MD5
-        def calculate_md5(file_path: str) -> Optional[str]:
-            try:
-                with open(file_path, 'rb') as f:
-                    return hashlib.md5(f.read()).hexdigest()
-            except Exception as e:
-                logging.error(f"Error calculating MD5 for {file_path}: {str(e)}")
-                return None
 
         # Extract strings from clean files
         for file_path in tqdm(clean_files, desc="Extracting clean strings", unit="file"):
@@ -1628,6 +1635,7 @@ def main():
             json.dump(training_data, f, indent=4)
 
         logging.info(f"Training data saved to {training_data_path}.")
+
 
 if __name__ == "__main__":
     main()
