@@ -219,8 +219,13 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 print(f"cryptography.hazmat.primitives.ciphers, Cipher, algorithms, modes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from debloat import debloat_pe
-print(f"debloat.debloat_pe module loaded in {time.time() - start_time:.6f} seconds")
+import debloat.processor
+from debloat.processor import RESULT_CODES
+print(f"debloat modules loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from pathlib import Path
+print(f"pathlib.Path module loaded in {time.time() - start_time:.6f} seconds")
 
 # Calculate and print total time
 total_end_time = time.time()
@@ -256,6 +261,7 @@ general_extracted_dir = os.path.join(script_dir, "general_extracted")
 processed_dir = os.path.join(script_dir, "processed")
 detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
 memory_dir = os.path.join(script_dir, "memory")
+debloat_dir = os.path.join(script_dir, "debloat")
 detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
 malicious_file_names = os.path.join(script_dir, "machinelearning", "malicious_file_names.json")
@@ -345,6 +351,7 @@ os.makedirs(zip_extracted_dir, exist_ok=True)
 os.makedirs(tar_extracted_dir, exist_ok=True)
 os.makedirs(seven_zip_extracted_dir, exist_ok=True)
 os.makedirs(general_extracted_dir, exist_ok=True)
+os.makedirs(debloat_dir, exist_ok=True)
 
 # Counter for ransomware detection
 ransomware_detection_count = 0 
@@ -499,6 +506,58 @@ QFileDialog {
     color: #e0e0e0;
 }
 """
+
+def get_unique_output_path(output_dir: Path, base_name: str, suffix: int = 1) -> Path:
+    """
+    Generate a unique file path by appending a suffix (e.g., _1, _2) if the file already exists.
+    """
+    new_path = output_dir / f"{base_name.stem}_{suffix}{base_name.suffix}"
+
+    while new_path.exists():  # If the file exists, increment the suffix
+        suffix += 1
+        new_path = output_dir / f"{base_name.stem}_{suffix}{base_name.suffix}"
+
+    return new_path
+
+def debloat_pe_file(file_path, flag_debloat):
+    try:
+        if not flag_debloat:
+            logging.info(f"Debloating PE file {file_path} for faster scanning.")
+
+            # Read the PE file into memory
+            with open(file_path, "rb") as bloated_file:
+                pe_data = bloated_file.read()
+
+            # Create the PE object
+            pe = pefile.PE(data=pe_data, fast_load=True)
+
+            # Set output directory, use the current file's parent if not provided
+            if not debloat_dir:
+                debloat_dir = file_path.parent
+
+            # Generate unique output path if necessary
+            out_path = get_unique_output_path(debloat_dir, file_path)
+
+            # Use debloat.processor.process_pe to debloat the file
+            result_code = debloat.processor.process_pe(
+                pe,
+                output_path=str(out_path),  # Correct argument name: output_path
+                log_message=print  # Log via print or a logger if preferred
+            )
+
+            # Check the result
+            if result_code == 0:
+                logging.info(f"Debloated file saved at: {out_path}")
+                return out_path  # Return the optimized file path
+            else:
+                logging.warning(f"Debloating failed for {file_path}, result code: {RESULT_CODES.get(result_code)}")
+                return None
+    except ImportError as ex:
+        logging.error(f"Debloat library is not installed. Install it with pip install debloat: {ex}")
+    except Exception as ex:
+        logging.error(f"Error during debloating of {file_path}: {ex}")
+
+    return None
 
 def is_hex_data(data_content):
     """Check if the given binary data can be valid hex-encoded data."""
@@ -3063,7 +3122,7 @@ existing_projects = []
 # List of already scanned files and their modification times
 scanned_files = []
 file_mod_times = {}
-directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, nuitka_source_code_dir]
+directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, nuitka_source_code_dir, memory_dir, debloated_dir]
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
@@ -3880,6 +3939,8 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: This is the main file.")
         elif file_path.startswith(memory_dir):
             logging.info(f"{file_path}: It's a dynamic analysis memory dump file.")
+        elif file_path.startswith(debloat_dir):
+            logging.info(f"{file_path}: It's a debloated file dir.")
         elif file_path.startswith(python_source_code_dir):
             logging.info(f"{file_path}: It's a PyInstaller reversed-engineered Python source code directory.")
         elif file_path.startswith(nuitka_source_code_dir):
