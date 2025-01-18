@@ -1587,7 +1587,7 @@ def main():
             signature = {
                 "file_name": os.path.basename(file_path),
                 "file_path": os.path.abspath(file_path),
-                "md5": features['file_info']['md5'],
+                "md5": calculate_md5(file_path),
                 **features,
                 "label": label,
                 "classification": classification,
