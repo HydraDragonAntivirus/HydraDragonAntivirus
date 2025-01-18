@@ -11,7 +11,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 
 ## Download Machine Learning Malware And Benign Database
 - **Malware Database:** [Download Link](https://drive.google.com/file/d/1QwdxdwX_nH-oF-5hVTkbTuFkrwUfR0-h)
-- **Benign Database:** [Download Link](https://drive.google.com/file/d/1ynUPnLLm3O6QrlCpDz7A0h1QqjIK3Icc)
+- **Benign Database:** [Download Link](https://drive.google.com/file/d/1JXcTVB205tJXqNmFWmnAiy1br_hn19Rj)
 - **Note:** Only contains PE files.
 - **Password:** infected
 
