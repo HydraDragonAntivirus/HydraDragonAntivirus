@@ -32,3 +32,4 @@ porcupine.ndb
 /coverage
 __pycache__/
 /log
+/venv
