@@ -13,6 +13,8 @@ log_directory = os.path.join(script_dir, "log")
 if not os.path.exists(log_directory):
     os.makedirs(log_directory)
 
+# Separate log files for different purposes
+console_log_file = os.path.join(log_directory, "antivirusconsole.log")
 application_log_file = os.path.join(log_directory, "antivirus.log")
 
 # Configure logging for application log
@@ -22,10 +24,11 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
 )
 
-# Set the default encoding to UTF-8 for standard output and input, with error handling set to 'ignore'
-sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-8', errors='ignore')
-sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-8', errors='ignore')
-sys.stdin = io.TextIOWrapper(sys.stdin.detach(), encoding='utf-8', errors='ignore')
+# Redirect stdout to console log
+sys.stdout = open(console_log_file, "w", encoding="utf-8", errors="ignore")
+
+# Redirect stderr to console log
+sys.stderr = open(console_log_file, "w", encoding="utf-8", errors="ignore")
 
 # Logging for application initialization
 logging.info("Application started at %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))

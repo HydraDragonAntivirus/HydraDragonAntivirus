@@ -109,9 +109,15 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 
 - If you are testing a rootkit, please enable "bcdedit testsigning on" to allow the rootkit to run on your machine for analysis.
 
-**Note 14:**
+## Tips
+
+**Tip 1:**
 
 - Don't use suspicious VM names on your machine. (victim, etc.)
+
+**Tip 2:**.
+
+- Use VSCode, VSCodium or another editor to see live changes to .log files
 
 ## Internet Access In Sandboxie
 - HIPS detection shouldn't work if you don't open the Internet in Sandboxie. To enable it go to: Sandbox -> DefaultBox -> Sandbox Settings -> Restrictions -> Internet Access -> Click "BLock All Programs" then click "Allow All Programs" then save it and you're done!.  https://sandboxie-plus.com/sandboxie/restrictionssettings/
