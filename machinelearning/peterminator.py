@@ -1505,137 +1505,102 @@ def main():
             sys.exit(1)
 
         pe_analyzer = PEAnalyzer()
-        clean_files = [os.path.join(args.clean_dir, f) for f in os.listdir(args.clean_dir) if
-                       os.path.isfile(os.path.join(args.clean_dir, f))][:args.max_files]
-        malware_files = [os.path.join(args.malware_dir, f) for f in os.listdir(args.malware_dir) if
-                         os.path.isfile(os.path.join(args.malware_dir, f))][:args.max_files]
+        clean_files = [
+                          os.path.join(args.clean_dir, f)
+                          for f in os.listdir(args.clean_dir)
+                          if os.path.isfile(os.path.join(args.clean_dir, f))
+                      ][:args.max_files]
+
+        malware_files = [
+                            os.path.join(args.malware_dir, f)
+                            for f in os.listdir(args.malware_dir)
+                            if os.path.isfile(os.path.join(args.malware_dir, f))
+                        ][:args.max_files]
 
         logging.info(f"Extracting features from {len(clean_files)} clean files and {len(malware_files)} malware files.")
 
-        # Initialize sets for MD5 duplicate detection
-        md5_hashes = set()
+        # Initialize data structures
+        md5_hashes = set()  # For duplicate detection
+        features_cache = {}  # Cache features to avoid multiple analyses
+        clean_strings = set()  # Unique strings from clean files
+        malware_strings = set()  # Unique strings from malware files
 
-        clean_strings = set()  # To store unique strings from clean files
-        malware_strings = set()  # To store unique strings from malware files
-
-        # Extract strings from clean files
-        for file_path in tqdm(clean_files, desc="Extracting clean strings", unit="file"):
-            # Check for duplicate using MD5 hash
-            file_md5 = calculate_md5(file_path)
-            if file_md5 in md5_hashes:
-                logging.info(f"Duplicate file detected and skipped: {file_path}")
-                continue
-            md5_hashes.add(file_md5)
-
-            features = pe_analyzer.analyze_pe(file_path)
-            if features:
-                # Add the MD5 hash to the file details
-                features['file_info']['md5'] = file_md5
-
-                extracted_strings = features.get("strings", [])
-                meaningful_strings = {
-                    string["value"]
-                    for string in extracted_strings
-                    if len(string["value"]) >= 4  # Ensure the string has at least 4 characters
-                       and filter_meaningful_words(word_tokenize(string["value"]))  # Apply NLTK filtering
-                }
-                clean_strings.update(meaningful_strings)
-
-        # Extract strings from malware files
-        for file_path in tqdm(malware_files, desc="Extracting malware strings", unit="file"):
-            # Check for duplicate using MD5 hash
-            file_md5 = calculate_md5(file_path)
-            if file_md5 in md5_hashes:
-                logging.info(f"Duplicate file detected and skipped: {file_path}")
-                continue
-            md5_hashes.add(file_md5)
-
-            features = pe_analyzer.analyze_pe(file_path)
-            if features:
-                # Add the MD5 hash to the file details
-                features['file_info']['md5'] = file_md5
-
-                extracted_strings = features.get("strings", [])
-                meaningful_strings = {
-                    string["value"]
-                    for string in extracted_strings
-                    if len(string["value"]) >= 4  # Ensure the string has at least 4 characters
-                       and filter_meaningful_words(word_tokenize(string["value"]))  # Apply NLTK filtering
-                }
-                malware_strings.update(meaningful_strings)
-
-        # Compare clean and malware strings, removing overlap
-        overlapping_strings = clean_strings.intersection(malware_strings)
-        clean_strings -= overlapping_strings  # Remove overlapping strings from clean set
-        malware_strings -= overlapping_strings  # Remove overlapping strings from malware set
-
-        # Store training data while ensuring the proper string classification
-        training_data = []
-        logging.info(f"Feature extraction complete. Total training samples: {len(training_data)}")
-        processed_files = set()  # Track processed files to avoid duplicates
-
-        # Deduplicate clean and malware files
-        unique_clean_files = set(clean_files)
-        unique_malware_files = set(malware_files)
-
-        # Ensure clean_strings and malware_strings are disjoint and deduplicated
-        clean_strings = set(clean_strings) - set(malware_strings)
-        malware_strings = set(malware_strings) - set(clean_strings)
-
-        # Process each file exactly once
-        for file_path in tqdm(unique_clean_files.union(unique_malware_files), desc="Constructing training samples",
-                              unit="file"):
-            # Skip duplicates
-            normalized_path = os.path.abspath(file_path)
-            if normalized_path in processed_files:
-                continue
-            processed_files.add(normalized_path)
-
-            features = pe_analyzer.analyze_pe(file_path)
-            if features:
-                # Determine classification: clean or malware
-                if file_path in unique_clean_files:
-                    classification = "clean"
-                    label = 0
-                    strings_to_add = clean_strings
-                elif file_path in unique_malware_files:
-                    classification = "malware"
-                    label = 1
-                    strings_to_add = malware_strings
-                else:
+        # Process clean and malware files
+        for file_set, string_set, description in [
+            (clean_files, clean_strings, "clean strings"),
+            (malware_files, malware_strings, "malware strings")
+        ]:
+            for file_path in tqdm(file_set, desc=f"Processing {description}", unit="file"):
+                # Calculate and check MD5 for duplicates
+                file_md5 = calculate_md5(file_path)
+                if file_md5 in md5_hashes:
+                    logging.info(f"Duplicate file detected and skipped: {file_path}")
                     continue
+                md5_hashes.add(file_md5)
 
-                # Extract meaningful strings, avoiding duplicates
+                # Analyze the file and cache its features
+                features = pe_analyzer.analyze_pe(file_path)
+                if not features:
+                    logging.warning(f"Failed to extract features for file: {file_path}")
+                    continue
+                features_cache[file_path] = features  # Cache features for later use
+
+                # Extract meaningful strings
                 extracted_strings = features.get("strings", [])
-                meaningful_strings = list({
-                                              string["value"]: string
-                                              for string in extracted_strings
-                                              if string["value"] in strings_to_add
-                                                 and len(string["value"]) >= 4
-                                                 and filter_meaningful_words(word_tokenize(string["value"]))
-                                          }.values())
-
-                # Construct the signature
-                signature = {
-                    "file_name": os.path.basename(file_path),
-                    "file_path": normalized_path,
-                    "md5": calculate_md5(file_path),  # Add MD5 here too for final details
-                    **features,
-                    "label": label,
-                    "classification": classification,
+                meaningful_strings = {
+                    string["value"]
+                    for string in extracted_strings
+                    if len(string["value"]) >= 4 and filter_meaningful_words(word_tokenize(string["value"]))
                 }
+                string_set.update(meaningful_strings)
 
-                # Avoid duplicate signatures in training_data
-                if not any(sig["file_path"] == signature["file_path"] for sig in training_data):
-                    training_data.append(signature)
+        # Remove overlapping strings between clean and malware
+        overlapping_strings = clean_strings & malware_strings
+        clean_strings -= overlapping_strings
+        malware_strings -= overlapping_strings
 
-        # Save training data to JSON file
+        # Prepare training data
+        training_data = []
+        logging.info("Constructing training data...")
+        for file_path, features in tqdm(features_cache.items(), desc="Constructing training samples", unit="file"):
+            # Determine classification
+            if file_path in clean_files:
+                classification = "clean"
+                label = 0
+                strings_to_add = clean_strings
+            elif file_path in malware_files:
+                classification = "malware"
+                label = 1
+                strings_to_add = malware_strings
+            else:
+                continue
+
+            # Filter strings for the current classification
+            extracted_strings = features.get("strings", [])
+            meaningful_strings = list({
+                                          string["value"]: string
+                                          for string in extracted_strings
+                                          if string["value"] in strings_to_add
+                                      }.values())
+
+            # Construct the training entry
+            signature = {
+                "file_name": os.path.basename(file_path),
+                "file_path": os.path.abspath(file_path),
+                "md5": features['file_info']['md5'],
+                **features,
+                "label": label,
+                "classification": classification,
+            }
+
+            training_data.append(signature)
+
+        # Save training data to a JSON file
         training_data_path = "training_data.json"
         with open(training_data_path, "w") as f:
             json.dump(training_data, f, indent=4)
 
         logging.info(f"Training data saved to {training_data_path}.")
-
 
 if __name__ == "__main__":
     main()
