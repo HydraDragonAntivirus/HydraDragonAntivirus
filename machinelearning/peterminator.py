@@ -13,6 +13,7 @@ import nltk
 from difflib import SequenceMatcher
 import struct
 import ipaddress
+import hashlib
 
 script_dir = os.getcwd()
 
@@ -105,6 +106,13 @@ class PEAnalyzer:
             return list(obj)  # Convert sets to lists for JSON serialization
         return obj
 
+    def _calculate_md5(self, file_path: str) -> str:
+        """Calculate MD5 hash of file."""
+        hasher = hashlib.md5()
+        with open(file_path, 'rb') as f:
+            hasher.update(f.read())
+        return hasher.hexdigest()
+
     def _calculate_entropy(self, data: list) -> float:
         """Calculate Shannon entropy of data (provided as a list of integers)."""
         if not data:
@@ -135,6 +143,7 @@ class PEAnalyzer:
                     'path': file_path,
                     'name': os.path.basename(file_path),
                     'size': os.path.getsize(file_path),
+                    'md5': self._calculate_md5(file_path),
                 },
                 'headers': {
                     'optional_header': {

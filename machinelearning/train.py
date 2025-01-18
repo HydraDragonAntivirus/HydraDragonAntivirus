@@ -11,6 +11,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import argparse
+from tqdm import tqdm
 
 logging.basicConfig(
     level=logging.INFO,
@@ -207,39 +208,47 @@ class DataProcessor:
         dest_dir.mkdir(exist_ok=True)
         shutil.move(str(file_path), str(dest_dir / file_path.name))
 
+    # Update the process_files method to include a progress bar
     def process_files(self, directory: str, is_malicious: bool = False) -> Tuple[List[Dict[str, Any]], List[str]]:
         """Process all files in directory with duplicate detection."""
         features_list = []
         md5_hashes = set()
         md5_list = []
-        
+
         files = list(Path(directory).rglob('*.vir' if is_malicious else '*'))
-        with ThreadPoolExecutor() as executor:
-            futures = []
-            for rank, file_path in enumerate(files, 1):
-                if file_path.is_file():
-                    file_md5 = self.pe_extractor._calculate_md5(str(file_path))
-                    if file_md5 in md5_hashes:
-                        logging.info(f"Duplicate file detected: {file_path}")
-                        self._move_duplicate_file(file_path, is_malicious)
-                        continue
-                    
-                    md5_hashes.add(file_md5)
-                    md5_list.append(file_md5)
-                    futures.append(executor.submit(self._process_file, file_path, rank, is_malicious))
-            
-            for future in futures:
-                features = future.result()
-                if features:
-                    features_list.append(features)
-        
+
+        # Add a progress bar for file processing
+        with tqdm(total=len(files), desc=f"Processing {'malicious' if is_malicious else 'benign'} files") as pbar:
+            with ThreadPoolExecutor() as executor:
+                futures = []
+                for rank, file_path in enumerate(files, 1):
+                    if file_path.is_file():
+                        file_md5 = self.pe_extractor._calculate_md5(str(file_path))
+                        if file_md5 in md5_hashes:
+                            logging.info(f"Duplicate file detected: {file_path}")
+                            self._move_duplicate_file(file_path, is_malicious)
+                            pbar.update(1)  # Update progress bar even for duplicates
+                            continue
+
+                        md5_hashes.add(file_md5)
+                        md5_list.append(file_md5)
+                        futures.append(executor.submit(self._process_file, file_path, rank, is_malicious))
+
+                    pbar.update(1)  # Increment progress bar after queuing file processing
+
+                for future in tqdm(futures, desc="Finalizing file processing", leave=False):
+                    features = future.result()
+                    if features:
+                        features_list.append(features)
+
         return features_list, md5_list
 
+    # Update the process_dataset method to include the progress bar for clarity
     def process_dataset(self):
         """Process entire dataset and save results."""
         logging.info("Processing malicious files...")
         malicious_features, malicious_md5s = self.process_files(self.malicious_dir, is_malicious=True)
-        
+
         logging.info("Processing benign files...")
         benign_features, benign_md5s = self.process_files(self.benign_dir, is_malicious=False)
 
@@ -264,7 +273,7 @@ class DataProcessor:
         # Save separate files for compatibility
         joblib.dump(malicious_features, self.output_dir / 'malicious_numeric.pkl')
         joblib.dump(benign_features, self.output_dir / 'benign_numeric.pkl')
-        
+
         with open(self.output_dir / 'malicious_file_names.json', 'w') as f:
             json.dump([feat['file_info'] for feat in malicious_features], f, indent=2)
 
