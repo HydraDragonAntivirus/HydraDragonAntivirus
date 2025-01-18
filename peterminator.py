@@ -1178,6 +1178,14 @@ class PESignatureEngine:
 
         logging.debug(f"Starting evaluation of rule: {rule_file_name} for file: {rule_file_name} at {rule_file_path}")
 
+        # Log the rule and feature data to debug
+        logging.debug(f"Rule strings: {rule.get('strings', [])}")
+        logging.debug(f"Feature strings: {features.get('strings', [])}")
+        logging.debug(f"Rule imports: {rule.get('imports', [])}")
+        logging.debug(f"Feature imports: {features.get('imports', [])}")
+        logging.debug(f"Rule sections: {rule.get('sections', [])}")
+        logging.debug(f"Feature sections: {features.get('sections', [])}")
+
         # Construct the result dictionary using rule's file info
         result = {
             "file_name": rule_file_name,  # Use rule's file_name
@@ -1185,10 +1193,12 @@ class PESignatureEngine:
             "strings": [],
             "imports": [],
             "sections": [],
+            "anomalies": [],
             "confidence_scores": {
                 "strings": 0.0,
                 "imports": 0.0,
                 "sections": 0.0,
+                "anomalies": 0.0
             },
             "label": None,
             "classification": None,
@@ -1211,6 +1221,8 @@ class PESignatureEngine:
                     for feature_item in feature_items:
                         feature_value = feature_item.get('value', '')
                         similarity = calculate_string_similarity(pattern_value, feature_value)
+
+                        logging.debug(f"Matching '{pattern_value}' with '{feature_value}' (Similarity: {similarity})")
 
                         if similarity == 1.0:
                             exact_matches.append({
@@ -1239,7 +1251,7 @@ class PESignatureEngine:
 
                 return exact_matches, near_matches, confidence
 
-            # Process strings
+            # Process strings (from rule and features)
             rule_strings = rule.get('strings', [])
             feature_strings = features.get('strings', [])
 
@@ -1247,7 +1259,7 @@ class PESignatureEngine:
             result['strings'] = exact_strings + near_strings
             result['confidence_scores']['strings'] = string_confidence
 
-            # Process imports
+            # Process imports (from rule and features)
             rule_imports = rule.get('imports', [])
             feature_imports = features.get('imports', [])
 
@@ -1272,7 +1284,7 @@ class PESignatureEngine:
             result['imports'] = exact_imports + near_imports
             result['confidence_scores']['imports'] = import_confidence
 
-            # Process sections
+            # Process sections (from rule and features)
             rule_sections = rule.get('sections', [])
             feature_sections = features.get('sections', {}).items()
 
@@ -1290,12 +1302,27 @@ class PESignatureEngine:
             result['sections'] = exact_sections + near_sections
             result['confidence_scores']['sections'] = section_confidence
 
-            # Calculate overall confidence
+            # Detect anomalies based on suspicious section permissions
+            anomalies = []
+            for section_name, section_data in features.get('sections', {}).items():
+                if 'MEM_EXECUTE' in section_data.get('flags', {}) and 'MEM_READ' in section_data.get('flags', {}):
+                    if section_data['entropy'] > 4.5:
+                        anomalies.append({
+                            "type": "section_permissions",
+                            "description": f"Section {section_name} has suspicious permissions",
+                            "severity": "high"
+                        })
+
+            result['anomalies'] = anomalies
+            result['confidence_scores']['anomalies'] = len(anomalies) * 0.2  # Weight anomalies
+
+            # Calculate overall confidence based on all feature matches
             overall_confidence = round(
                 (
-                    0.33 * result['confidence_scores']['strings'] +
-                    0.33 * result['confidence_scores']['imports'] +
-                    0.34 * result['confidence_scores']['sections']
+                        0.25 * result['confidence_scores']['strings'] +
+                        0.25 * result['confidence_scores']['imports'] +
+                        0.3 * result['confidence_scores']['sections'] +
+                        0.2 * result['confidence_scores']['anomalies']
                 ), 3
             )
 
