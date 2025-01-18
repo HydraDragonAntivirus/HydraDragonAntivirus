@@ -106,13 +106,6 @@ class PEAnalyzer:
             return list(obj)  # Convert sets to lists for JSON serialization
         return obj
 
-    def _calculate_md5(self, file_path: str) -> str:
-        """Calculate MD5 hash of file."""
-        hasher = hashlib.md5()
-        with open(file_path, 'rb') as f:
-            hasher.update(f.read())
-        return hasher.hexdigest()
-
     def _calculate_entropy(self, data: list) -> float:
         """Calculate Shannon entropy of data (provided as a list of integers)."""
         if not data:
@@ -143,7 +136,6 @@ class PEAnalyzer:
                     'path': file_path,
                     'name': os.path.basename(file_path),
                     'size': os.path.getsize(file_path),
-                    'md5': self._calculate_md5(file_path),
                 },
                 'headers': {
                     'optional_header': {
@@ -1504,13 +1496,35 @@ def main():
 
         logging.info(f"Extracting features from {len(clean_files)} clean files and {len(malware_files)} malware files.")
 
+        # Initialize sets for MD5 duplicate detection
+        md5_hashes = set()
+
         clean_strings = set()  # To store unique strings from clean files
         malware_strings = set()  # To store unique strings from malware files
 
+        # Helper function to calculate MD5
+        def calculate_md5(file_path: str) -> Optional[str]:
+            try:
+                with open(file_path, 'rb') as f:
+                    return hashlib.md5(f.read()).hexdigest()
+            except Exception as e:
+                logging.error(f"Error calculating MD5 for {file_path}: {str(e)}")
+                return None
+
         # Extract strings from clean files
         for file_path in tqdm(clean_files, desc="Extracting clean strings", unit="file"):
+            # Check for duplicate using MD5 hash
+            file_md5 = calculate_md5(file_path)
+            if file_md5 in md5_hashes:
+                logging.info(f"Duplicate file detected and skipped: {file_path}")
+                continue
+            md5_hashes.add(file_md5)
+
             features = pe_analyzer.analyze_pe(file_path)
             if features:
+                # Add the MD5 hash to the file details
+                features['file_info']['md5'] = file_md5
+
                 extracted_strings = features.get("strings", [])
                 meaningful_strings = {
                     string["value"]
@@ -1522,8 +1536,18 @@ def main():
 
         # Extract strings from malware files
         for file_path in tqdm(malware_files, desc="Extracting malware strings", unit="file"):
+            # Check for duplicate using MD5 hash
+            file_md5 = calculate_md5(file_path)
+            if file_md5 in md5_hashes:
+                logging.info(f"Duplicate file detected and skipped: {file_path}")
+                continue
+            md5_hashes.add(file_md5)
+
             features = pe_analyzer.analyze_pe(file_path)
             if features:
+                # Add the MD5 hash to the file details
+                features['file_info']['md5'] = file_md5
+
                 extracted_strings = features.get("strings", [])
                 meaningful_strings = {
                     string["value"]
@@ -1554,10 +1578,11 @@ def main():
         # Process each file exactly once
         for file_path in tqdm(unique_clean_files.union(unique_malware_files), desc="Constructing training samples",
                               unit="file"):
-            normalized_path = os.path.abspath(file_path)  # Normalize file paths
+            # Skip duplicates
+            normalized_path = os.path.abspath(file_path)
             if normalized_path in processed_files:
-                continue  # Skip already processed files
-            processed_files.add(normalized_path)  # Mark as processed
+                continue
+            processed_files.add(normalized_path)
 
             features = pe_analyzer.analyze_pe(file_path)
             if features:
@@ -1571,7 +1596,7 @@ def main():
                     label = 1
                     strings_to_add = malware_strings
                 else:
-                    continue  # Skip files that don't belong to either category
+                    continue
 
                 # Extract meaningful strings, avoiding duplicates
                 extracted_strings = features.get("strings", [])
@@ -1586,7 +1611,8 @@ def main():
                 # Construct the signature
                 signature = {
                     "file_name": os.path.basename(file_path),
-                    "file_path": normalized_path,  # Use normalized path for deduplication
+                    "file_path": normalized_path,
+                    "md5": calculate_md5(file_path),  # Add MD5 here too for final details
                     **features,
                     "label": label,
                     "classification": classification,
