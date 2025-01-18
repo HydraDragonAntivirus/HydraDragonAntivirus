@@ -1172,14 +1172,22 @@ class PESignatureEngine:
             logging.error(f"Invalid rule format: {type(rule)}")
             return {}
 
-        file_name = features.get('file_info', {}).get('name', 'unknown_file')
-        file_path = features.get('file_info', {}).get('path', 'unknown_path')
-        logging.debug(f"Starting evaluation of rule for file: {file_name} at {file_path}")
+        # Extract rule details
+        rule_file_name = rule.get('file_name', 'unknown_rule_file')
+        rule_file_path = rule.get('file_path', 'unknown_rule_path')
+
+        # Extract feature file details
+        feature_file_name = features.get('file_info', {}).get('name', 'unknown_file')
+        feature_file_path = features.get('file_info', {}).get('path', 'unknown_path')
+
+        logging.debug(f"Starting evaluation of rule: {rule_file_name} for file: {feature_file_name} at {feature_file_path}")
 
         # Construct the result dictionary
         result = {
-            "file_name": file_name,
-            "file_path": file_path,
+            "rule_file_name": rule_file_name,
+            "rule_file_path": rule_file_path,
+            "file_name": feature_file_name,
+            "file_path": feature_file_path,
             "strings": [],
             "imports": [],
             "sections": [],
@@ -1301,7 +1309,7 @@ class PESignatureEngine:
             return result
 
         except Exception as e:
-            logging.error(f"Error evaluating rule for file {file_name}: {str(e)}")
+            logging.error(f"Error evaluating rule {rule_file_name} for file {feature_file_name}: {str(e)}")
             return result
 
     def load_rules(self, rules_file: str) -> None:
