@@ -540,20 +540,24 @@ def debloat_pe_file(file_path):
         # Create the PE object
         pe = pefile.PE(data=pe_data, fast_load=True)
 
+        # Set output path (ensure debloat_dir is properly set, assuming it's defined elsewhere)
+        out_path = get_unique_output_path(debloat_dir, file_path)  # out_path should be a directory
+
         # Use debloat.processor.process_pe to debloat the file, passing last_ditch_processing
-        result_code = debloat.processor.process_pe(
+        debloat.processor.process_pe(
             pe,
             log_message=print,  # Log via print or a logger if preferred
             last_ditch_processing=last_ditch_processing,  # Pass last_ditch_processing
-            out_path=debloat_dir,
+            out_path=out_path,  # out_path is now a directory
         )
 
-        # Check the result
-        if result_code == 0:
-            logging.info(f"Debloated file saved at: {out_path}")
-            return out_path  # Return the optimized file path
+        # Check if the debloated file exists in the output directory
+        output_files = os.listdir(out_path)
+        if output_files:
+            logging.info(f"Debloated file(s) saved in: {out_path}")
+            return out_path  # Return the directory where the optimized files are saved
         else:
-            logging.warning(f"Debloating failed for {file_path}, result code: {RESULT_CODES.get(result_code)}")
+            logging.warning(f"Debloating failed for {file_path}, no files found in output directory {out_path}.")
             return None
     except ImportError as ex:
         logging.error(f"Debloat library is not installed. Install it with pip install debloat: {ex}")
@@ -2526,6 +2530,10 @@ def scan_7z_file(file_path):
                         f"flagged as {virus_name}"
                     )
                     notify_rlo_warning(file_path, "7z", virus_name)
+
+                if archive.is_encrypted(entry):
+                    logging.info(f"Skipping encrypted file: {filename}")
+                    continue
 
                 # Extract the file
                 extracted_file_path = os.path.join(seven_zip_extracted_dir, filename)
