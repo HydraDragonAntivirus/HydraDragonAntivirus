@@ -1180,106 +1180,112 @@ class PESignatureEngine:
             logging.error(f"Invalid features format: {type(features)}")
             return {}
 
-        # Initialize matches dictionary
-        matches = {
-            'strings': [],
-            'imports': [],
-            'near_matches': {
-                'strings': [],
-                'imports': [],
+        # Construct the signature
+        signature = {
+            "rule_name": rule_name,
+            "strings": features.get('strings', []),
+            "imports": features.get('imports', []),
+            "confidence_scores": {
+                "strings": 0.0,
+                "imports": 0.0,
             },
-            'confidence_scores': {
-                'strings': 0.0,
-                'imports': 0.0,
-            },
+            "label": None,
+            "classification": None,
         }
 
         try:
-            # Process strings
-            rule_strings = rule.get('strings', [])
-            feature_strings = features.get('strings', [])
-            total_strings = len(rule_strings)
+            def process_matches(rule_items, feature_items, category):
+                """Helper function to process exact and near matches."""
+                total_items = len(rule_items)
+                exact_matches = []
+                near_matches = []
+                similarity_sum = 0.0
 
-            if total_strings > 0:
-                for string_def in rule_strings:
-                    pattern_value = string_def.get('value', '')
+                for rule_item in rule_items:
+                    pattern_value = rule_item.get('value', '')
                     best_match = None
                     best_similarity = 0.0
 
-                    for feature_string in feature_strings:
-                        string_value = feature_string.get('value', '')
-                        similarity = calculate_string_similarity(pattern_value, string_value)
+                    for feature_item in feature_items:
+                        feature_value = feature_item.get('value', '')
+                        similarity = calculate_string_similarity(pattern_value, feature_value)
 
                         if similarity == 1.0:
-                            matches['strings'].append({
+                            exact_matches.append({
                                 'pattern': pattern_value,
-                                'matched': string_value,
-                                'offset': feature_string.get('offset'),
+                                'matched': feature_value,
+                                'offset': feature_item.get('offset'),
                             })
                             break
                         elif similarity >= self.similarity_threshold and similarity > best_similarity:
                             best_match = {
                                 'pattern': pattern_value,
-                                'matched': string_value,
-                                'offset': feature_string.get('offset'),
+                                'matched': feature_value,
+                                'offset': feature_item.get('offset'),
                                 'similarity': similarity,
                             }
                             best_similarity = similarity
 
                     if best_match:
-                        matches['near_matches']['strings'].append(best_match)
+                        near_matches.append(best_match)
+                        similarity_sum += best_similarity
 
-                matches['confidence_scores']['strings'] = (
-                                                                  len(matches['strings']) +
-                                                                  sum(match['similarity'] for match in
-                                                                      matches['near_matches']['strings'])
-                                                          ) / total_strings
+                confidence = (
+                    (len(exact_matches) + similarity_sum) / total_items
+                    if total_items > 0 else 0.0
+                )
+
+                return exact_matches, near_matches, confidence
+
+            # Process strings
+            rule_strings = rule.get('strings', [])
+            feature_strings = features.get('strings', [])
+
+            exact_strings, near_strings, string_confidence = process_matches(rule_strings, feature_strings, 'strings')
+            signature['strings'] = exact_strings + near_strings
+            signature['confidence_scores']['strings'] = string_confidence
 
             # Process imports
             rule_imports = rule.get('imports', [])
             feature_imports = features.get('imports', [])
-            total_imports = sum(len(imp.get('imports', [])) for imp in rule_imports)
 
-            if total_imports > 0:
-                for import_def in rule_imports:
-                    dll_name = import_def.get('dll_name', '').lower()
-                    import_list = import_def.get('imports', [])
-
-                    for feature_import in feature_imports:
-                        if feature_import.get('dll_name', '').lower() == dll_name:
-                            for required_import in import_list:
-                                req_name = required_import.get('name', '')
-                                for feature_imp in feature_import.get('imports', []):
-                                    feat_name = feature_imp.get('name', '')
-                                    similarity = calculate_string_similarity(req_name, feat_name)
-
-                                    if similarity == 1.0:
-                                        matches['imports'].append({
-                                            'dll': dll_name,
-                                            'import': req_name,
-                                            'address': feature_imp.get('address'),
-                                        })
-                                    elif similarity >= self.similarity_threshold:
-                                        matches['near_matches']['imports'].append({
-                                            'dll': dll_name,
-                                            'required': req_name,
-                                            'found': feat_name,
-                                            'similarity': similarity,
-                                        })
-
-                matches['confidence_scores']['imports'] = len(matches['imports']) / total_imports
-
-            # Calculate overall confidence
-            matches['overall_confidence'] = round(
-                0.5 * matches['confidence_scores']['strings'] +
-                0.5 * matches['confidence_scores']['imports'], 3
+            exact_imports, near_imports, import_confidence = process_matches(
+                [
+                    {
+                        'value': f"{imp.get('dll_name', '').lower()}::{imp_name.get('name', '')}",
+                        'dll_name': imp.get('dll_name', '').lower(),
+                        'name': imp_name.get('name', '')
+                    }
+                    for imp in rule_imports
+                    for imp_name in imp.get('imports', [])
+                ],
+                [
+                    {
+                        'value': f"{feat_imp.get('dll_name', '').lower()}::{feat_name.get('name', '')}",
+                        'dll_name': feat_imp.get('dll_name', '').lower(),
+                        'name': feat_name.get('name', ''),
+                        'offset': feat_name.get('address')
+                    }
+                    for feat_imp in feature_imports
+                    for feat_name in feat_imp.get('imports', [])
+                ],
+                'imports'
             )
 
-            return matches
+            signature['imports'] = exact_imports + near_imports
+            signature['confidence_scores']['imports'] = import_confidence
+
+            # Calculate overall confidence
+            signature['confidence_scores']['overall'] = round(
+                0.5 * signature['confidence_scores']['strings'] +
+                0.5 * signature['confidence_scores']['imports'], 3
+            )
+
+            return signature
 
         except Exception as e:
             logging.error(f"Error evaluating rule {rule_name}: {str(e)}")
-            return {}
+            return signature
 
     def load_rules(self, rules_file: str) -> None:
         """Load rules from a JSON file."""
@@ -1380,27 +1386,27 @@ def scan_action(args):
     # Process each file
     for file_path in tqdm(all_files, desc="Scanning files", unit="file"):
         files_scanned += 1
-        matches, features, confidence = signature_engine.scan_file(file_path)
+        matches, features, overall_confidence = signature_engine.scan_file(file_path)
 
         if matches:
             # Classification based on confidence score
-            classification = "malware" if confidence >= args.min_confidence else "clean"
+            classification = "malware" if overall_confidence >= args.min_confidence else "clean"
             if classification == "malware":
                 files_malware += 1
                 logging.warning(
                     f"\nFile {file_path} classified as {classification} "
-                    f"Confidence: {confidence:.4f}"
+                    f"Confidence: {overall_confidence:.4f}"
                 )
             else:
                 files_clean += 1
                 logging.info(
                     f"\nFile {file_path} classified as {classification} "
-                    f"Confidence: {confidence:.4f}"
+                    f"Confidence: {overall_confidence:.4f}"
                 )
         else:
             classification = "unknown"
             files_unknown += 1
-            logging.info(f"\nFile {file_path} classified as {classification} Confidence: {confidence:.4f}")
+            logging.info(f"\nFile {file_path} classified as {classification} Confidence: {overall_confidence:.4f}")
 
     # Summary logging
     logging.info("Scan Summary:")
