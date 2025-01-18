@@ -215,6 +215,10 @@ start_time = time.time()
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 print(f"cryptography.hazmat.primitives.ciphers, Cipher, algorithms, modes module loaded in {time.time() - start_time:.6f} seconds")
 
+start_time = time.time()
+from debloat import debloat_pe
+print(f"debloat.debloat_pe module loaded in {time.time() - start_time:.6f} seconds")
+
 # Calculate and print total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
@@ -4422,7 +4426,7 @@ def show_code_with_uncompyle6(file_path, file_name):
         logging.error(f"Error processing python file {file_path}: {ex}")
         return None
 
-def scan_and_warn(file_path, flag=False):
+def scan_and_warn(file_path, flag=False, flag_debloat=False):
     """
     Scans a file for potential issues, starting with attempting to extract it if possible.
 
@@ -4520,6 +4524,21 @@ def scan_and_warn(file_path, flag=False):
             if pe_file:
                 logging.info(f"File {file_path} is identified as a PE file. Performing process memory analysis...")
                 analyze_process_memory(file_path)
+
+                # Use the `debloat` library to optimize PE file for scanning
+                try:
+                    if not flag_debloat:
+                        logging.info(f"Debloating PE file {file_path} for faster scanning.")
+                        optimized_file_path = debloat_pe(file_path)
+                        if optimized_file_path:
+                             logging.info(f"Debloated file saved at: {optimized_file_path}")
+                             scan_and_warn(optimized_file_path, flag_debloat=True)
+                        else:
+                             logging.warning(f"Debloating failed for {file_path}, continuing with the original file.")
+                except ImportError as ex:
+                    logging.error(f"Debloat library is not installed. Install it with `pip install debloat`: {ex}")
+                except Exception as ex:
+                    logging.error(f"Error during debloating of {file_path}: {ex}")
 
             if is_dotnet_file(file_path):
                 dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(file_path,))
