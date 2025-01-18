@@ -906,20 +906,20 @@ class PEAnalyzer:
 
             # Enhanced URL pattern to catch more variants
             url_pattern = re.compile(
-                r'(?:https?:\/\/(?:www\.)?[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(?:\/[^\s]*)?|'
-                r'(?:www\.)[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(?:\/[^\s]*)?)'
+                r'(?:(?:https?|ftp):\/\/)?(?:www\.)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,})(?:\/[^\s]*)?'
+                r'|(?:www\.)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,})(?:\/[^\s]*)?'
             )
 
             # Discord webhook pattern
             discord_pattern = re.compile(
-                r'(?:https?:\/\/)?(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/\d+\/[\w-]+'
+                r'https?:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/\d+\/[\w-]+(?:\?[^\s]*)?'
             )
 
             # Other patterns
             email_pattern = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}')
             ip_pattern = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
             path_pattern = re.compile(r'(?:[a-zA-Z]:\\[^\s<>"|?*]+|/[^\s<>"|?*]+)')
-            registry_pattern = re.compile(r'HKEY_[^\s\\]+\\[^\s]+')
+            registry_pattern = re.compile(r'^(HKEY_LOCAL_MACHINE|HKEY_CURRENT_USER|HKEY_CLASSES_ROOT|HKEY_USERS|HKEY_CURRENT_CONFIG|HKLM|HKCU|HKCR|HKU|HKCC)\\([A-Za-z0-9_]+\\)*[A-Za-z0-9_]+')
             api_pattern = re.compile(
                 r'\b(?:Create|Get|Set|Open|Close|Read|Write|Send|Recv|Load|Free|Alloc|Connect)[A-Z]\w+\b'
             )
@@ -1172,22 +1172,16 @@ class PESignatureEngine:
             logging.error(f"Invalid rule format: {type(rule)}")
             return {}
 
-        # Extract rule details
+        # Extract rule details (file_name and file_path are for the rule)
         rule_file_name = rule.get('file_name', 'unknown_rule_file')
         rule_file_path = rule.get('file_path', 'unknown_rule_path')
 
-        # Extract feature file details
-        feature_file_name = features.get('file_info', {}).get('name', 'unknown_file')
-        feature_file_path = features.get('file_info', {}).get('path', 'unknown_path')
+        logging.debug(f"Starting evaluation of rule: {rule_file_name} for file: {rule_file_name} at {rule_file_path}")
 
-        logging.debug(f"Starting evaluation of rule: {rule_file_name} for file: {feature_file_name} at {feature_file_path}")
-
-        # Construct the result dictionary
+        # Construct the result dictionary using rule's file info
         result = {
-            "rule_file_name": rule_file_name,
-            "rule_file_path": rule_file_path,
-            "file_name": feature_file_name,
-            "file_path": feature_file_path,
+            "file_name": rule_file_name,  # Use rule's file_name
+            "file_path": rule_file_path,  # Use rule's file_path
             "strings": [],
             "imports": [],
             "sections": [],
@@ -1198,6 +1192,7 @@ class PESignatureEngine:
             },
             "label": None,
             "classification": None,
+            "overall_confidence": 0.0
         }
 
         try:
@@ -1309,7 +1304,7 @@ class PESignatureEngine:
             return result
 
         except Exception as e:
-            logging.error(f"Error evaluating rule {rule_file_name} for file {feature_file_name}: {str(e)}")
+            logging.error(f"Error evaluating rule {rule_file_name}: {str(e)}")
             return result
 
     def load_rules(self, rules_file: str) -> None:
