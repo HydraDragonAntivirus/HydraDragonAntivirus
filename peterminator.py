@@ -255,11 +255,8 @@ class PEAnalyzer:
             # Add packer detection
             packer_info = self._detect_packers(pe)
 
-            # Combine the list of strings into one single string for analysis
-            combined_content = ' '.join(base_features.get('strings', []))
-
-            # Call the analyze_string_patterns function with the combined string content
-            string_patterns = self._analyze_string_patterns(combined_content)
+            # Add string detection
+            string_patterns = self.analyze_file(file_path)
 
             # Add imports/exports patterns
             import_patterns = self._analyze_import_patterns(base_features.get('imports', []))
@@ -847,14 +844,51 @@ class PEAnalyzer:
             logging.error(f"Error detecting packers: {e}")
             return {}
 
+    def clean_text(self, input_text: str) -> str:
+        """
+        Remove non-printable ASCII control characters from the input text.
+        
+        Args:
+            input_text: The string to clean.
+        Returns:
+            Cleaned text with control characters removed.
+        """
+        return re.sub(r'[\x00-\x1F\x7F]+', '', input_text)
+
+    def process_file(self, file_path: str) -> Optional[List[str]]:
+        """
+        Process a file and return cleaned lines.
+        
+        Args:
+            file_path: Path to the file to process
+        Returns:
+            List of cleaned lines or None if processing fails
+        """
+        if not os.path.isfile(file_path):
+            logging.warning(f"Path {file_path} is not a valid file.")
+            return None
+
+        try:
+            # Read the full content of the file, handling invalid UTF-8 gracefully
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()
+                if lines:
+                    # Clean the last lines
+                    return [self.clean_text(line.strip()) for line in lines]
+                else:
+                    logging.info(f"File {file_path} is empty.")
+                    return None
+        except Exception as ex:
+            logging.error(f"Error reading file {file_path}: {ex}")
+            return None
+
     def _analyze_string_patterns(self, content: str) -> Dict[str, List[Dict[str, str]]]:
         """
         Analyzes content for various patterns including URLs, emails, IPs, paths,
         commands, registry keys, and API calls.
-
+        
         Args:
             content: String content to analyze
-
         Returns:
             Dictionary containing discovered patterns with their values
         """
@@ -889,19 +923,21 @@ class PEAnalyzer:
                 r'\b(?:Create|Get|Set|Open|Close|Read|Write|Send|Recv|Load|Free|Alloc|Connect)[A-Z]\w+\b'
             )
 
-            # Find all matches in the content
-            urls = url_pattern.finditer(content)
-            discord_urls = discord_pattern.finditer(content)
-            emails = email_pattern.finditer(content)
-            ips = ip_pattern.finditer(content)
-            paths = path_pattern.finditer(content)
-            registry_keys = registry_pattern.finditer(content)
-            api_calls = api_pattern.finditer(content)
+            def is_local_ip(ip):
+                try:
+                    ip_obj = ipaddress.ip_address(ip)
+                    return ip_obj.is_private
+                except ValueError:
+                    return False
 
             # Helper function to add unique findings
             def add_unique_finding(category: str, match: re.Match):
                 value = match.group()
                 start_pos = match.start()
+
+                # Skip local IPs for IP category
+                if category == 'ips' and is_local_ip(value):
+                    return
 
                 # Check if value already exists in the category
                 if not any(item['value'] == value for item in patterns[category]):
@@ -911,25 +947,25 @@ class PEAnalyzer:
                     })
 
             # Process all matches
-            for match in urls:
+            for match in url_pattern.finditer(content):
                 add_unique_finding('urls', match)
 
-            for match in discord_urls:
+            for match in discord_pattern.finditer(content):
                 add_unique_finding('discord_webhooks', match)
 
-            for match in emails:
+            for match in email_pattern.finditer(content):
                 add_unique_finding('emails', match)
 
-            for match in ips:
+            for match in ip_pattern.finditer(content):
                 add_unique_finding('ips', match)
 
-            for match in paths:
+            for match in path_pattern.finditer(content):
                 add_unique_finding('paths', match)
 
-            for match in registry_keys:
+            for match in registry_pattern.finditer(content):
                 add_unique_finding('registry_keys', match)
 
-            for match in api_calls:
+            for match in api_pattern.finditer(content):
                 add_unique_finding('potential_api_calls', match)
 
             return patterns
@@ -937,6 +973,22 @@ class PEAnalyzer:
         except Exception as e:
             logging.error(f"Error analyzing patterns: {e}")
             return {}
+
+    def analyze_file(self, file_path: str) -> Optional[Dict[str, List[Dict[str, str]]]]:
+        """
+        Process and analyze a file for patterns.
+        
+        Args:
+            file_path: Path to the file to analyze
+        Returns:
+            Dictionary of patterns found or None if processing fails
+        """
+        cleaned_lines = self.process_file(file_path)
+        if cleaned_lines:
+            # Join all lines for pattern analysis
+            content = '\n'.join(cleaned_lines)
+            return self._analyze_string_patterns(content)
+        return None
 
     def _analyze_import_patterns(self, imports: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Analyze patterns in imports."""
@@ -1122,21 +1174,26 @@ class PESignatureEngine:
         rule_name = rule.get('name', 'unknown')
         logging.debug(f"Starting evaluation of rule: {rule_name}")
 
-        try:
-            # Initialize matches dictionary
-            matches = {
+        # Ensure features contains the necessary keys
+        if not isinstance(features, dict):
+            logging.error(f"Invalid features format: {type(features)}")
+            return {}
+
+        # Initialize matches dictionary
+        matches = {
+            'strings': [],
+            'imports': [],
+            'near_matches': {
                 'strings': [],
                 'imports': [],
-                'near_matches': {
-                    'strings': [],
-                    'imports': [],
-                },
-                'confidence_scores': {
-                    'strings': 0.0,
-                    'imports': 0.0,
-                },
-            }
+            },
+            'confidence_scores': {
+                'strings': 0.0,
+                'imports': 0.0,
+            },
+        }
 
+        try:
             # Process strings
             rule_strings = rule.get('strings', [])
             feature_strings = features.get('strings', [])
@@ -1172,9 +1229,10 @@ class PESignatureEngine:
                         matches['near_matches']['strings'].append(best_match)
 
                 matches['confidence_scores']['strings'] = (
-                    len(matches['strings']) +
-                    sum(match['similarity'] for match in matches['near_matches']['strings'])
-                ) / total_strings
+                                                                  len(matches['strings']) +
+                                                                  sum(match['similarity'] for match in
+                                                                      matches['near_matches']['strings'])
+                                                          ) / total_strings
 
             # Process imports
             rule_imports = rule.get('imports', [])
@@ -1290,16 +1348,21 @@ def scan_action(args):
     if not args.file or not os.path.exists(args.file):
         logging.error("A valid file path or directory must be specified for the scan action.")
         sys.exit(1)
-    
+
     signature_engine = PESignatureEngine(similarity_threshold=args.min_confidence)
-    
+
     # Load rules if provided
     if args.rules and os.path.exists(args.rules):
         logging.info(f"Loading rules from {args.rules}")
         signature_engine.load_rules(args.rules)
-    
+
+    # Check if any rules are loaded
+    if not signature_engine.compiler.rules:
+        logging.error("No rules loaded. Please provide valid rules.")
+        sys.exit(1)
+
     files_scanned = files_clean = files_malware = files_unknown = 0
-    
+
     # Collect all files to scan
     all_files = []
     if os.path.isdir(args.file):
@@ -1309,15 +1372,15 @@ def scan_action(args):
                 all_files.append(os.path.join(root, file_name))
     else:
         all_files.append(args.file)
-    
+
     # Limit to max-files (1000 by default)
     all_files = all_files[:args.max_files]
-    
+
     # Process each file
     for file_path in tqdm(all_files, desc="Scanning files", unit="file"):
         files_scanned += 1
         matches, features, confidence = signature_engine.scan_file(file_path)
-        
+
         if matches:
             # Classification based on confidence score
             classification = "malware" if confidence >= args.min_confidence else "clean"
@@ -1337,7 +1400,7 @@ def scan_action(args):
             classification = "unknown"
             files_unknown += 1
             logging.info(f"\nFile {file_path} classified as {classification} Confidence: {confidence:.4f}")
-    
+
     # Summary logging
     logging.info("Scan Summary:")
     logging.info(f"  Total files scanned: {files_scanned}")
