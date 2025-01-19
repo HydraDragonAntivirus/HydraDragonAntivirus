@@ -1,2 +1,3 @@
 cython
 cx_freeze
+numpy

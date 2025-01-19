@@ -250,6 +250,8 @@ ghidra_scripts_dir = os.path.join(script_dir, "scripts")
 dotnet_dir = os.path.join(script_dir, "dotnet")
 nuitka_dir = os.path.join(script_dir, "nuitka")
 pyintstaller_dir = os.path.join(script_dir, "pyinstaller")
+meta_llama_dir = os.path.join(script_dir, "meta-llama")
+llama3_dir = os.path.join(script_dir, "Llama-3.2-1B")
 python_source_code_dir = os.path.join(script_dir, "pythonsourcecode")
 nuitka_source_code_dir = os.path.join(script_dir, "nuitkasourcecode")
 commandlineandmessage_dir = os.path.join(script_dir, "commandlineandmessage")
@@ -3097,8 +3099,8 @@ def load_llama32_1b_model():
         print(message)
         logging.info(message)
         
-        llama32_tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B", local_files_only=True)
-        llama32_model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-1B", local_files_only=True)
+        llama32_tokenizer = AutoTokenizer.from_pretrained("llama3_dir", local_files_only=True)
+        llama32_model = AutoModelForCausalLM.from_pretrained("llama3_dir", local_files_only=True)
         
         success_message = "Llama-3.2-1B successfully loaded!"
         print(success_message)
@@ -4084,7 +4086,7 @@ def scan_file_with_llama32(file_path):
         logging.info(final_response)
 
         # Log the response
-        answer_log_path = os.path.join(script_dir, "answer.log")
+        answer_log_path = os.path.join(script_dir, "log", "answer.log")
         try:
             with open(answer_log_path, "a") as answer_log_file:
                 answer_log_file.write(relevant_response + "\n\n")  # Write the raw model response
