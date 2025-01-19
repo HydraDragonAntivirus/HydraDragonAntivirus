@@ -40,7 +40,7 @@ executables = [
 
 # Fine-tune build options
 build_options = {
-    "packages": ["scapy", "srsly", "blis", "spacy"],
+    "packages": ["scapy", "srsly", "blis", "spacy", "transformers", "torch", "numpy"],
     "includes": ["preshed.maps"],
     "excludes": ["tkinter"],
     "include_files": [
