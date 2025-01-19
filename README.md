@@ -45,6 +45,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
  - Don't forget to clean up commandlineandmessages, zip_extracted, etc. dirs, sandboxie dirs before analysis. Or take a snapshot before you running the program.
  - You have to restart the program after the analysis.
 - Please don't share your IP in the logs.
+- Make sure that the ClamAV database is installed without problems.
 
 ## Discord Community Server
 
