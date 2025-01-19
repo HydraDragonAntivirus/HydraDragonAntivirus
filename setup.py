@@ -51,9 +51,9 @@ build_options = {
 
 # Setup configuration for cx_Freeze
 setup(
-    name="HydraDragon Antivirus",  # Application name
+    name="Hydra Dragon Antivirus",  # Application name
     version="0.1",  # Version number
-    description="HydraDragon Antivirus",
+    description="Hydra Dragon Antivirus",
     options={"build_exe": build_options},  # Build options
     executables=executables,  # List of executables
 )
