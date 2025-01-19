@@ -40,8 +40,8 @@ executables = [
 
 # Fine-tune build options
 build_options = {
-    "packages": ["scapy", "srsly", "blis", "spacy", "transformers", "torch", "numpy"],
-    "includes": ["preshed.maps"],
+    "packages": ["scapy", "srsly", "blis", "spacy", "transformers", "torch"],
+    "includes": ["preshed.maps", "numpy.f2py"],
     "excludes": ["tkinter"],
     "include_files": [
         (str(model_version_folder), "en_core_web_md"),  # Include the spacy model folder
