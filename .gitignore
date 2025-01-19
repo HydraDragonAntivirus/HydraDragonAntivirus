@@ -33,3 +33,4 @@ porcupine.ndb
 __pycache__/
 /log
 /venv
+/build
