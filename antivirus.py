@@ -3099,8 +3099,8 @@ def load_llama32_1b_model():
         print(message)
         logging.info(message)
         
-        llama32_tokenizer = AutoTokenizer.from_pretrained("llama3_dir", local_files_only=True)
-        llama32_model = AutoModelForCausalLM.from_pretrained("llama3_dir", local_files_only=True)
+        llama32_tokenizer = AutoTokenizer.from_pretrained(llama3_dir, local_files_only=True)
+        llama32_model = AutoModelForCausalLM.from_pretrained(llama3_dir, local_files_only=True)
         
         success_message = "Llama-3.2-1B successfully loaded!"
         print(success_message)
