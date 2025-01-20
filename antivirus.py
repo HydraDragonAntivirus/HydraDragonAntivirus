@@ -959,7 +959,6 @@ def scan_url_general(url):
         logging.error(f"Error scanning URL {url}: {ex}")
         print(f"Error scanning URL {url}: {ex}")
 
-
 def is_local_ip(ip):
     try:
         ip_obj = ipaddress.ip_address(ip)
