@@ -959,6 +959,14 @@ def scan_url_general(url):
         logging.error(f"Error scanning URL {url}: {ex}")
         print(f"Error scanning URL {url}: {ex}")
 
+
+def is_local_ip(ip):
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+        return ip_obj.is_private
+    except ValueError:
+        return False
+
 # Generalized scan for IP addresses
 def scan_ip_address_general(ip_address):
     try:
@@ -1618,13 +1626,6 @@ def scan_file_with_clamd(file_path):
         logging.error(f"Error scanning file {file_path}: {ex}")
         print(f"Error scanning file {file_path}: {ex}")
         return "Clean"
-
-def is_local_ip(ip):
-    try:
-        ip_obj = ipaddress.ip_address(ip)
-        return ip_obj.is_private
-    except ValueError:
-        return False
 
 def is_related_to_critical_paths(file_path):
     return file_path.startswith(sandboxie_folder) or file_path == main_file_path
