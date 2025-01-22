@@ -74,6 +74,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - https://github.com/icsharpcode/ILSpy
 - https://github.com/extremecoders-re/nuitka-extractor
 - https://github.com/horsicq/Detect-It-Easy
+- https://github.com/extremecoders-re/decompyle-builds
 
 - I used these projects to decompile.
 

@@ -255,6 +255,7 @@ pyintstaller_dir = os.path.join(script_dir, "pyinstaller")
 meta_llama_dir = os.path.join(script_dir, "meta-llama")
 llama3_dir = os.path.join(meta_llama_dir, "Llama-3.2-1B")
 python_source_code_dir = os.path.join(script_dir, "pythonsourcecode")
+pycdc_dir = os.path.join(python_source_code_dir, "pycdc")
 nuitka_source_code_dir = os.path.join(script_dir, "nuitkasourcecode")
 commandlineandmessage_dir = os.path.join(script_dir, "commandlineandmessage")
 pe_extracted_dir = os.path.join(script_dir, "pe_extracted")
@@ -269,6 +270,7 @@ memory_dir = os.path.join(script_dir, "memory")
 debloat_dir = os.path.join(script_dir, "debloat")
 detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
+pycdc_path = os.path.join(script_dir, "pycdc.exe")
 malicious_file_names = os.path.join(script_dir, "machinelearning", "malicious_file_names.json")
 malicious_numeric_features = os.path.join(script_dir, "machinelearning", "malicious_numeric.pkl")
 benign_numeric_features = os.path.join(script_dir, "machinelearning", "benign_numeric.pkl")
@@ -359,6 +361,7 @@ os.makedirs(general_extracted_dir, exist_ok=True)
 os.makedirs(debloat_dir, exist_ok=True)
 os.makedirs(jar_extracted_dir, exist_ok=True)
 os.makedirs(detectiteasy_json_dir, exist_ok=True)
+os.makedirs(pycdc_dir, exist_ok=True)
 
 # Counter for ransomware detection
 ransomware_detection_count = 0 
@@ -3319,7 +3322,7 @@ existing_projects = []
 # List of already scanned files and their modification times
 scanned_files = []
 file_mod_times = {}
-directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, nuitka_source_code_dir, memory_dir, debloated_dir]
+directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, nuitka_source_code_dir, memory_dir, debloated_dir]
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
@@ -4197,9 +4200,11 @@ def log_directory_type(file_path):
         elif file_path.startswith(debloat_dir):
             logging.info(f"{file_path}: It's a debloated file dir.")
         elif file_path.startswith(jar_extracted_dir):
-    l       logging.info(f"{file_path}: It's a directory containing extracted files from a JAR (Java Archive) file.")
+           logging.info(f"{file_path}: It's a directory containing extracted files from a JAR (Java Archive) file.")
+        elif file_path.startswith(pycdc_dir):
+            logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code directory with pycdc.exe.")
         elif file_path.startswith(python_source_code_dir):
-            logging.info(f"{file_path}: It's a PyInstaller reversed-engineered Python source code directory.")
+            logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code directory with uncompyle6.")
         elif file_path.startswith(nuitka_source_code_dir):
             logging.info(f"{file_path}: It's a Nuitka reversed-engineered Python source code directory.")
         else:
@@ -4586,11 +4591,6 @@ def save_to_file(file_path, content):
     Returns:
         file_path: Path to the saved file.
     """
-    python_source_code_dir = "python_source_code_dir"  # Define your directory here
-
-    # Ensure the directory exists
-    if not os.path.exists(python_source_code_dir):
-        os.makedirs(python_source_code_dir)
 
     # Update the file path to save within the specified directory
     file_path = os.path.join(python_source_code_dir, file_path)
@@ -4676,18 +4676,50 @@ def extract_webhooks(content):
     webhooks = re.findall(discord_webhook_pattern, content) + re.findall(discord_canary_webhook_pattern, content)
     return webhooks
 
-def show_code_with_uncompyle6(file_path, file_name):
+def run_pycdc_decompiler(file_path, pycdc_path, output_dir):
     """
-    Decompiles a .pyc file and saves it with appropriate naming based on
-    PyInstaller's entry point detection method. Scans the decompiled code for
-    malicious content such as Discord webhooks, IP addresses, domains, and URLs.
+    Runs the pycdc decompiler to decompile a .pyc file and saves it to a specified output directory.
+    
+    Args:
+        file_path: Path to the .pyc file to be decompiled
+        pycdc_path: Path to the pycdc executable
+        output_dir: Directory to save the decompiled source code
+    
+    Returns:
+        The decompiled file path, or None if the process fails
+    """
+    try:
+        # Extract the file name and create the output path in the pycdc subfolder
+        base_name = os.path.splitext(os.path.basename(file_path))[0]
+        output_path = os.path.join(output_dir, f"{base_name}_pycdc_decompiled.py")
+
+        # Build the pycdc command with the -o argument
+        command = [pycdc_path, "-o", output_path, file_path]
+
+        # Run the pycdc command
+        result = subprocess.run(command, capture_output=True, text=True)
+
+        if result.returncode == 0:
+            logging.info(f"Successfully decompiled using pycdc. Output saved to {output_path}")
+            return output_path
+        else:
+            logging.error(f"pycdc error: {result.stderr}")
+            return None
+    except Exception as e:
+        logging.error(f"Error running pycdc: {e}")
+        return None
+
+def show_code_with_uncompyle6_pycdc(file_path, file_name):
+    """
+    Decompiles a .pyc file using both uncompyle6 and pycdc, and saves the results to the appropriate directory.
+    Scans the decompiled code for malicious content such as Discord webhooks, IP addresses, domains, and URLs.
 
     Args:
         file_path: Path to the .pyc file to decompile
         file_name: The name of the .pyc file to be decompiled
 
     Returns:
-        Path to the decompiled source file, or None if decompilation fails
+        A tuple of paths to the decompiled source files from both decompilers, or None if both decompilations fail.
     """
     try:
         logging.info(f"Processing python file: {file_path}")
@@ -4719,49 +4751,77 @@ def show_code_with_uncompyle6(file_path, file_name):
         version = 1
         while True:
             if is_source:
-                output_path = os.path.join(
+                uncompyle6_output_path = os.path.join(
                     python_source_code_dir,
                     f"{base_name}_{version}_source_code.py"
                 )
             else:
-                output_path = os.path.join(
+                uncompyle6_output_path = os.path.join(
                     python_source_code_dir,
                     f"{base_name}_{version}_decompile.py"
                 )
-            if not os.path.exists(output_path):
+            if not os.path.exists(uncompyle6_output_path):
                 break
             version += 1
 
-        # Decompile the file
-        with open(file_path, "rb") as dec_f:
-            decompiled_code = uncompyle6.pyeval.evaluate(dec_f)
+        # Try to decompile the file using uncompyle6
+        try:
+            with open(file_path, "rb") as dec_f:
+                decompiled_code = uncompyle6.pyeval.evaluate(dec_f)
+        except Exception as e:
+            logging.warning(f"uncompyle6 failed: {e}")
+            decompiled_code = None
 
-        if decompiled_code is None:
-            logging.error(f"Failed to decompile {file_path}")
-            return None
+        # Save the uncompyle6 decompiled code if successful
+        if decompiled_code:
+            with open(uncompyle6_output_path, "w") as output_file:
+                output_file.write(decompiled_code)
+            logging.info(f"Successfully decompiled using uncompyle6. Output saved to {uncompyle6_output_path}")
+        else:
+            logging.error(f"Failed to decompile with uncompyle6.")
 
-        # Check for malicious source code (Discord webhook)
-        if contains_discord_code(decompiled_code):
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Pyinstaller.Stealer.Generic.Malware')
+        # Try to decompile the file using pycdc (even if uncompyle6 succeeded)
+        pycdc_path = os.path.join(script_dir, "pycdc.exe")
+        pycdc_output_path = None
+        if os.path.exists(pycdc_path):
+            pycdc_output_path = run_pycdc_decompiler(file_path, pycdc_path, pycdc_dir)
+        else:
+            logging.error("pycdc executable not found")
             return None
 
         # Scan the decompiled code for domains, URLs, and IP addresses
-        scan_code_for_links(decompiled_code)
+        if decompiled_code:
+            scan_code_for_links(decompiled_code)
 
-        # Save the decompiled code
-        with open(output_path, "w") as output_file:
-            output_file.write(decompiled_code)
+            # Save the uncompyle6 decompiled code
+            with open(uncompyle6_output_path, "w") as output_file:
+                output_file.write(decompiled_code)
 
-        logging.info(f"Successfully saved to {output_path}")
+            logging.info(f"Successfully saved to {uncompyle6_output_path}")
 
-        # Process the decompiled code further
-        process_decompiled_code(output_path)
+            # Process the decompiled code further
+            process_decompiled_code(uncompyle6_output_path)
 
-        return output_path
+        if pycdc_output_path:
+            # Scan the pycdc decompiled code as well
+            with open(pycdc_output_path, "r") as pycdc_file:
+                pycdc_code = pycdc_file.read()
+            scan_code_for_links(pycdc_code)
+
+            # Save the pycdc decompiled code
+            with open(pycdc_output_path, "w") as output_file:
+                output_file.write(pycdc_code)
+
+            logging.info(f"Successfully saved to {pycdc_output_path}")
+
+            # Process the decompiled code further
+            process_decompiled_code(pycdc_output_path)
+
+        return uncompyle6_output_path, pycdc_output_path
 
     except Exception as ex:
         logging.error(f"Error processing python file {file_path}: {ex}")
-        return None
+        return None, None
 
 def scan_and_warn(file_path, flag=False, flag_debloat=False):
     """
@@ -4794,15 +4854,25 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
         if is_pyc_file(file_path):
             logging.info(f"File {file_path} is a .pyc (Python Compiled Module) file. Attempting to decompile...")
 
-            # Call the show_code_with_uncompyle6 function to decompile the .pyc file
-            decompiled_file_path = show_code_with_uncompyle6(file_path, file_name)
+            # Call the show_code_with_uncompyle6_pycdc function to decompile the .pyc file
+            decompiled_file_paths = show_code_with_uncompyle6_pycdc(file_path, file_name)
 
-            # If decompilation was successful, scan the decompiled file
-            if decompiled_file_path:
-                logging.info(f"Scanning decompiled file: {decompiled_file_path}")
-                scan_and_warn(decompiled_file_path)
+            # If decompilation was successful for either uncompyle6 or pycdc, scan the decompiled files
+            uncompyle6_file_path, pycdc_file_path = decompiled_file_paths
+
+            # Scan and warn for the uncompyle6 decompiled file, if available
+            if uncompyle6_file_path:
+                logging.info(f"Scanning decompiled file from uncompyle6: {uncompyle6_file_path}")
+                scan_and_warn(uncompyle6_file_path)
             else:
-                logging.error(f"Decompilation failed for file {file_path}.")
+                logging.error(f"Uncompyle6 decompilation failed for file {file_path}.")
+
+            # Scan and warn for the pycdc decompiled file, if available
+            if pycdc_file_path:
+                logging.info(f"Scanning decompiled file from pycdc: {pycdc_file_path}")
+                scan_and_warn(pycdc_file_path)
+            else:
+                logging.error(f"pycdc decompilation failed for file {file_path}.")
 
         # Initialize variables
         is_decompiled = False
