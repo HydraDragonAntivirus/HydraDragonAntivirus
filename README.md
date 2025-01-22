@@ -120,6 +120,10 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 
 - Use VSCode, VSCodium or another editor to see live changes to .log files
 
+**Tip 3:**.
+
+- Close the Windows Firewall on the VM to avoid any firewall blocking.
+
 ## Internet Access In Sandboxie
 - HIPS detection shouldn't work if you don't open the Internet in Sandboxie. To enable it go to: Sandbox -> DefaultBox -> Sandbox Settings -> Restrictions -> Internet Access -> Click "BLock All Programs" then click "Allow All Programs" then save it and you're done!.  https://sandboxie-plus.com/sandboxie/restrictionssettings/
 
