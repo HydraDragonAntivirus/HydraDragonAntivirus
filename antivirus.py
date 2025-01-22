@@ -520,6 +520,8 @@ def get_unique_output_path(output_dir: Path, base_name: str, suffix: int = 1) ->
     return new_path
 
 def extract_pe_sections(file_path: str):
+    file_paths = []  # List to store the file paths
+
     try:
         # Load the PE file
         pe = pefile.PE(file_path)
@@ -545,11 +547,17 @@ def extract_pe_sections(file_path: str):
                 f.write(section_data)
             
             logging.info(f"Section '{section_name}' saved to {section_file}")
+            file_paths.append(section_file)  # Add the file path to the list
+
+            # Scan and warn after saving the file
+            scan_and_warn(section_file)
 
         logging.info("Extraction completed successfully.")
+        return file_paths  # Return the list of file paths
 
     except Exception as e:
         logging.error(f"An error occurred: {e}")
+        return []  # Return an empty list in case of error
 
 def is_hex_data(data_content):
     """Check if the given binary data can be valid hex-encoded data."""
@@ -4620,7 +4628,12 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
             if pe_file:
                 logging.info(f"File {file_path} is identified as a PE file. Performing process memory analysis...")
                 analyze_process_memory(file_path)
-                extract_pe_sections(file_path)
+
+                for saved_file_path in saved_file_paths:
+                    try:
+                        scan_and_warn(saved_file_path)
+                    except Exception as e:
+                        logging.error(f"Error processing file {saved_file_path}: {e}")
 
                 # Use the `debloat` library to optimize PE file for scanning
                 try:
