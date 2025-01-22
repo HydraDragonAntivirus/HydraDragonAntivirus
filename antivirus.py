@@ -246,7 +246,9 @@ decompile_dir = os.path.join(script_dir, "decompile")
 pyinstaller_dir = os.path.join(script_dir, "pyinstaller")
 ghidra_projects_dir = os.path.join(script_dir, "ghidra_projects")
 ghidra_logs_dir = os.path.join(script_dir, "ghidra_logs")
-ghidra_scripts_dir = os.path.join(script_dir, "scripts")
+ghidra_scripts_dir = os.path.join(script_dir, "ghidra_scripts")
+compiled_scripts_dir = os.path.join(script_dir, "compiled_scripts")
+jar_extracted_dir = os.path.join(script_dir, "jar_extracted")
 dotnet_dir = os.path.join(script_dir, "dotnet")
 nuitka_dir = os.path.join(script_dir, "nuitka")
 pyintstaller_dir = os.path.join(script_dir, "pyinstaller")
@@ -354,6 +356,7 @@ os.makedirs(tar_extracted_dir, exist_ok=True)
 os.makedirs(seven_zip_extracted_dir, exist_ok=True)
 os.makedirs(general_extracted_dir, exist_ok=True)
 os.makedirs(debloat_dir, exist_ok=True)
+os.makedirs(jar_extracted_dir, exist_ok=True)
 
 # Counter for ransomware detection
 ransomware_detection_count = 0 
@@ -518,6 +521,69 @@ def get_unique_output_path(output_dir: Path, base_name: str, suffix: int = 1) ->
         new_path = output_dir / f"{base_name.stem}_{suffix}{base_name.suffix}"
 
     return new_path
+
+def run_jar_extractor(file_path):
+    extracted_files = []  # List to store the paths of the extracted files
+    try:
+        # Ensure the output directory exists
+        output_dir = Path(jar_extracted_dir)
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True)
+        
+        # Path to the JarExtractor compiled .jar file
+        jar_extractor_path = os.path.join(compiled_scripts_dir, "JarExtractor.jar")  # Ensure this path points to the correct JAR file
+
+        # Command to run the JarExtractor (JAR file path and output directory)
+        java_command = ["java", "-jar", jar_extractor_path, file_path, str(output_dir)]
+
+        # Run the command to extract the JAR file
+        result = subprocess.run(java_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        # Check if the extraction was successful
+        if result.returncode == 0:
+            logging.info(f"Extraction completed successfully: {result.stdout}")
+        else:
+            logging.error(f"Extraction failed: {result.stderr}")
+
+        # Get all files from the extracted directory and apply the unique naming
+        for extracted_file in Path(output_dir).rglob("*"):  # Recursively go through the extracted files
+            if extracted_file.is_file():
+                # Get a unique output path for each file
+                unique_file_path = get_unique_output_path(output_dir, extracted_file.name)
+                
+                # Optionally rename or move the file to the new unique path
+                extracted_file.rename(unique_file_path)
+                logging.info(f"File {extracted_file.name} saved to {unique_file_path}")
+
+                # Append the unique file path to the list of extracted files
+                extracted_files.append(unique_file_path)
+
+        # Return the list of extracted file paths
+        return extracted_files
+
+    except subprocess.SubprocessError as ex:
+        logging.error(f"Error while running JarExtractor: {ex}")
+    except Exception as ex:
+        logging.error(f"General error while running JarExtractor: {ex}")
+        return []  # Return an empty list in case of an error
+
+def is_jar_file(file_path):
+    try:
+        # Run the DIE console command to analyze the file
+        result = subprocess.run([detectiteasy_console_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        
+        # Check if the output indicates that the file is a JAR file (based on "Virtual machine: JVM")
+        if "Virtual machine: JVM" in result.stdout:
+            return True
+        
+    except subprocess.SubprocessError as ex:
+        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
+        return False
+    except Exception as ex:
+        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
+        return False
+
+    return False
 
 def extract_pe_sections(file_path: str):
     file_paths = []  # List to store the file paths
@@ -3981,6 +4047,8 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: It's a dynamic analysis memory dump file.")
         elif file_path.startswith(debloat_dir):
             logging.info(f"{file_path}: It's a debloated file dir.")
+        elif file_path.startswith(jar_extracted_dir):
+    l       logging.info(f"{file_path}: It's a directory containing extracted files from a JAR (Java Archive) file.")
         elif file_path.startswith(python_source_code_dir):
             logging.info(f"{file_path}: It's a PyInstaller reversed-engineered Python source code directory.")
         elif file_path.startswith(nuitka_source_code_dir):
@@ -4653,6 +4721,11 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
             if is_dotnet_file(file_path):
                 dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(file_path,))
                 dotnet_thread.start()
+
+            if is_jar_file(file_path):
+                extracted_jar_files = run_jar_extractor(file_path)
+                for extracted_jar_file in extracted_jar_files:
+                    scan_and_warn(extracted_jar_file)
 
             # Check if the file contains Nuitka executable
             nuitka_type = is_nuitka_file(file_path)
