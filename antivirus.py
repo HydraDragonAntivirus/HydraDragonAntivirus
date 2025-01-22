@@ -264,6 +264,7 @@ seven_zip_extracted_dir = os.path.join(script_dir, "seven_zip_extracted")
 general_extracted_dir = os.path.join(script_dir, "general_extracted")
 processed_dir = os.path.join(script_dir, "processed")
 detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
+detectiteasy_json_dir = os.path.join(script_dir, "detectiteasy_json")
 memory_dir = os.path.join(script_dir, "memory")
 debloat_dir = os.path.join(script_dir, "debloat")
 detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
@@ -357,6 +358,7 @@ os.makedirs(seven_zip_extracted_dir, exist_ok=True)
 os.makedirs(general_extracted_dir, exist_ok=True)
 os.makedirs(debloat_dir, exist_ok=True)
 os.makedirs(jar_extracted_dir, exist_ok=True)
+os.makedirs(detectiteasy_json_dir, exist_ok=True)
 
 # Counter for ransomware detection
 ransomware_detection_count = 0 
@@ -569,13 +571,28 @@ def run_jar_extractor(file_path):
 
 def is_jar_file(file_path):
     try:
-        # Run the DIE console command to analyze the file
-        result = subprocess.run([detectiteasy_console_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        
-        # Check if the output indicates that the file is a JAR file (based on "Virtual machine: JVM")
+        # Ensure the JSON output directory exists
+        output_dir = Path(detectiteasy_json_dir)
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True)
+
+        # Define the base name for the output JSON file
+        base_name = Path(file_path).with_suffix(".json")
+
+        # Get a unique file path for the JSON output
+        json_output_path = get_unique_output_path(output_dir, base_name)
+
+        # Run the DIE console command with the -j flag to generate a JSON output
+        result = subprocess.run([detectiteasy_console_path, "-j", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        # Check if the output contains information about JVM (indicating it's a JAR file)
         if "Virtual machine: JVM" in result.stdout:
+            # Save the JSON output to the specified unique file
+            with open(json_output_path, "w") as json_file:
+                json_file.write(result.stdout)
+            logging.info(f"JSON output saved to {json_output_path}")
             return True
-        
+
     except subprocess.SubprocessError as ex:
         logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
         return False
@@ -2249,29 +2266,67 @@ def clean_directories():
         logging.error(f"An error occurred while cleaning the directories: {ex}")
 
 def is_pe_file(file_path):
-    """Check if the file at the specified path is a Portable Executable (PE) file."""
-    if not os.path.exists(file_path):
-        return False
-
+    """Check if the file at the specified path is a PE (Portable Executable) file using Detect It Easy."""
     try:
-        with open(file_path, 'rb') as pe_file:
-            pefile.PE(data=pe_file.read())  # Try loading the file as a PE.
+        logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
+
+        # Ensure the JSON output directory exists
+        output_dir = Path(detectiteasy_json_dir)
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True)
+
+        # Define the base name for the output JSON file (output will be PE check result)
+        base_name = Path(file_path).with_suffix(".json")
+
+        # Get a unique file path for the JSON output
+        json_output_path = get_unique_output_path(output_dir, base_name)
+
+        # Run the DIE console command with the -j flag to generate a JSON output
+        result = subprocess.run([detectiteasy_console_path, "-j", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        # Check for PE32 or PE64 in the result
+        if "PE32" in result.stdout or "PE64" in result.stdout:
+            # Save the JSON output to the specified unique file
+            with open(json_output_path, "w") as json_file:
+                json_file.write(result.stdout)
+            logging.info(f"PE file analysis result saved to {json_output_path}")
             return True
-    except pefile.PEFormatError:
+        else:
+            logging.info(f"File {file_path} is not a PE file. Result: {result.stdout}")
+            return False
+
+    except subprocess.SubprocessError as ex:
+        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
         return False
     except Exception as ex:
-        print(f"Error occurred while checking if file is PE: {ex}")
+        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
         return False
 
 def is_elf_file(file_path):
     """Check if the file at the specified path is an ELF file using Detect It Easy."""
     try:
         logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
-        result = subprocess.run([detectiteasy_console_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-        # Check for ELF format
+        # Ensure the JSON output directory exists
+        output_dir = Path(detectiteasy_json_dir)
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True)
+
+        # Define the base name for the output JSON file (output will be ELF check result)
+        base_name = Path(file_path).with_suffix(".json")
+
+        # Get a unique file path for the JSON output
+        json_output_path = get_unique_output_path(output_dir, base_name)
+
+        # Run the DIE console command with the -j flag to generate a JSON output
+        result = subprocess.run([detectiteasy_console_path, "-j", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        # Check for ELF format in the result
         if "ELF" in result.stdout:
-            logging.info(f"File {file_path} is an ELF file.")
+            # Save the JSON output to the specified unique file
+            with open(json_output_path, "w") as json_file:
+                json_file.write(result.stdout)
+            logging.info(f"ELF file analysis result saved to {json_output_path}")
             return True
         else:
             logging.info(f"File {file_path} is not an ELF file. Result: {result.stdout}")
@@ -2288,11 +2343,27 @@ def is_macho_file(file_path):
     """Check if the file at the specified path is a Mach-O file using Detect It Easy."""
     try:
         logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
-        result = subprocess.run([detectiteasy_console_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-        # Check for Mach-O format
+        # Ensure the JSON output directory exists
+        output_dir = Path(detectiteasy_json_dir)
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True)
+
+        # Define the base name for the output JSON file (output will be Mach-O check result)
+        base_name = Path(file_path).with_suffix(".json")
+
+        # Get a unique file path for the JSON output
+        json_output_path = get_unique_output_path(output_dir, base_name)
+
+        # Run the DIE console command with the -j flag to generate a JSON output
+        result = subprocess.run([detectiteasy_console_path, "-j", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        # Check for Mach-O in the result
         if "Mach-O" in result.stdout:
-            logging.info(f"File {file_path} is a Mach-O file.")
+            # Save the JSON output to the specified unique file
+            with open(json_output_path, "w") as json_file:
+                json_file.write(result.stdout)
+            logging.info(f"Mach-O file analysis result saved to {json_output_path}")
             return True
         else:
             logging.info(f"File {file_path} is not a Mach-O file. Result: {result.stdout}")
@@ -2669,19 +2740,39 @@ def is_7z_file(file_path):
     Check if the file is a valid 7z archive using Detect It Easy console.
     """
     try:
-        # Run the Detect It Easy console command to analyze the file
-        result = subprocess.run([detectiteasy_console_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
 
-        # Check if the output contains the signature "Archive: 7-Zip"
+        # Ensure the JSON output directory exists
+        output_dir = Path(detectiteasy_json_dir)
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True)
+
+        # Define the base name for the output JSON file (output will be 7z check result)
+        base_name = Path(file_path).with_suffix(".json")
+
+        # Get a unique file path for the JSON output
+        json_output_path = get_unique_output_path(output_dir, base_name)
+
+        # Run the DIE console command with the -j flag to generate a JSON output
+        result = subprocess.run([detectiteasy_console_path, "-j", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        # Check for 7-Zip in the result
         if "Archive: 7-Zip" in result.stdout:
+            # Save the JSON output to the specified unique file
+            with open(json_output_path, "w") as json_file:
+                json_file.write(result.stdout)
+            logging.info(f"7z file analysis result saved to {json_output_path}")
             return True
+        else:
+            logging.info(f"File {file_path} is not a 7z file. Result: {result.stdout}")
+            return False
 
     except subprocess.SubprocessError as ex:
         logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
+        return False
     except Exception as ex:
         logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
-
-    return False
+        return False
 
 def scan_tar_file(file_path):
     """Scan files within a tar archive."""
@@ -3311,19 +3402,40 @@ def extract_original_file_path_from_decompiled(file_path):
 def is_nuitka_file(file_path):
     """Check if the file is a Nuitka executable using Detect It Easy."""
     try:
-        # Run the DIE console command to analyze the file
         logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
-        result = subprocess.run([detectiteasy_console_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        # Ensure the JSON output directory exists
+        output_dir = Path(detectiteasy_json_dir)
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True)
+
+        # Define the base name for the output JSON file (output will be Nuitka check result)
+        base_name = Path(file_path).with_suffix(".json")
+
+        # Get a unique file path for the JSON output
+        json_output_path = get_unique_output_path(output_dir, base_name)
+
+        # Run the DIE console command with the -j flag to generate a JSON output
+        result = subprocess.run([detectiteasy_console_path, "-j", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
         # Check for Nuitka executable and OneFile
         if "Packer: Nuitka[OneFile]" in result.stdout:
             logging.info(f"File {file_path} is a Nuitka OneFile executable.")
+            # Save the JSON output to the specified unique file
+            with open(json_output_path, "w") as json_file:
+                json_file.write(result.stdout)
+            logging.info(f"Nuitka OneFile analysis result saved to {json_output_path}")
             return "Nuitka OneFile"
         elif "Packer: Nuitka" in result.stdout:
             logging.info(f"File {file_path} is a Nuitka executable.")
+            # Save the JSON output to the specified unique file
+            with open(json_output_path, "w") as json_file:
+                json_file.write(result.stdout)
+            logging.info(f"Nuitka analysis result saved to {json_output_path}")
             return "Nuitka"
         else:
             logging.info(f"File {file_path} is not a Nuitka executable. Result: {result.stdout}")
+            return None
 
     except subprocess.SubprocessError as ex:
         logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
@@ -3331,8 +3443,6 @@ def is_nuitka_file(file_path):
     except Exception as ex:
         logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
         return None
-
-    return None
 
 def clean_text(input_text):
     """
@@ -3466,22 +3576,42 @@ def scan_directory_for_executables(directory):
     return found_executables
 
 def is_dotnet_file(file_path):
+    """Check if the file is a .NET executable using Detect It Easy."""
     try:
-        # Run the DIE console command to analyze the file
-        result = subprocess.run([detectiteasy_console_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        
-        # Check if the output indicates that the file is a .NET executable
+        logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
+
+        # Ensure the JSON output directory exists
+        output_dir = Path(detectiteasy_json_dir)
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True)
+
+        # Define the base name for the output JSON file (output will be .NET check result)
+        base_name = Path(file_path).with_suffix(".json")
+
+        # Get a unique file path for the JSON output
+        json_output_path = get_unique_output_path(output_dir, base_name)
+
+        # Run the DIE console command with the -j flag to generate a JSON output
+        result = subprocess.run([detectiteasy_console_path, "-j", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        # Check for .NET executable (Microsoft .NET or CLR)
         if "Microsoft .NET" in result.stdout or "CLR" in result.stdout:
+            logging.info(f"File {file_path} is a .NET executable.")
+            # Save the JSON output to the specified unique file
+            with open(json_output_path, "w") as json_file:
+                json_file.write(result.stdout)
+            logging.info(f".NET analysis result saved to {json_output_path}")
             return True
-        
+        else:
+            logging.info(f"File {file_path} is not a .NET executable. Result: {result.stdout}")
+            return False
+
     except subprocess.SubprocessError as ex:
         logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
         return False
     except Exception as ex:
         logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
         return False
-
-    return False
 
 class CTOCEntry:
     def __init__(self, position, cmprsddatasize, uncmprsddatasize, cmprsflag, typecmprsdata, name):
@@ -3706,23 +3836,42 @@ class PyInstArchive:
                 pycFile.write(self.pycMagic)  # Overwrite the first four bytes with pyc magic
 
 def is_pyinstaller_archive(file_path):
-    """
-    Check if the file is a PyInstaller archive by analyzing it with Detect It Easy.
-    """
+    """Check if the file is a PyInstaller archive using Detect It Easy."""
     try:
-        # Run the Detect It Easy console command to analyze the file
-        result = subprocess.run([detectiteasy_console_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
 
-        # Check if the output contains the signature "Packer: PyInstaller" and "Language: Python"
+        # Ensure the JSON output directory exists
+        output_dir = Path(detectiteasy_json_dir)
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True)
+
+        # Define the base name for the output JSON file (output will be PyInstaller check result)
+        base_name = Path(file_path).with_suffix(".json")
+
+        # Get a unique file path for the JSON output
+        json_output_path = get_unique_output_path(output_dir, base_name)
+
+        # Run the DIE console command with the -j flag to generate a JSON output
+        result = subprocess.run([detectiteasy_console_path, "-j", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        # Check for PyInstaller archive and Python language
         if "Packer: PyInstaller" in result.stdout and "Language: Python" in result.stdout:
+            logging.info(f"File {file_path} is a PyInstaller archive.")
+            # Save the JSON output to the specified unique file
+            with open(json_output_path, "w") as json_file:
+                json_file.write(result.stdout)
+            logging.info(f"PyInstaller analysis result saved to {json_output_path}")
             return True
+        else:
+            logging.info(f"File {file_path} is not a PyInstaller archive. Result: {result.stdout}")
+            return False
 
     except subprocess.SubprocessError as ex:
         logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
+        return False
     except Exception as ex:
         logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
-
-    return False
+        return False
 
 def extract_pyinstaller_archive(file_path):
     try:
@@ -4345,20 +4494,36 @@ def extract_all_files_with_7z(file_path):
         return []
 
 def is_pyc_file(file_path):
-    """
-    Use Detect It Easy (DIE) to check if the file is a Python compiled file (i.e., .pyc file).
-    
-    :param file_path: Path to the file to analyze.
-    :return: True if the file is a Python compiled file (e.g., .pyc), False otherwise.
-    """
+    """Check if the file is a Python compiled file (.pyc) using Detect It Easy."""
     try:
-        # Run the DIE console command to analyze the file
-        result = subprocess.run([detectiteasy_console_path, file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
 
-        # Check if the output contains the general Python Compiled Module format
+        # Ensure the JSON output directory exists
+        output_dir = Path(detectiteasy_json_dir)
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True)
+
+        # Define the base name for the output JSON file (output will be PyInstaller check result)
+        base_name = Path(file_path).with_suffix(".json")
+
+        # Get a unique file path for the JSON output
+        json_output_path = get_unique_output_path(output_dir, base_name)
+
+        # Run the DIE console command with the -j flag to generate a JSON output
+        result = subprocess.run([detectiteasy_console_path, "-j", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        # Check if the file is detected as a Python compiled module
         if "Python" in result.stdout and "Compiled Module" in result.stdout and "Magic tag" in result.stdout:
             logging.info(f"File {file_path} is detected as a Python compiled module by DIE.")
+            
+            # Save the JSON output to the specified unique file
+            with open(json_output_path, "w") as json_file:
+                json_file.write(result.stdout)
+            logging.info(f"Python compiled module analysis result saved to {json_output_path}")
             return True
+        else:
+            logging.info(f"File {file_path} is not a Python compiled module. Result: {result.stdout}")
+            return False
 
     except subprocess.SubprocessError as ex:
         logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
