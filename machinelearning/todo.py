@@ -83,32 +83,6 @@
             logging.error(f"Error during DIE analysis for {file_path}: {e}")
             return None
 
-    def _analyze_certificates(self, pe) -> Dict[str, Any]:
-        """Analyze security certificates."""
-        try:
-            cert_info = {}
-            if hasattr(pe, 'DIRECTORY_ENTRY_SECURITY'):
-                cert_info['virtual_address'] = pe.DIRECTORY_ENTRY_SECURITY.VirtualAddress
-                cert_info['size'] = pe.DIRECTORY_ENTRY_SECURITY.Size
-
-                # Extract certificate attributes if available
-                if hasattr(pe, 'VS_FIXEDFILEINFO'):
-                    cert_info['fixed_file_info'] = {
-                        'signature': pe.VS_FIXEDFILEINFO.Signature,
-                        'struct_version': pe.VS_FIXEDFILEINFO.StrucVersion,
-                        'file_version': f"{pe.VS_FIXEDFILEINFO.FileVersionMS >> 16}.{pe.VS_FIXEDFILEINFO.FileVersionMS & 0xFFFF}.{pe.VS_FIXEDFILEINFO.FileVersionLS >> 16}.{pe.VS_FIXEDFILEINFO.FileVersionLS & 0xFFFF}",
-                        'product_version': f"{pe.VS_FIXEDFILEINFO.ProductVersionMS >> 16}.{pe.VS_FIXEDFILEINFO.ProductVersionMS & 0xFFFF}.{pe.VS_FIXEDFILEINFO.ProductVersionLS >> 16}.{pe.VS_FIXEDFILEINFO.ProductVersionLS & 0xFFFF}",
-                        'file_flags': pe.VS_FIXEDFILEINFO.FileFlags,
-                        'file_os': pe.VS_FIXEDFILEINFO.FileOS,
-                        'file_type': pe.VS_FIXEDFILEINFO.FileType,
-                        'file_subtype': pe.VS_FIXEDFILEINFO.FileSubtype,
-                    }
-
-            return cert_info
-        except Exception as e:
-            logging.error(f"Error analyzing certificates: {e}")
-            return {}
-
     def _analyze_delay_imports(self, pe) -> List[Dict[str, Any]]:
         """Analyze delay-load imports with error handling for missing attributes."""
         try:
