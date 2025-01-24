@@ -89,7 +89,7 @@ class PEFeatureExtractor:
                 exports.append(export_info)
         return exports
 
-    def _analyze_tls_callbacks(self, pe) -> Dict[str, Any]:
+    def analyze_tls_callbacks(self, pe) -> Dict[str, Any]:
         """Analyze TLS (Thread Local Storage) callbacks and extract relevant details."""
         try:
             tls_callbacks = {}
@@ -134,126 +134,166 @@ class PEFeatureExtractor:
             logging.error(f"Error retrieving TLS callback addresses: {e}")
             return []
 
-    def extract_features(self, file_path: str, rank: Optional[int] = None, is_malicious: bool = False) -> Optional[
-        Dict[str, Any]]:
-        """Extract comprehensive PE file features."""
-        if file_path in self.features_cache:
-            return self.features_cache[file_path]
-
+    def analyze_dos_stub(self, pe) -> Dict[str, Any]:
+        """Analyze DOS stub program."""
         try:
-            pe = pefile.PE(file_path)
-            features = {
-                'file_info': {
-                    'path': file_path,
-                    'name': os.path.basename(file_path),
-                    'size': os.path.getsize(file_path),
-                    'md5': self._calculate_md5(file_path),
-                    'rank': rank,
-                    'is_malicious': is_malicious
-                },
-                'headers': {
-                    'optional_header': {
-                        'major_linker_version': pe.OPTIONAL_HEADER.MajorLinkerVersion,
-                        'minor_linker_version': pe.OPTIONAL_HEADER.MinorLinkerVersion,
-                        'size_of_code': pe.OPTIONAL_HEADER.SizeOfCode,
-                        'size_of_initialized_data': pe.OPTIONAL_HEADER.SizeOfInitializedData,
-                        'size_of_uninitialized_data': pe.OPTIONAL_HEADER.SizeOfUninitializedData,
-                        'address_of_entry_point': pe.OPTIONAL_HEADER.AddressOfEntryPoint,
-                        'base_of_code': pe.OPTIONAL_HEADER.BaseOfCode,
-                        'image_base': pe.OPTIONAL_HEADER.ImageBase,
-                        'section_alignment': pe.OPTIONAL_HEADER.SectionAlignment,
-                        'file_alignment': pe.OPTIONAL_HEADER.FileAlignment,
-                        'major_os_version': pe.OPTIONAL_HEADER.MajorOperatingSystemVersion,
-                        'minor_os_version': pe.OPTIONAL_HEADER.MinorOperatingSystemVersion,
-                        'subsystem': pe.OPTIONAL_HEADER.Subsystem,
-                        'dll_characteristics': pe.OPTIONAL_HEADER.DllCharacteristics,
-                    },
-                    'file_header': {
-                        'machine': pe.FILE_HEADER.Machine,
-                        'number_of_sections': pe.FILE_HEADER.NumberOfSections,
-                        'time_date_stamp': pe.FILE_HEADER.TimeDateStamp,
-                        'characteristics': pe.FILE_HEADER.Characteristics,
-                    }
-                },
-                'sections': [self.extract_section_data(section) for section in pe.sections],
-                'imports': self.extract_imports(pe),
-                'exports': self.extract_exports(pe),
-                'resources': [],
-                'debug_info': [],
-                'tls_callbacks': {}
+            dos_stub = {
+                'exists': False,
+                'size': 0,
+                'entropy': 0.0,
             }
 
-            # Extract TLS callbacks
-            try:
-                # TLS Callbacks Extraction
-                if hasattr(pe, 'DIRECTORY_ENTRY_TLS'):
-                    tls = pe.DIRECTORY_ENTRY_TLS.struct
-                    tls_callbacks = {
-                        'start_address_raw_data': tls.StartAddressOfRawData,
-                        'end_address_raw_data': tls.EndAddressOfRawData,
-                        'address_of_index': tls.AddressOfIndex,
-                        'address_of_callbacks': tls.AddressOfCallBacks,
-                        'size_of_zero_fill': tls.SizeOfZeroFill,
-                        'characteristics': tls.Characteristics,
-                        'callbacks': []
+            if hasattr(pe, 'DOS_HEADER'):
+                stub_offset = pe.DOS_HEADER.e_lfanew - 64  # Typical DOS stub starts after DOS header
+                if stub_offset > 0:
+                    dos_stub_data = pe.__data__[64:pe.DOS_HEADER.e_lfanew]
+                    if dos_stub_data:
+                        dos_stub['exists'] = True
+                        dos_stub['size'] = len(dos_stub_data)
+                        dos_stub['entropy'] = self.calculate_entropy(list(dos_stub_data))
+
+            return dos_stub
+        except Exception as e:
+            logging.error(f"Error analyzing DOS stub: {e}")
+            return {}
+
+    def calculate_entropy(self, data: list) -> float:
+        """Calculate Shannon entropy of data (provided as a list of integers)."""
+        if not data:
+            return 0.0
+
+        total_items = len(data)
+        value_counts = [data.count(i) for i in range(256)]  # Count occurrences of each byte (0-255)
+
+        entropy = 0.0
+        for count in value_counts:
+            if count > 0:
+                # Calculate probability of each value and its contribution to entropy
+                p_x = count / total_items
+                entropy -= p_x * np.log2(p_x)
+
+        return entropy
+
+    def extract_numeric_features(self, file_path: str, rank: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        """
+        Extract numeric features of a file using pefile.
+        """
+        try:
+            # Load the PE file
+            pe = pefile.PE(file_path)
+
+            # Extract features
+            numeric_features = {
+                # Optional Header Features
+                'SizeOfOptionalHeader': pe.FILE_HEADER.SizeOfOptionalHeader,
+                'MajorLinkerVersion': pe.OPTIONAL_HEADER.MajorLinkerVersion,
+                'MinorLinkerVersion': pe.OPTIONAL_HEADER.MinorLinkerVersion,
+                'SizeOfCode': pe.OPTIONAL_HEADER.SizeOfCode,
+                'SizeOfInitializedData': pe.OPTIONAL_HEADER.SizeOfInitializedData,
+                'SizeOfUninitializedData': pe.OPTIONAL_HEADER.SizeOfUninitializedData,
+                'AddressOfEntryPoint': pe.OPTIONAL_HEADER.AddressOfEntryPoint,
+                'BaseOfCode': pe.OPTIONAL_HEADER.BaseOfCode,
+                'BaseOfData': getattr(pe.OPTIONAL_HEADER, 'BaseOfData', 0),
+                'ImageBase': pe.OPTIONAL_HEADER.ImageBase,
+                'SectionAlignment': pe.OPTIONAL_HEADER.SectionAlignment,
+                'FileAlignment': pe.OPTIONAL_HEADER.FileAlignment,
+                'MajorOperatingSystemVersion': pe.OPTIONAL_HEADER.MajorOperatingSystemVersion,
+                'MinorOperatingSystemVersion': pe.OPTIONAL_HEADER.MinorOperatingSystemVersion,
+                'MajorImageVersion': pe.OPTIONAL_HEADER.MajorImageVersion,
+                'MinorImageVersion': pe.OPTIONAL_HEADER.MinorImageVersion,
+                'MajorSubsystemVersion': pe.OPTIONAL_HEADER.MajorSubsystemVersion,
+                'MinorSubsystemVersion': pe.OPTIONAL_HEADER.MinorSubsystemVersion,
+                'SizeOfImage': pe.OPTIONAL_HEADER.SizeOfImage,
+                'SizeOfHeaders': pe.OPTIONAL_HEADER.SizeOfHeaders,
+                'CheckSum': pe.OPTIONAL_HEADER.CheckSum,
+                'Subsystem': pe.OPTIONAL_HEADER.Subsystem,
+                'DllCharacteristics': pe.OPTIONAL_HEADER.DllCharacteristics,
+                'SizeOfStackReserve': pe.OPTIONAL_HEADER.SizeOfStackReserve,
+                'SizeOfStackCommit': pe.OPTIONAL_HEADER.SizeOfStackCommit,
+                'SizeOfHeapReserve': pe.OPTIONAL_HEADER.SizeOfHeapReserve,
+                'SizeOfHeapCommit': pe.OPTIONAL_HEADER.SizeOfHeapCommit,
+                'LoaderFlags': pe.OPTIONAL_HEADER.LoaderFlags,
+                'NumberOfRvaAndSizes': pe.OPTIONAL_HEADER.NumberOfRvaAndSizes,
+                
+                # Section Headers
+                'sections': [
+                    {
+                        'name': section.Name.decode(errors='ignore').strip('\x00'),
+                        'virtual_size': section.Misc_VirtualSize,
+                        'virtual_address': section.VirtualAddress,
+                        'size_of_raw_data': section.SizeOfRawData,
+                        'pointer_to_raw_data': section.PointerToRawData,
+                        'characteristics': section.Characteristics,
                     }
+                    for section in pe.sections
+                ],
 
-                    # Extract callback addresses using the helper method
-                    if tls.AddressOfCallBacks:
-                        callback_array = self._get_callback_addresses(pe, tls.AddressOfCallBacks)
-                        tls_callbacks['callbacks'] = callback_array
+                # Imported Functions
+                'imports': [
+                    imp.name.decode(errors='ignore') if imp.name else "Unknown"
+                    for entry in getattr(pe, 'DIRECTORY_ENTRY_IMPORT', [])
+                    for imp in getattr(entry, 'imports', [])
+                ] if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT') else [],
 
-                    numeric_features['tls_callbacks'] = tls_callbacks
+                # Exported Functions
+                'exports': [
+                    exp.name.decode(errors='ignore') if exp.name else "Unknown"
+                    for exp in getattr(getattr(pe, 'DIRECTORY_ENTRY_EXPORT', None), 'symbols', [])
+                ] if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT') else [],
 
-                    # Extract callback addresses manually
-                    address_of_callbacks = tls.AddressOfCallBacks
-                    if address_of_callbacks:
-                        callback_array = []
-                        while True:
-                            callback_address = pe.get_dword_at_rva(address_of_callbacks)
-                            if callback_address == 0:
-                                break
-                            callback_array.append(callback_address)
-                            address_of_callbacks += 4
-                        tls_callbacks['callbacks'] = callback_array
+                # Resources
+                'resources': [
+                    {
+                        'type_id': resource_type.struct.Id,
+                        'resource_id': resource_id.struct.Id,
+                        'lang_id': resource_lang.struct.Id,
+                        'size': resource_lang.data.struct.Size,
+                        'codepage': resource_lang.data.struct.CodePage,
+                    }
+                    for resource_type in getattr(pe, 'DIRECTORY_ENTRY_RESOURCE', {}).get('entries', [])
+                    if hasattr(resource_type, 'directory')
+                    for resource_id in getattr(resource_type.directory, 'entries', [])
+                    if hasattr(resource_id, 'directory')
+                    for resource_lang in getattr(resource_id.directory, 'entries', [])
+                    if hasattr(resource_lang, 'data') and resource_lang.data.struct
+                ] if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE') else [],
 
-                    features['tls_callbacks'] = tls_callbacks
-            except Exception as e:
-                logging.error(f"Error analyzing TLS callbacks: {e}")
-
-            # Extract resources
-            if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-                for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
-                    if hasattr(resource_type, 'directory'):
-                        for resource_id in resource_type.directory.entries:
-                            if hasattr(resource_id, 'directory'):
-                                for resource_lang in resource_id.directory.entries:
-                                    if hasattr(resource_lang, 'data'):
-                                        res_data = {
-                                            'type_id': resource_type.id,
-                                            'resource_id': resource_id.id,
-                                            'lang_id': resource_lang.id,
-                                            'size': resource_lang.data.struct.Size,
-                                            'codepage': resource_lang.data.struct.CodePage,
-                                        }
-                                        features['resources'].append(res_data)
-
-            # Extract debug information
-            if hasattr(pe, 'DIRECTORY_ENTRY_DEBUG'):
-                for debug in pe.DIRECTORY_ENTRY_DEBUG:
-                    debug_info = {
+                # Debug Information
+                'debug': [
+                    {
                         'type': debug.struct.Type,
                         'timestamp': debug.struct.TimeDateStamp,
                         'version': f"{debug.struct.MajorVersion}.{debug.struct.MinorVersion}",
                         'size': debug.struct.SizeOfData,
                     }
-                    features['debug_info'].append(debug_info)
+                    for debug in getattr(pe, 'DIRECTORY_ENTRY_DEBUG', [])
+                ] if hasattr(pe, 'DIRECTORY_ENTRY_DEBUG') else [],
 
-            self.features_cache[file_path] = features
-            return features
+                # Relocations
+                'relocations': [
+                    {
+                        'virtual_address': entry.rva,
+                        'type': entry.type
+                    }
+                    for relocation in getattr(pe, 'DIRECTORY_ENTRY_BASERELOC', [])
+                    for entry in getattr(relocation, 'entries', [])
+                ] if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC') else [],
+    
+                # TLS Callbacks
+                'tls_callbacks': self.analyze_tls_callbacks(pe),
 
-        except Exception as e:
-            logging.error(f"Error extracting features from {file_path}: {str(e)}")
+                # DOS Stub Analysis
+                'dos_stub': self.analyze_dos_stub(pe),
+            }
+
+            # Add numeric tag if provided
+            if rank is not None:
+                numeric_features['numeric_tag'] = rank
+
+            return numeric_features
+
+        except Exception as ex:
+            logging.error(f"Error extracting numeric features from {file_path}: {str(ex)}", exc_info=True)
             return None
 
 class DataProcessor:
@@ -272,7 +312,7 @@ class DataProcessor:
     def _process_file(self, file_path: Path, rank: int, is_malicious: bool) -> Optional[Dict[str, Any]]:
         """Process a single PE file."""
         try:
-            return self.pe_extractor.extract_features(str(file_path), rank, is_malicious)
+            return self.pe_extractor.extract_numeric_features(str(file_path), rank, is_malicious)
         except Exception as e:
             logging.error(f"Error processing {file_path}: {str(e)}")
             self._move_problematic_file(file_path, is_malicious)

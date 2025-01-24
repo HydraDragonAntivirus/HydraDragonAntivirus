@@ -838,7 +838,47 @@ def get_callback_addresses(pe: pefile.PE, address_of_callbacks: int) -> List[int
     except Exception as e:
         logging.error(f"Error retrieving TLS callback addresses: {e}")
         return []
-  
+
+def analyze_dos_stub(pe) -> Dict[str, Any]:
+    """Analyze DOS stub program."""
+    try:
+        dos_stub = {
+            'exists': False,
+            'size': 0,
+            'entropy': 0.0,
+        }
+
+        if hasattr(pe, 'DOS_HEADER'):
+            stub_offset = pe.DOS_HEADER.e_lfanew - 64  # Typical DOS stub starts after DOS header
+            if stub_offset > 0:
+                dos_stub_data = pe.__data__[64:pe.DOS_HEADER.e_lfanew]
+                if dos_stub_data:
+                    dos_stub['exists'] = True
+                    dos_stub['size'] = len(dos_stub_data)
+                    dos_stub['entropy'] = calculate_entropy(list(dos_stub_data))
+
+        return dos_stub
+    except Exception as e:
+        logging.error(f"Error analyzing DOS stub: {e}")
+        return {}
+
+def calculate_entropy(data: list) -> float:
+    """Calculate Shannon entropy of data (provided as a list of integers)."""
+    if not data:
+        return 0.0
+
+    total_items = len(data)
+    value_counts = [data.count(i) for i in range(256)]  # Count occurrences of each byte (0-255)
+
+    entropy = 0.0
+    for count in value_counts:
+        if count > 0:
+            # Calculate probability of each value and its contribution to entropy
+            p_x = count / total_items
+            entropy -= p_x * np.log2(p_x)
+
+    return entropy
+ 
 def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Optional[Dict[str, Any]]:
     """
     Extract numeric features of a file using pefile.
@@ -879,6 +919,7 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
             'SizeOfHeapCommit': pe.OPTIONAL_HEADER.SizeOfHeapCommit,
             'LoaderFlags': pe.OPTIONAL_HEADER.LoaderFlags,
             'NumberOfRvaAndSizes': pe.OPTIONAL_HEADER.NumberOfRvaAndSizes,
+            
             # Section Headers
             'sections': [
                 {
@@ -891,17 +932,20 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
                 }
                 for section in pe.sections
             ],
+
             # Imported Functions
             'imports': [
                 imp.name.decode(errors='ignore') if imp.name else "Unknown"
                 for entry in getattr(pe, 'DIRECTORY_ENTRY_IMPORT', [])
                 for imp in getattr(entry, 'imports', [])
             ] if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT') else [],
+
             # Exported Functions
             'exports': [
                 exp.name.decode(errors='ignore') if exp.name else "Unknown"
                 for exp in getattr(getattr(pe, 'DIRECTORY_ENTRY_EXPORT', None), 'symbols', [])
             ] if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT') else [],
+
             # Resources
             'resources': [
                 {
@@ -918,6 +962,7 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
                 for resource_lang in getattr(resource_id.directory, 'entries', [])
                 if hasattr(resource_lang, 'data') and resource_lang.data.struct
             ] if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE') else [],
+
             # Debug Information
             'debug': [
                 {
@@ -928,6 +973,7 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
                 }
                 for debug in getattr(pe, 'DIRECTORY_ENTRY_DEBUG', [])
             ] if hasattr(pe, 'DIRECTORY_ENTRY_DEBUG') else [],
+
             # Relocations
             'relocations': [
                 {
@@ -937,8 +983,12 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
                 for relocation in getattr(pe, 'DIRECTORY_ENTRY_BASERELOC', [])
                 for entry in getattr(relocation, 'entries', [])
             ] if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC') else [],
+
             # TLS Callbacks
-            'tls_callbacks': analyze_tls_callbacks(pe) if hasattr(pe, 'DIRECTORY_ENTRY_TLS') else {},
+            'tls_callbacks': analyze_tls_callbacks(pe),
+
+            # DOS Stub Analysis
+            'dos_stub': analyze_dos_stub(pe),
         }
 
         # Add numeric tag if provided

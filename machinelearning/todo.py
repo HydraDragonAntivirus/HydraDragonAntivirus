@@ -11,23 +11,6 @@
             return list(obj)  # Convert sets to lists for JSON serialization
         return obj
 
-    def _calculate_entropy(self, data: list) -> float:
-        """Calculate Shannon entropy of data (provided as a list of integers)."""
-        if not data:
-            return 0.0
-
-        total_items = len(data)
-        value_counts = [data.count(i) for i in range(256)]  # Count occurrences of each byte (0-255)
-
-        entropy = 0.0
-        for count in value_counts:
-            if count > 0:
-                # Calculate probability of each value and its contribution to entropy
-                p_x = count / total_items
-                entropy -= p_x * np.log2(p_x)
-
-        return entropy
-
     def extract_features(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Extract comprehensive PE file features."""
         if file_path in self.features_cache:
@@ -426,29 +409,6 @@
             return overlay_info
         except Exception as e:
             logging.error(f"Error analyzing overlay: {e}")
-            return {}
-
-    def _analyze_dos_stub(self, pe) -> Dict[str, Any]:
-        """Analyze DOS stub program."""
-        try:
-            dos_stub = {
-                'exists': False,
-                'size': 0,
-                'entropy': 0.0,
-            }
-
-            if hasattr(pe, 'DOS_HEADER'):
-                stub_offset = pe.DOS_HEADER.e_lfanew - 64  # Typical DOS stub starts after DOS header
-                if stub_offset > 0:
-                    dos_stub_data = pe.__data__[64:pe.DOS_HEADER.e_lfanew]
-                    if dos_stub_data:
-                        dos_stub['exists'] = True
-                        dos_stub['size'] = len(dos_stub_data)
-                        dos_stub['entropy'] = self._calculate_entropy(list(dos_stub_data))
-
-            return dos_stub
-        except Exception as e:
-            logging.error(f"Error analyzing DOS stub: {e}")
             return {}
 
     def __init__(self):
