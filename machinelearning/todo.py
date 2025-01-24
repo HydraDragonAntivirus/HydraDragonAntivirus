@@ -82,4 +82,3 @@
         except Exception as e:
             logging.error(f"Error during DIE analysis for {file_path}: {e}")
             return None
-            return None
