@@ -14,6 +14,7 @@ from difflib import SequenceMatcher
 import struct
 import ipaddress
 import hashlib
+import concurrent.futures
 
 script_dir = os.getcwd()
 
@@ -262,9 +263,6 @@ class PEAnalyzer:
 
             # DOS Stub analysis
             dos_stub = self._analyze_dos_stub(pe)
-
-            # Add anomaly detection
-            anomalies = self._detect_anomalies(pe)
 
             # Add packer detection
             packer_info = self._detect_packers(pe)
@@ -743,55 +741,6 @@ class PEAnalyzer:
             logging.error(f"Error analyzing DOS stub: {e}")
             return {}
 
-    def _detect_anomalies(self, pe) -> List[Dict[str, Any]]:
-        """Detect various PE file anomalies."""
-        try:
-            anomalies = []
-
-            # Check section alignment
-            if pe.OPTIONAL_HEADER.SectionAlignment < pe.OPTIONAL_HEADER.FileAlignment:
-                anomalies.append({
-                    'type': 'alignment',
-                    'description': 'Section alignment is smaller than file alignment',
-                    'severity': 'high'
-                })
-
-            # Check for suspicious section names
-            suspicious_sections = ['.text', '.data', '.rdata', '.idata', '.edata', '.pdata', '.rsrc', '.reloc']
-            for section in pe.sections:
-                section_name = section.Name.decode(errors='ignore').strip('\x00')
-                if section_name not in suspicious_sections:
-                    anomalies.append({
-                        'type': 'section_name',
-                        'description': f'Unusual section name: {section_name}',
-                        'severity': 'medium'
-                    })
-
-            # Check for suspicious characteristics
-            for section in pe.sections:
-                if section.Characteristics & 0xE0000000:  # Check if section is both writable and executable
-                    anomalies.append({
-                        'type': 'section_permissions',
-                        'description': f'Section {section.Name.decode(errors="ignore").strip()} has suspicious permissions',
-                        'severity': 'high'
-                    })
-
-            # Check for suspicious entry point
-            for section in pe.sections:
-                if (pe.OPTIONAL_HEADER.AddressOfEntryPoint >= section.VirtualAddress and
-                        pe.OPTIONAL_HEADER.AddressOfEntryPoint < (section.VirtualAddress + section.Misc_VirtualSize)):
-                    if section.Name.decode(errors='ignore').strip('\x00') != '.text':
-                        anomalies.append({
-                            'type': 'entry_point',
-                            'description': f'Entry point in unusual section: {section.Name.decode(errors="ignore").strip()}',
-                            'severity': 'high'
-                        })
-
-            return anomalies
-        except Exception as e:
-            logging.error(f"Error detecting anomalies: {e}")
-            return []
-
     def _detect_packers(self, pe) -> Dict[str, Any]:
         """Detect potential packer signatures."""
         try:
@@ -1177,172 +1126,82 @@ class PESignatureEngine:
         self.similarity_threshold = similarity_threshold  # Store threshold as an instance variable
 
     def _evaluate_rule(self, rule: dict, features: dict) -> dict:
-        """Enhanced rule evaluation with detailed debug logging."""
-        if not isinstance(rule, dict):
-            logging.error(f"Invalid rule format: {type(rule)}")
-            return {}
-
-        # Extract rule details (file_name and file_path are for the rule)
-        rule_file_name = rule.get('file_name', 'unknown_rule_file')
-        rule_file_path = rule.get('file_path', 'unknown_rule_path')
-
-        logging.debug(f"Starting evaluation of rule: {rule_file_name} for file: {rule_file_name} at {rule_file_path}")
-
-        # Log the rule and feature data to debug
-        logging.debug(f"Rule strings: {rule.get('strings', [])}")
-        logging.debug(f"Feature strings: {features.get('strings', [])}")
-        logging.debug(f"Rule imports: {rule.get('imports', [])}")
-        logging.debug(f"Feature imports: {features.get('imports', [])}")
-        logging.debug(f"Rule sections: {rule.get('sections', [])}")
-        logging.debug(f"Feature sections: {features.get('sections', [])}")
-
-        # Construct the result dictionary using rule's file info
+        """Evaluate malware rule with comprehensive classification."""
         result = {
-            "file_name": rule_file_name,  # Use rule's file_name
-            "file_path": rule_file_path,  # Use rule's file_path
-            "strings": [],
-            "imports": [],
-            "sections": [],
-            "anomalies": [],
+            "file_name": features.get('file_name', 'unknown'),
             "confidence_scores": {
-                "strings": 0.0,
-                "imports": 0.0,
-                "sections": 0.0,
-                "anomalies": 0.0
+                "malware_indicators": 0.0,
+                "benign_indicators": 0.0,
+                "total": 0.0
             },
-            "label": None,
-            "classification": None,
-            "overall_confidence": 0.0
+            "matches": {},
+            "classification": "unknown"
         }
 
-        try:
-            def process_matches(rule_items, feature_items):
-                """Helper function to process exact and near matches."""
-                total_items = len(rule_items)
-                exact_matches = []
-                near_matches = []
-                similarity_sum = 0.0
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            # Parallel feature extraction futures
+            pattern_future = executor.submit(self._extract_patterns, features)
+            section_future = executor.submit(self._analyze_sections, features)
+            import_future = executor.submit(self._analyze_imports, features)
 
-                for rule_item in rule_items:
-                    pattern_value = rule_item.get('value', '')
-                    best_match = None
-                    best_similarity = 0.0
+            # Collect results
+            result['matches']['patterns'] = pattern_future.result()
+            result['matches']['sections'] = section_future.result()
+            result['matches']['imports'] = import_future.result()
+            result['matches']['anomalies'] = anomaly_future.result()
 
-                    for feature_item in feature_items:
-                        feature_value = feature_item.get('value', '')
-                        similarity = calculate_string_similarity(pattern_value, feature_value)
+        # Malware Indicators Calculation
+        malware_indicators = (
+                len(result['matches']['patterns']) * 0.3 +
+                len(result['matches']['sections']) * 0.3 +
+                len(result['matches']['imports']) * 0.2 +
+                len(result['matches']['anomalies']) * 0.2
+        )
+        result['confidence_scores']['malware_indicators'] = malware_indicators
 
-                        logging.debug(f"Matching '{pattern_value}' with '{feature_value}' (Similarity: {similarity})")
+        # Benign Indicators Calculation
+        benign_indicators = self._calculate_benign_indicators(features)
+        result['confidence_scores']['benign_indicators'] = benign_indicators
 
-                        if similarity == 1.0:
-                            exact_matches.append({
-                                'pattern': pattern_value,
-                                'matched': feature_value,
-                                'offset': feature_item.get('offset'),
-                            })
-                            break
-                        elif similarity >= self.similarity_threshold and similarity > best_similarity:
-                            best_match = {
-                                'pattern': pattern_value,
-                                'matched': feature_value,
-                                'offset': feature_item.get('offset'),
-                                'similarity': similarity,
-                            }
-                            best_similarity = similarity
+        # Total Confidence and Classification
+        total_confidence = malware_indicators - benign_indicators
+        result['confidence_scores']['total'] = total_confidence
 
-                    if best_match:
-                        near_matches.append(best_match)
-                        similarity_sum += best_similarity
+        # Classification Logic
+        if total_confidence > 0.5:
+            result['classification'] = 'malware'
+        elif total_confidence < -0.5:
+            result['classification'] = 'benign'
+        else:
+            result['classification'] = 'unknown'
 
-                confidence = (
-                    (len(exact_matches) + similarity_sum) / total_items
-                    if total_items > 0 else 0.0
-                )
+        return result
 
-                return exact_matches, near_matches, confidence
+    def _calculate_benign_indicators(self, features: dict) -> float:
+        """Calculate benign indicators to offset malware score."""
+        base_features = features.get('base_features', {})
 
-            # Process strings (from rule and features)
-            rule_strings = rule.get('strings', [])
-            feature_strings = features.get('strings', [])
+        benign_score = 0.0
 
-            exact_strings, near_strings, string_confidence = process_matches(rule_strings, feature_strings)
-            result['strings'] = exact_strings + near_strings
-            result['confidence_scores']['strings'] = string_confidence
+        # Check for standard library imports
+        enhanced_analysis = base_features.get('enhanced_analysis', {})
+        imports = enhanced_analysis.get('patterns', {}).get('imports', {})
+        standard_libs = ['mscoree', 'kernel32', 'user32']
 
-            # Process imports (from rule and features)
-            rule_imports = rule.get('imports', [])
-            feature_imports = features.get('imports', [])
+        if any(lib in str(imports) for lib in standard_libs):
+            benign_score += 0.2
 
-            exact_imports, near_imports, import_confidence = process_matches(
-                [
-                    {
-                        'value': f"{imp.get('dll_name', '').lower()}::{imp_name.get('name', '')}"
-                    }
-                    for imp in rule_imports
-                    for imp_name in imp.get('imports', [])
-                ],
-                [
-                    {
-                        'value': f"{feat_imp.get('dll_name', '').lower()}::{feat_name.get('name', '')}",
-                        'offset': feat_name.get('address')
-                    }
-                    for feat_imp in feature_imports
-                    for feat_name in feat_imp.get('imports', [])
-                ]
-            )
+        # Low entropy sections
+        sections = enhanced_analysis.get('section_characteristics', {})
+        low_entropy_sections = [
+            section for section in sections.values()
+            if section.get('entropy', 0) < 3.0
+        ]
 
-            result['imports'] = exact_imports + near_imports
-            result['confidence_scores']['imports'] = import_confidence
+        if low_entropy_sections:
+            benign_score += 0.1
 
-            # Process sections (from rule and features)
-            rule_sections = rule.get('sections', [])
-            feature_sections = features.get('sections', {}).items()
-
-            exact_sections, near_sections, section_confidence = process_matches(
-                [
-                    {"value": f"{name}::{section.get('entropy', '')}::virtual_size::{section.get('virtual_size', 0)}"}
-                    for name, section in rule_sections
-                ],
-                [
-                    {"value": f"{name}::{section.get('entropy', '')}::virtual_size::{section.get('virtual_size', 0)}"}
-                    for name, section in feature_sections
-                ]
-            )
-
-            result['sections'] = exact_sections + near_sections
-            result['confidence_scores']['sections'] = section_confidence
-
-            # Detect anomalies based on suspicious section permissions
-            anomalies = []
-            for section_name, section_data in features.get('sections', {}).items():
-                if 'MEM_EXECUTE' in section_data.get('flags', {}) and 'MEM_READ' in section_data.get('flags', {}):
-                    if section_data['entropy'] > 4.5:
-                        anomalies.append({
-                            "type": "section_permissions",
-                            "description": f"Section {section_name} has suspicious permissions",
-                            "severity": "high"
-                        })
-
-            result['anomalies'] = anomalies
-            result['confidence_scores']['anomalies'] = len(anomalies) * 0.2  # Weight anomalies
-
-            # Calculate overall confidence based on all feature matches
-            overall_confidence = round(
-                (
-                        0.25 * result['confidence_scores']['strings'] +
-                        0.25 * result['confidence_scores']['imports'] +
-                        0.3 * result['confidence_scores']['sections'] +
-                        0.2 * result['confidence_scores']['anomalies']
-                ), 3
-            )
-
-            result['overall_confidence'] = overall_confidence
-
-            return result
-
-        except Exception as e:
-            logging.error(f"Error evaluating rule {rule_file_name}: {str(e)}")
-            return result
+        return benign_score
 
     def load_rules(self, rules_file: str) -> None:
         """Load rules from a JSON file and store them globally."""
