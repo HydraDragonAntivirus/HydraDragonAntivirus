@@ -1407,7 +1407,6 @@ class PESignatureEngine:
             logging.exception("Full traceback:")  # Add full traceback
             return [], features, 0.0
 
-
 def scan_action(args):
     """Handle the scan action with improved confidence handling."""
     if not args.file or not os.path.exists(args.file):
