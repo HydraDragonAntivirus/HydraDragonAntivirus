@@ -224,7 +224,6 @@ print(f"cryptography.hazmat.primitives.ciphers, Cipher, algorithms, modes module
 
 start_time = time.time()
 import debloat.processor
-from debloat.processor import RESULT_CODES
 print(f"debloat modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -881,7 +880,7 @@ def analyze_dos_stub(pe) -> Dict[str, Any]:
     except Exception as e:
         logging.error(f"Error analyzing DOS stub: {e}")
 
- def analyze_certificates(self, pe) -> Dict[str, Any]:
+ def analyze_certificates(pe) -> Dict[str, Any]:
     """Analyze security certificates."""
     try:
         cert_info = {}
@@ -1131,7 +1130,7 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
             ] if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC') else [],
 
             # Certificates
-            'certificates': self.analyze_certificates(pe),  # Analyze certificates
+            'certificates': analyze_certificates(pe),  # Analyze certificates
 
             # DOS Stub Analysis
             'dos_stub': analyze_dos_stub(pe),  # DOS stub analysis here
@@ -1152,17 +1151,17 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
             'bound_imports': analyze_bound_imports(pe),  # Bound imports analysis here
 
             # Section Characteristics
-            'section_characteristics': self.analyze_section_characteristics(pe),
+            'section_characteristics':analyze_section_characteristics(pe),
             # Section characteristics analysis here
 
             # Extended Headers
-            'extended_headers': self.analyze_extended_headers(pe),  # Extended headers analysis here
+            'extended_headers': analyze_extended_headers(pe),  # Extended headers analysis here
 
             # Rich Header
-            'rich_header': self.analyze_rich_header(pe),  # Rich header analysis here
+            'rich_header': analyze_rich_header(pe),  # Rich header analysis here
 
             # Overlay
-            'overlay': self.analyze_overlay(pe, file_path),  # Overlay analysis here
+            'overlay': analyze_overlay(pe, file_path),  # Overlay analysis here
         }
 
         # Add numeric tag if provided
@@ -5053,7 +5052,6 @@ def show_code_with_uncompyle6_pycdc(file_path, file_name):
 
         # Try to decompile the file using pycdc (even if uncompyle6 succeeded)
         pycdc_path = os.path.join(script_dir, "pycdc.exe")
-        pycdc_output_path = None
         if os.path.exists(pycdc_path):
             pycdc_output_path = run_pycdc_decompiler(file_path, pycdc_path, pycdc_dir)
         else:
@@ -5201,9 +5199,9 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
             # Call analyze_process_memory if the file is a PE file
             if pe_file:
                 logging.info(f"File {file_path} is identified as a PE file. Performing process memory analysis...")
-                analyze_process_memory(file_path)
+                saved_file_path = analyze_process_memory(file_path)
 
-                for saved_file_path in saved_file_paths:
+                if saved_file_path:
                     try:
                         scan_and_warn(saved_file_path)
                     except Exception as e:
@@ -5213,7 +5211,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
                 try:
                     if not flag_debloat:
                         logging.info(f"Debloating PE file {file_path} for faster scanning.")
-                        optimized_file_path = debloat_pe(file_path)
+                        optimized_file_path = debloat_pe_file(file_path)
                         if optimized_file_path:
                              logging.info(f"Debloated file saved at: {optimized_file_path}")
                              scan_and_warn(optimized_file_path, flag_debloat=True)
