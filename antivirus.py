@@ -794,6 +794,51 @@ def extract_infos(file_path, rank=None):
     else:
         return {'file_name': file_name}
 
+def analyze_tls_callbacks(pe: pefile.PE) -> Dict[str, Any]:
+    """Analyze TLS (Thread Local Storage) callbacks and extract relevant details."""
+    try:
+        tls_callbacks = {}
+        # Check if the PE file has a TLS directory
+        if hasattr(pe, 'DIRECTORY_ENTRY_TLS'):
+            tls = pe.DIRECTORY_ENTRY_TLS.struct
+            tls_callbacks = {
+                'start_address_raw_data': tls.StartAddressOfRawData,
+                'end_address_raw_data': tls.EndAddressOfRawData,
+                'address_of_index': tls.AddressOfIndex,
+                'address_of_callbacks': tls.AddressOfCallBacks,
+                'size_of_zero_fill': tls.SizeOfZeroFill,
+                'characteristics': tls.Characteristics,
+                'callbacks': []
+            }
+
+            # If there are callbacks, extract their addresses
+            if tls.AddressOfCallBacks:
+                callback_array = get_callback_addresses(pe, tls.AddressOfCallBacks)
+                if callback_array:
+                    tls_callbacks['callbacks'] = callback_array
+
+        return tls_callbacks
+    except Exception as e:
+        logging.error(f"Error analyzing TLS callbacks: {e}")
+        return {}
+
+def get_callback_addresses(pe: pefile.PE, address_of_callbacks: int) -> List[int]:
+    """Retrieve callback addresses from the TLS directory."""
+    try:
+        callback_addresses = []
+        # Read callback addresses from the memory-mapped file
+        while True:
+            callback_address = pe.get_dword_at_rva(address_of_callbacks - pe.OPTIONAL_HEADER.ImageBase)
+            if callback_address == 0:
+                break  # End of callback list
+            callback_addresses.append(callback_address)
+            address_of_callbacks += 4  # Move to the next address (4 bytes for DWORD)
+
+        return callback_addresses
+    except Exception as e:
+        logging.error(f"Error retrieving TLS callback addresses: {e}")
+        return []
+  
 def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Optional[Dict[str, Any]]:
     """
     Extract numeric features of a file using pefile.
@@ -893,35 +938,8 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
                 for entry in getattr(relocation, 'entries', [])
             ] if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC') else [],
             # TLS Callbacks
-            'tls_callbacks': {}
+            'tls_callbacks': analyze_tls_callbacks(pe) if hasattr(pe, 'DIRECTORY_ENTRY_TLS') else {},
         }
-
-        # TLS Callbacks Extraction
-        if hasattr(pe, 'DIRECTORY_ENTRY_TLS'):
-            tls = pe.DIRECTORY_ENTRY_TLS.struct
-            tls_callbacks = {
-                'start_address_raw_data': tls.StartAddressOfRawData,
-                'end_address_raw_data': tls.EndAddressOfRawData,
-                'address_of_index': tls.AddressOfIndex,
-                'address_of_callbacks': tls.AddressOfCallBacks,
-                'size_of_zero_fill': tls.SizeOfZeroFill,
-                'characteristics': tls.Characteristics,
-                'callbacks': []
-            }
-
-            # Extract callback addresses manually
-            address_of_callbacks = tls.AddressOfCallBacks
-            if address_of_callbacks:
-                callback_array = []
-                while True:
-                    callback_address = pe.get_dword_at_rva(address_of_callbacks)
-                    if callback_address == 0:
-                        break
-                    callback_array.append(callback_address)
-                    address_of_callbacks += 4
-                tls_callbacks['callbacks'] = callback_array
-
-            numeric_features['tls_callbacks'] = tls_callbacks
 
         # Add numeric tag if provided
         if rank is not None:
