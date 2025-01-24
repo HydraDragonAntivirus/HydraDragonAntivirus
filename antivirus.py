@@ -880,7 +880,6 @@ def analyze_dos_stub(pe) -> Dict[str, Any]:
         return dos_stub
     except Exception as e:
         logging.error(f"Error analyzing DOS stub: {e}")
-        return {}
 
  def analyze_certificates(self, pe) -> Dict[str, Any]:
     """Analyze security certificates."""
