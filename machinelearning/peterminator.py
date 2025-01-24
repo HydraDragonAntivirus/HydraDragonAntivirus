@@ -1111,7 +1111,6 @@ class PEAnalyzer:
             logging.error(f"Error analyzing PE file {file_path}: {e}")
             return None
 
-
 class PESignatureCompiler:
     def __init__(self):
         logging.info("PESignatureCompiler initialized.")
