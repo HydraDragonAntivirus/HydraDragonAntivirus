@@ -279,6 +279,9 @@ class PEFeatureExtractor:
                     for entry in getattr(relocation, 'entries', [])
                 ] if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC') else [],
     
+                # Certificates
+                'certificates': self.analyze_certificates(pe),  # Analyze certificates
+
                 # TLS Callbacks
                 'tls_callbacks': self.analyze_tls_callbacks(pe),
 

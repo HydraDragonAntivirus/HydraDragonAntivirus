@@ -879,6 +879,32 @@ def calculate_entropy(data: list) -> float:
 
     return entropy
  
+ def analyze_certificates(self, pe) -> Dict[str, Any]:
+    """Analyze security certificates."""
+    try:
+        cert_info = {}
+        if hasattr(pe, 'DIRECTORY_ENTRY_SECURITY'):
+            cert_info['virtual_address'] = pe.DIRECTORY_ENTRY_SECURITY.VirtualAddress
+            cert_info['size'] = pe.DIRECTORY_ENTRY_SECURITY.Size
+
+            # Extract certificate attributes if available
+            if hasattr(pe, 'VS_FIXEDFILEINFO'):
+                cert_info['fixed_file_info'] = {
+                    'signature': pe.VS_FIXEDFILEINFO.Signature,
+                    'struct_version': pe.VS_FIXEDFILEINFO.StrucVersion,
+                    'file_version': f"{pe.VS_FIXEDFILEINFO.FileVersionMS >> 16}.{pe.VS_FIXEDFILEINFO.FileVersionMS & 0xFFFF}.{pe.VS_FIXEDFILEINFO.FileVersionLS >> 16}.{pe.VS_FIXEDFILEINFO.FileVersionLS & 0xFFFF}",
+                    'product_version': f"{pe.VS_FIXEDFILEINFO.ProductVersionMS >> 16}.{pe.VS_FIXEDFILEINFO.ProductVersionMS & 0xFFFF}.{pe.VS_FIXEDFILEINFO.ProductVersionLS >> 16}.{pe.VS_FIXEDFILEINFO.ProductVersionLS & 0xFFFF}",
+                    'file_flags': pe.VS_FIXEDFILEINFO.FileFlags,
+                    'file_os': pe.VS_FIXEDFILEINFO.FileOS,
+                    'file_type': pe.VS_FIXEDFILEINFO.FileType,
+                    'file_subtype': pe.VS_FIXEDFILEINFO.FileSubtype,
+                }
+
+        return cert_info
+    except Exception as e:
+        logging.error(f"Error analyzing certificates: {e}")
+        return {}
+
 def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Optional[Dict[str, Any]]:
     """
     Extract numeric features of a file using pefile.
@@ -984,6 +1010,9 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
                 for entry in getattr(relocation, 'entries', [])
             ] if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC') else [],
 
+            # Certificates
+            'certificates': analyze_certificates(pe),  # Analyze certificates
+    
             # TLS Callbacks
             'tls_callbacks': analyze_tls_callbacks(pe),
 
