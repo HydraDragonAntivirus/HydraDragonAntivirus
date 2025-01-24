@@ -171,34 +171,6 @@
             logging.error(f"Error analyzing delay imports: {e}")
             return []
 
-    def _analyze_tls_callbacks(self, pe) -> Dict[str, Any]:
-        """Analyze TLS (Thread Local Storage) callbacks."""
-        try:
-            tls_callbacks = {}
-            if hasattr(pe, 'DIRECTORY_ENTRY_TLS'):
-                tls = pe.DIRECTORY_ENTRY_TLS.struct
-                tls_callbacks = {
-                    'start_address_raw_data': tls.StartAddressOfRawData,
-                    'end_address_raw_data': tls.EndAddressOfRawData,
-                    'address_of_index': tls.AddressOfIndex,
-                    'address_of_callbacks': tls.AddressOfCallBacks,
-                    'size_of_zero_fill': tls.SizeOfZeroFill,
-                    'characteristics': tls.Characteristics,
-                    'callbacks': []
-                }
-
-                # Extract callback addresses manually
-                address_of_callbacks = tls.AddressOfCallBacks
-                if address_of_callbacks:
-                    callback_array = self._get_callback_addresses(pe, address_of_callbacks)
-                    if callback_array:
-                        tls_callbacks['callbacks'] = callback_array
-
-            return tls_callbacks
-        except Exception as e:
-            logging.error(f"Error analyzing TLS callbacks: {e}")
-            return {}
-
     def _get_callback_addresses(self, pe, address_of_callbacks):
         """Extract callback addresses from the TLS structure."""
         callback_addresses = []
