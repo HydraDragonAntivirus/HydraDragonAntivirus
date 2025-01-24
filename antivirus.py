@@ -892,7 +892,36 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
                 for relocation in getattr(pe, 'DIRECTORY_ENTRY_BASERELOC', [])
                 for entry in getattr(relocation, 'entries', [])
             ] if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC') else [],
+            # TLS Callbacks
+            'tls_callbacks': {}
         }
+
+        # TLS Callbacks Extraction
+        if hasattr(pe, 'DIRECTORY_ENTRY_TLS'):
+            tls = pe.DIRECTORY_ENTRY_TLS.struct
+            tls_callbacks = {
+                'start_address_raw_data': tls.StartAddressOfRawData,
+                'end_address_raw_data': tls.EndAddressOfRawData,
+                'address_of_index': tls.AddressOfIndex,
+                'address_of_callbacks': tls.AddressOfCallBacks,
+                'size_of_zero_fill': tls.SizeOfZeroFill,
+                'characteristics': tls.Characteristics,
+                'callbacks': []
+            }
+
+            # Extract callback addresses manually
+            address_of_callbacks = tls.AddressOfCallBacks
+            if address_of_callbacks:
+                callback_array = []
+                while True:
+                    callback_address = pe.get_dword_at_rva(address_of_callbacks)
+                    if callback_address == 0:
+                        break
+                    callback_array.append(callback_address)
+                    address_of_callbacks += 4
+                tls_callbacks['callbacks'] = callback_array
+
+            numeric_features['tls_callbacks'] = tls_callbacks
 
         # Add numeric tag if provided
         if rank is not None:
