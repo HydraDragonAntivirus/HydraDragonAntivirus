@@ -1154,7 +1154,7 @@ class PESignatureCompiler:
             signature = {
                 "file_name": os.path.basename(file_name),
                 "file_path": normalized_path,
-                'md5': calculate_md5(file_path),
+                'md5': calculate_md5(normalized_path),
                 "label": rule_dict.get('label', 'unknown'),
                 "classification": rule_dict.get('classification', 'unknown')
             }
