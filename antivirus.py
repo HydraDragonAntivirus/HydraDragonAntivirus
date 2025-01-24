@@ -143,6 +143,10 @@ import ipaddress
 print(f"ipaddress module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+from urllib.parse import urlparse
+print(f"urlib.parse.urlparse module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import spacy
 print(f"spacy module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -215,7 +219,7 @@ import macholib.mach_o
 print(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from typing import Optional, Tuple, BinaryIO, Dict, Any
+from typing import Optional, Tuple, BinaryIO, Dict, Any, List
 print(f"typing, Optional, Tuple, BinaryIO, Dict and Any module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -369,6 +373,8 @@ os.makedirs(pycdc_dir, exist_ok=True)
 # Counter for ransomware detection
 ransomware_detection_count = 0 
 has_warned_ransomware = False  # Flag to check if ransomware warning has been issued
+
+file_paths = []  # List to store the file paths
 
 fileTypes = [".0", ".0nv", ".0rv", ".1", ".10", ".10-config", ".100", ".102", ".10nv", ".10rv", ".12", ".13", ".14", ".15", ".16", ".164", ".17", ".18", ".199", ".1cd", ".1m", ".2", ".20", ".21", ".25", ".2538)", ".25nv", ".25rv", ".26", ".27", ".28", ".29", ".3", ".30", ".32", ".34", ".386", ".39", ".3am", ".3ds", ".3fr", ".3g2", ".3gp", ".3gp2", ".3gpp", ".3mf", ".3ossl", ".4", ".5", ".58", ".59", ".6", ".60", ".62", ".7", ".72", ".74", ".7z", ".7zip", ".8", ".9", ".97", "._bsln140", "._bsln150", "._sln", "._sln100", "._sln110", "._sln120", "._sln140", "._sln150", "._sln160", "._sln170", "._sln60", "._sln70", "._sln71", "._sln80", "._sln90", "._vbxsln100", "._vbxsln110", "._vbxsln80", "._vbxsln90", "._vcppxsln100", "._vcppxsln110", "._vcppxsln80", "._vcppxsln90", "._vcsxsln100", "._vcsxsln110", "._vcsxsln80", "._vcsxsln90", "._vjsxsln80", "._vw8xsln110", "._vwdxsln100", "._vwdxsln110", "._vwdxsln120", "._vwdxsln140", "._vwdxsln150", "._vwdxsln80", "._vwdxsln90", "._vwinxsln120", "._vwinxsln140", "._vwinxsln150", "._wdxsln110", "._wdxsln120", "._wdxsln140", "._wdxsln150", ".a", ".a2s", ".aac", ".about", ".ac3", ".accda", ".accdb", ".accdc", ".accde", ".accdr", ".accdt", ".accdw", ".accelerant", ".accessor", ".accountpicture-ms", ".ace", ".addon-host", ".addonhost", ".adp", ".adt", ".adts", ".afm", ".ai", ".ai3", ".ai4", ".ai5", ".ai6", ".ai7", ".ai8", ".aif", ".aifc", ".aiff", ".all", ".am", ".ambdec", ".amr", ".amv", ".androidproj", ".ani", ".ans", ".apk", ".app", ".appcontent-ms", ".appinstaller", ".applescript", ".application", ".appref-ms", ".appx", ".appxbundle", ".aps", ".arc", ".ari", ".arj", ".art", ".arw", ".asa", ".asax", ".asc", ".ascx", ".asf", ".ashx", ".asm", ".asmx", ".asp", ".aspx", ".asx", ".atapi", ".au", ".audio", ".autoraise", ".avci", ".avcs", ".avi", ".avif", ".avifs", ".avs", ".awk", ".backup", ".bak", ".bas", ".base", ".bat", ".bay", ".bcp", ".be-bookmark", ".be-directory", ".be-elfexecutable", ".be-input_server", ".be-kmap", ".be-mail", ".be-maildraft", ".be-pepl", ".be-post", ".be-pref", ".be-prnt", ".be-psrv", ".be-query", ".be-querytemplate", ".be-root", ".be-symlink", ".be-trak", ".be-tskb", ".be-volume", ".be-work", ".beshare", ".bfd", ".bin", ".bios_ia32", ".bk", ".bkf", ".blf", ".blg", ".blob", ".bmp", ".boe", ".bsc", ".build", ".bz2", ".c", ".c5e2524a-ea46-4f67-841f-6a9465d9d515", ".ca", ".cab", ".cache", ".cache-8", ".camp", ".cap", ".cat", ".catalog", ".categories", ".cc", ".cda", ".cddl", ".cdmp", ".cdplus", ".cdrw", ".cdtext", ".cdx", ".cdxml", ".cer", ".cfg", ".cfm", ".cgm", ".ch", ".changes", ".chart", ".chart-template", ".chk", ".chm", ".cidtounicode", ".cjs", ".cld", ".clixml", ".clone", ".cls", ".cmake", ".cmd", ".cnf", ".cod", ".coffee", ".com", ".compositefont", ".compression", ".conf", ".conf.config", ".config", ".contact", ".copy", ".core", ".coverage", ".cpg", ".cpl", ".cpp", ".cppm", ".cr2", ".cr3", ".crl", ".crt", ".crw", ".cs", ".csa", ".csh", ".cshader", ".cshtml", ".csproj", ".css", ".csv", ".ct", ".cts", ".ctypes", ".cub", ".cur", ".cvd", ".cvs", ".cwp", ".cxx", ".d", ".dae", ".daq", ".dat", ".data", ".database", ".datasource", ".db", ".db-journal", ".db-shm", ".db-wal", ".dbf", ".dbg", ".dbs", ".dbx", ".dc3", ".dcm", ".dcr", ".dcs", ".dct", ".dctx", ".dctxc", ".dd", ".dds", ".de", ".def", ".default", ".deps", ".der", ".designer", ".desklink", ".deskthemepack", ".desktop", ".devhelp2", ".devicemanifest-ms", ".devicemetadata-ms", ".diagcab", ".diagcfg", ".diagpkg", ".diagsession", ".dib", ".dic", ".dict", ".dif", ".disco", ".diskt@2", ".dist", ".divx", ".diz", ".djvu", ".dl_", ".dll", ".dmg", ".dmp", ".dng", ".doc", ".docm", ".docx", ".doi", ".dos", ".dot", ".dotx", ".dpl", ".drf", ".drv", ".dsgl", ".dsh", ".dshader", ".dsn", ".dsp", ".dsw", ".dtcp-ip", ".dtd", ".dump", ".dvr-ms", ".dwg", ".dwt", ".e2x", ".eap", ".ec3", ".edmx", ".efi", ".eip", ".el", ".elf", ".eltorito", ".emf", ".eml", ".enc", ".eps", ".epsp", ".epub", ".erf", ".eterm", ".etl", ".etp", ".evt", ".evtx", ".ex_", ".example", ".exe", ".exif", ".exp", ".exr", ".ext", ".eyb", ".f", ".f4a", ".f4v", ".f90", ".falkon", ".faq", ".fbx", ".fd", ".fff", ".ffpreset", ".fh", ".fif", ".file", ".filters", ".finger", ".fish", ".fky", ".flac", ".fluid", ".flv", ".fnd", ".fnt", ".fon", ".formula", ".formula-template", ".fortune", ".fr", ".frag", ".ftp", ".fud", ".fx", ".generictest", ".genio", ".geo", ".gep", ".ghi", ".gif", ".gir", ".git", ".gitattributes", ".gitignore", ".gitmodules", ".glb", ".gltf", ".gmmp", ".gnome", ".gopher", ".gr", ".graft_dirs", ".graphics", ".graphics-template", ".group", ".grp", ".gsh", ".gshader", ".guess", ".gutenprint", ".gz", ".gzip", ".h", ".haiku-about", ".haiku-activitymonitor", ".haiku-app_server", ".haiku-appearance", ".haiku-aviftranslator", ".haiku-backgrounds", ".haiku-bfsaddon", ".haiku-bluetooth_server", ".haiku-bluetoothprefs", ".haiku-bmptranslator", ".haiku-bootmanager", ".haiku-butterflyscreensaver", ".haiku-cddb_lookup", ".haiku-charactermap", ".haiku-chartdemo", ".haiku-checkitout", ".haiku-clock", ".haiku-cmd-dstconfig", ".haiku-codycam", ".haiku-core-file", ".haiku-datatranslations", ".haiku-debug_server", ".haiku-debugger", ".haiku-debugnowscreensaver", ".haiku-deskbarpreferences", ".haiku-deskcalc", ".haiku-desklink", ".haiku-devices", ".haiku-diskprobe", ".haiku-diskusage", ".haiku-dns-resolver-server", ".haiku-dnsclientservice", ".haiku-drivesetup", ".haiku-ehci", ".haiku-expander", ".haiku-fataddon", ".haiku-filetypes", ".haiku-firstbootprompt", ".haiku-flurryscreensaver", ".haiku-fontdemo", ".haiku-fortune", ".haiku-ftpservice", ".haiku-giftranslator", ".haiku-glifescreensaver", ".haiku-glinfo", ".haiku-glteapot", ".haiku-gptdiskaddon", ".haiku-gravityscreensaver", ".haiku-haiku3d", ".haiku-haikudepot", ".haiku-hostname", ".haiku-hviftranslator", ".haiku-icnstranslator", ".haiku-icon", ".haiku-icon_o_matic", ".haiku-iconsscreensaver", ".haiku-icotranslator", ".haiku-ifsscreensaver", ".haiku-imap", ".haiku-input", ".haiku-installer", ".haiku-inteldiskaddon", ".haiku-ipv4interface", ".haiku-ipv6interface", ".haiku-jpeg2000translator", ".haiku-jpegtranslator", ".haiku-keyboardinputserverdevice", ".haiku-keymap", ".haiku-keymap-cli", ".haiku-keystore-cli", ".haiku-keystore_server", ".haiku-launch_daemon", ".haiku-launchbox", ".haiku-leavesscreensaver", ".haiku-libbe", ".haiku-libmail", ".haiku-libmedia", ".haiku-libpackage", ".haiku-libtextencoding", ".haiku-libtracker", ".haiku-locale", ".haiku-magnify", ".haiku-mail", ".haiku-mail2mbox", ".haiku-mail_utils-mail", ".haiku-mandelbrot", ".haiku-markas", ".haiku-markasread", ".haiku-matchheader", ".haiku-mbox2mail", ".haiku-media", ".haiku-mediaconverter", ".haiku-mediaplayer", ".haiku-messagescreensaver", ".haiku-midi_server", ".haiku-midiplayer", ".haiku-mount_server", ".haiku-mountvolume", ".haiku-nebulascreensaver", ".haiku-net_server", ".haiku-network", ".haiku-networkstatus", ".haiku-newmailnotification", ".haiku-nfs4_idmapper-server", ".haiku-notification_server", ".haiku-notifications", ".haiku-notify", ".haiku-ntfsdiskaddon", ".haiku-ohci", ".haiku-openterminal", ".haiku-overlayimage", ".haiku-package", ".haiku-package_daemon", ".haiku-packageinstaller", ".haiku-pairs", ".haiku-pcxtranslator", ".haiku-playground", ".haiku-playlist", ".haiku-pngtranslator", ".haiku-poorman", ".haiku-pop3", ".haiku-powermanagement", ".haiku-powerstatus", ".haiku-ppmtranslator", ".haiku-print-addon-server", ".haiku-processcontroller", ".haiku-psdtranslator", ".haiku-pulse", ".haiku-rawtranslator", ".haiku-registrar", ".haiku-remotedesktop", ".haiku-repositories", ".haiku-rtftranslator", ".haiku-screen", ".haiku-screenmode", ".haiku-screensaver", ".haiku-screenshot", ".haiku-screenshot-cli", ".haiku-sgitranslator", ".haiku-shelfscreensaver", ".haiku-shortcuts", ".haiku-showimage", ".haiku-smtp", ".haiku-softwareupdater", ".haiku-soundrecorder", ".haiku-sounds", ".haiku-spamfilter", ".haiku-spiderscreensaver", ".haiku-sshservice", ".haiku-stxttranslator", ".haiku-stylededit", ".haiku-sudoku", ".haiku-systemlogger", ".haiku-telnetservice", ".haiku-terminal", ".haiku-tgatranslator", ".haiku-tifftranslator", ".haiku-time", ".haiku-trackerpreferences", ".haiku-uhci", ".haiku-urlwrapper", ".haiku-usb", ".haiku-virtual-directory", ".haiku-virtualmemory", ".haiku-webpositive", ".haiku-webptranslator", ".haiku-wonderbrushtranslator", ".haiku-xhci", ".hdd", ".hdmp", ".hdp", ".heic", ".heics", ".heif", ".heifs", ".hekkel-pe-group", ".hfs_boot", ".hfs_magic", ".hh", ".hhc", ".hide", ".hif", ".hlp", ".hlsl", ".hlsli", ".hpkg", ".hpp", ".hqx", ".hsh", ".hshader", ".hta", ".htc", ".htm", ".html", ".htt", ".http", ".https", ".htw", ".htx", ".hxx", ".i", ".ibank", ".ibq", ".icc", ".icl", ".icm", ".ico", ".icon", ".icq", ".ics", ".idb", ".idl", ".idq", ".ids", ".idx", ".iff", ".ign2", ".igp", ".iiq", ".ilk", ".image", ".image-template", ".imc", ".imesx", ".img", ".in", ".in_", ".inc", ".indd", ".inf", ".info", ".info-1", ".info-2", ".info-3", ".info-4", ".info-5", ".info-6", ".info-7", ".ini", ".ink-vision", ".inl", ".input", ".interface", ".introspection", ".inv", ".inx", ".ipp", ".iso", ".iss", ".itrace", ".its", ".ivf", ".ixx", ".jar", ".jav", ".java", ".jbf", ".jfif", ".jnlp", ".job", ".jod", ".joliet", ".jpe", ".jpeg", ".jpg", ".js", ".jse", ".json", ".jsonld", ".jsp", ".jsproj", ".jspx", ".jsx", ".jxl", ".jxr", ".k25", ".kapix-koder", ".kci", ".kdc", ".kdmp", ".key", ".keytab", ".kmz", ".konsole", ".konsole-256color", ".kwm", ".l", ".label", ".lastbuildstate", ".latex", ".ldb", ".less", ".lesser", ".lfm", ".lgn", ".lgpl", ".lib", ".library-ms", ".lic", ".linux", ".linux-m1", ".linux-m1b", ".linux-m2", ".linux-s", ".lips3-compatible", ".lips4-compatible", ".list", ".ll", ".lnk", ".lo", ".loc", ".local", ".log", ".log1", ".log2", ".loop", ".lpcm", ".lpi", ".lpk", ".lpr", ".lst", ".lzh", ".m14", ".m1v", ".m2t", ".m2ts", ".m2v", ".m3u", ".m3u8", ".m4", ".m4a", ".m4b", ".m4f", ".m4p", ".m4r", ".m4v", ".macosx", ".mailto", ".mak", ".malinen-wpa_supplicant", ".man", ".manifest", ".map", ".mapimail", ".master", ".max", ".mcp", ".md", ".mda", ".mdb", ".mdc", ".mde", ".mdf", ".mdmp", ".mdw", ".media-server", ".media_addon", ".mef", ".mesh", ".metainfo", ".mfcribbon-ms", ".mgc", ".mhr", ".mht", ".mhtml", ".mid", ".midi", ".mimeset", ".minitel1", ".minitel1-nb", ".minitel12-80", ".minitel1b", ".minitel1b-80", ".minitel1b-nb", ".minitel2-80", ".mjs", ".mk", ".mk3d", ".mka", ".mkhybrid", ".mkv", ".mlc", ".mlterm", ".mlterm-256color", ".mmf", ".mms", ".mo", ".mod", ".module", ".modulemap", ".mos", ".mov", ".movie", ".mp-xpdf", ".mp2", ".mp2v", ".mp3", ".mp4", ".mp4v", ".mpa", ".mpe", ".mpeg", ".mpegurl", ".mpg", ".mpg4", ".mpv", ".mpv2", ".mrw", ".mrxvt", ".ms-excel", ".ms-lockscreencomponent-primary", ".ms-powerpoint", ".ms-windows-store-license", ".ms-works", ".ms-xpsdocument", ".msc", ".msepub", ".msg", ".msi", ".msix", ".msixbundle", ".msm", ".msn", ".msp", ".msrcincident", ".msstyles", ".msu", ".mts", ".mtx", ".multi", ".mv", ".mxf", ".mydocs", ".myi", ".myname-myapp", ".nametounicode", ".nanorc", ".natvis", ".ncb", ".ndb", ".ndmp", ".nef", ".net", ".netperf", ".nettrace", ".news", ".nexus-keymapswitcher", ".nfo", ".nfs", ".nls", ".nodeset", ".note", ".nrw", ".nupkg", ".nvr", ".nvram", ".o", ".obj", ".oc_", ".ocx", ".odc", ".odh", ".odl", ".odm", ".odp", ".ods", ".odt", ".oetpl", ".oft", ".oga", ".ogg", ".ogm", ".ogv", ".ogx", ".old", ".old1", ".one", ".onepkg", ".onetoc2", ".opdownload", ".opentargetfolder", ".opt", ".opus", ".oqy", ".orderedtest", ".orf", ".ori", ".osdx", ".otf", ".ova", ".ovf", ".ovpn", ".oxps", ".p10", ".p12", ".p7b", ".p7c", ".p7m", ".p7r", ".p7s", ".pack", ".pak", ".pal", ".pam", ".parallel", ".paranoia", ".partial", ".pas", ".patchbay", ".pbk", ".pc", ".pcd", ".pch", ".pcl5-compatible", ".pcl6-compatible", ".pcp", ".pdb", ".pdf", ".pdfwriter", ".pds", ".pe", ".pef", ".pem", ".perfmoncfg", ".pfa", ".pfb", ".pfm", ".pfx", ".photoshop", ".php", ".php3", ".pic", ".pickle", ".pict", ".picture", ".pif", ".pkg", ".pkgdef", ".pkgundef", ".pko", ".pl", ".plg", ".pls", ".ply", ".pm", ".pma", ".pmc", ".pml", ".pmr", ".pnf", ".png", ".pnvm", ".po", ".pod", ".pot", ".potm", ".potx", ".pp", ".ppam", ".ppkg", ".pps", ".ppsm", ".ppt", ".pptm", ".pptx", ".prc", ".prep_boot", ".presentation", ".presentation-template", ".preview", ".prf", ".printer", ".printer-spool", ".printerexport", ".productive-document", ".properties", ".props", ".prs", ".ps", ".ps-compatible", ".ps1", ".ps1xml", ".psb", ".psc1", ".psd", ".psd1", ".psh", ".pshader", ".psm1", ".pssc", ".pst", ".ptx", ".pub", ".publishproj", ".pubxml", ".putty", ".putty-256color", ".putty-m1", ".putty-m1b", ".putty-m2", ".pwd", ".pxe_ia32", ".pxn", ".py", ".pyc", ".pyd", ".pyo", ".pyw", ".pyx", ".pyz", ".pyzw", ".qds", ".qm", ".qml", ".qmlc", ".qmltypes", ".qnotify-gate", ".qph", ".qt", ".qtconfigurator", ".qtsystraymanager", ".query", ".r3d", ".raf", ".rar", ".rat", ".raw", ".razor", ".rb", ".rc", ".rc2", ".rct", ".rdef", ".rdp", ".recipe", ".reg", ".regtrans-ms", ".renamecategories", ".reputation", ".res", ".resmoncfg", ".resourcedef", ".resw", ".resx", ".rev", ".rez", ".rgbe", ".rgs", ".rle", ".rll", ".rm", ".rmi", ".rmv", ".rmvb", ".rn-realmedia-vbr", ".rnc", ".rootinfo", ".route", ".rpc", ".rscsi", ".rsp", ".rss", ".rst", ".rsync", ".rtf", ".rtp", ".rtsp", ".ru", ".rul", ".rule", ".rules", ".ruleset", ".run", ".rw2", ".rwl", ".rwz", ".rxvt", ".s", ".safe", ".sample", ".sbr", ".sc2", ".scc", ".scd", ".scf", ".sch", ".scp", ".scr", ".screenblanker", ".scss", ".sct", ".sdl", ".search-ms", ".searchconnector-ms", ".sed", ".serialconnect", ".session", ".setmime", ".settingcontent-ms", ".settings", ".sf2", ".sfcache", ".sftp", ".sh", ".shproj", ".shtm", ".shtml", ".sie", ".sig", ".sit", ".sitemap", ".skin", ".skip", ".slk", ".sln", ".slnf", ".snd", ".snippet", ".snk", ".so", ".soe", ".sol", ".solaris-x86-ata-dma", ".solaris-x86-atapi-dma", ".solitairetheme8", ".sony", ".sor", ".sort", ".spam_probability_database", ".spamdbm", ".sparcboot", ".spc", ".spec", ".spreadsheet", ".spreadsheet-template", ".sql", ".sr2", ".sr_", ".src", ".srf", ".srw", ".ssh", ".sst", ".state", ".stl", ".stm", ".stvproj", ".sub", ".sum", ".summary", ".sun-lofi", ".sunx86boot", ".suo", ".supp", ".svc", ".svclog", ".svg", ".svgz", ".svn", ".svn+ssh", ".swf", ".swift", ".sy_", ".sym", ".symlink", ".sys", ".sys-old", ".sysk", ".t", ".tab", ".tar", ".targets", ".tbi", ".tbz2", ".tcc", ".tcl", ".tdl", ".telnet", ".teraterm", ".testrunconfig", ".testsettings", ".tex", ".text", ".text-master", ".text-template", ".text-web", ".textsearch", ".tgz", ".theme", ".themepack", ".thmx", ".thumb", ".thumbnailer", ".tif", ".tiff", ".tlb", ".tlh", ".tli", ".tlog", ".tm", ".tmp", ".tmpl", ".tod", ".torrent", ".tpsr", ".trg", ".trx", ".ts", ".tsp", ".tsv", ".tsx", ".tt", ".ttc", ".ttf", ".tts", ".tvc", ".tvlink", ".tvs", ".txt", ".txz", ".typelib", ".tzst", ".ucode", ".udf", ".udl", ".udt", ".uic", ".uitest", ".unicodemap", ".url", ".user", ".usr", ".uvu", ".vapi", ".vb", ".vbe", ".vbhtml", ".vbox", ".vbox-extpack", ".vbproj", ".vbs", ".vbx", ".vcf", ".vcproj", ".vcxitems", ".vcxproj", ".vdi", ".verify", ".vert", ".vhd", ".vhdpmem", ".vhdx", ".viw", ".vmac", ".vmba", ".vmdk", ".vmpl", ".vmsd", ".vmsn", ".vmss", ".vmt", ".vmtm", ".vmx", ".vmxf", ".vob", ".volmgt", ".vsct", ".vsglog", ".vsh", ".vshader", ".vsix", ".vsixlangpack", ".vsixmanifest", ".vsmdi", ".vsp", ".vsprops", ".vsps", ".vspscc", ".vss", ".vsscc", ".vssettings", ".vssscc", ".vstemplate", ".vsz", ".vte", ".vte-256color", ".vxd", ".w", ".wab", ".wallet", ".war", ".wav", ".wax", ".wbcat", ".wbi", ".wcx", ".wdp", ".wdq", ".weba", ".webm", ".webp", ".webpnp", ".website", ".whiteboard", ".whl", ".widget-plugin", ".winget", ".winmd", ".wll", ".wlt", ".wm", ".wma", ".wmd", ".wmdb", ".wmf", ".wmp", ".wms", ".wmv", ".wmx", ".wmz", ".worm", ".wpa", ".wpapk", ".wpd", ".wpl", ".wps", ".wri", ".wsb", ".wsc", ".wsdl", ".wsf", ".wsh", ".wsz", ".wtv", ".wtx", ".wvx", ".www", ".x", ".x3f", ".xa", ".xaml", ".xbap", ".xbn", ".xc", ".xce", ".xd", ".xdc", ".xdce", ".xde", ".xdr", ".xdw", ".xdwe", ".xe", ".xht", ".xhtml", ".xix", ".xla", ".xlam", ".xlb", ".xlc", ".xlk", ".xlm", ".xls", ".xlsb", ".xlsm", ".xlsx", ".xlt", ".xltm", ".xltx", ".xlw", ".xml", ".xn", ".xproj", ".xps", ".xr", ".xrm-ms", ".xs", ".xsc", ".xsce", ".xsd", ".xse", ".xsf", ".xsl", ".xslt", ".xss", ".xsw", ".xswe", ".xterm-256color", ".xterm-new", ".xterm-r6", ".xterm-xfree86", ".xu", ".xvid", ".xw", ".xwe", ".xz", ".y", ".yaml", ".yar", ".yara", ".yml", ".yrc", ".yuv", ".yy", ".z", ".z96", ".zfsendtotarget", ".zip", ".zip-o-matic", ".zoo", ".zpl", ".zst", "shtml"]
 
@@ -609,8 +615,6 @@ def is_jar_file(file_path):
     return False
 
 def extract_pe_sections(file_path: str):
-    file_paths = []  # List to store the file paths
-
     try:
         # Load the PE file
         pe = pefile.PE(file_path)
@@ -639,7 +643,8 @@ def extract_pe_sections(file_path: str):
             file_paths.append(section_file)  # Add the file path to the list
 
             # Scan and warn after saving the file
-            scan_and_warn(section_file)
+            for file_path in file_paths:
+                scan_and_warn(file_path)
 
         logging.info("Extraction completed successfully.")
         return file_paths  # Return the list of file paths
@@ -877,8 +882,8 @@ def analyze_dos_stub(pe) -> Dict[str, Any]:
                     dos_stub['entropy'] = calculate_entropy(list(dos_stub_data))
 
         return dos_stub
-    except Exception as e:
-        logging.error(f"Error analyzing DOS stub: {e}")
+    except Exception as ex:
+        logging.error(f"Error analyzing DOS stub: {ex}")
 
  def analyze_certificates(pe) -> Dict[str, Any]:
     """Analyze security certificates."""
@@ -1022,6 +1027,153 @@ def analyze_overlay(pe, file_path: str) -> Dict[str, Any]:
         return overlay_info
     except Exception as e:
         logging.error(f"Error analyzing overlay: {e}")
+        return {}
+
+def analyze_bound_imports(pe) -> List[Dict[str, Any]]:
+    """Analyze bound imports with robust error handling."""
+    try:
+        bound_imports = []
+        if hasattr(pe, 'DIRECTORY_ENTRY_BOUND_IMPORT'):
+            for bound_imp in pe.DIRECTORY_ENTRY_BOUND_IMPORT:
+                bound_import = {
+                    'name': bound_imp.name.decode() if bound_imp.name else None,
+                    'timestamp': bound_imp.struct.TimeDateStamp,
+                    'references': []
+                }
+
+                # Check if `references` exists
+                if hasattr(bound_imp, 'references') and bound_imp.references:
+                    for ref in bound_imp.references:
+                        reference = {
+                            'name': ref.name.decode() if ref.name else None,
+                            'timestamp': getattr(ref.struct, 'TimeDateStamp', None)
+                        }
+                        bound_import['references'].append(reference)
+                else:
+                    logging.warning(f"Bound import {bound_import['name']} has no references.")
+
+                bound_imports.append(bound_import)
+
+        return bound_imports
+    except Exception as e:
+        logging.error(f"Error analyzing bound imports: {e}")
+        return []
+
+def analyze_section_characteristics(pe) -> Dict[str, Dict[str, Any]]:
+    """Analyze detailed section characteristics."""
+    try:
+        characteristics = {}
+        for section in pe.sections:
+            section_name = section.Name.decode(errors='ignore').strip('\x00')
+            flags = section.Characteristics
+
+            # Decode section characteristics flags
+            section_flags = {
+                'CODE': bool(flags & 0x20),
+                'INITIALIZED_DATA': bool(flags & 0x40),
+                'UNINITIALIZED_DATA': bool(flags & 0x80),
+                'MEM_DISCARDABLE': bool(flags & 0x2000000),
+                'MEM_NOT_CACHED': bool(flags & 0x4000000),
+                'MEM_NOT_PAGED': bool(flags & 0x8000000),
+                'MEM_SHARED': bool(flags & 0x10000000),
+                'MEM_EXECUTE': bool(flags & 0x20000000),
+                'MEM_READ': bool(flags & 0x40000000),
+                'MEM_WRITE': bool(flags & 0x80000000)
+            }
+
+            characteristics[section_name] = {
+                'flags': section_flags,
+                'entropy': calculate_entropy(list(section.get_data())),
+                'size_ratio': section.SizeOfRawData / pe.OPTIONAL_HEADER.SizeOfImage if pe.OPTIONAL_HEADER.SizeOfImage else 0,
+                'pointer_to_raw_data': section.PointerToRawData,
+                'pointer_to_relocations': section.PointerToRelocations,
+                'pointer_to_line_numbers': section.PointerToLinenumbers,
+                'number_of_relocations': section.NumberOfRelocations,
+                'number_of_line_numbers': section.NumberOfLinenumbers,
+            }
+
+        return characteristics
+    except Exception as e:
+        logging.error(f"Error analyzing section characteristics: {e}")
+        return {}
+
+def analyze_extended_headers(pe) -> Dict[str, Any]:
+    """Analyze extended header information."""
+    try:
+        headers = {
+            'dos_header': {
+                'e_magic': pe.DOS_HEADER.e_magic,
+                'e_cblp': pe.DOS_HEADER.e_cblp,
+                'e_cp': pe.DOS_HEADER.e_cp,
+                'e_crlc': pe.DOS_HEADER.e_crlc,
+                'e_cparhdr': pe.DOS_HEADER.e_cparhdr,
+                'e_minalloc': pe.DOS_HEADER.e_minalloc,
+                'e_maxalloc': pe.DOS_HEADER.e_maxalloc,
+                'e_ss': pe.DOS_HEADER.e_ss,
+                'e_sp': pe.DOS_HEADER.e_sp,
+                'e_csum': pe.DOS_HEADER.e_csum,
+                'e_ip': pe.DOS_HEADER.e_ip,
+                'e_cs': pe.DOS_HEADER.e_cs,
+                'e_lfarlc': pe.DOS_HEADER.e_lfarlc,
+                'e_ovno': pe.DOS_HEADER.e_ovno,
+                'e_oemid': pe.DOS_HEADER.e_oemid,
+                'e_oeminfo': pe.DOS_HEADER.e_oeminfo
+            },
+            'nt_headers': {}
+        }
+
+        # Ensure NT_HEADERS exists and contains FileHeader
+        if hasattr(pe, 'NT_HEADERS') and pe.NT_HEADERS is not None:
+            nt_headers = pe.NT_HEADERS
+            if hasattr(nt_headers, 'FileHeader'):
+                headers['nt_headers'] = {
+                    'signature': nt_headers.Signature,
+                    'machine': nt_headers.FileHeader.Machine,
+                    'number_of_sections': nt_headers.FileHeader.NumberOfSections,
+                    'time_date_stamp': nt_headers.FileHeader.TimeDateStamp,
+                    'characteristics': nt_headers.FileHeader.Characteristics
+                }
+
+        return headers
+    except Exception as e:
+        logging.error(f"Error analyzing extended headers: {e}")
+        return {}
+
+def serialize_data(data) -> Any:
+    """Serialize data for output, ensuring compatibility."""
+    try:
+        return list(data) if data else None
+    except Exception:
+        return None
+
+def analyze_rich_header(pe) -> Dict[str, Any]:
+    """Analyze Rich header details."""
+    try:
+        rich_header = {}
+        if hasattr(pe, 'RICH_HEADER') and pe.RICH_HEADER is not None:
+            rich_header['checksum'] = getattr(pe.RICH_HEADER, 'checksum', None)
+            rich_header['values'] = serialize_data(pe.RICH_HEADER.values)
+            rich_header['clear_data'] = serialize_data(pe.RICH_HEADER.clear_data)
+            rich_header['key'] = serialize_data(pe.RICH_HEADER.key)
+            rich_header['raw_data'] = serialize_data(pe.RICH_HEADER.raw_data)
+
+            # Decode CompID and build number information
+            compid_info = []
+            for i in range(0, len(pe.RICH_HEADER.values), 2):
+                if i + 1 < len(pe.RICH_HEADER.values):
+                    comp_id = pe.RICH_HEADER.values[i] >> 16
+                    build_number = pe.RICH_HEADER.values[i] & 0xFFFF
+                    count = pe.RICH_HEADER.values[i + 1]
+                    compid_info.append({
+                        'comp_id': comp_id,
+                        'build_number': build_number,
+                        'count': count
+                    })
+            rich_header['comp_id_info'] = compid_info
+
+        return rich_header
+    except Exception as e:
+        logging.error(f"Error analyzing Rich header: {e}")
         return {}
 
 def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Optional[Dict[str, Any]]:
@@ -3592,7 +3744,7 @@ existing_projects = []
 # List of already scanned files and their modification times
 scanned_files = []
 file_mod_times = {}
-directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, nuitka_source_code_dir, memory_dir, debloated_dir]
+directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, nuitka_source_code_dir, memory_dir, debloat_dir]
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""

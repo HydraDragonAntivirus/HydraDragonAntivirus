@@ -400,6 +400,13 @@ class PEFeatureExtractor:
             logging.error(f"Error analyzing extended headers: {e}")
             return {}
 
+    def serialize_data(data) -> Any:
+    """Serialize data for output, ensuring compatibility."""
+        try:
+            return list(data) if data else None
+        except Exception:
+            return None
+
     def _analyze_rich_header(self, pe) -> Dict[str, Any]:
         """Analyze Rich header details."""
         try:
