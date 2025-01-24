@@ -122,6 +122,10 @@ from datetime import timedelta
 print(f"datetime.timedelta modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import numpy as np
+print(f"numpy module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 
 from scapy.layers.inet import IP, TCP, UDP
 from scapy.layers.inet6 import IPv6
@@ -794,6 +798,22 @@ def extract_infos(file_path, rank=None):
     else:
         return {'file_name': file_name}
 
+def calculate_entropy(data: list) -> float:
+    """Calculate Shannon entropy of data (provided as a list of integers)."""
+    if not data:
+        return 0.0
+
+    total_items = len(data)
+    value_counts = [data.count(i) for i in range(256)]  # Count occurrences of each byte (0-255)
+
+    entropy = 0.0
+    for count in value_counts:
+        if count > 0:
+            p_x = count / total_items
+            entropy -= p_x * np.log2(p_x)
+
+    return entropy
+
 def analyze_tls_callbacks(pe: pefile.PE) -> Dict[str, Any]:
     """Analyze TLS (Thread Local Storage) callbacks and extract relevant details."""
     try:
@@ -862,23 +882,6 @@ def analyze_dos_stub(pe) -> Dict[str, Any]:
         logging.error(f"Error analyzing DOS stub: {e}")
         return {}
 
-def calculate_entropy(data: list) -> float:
-    """Calculate Shannon entropy of data (provided as a list of integers)."""
-    if not data:
-        return 0.0
-
-    total_items = len(data)
-    value_counts = [data.count(i) for i in range(256)]  # Count occurrences of each byte (0-255)
-
-    entropy = 0.0
-    for count in value_counts:
-        if count > 0:
-            # Calculate probability of each value and its contribution to entropy
-            p_x = count / total_items
-            entropy -= p_x * np.log2(p_x)
-
-    return entropy
- 
  def analyze_certificates(self, pe) -> Dict[str, Any]:
     """Analyze security certificates."""
     try:
@@ -903,6 +906,124 @@ def calculate_entropy(data: list) -> float:
         return cert_info
     except Exception as e:
         logging.error(f"Error analyzing certificates: {e}")
+        return {}
+
+def analyze_delay_imports(pe) -> List[Dict[str, Any]]:
+    """Analyze delay-load imports with error handling for missing attributes."""
+    try:
+        delay_imports = []
+        if hasattr(pe, 'DIRECTORY_ENTRY_DELAY_IMPORT'):
+            for entry in pe.DIRECTORY_ENTRY_DELAY_IMPORT:
+                imports = []
+                for imp in entry.imports:
+                    import_info = {
+                        'name': imp.name.decode() if imp.name else None,
+                        'address': imp.address,
+                        'ordinal': imp.ordinal,
+                    }
+                    imports.append(import_info)
+
+                delay_import = {
+                    'dll': entry.dll.decode() if entry.dll else None,
+                    'attributes': getattr(entry.struct, 'Attributes', None),
+                    'name': getattr(entry.struct, 'Name', None),
+                    'handle': getattr(entry.struct, 'Handle', None),
+                    'iat': getattr(entry.struct, 'IAT', None),
+                    'bound_iat': getattr(entry.struct, 'BoundIAT', None),
+                    'unload_iat': getattr(entry.struct, 'UnloadIAT', None),
+                    'timestamp': getattr(entry.struct, 'TimeDateStamp', None),
+                    'imports': imports
+                }
+                delay_imports.append(delay_import)
+
+        return delay_imports
+    except Exception as e:
+        logging.error(f"Error analyzing delay imports: {e}")
+        return []
+
+def analyze_load_config(pe) -> Dict[str, Any]:
+    """Analyze load configuration."""
+    try:
+        load_config = {}
+        if hasattr(pe, 'DIRECTORY_ENTRY_LOAD_CONFIG'):
+            config = pe.DIRECTORY_ENTRY_LOAD_CONFIG.struct
+            load_config = {
+                'size': config.Size,
+                'timestamp': config.TimeDateStamp,
+                'major_version': config.MajorVersion,
+                'minor_version': config.MinorVersion,
+                'global_flags_clear': config.GlobalFlagsClear,
+                'global_flags_set': config.GlobalFlagsSet,
+                'critical_section_default_timeout': config.CriticalSectionDefaultTimeout,
+                'decommit_free_block_threshold': config.DeCommitFreeBlockThreshold,
+                'decommit_total_free_threshold': config.DeCommitTotalFreeThreshold,
+                'security_cookie': config.SecurityCookie,
+                'se_handler_table': config.SEHandlerTable,
+                'se_handler_count': config.SEHandlerCount
+            }
+
+        return load_config
+    except Exception as e:
+        logging.error(f"Error analyzing load config: {e}")
+        return {}
+
+def analyze_relocations(pe) -> List[Dict[str, Any]]:
+    """Analyze base relocations with summarized entries."""
+    try:
+        relocations = []
+        if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC'):
+            for base_reloc in pe.DIRECTORY_ENTRY_BASERELOC:
+                entry_types = {}
+                offsets = []
+
+                for entry in base_reloc.entries:
+                    entry_types[entry.type] = entry_types.get(entry.type, 0) + 1
+                    offsets.append(entry.rva - base_reloc.struct.VirtualAddress)
+
+                reloc_info = {
+                    'virtual_address': base_reloc.struct.VirtualAddress,
+                    'size_of_block': base_reloc.struct.SizeOfBlock,
+                    'summary': {
+                        'total_entries': len(base_reloc.entries),
+                        'types': entry_types,
+                        'offset_range': (min(offsets), max(offsets)) if offsets else None
+                    }
+                }
+
+                relocations.append(reloc_info)
+
+        return relocations
+    except Exception as e:
+        logging.error(f"Error analyzing relocations: {e}")
+        return []
+
+def analyze_overlay(pe, file_path: str) -> Dict[str, Any]:
+    """Analyze file overlay (data appended after the PE structure)."""
+    try:
+        overlay_info = {
+            'exists': False,
+            'offset': 0,
+            'size': 0,
+            'entropy': 0.0
+        }
+
+        last_section = max(pe.sections, key=lambda s: s.PointerToRawData + s.SizeOfRawData)
+        end_of_pe = last_section.PointerToRawData + last_section.SizeOfRawData
+        file_size = os.path.getsize(file_path)
+
+        if file_size > end_of_pe:
+            with open(file_path, 'rb') as f:
+                f.seek(end_of_pe)
+                overlay_data = f.read()
+
+                overlay_info['exists'] = True
+                overlay_info['offset'] = end_of_pe
+                overlay_info['size'] = len(overlay_data)
+                overlay_info['entropy'] = calculate_entropy(list(overlay_data))
+
+        return overlay_info
+    except Exception as e:
+        logging.error(f"Error analyzing overlay: {e}")
         return {}
 
 def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Optional[Dict[str, Any]]:
@@ -1011,13 +1132,38 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
             ] if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC') else [],
 
             # Certificates
-            'certificates': analyze_certificates(pe),  # Analyze certificates
-    
-            # TLS Callbacks
-            'tls_callbacks': analyze_tls_callbacks(pe),
+            'certificates': self.analyze_certificates(pe),  # Analyze certificates
 
             # DOS Stub Analysis
-            'dos_stub': analyze_dos_stub(pe),
+            'dos_stub': analyze_dos_stub(pe),  # DOS stub analysis here
+
+            # TLS Callbacks
+            'tls_callbacks': analyze_tls_callbacks(pe),  # TLS callback analysis here
+
+            # Delay Imports
+            'delay_imports': analyze_delay_imports(pe),  # Delay imports analysis here
+
+            # Load Config
+            'load_config': analyze_load_config(pe),  # Load config analysis here
+
+            # Relocations
+            'relocations': analyze_relocations(pe),  # Relocations analysis here
+
+            # Bound Imports
+            'bound_imports': analyze_bound_imports(pe),  # Bound imports analysis here
+
+            # Section Characteristics
+            'section_characteristics': self.analyze_section_characteristics(pe),
+            # Section characteristics analysis here
+
+            # Extended Headers
+            'extended_headers': self.analyze_extended_headers(pe),  # Extended headers analysis here
+
+            # Rich Header
+            'rich_header': self.analyze_rich_header(pe),  # Rich header analysis here
+
+            # Overlay
+            'overlay': self.analyze_overlay(pe, file_path),  # Overlay analysis here
         }
 
         # Add numeric tag if provided
