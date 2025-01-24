@@ -50,6 +50,8 @@ COMMON_PE_STRINGS = {
     ".text", ".data", ".rdata", ".bss", ".idata", ".edata", ".rsrc", ".reloc"  # Common section names
 }
 
+machine_learning_rules = []
+
 def filter_meaningful_words(word_list: List[str]) -> List[str]:
     """
     Filter out non-English, meaningless strings, duplicates, and words shorter than 4 characters.
@@ -1114,7 +1116,6 @@ class PEAnalyzer:
 class PESignatureCompiler:
     def __init__(self):
         logging.info("PESignatureCompiler initialized.")
-        self.rules = []
 
     def add_rule(self, rule_content: dict) -> None:
         """Add a rule from content."""
@@ -1159,8 +1160,8 @@ class PESignatureCompiler:
             signature.update(rule_dict)
 
             # Check for duplicates before adding
-            if not any(existing_rule["file_path"] == signature["file_path"] for existing_rule in self.rules):
-                self.rules.append(signature)
+            if not any(existing_rule["file_path"] == signature["file_path"] for existing_rule in machine_learning_rules):
+                machine_learning_rules.append(signature)
                 logging.debug(f"Successfully added rule: {signature['file_name']}")
             else:
                 logging.warning(f"Skipping duplicate rule: {signature['file_name']}")
@@ -1173,7 +1174,6 @@ class PESignatureEngine:
         logging.info("PESignatureEngine initialized.")
         self.analyzer = PEAnalyzer()
         self.compiler = PESignatureCompiler()
-        self.rules = []
         self.similarity_threshold = similarity_threshold  # Store threshold as an instance variable
 
     def _evaluate_rule(self, rule: dict, features: dict) -> dict:
@@ -1345,15 +1345,16 @@ class PESignatureEngine:
             return result
 
     def load_rules(self, rules_file: str) -> None:
-        """Load rules from a JSON file."""
+        """Load rules from a JSON file and store them globally."""
         try:
             with open(rules_file, 'r') as f:
                 rules_data = json.load(f)
 
             if isinstance(rules_data, list):
+                # Add rules to the compiler
                 self.compiler.add_rule(rules_data)
 
-            logging.info(f"Loaded {len(self.compiler.rules)} rules")
+            logging.info(f"Loaded {len(machine_learning_rules)} rules globally.")
 
         except Exception as e:
             logging.error(f"Error loading rules from {rules_file}: {e}")
@@ -1377,10 +1378,10 @@ class PESignatureEngine:
                 return matches, features, overall_confidence
 
             # Add debug logging
-            logging.debug(f"Number of rules to evaluate: {len(self.compiler.rules)}")
+            logging.debug(f"Number of rules to evaluate: {len(machine_learning_rules)}")
 
             confidence_scores = []
-            for rule in self.compiler.rules:
+            for rule in machine_learning_rules:
                 result = self._evaluate_rule(rule, features)
                 logging.debug(f"Rule evaluation result: {result}")  # Add debug logging
 
@@ -1421,7 +1422,7 @@ def scan_action(args):
         signature_engine.load_rules(args.rules)
 
     # Check if any rules are loaded
-    if not signature_engine.compiler.rules:
+    if not machine_learning_rules:
         logging.error("No rules loaded. Please provide valid rules.")
         sys.exit(1)
 
