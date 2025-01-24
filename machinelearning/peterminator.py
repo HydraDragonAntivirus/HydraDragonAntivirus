@@ -1120,9 +1120,7 @@ class PESignatureCompiler:
     def add_rule(self, rule_content: dict) -> None:
         """Add a rule from content."""
         try:
-            if isinstance(rule_content, dict):
-                self.process_rule(rule_content)  # Process single rule
-            elif isinstance(rule_content, list):
+            if isinstance(rule_content, list):
                 for rule in rule_content:  # Process list of rules
                     if isinstance(rule, dict):
                         self.process_rule(rule)
@@ -1170,7 +1168,6 @@ class PESignatureCompiler:
 
         except Exception as e:
             logging.error(f"Error processing rule: {str(e)}")
-
 
 class PESignatureEngine:
     def __init__(self, similarity_threshold=0.9):
@@ -1355,8 +1352,7 @@ class PESignatureEngine:
                 rules_data = json.load(f)
 
             if isinstance(rules_data, list):
-                for rule in rules_data:
-                    self.compiler.add_rule(rule)
+                self.compiler.add_rule(rules_data)
 
             logging.info(f"Loaded {len(self.compiler.rules)} rules")
 
