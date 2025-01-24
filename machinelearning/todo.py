@@ -171,37 +171,33 @@
             logging.error(f"Error analyzing delay imports: {e}")
             return []
 
-    def _get_callback_addresses(self, pe, address_of_callbacks):
-        """Extract callback addresses from the TLS structure."""
-        callback_addresses = []
+    def _analyze_tls_callbacks(self, pe) -> Dict[str, Any]:
+        """Analyze TLS (Thread Local Storage) callbacks."""
         try:
-            # Ensure the address_of_callbacks is valid and within bounds
-            if address_of_callbacks is None or address_of_callbacks == 0:
-                logging.warning("Invalid address_of_callbacks: None or zero.")
-                return callback_addresses
+            tls_callbacks = {}
+            if hasattr(pe, 'DIRECTORY_ENTRY_TLS'):
+                tls = pe.DIRECTORY_ENTRY_TLS.struct
+                tls_callbacks = {
+                    'start_address_raw_data': tls.StartAddressOfRawData,
+                    'end_address_raw_data': tls.EndAddressOfRawData,
+                    'address_of_index': tls.AddressOfIndex,
+                    'address_of_callbacks': tls.AddressOfCallBacks,
+                    'size_of_zero_fill': tls.SizeOfZeroFill,
+                    'characteristics': tls.Characteristics,
+                    'callbacks': []
+                }
 
-            # Check if the address_of_callbacks is within a valid section
-            section = self._get_section_for_rva(pe, address_of_callbacks)
-            if section is None:
-                return callback_addresses
+                # Extract callback addresses manually
+                address_of_callbacks = tls.AddressOfCallBacks
+                if address_of_callbacks:
+                    callback_array = self._get_callback_addresses(pe, address_of_callbacks)
+                    if callback_array:
+                        tls_callbacks['callbacks'] = callback_array
 
-            # Read callback data from the section
-            callback_data = pe.get_data(address_of_callbacks, 8)  # Read 8 bytes (pointer size)
-            while callback_data:
-                callback_address = struct.unpack('<Q', callback_data[:8])[0]  # Unpack address
-                if callback_address:
-                    callback_addresses.append(callback_address)
-                callback_data = callback_data[8:]  # Move to the next callback address
+            return tls_callbacks
         except Exception as e:
-            logging.error(f"Error extracting callback addresses: {e}")
-        return callback_addresses
-
-    def _get_section_for_rva(self, pe, rva):
-        """Check if the RVA is within any section."""
-        for section in pe.sections:
-            if section.contains(rva):
-                return section
-        return None
+            logging.error(f"Error analyzing TLS callbacks: {e}")
+            return {}
 
     def _analyze_load_config(self, pe) -> Dict[str, Any]:
         """Analyze load configuration."""
