@@ -89,7 +89,8 @@ class PEFeatureExtractor:
                 exports.append(export_info)
         return exports
 
-    def extract_features(self, file_path: str, rank: Optional[int] = None, is_malicious: bool = False) -> Optional[Dict[str, Any]]:
+    def extract_features(self, file_path: str, rank: Optional[int] = None, is_malicious: bool = False) -> Optional[
+        Dict[str, Any]]:
         """Extract comprehensive PE file features."""
         if file_path in self.features_cache:
             return self.features_cache[file_path]
@@ -105,7 +106,6 @@ class PEFeatureExtractor:
                     'rank': rank,
                     'is_malicious': is_malicious
                 },
-                
                 'headers': {
                     'optional_header': {
                         'major_linker_version': pe.OPTIONAL_HEADER.MajorLinkerVersion,
@@ -130,14 +130,43 @@ class PEFeatureExtractor:
                         'characteristics': pe.FILE_HEADER.Characteristics,
                     }
                 },
-                
                 'sections': [self.extract_section_data(section) for section in pe.sections],
                 'imports': self.extract_imports(pe),
                 'exports': self.extract_exports(pe),
-                
                 'resources': [],
-                'debug_info': []
+                'debug_info': [],
+                'tls_callbacks': {}
             }
+
+            # Extract TLS callbacks
+            try:
+                if hasattr(pe, 'DIRECTORY_ENTRY_TLS'):
+                    tls = pe.DIRECTORY_ENTRY_TLS.struct
+                    tls_callbacks = {
+                        'start_address_raw_data': tls.StartAddressOfRawData,
+                        'end_address_raw_data': tls.EndAddressOfRawData,
+                        'address_of_index': tls.AddressOfIndex,
+                        'address_of_callbacks': tls.AddressOfCallBacks,
+                        'size_of_zero_fill': tls.SizeOfZeroFill,
+                        'characteristics': tls.Characteristics,
+                        'callbacks': []
+                    }
+
+                    # Extract callback addresses manually
+                    address_of_callbacks = tls.AddressOfCallBacks
+                    if address_of_callbacks:
+                        callback_array = []
+                        while True:
+                            callback_address = pe.get_dword_at_rva(address_of_callbacks)
+                            if callback_address == 0:
+                                break
+                            callback_array.append(callback_address)
+                            address_of_callbacks += 4
+                        tls_callbacks['callbacks'] = callback_array
+
+                    features['tls_callbacks'] = tls_callbacks
+            except Exception as e:
+                logging.error(f"Error analyzing TLS callbacks: {e}")
 
             # Extract resources
             if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
