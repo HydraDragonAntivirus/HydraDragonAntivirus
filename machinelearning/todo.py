@@ -1,16 +1,4 @@
 
-    def _serialize_data(self, obj):
-        """Recursively serialize data structures containing bytes."""
-        if isinstance(obj, dict):
-            return {key: self._serialize_data(value) for key, value in obj.items()}
-        elif isinstance(obj, list):
-            return [self._serialize_data(item) for item in obj]
-        elif isinstance(obj, bytes):
-            return self._bytes_to_hex(obj)
-        elif isinstance(obj, set):
-            return list(obj)  # Convert sets to lists for JSON serialization
-        return obj
-
     def extract_features(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Extract comprehensive PE file features."""
         if file_path in self.features_cache:
@@ -153,34 +141,6 @@
         except Exception as e:
             logging.error(f"Error analyzing delay imports: {e}")
             return []
-
-    def _analyze_tls_callbacks(self, pe) -> Dict[str, Any]:
-        """Analyze TLS (Thread Local Storage) callbacks."""
-        try:
-            tls_callbacks = {}
-            if hasattr(pe, 'DIRECTORY_ENTRY_TLS'):
-                tls = pe.DIRECTORY_ENTRY_TLS.struct
-                tls_callbacks = {
-                    'start_address_raw_data': tls.StartAddressOfRawData,
-                    'end_address_raw_data': tls.EndAddressOfRawData,
-                    'address_of_index': tls.AddressOfIndex,
-                    'address_of_callbacks': tls.AddressOfCallBacks,
-                    'size_of_zero_fill': tls.SizeOfZeroFill,
-                    'characteristics': tls.Characteristics,
-                    'callbacks': []
-                }
-
-                # Extract callback addresses manually
-                address_of_callbacks = tls.AddressOfCallBacks
-                if address_of_callbacks:
-                    callback_array = self._get_callback_addresses(pe, address_of_callbacks)
-                    if callback_array:
-                        tls_callbacks['callbacks'] = callback_array
-
-            return tls_callbacks
-        except Exception as e:
-            logging.error(f"Error analyzing TLS callbacks: {e}")
-            return {}
 
     def _analyze_load_config(self, pe) -> Dict[str, Any]:
         """Analyze load configuration."""
