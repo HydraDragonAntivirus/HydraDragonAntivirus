@@ -280,6 +280,7 @@ ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
 pycdc_path = os.path.join(script_dir, "pycdc.exe")
 malicious_file_names = os.path.join(script_dir, "machinelearning", "malicious_file_names.json")
 malicious_numeric_features = os.path.join(script_dir, "machinelearning", "malicious_numeric.pkl")
+benign_file_names = os.path.join(script_dir, "machinelearning", "benign_file_names.json")
 benign_numeric_features = os.path.join(script_dir, "machinelearning", "benign_numeric.pkl")
 yara_folder_path = os.path.join(script_dir, "yara")
 excluded_rules_dir = os.path.join(script_dir, "excluded")
@@ -2078,15 +2079,16 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
 
         # If malicious not detected, check for benign features
         if not is_malicious_machine_learning_ai:
-            for benign_features in benign_numeric_features:
+            for benign_features, info in zip(benign_numeric_features, benign_file_names):
                 similarity = calculate_similarity(file_numeric_features, benign_features)
                 if similarity > nearest_benign_similarity:
                     nearest_benign_similarity = similarity
+                    benign_definition = info['file_name']  # Store the benign file name for logging
 
             # If similarity exceeds threshold, return as benign (no malicious detected)
             if nearest_benign_similarity >= 0.93:
                 malware_definition = "Benign"
-                logging.info(f"File {file_path} is classified as benign with similarity: {nearest_benign_similarity}")
+                logging.info(f"File {file_path} is classified as benign (Benign Definition: {benign_definition}) with similarity: {nearest_benign_similarity}")
             else:
                 malware_definition = "Unknown"
                 logging.info(f"File {file_path} is classified as unknown with similarity: {nearest_benign_similarity}")
@@ -3637,9 +3639,17 @@ try:
     # Load malicious file names from JSON file
     with open(malicious_file_names, 'r') as malicious_file:
         malicious_file_names = json.load(malicious_file)
-        print("Machine Learning Definitions loaded!")
+        print("Machine Learning Malicious Definitions loaded!")
 except Exception as ex:
     print(f"Error loading malicious file names: {ex}")
+
+try:
+    # Load malicious file names from JSON file
+    with open(benign_file_names, 'r') as benign_file:
+        benign_file_names = json.load(benign_file)
+        print("Machine Learning Benign Definitions loaded!")
+except Exception as ex:
+    print(f"Error loading benign file names: {ex}")
 
 try:
     # Load malicious numeric features from pickle file

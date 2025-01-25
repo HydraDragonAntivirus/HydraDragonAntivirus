@@ -730,6 +730,9 @@ class DataProcessor:
         with open(self.output_dir / 'malicious_file_names.json', 'w') as f:
             json.dump([feat['file_info'] for feat in malicious_features], f, indent=2)
 
+        with open(self.output_dir / 'benign_file_names.json', 'w') as f:
+            json.dump([feat['file_info'] for feat in benign_features], f, indent=2)
+
         logging.info(f"Processing complete. Results saved in {self.output_dir}")
 
 def main():
