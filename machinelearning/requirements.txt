@@ -1,2 +1,4 @@
 joblib
 tqdm
+numpy
+pefile
