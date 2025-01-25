@@ -636,7 +636,7 @@ class DataProcessor:
     def _process_file(self, file_path: Path, rank: int, is_malicious: bool) -> Optional[Dict[str, Any]]:
         """Process a single PE file."""
         try:
-            return self.pe_extractor.extract_numeric_features(str(file_path), rank, is_malicious)
+            return self.pe_extractor.extract_numeric_features(str(file_path), rank)
         except Exception as e:
             logging.error(f"Error processing {file_path}: {str(e)}")
             self._move_problematic_file(file_path, is_malicious)
