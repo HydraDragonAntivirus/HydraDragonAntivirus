@@ -401,7 +401,7 @@ class PEFeatureExtractor:
             return {}
 
     def serialize_data(data) -> Any:
-    """Serialize data for output, ensuring compatibility."""
+        """Serialize data for output, ensuring compatibility."""
         try:
             return list(data) if data else None
         except Exception:
