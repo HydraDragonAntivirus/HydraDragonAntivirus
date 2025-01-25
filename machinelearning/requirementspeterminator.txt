@@ -1,4 +1,0 @@
-numpy
-pefile
-tqdm
-nltk

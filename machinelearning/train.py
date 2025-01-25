@@ -629,10 +629,21 @@ class DataProcessor:
         for directory in [self.problematic_dir, self.duplicates_dir, self.output_dir]:
             directory.mkdir(exist_ok=True, parents=True)
 
-    def _process_file(self, file_path: Path, rank: int, is_malicious: bool) -> Optional[Dict[str, Any]]:
+    def process_file(self, file_path: Path, rank: int, is_malicious: bool) -> Optional[Dict[str, Any]]:
         """Process a single PE file."""
         try:
-            return self.pe_extractor.extract_numeric_features(str(file_path), rank)
+            numeric_features = self.pe_extractor.extract_numeric_features(str(file_path), rank)
+
+            if numeric_features is not None:
+                numeric_features['file_info'] = {
+                    'filename': file_path.name,
+                    'path': str(file_path),
+                    'md5': self.pe_extractor._calculate_md5(str(file_path)),
+                    'size': file_path.stat().st_size,
+                    'is_malicious': is_malicious
+                }
+
+            return numeric_features
         except Exception as e:
             logging.error(f"Error processing {file_path}: {str(e)}")
             self._move_problematic_file(file_path, is_malicious)
@@ -674,7 +685,7 @@ class DataProcessor:
 
                         md5_hashes.add(file_md5)
                         md5_list.append(file_md5)
-                        futures.append(executor.submit(self._process_file, file_path, rank, is_malicious))
+                        futures.append(executor.submit(self.process_file, file_path, rank, is_malicious))
 
                     pbar.update(1)  # Increment progress bar after queuing file processing
 
