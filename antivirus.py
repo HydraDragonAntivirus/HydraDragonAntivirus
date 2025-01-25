@@ -5969,7 +5969,7 @@ class MonitorMessageCommandLine:
             "stopeventlog": {
                 "command": 'sc.exe stop eventlog',
                 "virus_name": "HEUR:Win32.StopEventLog.Generic",
-                "process_function": self.process_detected_commands_stop_eventlog
+                "process_function": self.process_detected_command_stop_eventlog
             },
             "koadic": {
                 "patterns": [
