@@ -1217,7 +1217,7 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
             'SizeOfHeapCommit': pe.OPTIONAL_HEADER.SizeOfHeapCommit,
             'LoaderFlags': pe.OPTIONAL_HEADER.LoaderFlags,
             'NumberOfRvaAndSizes': pe.OPTIONAL_HEADER.NumberOfRvaAndSizes,
-            
+
             # Section Headers
             'sections': [
                 {
@@ -1245,32 +1245,21 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
             ] if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT') else [],
 
             # Resources
+            # Resources
             'resources': [
                 {
-                    'type_id': resource_type.struct.Id,
-                    'resource_id': resource_id.struct.Id,
-                    'lang_id': resource_lang.struct.Id,
-                    'size': resource_lang.data.struct.Size,
-                    'codepage': resource_lang.data.struct.CodePage,
+                    'type_id': getattr(getattr(resource_type, 'struct', None), 'Id', None),
+                    'resource_id': getattr(getattr(resource_id, 'struct', None), 'Id', None),
+                    'lang_id': getattr(getattr(resource_lang, 'struct', None), 'Id', None),
+                    'size': getattr(getattr(resource_lang, 'data', None), 'Size', None),
+                    'codepage': getattr(getattr(resource_lang, 'data', None), 'CodePage', None),
                 }
-                for resource_type in getattr(pe, 'DIRECTORY_ENTRY_RESOURCE', {}).get('entries', [])
-                if hasattr(resource_type, 'directory')
-                for resource_id in getattr(resource_type.directory, 'entries', [])
-                if hasattr(resource_id, 'directory')
-                for resource_lang in getattr(resource_id.directory, 'entries', [])
-                if hasattr(resource_lang, 'data') and resource_lang.data.struct
+                for resource_type in
+                (pe.DIRECTORY_ENTRY_RESOURCE.entries if hasattr(pe.DIRECTORY_ENTRY_RESOURCE, 'entries') else [])
+                for resource_id in (resource_type.directory.entries if hasattr(resource_type, 'directory') else [])
+                for resource_lang in (resource_id.directory.entries if hasattr(resource_id, 'directory') else [])
+                if hasattr(resource_lang, 'data')
             ] if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE') else [],
-
-            # Debug Information
-            'debug': [
-                {
-                    'type': debug.struct.Type,
-                    'timestamp': debug.struct.TimeDateStamp,
-                    'version': f"{debug.struct.MajorVersion}.{debug.struct.MinorVersion}",
-                    'size': debug.struct.SizeOfData,
-                }
-                for debug in getattr(pe, 'DIRECTORY_ENTRY_DEBUG', [])
-            ] if hasattr(pe, 'DIRECTORY_ENTRY_DEBUG') else [],
 
             # Relocations
             'relocations': [
@@ -1304,8 +1293,7 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
             'bound_imports': analyze_bound_imports(pe),  # Bound imports analysis here
 
             # Section Characteristics
-            'section_characteristics':analyze_section_characteristics(pe),
-            # Section characteristics analysis here
+            'section_characteristics': analyze_section_characteristics(pe),  # Section characteristics analysis here
 
             # Extended Headers
             'extended_headers': analyze_extended_headers(pe),  # Extended headers analysis here

@@ -174,7 +174,7 @@ class PEFeatureExtractor:
 
         return entropy
 
-    def analyze_certificates(pe) -> Dict[str, Any]:
+    def analyze_certificates(self, pe) -> Dict[str, Any]:
         """Analyze security certificates."""
         try:
             cert_info = {}
@@ -200,7 +200,7 @@ class PEFeatureExtractor:
             logging.error(f"Error analyzing certificates: {e}")
             return {}
 
-    def _analyze_delay_imports(self, pe) -> List[Dict[str, Any]]:
+    def analyze_delay_imports(self, pe) -> List[Dict[str, Any]]:
         """Analyze delay-load imports with error handling for missing attributes."""
         try:
             delay_imports = []
@@ -233,7 +233,7 @@ class PEFeatureExtractor:
             logging.error(f"Error analyzing delay imports: {e}")
             return []
 
-    def _analyze_load_config(self, pe) -> Dict[str, Any]:
+    def analyze_load_config(self, pe) -> Dict[str, Any]:
         """Analyze load configuration."""
         try:
             load_config = {}
@@ -259,7 +259,7 @@ class PEFeatureExtractor:
             logging.error(f"Error analyzing load config: {e}")
             return {}
 
-    def _analyze_relocations(self, pe) -> List[Dict[str, Any]]:
+    def analyze_relocations(self, pe) -> List[Dict[str, Any]]:
         """Analyze base relocations with summarized entries."""
         try:
             relocations = []
@@ -290,7 +290,7 @@ class PEFeatureExtractor:
             logging.error(f"Error analyzing relocations: {e}")
             return []
 
-    def _analyze_bound_imports(self, pe) -> List[Dict[str, Any]]:
+    def analyze_bound_imports(self, pe) -> List[Dict[str, Any]]:
         """Analyze bound imports with robust error handling."""
         try:
             bound_imports = []
@@ -320,7 +320,7 @@ class PEFeatureExtractor:
             logging.error(f"Error analyzing bound imports: {e}")
             return []
 
-    def _analyze_section_characteristics(self, pe) -> Dict[str, Dict[str, Any]]:
+    def analyze_section_characteristics(self, pe) -> Dict[str, Dict[str, Any]]:
         """Analyze detailed section characteristics."""
         try:
             characteristics = {}
@@ -358,7 +358,7 @@ class PEFeatureExtractor:
             logging.error(f"Error analyzing section characteristics: {e}")
             return {}
 
-    def _analyze_extended_headers(self, pe) -> Dict[str, Any]:
+    def analyze_extended_headers(self, pe) -> Dict[str, Any]:
         """Analyze extended header information."""
         try:
             headers = {
@@ -400,23 +400,23 @@ class PEFeatureExtractor:
             logging.error(f"Error analyzing extended headers: {e}")
             return {}
 
-    def serialize_data(data) -> Any:
+    def serialize_data(self, data) -> Any:
         """Serialize data for output, ensuring compatibility."""
         try:
             return list(data) if data else None
         except Exception:
             return None
 
-    def _analyze_rich_header(self, pe) -> Dict[str, Any]:
+    def analyze_rich_header(self, pe) -> Dict[str, Any]:
         """Analyze Rich header details."""
         try:
             rich_header = {}
             if hasattr(pe, 'RICH_HEADER') and pe.RICH_HEADER is not None:
                 rich_header['checksum'] = getattr(pe.RICH_HEADER, 'checksum', None)
-                rich_header['values'] = self._serialize_data(pe.RICH_HEADER.values)
-                rich_header['clear_data'] = self._serialize_data(pe.RICH_HEADER.clear_data)
-                rich_header['key'] = self._serialize_data(pe.RICH_HEADER.key)
-                rich_header['raw_data'] = self._serialize_data(pe.RICH_HEADER.raw_data)
+                rich_header['values'] = self.serialize_data(pe.RICH_HEADER.values)
+                rich_header['clear_data'] = self.serialize_data(pe.RICH_HEADER.clear_data)
+                rich_header['key'] = self.serialize_data(pe.RICH_HEADER.key)
+                rich_header['raw_data'] = self.serialize_data(pe.RICH_HEADER.raw_data)
 
                 # Decode CompID and build number information
                 compid_info = []
@@ -437,7 +437,7 @@ class PEFeatureExtractor:
             logging.error(f"Error analyzing Rich header: {e}")
             return {}
 
-    def _analyze_overlay(self, pe, file_path: str) -> Dict[str, Any]:
+    def analyze_overlay(self, pe, file_path: str) -> Dict[str, Any]:
         """Analyze file overlay (data appended after the PE structure)."""
         try:
             overlay_info = {
@@ -510,7 +510,7 @@ class PEFeatureExtractor:
                 'SizeOfHeapCommit': pe.OPTIONAL_HEADER.SizeOfHeapCommit,
                 'LoaderFlags': pe.OPTIONAL_HEADER.LoaderFlags,
                 'NumberOfRvaAndSizes': pe.OPTIONAL_HEADER.NumberOfRvaAndSizes,
-                
+
                 # Section Headers
                 'sections': [
                     {
@@ -540,18 +540,17 @@ class PEFeatureExtractor:
                 # Resources
                 'resources': [
                     {
-                        'type_id': resource_type.struct.Id,
-                        'resource_id': resource_id.struct.Id,
-                        'lang_id': resource_lang.struct.Id,
-                        'size': resource_lang.data.struct.Size,
-                        'codepage': resource_lang.data.struct.CodePage,
+                        'type_id': getattr(getattr(resource_type, 'struct', None), 'Id', None),
+                        'resource_id': getattr(getattr(resource_id, 'struct', None), 'Id', None),
+                        'lang_id': getattr(getattr(resource_lang, 'struct', None), 'Id', None),
+                        'size': getattr(getattr(resource_lang, 'data', None), 'Size', None),
+                        'codepage': getattr(getattr(resource_lang, 'data', None), 'CodePage', None),
                     }
-                    for resource_type in getattr(pe, 'DIRECTORY_ENTRY_RESOURCE', {}).get('entries', [])
-                    if hasattr(resource_type, 'directory')
-                    for resource_id in getattr(resource_type.directory, 'entries', [])
-                    if hasattr(resource_id, 'directory')
-                    for resource_lang in getattr(resource_id.directory, 'entries', [])
-                    if hasattr(resource_lang, 'data') and resource_lang.data.struct
+                    for resource_type in
+                    (pe.DIRECTORY_ENTRY_RESOURCE.entries if hasattr(pe.DIRECTORY_ENTRY_RESOURCE, 'entries') else [])
+                    for resource_id in (resource_type.directory.entries if hasattr(resource_type, 'directory') else [])
+                    for resource_lang in (resource_id.directory.entries if hasattr(resource_id, 'directory') else [])
+                    if hasattr(resource_lang, 'data')
                 ] if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE') else [],
 
                 # Debug Information
@@ -575,39 +574,36 @@ class PEFeatureExtractor:
                     for entry in getattr(relocation, 'entries', [])
                 ] if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC') else [],
 
-            # Certificates
-            'certificates': self.analyze_certificates(pe),  # Analyze certificates
+                # Certificates
+                'certificates': self.analyze_certificates(pe),  # Analyze certificates
 
-            # DOS Stub Analysis
-            'dos_stub': self.analyze_dos_stub(pe),  # DOS stub analysis here
+                # DOS Stub Analysis
+                'dos_stub': self.analyze_dos_stub(pe),  # DOS stub analysis here
 
-            # TLS Callbacks
-            'tls_callbacks': self.analyze_tls_callbacks(pe),  # TLS callback analysis here
+                # TLS Callbacks
+                'tls_callbacks': self.analyze_tls_callbacks(pe),  # TLS callback analysis here
 
-            # Delay Imports
-            'delay_imports': self.analyze_delay_imports(pe),  # Delay imports analysis here
+                # Delay Imports
+                'delay_imports': self.analyze_delay_imports(pe),  # Delay imports analysis here
 
-            # Load Config
-            'load_config': self.analyze_load_config(pe),  # Load config analysis here
+                # Load Config
+                'load_config': self.analyze_load_config(pe),  # Load config analysis here
 
-            # Relocations
-            'relocations': self.analyze_relocations(pe),  # Relocations analysis here
+                # Bound Imports
+                'bound_imports': self.analyze_bound_imports(pe),  # Bound imports analysis here
 
-            # Bound Imports
-            'bound_imports': self.analyze_bound_imports(pe),  # Bound imports analysis here
+                # Section Characteristics
+                'section_characteristics': self.analyze_section_characteristics(pe),
+                # Section characteristics analysis here
 
-            # Section Characteristics
-            'section_characteristics': self.analyze_section_characteristics(pe),  # Section characteristics analysis here
+                # Extended Headers
+                'extended_headers': self.analyze_extended_headers(pe),  # Extended headers analysis here
 
-            # Extended Headers
-            'extended_headers': self.analyze_extended_headers(pe),  # Extended headers analysis here
+                # Rich Header
+                'rich_header': self.analyze_rich_header(pe),  # Rich header analysis here
 
-            # Rich Header
-            'rich_header': self.analyze_rich_header(pe),  # Rich header analysis here
-
-            # Overlay
-            'overlay': self.analyze_overlay(pe, file_path)  # Overlay analysis here
-
+                # Overlay
+                'overlay': self.analyze_overlay(pe, file_path)  # Overlay analysis here
             }
 
             # Add numeric tag if provided
