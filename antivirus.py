@@ -4365,7 +4365,6 @@ def is_ransomware(file_path):
     try:
         filename = os.path.basename(file_path)
         parts = filename.split('.')
-        
         logging.info(f"Checking ransomware conditions for file '{file_path}' with parts '{parts}'")
 
         # Check if there are multiple extensions
@@ -4383,16 +4382,36 @@ def is_ransomware(file_path):
         final_extension = '.' + parts[-1].lower()
         if final_extension not in fileTypes:
             logging.warning(f"File '{file_path}' has unrecognized final extension '{final_extension}', checking if it might be ransomware sign")
+            
             # Check if the file has a known extension or is readable
             if has_known_extension(file_path) or is_readable(file_path):
                 logging.info(f"File '{file_path}' is not ransomware")
                 return False
             else:
                 logging.warning(f"File '{file_path}' might be ransomware sign")
-                return True
+                
+                # Add Detect It Easy check at this stage
+                try:
+                    die_result = subprocess.run([detectiteasy_console_path, file_path], 
+                                                stdout=subprocess.PIPE, 
+                                                stderr=subprocess.PIPE, 
+                                                text=True)
+                    
+                    # Check Detect It Easy output
+                    if "Binary" in die_result.stdout and "Unknown: Unknown" in die_result.stdout:
+                        logging.warning(f"Detect It Easy confirmed suspicious file: {file_path}")
+                        return True
+                    else:
+                        logging.info(f"Detect It Easy did not confirm suspicious status for {file_path}")
+                        return False
+                
+                except Exception as die_ex:
+                    logging.error(f"Error running Detect It Easy for {file_path}: {die_ex}")
+                    return True
 
         logging.info(f"File '{file_path}' does not meet ransomware conditions")
         return False
+    
     except Exception as ex:
         logging.error(f"Error checking ransomware for file {file_path}: {ex}")
         return False
