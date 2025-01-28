@@ -79,7 +79,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - I used these projects to decompile.
 
 - https://github.com/starhopp3r/ML-Antivirus
-- https://huggingface.co/meta-llama/Llama-3.2-1B
+- https://huggingface.co/deepseek-ai/deepseek-coder-1.3b-instruct
 
 - I used these projects for AI.
 
@@ -142,7 +142,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - It's a false positive. It's a one-file compiled cx_Freeze file and contains the website, HIPS signatures without obfuscation. It's a fully open source product.
 
 **Why is it 5GB+?**
-- Because of website signatures, Ghidra, ClamAV and Java Development Kit. Website signatures are not very effective but they can detect old and new viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space. Java Development Kit is for Ghidra. That's 1GB+, but Llama3.2-1B and cx_Freeze (transformers, torch modules etc.) make a total of 5GB+. Note that it's a completely local and very professional open source antivirus.
+- Because of website signatures, Ghidra, ClamAV and Java Development Kit. Website signatures are not very effective but they can detect old and new viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space. Java Development Kit is for Ghidra. That's 1GB+, but DeepSeek-Coder-1.3b and cx_Freeze (transformers, torch modules etc.) make a total of 5GB+. Note that it's a completely local and very professional open source antivirus.
 
 **I get unexpected errors when using compiled YARA-X rules.**
 - I don't usually encounter this problem, please create an issue.
@@ -154,7 +154,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Windows 10 64-bit and Windows 11 only (you can run ClamAV, but you can't run HydraDragonAntivirus on Windows 8.1 and it's not supported). If you want, I can create a 32-bit version for Windows 10 32-bit, but I faced some problems. ClamAV has limitations on 32-bit, so it's problematic. On Windows 8.1, ClamAV isn't supported because it's an outdated Windows version. You will get the `api-ms-win-crt-runtime-l1-1-0.dll` error. Even if you add this DLL, you will get another error: "Application failed to start properly (0xc000007b)." Then install this: [Microsoft VC Redist](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170). After running `C:\Program Files\ClamAV\freshclam.exe` and `clamd.exe` with `clamd --install`, the setup is complete, but you can't run HydraDragonAntivirus on Windows 8.1 because you get an ImportError on line nine due to PySide6.
 
 **Minimum RAM?**
-- 8GB RAM is the minimum because I am using Llama3.2-1B locally. I strongly recommend 8GB RAM.
+- 8GB RAM is the minimum because I am using DeepSeek-Coder-1.3B locally. I strongly recommend 8GB RAM.
 
 **Any sponsors or supporters?**
 - Yes, there are supporters of this project. Xcitium (Comodo) has expressed interest in supporting this project by sending malware samples, and Cisco Talos ClamAV community projects.

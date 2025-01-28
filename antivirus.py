@@ -259,8 +259,8 @@ jar_extracted_dir = os.path.join(script_dir, "jar_extracted")
 dotnet_dir = os.path.join(script_dir, "dotnet")
 nuitka_dir = os.path.join(script_dir, "nuitka")
 pyintstaller_dir = os.path.join(script_dir, "pyinstaller")
-meta_llama_dir = os.path.join(script_dir, "meta-llama")
-llama3_dir = os.path.join(meta_llama_dir, "Llama-3.2-1B")
+deepseek_dir = os.path.join(script_dir, "deepseek")
+deepseek_1b_dir = os.path.join(deepseek_dir, "DeepSeek-Coder-1.3B")
 python_source_code_dir = os.path.join(script_dir, "pythonsourcecode")
 pycdc_dir = os.path.join(python_source_code_dir, "pycdc")
 nuitka_source_code_dir = os.path.join(script_dir, "nuitkasourcecode")
@@ -1595,9 +1595,9 @@ def notify_user_for_detected_command(message):
     notification.message = message
     notification.send()
     
-def notify_user_for_llama32(file_path, virus_name, malware_status):
+def notify_user_for_deepseek(file_path, virus_name, malware_status):
     notification = Notify()
-    notification.title = "Llama-3.2-1B Security Alert"
+    notification.title = "DeepSeek-Coder-1.3b Security Alert"  # Updated title
     
     if malware_status.lower() == "maybe":
         notification.message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
@@ -3713,29 +3713,31 @@ try:
 except Exception as ex:
     print(f"Error loading YARA-X rules: {ex}")
 
-# Function to load Llama-3.2-1B model and tokenizer
-def load_llama32_1b_model():
+# Function to load DeepSeek-Coder-1.3b model and tokenizer
+def load_deepseek_1b_model(deepseek_dir):
     try:
-        message = "Attempting to load Llama-3.2-1B model and tokenizer..."
+        deepseek_1b_dir = os.path.join(deepseek_dir, "DeepSeek-Coder-1.3B")
+        
+        message = "Attempting to load DeepSeek-Coder-1.3B model and tokenizer..."
         print(message)
         logging.info(message)
         
-        llama32_tokenizer = AutoTokenizer.from_pretrained(llama3_dir, local_files_only=True)
-        llama32_model = AutoModelForCausalLM.from_pretrained(llama3_dir, local_files_only=True)
+        deepseek_tokenizer = AutoTokenizer.from_pretrained(deepseek_1b_dir, local_files_only=True)
+        deepseek_model = AutoModelForCausalLM.from_pretrained(deepseek_1b_dir, local_files_only=True)
         
-        success_message = "Llama-3.2-1B successfully loaded!"
+        success_message = "DeepSeek-Coder-1.3B successfully loaded!"
         print(success_message)
         logging.info(success_message)
         
-        return llama32_model, llama32_tokenizer
+        return deepseek_model, deepseek_tokenizer
     except Exception as ex:
-        error_message = f"Error loading Llama-3.2-1B model or tokenizer: {ex}"
+        error_message = f"Error loading DeepSeek-Coder-1.3B model or tokenizer: {ex}"
         print(error_message)
         logging.error(error_message)
         sys.exit(1)
 
-# Load the Llama-3.2-1B model
-llama32_1b_model, llama32_1b_tokenizer = load_llama32_1b_model()
+# Load the DeepSeek-Coder-1.3B model
+deepseek_1b_model, deepseek_1b_tokenizer = load_deepseek_1b_model(deepseek_dir)
 
 # List to keep track of existing project names
 existing_projects = []
@@ -4652,22 +4654,48 @@ def log_directory_type(file_path):
     except Exception as ex:
         logging.error(f"Error logging directory type for {file_path}: {ex}")
 
-# Function to process the file and analyze it
-def scan_file_with_llama32(file_path):
+# Function to process the file and analyze it using DeepSeek-Coder-1.3b
+def scan_file_with_deepseek(file_path):
     try:
         # Log directory type based on the global variables
         if file_path.startswith(sandboxie_folder):
-            logging.info(f"{file_path}: It's a Sandbox environment file and not hex data.")
-        elif file_path.startswith(main_file_path):
-            logging.info(f"{file_path}: Main file and not hex data.")
+            logging.info(f"{file_path}: It's a Sandbox environment file.")
         elif file_path.startswith(decompile_dir):
-            logging.info(f"{file_path}: Decompiled and not hex data.")
+            logging.info(f"{file_path}: Decompiled.")
+        elif file_path.startswith(nuitka_dir):
+            logging.info(f"{file_path}: Nuitka onefile extracted.")
         elif file_path.startswith(dotnet_dir):
-            logging.info(f"{file_path}: .NET decompiled and not hex data.")
+            logging.info(f"{file_path}: .NET decompiled.")
+        elif file_path.startswith(pyinstaller_dir):
+            logging.info(f"{file_path}: PyInstaller onefile extracted.")
         elif file_path.startswith(commandlineandmessage_dir):
-            logging.info(f"{file_path}: Command line message extracted and not hex data.")
-        else:
-            logging.warning(f"{file_path}: File does not match known directories.")
+            logging.info(f"{file_path}: Command line message extracted.")
+        elif file_path.startswith(pe_extracted_dir):
+            logging.info(f"{file_path}: PE file extracted.")
+        elif file_path.startswith(zip_extracted_dir):
+            logging.info(f"{file_path}: ZIP extracted.")
+        elif file_path.startswith(seven_zip_extracted_dir):
+            logging.info(f"{file_path}: 7zip extracted.")
+        elif file_path.startswith(general_extracted_dir):
+            logging.info(f"{file_path}: all extractable files go here.")
+        elif file_path.startswith(tar_extracted_dir):
+            logging.info(f"{file_path}: TAR extracted.")
+        elif file_path.startswith(processed_dir):
+            logging.info(f"{file_path}: Processed - File is base64/base32, signature/magic bytes removed.")
+        elif file_path == main_file_path:  # Check for main file path
+            logging.info(f"{file_path}: This is the main file.")
+        elif file_path.startswith(memory_dir):
+            logging.info(f"{file_path}: It's a dynamic analysis memory dump file.")
+        elif file_path.startswith(debloat_dir):
+            logging.info(f"{file_path}: It's a debloated file dir.")
+        elif file_path.startswith(jar_extracted_dir):
+           logging.info(f"{file_path}: It's a directory containing extracted files from a JAR (Java Archive) file.")
+        elif file_path.startswith(pycdc_dir):
+            logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code directory with pycdc.exe.")
+        elif file_path.startswith(python_source_code_dir):
+            logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code directory with uncompyle6.")
+        elif file_path.startswith(nuitka_source_code_dir):
+            logging.info(f"{file_path}: It's a Nuitka reversed-engineered Python source code directory.")
 
         # Define initial message including directory types
         initial_message = (
@@ -4695,7 +4723,7 @@ def scan_file_with_llama32(file_path):
         )
 
         # Tokenize the initial message
-        initial_inputs = llama32_1b_tokenizer(initial_message, return_tensors="pt")
+        initial_inputs = deepseek_1b_tokenizer(initial_message, return_tensors="pt")
         initial_token_length = initial_inputs['input_ids'].shape[1]
 
         # Define token limits
@@ -4711,8 +4739,8 @@ def scan_file_with_llama32(file_path):
 
         try:
             # Read the file with UTF-8 encoding
-            with open(file_path, 'r', encoding="utf-8", errors="ignore") as llama_file:
-                for line in llama_file:
+            with open(file_path, 'r', encoding="utf-8", errors="ignore") as deepseek_file:
+                for line in deepseek_file:
                     if line_count < max_lines:
                         readable_file_content += line
                         line_count += 1
@@ -4723,12 +4751,12 @@ def scan_file_with_llama32(file_path):
             return None  # Handle error appropriately
 
         # Tokenize the readable file content
-        file_inputs = llama32_1b_tokenizer(readable_file_content, return_tensors="pt")
+        file_inputs = deepseek_1b_tokenizer(readable_file_content, return_tensors="pt")
         file_token_length = file_inputs['input_ids'].shape[1]
 
         # Truncate the file content to fit within the remaining tokens
         if file_token_length > remaining_tokens:
-            truncated_file_content = llama32_1b_tokenizer.decode(file_inputs['input_ids'][0, :remaining_tokens], skip_special_tokens=True)
+            truncated_file_content = deepseek_1b_tokenizer.decode(file_inputs['input_ids'][0, :remaining_tokens], skip_special_tokens=True)
         else:
             truncated_file_content = readable_file_content
 
@@ -4736,16 +4764,16 @@ def scan_file_with_llama32(file_path):
         combined_message = initial_message + f"File content:\n{truncated_file_content}\n"
 
         # Tokenize the combined message
-        inputs = llama32_1b_tokenizer(combined_message, return_tensors="pt")
+        inputs = deepseek_1b_tokenizer(combined_message, return_tensors="pt")
 
         # Generate the response with a limited number of tokens
         try:
-            response = accelerator.unwrap_model(llama32_1b_model).generate(
+            response = accelerator.unwrap_model(deepseek_1b_model).generate(
                 input_ids=inputs['input_ids'],
                 max_new_tokens=1000,  # Limit the number of tokens in the generated response
                 num_return_sequences=1
             )
-            response = llama32_1b_tokenizer.decode(response[0], skip_special_tokens=True).strip()
+            response = deepseek_1b_tokenizer.decode(response[0], skip_special_tokens=True).strip()
         except Exception as ex:
             logging.error(f"Error generating response: {ex}")
             return
@@ -4795,7 +4823,7 @@ def scan_file_with_llama32(file_path):
         except Exception as ex:
             logging.error(f"Error writing to log file {answer_log_path}: {ex}")
 
-        log_file_path = os.path.join(script_dir, "log", "Llama32-1B.log")
+        log_file_path = os.path.join(script_dir, "log", "DeepSeek-Coder-1.3b.log")
         try:
             with open(log_file_path, "a") as log_file:
                 log_file.write(final_response + "\n")
@@ -4805,12 +4833,12 @@ def scan_file_with_llama32(file_path):
         # If malware is detected (Maybe or Yes), notify the user
         if malware.lower() in ["maybe", "yes"]:
             try:
-                notify_user_for_llama32(file_path, virus_name, malware)
+                notify_user_for_deepseek(file_path, virus_name, malware)
             except Exception as ex:
                 logging.error(f"Error notifying user: {ex}")
 
     except Exception as ex:
-        logging.error(f"An unexpected error occurred in scan_file_with_llama32: {ex}")
+        logging.error(f"An unexpected error occurred in scan_file_with_deepseek: {ex}")
 
 def extract_and_return_pyinstaller(file_path):
     """
@@ -5415,14 +5443,14 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
             else:
                 logging.info(f"No Nuitka executable detected in {file_path}")
         else:
-            # If the file content is not valid hex data, perform scanning with Llama-3.2-1B
-            logging.info(f"File {file_path} does not contain valid hex-encoded data. Scanning with Llama-3.2-1B...")
+            # If the file content is not valid hex data, perform scanning with DeepSeek-Coder-1.3b
+            logging.info(f"File {file_path} does not contain valid hex-encoded data. Scanning with DeepSeek-Coder-1.3b...")
             try:
-                scan_thread = threading.Thread(target=scan_file_with_llama32, args=(file_path,))
+                scan_thread = threading.Thread(target=scan_file_with_deepseek, args=(file_path,))
                 scan_thread.start()
                 scan_thread.join()  # Wait for scanning to complete
             except Exception as ex:
-                logging.error(f"Error during scanning with Llama-3.2-1B for file {file_path}: {ex}")
+                logging.error(f"Error during scanning with DeepSeek-Coder-1.3b for file {file_path}: {ex}")
 
             # Scan for malware in real-time only for non-hex data
             logging.info(f"Performing real-time malware detection for non-hex data file: {file_path}...")
