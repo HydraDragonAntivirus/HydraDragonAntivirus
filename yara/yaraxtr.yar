@@ -4,6 +4,396 @@ import "console"
 import "macho"
 import "math"
 
+/*
+ This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
+*/
+import "pe"
+rule Possible_Emotet_DLL
+{
+   meta:
+        author = "Lucas Acha (http://www.lukeacha.com)"
+        description = "observed indicators Emotet DLL loaded into memory March 2022"
+  strings:
+      $htt1 = "MS Shell Dlg" wide
+      $mzh = "This program cannot be run in DOS mode"
+  condition:
+      (pe.imphash() == "066d4e2c6288c042d958ddc93cfa07f1" or pe.imphash() == "	38617efee413c2d5919637769ddb6a9") and $htt1 and $mzh
+}
+
+/*
+ This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
+*/
+rule HydraSeven_loader
+{
+   meta:
+        author = "Lucas Acha (http://www.lukeacha.com)"
+        description = "New custom loader observed since September 2023"
+        reference = "https://security5magics.blogspot.com/2023/10/interesting-customloader-observed-in.html" 
+  strings:
+      $mz = "MZ"
+      $astring1 = "app.dll" ascii
+      $wstring1 = "webView2" wide
+      $wstring2 = /https?:\/\/.{1,35}\/main/ wide
+      $d = "EmbeddedBrowserWebView.dll" wide
+  condition:
+    (($astring1 and $wstring1 and $wstring2) or ($d and $wstring2)) and $mz at 0 and filesize<1MB
+}
+/*
+ This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
+
+*/
+rule Jupyter_Infostealer_DLL
+{
+   meta:
+        author = "Lucas Acha (http://www.lukeacha.com)"
+        description = "observed wide strings with malicious DLL loaded by Jupyer malware"
+        reference = "http://security5magics.blogspot.com/2020/12/tracking-jupyter-malware.html" 
+  strings:
+      $reggie = /[0-9a-fA-F]{8}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{12}\.dll/ wide
+      $web = /https?:/ nocase wide
+      $negate1 = "saitek" nocase wide
+  condition:
+      ($reggie and $web) and not $negate1
+}
+/*
+ This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
+
+*/
+rule Jupyter_Infostealer_PowerShell
+{
+   meta:
+        author = "Lucas Acha (http://www.lukeacha.com)"
+        description = "observed powershell command strings"
+        reference = "http://security5magics.blogspot.com/2020/12/tracking-jupyter-malware.html" 
+  strings:
+      $a = /\[.\..\]::run\(\)/ nocase
+      $b = /\[.\..\]::run\(\)/ nocase wide
+      $c = "[Reflection.Assembly]::Load("
+      $d = /\[[a-zA-Z0-9\._]{25,45}\]::[a-zA-Z0-9\._]{10,25}\(\)/
+  condition:
+      ($a or $b) or ($c and $d)
+}
+/*
+ This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
+*/
+rule Jupyter_Infostealer_DLL_October2021
+{
+  meta:
+        author = "Lucas Acha (http://www.lukeacha.com)"
+        description = "observed wide strings with malicious DLL loaded by Jupyer malware"
+        reference = "https://squiblydoo.blog/2021/10/17/solarmarker-by-any-other-name/" 
+  strings:
+      $reggie = /[0-9a-fA-F]{32}\.dll/ wide
+      $web = /https?:/ nocase wide
+      $path = "appdata" nocase wide
+      $rsa = "RSAKeyValue" wide
+      $packer = "dzkabr"
+      $ps = "System.IO.File" wide
+  condition:
+      ($reggie and $web and $path) and ($rsa or $packer or $ps)
+}
+import "pe"
+
+rule Redline_Detection
+{
+   meta:
+      author = "Lucas Acha (http://www.lukeacha.com)"
+      description = "Observed with Redline Stealer injected DLL"
+  strings:
+      $htt1 = "System.Reflection.ReflectionContext" wide
+      $htt7 = "System.Runtime.Remoting" ascii
+      $htt8 = "AesCryptoServiceProvider" ascii
+      $htt9 = "DownloadString" ascii
+      $htt10 = "CheckRemoteDebuggerPresent" ascii
+      $htt6 = "System.IO.Compression" ascii
+      $mzh = "This program cannot be run in DOS mode"
+      $neg = "rsEngine.Utilities.dll" wide
+  condition:
+      (pe.imphash() == "dae02f32a21e03ce65412f6e56942daa") and all of ($htt*) and $mzh and filesize > 500KB and not $neg
+}
+/*
+ This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
+*/
+import "pe"
+rule Multifamily_RAT_Detection
+{
+   meta:
+        author = "Lucas Acha (http://www.lukeacha.com)"
+        description = "Generic Detection for multiple RAT families, PUPs, Packers and suspicious executables"
+  strings:
+      $htt1 = "WScript.Shell" wide
+      $htt2 = "Software\\Microsoft\\Windows\\CurrentVersion\\Run" wide
+      $htt3 = "\\nuR\\noisreVtnerruC\\swodniW" wide
+      $htt4 = "SecurityCenter2" wide
+      $htt5 = ":ptth" wide
+      $htt6 = ":sptth" wide
+      $htt7 = "System.Reflection" ascii
+      $htt8 = "ConfuserEx" ascii
+      $htt9 = ".NET Framework 4 Client Profile" ascii
+      $htt10 = "CreateEncryptor" ascii
+      $mzh = "This program cannot be run in DOS mode"
+  condition:
+      (pe.imphash() == "b8bb385806b89680e13fc0cf24f4431e" or pe.imphash() == "f34d5f2d4577ed6d9ceec516c1f5a744") and 3 of ($htt*) and $mzh
+}
+/*
+ This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
+
+*/
+rule Jupyter_Dropped_File
+{
+   meta:
+        author = "Lucas Acha (http://www.lukeacha.com)"
+        description = "observed wide strings with malicious DLL loaded by Jupyer malware"
+        reference = "http://security5magics.blogspot.com/2020/12/tracking-jupyter-malware.html" 
+  strings:
+      $a = "solarmarker.dat" nocase wide
+  condition:
+      all of them
+}
+/*
+ This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
+*/
+rule Possible_Solarmarker_Backdoor_Nov2023
+{
+   meta:
+        author = "Lucas Acha (http://www.lukeacha.com)"
+        description = "Observed strings in the latest obfuscated solarmarker backdoor dll."
+        reference = "https://security5magics.blogspot.com/2023/10/new-solarmarker-variant-october-2023.html" 
+  strings:
+    $a = /\x00<Module>\x00[a-zA-Z0-9]{40}/ ascii
+    $h1 = {54 68 72 65 61 64 00 53 6C 65 65 70}
+    $h2 = {54 68 72 65 61 64 00 53 74 61 72 74}
+    $b = /\x00Select\x00[a-zA-Z0-9_]{40}/ ascii
+    $c = "GenerateIV" ascii
+    $d = "$$method0x" ascii
+  condition:
+    $a and $b and $c and $d and ($h1 or $h2)
+}
+/*
+ This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
+  
+*/
+rule solarmarker_March2022
+{
+
+  meta:
+      author = "Lucas Acha (http://www.lukeacha.com)"
+      description = "observed strings with malicious DLL loaded by Soalrmarker Malware during March 2022 campaign"
+      reference = "http://security5magics.blogspot.com/2020/12/tracking-jupyter-malware.html" 
+  strings:
+      $mz = "MZ"
+      $off1 = { 59 d1 8c ?? 00 00 }
+      $hex2 = { 6c 58 11 07 6c 58 }
+      $hex3 = { 6c 5a 58 11 5c }
+      $hex4 = { 6c 59 11 ed 6c ?? }
+      $hex5 = { 6c 58 fe 0c 2? 01 6c }
+      $hex6 = { 6c 58 11 07 11 08 }
+      $hex7 = { 6c 5a 58 11 0? 6c }
+  condition:
+     ($off1 in (0x17d0..0x1a20) and 2 of ($hex*) and $mz at 0)
+}
+/*
+ This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
+*/
+rule Solarmarker_DLL_Jan2023
+{
+   meta:
+        author = "Lucas Acha (http://www.lukeacha.com)"
+        description = "Observed ASCII and Wide strings of obfuscated solarmarker dll"
+        reference = "http://security5magics.blogspot.com/2020/12/tracking-jupyter-malware.html" 
+  strings:
+      $mz = "MZ"
+      $wstring1 = "A+Aa+A" wide
+      $astring1 = "hkResult" ascii
+      $astring2 = "mscorlib" ascii
+      $astring3 = "System.Reflection" ascii
+      $astring4 = "CreateDecryptor" ascii
+      $astring5 = "ToBase64String" ascii
+  condition:
+     $mz at 0 and $wstring1 and 1 of ($astring*)
+}
+import "pe"
+/*
+ This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
+*/
+rule Solarmarker_Dropper
+{
+   meta:
+        author = "Lucas Acha (http://www.lukeacha.com)"
+        description = "Based on import hash and string observations with March 2022 solarmarker dropper"
+        reference = "http://security5magics.blogspot.com/2020/12/tracking-jupyter-malware.html" 
+  strings:
+      $htt1 = "PowerShell"
+	    $htt2 = "System.Collections.ObjectModel"
+      $htt3 = "System.Management.Automation"
+      $htt4 = ".NETFramework"
+      $htt5 = "HashAlgorithm"
+  condition:
+      pe.imphash() == "b8bb385806b89680e13fc0cf24f4431e" and 3 of ($htt*)
+}
+/*
+ This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
+*/
+rule Solarmarker_Packer
+{
+   meta:
+        author = "Lucas Acha (http://www.lukeacha.com)"
+        description = "observed possible packer in hexdump at specific offset ranges."
+        reference = "http://security5magics.blogspot.com/2020/12/tracking-jupyter-malware.html" 
+  strings:
+      $c = { 68 6b 65 79 00 70 61 63 6b 65 64 00 }
+  condition:
+      $c in (0x10000..0x30000) or $c in (0x50000..0x60000) or $c in (0x70000..0x90000)
+}
+
+/*
+ This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
+*/
+rule Solarmarker_Packer_2
+{
+   meta:
+        author = "Lucas Acha (http://www.lukeacha.com)"
+        description = "another version showing observed possible packer in hexdump at specific offset ranges."
+        reference = "http://security5magics.blogspot.com/2020/12/tracking-jupyter-malware.html" 
+  strings:
+      $mz = "MZ"
+      $off1 = { 68 6b 65 79 00 46 72 6f 6d 42 61 73 65 36 34} 
+      $off2 = { 70 61 63 6b 65 64 }
+  condition:
+     $off1 in (0x26000..0x32000) and $off2 in (0x26000..0x32000) and $mz at 0
+}
+/*
+ This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
+*/
+rule Solarmarker_Packer_Strings
+{
+   meta:
+        author = "Lucas Acha (http://www.lukeacha.com)"
+        description = "Observed ASCII and Wide strings of obfuscated solarmarker dll"
+        reference = "http://security5magics.blogspot.com/2020/12/tracking-jupyter-malware.html" 
+  strings:
+      $mz = "MZ"
+      $wstring1 = "zkabsr" wide
+      $astring1 = "keyPath" ascii
+      $astring2 = "hSection" ascii
+      $astring3 = "valueName" ascii
+      $astring4 = "StaticArrayInitTypeSize" ascii
+      $astring5 = "KeyValuePair" ascii
+  condition:
+     $mz at 0 and $wstring1 and 1 of ($astring*)
+}
+
+/*
+ This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
+*/
+rule Solarmarker_Packer_May_2023
+{
+   meta:
+        author = "Lucas Acha (http://www.lukeacha.com)"
+        description = "another version showing observed possible packer in hexdump at specific offset ranges."
+        reference = "http://security5magics.blogspot.com/2020/12/tracking-jupyter-malware.html" 
+  strings:
+      $mz = "MZ"
+      $off1 = { 41 1? ?? 00 ?? 00 61 1? ?? 00 }
+      $off2 = { 41 0? 23 00 ?? 00 61 0? 23 00 }
+      $astring1 = "IDisposable" ascii
+      $wstring1 = "0.0.0.0" wide
+  condition:
+     ($off1 in (0x80000..0x9FFFF) or $off2 in (0x72000..0x9FFFF)) and $astring1 and $wstring1 and $mz at 0 and filesize<1MB
+}
+/*
+ This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
+
+*/
+rule Suspicious_PS_Strings
+{
+   meta:
+        author = "Lucas Acha (http://www.lukeacha.com)"
+        description = "observed set of strings which are likely malicious, observed with Jupyter malware. "
+        reference = "http://security5magics.blogspot.com/2020/12/tracking-jupyter-malware.html" 
+    strings:
+        $a = "windowstyle=7" nocase
+        $b = "[system.io.file]:" nocase
+        $c = ":readallbytes" nocase
+        $d = "system.text.encoding]::" nocase
+        $e = "utf8.getstring" nocase
+        $f = "([system.convert]::" nocase
+        $g = "frombase64string" nocase
+        $h = "[system.reflection.assembly]::load" nocase
+        $i = "-bxor" nocase
+    condition:
+        6 of them
+}
+/*
+ This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
+*/
+import "pe"
+rule suspicious_obfuscated_script_detection
+{
+   meta:
+        author = "Lucas Acha (http://www.lukeacha.com)"
+        description = "Observed strings with suspicious AutoIT scripts"
+  strings:
+      $a = "NoTrayIcon" ascii
+      $b = "Global" ascii
+      $c = "StringTrimLeft" ascii
+      $d = "StringTrimRight" ascii
+      $e = "StringReverse" ascii
+  condition:
+      all of them and filesize < 3MB
+}
+/*
+ This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
+
+*/
+rule vbs_downloader_jan2021
+{
+   meta:
+        author = "Lucas Acha (http://www.lukeacha.com)"
+        description = "VBS downloader campaign appearing January 2021"
+	referencs = "http://security5magics.blogspot.com/2021/01/new-vbs-downloader-variant-observed.html"
+  strings:
+      $a = "vbSystemModal" nocase
+      $b = "programdata" nocase
+      $c = "regsvr32" nocase
+      $d = "objStream.Open" nocase
+      $e = "responseBody" nocase
+      $f = "a.setOption 2,13056" nocase
+  condition:
+      ($a and $b and $c and $d and $e) or $f
+}
+/*
+    Suspicious Powershell in weaponized word documents
+    Reference: 5c6148619abb10bb3789dcfb32f759a6
+*/
+rule suspicious_powershell_winword
+{
+    strings:
+        $a = {D0 CF 11 E0 A1 B1 1A E1 00 00 00 00 00}
+        $b = {4D 69 63 72 6F 73 6F 66 74 20 4F 66 66 69 63 65 20 57 6F 72 64 00}
+        $c = "powershell -e" nocase
+    condition:
+        all of them
+}
+/*
+ This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
+
+*/
+rule possible_wwlib_hijacking
+{
+   meta:
+        author = "Lucas Acha (http://www.lukeacha.com)"
+        description = "observed with campaigns such as APT32, this attempts to look for the archive files such as RAR."
+        reference = "040abac56542a2e0f384adf37c8f95b2b6e6ce3a0ff969e3c1d572e6b4053ff3" 
+    strings:
+        $a = "/wwlib.dll"
+        $neg1 = "This program cannot be run in DOS mode"
+        $neg2 = "Doctor Web"
+        $neg3 = "pandasecurity.com"
+    condition:
+        $a and not any of ($neg1,$neg2,$neg3)
+}
+
 rule HackTool_Python_Pyramid_Generic {
     meta:
         description = "Detects generic Pyramid-based Python hacktools using in-memory execution and encryption techniques"
