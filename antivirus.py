@@ -463,12 +463,12 @@ def query_md5_online_sync(md5_hash):
     """
     Queries an online database using the file's MD5 hash.
 
-    The response is interpreted (case-insensitively) as follows:
-      - If the result contains "[100% risk]malware", returns "100% risk Malware".
-      - If the result contains "0% risk safe", returns "0% risk Safe".
-      - If the result contains "this file is not yet rated", returns "Unknown".
-      - If the risk is between 1% and 99%, returns "PUP/PUA Detected" with details after "Detected as".
-      - Otherwise, returns "Unknown (Result)".
+    Risk Level (%)	Description
+        0	file is clean
+        10	file is clean (auto verdict)
+        70	malware suspicion
+        100	malware
+    Reference: https://api.nictasoft.com/api-file-20.php
     """
     try:
         md5_hash_upper = md5_hash.upper()
@@ -498,28 +498,13 @@ def query_md5_online_sync(md5_hash):
             if "this file is not yet rated" in result:
                 return "Unknown"
 
-            # PUP/PUA Check with "Detected as"
-            risk_match = re.search(r'(\d+)% risk.*?detected as ([\w\.-]+)', result)
-            if risk_match:
-                risk_percentage = int(risk_match.group(1))
-                detected_as = risk_match.group(2)
-                if 1 <= risk_percentage <= 99:
-                    return f"{risk_percentage}% risk PUP/PUA Detected as {detected_as}"
-
-            # If risk exists without "Detected as"
-            risk_match_simple = re.search(r'(\d+)% risk', result)
-            if risk_match_simple:
-                risk_percentage = int(risk_match_simple.group(1))
-                if 1 <= risk_percentage <= 99:
-                    return f"{risk_percentage}% risk PUP/PUA Detected"
-
             # Default Case
             return "Unknown (Result)"
         else:
             return "Unknown (API error)"
 
-    except Exception as e:
-        return f"Error: {e}"
+    except Exception as ex:
+        return f"Error: {ex}"
 
 def get_unique_output_path(output_dir: Path, base_name: str, suffix: int = 1) -> Path:
     """
