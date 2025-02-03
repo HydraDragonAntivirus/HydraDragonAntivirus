@@ -234,6 +234,14 @@ start_time = time.time()
 from pathlib import Path
 print(f"pathlib.Path module loaded in {time.time() - start_time:.6f} seconds")
 
+start_time = time.time()
+import hashlib
+print(f"hashlib module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import requests
+print(f"reqeusts module loaded in {time.time() - start_time:.6f} seconds")
+
 # Calculate and print total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
@@ -450,6 +458,68 @@ QFileDialog {
     color: #e0e0e0;
 }
 """
+
+def query_md5_online_sync(md5_hash):
+    """
+    Queries an online database using the file's MD5 hash.
+
+    The response is interpreted (case-insensitively) as follows:
+      - If the result contains "[100% risk]malware", returns "100% risk Malware".
+      - If the result contains "0% risk safe", returns "0% risk Safe".
+      - If the result contains "this file is not yet rated", returns "Unknown".
+      - If the risk is between 1% and 99%, returns "PUP/PUA Detected" with details after "Detected as".
+      - Otherwise, returns "Unknown (Result)".
+    """
+    try:
+        md5_hash_upper = md5_hash.upper()
+        url = f"https://www.nictasoft.com/ace/md5/{md5_hash_upper}"
+        response = requests.get(url)
+
+        if response.status_code == 200:
+            result = response.text.strip().lower()
+
+            # Malware Check (exact match)
+            if "[100% risk] malware" in result:
+                return "Malware"
+
+            # Safe Check (exact match)
+            if "[0% risk] safe" in result:
+                return "Benign"
+
+            # Safe Check (auto verdict)
+            if "[0% risk] safe" in result:
+                return "Benign (auto verdict)"
+
+            # Suspicious Check
+            if "[70% risk] safe" in result:
+                return "Suspicious"
+
+            # Unknown Check
+            if "this file is not yet rated" in result:
+                return "Unknown"
+
+            # PUP/PUA Check with "Detected as"
+            risk_match = re.search(r'(\d+)% risk.*?detected as ([\w\.-]+)', result)
+            if risk_match:
+                risk_percentage = int(risk_match.group(1))
+                detected_as = risk_match.group(2)
+                if 1 <= risk_percentage <= 99:
+                    return f"{risk_percentage}% risk PUP/PUA Detected as {detected_as}"
+
+            # If risk exists without "Detected as"
+            risk_match_simple = re.search(r'(\d+)% risk', result)
+            if risk_match_simple:
+                risk_percentage = int(risk_match_simple.group(1))
+                if 1 <= risk_percentage <= 99:
+                    return f"{risk_percentage}% risk PUP/PUA Detected"
+
+            # Default Case
+            return "Unknown (Result)"
+        else:
+            return "Unknown (API error)"
+
+    except Exception as e:
+        return f"Error: {e}"
 
 def get_unique_output_path(output_dir: Path, base_name: str, suffix: int = 1) -> Path:
     """
@@ -1294,8 +1364,204 @@ def scan_code_for_links(decompiled_code):
     for ip in ipv6_addresses:
         scan_ip_address_general(ip)
 
-# Generalized scan for domains
+def notify_user_nichta(file_path, virus_name, engine_detected):
+    """
+    Notify function for cloud analysis (Nichta) warnings.
+    Uses a different notification title or method as desired.
+    """
+    notification = Notify()  # Assuming Notify() is defined elsewhere
+    notification.title = "Nichta Cloud Analysis Alert"
+    notification.message = (f"Cloud analysis flagged the file:\n"
+                            f"Path: {file_path}\n"
+                            f"Risk: {virus_name}\n"
+                            f"Source: {engine_detected}")
+    notification.send()
 
+def notify_user(file_path, virus_name, engine_detected): 
+    notification = Notify()
+    notification.title = "Malware Alert"
+    notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
+    notification.send()
+
+def notify_user_pua(file_path, virus_name, engine_detected):
+    notification = Notify()
+    notification.title = "PUA Alert"
+    notification.message = f"PUA file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
+    notification.send()
+
+def notify_user_for_malicious_source_code(file_path, virus_name):
+    """
+    Sends a notification about malicious source code detected.
+    """
+    notification_title = f"Malicious Source Code detected: {virus_name}"
+    notification_message = f"Suspicious source code detected in: {file_path}\nVirus: {virus_name}"
+    logging.warning(notification_title)
+    logging.warning(notification_message)
+    print(notification_title)
+    print(notification_message)
+
+def notify_user_for_detected_command(message):
+    logging.warning(f"Notification: {message}")
+    notification = Notify()
+    notification.title = f"Malware Message Alert"
+    notification.message = message
+    notification.send()
+    
+def notify_user_for_deepseek(file_path, virus_name, malware_status):
+    notification = Notify()
+    notification.title = "DeepSeek-Coder-1.3b Security Alert"  # Updated title
+    
+    if malware_status.lower() == "maybe":
+        notification.message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
+    elif malware_status.lower() == "yes":
+        notification.message = f"Malware detected: {file_path}\nVirus: {virus_name}"
+
+    notification.send()
+
+def notify_size_warning(file_path, archive_type, virus_name):
+    """Send a notification for size-related warnings."""
+    notification = Notify()
+    notification.title = "Size Warning"
+    notification.message = (f"{archive_type} file {file_path} is smaller than 20MB but contains a large file "
+                            f"which might be suspicious. Virus Name: {virus_name}")
+    notification.send()
+
+def notify_rlo_warning(file_path, archive_type, virus_name):
+    """Send a notification for RLO-related warnings."""
+    notification = Notify()
+    notification.title = "RLO Warning"
+    notification.message = (f"Filename in {archive_type} file {file_path} contains RLO character after a dot. "
+                            f"This could indicate suspicious activity. Virus Name: {virus_name}")
+    notification.send()
+
+def notify_user_rlo(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Suspicious RLO Name Alert"
+    notification.message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+    
+def notify_user_for_detected_fake_system_file(file_path, file_name, virus_name):
+    notification = Notify()
+    notification.title = "Fake System File Alert"
+    notification.message = (
+        f"Fake system file detected:\n"
+        f"File Path: {file_path}\n"
+        f"File Name: {file_name}\n"
+        f"Threat: {virus_name}"
+    )
+    notification.send()
+
+def notify_user_for_detected_rootkit(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Rootkit Detection Alert"
+    notification.message = (
+        f"Potential rootkit file detected:\n"
+        f"File Path: {file_path}\n"
+        f"Threat: {virus_name}"
+    )
+    notification.send()
+
+def notify_user_invalid(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Invalid signature Alert"
+    notification.message = f"Invalid signature file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_ghidra(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Decompiled Malicious File Alert"
+    notification.message = f"Malicious decompiled file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_fake_size(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Fake Size Alert"
+    notification.message = f"Fake size file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_startup(file_path, message):
+    """Notify the user about suspicious or malicious startup files."""
+    notification = Notify()
+    notification.title = "Startup File Alert"
+
+    # Include file_path in the message
+    notification.message = f"File: {file_path}\n{message}"
+    notification.send()
+
+def notify_user_uefi(file_path, virus_name):
+    notification = Notify()
+    notification.title = "UEFI Malware Alert"
+    notification.message = f"Suspicious UEFI file detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_ransomware(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Ransomware Alert"
+    notification.message = f"Potential ransomware detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_hosts(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Host Hijacker Alert"
+    notification.message = f"Potential host hijacker detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_worm(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Worm Alert"
+    notification.message = f"Potential worm detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
+def notify_user_for_web(domain=None, ip_address=None, url=None, file_path=None, detection_type=None):
+    notification = Notify()
+    notification.title = "Malware or Phishing Alert"
+
+    # Build the notification message dynamically
+    message_parts = []
+    if detection_type:
+        message_parts.append(f"Detection Type: {detection_type}")
+    if domain:
+        message_parts.append(f"Domain: {domain}")
+    if ip_address:
+        message_parts.append(f"IP Address: {ip_address}")
+    if url:
+        message_parts.append(f"URL: {url}")
+    if file_path:
+        message_parts.append(f"File Path: {file_path}")
+
+    if message_parts:
+        notification.message = f"Phishing or Malicious activity detected:\n" + "\n".join(message_parts)
+    else:
+        notification.message = "Phishing or Malicious activity detected"
+
+    notification.send()
+
+def notify_user_for_hips(ip_address=None, dst_ip_address=None):
+    notification = Notify()
+    notification.title = "Malicious Activity Detected"
+    
+    if ip_address and dst_ip_address:
+        notification.message = f"Malicious activity detected:\nSource: {ip_address}\nDestination: {dst_ip_address}"
+    elif ip_address:
+        notification.message = f"Malicious activity detected:\nSource IP Address: {ip_address}"
+    elif dst_ip_address:
+        notification.message = f"Malicious activity detected:\nDestination IP Address: {dst_ip_address}"
+    else:
+        notification.message = "Malicious activity detected"
+    
+    notification.send()
+
+def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
+    """
+    Function to send notification for detected HIPS file.
+    """
+    notification = Notify()
+    notification.title = "Web Malware Alert For File"
+    notification.message = f"{status} file detected by Web related Message: {file_path}\nSource IP: {src_ip}\nAlert Line: {alert_line}"
+    notification.send()
+    print(f"Real-time web message notification: Detected {status} file {file_path} from {src_ip} with alert line: {alert_line}")
+
+# Generalized scan for domains
 def scan_domain_general(url):
     try:
         # First check if input is a URL or just a domain
@@ -1490,190 +1756,6 @@ def scan_ip_address_general(ip_address):
     except Exception as ex:
         logging.error(f"Error scanning IP address {ip_address}: {ex}")
         print(f"Error scanning IP address {ip_address}: {ex}")
-
-def notify_user(file_path, virus_name, engine_detected): 
-    notification = Notify()
-    notification.title = "Malware Alert"
-    notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
-    notification.send()
-
-def notify_user_pua(file_path, virus_name, engine_detected):
-    notification = Notify()
-    notification.title = "PUA Alert"
-    notification.message = f"PUA file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
-    notification.send()
-
-def notify_user_for_malicious_source_code(file_path, virus_name):
-    """
-    Sends a notification about malicious source code detected.
-    """
-    notification_title = f"Malicious Source Code detected: {virus_name}"
-    notification_message = f"Suspicious source code detected in: {file_path}\nVirus: {virus_name}"
-    logging.warning(notification_title)
-    logging.warning(notification_message)
-    print(notification_title)
-    print(notification_message)
-
-def notify_user_for_detected_command(message):
-    logging.warning(f"Notification: {message}")
-    notification = Notify()
-    notification.title = f"Malware Message Alert"
-    notification.message = message
-    notification.send()
-    
-def notify_user_for_deepseek(file_path, virus_name, malware_status):
-    notification = Notify()
-    notification.title = "DeepSeek-Coder-1.3b Security Alert"  # Updated title
-    
-    if malware_status.lower() == "maybe":
-        notification.message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
-    elif malware_status.lower() == "yes":
-        notification.message = f"Malware detected: {file_path}\nVirus: {virus_name}"
-
-    notification.send()
-
-def notify_size_warning(file_path, archive_type, virus_name):
-    """Send a notification for size-related warnings."""
-    notification = Notify()
-    notification.title = "Size Warning"
-    notification.message = (f"{archive_type} file {file_path} is smaller than 20MB but contains a large file "
-                            f"which might be suspicious. Virus Name: {virus_name}")
-    notification.send()
-
-def notify_rlo_warning(file_path, archive_type, virus_name):
-    """Send a notification for RLO-related warnings."""
-    notification = Notify()
-    notification.title = "RLO Warning"
-    notification.message = (f"Filename in {archive_type} file {file_path} contains RLO character after a dot. "
-                            f"This could indicate suspicious activity. Virus Name: {virus_name}")
-    notification.send()
-
-def notify_user_rlo(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Suspicious RLO Name Alert"
-    notification.message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-    
-def notify_user_for_detected_fake_system_file(file_path, file_name, virus_name):
-    notification = Notify()
-    notification.title = "Fake System File Alert"
-    notification.message = (
-        f"Fake system file detected:\n"
-        f"File Path: {file_path}\n"
-        f"File Name: {file_name}\n"
-        f"Threat: {virus_name}"
-    )
-    notification.send()
-
-def notify_user_for_detected_rootkit(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Rootkit Detection Alert"
-    notification.message = (
-        f"Potential rootkit file detected:\n"
-        f"File Path: {file_path}\n"
-        f"Threat: {virus_name}"
-    )
-    notification.send()
-
-def notify_user_invalid(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Invalid signature Alert"
-    notification.message = f"Invalid signature file detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-
-def notify_user_ghidra(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Decompiled Malicious File Alert"
-    notification.message = f"Malicious decompiled file detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-
-def notify_user_fake_size(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Fake Size Alert"
-    notification.message = f"Fake size file detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-
-def notify_user_startup(file_path, message):
-    """Notify the user about suspicious or malicious startup files."""
-    notification = Notify()
-    notification.title = "Startup File Alert"
-
-    # Include file_path in the message
-    notification.message = f"File: {file_path}\n{message}"
-    notification.send()
-
-def notify_user_uefi(file_path, virus_name):
-    notification = Notify()
-    notification.title = "UEFI Malware Alert"
-    notification.message = f"Suspicious UEFI file detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-
-def notify_user_ransomware(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Ransomware Alert"
-    notification.message = f"Potential ransomware detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-
-def notify_user_hosts(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Host Hijacker Alert"
-    notification.message = f"Potential host hijacker detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-
-def notify_user_worm(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Worm Alert"
-    notification.message = f"Potential worm detected: {file_path}\nVirus: {virus_name}"
-    notification.send()
-
-def notify_user_for_web(domain=None, ip_address=None, url=None, file_path=None, detection_type=None):
-    notification = Notify()
-    notification.title = "Malware or Phishing Alert"
-
-    # Build the notification message dynamically
-    message_parts = []
-    if detection_type:
-        message_parts.append(f"Detection Type: {detection_type}")
-    if domain:
-        message_parts.append(f"Domain: {domain}")
-    if ip_address:
-        message_parts.append(f"IP Address: {ip_address}")
-    if url:
-        message_parts.append(f"URL: {url}")
-    if file_path:
-        message_parts.append(f"File Path: {file_path}")
-
-    if message_parts:
-        notification.message = f"Phishing or Malicious activity detected:\n" + "\n".join(message_parts)
-    else:
-        notification.message = "Phishing or Malicious activity detected"
-
-    notification.send()
-
-def notify_user_for_hips(ip_address=None, dst_ip_address=None):
-    notification = Notify()
-    notification.title = "Malicious Activity Detected"
-    
-    if ip_address and dst_ip_address:
-        notification.message = f"Malicious activity detected:\nSource: {ip_address}\nDestination: {dst_ip_address}"
-    elif ip_address:
-        notification.message = f"Malicious activity detected:\nSource IP Address: {ip_address}"
-    elif dst_ip_address:
-        notification.message = f"Malicious activity detected:\nDestination IP Address: {dst_ip_address}"
-    else:
-        notification.message = "Malicious activity detected"
-    
-    notification.send()
-
-def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
-    """
-    Function to send notification for detected HIPS file.
-    """
-    notification = Notify()
-    notification.title = "Web Malware Alert For File"
-    notification.message = f"{status} file detected by Web related Message: {file_path}\nSource IP: {src_ip}\nAlert Line: {alert_line}"
-    notification.send()
-    print(f"Real-time web message notification: Detected {status} file {file_path} from {src_ip} with alert line: {alert_line}")
 
 # Function to load antivirus list
 def load_antivirus_list():
@@ -5216,21 +5298,63 @@ def show_code_with_uncompyle6_pycdc(file_path, file_name):
         logging.error(f"Error processing python file {file_path}: {ex}")
         return None, None
 
+# --- Main Scanning Function ---
 def scan_and_warn(file_path, flag=False, flag_debloat=False):
     """
-    Scans a file for potential issues, starting with attempting to extract it if possible.
-
+    Scans a file for potential issues, starting with an online cloud analysis
+    using the file's MD5 hash. If the cloud analysis indicates the file is clean,
+    no further scanning is done. If the file is flagged (malware/PUA), a warning
+    is sent via a dedicated notify_user_nichta function.
+    
     :param file_path: Path to the file or archive to scan.
     :param flag: Indicates if the file should be reprocessed even if already scanned.
-    :return: True if the scan was successful, False otherwise.
+    :return: True if the scan was successful (or the file was clean), False otherwise.
     """
     try:
         logging.info(f"Scanning file: {file_path}, Type: {type(file_path).__name__}")
 
-        # Check if the file_path is valid
+        # Ensure the file_path is a string
         if not isinstance(file_path, str):
             logging.error(f"Invalid file_path type: {type(file_path).__name__}")
             return False
+
+        # Ensure the file exists before proceeding
+        if not os.path.exists(file_path):
+            logging.error(f"File not found: {file_path}")
+            return False
+
+        # Read the file content once for hash calculation (and later if needed)
+        with open(file_path, 'rb') as scan_file:
+            data_content = scan_file.read()
+
+        # --- Cloud Analysis with Hash Calculation ---
+        file_md5 = hashlib.md5(data_content).hexdigest()
+        cloud_result = query_md5_online_sync(file_md5)
+        logging.info(f"Cloud analysis result for {file_path}: {cloud_result}")
+
+        # --- Decision Based on Cloud Analysis ---
+        if cloud_result == "Benign":
+            logging.info(f"File {file_path} flagged as benign (exact match) by cloud analysis. Skipping further scanning.")
+            return False # Clean file; no further scan
+        elif "Benign (auto verdict)" in cloud_result:
+            logging.warning(f"File {file_path} flagged as benign (auto verdict) by cloud analysis: {cloud_result}")
+            return False # Clean file; no further scan
+        elif cloud_result == "Malware":
+            logging.warning(f"File {file_path} flagged as malware by cloud analysis: {cloud_result}")
+            notify_user_nichta(file_path, cloud_result, "Cloud Analysis")
+            return True
+        elif "Suspicious" in cloud_result:
+            logging.warning(f"File {file_path} flagged as suspicious by cloud analysis: {cloud_result}")
+            notify_user_nichta(file_path, cloud_result, "Cloud Analysis")
+            return True
+        elif cloud_result.startswith "Unknown":
+            logging.info(f"Cloud analysis returned not rated for file {file_path}. Proceeding with local scanning.")
+        elif cloud_result.startswith "Unknown (Result)":
+            logging.info(f"Cloud analysis returned Unknown result for file {file_path}. Proceeding with local scanning.")
+        elif cloud_result.startswith "Unknown (API Error)":
+            logging.info(f"Cloud analysis returned Unknown API error for file {file_path}. Proceeding with local scanning.")
+        else:
+            logging.info(f"Cloud analysis returned an unhandled result for file {file_path}: {cloud_result}. Proceeding with local scanning.")
 
         with open(file_path, 'rb') as scan_file:
             data_content = scan_file.read()
@@ -5458,7 +5582,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
         if flag:
             logging.info(f"Reprocessing file {file_path} with all checks enabled...")
 
-        return True
+        return False
 
     except Exception as ex:
         logging.error(f"Error scanning file {file_path}: {ex}")
