@@ -356,6 +356,9 @@ scanned_urls_general = []
 scanned_domains_general = []
 scanned_ipv4_addresses_general = []
 scanned_ipv6_addresses_general = []
+# Digital Signatures data
+digital_signautres_list_antivirus_path = []
+digital_signautres_list_microsoft_path = []
 
 clamdscan_path = "C:\\Program Files\\ClamAV\\clamdscan.exe"
 freshclam_path = "C:\\Program Files\\ClamAV\\freshclam.exe"
@@ -1756,6 +1759,16 @@ def load_antivirus_list():
         logging.error(f"Error loading Antivirus domains: {ex}")
         return []
 
+def load_digital_signatures(file_path, description="Digital signatures"):
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            signatures = file.read().splitlines()
+        print(f"{description} loaded successfully!")
+        return signatures
+    except Exception as ex:
+        print(f"Error loading {description}: {ex}")
+        return []
+    
 def load_website_data():
     global ipv4_addresses_signatures_data, ipv4_whitelist_data, ipv6_addresses_signatures_data, ipv6_whitelist_data, urlhaus_data, malware_domains_data, malware_domains_mail_data, phishing_domains_data, abuse_domains_data, mining_domains_data, spam_domains_data, whitelist_domains_data, whitelist_domains_mail_data, malware_sub_domains_data, malware_mail_sub_domains_data, phishing_sub_domains_data, abuse_sub_domains_data, mining_sub_domains_data, spam_sub_domains_data, whitelist_sub_domains_data, whitelist_mail_sub_domains_data
 
@@ -2610,18 +2623,30 @@ def check_signature(file_path):
         if not signature_status_issues:
             ms_command = f"Get-AuthenticodeSignature '{file_path}' | Format-List"
             ms_result = subprocess.run(["powershell.exe", "-Command", ms_command], capture_output=True, text=True, encoding='utf-8', errors='replace')
-            has_microsoft_signature = "O=Microsoft Corporation" in (ms_result.stdout if ms_result.stdout else "")
+            signature_data = ms_result.stdout if ms_result.stdout else ""
+
+            # Check if the signature is from Microsoft using the loaded Microsoft signatures list
+            has_microsoft_signature = any(sig in signature_data for sig in microsoft_signatures)
         else:
             has_microsoft_signature = False
+
+        # Check if the file matches an antivirus signature
+        matches_antivirus_signature = any(sig in signature_data for sig in antivirus_signatures)
+        if matches_antivirus_signature:
+            warning_msg = f"TThe file '{file_path}' matches an antivirus signature. It might be a vulnerable driver or antivirus software, which may cause false positives!"
+            print(warning_msg)
+            logging.warning(warning_msg)
 
         return {
             "is_valid": is_valid,
             "has_microsoft_signature": has_microsoft_signature,
             "signature_status_issues": signature_status_issues
         }
+
     except Exception as ex:
-        print(f"An error occurred while checking signature: {ex}")
-        logging.error(f"An error occurred while checking signature: {ex}")
+        error_msg = f"An error occurred while checking signature: {ex}"
+        print(error_msg)
+        logging.error(error_msg)
         return {
             "is_valid": False,
             "has_microsoft_signature": False,
@@ -3630,6 +3655,9 @@ clean_directories()
 activate_uefi_drive() # Call the UEFI function
 load_website_data()
 load_antivirus_list()
+# Load Antivirus and Microsoft digital signatures
+antivirus_signatures = load_signatures(digital_signautres_list_antivirus_path, "Antivirus digital signatures")
+microsoft_signatures = load_signatures(digital_signautres_list_microsoft_path, "Microsoft digital signatures")
 
 try:
     # Load malicious file names from JSON file
