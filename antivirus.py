@@ -5308,6 +5308,11 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
             logging.error(f"File not found: {file_path}")
             return False
 
+        # Check if the file is empty
+        if os.path.getsize(file_path) == 0:
+            logging.debug(f"File {file_path} is empty. Skipping scan. That doesn't mean it's not malicious. See here: https://github.com/HydraDragonAntivirus/0KBAttack")
+            return False
+
         # Read the file content once for hash calculation (and later if needed)
         with open(file_path, 'rb') as scan_file:
             data_content = scan_file.read()
@@ -5343,11 +5348,6 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
 
         with open(file_path, 'rb') as scan_file:
             data_content = scan_file.read()
-
-        # Check if the file is empty
-        if os.path.getsize(file_path) == 0:
-            logging.debug(f"File {file_path} is empty. Skipping scan. That doesn't mean it's not malicious. See here: https://github.com/HydraDragonAntivirus/0KBAttack")
-            return False
 
        # Extract the file name
         file_name = os.path.basename(file_path)
