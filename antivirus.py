@@ -467,14 +467,16 @@ QFileDialog {
 
 def query_md5_online_sync(md5_hash):
     """
-    Queries an online database using the file's MD5 hash.
-
-    Risk Level (%)	Description
-        0	file is clean
-        10	file is clean (auto verdict)
-        70	malware suspicion
-        100	malware
-    Reference: https://api.nictasoft.com/api-file-20.php
+    Queries the online API and returns a tuple:
+        (risk_level, virus_name)
+    
+    The function inspects risk percentages:
+      - If the response indicates "[100% risk]", it returns ("Malware", virus_name)
+      - If the response indicates "[70% risk]", it returns ("Suspicious", virus_name)
+      - For safe statuses, it returns ("Benign", "") or ("Benign (auto verdict)", "")
+      - If the file is not yet rated or the result is unknown, returns ("Unknown", "")
+    
+    The virus_name is extracted from a "detected as" phrase if present.
     """
     try:
         md5_hash_upper = md5_hash.upper()
@@ -482,35 +484,41 @@ def query_md5_online_sync(md5_hash):
         response = requests.get(url)
 
         if response.status_code == 200:
-            result = response.text.strip().lower()
+            result = response.text.strip()
+            lower_result = result.lower()
 
-            # Malware Check (exact match)
-            if "[100% risk] malware" in result:
-                return "Malware"
-
-            # Safe Check (exact match)
-            if "[0% risk] safe" in result:
-                return "Benign"
-
-            # Safe Check (auto verdict)
-            if "[0% risk] safe" in result:
-                return "Benign (auto verdict)"
-
-            # Suspicious Check
-            if "[70% risk] safe" in result:
-                return "Suspicious"
-
-            # Unknown Check
-            if "this file is not yet rated" in result:
-                return "Unknown"
-
-            # Default Case
-            return "Unknown (Result)"
+            # Check for high-risk (malware) indication.
+            if "[100% risk]" in lower_result:
+                if "detected as" in lower_result:
+                    virus_name = result.split("detected as", 1)[1].strip().split()[0]
+                    return ("Malware", virus_name)
+                else:
+                    return ("Malware", "")
+            
+            # Check for 70% risk which we treat as suspicious.
+            if "[70% risk]" in lower_result:
+                if "detected as" in lower_result:
+                    virus_name = result.split("detected as", 1)[1].strip().split()[0]
+                    return ("Suspicious", virus_name)
+                else:
+                    return ("Suspicious", "")
+            
+            # Check safe statuses.
+            if "[0% risk]" in lower_result:
+                return ("Benign", "")
+            if "[10% risk]" in lower_result:
+                return ("Benign (auto verdict)", "")
+            
+            # Unknown status.
+            if "this file is not yet rated" in lower_result:
+                return ("Unknown", "")
+            
+            # Default case.
+            return ("Unknown (Result)", "")
         else:
-            return "Unknown (API error)"
-
+            return ("Unknown (API error)", "")
     except Exception as ex:
-        return f"Error: {ex}"
+        return (f"Error: {ex}", "")
 
 def get_unique_output_path(output_dir: Path, base_name: str, suffix: int = 1) -> Path:
     """
@@ -1355,7 +1363,7 @@ def scan_code_for_links(decompiled_code):
     for ip in ipv6_addresses:
         scan_ip_address_general(ip)
 
-def notify_user_nichta(file_path, virus_name, engine_detected):
+def notify_user_nichta(file_path, virus_name):
     """
     Notify function for cloud analysis (Nichta) warnings.
     Uses a different notification title or method as desired.
@@ -1364,8 +1372,7 @@ def notify_user_nichta(file_path, virus_name, engine_detected):
     notification.title = "Nichta Cloud Analysis Alert"
     notification.message = (f"Cloud analysis flagged the file:\n"
                             f"Path: {file_path}\n"
-                            f"Risk: {virus_name}\n"
-                            f"Source: {engine_detected}")
+                            f"Risk: {virus_name}\n")
     notification.send()
 
 def notify_user(file_path, virus_name, engine_detected): 
@@ -5350,32 +5357,37 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
 
         # --- Cloud Analysis with Hash Calculation ---
         file_md5 = hashlib.md5(data_content).hexdigest()
-        cloud_result = query_md5_online_sync(file_md5)
+        risk, virus = query_md5_online_sync(file_md5)
+        # Create a descriptive result string that includes the virus name if available.
+        cloud_result = risk if not virus else f"{risk} (detected as {virus})"
         logging.info(f"Cloud analysis result for {file_path}: {cloud_result}")
 
         # --- Decision Based on Cloud Analysis ---
-        if cloud_result == "Benign":
+        if risk == "Benign":
             logging.info(f"File {file_path} flagged as benign (exact match) by cloud analysis. Skipping further scanning.")
-            return False # Clean file; no further scan
-        elif "Benign (auto verdict)" in cloud_result:
-            logging.warning(f"File {file_path} flagged as benign (auto verdict) by cloud analysis: {cloud_result}")
-            return False # Clean file; no further scan
-        elif cloud_result == "Malware":
+            return False  # Clean file; no further scan
+        # --- Decision Based on Cloud Analysis ---
+        if risk == "Benign (auto verdict)":
+            logging.info(f"File {file_path} flagged as benign (auto verdict) by cloud analysis. Skipping further scanning.")
+            return False  # Clean file; no further scan
+        elif risk == "Malware":
             logging.warning(f"File {file_path} flagged as malware by cloud analysis: {cloud_result}")
-            notify_user_nichta(file_path, cloud_result, "Cloud Analysis")
+            notify_user_nichta(file_path, cloud_result)
             return True
-        elif "Suspicious" in cloud_result:
+        elif risk == "Suspicious":
             logging.warning(f"File {file_path} flagged as suspicious by cloud analysis: {cloud_result}")
-            notify_user_nichta(file_path, cloud_result, "Cloud Analysis")
+            notify_user_nichta(file_path, cloud_result)
             return True
-        elif cloud_result.startswith "Unknown":
-            logging.info(f"Cloud analysis returned not rated for file {file_path}. Proceeding with local scanning.")
-        elif cloud_result.startswith "Unknown (Result)":
-            logging.info(f"Cloud analysis returned Unknown result for file {file_path}. Proceeding with local scanning.")
-        elif cloud_result.startswith "Unknown (API Error)":
-            logging.info(f"Cloud analysis returned Unknown API error for file {file_path}. Proceeding with local scanning.")
+        elif risk.startswith("Unknown"):
+            logging.info(f"Cloud analysis returned unknown for file {file_path}. Proceeding with local scanning.")
+        elif risk.startswith("Unknown (Result)"):
+            logging.info(
+                f"Cloud analysis returned an unknown result for file {file_path}. Proceeding with local scanning.")
+        elif risk.startswith("Unknown (API Error)"):
+            logging.info(f"Cloud analysis returned an API error for file {file_path}. Proceeding with local scanning.")
         else:
-            logging.info(f"Cloud analysis returned an unhandled result for file {file_path}: {cloud_result}. Proceeding with local scanning.")
+            logging.info(
+                f"Cloud analysis returned an unhandled result for file {file_path}: {cloud_result}. Proceeding with local scanning.")
 
         with open(file_path, 'rb') as scan_file:
             data_content = scan_file.read()
