@@ -242,6 +242,10 @@ start_time = time.time()
 import requests
 print(f"reqeusts module loaded in {time.time() - start_time:.6f} seconds")
 
+start_time = time.time()
+from functools import lru_cache
+print(f"functools.lru_cache module loaded in {time.time() - start_time:.6f} seconds")
+
 # Calculate and print total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
@@ -465,18 +469,23 @@ QFileDialog {
 }
 """
 
+# --- Query MD5 Online Function with Caching ---
+@lru_cache(maxsize=1024)
 def query_md5_online_sync(md5_hash):
     """
     Queries the online API and returns a tuple:
         (risk_level, virus_name)
-    
+
     The function inspects risk percentages:
       - If the response indicates "[100% risk]", it returns ("Malware", virus_name)
       - If the response indicates "[70% risk]", it returns ("Suspicious", virus_name)
       - For safe statuses, it returns ("Benign", "") or ("Benign (auto verdict)", "")
       - If the file is not yet rated or the result is unknown, returns ("Unknown", "")
-    
+
     The virus_name is extracted from a "detected as" phrase if present.
+
+    This function caches its results so that repeated calls with the same MD5 hash 
+    will return the cached result instead of re-querying the API.
     """
     try:
         md5_hash_upper = md5_hash.upper()
@@ -5326,32 +5335,32 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
     """
     Scans a file for potential issues, starting with an online cloud analysis
     using the file's MD5 hash. If the cloud analysis indicates the file is clean,
-    no further scanning is done. If the file is flagged (malware/suspcious), a warning
+    no further scanning is done. If the file is flagged (malware/suspicious), a warning 
     is sent via a dedicated notify_user_nichta function.
     
     :param file_path: Path to the file or archive to scan.
     :param flag: Indicates if the file should be reprocessed even if already scanned.
-    :return: True if the scan was successful (or the file was clean), False otherwise.
+    :return: True if the scan was successful (or the file was flagged), False otherwise.
     """
     try:
         logging.info(f"Scanning file: {file_path}, Type: {type(file_path).__name__}")
 
-        # Ensure the file_path is a string
+        # Ensure the file_path is a string.
         if not isinstance(file_path, str):
             logging.error(f"Invalid file_path type: {type(file_path).__name__}")
             return False
 
-        # Ensure the file exists before proceeding
+        # Ensure the file exists before proceeding.
         if not os.path.exists(file_path):
             logging.error(f"File not found: {file_path}")
             return False
 
-        # Check if the file is empty
+        # Check if the file is empty.
         if os.path.getsize(file_path) == 0:
             logging.debug(f"File {file_path} is empty. Skipping scan. That doesn't mean it's not malicious. See here: https://github.com/HydraDragonAntivirus/0KBAttack")
             return False
 
-        # Read the file content once for hash calculation (and later if needed)
+        # Read the file content once for hash calculation (and later if needed).
         with open(file_path, 'rb') as scan_file:
             data_content = scan_file.read()
 
@@ -5366,7 +5375,6 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
         if risk == "Benign":
             logging.info(f"File {file_path} flagged as benign (exact match) by cloud analysis. Skipping further scanning.")
             return False  # Clean file; no further scan
-        # --- Decision Based on Cloud Analysis ---
         if risk == "Benign (auto verdict)":
             logging.info(f"File {file_path} flagged as benign (auto verdict) by cloud analysis. Skipping further scanning.")
             return False  # Clean file; no further scan
@@ -5381,13 +5389,11 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
         elif risk.startswith("Unknown"):
             logging.info(f"Cloud analysis returned unknown for file {file_path}. Proceeding with local scanning.")
         elif risk.startswith("Unknown (Result)"):
-            logging.info(
-                f"Cloud analysis returned an unknown result for file {file_path}. Proceeding with local scanning.")
+            logging.info(f"Cloud analysis returned an unknown result for file {file_path}. Proceeding with local scanning.")
         elif risk.startswith("Unknown (API Error)"):
             logging.info(f"Cloud analysis returned an API error for file {file_path}. Proceeding with local scanning.")
         else:
-            logging.info(
-                f"Cloud analysis returned an unhandled result for file {file_path}: {cloud_result}. Proceeding with local scanning.")
+            logging.info(f"Cloud analysis returned an unhandled result for file {file_path}: {cloud_result}. Proceeding with local scanning.")
 
         with open(file_path, 'rb') as scan_file:
             data_content = scan_file.read()
