@@ -5326,7 +5326,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
     """
     Scans a file for potential issues, starting with an online cloud analysis
     using the file's MD5 hash. If the cloud analysis indicates the file is clean,
-    no further scanning is done. If the file is flagged (malware/PUA), a warning
+    no further scanning is done. If the file is flagged (malware/suspcious), a warning
     is sent via a dedicated notify_user_nichta function.
     
     :param file_path: Path to the file or archive to scan.
