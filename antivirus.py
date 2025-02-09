@@ -5199,8 +5199,6 @@ def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled
                 scan_code_for_links(deepseek_source_path, pyinstaller_deepseek_flag=True)
             except Exception as ex:
                 logging.error(f"Error writing DeepSeek extracted source code to {deepseek_source_path}: {ex}")
-        except Exception as ex:
-            logging.error(f"Error scanning code for links: {ex}")
 
     except Exception as ex:
         logging.error(f"An unexpected error occurred in scan_file_with_deepseek: {ex}")
