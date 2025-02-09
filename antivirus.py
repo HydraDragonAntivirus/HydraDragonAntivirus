@@ -279,6 +279,8 @@ deepseek_dir = os.path.join(script_dir, "deepseek")
 deepseek_1b_dir = os.path.join(deepseek_dir, "DeepSeek-Coder-1.3B")
 python_source_code_dir = os.path.join(script_dir, "pythonsourcecode")
 pycdc_dir = os.path.join(python_source_code_dir, "pycdc")
+pycdas_dir = os.path.join(python_source_code_dir, "pycdas")
+pycdas_deepseek_dir = os.path.join(python_source_code_dir, "pycdas_deepseek")
 nuitka_source_code_dir = os.path.join(script_dir, "nuitkasourcecode")
 commandlineandmessage_dir = os.path.join(script_dir, "commandlineandmessage")
 pe_extracted_dir = os.path.join(script_dir, "pe_extracted")
@@ -294,6 +296,7 @@ debloat_dir = os.path.join(script_dir, "debloat")
 detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
 pycdc_path = os.path.join(script_dir, "pycdc.exe")
+pycdas_path = os.path.join(script_dir, "pycdas.exe")
 digital_signautres_list_antivirus_path = os.path.join(digital_signatures_list_dir, "antivirus.txt")
 digital_signautres_list_microsoft_path = os.path.join(digital_signatures_list_dir, "microsoft.txt")
 malicious_file_names = os.path.join(script_dir, "machinelearning", "malicious_file_names.json")
@@ -391,6 +394,7 @@ os.makedirs(debloat_dir, exist_ok=True)
 os.makedirs(jar_extracted_dir, exist_ok=True)
 os.makedirs(detectiteasy_json_dir, exist_ok=True)
 os.makedirs(pycdc_dir, exist_ok=True)
+os.makedirs(pycdas_dir, exist_ok=True)
 
 # Counter for ransomware detection
 ransomware_detection_count = 0 
@@ -3785,7 +3789,7 @@ existing_projects = []
 # List of already scanned files and their modification times
 scanned_files = []
 file_mod_times = {}
-directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, nuitka_source_code_dir, memory_dir, debloat_dir]
+directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_deepseek_dir, nuitka_source_code_dir, memory_dir, debloat_dir]
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
@@ -4685,6 +4689,8 @@ def log_directory_type(file_path):
            logging.info(f"{file_path}: It's a directory containing extracted files from a JAR (Java Archive) file.")
         elif file_path.startswith(pycdc_dir):
             logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code directory with pycdc.exe.")
+        elif file_path.startswith(pycdas_dir):
+            logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code directory with pycdas.exe.")
         elif file_path.startswith(python_source_code_dir):
             logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code directory with uncompyle6.")
         elif file_path.startswith(nuitka_source_code_dir):
@@ -4694,8 +4700,17 @@ def log_directory_type(file_path):
     except Exception as ex:
         logging.error(f"Error logging directory type for {file_path}: {ex}")
 
-# Function to process the file and analyze it using DeepSeek-Coder-1.3b
-def scan_file_with_deepseek(file_path):
+def scan_file_with_deepseek(file_path, pycdas_flag=False, decompiled_flag=False):
+    """
+    Processes a file and analyzes it using DeepSeek-Coder-1.3b.
+    If pycdas_flag is True (i.e. the file comes from pycdas decompilation), the summary will consist solely of the full source code.
+    If decompiled_flag is True (and pycdas_flag is False), a normal summary is generated with an additional note indicating that the file was decompiled by our tool and is Python source code.
+    
+    Args:
+        file_path (str): The path to the file to be scanned.
+        pycdas_flag (bool): If True, indicates that the file was produced by the pycdas decompiler.
+        decompiled_flag (bool): If True (and pycdas_flag is False), indicates that the file was decompiled by our tool.
+    """
     try:
         # Log directory type based on the global variables
         if file_path.startswith(sandboxie_folder):
@@ -4729,45 +4744,79 @@ def scan_file_with_deepseek(file_path):
         elif file_path.startswith(debloat_dir):
             logging.info(f"{file_path}: It's a debloated file dir.")
         elif file_path.startswith(jar_extracted_dir):
-           logging.info(f"{file_path}: It's a directory containing extracted files from a JAR (Java Archive) file.")
+            logging.info(f"{file_path}: It's a directory containing extracted files from a JAR (Java Archive) file.")
         elif file_path.startswith(pycdc_dir):
-            logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code directory with pycdc.exe.")
+            logging.info(f"{file_path}: It's a PyInstaller, .pyc reversed-engineered source code directory with pycdc.exe.")
+        elif file_path.startswith(pycdas_dir):
+            logging.info(f"{file_path}: It's a PyInstaller, .pyc reversed-engineered source code directory with pycdas.exe.")
+        elif file_path.startswith(pycdas_deepseek_dir):
+            logging.info(f"{file_path}: This is a PyInstaller .pyc reverse-engineered source code directory, decompiled with pycdas.exe and converted to non-bytecode Python code using DeepSeek-Coder 1.3b.")
         elif file_path.startswith(python_source_code_dir):
-            logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code directory with uncompyle6.")
+            logging.info(f"{file_path}: It's a PyInstaller, .pyc reversed-engineered source code directory with uncompyle6.")
         elif file_path.startswith(nuitka_source_code_dir):
             logging.info(f"{file_path}: It's a Nuitka reversed-engineered Python source code directory.")
 
-        # Define initial message including directory types
-        initial_message = (
-            "The result should always include four lines. Here are the lines that you must include all of them:\n"
-            "- Malware: [Yes/No/Maybe]\n"
-            "- Virus Name:\n"
-            "- Confidence: [percentage]\n"
-            "- Malicious Content: [Explanation]\n"
-            f"File name: {os.path.basename(file_path)}\n"
-            f"File path: {file_path}\n\n"
-            f"This file is categorized as:\n"
-            f"- Sandboxie environment file: {sandboxie_folder}\n"
-            f"- Main file: {main_file_path}\n"
-            f"- Decompiled file: {decompile_dir}\n"
-            f"- .NET decompiled file: {dotnet_dir}\n"
-            f"- Command line message or Windows readable messages: {commandlineandmessage_dir}\n\n"
-            "Based on the file name, file path, and file content analysis:\n\n"
-            "If this file is obfuscated, it may be dangerous, I provide readable text for you to analyze it to determine if this file is malware.\n"
-            "If it is a script file and obfuscated, it is probably suspicious or malware.\n"
-            "If it registers itself in 'Shell Common Startup' or 'Shell Startup' and has these extensions, it could be harmful:\n"
-            "- .vbs, .vbe, .js, .jse, .bat, .url, .cmd, .hta, .ps1, .psm1, .wsf, .wsb, .sct (Windows script files)\n"
-            "- .dll, .jar, .msi, .scr (suspicious extensions) at Windows common startup shell:common startup or shell:startup\n"
-            "If it tries to register as .wll instead of .dll, it could also be harmful.\n"
-            "Decrypt base64 base32 strings in your head.\n"
-        )
+        # Build the initial message based on flags
+        if pycdas_flag:
+            initial_message = (
+                "This file was decompiled using pycdas.exe and further analyzed with DeepSeek-Coder-1.3b.\n"
+                "Based on the source code extracted via pycdas, please follow these instructions:\n"
+                "- If the file is obfuscated, deobfuscate it by detecting and removing any gibberish output and decoding any encoded strings.\n"
+                "- Extract the full, accurate source code as completely as possible.\n"
+                "- Your output must consist solely of the complete source code, with no additional commentary, as I will save it with a .py extension.\n"
+                "After extraction, I will send you the same text again for further analysis to determine if the file is malware.\n"
+                "Decode any encoded strings, such as base64 or base32, as needed.\n"
+            )
+        elif decompiled_flag:
+            initial_message = (
+                "The result should always include four lines. Here are the lines that you must include all of them:\n"
+                "- Malware: [Yes/No/Maybe]\n"
+                "- Virus Name:\n"
+                "- Confidence: [percentage]\n"
+                "- Malicious Content: [Explanation]\n"
+                f"File name: {os.path.basename(file_path)}\n"
+                f"File path: {file_path}\n\n"
+                "This file was decompiled by our tool and is Python source code.\n"
+                "Based on the file name, file path, and file content analysis:\n\n"
+                "If this file is obfuscated, it may be dangerous. I provide readable text for you to analyze it to determine if this file is malware.\n"
+                "If it is a script file and obfuscated, it is probably suspicious or malware.\n"
+                "If it registers itself in 'Shell Common Startup' or 'Shell Startup' and has these extensions, it could be harmful:\n"
+                "- .vbs, .vbe, .js, .jse, .bat, .url, .cmd, .hta, .ps1, .psm1, .wsf, .wsb, .sct (Windows script files)\n"
+                "- .dll, .jar, .msi, .scr (suspicious extensions) at Windows common startup (shell:common startup or shell:startup)\n"
+                "If it tries to register as .wll instead of .dll, it could also be harmful.\n"
+                "Decode any encoded strings, such as base64 or base32, as needed.\n"
+            )
+        else:
+            initial_message = (
+                "The result should always include four lines. Here are the lines that you must include all of them:\n"
+                "- Malware: [Yes/No/Maybe]\n"
+                "- Virus Name:\n"
+                "- Confidence: [percentage]\n"
+                "- Malicious Content: [Explanation]\n"
+                f"File name: {os.path.basename(file_path)}\n"
+                f"File path: {file_path}\n\n"
+                f"This file is categorized as:\n"
+                f"- Sandboxie environment file: {sandboxie_folder}\n"
+                f"- Main file: {main_file_path}\n"
+                f"- Decompiled file: {decompile_dir}\n"
+                f"- .NET decompiled file: {dotnet_dir}\n"
+                f"- Command line message or Windows readable messages: {commandlineandmessage_dir}\n\n"
+                "Based on the file name, file path, and file content analysis:\n\n"
+                "If this file is obfuscated, it may be dangerous. I provide readable text for you to analyze it to determine if this file is malware.\n"
+                "If it is a script file and obfuscated, it is probably suspicious or malware.\n"
+                "If it registers itself in 'Shell Common Startup' or 'Shell Startup' and has these extensions, it could be harmful:\n"
+                "- .vbs, .vbe, .js, .jse, .bat, .url, .cmd, .hta, .ps1, .psm1, .wsf, .wsb, .sct (Windows script files)\n"
+                "- .dll, .jar, .msi, .scr (suspicious extensions) at Windows common startup (shell:common startup or shell:startup)\n"
+                "If it tries to register as .wll instead of .dll, it could also be harmful.\n"
+                "Decode any encoded strings, such as base64 or base32, as needed.\n"
+            )
 
         # Tokenize the initial message
         initial_inputs = deepseek_1b_tokenizer(initial_message, return_tensors="pt")
         initial_token_length = initial_inputs['input_ids'].shape[1]
 
         # Define token limits
-        max_tokens = 2048  # Set the maximum token limit based on the model's capacity
+        max_tokens = 2048
         remaining_tokens = max_tokens - initial_token_length
 
         # Read the file content
@@ -4794,9 +4843,10 @@ def scan_file_with_deepseek(file_path):
         file_inputs = deepseek_1b_tokenizer(readable_file_content, return_tensors="pt")
         file_token_length = file_inputs['input_ids'].shape[1]
 
-        # Truncate the file content to fit within the remaining tokens
+        # Truncate the file content if needed
         if file_token_length > remaining_tokens:
-            truncated_file_content = deepseek_1b_tokenizer.decode(file_inputs['input_ids'][0, :remaining_tokens], skip_special_tokens=True)
+            truncated_file_content = deepseek_1b_tokenizer.decode(
+                file_inputs['input_ids'][0, :remaining_tokens], skip_special_tokens=True)
         else:
             truncated_file_content = readable_file_content
 
@@ -4806,11 +4856,11 @@ def scan_file_with_deepseek(file_path):
         # Tokenize the combined message
         inputs = deepseek_1b_tokenizer(combined_message, return_tensors="pt")
 
-        # Generate the response with a limited number of tokens
+        # Generate the response
         try:
             response = accelerator.unwrap_model(deepseek_1b_model).generate(
                 input_ids=inputs['input_ids'],
-                max_new_tokens=1000,  # Limit the number of tokens in the generated response
+                max_new_tokens=1000,
                 num_return_sequences=1
             )
             response = deepseek_1b_tokenizer.decode(response[0], skip_special_tokens=True).strip()
@@ -4820,7 +4870,10 @@ def scan_file_with_deepseek(file_path):
 
         # Extract the relevant part of the response
         start_index = response.lower().find("based on the analysis:")
-        start_index = start_index + len("Based on the analysis:") if start_index != -1 else 0
+        if start_index != -1:
+            start_index += len("Based on the analysis:")
+        else:
+            start_index = 0
 
         relevant_response = response[start_index:].strip()
 
@@ -4830,7 +4883,7 @@ def scan_file_with_deepseek(file_path):
         virus_name = "Unknown"
         explanation = "No explanation provided"
 
-        # Extract relevant parts from the response
+        # Extract the required four lines from the response
         for line in relevant_response.split("\n"):
             line_lower = line.lower()
             if "malware:" in line_lower:
@@ -4844,7 +4897,7 @@ def scan_file_with_deepseek(file_path):
             if "malicious content:" in line_lower:
                 explanation = line.split(":")[-1].strip()
 
-        # Ensure only the four required lines are printed
+        # Build the final summary response
         final_response = (
             f"Malware: {malware}\n"
             f"Virus Name: {virus_name}\n"
@@ -4852,10 +4905,15 @@ def scan_file_with_deepseek(file_path):
             f"Malicious Content: {explanation}\n"
         )
 
+        if pycdas_flag:
+            final_response = readable_file_content
+        elif decompiled_flag:
+            final_response += "\nNote: This file was decompiled by our tool and is Python source code.\n"
+
         print(final_response)
         logging.info(final_response)
 
-        # Log the response
+        # Log the raw model response
         answer_log_path = os.path.join(script_dir, "log", "answer.log")
         try:
             with open(answer_log_path, "a") as answer_log_file:
@@ -4863,6 +4921,7 @@ def scan_file_with_deepseek(file_path):
         except Exception as ex:
             logging.error(f"Error writing to log file {answer_log_path}: {ex}")
 
+        # Log the final summary
         log_file_path = os.path.join(script_dir, "log", "DeepSeek-Coder-1.3b.log")
         try:
             with open(log_file_path, "a") as log_file:
@@ -4876,6 +4935,20 @@ def scan_file_with_deepseek(file_path):
                 notify_user_for_deepseek(file_path, virus_name, malware)
             except Exception as ex:
                 logging.error(f"Error notifying user: {ex}")
+
+        # --- For pycdas decompiled files: save the extracted source code with a .py extension ---
+        if pycdas_flag:
+            pycdas_deepseek_dir = os.path.join(python_source_code_dir, "pycdas_deepseek")
+            if not os.path.exists(pycdas_deepseek_dir):
+                os.makedirs(pycdas_deepseek_dir)
+            deepseek_source_filename = os.path.splitext(os.path.basename(file_path))[0] + "_deepseek.py"
+            deepseek_source_path = os.path.join(pycdas_deepseek_dir, deepseek_source_filename)
+            try:
+                with open(deepseek_source_path, "w", encoding="utf-8") as deepseek_source_file:
+                    deepseek_source_file.write(readable_file_content)
+                logging.info(f"DeepSeek extracted source code saved to {deepseek_source_path}")
+            except Exception as ex:
+                logging.error(f"Error writing DeepSeek extracted source code to {deepseek_source_path}: {ex}")
 
     except Exception as ex:
         logging.error(f"An unexpected error occurred in scan_file_with_deepseek: {ex}")
@@ -5184,14 +5257,12 @@ def extract_webhooks(content):
     webhooks = re.findall(discord_webhook_pattern, content) + re.findall(discord_canary_webhook_pattern, content)
     return webhooks
 
-def run_pycdc_decompiler(file_path, pycdc_path, output_dir):
+def run_pycdc_decompiler(file_path):
     """
     Runs the pycdc decompiler to decompile a .pyc file and saves it to a specified output directory.
     
     Args:
         file_path: Path to the .pyc file to be decompiled
-        pycdc_path: Path to the pycdc executable
-        output_dir: Directory to save the decompiled source code
     
     Returns:
         The decompiled file path, or None if the process fails
@@ -5199,7 +5270,7 @@ def run_pycdc_decompiler(file_path, pycdc_path, output_dir):
     try:
         # Extract the file name and create the output path in the pycdc subfolder
         base_name = os.path.splitext(os.path.basename(file_path))[0]
-        output_path = os.path.join(output_dir, f"{base_name}_pycdc_decompiled.py")
+        output_path = os.path.join(pycdc_dir, f"{base_name}_pycdc_decompiled.py")
 
         # Build the pycdc command with the -o argument
         command = [pycdc_path, "-o", output_path, file_path]
@@ -5217,17 +5288,49 @@ def run_pycdc_decompiler(file_path, pycdc_path, output_dir):
         logging.error(f"Error running pycdc: {e}")
         return None
 
-def show_code_with_uncompyle6_pycdc(file_path, file_name):
+def run_pycdas_decompiler(file_path):
     """
-    Decompiles a .pyc file using both uncompyle6 and pycdc, and saves the results to the appropriate directory.
+    Runs the pycdas decompiler to decompile a .pyc file and saves it to a specified output directory.
+    
+    Args:
+        file_path: Path to the .pyc file to be decompiled.
+    
+    Returns:
+        The decompiled file path, or None if the process fails.
+    """
+    try:
+        # Extract the file name and create the output path in the pycdas subfolder
+        base_name = os.path.splitext(os.path.basename(file_path))[0]
+        output_path = os.path.join(pycdas_dir, f"{base_name}_pycdas_decompiled.py")
+
+        # Build the pycdas command with the -o argument
+        command = [pycdas_path, "-o", output_path, file_path]
+
+        # Run the pycdas command
+        result = subprocess.run(command, capture_output=True, text=True)
+
+        if result.returncode == 0:
+            logging.info(f"Successfully decompiled using pycdas. Output saved to {output_path}")
+            return output_path
+        else:
+            logging.error(f"pycdas error: {result.stderr}")
+            return None
+    except Exception as e:
+        logging.error(f"Error running pycdas: {e}")
+        return None
+
+def show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name):
+    """
+    Decompiles a .pyc file using uncompyle6, pycdc, and pycdas, and saves the results to the appropriate directories.
     Scans the decompiled code for malicious content such as Discord webhooks, IP addresses, domains, and URLs.
 
     Args:
-        file_path: Path to the .pyc file to decompile
-        file_name: The name of the .pyc file to be decompiled
+        file_path: Path to the .pyc file to decompile.
+        file_name: The name of the .pyc file to be decompiled.
 
     Returns:
-        A tuple of paths to the decompiled source files from both decompilers, or None if both decompilations fail.
+        A tuple of paths to the decompiled source files from uncompyle6, pycdc, and pycdas,
+        or (None, None, None) if decompilation fails.
     """
     try:
         logging.info(f"Processing python file: {file_path}")
@@ -5255,7 +5358,7 @@ def show_code_with_uncompyle6_pycdc(file_path, file_name):
                 except struct.error:
                     pass
 
-        # Create versioned output name based on detection
+        # Create versioned output name for uncompyle6 based on detection
         version = 1
         while True:
             if is_source:
@@ -5286,27 +5389,23 @@ def show_code_with_uncompyle6_pycdc(file_path, file_name):
                 output_file.write(decompiled_code)
             logging.info(f"Successfully decompiled using uncompyle6. Output saved to {uncompyle6_output_path}")
         else:
-            logging.error(f"Failed to decompile with uncompyle6.")
+            logging.error("Failed to decompile with uncompyle6.")
 
-        # Try to decompile the file using pycdc (even if uncompyle6 succeeded)
-        pycdc_path = os.path.join(script_dir, "pycdc.exe")
+        # --- PyCDC decompilation branch ---
         if os.path.exists(pycdc_path):
-            pycdc_output_path = run_pycdc_decompiler(file_path, pycdc_path, pycdc_dir)
+            pycdc_output_path = run_pycdc_decompiler(file_path)
         else:
             logging.error("pycdc executable not found")
-            return None
+            pycdc_output_path = None
 
-        # Scan the decompiled code for domains, URLs, and IP addresses
+        # Scan and process uncompyle6 decompiled code if available
         if decompiled_code:
             scan_code_for_links(decompiled_code)
-
-            # Save the uncompyle6 decompiled code
+            # Write again if further modifications were made in scan_code_for_links
             with open(uncompyle6_output_path, "w") as output_file:
                 output_file.write(decompiled_code)
-
-            logging.info(f"Successfully saved to {uncompyle6_output_path}")
-
             # Process the decompiled code further
+            logging.info(f"Successfully saved uncompyle6 output to {uncompyle6_output_path}")
             process_decompiled_code(uncompyle6_output_path)
 
         if pycdc_output_path:
@@ -5318,17 +5417,30 @@ def show_code_with_uncompyle6_pycdc(file_path, file_name):
             # Save the pycdc decompiled code
             with open(pycdc_output_path, "w") as output_file:
                 output_file.write(pycdc_code)
-
-            logging.info(f"Successfully saved to {pycdc_output_path}")
-
-            # Process the decompiled code further
+            logging.info(f"Successfully saved pycdc output to {pycdc_output_path}")
             process_decompiled_code(pycdc_output_path)
 
-        return uncompyle6_output_path, pycdc_output_path
+        # --- PyCDAS decompilation branch ---
+        if os.path.exists(pycdas_path):
+            pycdas_output_path = run_pycdas_decompiler(file_path)
+        else:
+            logging.error("pycdas executable not found")
+            pycdas_output_path = None
+
+        if pycdas_output_path:
+            with open(pycdas_output_path, "r") as pycdas_file:
+                pycdas_code = pycdas_file.read()
+            scan_code_for_links(pycdas_code)
+            with open(pycdas_output_path, "w") as output_file:
+                output_file.write(pycdas_code)
+            logging.info(f"Successfully saved pycdas output to {pycdas_output_path}")
+            process_decompiled_code(pycdas_output_path)
+
+        return uncompyle6_output_path, pycdc_output_path, pycdas_output_path
 
     except Exception as ex:
         logging.error(f"Error processing python file {file_path}: {ex}")
-        return None, None
+        return None, None, None
 
 # --- Main Scanning Function ---
 def scan_and_warn(file_path, flag=False, flag_debloat=False):
@@ -5405,8 +5517,8 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
         if is_pyc_file(file_path):
             logging.info(f"File {file_path} is a .pyc (Python Compiled Module) file. Attempting to decompile...")
 
-            # Call the show_code_with_uncompyle6_pycdc function to decompile the .pyc file
-            decompiled_file_paths = show_code_with_uncompyle6_pycdc(file_path, file_name)
+            # Call the show_code_with_uncompyle6_pycdc_pycdas function to decompile the .pyc file
+            decompiled_file_paths = show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name)
 
             # If decompilation was successful for either uncompyle6 or pycdc, scan the decompiled files
             uncompyle6_file_path, pycdc_file_path = decompiled_file_paths
