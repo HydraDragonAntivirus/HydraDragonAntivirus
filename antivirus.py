@@ -280,6 +280,7 @@ deepseek_1b_dir = os.path.join(deepseek_dir, "DeepSeek-Coder-1.3B")
 python_source_code_dir = os.path.join(script_dir, "pythonsourcecode")
 pycdc_dir = os.path.join(python_source_code_dir, "pycdc")
 pycdas_dir = os.path.join(python_source_code_dir, "pycdas")
+united_python_source_code_dir = os.path.join(python_source_code_dir, "united")
 pycdas_deepseek_dir = os.path.join(python_source_code_dir, "pycdas_deepseek")
 nuitka_source_code_dir = os.path.join(script_dir, "nuitkasourcecode")
 commandlineandmessage_dir = os.path.join(script_dir, "commandlineandmessage")
@@ -395,6 +396,7 @@ os.makedirs(jar_extracted_dir, exist_ok=True)
 os.makedirs(detectiteasy_json_dir, exist_ok=True)
 os.makedirs(pycdc_dir, exist_ok=True)
 os.makedirs(pycdas_dir, exist_ok=True)
+os.makedirs(united_python_source_code_dir, exist_ok=True)
 
 # Counter for ransomware detection
 ransomware_detection_count = 0 
@@ -1331,51 +1333,6 @@ def calculate_similarity(features1, features2):
     similarity = matching_keys / max(len(features1), len(features2))
     return similarity
 
-# Check for Discord webhook URLs and invite links (including Canary)
-def contains_discord_code(decompiled_code):
-    """
-    Check if the decompiled code contains a Discord webhook URL, Canary webhook URL, or a Discord invite link.
-    """
-    # Search for matches
-    discord_webhook_matches = re.findall(discord_webhook_pattern, decompiled_code)
-    discord_canary_webhook_matches = re.findall(discord_canary_webhook_pattern, decompiled_code)
-    discord_invite_matches = re.findall(discord_invite_pattern, decompiled_code)
-
-    # Logging results
-    if discord_webhook_matches:
-        logging.warning(f"Malicious Discord webhook URLs detected: {discord_webhook_matches}")
-        return True
-
-    if discord_canary_webhook_matches:
-        logging.warning(f"Malicious Discord Canary webhook URLs detected: {discord_canary_webhook_matches}")
-        return True
-
-    if discord_invite_matches:
-        logging.info(f"Discord invite links detected: {discord_invite_matches}")
-
-    return False
-
-# Scan for domains, URLs, and IPs in the decompiled code
-def scan_code_for_links(decompiled_code):
-    """
-    Scan the decompiled code for domains, URLs, and IP addresses, removing duplicates.
-    """
-    # Scan for URLs
-    urls = set(re.findall(r'https?://[^\s/$.?#].\S*', decompiled_code))
-    for url in urls:
-        scan_url_general(url)
-        scan_domain_general(url)
-
-    # Scan for IP addresses (IPv4)
-    ipv4_addresses = set(re.findall(r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)', decompiled_code))
-    for ip in ipv4_addresses:
-        scan_ip_address_general(ip)
-
-    # Scan for IP addresses (IPv6)
-    ipv6_addresses = set(re.findall(r'([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}', decompiled_code))
-    for ip in ipv6_addresses:
-        scan_ip_address_general(ip)
-
 def notify_user_nichta(file_path, virus_name):
     """
     Notify function for cloud analysis (Nichta) warnings.
@@ -1571,202 +1528,6 @@ def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
     notification.message = f"{status} file detected by Web related Message: {file_path}\nSource IP: {src_ip}\nAlert Line: {alert_line}"
     notification.send()
     print(f"Real-time web message notification: Detected {status} file {file_path} from {src_ip} with alert line: {alert_line}")
-
-# Generalized scan for domains
-def scan_domain_general(url):
-    try:
-        # First check if input is a URL or just a domain
-        if not url.startswith(('http://', 'https://')):
-            url = 'https://' + url
-
-        # Parse the URL
-        parsed_url = urlparse(url)
-        if not parsed_url.netloc:
-            raise ValueError("Invalid URL or domain format")
-
-        # Convert to lowercase for consistent comparison
-        full_domain = parsed_url.netloc.lower()
-        
-        # Split into main domain and subdomain
-        domain_parts = full_domain.split('.')
-        
-        # Handle cases like 'example.com' vs 'subdomain.example.com'
-        if len(domain_parts) > 2:
-            main_domain = '.'.join(domain_parts[-2:])
-            subdomain = '.'.join(domain_parts[:-2])
-        else:
-            main_domain = full_domain
-            subdomain = None
-
-        # Check if already scanned
-        if full_domain in scanned_domains_general:
-            logging.info(f"Domain {full_domain} has already been scanned.")
-            return
-
-        # Add to scanned list
-        scanned_domains_general.append(full_domain)
-        logging.info(f"Scanning domain: {full_domain}")
-        logging.info(f"Main domain: {main_domain}")
-        if subdomain:
-            logging.info(f"Subdomain: {subdomain}")
-
-        # First check whitelists to potentially skip other checks
-        whitelist_checks = [
-            (full_domain in whitelist_domains_data, "domain"),
-            (full_domain in whitelist_domains_mail_data, "mail domain"),
-            (full_domain in whitelist_sub_domains_data, "subdomain"),
-            (full_domain in whitelist_mail_sub_domains_data, "mail subdomain")
-        ]
-        
-        for is_whitelisted, whitelist_type in whitelist_checks:
-            if is_whitelisted:
-                logging.info(f"Domain {full_domain} is whitelisted ({whitelist_type})")
-                return
-
-        # Subdomain checks (if subdomain exists)
-        if subdomain:
-            subdomain_checks = [
-                (spam_sub_domains_data, "Spam", "HEUR:Win32.SourceCode.Spam.SubDomain"),
-                (mining_sub_domains_data, "Mining", "HEUR:Win32.SourceCode.Mining.SubDomain"),
-                (abuse_sub_domains_data, "Abuse", "HEUR:Win32.SourceCode.Abuse.SubDomain"),
-                (phishing_sub_domains_data, "Phishing", "HEUR:Win32.SourceCode.Phishing.SubDomain"),
-                (malware_mail_sub_domains_data, "Malware mail", "HEUR:Win32.SourceCode.Malware.Mail.SubDomain"),
-                (malware_sub_domains_data, "Malware", "HEUR:Win32.SourceCode.Malware.SubDomain")
-            ]
-            
-            for database, threat_type, heur_code in subdomain_checks:
-                if full_domain in database:
-                    logging.warning(f"{threat_type} subdomain detected: {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, heur_code)
-                    return
-
-        # Main domain checks
-        domain_checks = [
-            (spam_domains_data, "Spam", "HEUR:Win32.SourceCode.Spam.Domain"),
-            (mining_domains_data, "Mining", "HEUR:Win32.SourceCode.Mining.Domain"),
-            (abuse_domains_data, "Abuse", "HEUR:Win32.SourceCode.Abuse.Domain"),
-            (phishing_domains_data, "Phishing", "HEUR:Win32.SourceCode.Phishing.Domain"),
-            (malware_domains_mail_data, "Malware mail", "HEUR:Win32.SourceCode.Malware.Mail.Domain"),
-            (malware_domains_data, "Malware", "HEUR:Win32.SourceCode.Malware.Domain")
-        ]
-        
-        for database, threat_type, heur_code in domain_checks:
-            if main_domain in database:
-                logging.warning(f"{threat_type} domain detected: {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, heur_code)
-                return
-
-        logging.info(f"Domain {full_domain} passed all checks.")
-
-    except Exception as ex:
-        logging.error(f"Error scanning domain {url}: {ex}")
-        print(f"Error scanning domain {url}: {ex}")
-
-# Generalized scan for URLs
-def scan_url_general(url):
-    try:
-        if url in scanned_urls_general:
-            logging.info(f"URL {url} has already been scanned.")
-            return
-
-        scanned_urls_general.append(url)  # Add to the scanned list
-        logging.info(f"Scanning URL: {url}")
-
-        # Check against the URLhaus database
-        for entry in urlhaus_data:
-            if entry['url'] in url:
-                message = (
-                    f"URL {url} matches the URLhaus signatures.\n"
-                    f"ID: {entry['id']}\n"
-                    f"Date Added: {entry['dateadded']}\n"
-                    f"URL Status: {entry['url_status']}\n"
-                    f"Last Online: {entry['last_online']}\n"
-                    f"Threat: {entry['threat']}\n"
-                    f"Tags: {entry['tags']}\n"
-                    f"URLhaus Link: {entry['urlhaus_link']}\n"
-                    f"Reporter: {entry['reporter']}"
-                )
-                logging.warning(message)
-                print(message)
-
-                # Notify the user about the malicious URL
-                notify_user_for_malicious_source_code(url, 'HEUR:Win32.SourceCode.URLhaus.Match')
-                return
-
-        logging.info(f"No match found for URL: {url}")
-        print(f"No match found for URL: {url}")
-
-    except Exception as ex:
-        logging.error(f"Error scanning URL {url}: {ex}")
-        print(f"Error scanning URL {url}: {ex}")
-
-def is_local_ip(ip):
-    try:
-        ip_obj = ipaddress.ip_address(ip)
-        return ip_obj.is_private
-    except ValueError:
-        return False
-
-# Generalized scan for IP addresses
-def scan_ip_address_general(ip_address):
-    try:
-        # Check if the IP address is local
-        if is_local_ip(ip_address):
-            message = f"Skipping local IP address: {ip_address}"
-            logging.info(message)
-            print(message)
-            return
-
-        # Check if the IP address has already been scanned
-        if ip_address in scanned_ipv4_addresses_general or ip_address in scanned_ipv6_addresses_general:
-            message = f"IP address {ip_address} has already been scanned."
-            logging.info(message)
-            print(message)
-            return
-
-        # Determine if it's an IPv4 or IPv6 address using regex
-        if re.match(IPv6_pattern, ip_address):  # IPv6
-            scanned_ipv6_addresses_general.append(ip_address)
-            message = f"Scanning IPv6 address: {ip_address}"
-            logging.info(message)
-            print(message)
-
-            # Check if it matches malicious signatures
-            if ip_address in ipv6_addresses_signatures_data:
-                logging.warning(f"Malicious IPv6 address detected: {ip_address}")
-                notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.SourceCode.Malware.IPv6')
-
-            elif ip_address in ipv6_whitelist_data:
-                logging.info(f"IPv6 address {ip_address} is whitelisted")
-                return
-            else:
-                logging.info(f"Unknown IPv6 address detected: {ip_address}")
-                print(f"Unknown IPv6 address detected: {ip_address}")
-
-        elif re.match(IPv4_pattern, ip_address):  # IPv4
-            scanned_ipv4_addresses_general.append(ip_address)
-            message = f"Scanning IPv4 address: {ip_address}"
-            logging.info(message)
-            print(message)
-
-            # Check if it matches malicious signatures
-            if ip_address in ipv4_addresses_signatures_data:
-                logging.warning(f"Malicious IPv4 address detected: {ip_address}")
-                notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.SourceCode.Malware.IPv4')
-
-            elif ip_address in ipv4_whitelist_data:
-                logging.info(f"IPv4 address {ip_address} is whitelisted")
-                return
-            else:
-                logging.info(f"Unknown IPv4 address detected: {ip_address}")
-                print(f"Unknown IPv4 address detected: {ip_address}")
-        else:
-            logging.debug(f"Invalid IP address format detected: {ip_address}")
-            print(f"Invalid IP address format detected: {ip_address}")
-
-    except Exception as ex:
-        logging.error(f"Error scanning IP address {ip_address}: {ex}")
-        print(f"Error scanning IP address {ip_address}: {ex}")
 
 # Function to load antivirus list
 def load_antivirus_list():
@@ -1972,6 +1733,499 @@ def load_website_data():
         whitelist_mail_sub_domains_data = []
 
     print("All domain and ip address files loaded successfully!")
+
+# --------------------------------------------------------------------------
+# Check for Discord webhook URLs and invite links (including Canary)
+def contains_discord_code(decompiled_code, file_path, cs_file_path=None,
+                            nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False, dotnet_flag=False):
+    """
+    Scan the decompiled code for Discord webhook URLs, Discord Canary webhook URLs, or Discord invite links.
+    For every detection, log a warning and immediately notify the user with an explicit unique heuristic
+    signature that depends on the flags provided.
+    """
+    discord_webhook_matches = re.findall(discord_webhook_pattern, decompiled_code)
+    discord_canary_webhook_matches = re.findall(discord_canary_webhook_pattern, decompiled_code)
+    discord_invite_matches = re.findall(discord_invite_pattern, decompiled_code)
+
+    if discord_webhook_matches:
+        if dotnet_flag:
+            if cs_file_path:
+                logging.warning(f"Discord webhook URL detected in .NET source code file: {cs_file_path} - Matches: {discord_webhook_matches}")
+            else:
+                logging.warning(f"Discord webhook URL detected in .NET source code file: [cs_file_path not provided] - Matches: {discord_webhook_matches}")
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.DotNET')
+        elif nuitka_flag:
+            logging.warning(f"Discord webhook URL detected in Nuitka compiled file: {file_path} - Matches: {discord_webhook_matches}")
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.Nuitka')
+        elif pyinstaller_flag or pyinstaller_deepseek_flag:
+            # In both cases, add the notice.
+            logging.warning(f"Discord webhook URL detected in PyInstaller compiled file: {file_path} - Matches: {discord_webhook_matches} NOTICE: There still a chance the file is not related with PyInstaller")
+            if pyinstaller_deepseek_flag:
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.PyInstallerDeepSeek')
+            else:
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.PyInstaller')
+        else:
+            logging.warning(f"Discord webhook URL detected in decompiled code: {discord_webhook_matches}")
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook')
+
+    if discord_canary_webhook_matches:
+        if dotnet_flag:
+            if cs_file_path:
+                logging.warning(f"Discord Canary webhook URL detected in .NET source code file: {cs_file_path} - Matches: {discord_canary_webhook_matches}")
+            else:
+                logging.warning(f"Discord Canary webhook URL detected in .NET source code file: [cs_file_path not provided] - Matches: {discord_canary_webhook_matches}")
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.DotNET')
+        elif nuitka_flag:
+            logging.warning(f"Discord Canary webhook URL detected in Nuitka compiled file: {file_path} - Matches: {discord_canary_webhook_matches}")
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.Nuitka')
+        elif pyinstaller_flag or pyinstaller_deepseek_flag:
+            logging.warning(f"Discord Canary webhook URL detected in PyInstaller compiled file: {file_path} - Matches: {discord_canary_webhook_matches} NOTICE: There still a chance the file is not related with PyInstaller")
+            if pyinstaller_deepseek_flag:
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.PyInstallerDeepSeek')
+            else:
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.PyInstaller')
+        else:
+            logging.warning(f"Discord Canary webhook URL detected in decompiled code: {discord_canary_webhook_matches}")
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook')
+
+    if discord_invite_matches:
+        if dotnet_flag:
+            if cs_file_path:
+                logging.warning(f"Discord invite link detected in .NET source code file: {cs_file_path} - Matches: {discord_invite_matches}")
+            else:
+                logging.warning(f"Discord invite link detected in .NET source code file: [cs_file_path not provided] - Matches: {discord_invite_matches}")
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Invite.DotNET')
+        elif nuitka_flag:
+            logging.warning(f"Discord invite link detected in Nuitka compiled file: {file_path} - Matches: {discord_invite_matches}")
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Invite.Nuitka')
+        elif pyinstaller_flag or pyinstaller_deepseek_flag:
+            logging.warning(f"Discord invite link detected in PyInstaller compiled file: {file_path} - Matches: {discord_invite_matches} NOTICE: There still a chance the file is not related with PyInstaller")
+            if pyinstaller_deepseek_flag:
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Invite.PyInstallerDeepSeek')
+            else:
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Invite.PyInstaller')
+        else:
+            logging.info(f"Discord invite link detected in decompiled code: {discord_invite_matches}")
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Invite')
+
+# --------------------------------------------------------------------------
+# Generalized scan for domains
+def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False):
+    try:
+        if not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
+        parsed_url = urlparse(url)
+        if not parsed_url.netloc:
+            raise ValueError("Invalid URL or domain format")
+        full_domain = parsed_url.netloc.lower()
+        domain_parts = full_domain.split('.')
+        if len(domain_parts) > 2:
+            main_domain = '.'.join(domain_parts[-2:])
+            subdomain = '.'.join(domain_parts[:-2])
+        else:
+            main_domain = full_domain
+            subdomain = None
+
+        if full_domain in scanned_domains_general:
+            logging.info(f"Domain {full_domain} has already been scanned.")
+            return
+        scanned_domains_general.append(full_domain)
+        logging.info(f"Scanning domain: {full_domain}")
+        logging.info(f"Main domain: {main_domain}")
+        if subdomain:
+            logging.info(f"Subdomain: {subdomain}")
+
+        whitelist_checks = [
+            (full_domain in whitelist_domains_data, "domain"),
+            (full_domain in whitelist_domains_mail_data, "mail domain"),
+            (full_domain in whitelist_sub_domains_data, "subdomain"),
+            (full_domain in whitelist_mail_sub_domains_data, "mail subdomain")
+        ]
+        for is_whitelisted, whitelist_type in whitelist_checks:
+            if is_whitelisted:
+                logging.info(f"Domain {full_domain} is whitelisted ({whitelist_type}).")
+                return
+
+        if subdomain:
+            if full_domain in spam_sub_domains_data:
+                if dotnet_flag:
+                    logging.warning(f"Spam subdomain detected in .NET source code: {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.DotNET.Spam.SubDomain")
+                elif nuitka_flag:
+                    logging.warning(f"Spam subdomain detected in Nuitka compiled file: {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Nuitka.Spam.SubDomain")
+                elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                    logging.warning(f"Spam subdomain detected in PyInstaller compiled file: {full_domain} NOTICE: There still a chance the file is not related with PyInstaller")
+                    if pyinstaller_deepseek_flag:
+                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PyInstallerDeepSeek.Spam.SubDomain")
+                    else:
+                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PyInstaller.Spam.SubDomain")
+                else:
+                    logging.warning(f"Spam subdomain detected: {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Spam.SubDomain")
+                return
+
+            if full_domain in mining_sub_domains_data:
+                if dotnet_flag:
+                    logging.warning(f"Mining subdomain detected in .NET source code: {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.DotNET.Mining.SubDomain")
+                elif nuitka_flag:
+                    logging.warning(f"Mining subdomain detected in Nuitka compiled file: {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Nuitka.Mining.SubDomain")
+                elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                    logging.warning(f"Mining subdomain detected in PyInstaller compiled file: {full_domain} NOTICE: There still a chance the file is not related with PyInstaller")
+                    if pyinstaller_deepseek_flag:
+                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PyInstallerDeepSeek.Mining.SubDomain")
+                    else:
+                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PyInstaller.Mining.SubDomain")
+                else:
+                    logging.warning(f"Mining subdomain detected: {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Mining.SubDomain")
+                return
+
+            if full_domain in abuse_sub_domains_data:
+                if dotnet_flag:
+                    logging.warning(f"Abuse subdomain detected in .NET source code: {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.DotNET.Abuse.SubDomain")
+                elif nuitka_flag:
+                    logging.warning(f"Abuse subdomain detected in Nuitka compiled file: {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Nuitka.Abuse.SubDomain")
+                elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                    logging.warning(f"Abuse subdomain detected in PyInstaller compiled file: {full_domain} NOTICE: There still a chance the file is not related with PyInstaller")
+                    if pyinstaller_deepseek_flag:
+                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PyInstallerDeepSeek.Abuse.SubDomain")
+                    else:
+                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PyInstaller.Abuse.SubDomain")
+                else:
+                    logging.warning(f"Abuse subdomain detected: {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Abuse.SubDomain")
+                return
+
+            if full_domain in phishing_sub_domains_data:
+                if dotnet_flag:
+                    logging.warning(f"Phishing subdomain detected in .NET source code: {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.DotNET.Phishing.SubDomain")
+                elif nuitka_flag:
+                    logging.warning(f"Phishing subdomain detected in Nuitka compiled file: {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Nuitka.Phishing.SubDomain")
+                elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                    logging.warning(f"Phishing subdomain detected in PyInstaller compiled file: {full_domain} NOTICE: There still a chance the file is not related with PyInstaller")
+                    if pyinstaller_deepseek_flag:
+                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PyInstallerDeepSeek.Phishing.SubDomain")
+                    else:
+                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PyInstaller.Phishing.SubDomain")
+                else:
+                    logging.warning(f"Phishing subdomain detected: {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Phishing.SubDomain")
+                return
+
+            if full_domain in malware_mail_sub_domains_data:
+                if dotnet_flag:
+                    logging.warning(f"Malware mail subdomain detected in .NET source code: {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.DotNET.Malware.Mail.SubDomain")
+                elif nuitka_flag:
+                    logging.warning(f"Malware mail subdomain detected in Nuitka compiled file: {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Nuitka.Malware.Mail.SubDomain")
+                elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                    logging.warning(f"Malware mail subdomain detected in PyInstaller compiled file: {full_domain} NOTICE: There still a chance the file is not related with PyInstaller")
+                    if pyinstaller_deepseek_flag:
+                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PyInstallerDeepSeek.Malware.Mail.SubDomain")
+                    else:
+                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PyInstaller.Malware.Mail.SubDomain")
+                else:
+                    logging.warning(f"Malware mail subdomain detected: {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Malware.Mail.SubDomain")
+                return
+
+            if full_domain in malware_sub_domains_data:
+                if dotnet_flag:
+                    logging.warning(f"Malware subdomain detected in .NET source code: {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.DotNET.Malware.SubDomain")
+                elif nuitka_flag:
+                    logging.warning(f"Malware subdomain detected in Nuitka compiled file: {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Nuitka.Malware.SubDomain")
+                elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                    logging.warning(f"Malware subdomain detected in PyInstaller compiled file: {full_domain} NOTICE: There still a chance the file is not related with PyInstaller")
+                    if pyinstaller_deepseek_flag:
+                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PyInstallerDeepSeek.Malware.SubDomain")
+                    else:
+                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PyInstaller.Malware.SubDomain")
+                else:
+                    logging.warning(f"Malware subdomain detected: {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Malware.SubDomain")
+                return
+
+        # Main domain threat checks
+        if full_domain in spam_domains_data or main_domain in spam_domains_data:
+            if dotnet_flag:
+                logging.warning(f"Spam domain detected in .NET source code: {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.DotNET.Spam.Domain")
+            elif nuitka_flag:
+                logging.warning(f"Spam domain detected in Nuitka compiled file: {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Nuitka.Spam.Domain")
+            elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                logging.warning(f"Spam domain detected in PyInstaller compiled file: {main_domain} NOTICE: There still a chance the file is not related with PyInstaller")
+                if pyinstaller_deepseek_flag:
+                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PyInstallerDeepSeek.Spam.Domain")
+                else:
+                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PyInstaller.Spam.Domain")
+            else:
+                logging.warning(f"Spam domain detected: {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Spam.Domain")
+            return
+
+        if full_domain in mining_domains_data or main_domain in mining_domains_data:
+            if dotnet_flag:
+                logging.warning(f"Mining domain detected in .NET source code: {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.DotNET.Mining.Domain")
+            elif nuitka_flag:
+                logging.warning(f"Mining domain detected in Nuitka compiled file: {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Nuitka.Mining.Domain")
+            elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                logging.warning(f"Mining domain detected in PyInstaller compiled file: {main_domain} NOTICE: There still a chance the file is not related with PyInstaller")
+                if pyinstaller_deepseek_flag:
+                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PyInstallerDeepSeek.Mining.Domain")
+                else:
+                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PyInstaller.Mining.Domain")
+            else:
+                logging.warning(f"Mining domain detected: {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Mining.Domain")
+            return
+
+        if full_domain in abuse_domains_data or main_domain in abuse_domains_data:
+            if dotnet_flag:
+                logging.warning(f"Abuse domain detected in .NET source code: {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.DotNET.Abuse.Domain")
+            elif nuitka_flag:
+                logging.warning(f"Abuse domain detected in Nuitka compiled file: {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Nuitka.Abuse.Domain")
+            elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                logging.warning(f"Abuse domain detected in PyInstaller compiled file: {main_domain} NOTICE: There still a chance the file is not related with PyInstaller")
+                if pyinstaller_deepseek_flag:
+                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PyInstallerDeepSeek.Abuse.Domain")
+                else:
+                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PyInstaller.Abuse.Domain")
+            else:
+                logging.warning(f"Abuse domain detected: {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Abuse.Domain")
+            return
+
+        if full_domain in phishing_domains_data or main_domain in phishing_domains_data:
+            if dotnet_flag:
+                logging.warning(f"Phishing domain detected in .NET source code: {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.DotNET.Phishing.Domain")
+            elif nuitka_flag:
+                logging.warning(f"Phishing domain detected in Nuitka compiled file: {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Nuitka.Phishing.Domain")
+            elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                logging.warning(f"Phishing domain detected in PyInstaller compiled file: {main_domain} NOTICE: There still a chance the file is not related with PyInstaller")
+                if pyinstaller_deepseek_flag:
+                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PyInstallerDeepSeek.Phishing.Domain")
+                else:
+                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PyInstaller.Phishing.Domain")
+            else:
+                logging.warning(f"Phishing domain detected: {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Phishing.Domain")
+            return
+
+        if full_domain in malware_domains_mail_data or main_domain in malware_domains_mail_data:
+            if dotnet_flag:
+                logging.warning(f"Malware mail domain detected in .NET source code: {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.DotNET.Malware.Mail.Domain")
+            elif nuitka_flag:
+                logging.warning(f"Malware mail domain detected in Nuitka compiled file: {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Nuitka.Malware.Mail.Domain")
+            elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                logging.warning(f"Malware mail domain detected in PyInstaller compiled file: {main_domain} NOTICE: There still a chance the file is not related with PyInstaller")
+                if pyinstaller_deepseek_flag:
+                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PyInstallerDeepSeek.Malware.Mail.Domain")
+                else:
+                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PyInstaller.Malware.Mail.Domain")
+            else:
+                logging.warning(f"Malware mail domain detected: {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Malware.Mail.Domain")
+            return
+
+        if full_domain in malware_domains_data or main_domain in malware_domains_data:
+            if dotnet_flag:
+                logging.warning(f"Malware domain detected in .NET source code: {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.DotNET.Malware.Domain")
+            elif nuitka_flag:
+                logging.warning(f"Malware domain detected in Nuitka compiled file: {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Nuitka.Malware.Domain")
+            elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                logging.warning(f"Malware domain detected in PyInstaller compiled file: {main_domain} NOTICE: There still a chance the file is not related with PyInstaller")
+                if pyinstaller_deepseek_flag:
+                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PyInstallerDeepSeek.Malware.Domain")
+                else:
+                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PyInstaller.Malware.Domain")
+            else:
+                logging.warning(f"Malware domain detected: {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Malware.Domain")
+            return
+
+        logging.info(f"Domain {full_domain} passed all checks.")
+
+    except Exception as ex:
+        logging.error(f"Error scanning domain {url}: {ex}")
+        print(f"Error scanning domain {url}: {ex}")
+
+# --------------------------------------------------------------------------
+# Generalized scan for URLs
+def scan_url_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False):
+    try:
+        if url in scanned_urls_general:
+            logging.info(f"URL {url} has already been scanned.")
+            return
+
+        scanned_urls_general.append(url)
+        logging.info(f"Scanning URL: {url}")
+
+        for entry in urlhaus_data:
+            if entry['url'] in url:
+                message = (
+                    f"URL {url} matches the URLhaus signatures.\n"
+                    f"ID: {entry['id']}\n"
+                    f"Date Added: {entry['dateadded']}\n"
+                    f"URL Status: {entry['url_status']}\n"
+                    f"Last Online: {entry['last_online']}\n"
+                    f"Threat: {entry['threat']}\n"
+                    f"Tags: {entry['tags']}\n"
+                    f"URLhaus Link: {entry['urlhaus_link']}\n"
+                    f"Reporter: {entry['reporter']}"
+                )
+                logging.warning(message)
+                print(message)
+                if dotnet_flag:
+                    notify_user_for_malicious_source_code(url, 'HEUR:Win32.DotNET.URLhaus.Match')
+                elif nuitka_flag:
+                    notify_user_for_malicious_source_code(url, 'HEUR:Win32.Nuitka.URLhaus.Match')
+                elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                    logging.warning(f"URL {url} matches the URLhaus signatures. NOTICE: There still a chance the file is not related with PyInstaller")
+                    if pyinstaller_deepseek_flag:
+                        notify_user_for_malicious_source_code(url, 'HEUR:Win32.PyInstallerDeepSeek.URLhaus.Match')
+                    else:
+                        notify_user_for_malicious_source_code(url, 'HEUR:Win32.PyInstaller.URLhaus.Match')
+                else:
+                    notify_user_for_malicious_source_code(url, 'HEUR:Win32.URLhaus.Match')
+                return
+
+        logging.info(f"No match found for URL: {url}")
+        print(f"No match found for URL: {url}")
+
+    except Exception as ex:
+        logging.error(f"Error scanning URL {url}: {ex}")
+        print(f"Error scanning URL {url}: {ex}")
+
+# --------------------------------------------------------------------------
+# Generalized scan for IP addresses
+def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False):
+    try:
+        if is_local_ip(ip_address):
+            message = f"Skipping local IP address: {ip_address}"
+            logging.info(message)
+            print(message)
+            return
+
+        if ip_address in scanned_ipv4_addresses_general or ip_address in scanned_ipv6_addresses_general:
+            message = f"IP address {ip_address} has already been scanned."
+            logging.info(message)
+            print(message)
+            return
+
+        if re.match(IPv6_pattern, ip_address):
+            scanned_ipv6_addresses_general.append(ip_address)
+            message = f"Scanning IPv6 address: {ip_address}"
+            logging.info(message)
+            print(message)
+            if ip_address in ipv6_addresses_signatures_data:
+                logging.warning(f"Malicious IPv6 address detected: {ip_address}")
+                if dotnet_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.Malware.IPv6')
+                elif nuitka_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Malware.IPv6')
+                elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                    logging.warning(f"Malicious IPv6 address detected: {ip_address} NOTICE: There still a chance the file is not related with PyInstaller")
+                    if pyinstaller_deepseek_flag:
+                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstallerDeepSeek.Malware.IPv6')
+                    else:
+                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstaller.Malware.IPv6')
+                else:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Malware.IPv6')
+            elif ip_address in ipv6_whitelist_data:
+                logging.info(f"IPv6 address {ip_address} is whitelisted.")
+                return
+            else:
+                logging.info(f"Unknown IPv6 address detected: {ip_address}")
+                print(f"Unknown IPv6 address detected: {ip_address}")
+
+        elif re.match(IPv4_pattern, ip_address):
+            scanned_ipv4_addresses_general.append(ip_address)
+            message = f"Scanning IPv4 address: {ip_address}"
+            logging.info(message)
+            print(message)
+            if ip_address in ipv4_addresses_signatures_data:
+                logging.warning(f"Malicious IPv4 address detected: {ip_address}")
+                if dotnet_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.Malware.IPv4')
+                elif nuitka_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Malware.IPv4')
+                elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                    logging.warning(f"Malicious IPv4 address detected: {ip_address} NOTICE: There still a chance the file is not related with PyInstaller")
+                    if pyinstaller_deepseek_flag:
+                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstallerDeepSeek.Malware.IPv4')
+                    else:
+                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstaller.Malware.IPv4')
+                else:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Malware.IPv4')
+            elif ip_address in ipv4_whitelist_data:
+                logging.info(f"IPv4 address {ip_address} is whitelisted.")
+                return
+            else:
+                logging.info(f"Unknown IPv4 address detected: {ip_address}")
+                print(f"Unknown IPv4 address detected: {ip_address}")
+        else:
+            logging.debug(f"Invalid IP address format detected: {ip_address}")
+            print(f"Invalid IP address format detected: {ip_address}")
+
+    except Exception as ex:
+        logging.error(f"Error scanning IP address {ip_address}: {ex}")
+        print(f"Error scanning IP address {ip_address}: {ex}")
+
+# --------------------------------------------------------------------------
+# Main scanner: combine all individual scans and pass the flags along
+def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
+                          dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False):
+    """
+    Scan the decompiled code for Discord-related URLs (via contains_discord_code),
+    general URLs, domains, and IP addresses. The provided flags are passed along
+    to each individual scanning function so that every detection scenario uses its unique
+    virus signature.
+    """
+    contains_discord_code(decompiled_code, file_path, cs_file_path,
+                            dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
+                            pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+    urls = set(re.findall(r'https?://[^\s/$.?#]\S*', decompiled_code))
+    for url in urls:
+        scan_url_general(url, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
+                          pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+        scan_domain_general(url, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
+                            pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+    ipv4_addresses = set(re.findall(
+        r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'
+        r'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)',
+        decompiled_code
+    ))
+    for ip in ipv4_addresses:
+        scan_ip_address_general(ip, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
+                                pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+    ipv6_addresses = set(re.findall(
+        r'([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}',
+        decompiled_code
+    ))
+    for ip in ipv6_addresses:
+        scan_ip_address_general(ip, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
+                                pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
 
 def enum_process_modules(handle):
     """Enumerate and retrieve loaded modules in a process."""
@@ -3986,14 +4240,8 @@ def scan_rsrc_directory(extracted_files):
                                 rsrc_content = ''.join(lines)  # Use the entire content of the file
 
                                 # Perform the scans
-                                scan_code_for_links(rsrc_content)
+                                scan_code_for_links(rsrc_content, nuitka_flag=True)
 
-                                # Check for Discord webhook URLs as well
-                                if contains_discord_code(rsrc_content):
-                                    logging.warning("Discord webhook URL found in the RCDATA file.")
-                                    notify_user_for_malicious_source_code(
-                                        extracted_file, 'HEUR:Win32.Discord.Nuitka.Stealer.Generic.Malware'
-                                    )
                             else:
                                 logging.info(f"File {extracted_file} is empty.")
                     except Exception as ex:
@@ -4700,16 +4948,16 @@ def log_directory_type(file_path):
     except Exception as ex:
         logging.error(f"Error logging directory type for {file_path}: {ex}")
 
-def scan_file_with_deepseek(file_path, pycdas_flag=False, decompiled_flag=False):
+def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled_flag=False):
     """
     Processes a file and analyzes it using DeepSeek-Coder-1.3b.
-    If pycdas_flag is True (i.e. the file comes from pycdas decompilation), the summary will consist solely of the full source code.
-    If decompiled_flag is True (and pycdas_flag is False), a normal summary is generated with an additional note indicating that the file was decompiled by our tool and is Python source code.
+    If united_python_code_flag is True (i.e. the file comes from pycdas, pycdc, uncomplye6 decompilation), the summary will consist solely of the full source code.
+    If decompiled_flag is True (and united_python_code_flag is False), a normal summary is generated with an additional note indicating that the file was decompiled by our tool and is Python source code.
     
     Args:
         file_path (str): The path to the file to be scanned.
-        pycdas_flag (bool): If True, indicates that the file was produced by the pycdas decompiler.
-        decompiled_flag (bool): If True (and pycdas_flag is False), indicates that the file was decompiled by our tool.
+        united_python_code_flag (bool): If True, indicates that the file was produced by the pycdas decompiler.
+        decompiled_flag (bool): If True (and united_python_code_flag is False), indicates that the file was decompiled by our tool.
     """
     try:
         # Log directory type based on the global variables
@@ -4757,7 +5005,7 @@ def scan_file_with_deepseek(file_path, pycdas_flag=False, decompiled_flag=False)
             logging.info(f"{file_path}: It's a Nuitka reversed-engineered Python source code directory.")
 
         # Build the initial message based on flags
-        if pycdas_flag:
+        if united_python_code_flag:
             initial_message = (
                 "This file was decompiled using pycdas.exe and further analyzed with DeepSeek-Coder-1.3b.\n"
                 "Based on the source code extracted via pycdas, please follow these instructions:\n"
@@ -4905,7 +5153,7 @@ def scan_file_with_deepseek(file_path, pycdas_flag=False, decompiled_flag=False)
             f"Malicious Content: {explanation}\n"
         )
 
-        if pycdas_flag:
+        if united_python_code_flag:
             final_response = readable_file_content
         elif decompiled_flag:
             final_response += "\nNote: This file was decompiled by our tool and is Python source code.\n"
@@ -4937,8 +5185,8 @@ def scan_file_with_deepseek(file_path, pycdas_flag=False, decompiled_flag=False)
                 logging.error(f"Error notifying user: {ex}")
 
         # --- For pycdas decompiled files: save the extracted source code with a .py extension ---
-        if pycdas_flag:
-            pycdas_deepseek_dir = os.path.join(python_source_code_dir, "pycdas_deepseek")
+        if united_python_code_flag:
+            pycdas_deepseek_dir = os.path.join(python_source_code_dir, "united_deepseek")
             if not os.path.exists(pycdas_deepseek_dir):
                 os.makedirs(pycdas_deepseek_dir)
             deepseek_source_filename = os.path.splitext(os.path.basename(file_path))[0] + "_deepseek.py"
@@ -4947,8 +5195,12 @@ def scan_file_with_deepseek(file_path, pycdas_flag=False, decompiled_flag=False)
                 with open(deepseek_source_path, "w", encoding="utf-8") as deepseek_source_file:
                     deepseek_source_file.write(readable_file_content)
                 logging.info(f"DeepSeek extracted source code saved to {deepseek_source_path}")
+                # Now scan .pyc source code
+                scan_code_for_links(deepseek_source_path, pyinstaller_deepseek_flag=True)
             except Exception as ex:
                 logging.error(f"Error writing DeepSeek extracted source code to {deepseek_source_path}: {ex}")
+        except Exception as ex:
+            logging.error(f"Error scanning code for links: {ex}")
 
     except Exception as ex:
         logging.error(f"An unexpected error occurred in scan_file_with_deepseek: {ex}")
@@ -5012,12 +5264,8 @@ def decompile_dotnet_file(file_path):
                             cs_file_content = f.read()
 
                         # Scan for links, IPs, domains, and Discord webhooks
-                        scan_code_for_links(cs_file_content)
+                        scan_code_for_links(cs_file_content, dotnet_flag=True)
 
-                        if contains_discord_code(cs_file_content):
-                            logging.warning(f"Discord webhook URL detected in .NET source code file: {cs_file_path}")
-                            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.DotNET.Stealer.Generic.Malware')
-                        
                     except Exception as ex:
                         logging.error(f"Error scanning .cs file {cs_file_path}: {ex}")
 
@@ -5322,43 +5570,43 @@ def run_pycdas_decompiler(file_path):
 def show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name):
     """
     Decompiles a .pyc file using uncompyle6, pycdc, and pycdas, and saves the results to the appropriate directories.
-    Scans the decompiled code for malicious content such as Discord webhooks, IP addresses, domains, and URLs.
+    Combines the outputs into one united file (saved in a subdirectory "united" of python_source_code_dir) and then
+    scans the combined code for malicious content such as Discord webhooks, IP addresses, domains, and URLs.
 
     Args:
         file_path: Path to the .pyc file to decompile.
         file_name: The name of the .pyc file to be decompiled.
 
     Returns:
-        A tuple of paths to the decompiled source files from uncompyle6, pycdc, and pycdas,
-        or (None, None, None) if decompilation fails.
+        A tuple of paths: (uncompyle6_output_path, pycdc_output_path, pycdas_output_path, united_output_path),
+        or (None, None, None, None) if processing fails.
     """
     try:
         logging.info(f"Processing python file: {file_path}")
 
-        # Create output directory if needed
+        # Ensure the main output directory exists
         if not os.path.exists(python_source_code_dir):
             os.makedirs(python_source_code_dir)
 
-        # Use base_name derived from file_name (without extension)
+        # Derive a base name from the file name (without extension)
         base_name = os.path.splitext(file_name)[0]
 
         # Check if it's source code using PyInstaller's method
         is_source = False
         with open(file_path, "rb") as pyc_file:
-            # Skip pyc header
+            # Skip the pyc header (assumes 16 bytes header)
             pyc_file.seek(16)
-
-            # Try to read TOC entry structure
+            # Read the TOC entry structure
             entry_data = pyc_file.read(struct.calcsize('!IIIBc'))
             if len(entry_data) >= struct.calcsize('!IIIBc'):
                 try:
-                    # Unpack TOC entry to check typecmprsdata
+                    # Unpack the structure and check the type field
                     _, _, _, _, type_cmprs_data = struct.unpack('!IIIBc', entry_data)
                     is_source = (type_cmprs_data == b's')
                 except struct.error:
                     pass
 
-        # Create versioned output name for uncompyle6 based on detection
+        # Determine an output filename for uncompyle6 (versioned if needed)
         version = 1
         while True:
             if is_source:
@@ -5375,7 +5623,7 @@ def show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name):
                 break
             version += 1
 
-        # Try to decompile the file using uncompyle6
+        # --- uncompyle6 decompilation ---
         try:
             with open(file_path, "rb") as dec_f:
                 decompiled_code = uncompyle6.pyeval.evaluate(dec_f)
@@ -5383,7 +5631,7 @@ def show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name):
             logging.warning(f"uncompyle6 failed: {e}")
             decompiled_code = None
 
-        # Save the uncompyle6 decompiled code if successful
+        # Save the uncompyle6 output if decompilation succeeded
         if decompiled_code:
             with open(uncompyle6_output_path, "w") as output_file:
                 output_file.write(decompiled_code)
@@ -5398,26 +5646,15 @@ def show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name):
             logging.error("pycdc executable not found")
             pycdc_output_path = None
 
-        # Scan and process uncompyle6 decompiled code if available
+        # Process uncompyle6 output (no scanning here)
         if decompiled_code:
-            scan_code_for_links(decompiled_code)
-            # Write again if further modifications were made in scan_code_for_links
-            with open(uncompyle6_output_path, "w") as output_file:
-                output_file.write(decompiled_code)
-            # Process the decompiled code further
-            logging.info(f"Successfully saved uncompyle6 output to {uncompyle6_output_path}")
+            logging.info(f"Processing uncompyle6 output at {uncompyle6_output_path}")
             process_decompiled_code(uncompyle6_output_path)
 
         if pycdc_output_path:
-            # Scan the pycdc decompiled code as well
             with open(pycdc_output_path, "r") as pycdc_file:
                 pycdc_code = pycdc_file.read()
-            scan_code_for_links(pycdc_code)
-
-            # Save the pycdc decompiled code
-            with open(pycdc_output_path, "w") as output_file:
-                output_file.write(pycdc_code)
-            logging.info(f"Successfully saved pycdc output to {pycdc_output_path}")
+            logging.info(f"Processing pycdc output at {pycdc_output_path}")
             process_decompiled_code(pycdc_output_path)
 
         # --- PyCDAS decompilation branch ---
@@ -5430,17 +5667,53 @@ def show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name):
         if pycdas_output_path:
             with open(pycdas_output_path, "r") as pycdas_file:
                 pycdas_code = pycdas_file.read()
-            scan_code_for_links(pycdas_code)
-            with open(pycdas_output_path, "w") as output_file:
-                output_file.write(pycdas_code)
-            logging.info(f"Successfully saved pycdas output to {pycdas_output_path}")
+            logging.info(f"Processing pycdas output at {pycdas_output_path}")
             process_decompiled_code(pycdas_output_path)
 
-        return uncompyle6_output_path, pycdc_output_path, pycdas_output_path
+        # --- United output: combine all decompiled code ---
+        united_python_source_code_dir = os.path.join(python_source_code_dir, "united")
+        if not os.path.exists(united_python_source_code_dir):
+            os.makedirs(united_python_source_code_dir)
+
+        combined_code = ""
+
+        # Append uncompyle6 output (if available)
+        if decompiled_code:
+            with open(uncompyle6_output_path, "r") as f:
+                uncompyle6_code = f.read()
+            combined_code += "# uncompyle6 output\n" + uncompyle6_code + "\n\n"
+
+        # Append pycdc output (if available)
+        if pycdc_output_path and os.path.exists(pycdc_output_path):
+            with open(pycdc_output_path, "r") as f:
+                pycdc_code = f.read()
+            combined_code += "# pycdc output\n" + pycdc_code + "\n\n"
+
+        # Append pycdas output (if available)
+        if pycdas_output_path and os.path.exists(pycdas_output_path):
+            with open(pycdas_output_path, "r") as f:
+                pycdas_code = f.read()
+            combined_code += "# pycdas output\n" + pycdas_code + "\n\n"
+
+        # Now scan only the united combined code for links/malicious content
+        scan_code_for_links(combined_code, pyinstaller_flag=True)
+
+        united_output_path = os.path.join(united_python_source_code_dir, f"{base_name}_united.py")
+        with open(united_output_path, "w") as united_file:
+            united_file.write(combined_code)
+        logging.info(f"United decompiled output saved to {united_output_path}")
+
+        try:
+            scan_file_with_deepseek(united_output_path, united_python_code=True)
+            logging.info(f"United decompiled output saved to {united_output_path}")
+        except Exception as e:
+            logging.error(f"Error during scanning: {e}")
+
+        return uncompyle6_output_path, pycdc_output_path, pycdas_output_path, united_output_path
 
     except Exception as ex:
         logging.error(f"Error processing python file {file_path}: {ex}")
-        return None, None, None
+        return None, None, None, None
 
 # --- Main Scanning Function ---
 def scan_and_warn(file_path, flag=False, flag_debloat=False):
