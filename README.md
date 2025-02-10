@@ -162,4 +162,4 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - 8GB RAM is the minimum because I am using DeepSeek-Coder-1.3B locally. I strongly recommend 8GB RAM.
 
 **Any sponsors or supporters?**
-- Yes, there are supporters of this project. Xcitium (Comodo) has expressed interest in supporting this project by sending malware samples, and Cisco Talos ClamAV community projects.
+- Yes, there are supporters for this project. Xcitium (Comodo) has expressed interest in supporting this project by providing malware samples, and Cisco Talos ClamAV community projects. But it's still a one man project.
