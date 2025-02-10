@@ -17,6 +17,7 @@ eset.com
 f-secure.com
 fortinet.com
 gdatasoftware.com
+gdata-software.com
 hitmanpro.com
 ikarussecurity.com
 k7computing.com
@@ -48,3 +49,5 @@ jotti.org
 any.run
 tria.ge
 opswat.com
+surfshark.com
+cybereason.com
