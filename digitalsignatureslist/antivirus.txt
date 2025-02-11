@@ -29,8 +29,8 @@ BullGuard Ltd
 Bitdefender SRL
 Avira Operations GmbH &amp; Co.KG
 AVG Technologies CZ, s.r.o.
-AVAST Software s.r.o.
-AVAST Software a.s.
+Avast Software s.r.o.
+Avast Software a.s.
 System Healer Tech Sp.Zo.o.Lavasoft Limited
 Check Point Software Technologies Ltd.
 VIRUSBLOKADA ODO
@@ -63,7 +63,7 @@ BullGuard
 Bitdefender
 Avira
 AVG
-AVAST
+Avast
 AhnLab
 Lavasoft
 System Healer Tech Sp.Zo.o.Baidu (China)
