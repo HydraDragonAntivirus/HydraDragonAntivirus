@@ -34,3 +34,7 @@ __pycache__/
 /log
 /venv
 /build
+
+# Big website files
+website/IPv4Malware.txt
+website/MalwareSubDomains.txt
