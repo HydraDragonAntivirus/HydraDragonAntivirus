@@ -309,6 +309,9 @@ excluded_rules_dir = os.path.join(script_dir, "excluded")
 excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
 website_rules_dir = os.path.join(script_dir, "website")
 ipv4_addresses_path = os.path.join(website_rules_dir, "IPv4Malware.txt")
+ipv4_addresses_ddos_path = os.path.join(website_rules_dir, "IPv4DDoS.txt")
+ipv4_addresses_phishing_active_path = os.path.join(website_rules_dir, "IPv4PhishingActive.txt")
+ipv4_addresses_phishing_inactive_path = os.path.join(website_rules_dir, "IPv4PhishingInActive.txt")
 ipv4_whitelist_path = os.path.join(website_rules_dir, "IPv4Whitelist.txt")
 ipv6_addresses_path = os.path.join(website_rules_dir, "IPv6Malware.txt")
 ipv6_whitelist_path = os.path.join(website_rules_dir, "IPv6Whitelist.txt")
@@ -339,6 +342,9 @@ icewater_rule_path = os.path.join(yara_folder_path, "icewater.yrc")
 valhalla_rule_path = os.path.join(yara_folder_path, "valhalla-rules.yrc")
 antivirus_domains_data = []
 ipv4_addresses_signatures_data = []
+ipv4_addresses_ddos_signatures_data = []
+ipv4_addresses_phishing_active_signatures_data = []
+ipv4_addresses_phishing_inactive_signatures_data = []
 ipv6_addresses_signatures_data = []
 ipv4_whitelist_data = []
 ipv6_whitelist_data = []
@@ -1551,16 +1557,40 @@ def load_digital_signatures(file_path, description="Digital signatures"):
         return []
     
 def load_website_data():
-    global ipv4_addresses_signatures_data, ipv4_whitelist_data, ipv6_addresses_signatures_data, ipv6_whitelist_data, urlhaus_data, malware_domains_data, malware_domains_mail_data, phishing_domains_data, abuse_domains_data, mining_domains_data, spam_domains_data, whitelist_domains_data, whitelist_domains_mail_data, malware_sub_domains_data, malware_mail_sub_domains_data, phishing_sub_domains_data, abuse_sub_domains_data, mining_sub_domains_data, spam_sub_domains_data, whitelist_sub_domains_data, whitelist_mail_sub_domains_data
+    global ipv4_addresses_signatures_data, ipv4_whitelist_data, ipv4_addresses_ddos_signatures_data, ipv4_addresses_phishing_active_signatures_data, ipv4_addresses_phishing_inactive_signatures_data, ipv6_addresses_signatures_data, ipv6_whitelist_data, urlhaus_data, malware_domains_data, malware_domains_mail_data, phishing_domains_data, abuse_domains_data, mining_domains_data, spam_domains_data, whitelist_domains_data, whitelist_domains_mail_data, malware_sub_domains_data, malware_mail_sub_domains_data, phishing_sub_domains_data, abuse_sub_domains_data, mining_sub_domains_data, spam_sub_domains_data, whitelist_sub_domains_data, whitelist_mail_sub_domains_data
 
     try:
-        # Load IPv4 addresses
+        # Load Malicious IPv4 addresses
         with open(ipv4_addresses_path, 'r') as ip_file:
             ipv4_addresses_signatures_data = ip_file.read().splitlines()
-        print("IPv4 Addresses loaded successfully!")
+        print("Malicious IPv4 Addresses loaded successfully!")
     except Exception as ex:
-        print(f"Error loading IPv4 Addresses: {ex}")
+        print(f"Error loading malicious IPv4 Addresses: {ex}")
 
+    try:
+        # Load DDoS IPv4 addresses
+        with open(ipv4_addresses_ddos_path, 'r') as ip_file:
+            ipv4_addresses_ddos_signatures_data = ip_file.read().splitlines()
+        print("Malicious IPv4 Addresses loaded successfully!")
+    except Exception as ex:
+        print(f"Error loading malicious IPv4 Addresses: {ex}")
+
+    try:
+        # Load phishing active IPv4 addresses
+        with open(ipv4_addresses_phishing_active_path, 'r') as ip_file:
+            ipv4_addresses_phishing_active_signatures_data = ip_file.read().splitlines()
+        print("Active phishing IPv4 Addresses loaded successfully!")
+    except Exception as ex:
+        print(f"Error loading active phishing IPv4 Addresses: {ex}")
+
+    try:
+        # Load phishing inactive IPv4 addresses
+        with open(ipv4_addresses_phishing_inactive_path, 'r') as ip_file:
+            ipv4_addresses_phishing_inactive_signatures_data = ip_file.read().splitlines()
+        print("Inactive phishing IPv4 Addresses loaded successfully!")
+    except Exception as ex:
+        print(f"Error loading inactive phishing IPv4 Addresses: {ex}")
+    
     try:
         # Load IPv4 whitelist
         with open(ipv4_whitelist_path, 'r') as whitelist_file:
@@ -2121,18 +2151,21 @@ def scan_url_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag
 # Generalized scan for IP addresses
 def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False):
     try:
+        # Check if the IP address is local
         if is_local_ip(ip_address):
             message = f"Skipping local IP address: {ip_address}"
             logging.info(message)
             print(message)
             return
 
+        # Check if the IP address has already been scanned
         if ip_address in scanned_ipv4_addresses_general or ip_address in scanned_ipv6_addresses_general:
             message = f"IP address {ip_address} has already been scanned."
             logging.info(message)
             print(message)
             return
 
+        # Process IPv6 addresses
         if re.match(IPv6_pattern, ip_address):
             scanned_ipv6_addresses_general.append(ip_address)
             message = f"Scanning IPv6 address: {ip_address}"
@@ -2145,7 +2178,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                 elif nuitka_flag:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Malware.IPv6')
                 elif pyinstaller_flag or pyinstaller_deepseek_flag:
-                    logging.warning(f"Malicious IPv6 address detected: {ip_address} NOTICE: There still a chance the file is not related with PyInstaller")
+                    logging.warning(f"Malicious IPv6 address detected: {ip_address} NOTICE: There is still a chance the file is not related to PyInstaller")
                     if pyinstaller_deepseek_flag:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstallerDeepSeek.Malware.IPv6')
                     else:
@@ -2159,11 +2192,14 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                 logging.info(f"Unknown IPv6 address detected: {ip_address}")
                 print(f"Unknown IPv6 address detected: {ip_address}")
 
+        # Process IPv4 addresses
         elif re.match(IPv4_pattern, ip_address):
             scanned_ipv4_addresses_general.append(ip_address)
             message = f"Scanning IPv4 address: {ip_address}"
             logging.info(message)
             print(message)
+            
+            # Check for standard malware signatures first
             if ip_address in ipv4_addresses_signatures_data:
                 logging.warning(f"Malicious IPv4 address detected: {ip_address}")
                 if dotnet_flag:
@@ -2171,13 +2207,30 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                 elif nuitka_flag:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Malware.IPv4')
                 elif pyinstaller_flag or pyinstaller_deepseek_flag:
-                    logging.warning(f"Malicious IPv4 address detected: {ip_address} NOTICE: There still a chance the file is not related with PyInstaller")
+                    logging.warning(f"Malicious IPv4 address detected: {ip_address} NOTICE: There is still a chance the file is not related to PyInstaller")
                     if pyinstaller_deepseek_flag:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstallerDeepSeek.Malware.IPv4')
                     else:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstaller.Malware.IPv4')
                 else:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Malware.IPv4')
+            
+            # Check for DDoS threat signatures
+            elif ip_address in ipv4_addresses_ddos_signatures_data:
+                logging.warning(f"IPv4 address {ip_address} detected as a potential DDoS threat.")
+                notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DDOS.Malware.IPv4')
+            
+            # Check for active phishing threat signatures
+            elif ip_address in ipv4_addresses_phishing_active_signatures_data:
+                logging.warning(f"IPv4 address {ip_address} detected as an active phishing threat.")
+                notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PhishingActive.Malware.IPv4')
+            
+            # Check for inactive phishing threat signatures
+            elif ip_address in ipv4_addresses_phishing_inactive_signatures_data:
+                logging.warning(f"IPv4 address {ip_address} detected as an inactive phishing threat.")
+                notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PhishingInactive.Malware.IPv4')
+            
+            # Check if the IPv4 address is whitelisted
             elif ip_address in ipv4_whitelist_data:
                 logging.info(f"IPv4 address {ip_address} is whitelisted.")
                 return
@@ -2600,7 +2653,7 @@ class RealTimeWebProtectionHandler:
                 print(message)
                 return
 
-            # Check if the IP address has already been scanned (IPv6 or IPv4)
+            # Check if the IP address has already been scanned
             if ip_address in self.scanned_ipv6_addresses or ip_address in self.scanned_ipv4_addresses:
                 return
 
@@ -2611,7 +2664,7 @@ class RealTimeWebProtectionHandler:
                 logging.info(message)
                 print(message)
 
-                # Check against the IPv6 addresses signatures
+                # Check against IPv6 signatures
                 if ip_address in ipv6_addresses_signatures_data:
                     self.handle_detection('ip_address', ip_address, 'MALWARE')
 
@@ -2621,7 +2674,6 @@ class RealTimeWebProtectionHandler:
                     logging.info(message)
                     print(message)
                 else:
-                    # Log as unknown but do not trigger handle_detection
                     message = f"Unknown IPv6 address detected: {ip_address}"
                     logging.info(message)
                     print(message)
@@ -2632,9 +2684,21 @@ class RealTimeWebProtectionHandler:
                 logging.info(message)
                 print(message)
 
-                # Check against the IPv4 addresses signatures
+                # Check against IPv4 malware signatures
                 if ip_address in ipv4_addresses_signatures_data:
                     self.handle_detection('ip_address', ip_address, 'MALWARE')
+
+                # Check against IPv4 DDoS signatures
+                elif ip_address in ipv4_addresses_ddos_signatures_data:
+                    self.handle_detection('ip_address', ip_address, 'DDOS')
+
+                # Check against active phishing signatures
+                elif ip_address in ipv4_addresses_phishing_active_signatures_data:
+                    self.handle_detection('ip_address', ip_address, 'PHISHING_ACTIVE')
+
+                # Check against inactive phishing signatures
+                elif ip_address in ipv4_addresses_phishing_inactive_signatures_data:
+                    self.handle_detection('ip_address', ip_address, 'PHISHING_INACTIVE')
 
                 # Check if it is in the IPv4 whitelist
                 elif ip_address in ipv4_whitelist_data:
@@ -2642,7 +2706,6 @@ class RealTimeWebProtectionHandler:
                     logging.info(message)
                     print(message)
                 else:
-                    # Log as unknown but do not trigger handle_detection
                     message = f"Unknown IPv4 address detected: {ip_address}"
                     logging.info(message)
                     print(message)
