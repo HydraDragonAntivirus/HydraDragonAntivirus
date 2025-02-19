@@ -262,6 +262,7 @@ accelerator = Accelerator()
 
 # Define the paths to the ghidra related directories
 decompile_dir = os.path.join(script_dir, "decompile")
+assets_dir = os.path.join(script_dir, "assets")
 digital_signatures_list_dir = os.path.join(script_dir, "digitalsignatureslist")
 pyinstaller_dir = os.path.join(script_dir, "pyinstaller")
 ghidra_projects_dir = os.path.join(script_dir, "ghidra_projects")
@@ -3711,7 +3712,7 @@ class AntivirusUI(QWidget):
         main_layout = QVBoxLayout()
         main_layout.addWidget(self.stacked_widget)
         self.setLayout(main_layout)
-        self.setWindowIcon(QIcon("assets/HydraDragonAV.png"))
+        self.setWindowIcon(QIcon(os.path.join(assets_dir,"HydraDragonAV.png")))
         self.signals = WorkerSignals()
         self.signals.success.connect(self.show_success_message)
         self.signals.failure.connect(self.show_failure_message)
