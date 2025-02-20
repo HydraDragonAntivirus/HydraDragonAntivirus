@@ -2505,6 +2505,7 @@ def scan_file_with_clamd(file_path):
 def is_related_to_critical_paths(file_path):
     return file_path.startswith(sandboxie_folder) or file_path == main_file_path
 
+# --- The RealTimeWebProtectionHandler Class ---
 class RealTimeWebProtectionHandler:
     def __init__(self):
         self.scanned_domains = []
@@ -2545,6 +2546,37 @@ class RealTimeWebProtectionHandler:
         except Exception as ex:
             logging.error(f"Error in handle_detection: {ex}")
             print(f"Error in handle_detection: {ex}")
+
+    def fetch_html(self, url):
+        """Fetch HTML content from the given URL."""
+        try:
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                return response.text
+            else:
+                logging.warning(f"Non-OK status {response.status_code} for URL: {url}")
+                return ""
+        except Exception as e:
+            logging.error(f"Error fetching HTML content from {url}: {e}")
+            return ""
+
+    def extract_ip_addresses(self, text):
+        """Extract IPv4 and IPv6 addresses from text using regex."""
+        ipv4_regex = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+        ipv6_regex = r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b'
+        ips = re.findall(ipv4_regex, text)
+        ips += re.findall(ipv6_regex, text)
+        return ips
+
+    def extract_urls(self, text):
+        """Extract URLs from text using regex."""
+        url_regex = r'https?://[^\s"<>]+'
+        return re.findall(url_regex, text)
+
+    def extract_domains(self, text):
+        """Extract domain names from text using regex."""
+        domain_regex = r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b'
+        return re.findall(domain_regex, text)
 
     def scan_domain(self, domain):
         try:
@@ -2641,6 +2673,23 @@ class RealTimeWebProtectionHandler:
                 logging.info(f"Domain {main_domain} is whitelisted (mail)")
                 return
 
+            # Fetch HTML content from the domain and scan for known harmful signatures
+            full_url = f"http://{domain}"
+            html_content = self.fetch_html(full_url)
+            if html_content:
+                # Extract IP addresses from HTML content and scan them
+                extracted_ips = self.extract_ip_addresses(html_content)
+                for ip in extracted_ips:
+                    self.scan_ip_address(ip)
+                # Extract URLs from HTML content and scan them
+                extracted_urls = self.extract_urls(html_content)
+                for url in extracted_urls:
+                    self.scan_url(url)
+                # Extract domains from HTML content and scan them
+                extracted_domains = self.extract_domains(html_content)
+                for extracted_domain in extracted_domains:
+                    self.scan_domain(extracted_domain)
+
         except Exception as ex:
             logging.error(f"Error scanning domain {domain}: {ex}")
             print(f"Error scanning domain {domain}: {ex}")
@@ -2710,6 +2759,19 @@ class RealTimeWebProtectionHandler:
                     message = f"Unknown IPv4 address detected: {ip_address}"
                     logging.info(message)
                     print(message)
+            
+            # Fetch HTML content from the IP address and scan for signatures
+            full_url = f"http://{ip_address}"
+            html_content = self.fetch_html(full_url)
+            if html_content:
+                # Extract domains from HTML content and scan them
+                extracted_domains = self.extract_domains(html_content)
+                for domain in extracted_domains:
+                    self.scan_domain(domain)
+                # Extract URLs from HTML content and scan them
+                extracted_urls = self.extract_urls(html_content)
+                for url in extracted_urls:
+                    self.scan_url(url)
 
         except Exception as ex:
             logging.error(f"Error scanning IP address {ip_address}: {ex}")
@@ -2722,6 +2784,23 @@ class RealTimeWebProtectionHandler:
                 return
 
             self.scanned_urls.append(url)  # Add to the scanned list
+            # Fetch HTML content from the URL
+            html_content = self.fetch_html(url)
+            if html_content:
+                # Extract IP addresses from HTML content and scan them
+                extracted_ips = self.extract_ip_addresses(html_content)
+                for ip in extracted_ips:
+                    self.scan_ip_address(ip)
+                # Extract domains from HTML content and scan them
+                extracted_domains = self.extract_domains(html_content)
+                for domain in extracted_domains:
+                    self.scan_domain(domain)
+                # Extract URLs from HTML content and scan them recursively
+                extracted_urls = self.extract_urls(html_content)
+                for extracted_url in extracted_urls:
+                    self.scan_url(extracted_url)
+
+            # Process URL against URLhaus signatures
             for entry in urlhaus_data:
                 if entry['url'] in url:
                     message = (
