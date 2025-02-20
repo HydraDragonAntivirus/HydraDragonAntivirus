@@ -2148,6 +2148,19 @@ def scan_url_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag
         logging.error(f"Error scanning URL {url}: {ex}")
         print(f"Error scanning URL {url}: {ex}")
 
+def fetch_html(url):
+    """Fetch HTML content from the given URL."""
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            return response.text
+        else:
+            logging.warning(f"Non-OK status {response.status_code} for URL: {url}")
+            return ""
+    except Exception as e:
+        logging.error(f"Error fetching HTML content from {url}: {e}")
+        return ""
+
 # --------------------------------------------------------------------------
 # Generalized scan for IP addresses
 def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False):
@@ -2547,19 +2560,6 @@ class RealTimeWebProtectionHandler:
             logging.error(f"Error in handle_detection: {ex}")
             print(f"Error in handle_detection: {ex}")
 
-    def fetch_html(self, url):
-        """Fetch HTML content from the given URL."""
-        try:
-            response = requests.get(url, timeout=10)
-            if response.status_code == 200:
-                return response.text
-            else:
-                logging.warning(f"Non-OK status {response.status_code} for URL: {url}")
-                return ""
-        except Exception as e:
-            logging.error(f"Error fetching HTML content from {url}: {e}")
-            return ""
-
     def extract_ip_addresses(self, text):
         """Extract IPv4 and IPv6 addresses from text using regex."""
         ips = re.findall(IPv4_pattern, text)
@@ -2673,7 +2673,7 @@ class RealTimeWebProtectionHandler:
 
             # Fetch HTML content from the domain and scan for known harmful signatures
             full_url = f"http://{domain}"
-            html_content = self.fetch_html(full_url)
+            html_content = fetch_html(full_url)
             if html_content:
                 # Extract IP addresses from HTML content and scan them
                 extracted_ips = self.extract_ip_addresses(html_content)
@@ -2760,7 +2760,7 @@ class RealTimeWebProtectionHandler:
             
             # Fetch HTML content from the IP address and scan for signatures
             full_url = f"http://{ip_address}"
-            html_content = self.fetch_html(full_url)
+            html_content = fetch_html(full_url)
             if html_content:
                 # Extract domains from HTML content and scan them
                 extracted_domains = self.extract_domains(html_content)
@@ -2783,7 +2783,7 @@ class RealTimeWebProtectionHandler:
 
             self.scanned_urls.append(url)  # Add to the scanned list
             # Fetch HTML content from the URL
-            html_content = self.fetch_html(url)
+            html_content = fetch_html(url)
             if html_content:
                 # Extract IP addresses from HTML content and scan them
                 extracted_ips = self.extract_ip_addresses(html_content)
