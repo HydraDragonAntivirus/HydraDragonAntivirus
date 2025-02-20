@@ -2259,6 +2259,33 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
         logging.error(f"Error scanning IP address {ip_address}: {ex}")
         print(f"Error scanning IP address {ip_address}: {ex}")
 
+def scan_html_content(html_content, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False):
+    """Scan extracted HTML content for any potential threats."""
+    contains_discord_code(html_content, "html_content", None,
+                          dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
+                          pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+    urls = set(re.findall(r'https?://[^\s/$.?#]\S*', html_content))
+    for url in urls:
+        scan_url_general(url, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
+                          pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+        scan_domain_general(url, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
+                            pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+    ipv4_addresses = set(re.findall(
+        r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'
+        r'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)',
+        html_content
+    ))
+    for ip in ipv4_addresses:
+        scan_ip_address_general(ip, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
+                                pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+    ipv6_addresses = set(re.findall(
+        r'([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}',
+        html_content
+    ))
+    for ip in ipv6_addresses:
+        scan_ip_address_general(ip, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
+                                pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+
 # --------------------------------------------------------------------------
 # Main scanner: combine all individual scans and pass the flags along
 def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
@@ -2272,12 +2299,20 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
     contains_discord_code(decompiled_code, file_path, cs_file_path,
                             dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
                             pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+    
     urls = set(re.findall(r'https?://[^\s/$.?#]\S*', decompiled_code))
     for url in urls:
+        html_content = fetch_html(url)
+        contains_discord_code(html_content, file_path, cs_file_path,
+                              dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
+                              pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
         scan_url_general(url, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
                           pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
         scan_domain_general(url, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
                             pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+        scan_html_content(html_content, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
+                          pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+    
     ipv4_addresses = set(re.findall(
         r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'
         r'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)',
@@ -2286,6 +2321,7 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
     for ip in ipv4_addresses:
         scan_ip_address_general(ip, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
                                 pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+
     ipv6_addresses = set(re.findall(
         r'([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}',
         decompiled_code
