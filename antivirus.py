@@ -381,8 +381,8 @@ clamav_file_paths = ["C:\\Program Files\\ClamAV\\database\\daily.cvd", "C:\\Prog
 clamav_database_directory_path = "C:\\Program Files\\ClamAV\\database"
 seven_zip_path = "C:\\Program Files\\7-Zip\\7z.exe"  # Path to 7z.exe
 
-IPv4_pattern = r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$'  # Simple IPv4 regex
-IPv6_pattern = r'^(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$'  # Simple IPv6 regex
+IPv4_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b' # Simple IPv4 regex
+IPv6_pattern = r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b' # Simple IPv6 regex
 # Regular expressions for Discord links
 discord_webhook_pattern = r'https://discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
 discord_canary_webhook_pattern = r'https://canary\.discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
@@ -2562,10 +2562,8 @@ class RealTimeWebProtectionHandler:
 
     def extract_ip_addresses(self, text):
         """Extract IPv4 and IPv6 addresses from text using regex."""
-        ipv4_regex = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
-        ipv6_regex = r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b'
-        ips = re.findall(ipv4_regex, text)
-        ips += re.findall(ipv6_regex, text)
+        ips = re.findall(IPv4_pattern, text)
+        ips += re.findall(IPv6_pattern, text)
         return ips
 
     def extract_urls(self, text):
@@ -2708,7 +2706,7 @@ class RealTimeWebProtectionHandler:
                 return
 
             # Determine whether it's an IPv6 or IPv4 address
-            if ':' in ip_address:  # IPv6 address
+            if re.match(IPv6_pattern, ip_address): # IPv6 address
                 self.scanned_ipv6_addresses.append(ip_address)
                 message = f"Scanning IPv6 address: {ip_address}"
                 logging.info(message)
