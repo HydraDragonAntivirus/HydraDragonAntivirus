@@ -36,9 +36,6 @@ rule PyinstallerWiper
         2 of ($sys_path, $inf_path, $download_url, $disable_defender, $vssadmin, $reg_del, $greeting, $final_msg, $tk_svchost, $tk_csrss, $mlbo_ext)
 }
 
-/*
- This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
-*/
 import "pe"
 rule Possible_Emotet_DLL
 {
@@ -52,9 +49,6 @@ rule Possible_Emotet_DLL
       (pe.imphash() == "066d4e2c6288c042d958ddc93cfa07f1" or pe.imphash() == "	38617efee413c2d5919637769ddb6a9") and $htt1 and $mzh
 }
 
-/*
- This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
-*/
 rule HydraSeven_loader
 {
    meta:
@@ -105,9 +99,6 @@ rule Jupyter_Infostealer_PowerShell
   condition:
       ($a or $b) or ($c and $d)
 }
-/*
- This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
-*/
 rule Jupyter_Infostealer_DLL_October2021
 {
   meta:
@@ -143,9 +134,6 @@ rule Redline_Detection
   condition:
       (pe.imphash() == "dae02f32a21e03ce65412f6e56942daa") and all of ($htt*) and $mzh and filesize > 500KB and not $neg
 }
-/*
- This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
-*/
 import "pe"
 rule Multifamily_RAT_Detection
 {
@@ -182,9 +170,6 @@ rule Jupyter_Dropped_File
   condition:
       all of them
 }
-/*
- This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
-*/
 rule Possible_Solarmarker_Backdoor_Nov2023
 {
    meta:
@@ -224,9 +209,6 @@ rule solarmarker_March2022
   condition:
      ($off1 in (0x17d0..0x1a20) and 2 of ($hex*) and $mz at 0)
 }
-/*
- This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
-*/
 rule Solarmarker_DLL_Jan2023
 {
    meta:
@@ -245,9 +227,6 @@ rule Solarmarker_DLL_Jan2023
      $mz at 0 and $wstring1 and 1 of ($astring*)
 }
 import "pe"
-/*
- This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
-*/
 rule Solarmarker_Dropper
 {
    meta:
@@ -263,9 +242,6 @@ rule Solarmarker_Dropper
   condition:
       pe.imphash() == "b8bb385806b89680e13fc0cf24f4431e" and 3 of ($htt*)
 }
-/*
- This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
-*/
 rule Solarmarker_Packer
 {
    meta:
@@ -278,9 +254,6 @@ rule Solarmarker_Packer
       $c in (0x10000..0x30000) or $c in (0x50000..0x60000) or $c in (0x70000..0x90000)
 }
 
-/*
- This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
-*/
 rule Solarmarker_Packer_2
 {
    meta:
@@ -294,9 +267,6 @@ rule Solarmarker_Packer_2
   condition:
      $off1 in (0x26000..0x32000) and $off2 in (0x26000..0x32000) and $mz at 0
 }
-/*
- This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
-*/
 rule Solarmarker_Packer_Strings
 {
    meta:
@@ -315,9 +285,6 @@ rule Solarmarker_Packer_Strings
      $mz at 0 and $wstring1 and 1 of ($astring*)
 }
 
-/*
- This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
-*/
 rule Solarmarker_Packer_May_2023
 {
    meta:
@@ -356,9 +323,6 @@ rule Suspicious_PS_Strings
     condition:
         6 of them
 }
-/*
- This Yara ruleset is under the GNU-GPLv2 license (http://www.gnu.org/licenses/gpl-2.0.html) and open to any user or organization, as long as you use it under this license.
-*/
 import "pe"
 rule suspicious_obfuscated_script_detection
 {
