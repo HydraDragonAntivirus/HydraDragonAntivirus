@@ -310,7 +310,7 @@ excluded_rules_dir = os.path.join(script_dir, "excluded")
 excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
 website_rules_dir = os.path.join(script_dir, "website")
 ipv4_addresses_path = os.path.join(website_rules_dir, "IPv4Malware.txt")
-ipv4_addresses_ddos_path = os.path.join(website_rules_dir, "IPv4DDoS.txt")
+ipv4_addresses_bruteforce_path = os.path.join(website_rules_dir, "IPv4BruteForce.txt")
 ipv4_addresses_phishing_active_path = os.path.join(website_rules_dir, "IPv4PhishingActive.txt")
 ipv4_addresses_phishing_inactive_path = os.path.join(website_rules_dir, "IPv4PhishingInActive.txt")
 ipv4_whitelist_path = os.path.join(website_rules_dir, "IPv4Whitelist.txt")
@@ -343,7 +343,7 @@ icewater_rule_path = os.path.join(yara_folder_path, "icewater.yrc")
 valhalla_rule_path = os.path.join(yara_folder_path, "valhalla-rules.yrc")
 antivirus_domains_data = []
 ipv4_addresses_signatures_data = []
-ipv4_addresses_ddos_signatures_data = []
+ipv4_addresses_bruteforce_signatures_data = []
 ipv4_addresses_phishing_active_signatures_data = []
 ipv4_addresses_phishing_inactive_signatures_data = []
 ipv6_addresses_signatures_data = []
@@ -1558,7 +1558,7 @@ def load_digital_signatures(file_path, description="Digital signatures"):
         return []
     
 def load_website_data():
-    global ipv4_addresses_signatures_data, ipv4_whitelist_data, ipv4_addresses_ddos_signatures_data, ipv4_addresses_phishing_active_signatures_data, ipv4_addresses_phishing_inactive_signatures_data, ipv6_addresses_signatures_data, ipv6_whitelist_data, urlhaus_data, malware_domains_data, malware_domains_mail_data, phishing_domains_data, abuse_domains_data, mining_domains_data, spam_domains_data, whitelist_domains_data, whitelist_domains_mail_data, malware_sub_domains_data, malware_mail_sub_domains_data, phishing_sub_domains_data, abuse_sub_domains_data, mining_sub_domains_data, spam_sub_domains_data, whitelist_sub_domains_data, whitelist_mail_sub_domains_data
+    global ipv4_addresses_signatures_data, ipv4_whitelist_data, ipv4_addresses_bruteforce_signatures_data, ipv4_addresses_phishing_active_signatures_data, ipv4_addresses_phishing_inactive_signatures_data, ipv6_addresses_signatures_data, ipv6_whitelist_data, urlhaus_data, malware_domains_data, malware_domains_mail_data, phishing_domains_data, abuse_domains_data, mining_domains_data, spam_domains_data, whitelist_domains_data, whitelist_domains_mail_data, malware_sub_domains_data, malware_mail_sub_domains_data, phishing_sub_domains_data, abuse_sub_domains_data, mining_sub_domains_data, spam_sub_domains_data, whitelist_sub_domains_data, whitelist_mail_sub_domains_data
 
     try:
         # Load Malicious IPv4 addresses
@@ -1569,9 +1569,9 @@ def load_website_data():
         print(f"Error loading malicious IPv4 Addresses: {ex}")
 
     try:
-        # Load DDoS IPv4 addresses
-        with open(ipv4_addresses_ddos_path, 'r') as ip_file:
-            ipv4_addresses_ddos_signatures_data = ip_file.read().splitlines()
+        # Load BruteForce IPv4 addresses
+        with open(ipv4_addresses_bruteforce_path, 'r') as ip_file:
+            ipv4_addresses_bruteforce_signatures_data = ip_file.read().splitlines()
         print("Malicious IPv4 Addresses loaded successfully!")
     except Exception as ex:
         print(f"Error loading malicious IPv4 Addresses: {ex}")
@@ -2229,10 +2229,10 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                 else:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Malware.IPv4')
             
-            # Check for DDoS threat signatures
-            elif ip_address in ipv4_addresses_ddos_signatures_data:
-                logging.warning(f"IPv4 address {ip_address} detected as a potential DDoS threat.")
-                notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DDOS.Malware.IPv4')
+            # Check for BruteForce threat signatures
+            elif ip_address in ipv4_addresses_bruteforce_signatures_data:
+                logging.warning(f"IPv4 address {ip_address} detected as a potential BruteForce threat.")
+                notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.BruteForce.Malware.IPv4')
             
             # Check for active phishing threat signatures
             elif ip_address in ipv4_addresses_phishing_active_signatures_data:
@@ -2772,9 +2772,9 @@ class RealTimeWebProtectionHandler:
                 if ip_address in ipv4_addresses_signatures_data:
                     self.handle_detection('ip_address', ip_address, 'MALWARE')
 
-                # Check against IPv4 DDoS signatures
-                elif ip_address in ipv4_addresses_ddos_signatures_data:
-                    self.handle_detection('ip_address', ip_address, 'DDOS')
+                # Check against IPv4 BruteForce signatures
+                elif ip_address in ipv4_addresses_bruteforce_signatures_data:
+                    self.handle_detection('ip_address', ip_address, 'BRUTEFORCE')
 
                 # Check against active phishing signatures
                 elif ip_address in ipv4_addresses_phishing_active_signatures_data:
