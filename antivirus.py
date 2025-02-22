@@ -315,6 +315,7 @@ ipv4_addresses_phishing_active_path = os.path.join(website_rules_dir, "IPv4Phish
 ipv4_addresses_phishing_inactive_path = os.path.join(website_rules_dir, "IPv4PhishingInActive.txt")
 ipv4_whitelist_path = os.path.join(website_rules_dir, "IPv4Whitelist.txt")
 ipv6_addresses_path = os.path.join(website_rules_dir, "IPv6Malware.txt")
+ipv4_addresses_ddos_path = os.path.join(website_rules_dir, "IPv4DDoS.txt")
 ipv6_addresses_ddos_path = os.path.join(website_rules_dir, "IPv6DDoS.txt")
 ipv6_whitelist_path = os.path.join(website_rules_dir, "IPv6Whitelist.txt")
 # Define all website file paths
@@ -347,6 +348,7 @@ ipv4_addresses_signatures_data = []
 ipv4_addresses_bruteforce_signatures_data = []
 ipv4_addresses_phishing_active_signatures_data = []
 ipv4_addresses_phishing_inactive_signatures_data = []
+ipv4_addresses_ddos_signatures_data = []
 ipv6_addresses_signatures_data = []
 ipv6_addresses_ddos_signatures_data = []
 ipv4_whitelist_data = []
@@ -373,7 +375,6 @@ scanned_urls_general = []
 scanned_domains_general = []
 scanned_ipv4_addresses_general = []
 scanned_ipv6_addresses_general = []
-scanned_ipv6_addresses_ddos_general = []
 # Digital Signatures data
 digital_signautres_list_antivirus_path = []
 digital_signautres_list_microsoft_path = []
@@ -1562,7 +1563,7 @@ def load_digital_signatures(file_path, description="Digital signatures"):
         return []
     
 def load_website_data():
-    global ipv4_addresses_signatures_data, ipv4_whitelist_data, ipv4_addresses_bruteforce_signatures_data, ipv4_addresses_phishing_active_signatures_data, ipv4_addresses_phishing_inactive_signatures_data, ipv6_addresses_signatures_data, ipv6_addresses_ddos_signatures_data, ipv6_whitelist_data, urlhaus_data, malware_domains_data, malware_domains_mail_data, phishing_domains_data, abuse_domains_data, mining_domains_data, spam_domains_data, whitelist_domains_data, whitelist_domains_mail_data, malware_sub_domains_data, malware_mail_sub_domains_data, phishing_sub_domains_data, abuse_sub_domains_data, mining_sub_domains_data, spam_sub_domains_data, whitelist_sub_domains_data, whitelist_mail_sub_domains_data
+    global ipv4_addresses_signatures_data, ipv4_whitelist_data, ipv4_addresses_bruteforce_signatures_data, ipv4_addresses_phishing_active_signatures_data, ipv4_addresses_phishing_inactive_signatures_data, ipv6_addresses_signatures_data, ipv6_addresses_ddos_signatures_data, ipv4_addresses_ddos_signatures_data, ipv6_whitelist_data, urlhaus_data, malware_domains_data, malware_domains_mail_data, phishing_domains_data, abuse_domains_data, mining_domains_data, spam_domains_data, whitelist_domains_data, whitelist_domains_mail_data, malware_sub_domains_data, malware_mail_sub_domains_data, phishing_sub_domains_data, abuse_sub_domains_data, mining_sub_domains_data, spam_sub_domains_data, whitelist_sub_domains_data, whitelist_mail_sub_domains_data
 
     try:
         # Load Malicious IPv4 addresses
@@ -1619,6 +1620,14 @@ def load_website_data():
         print("IPv6 DDoS Addresses loaded successfully!")
     except Exception as ex:
         print(f"Error loading IPv6 DDoS Addresses: {ex}")
+
+    try:
+        # Load IPv4 DDoS addresses
+        with open(ipv4_addresses_ddos_path, 'r') as ipv4_ddos_file:
+            ipv4_addresses_ddos_signatures_data = ipv4_ddos_file.read().splitlines()
+        print("IPv4 DDoS Addresses loaded successfully!")
+    except Exception as ex:
+        print(f"Error loading IPv4 DDoS Addresses: {ex}")
 
     try:
         # Load IPv6 whitelist
@@ -2198,21 +2207,9 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
             logging.info(message)
             print(message)
             
-            if ip_address in ipv6_addresses_signatures_data:
-                logging.warning(f"Malicious IPv6 address detected: {ip_address}")
-                if dotnet_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.Malware.IPv6')
-                elif nuitka_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Malware.IPv6')
-                elif pyinstaller_flag or pyinstaller_deepseek_flag:
-                    logging.warning(f"Malicious IPv6 address detected: {ip_address} NOTICE: There is still a chance the file is not related to PyInstaller")
-                    if pyinstaller_deepseek_flag:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstallerDeepSeek.Malware.IPv6')
-                    else:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstaller.Malware.IPv6')
-                else:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Malware.IPv6')
-            
+            if ip_address in ipv6_whitelist_data:
+                logging.info(f"IPv6 address {ip_address} is whitelisted.")
+                return
             elif ip_address in ipv6_addresses_ddos_signatures_data:
                 logging.warning(f"DDoS IPv6 address detected: {ip_address}")
                 if dotnet_flag:
@@ -2227,10 +2224,21 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstaller.DDoS.IPv6')
                 else:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DDoS.IPv6')
-            
-            elif ip_address in ipv6_whitelist_data:
-                logging.info(f"IPv6 address {ip_address} is whitelisted.")
-                return
+            elif ip_address in ipv6_addresses_signatures_data:
+                logging.warning(f"Malicious IPv6 address detected: {ip_address}")
+                if dotnet_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.Malware.IPv6')
+                elif nuitka_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Malware.IPv6')
+                elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                    logging.warning(f"Malicious IPv6 address detected: {ip_address} NOTICE: There is still a chance the file is not related to PyInstaller")
+                    if pyinstaller_deepseek_flag:
+                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstallerDeepSeek.Malware.IPv6')
+                    else:
+                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstaller.Malware.IPv6')
+                else:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Malware.IPv6')
+
             else:
                 logging.info(f"Unknown IPv6 address detected: {ip_address}")
                 print(f"Unknown IPv6 address detected: {ip_address}")
@@ -2241,39 +2249,11 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
             message = f"Scanning IPv4 address: {ip_address}"
             logging.info(message)
             print(message)
-            
-            # Check for standard malware signatures first
-            if ip_address in ipv4_addresses_signatures_data:
-                logging.warning(f"Malicious IPv4 address detected: {ip_address}")
-                if dotnet_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.Malware.IPv4')
-                elif nuitka_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Malware.IPv4')
-                elif pyinstaller_flag or pyinstaller_deepseek_flag:
-                    logging.warning(f"Malicious IPv4 address detected: {ip_address} NOTICE: There is still a chance the file is not related to PyInstaller")
-                    if pyinstaller_deepseek_flag:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstallerDeepSeek.Malware.IPv4')
-                    else:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstaller.Malware.IPv4')
-                else:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Malware.IPv4')
-            
-            # Detailed BruteForce threat signature check for IPv4
-            elif ip_address in ipv4_addresses_bruteforce_signatures_data:
-                logging.warning(f"IPv4 address {ip_address} detected as a potential BruteForce threat.")
-                if dotnet_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.BruteForce.IPv4')
-                elif nuitka_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.BruteForce.IPv4')
-                elif pyinstaller_flag or pyinstaller_deepseek_flag:
-                    logging.warning(f"IPv4 address {ip_address} detected as a potential BruteForce threat. NOTICE: There is still a chance the file is not related to PyInstaller")
-                    if pyinstaller_deepseek_flag:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstallerDeepSeek.BruteForce.IPv4')
-                    else:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstaller.BruteForce.IPv4')
-                else:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.BruteForce.IPv4')
-            
+
+            # Check if the IPv4 address is whitelisted
+            if ip_address in ipv4_whitelist_data:
+                logging.info(f"IPv4 address {ip_address} is whitelisted.")
+                return 
             # Detailed Active phishing threat signature check for IPv4
             elif ip_address in ipv4_addresses_phishing_active_signatures_data:
                 logging.warning(f"IPv4 address {ip_address} detected as an active phishing threat.")
@@ -2290,6 +2270,22 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                 else:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PhishingActive.IPv4')
             
+            # Detailed DDoS threat signature check for IPv4
+            elif ip_address in ipv4_addresses_ddos_signatures_data:
+                logging.warning(f"IPv4 address {ip_address} detected as a potential DDoS threat.")
+                if dotnet_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.DDoS.IPv4')
+                elif nuitka_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.DDoS.IPv4')
+                elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                    logging.warning(f"IPv4 address {ip_address} detected as a potential DDoS threat. NOTICE: There is still a chance the file is not related to PyInstaller")
+                    if pyinstaller_deepseek_flag:
+                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstallerDeepSeek.DDoS.IPv4')
+                    else:
+                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstaller.DDoS.IPv4')
+                else:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DDoS.IPv4')
+
             # Detailed Inactive phishing threat signature check for IPv4
             elif ip_address in ipv4_addresses_phishing_inactive_signatures_data:
                 logging.warning(f"IPv4 address {ip_address} detected as an inactive phishing threat.")
@@ -2305,11 +2301,38 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstaller.PhishingInactive.IPv4')
                 else:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PhishingInactive.IPv4')
-            
-            # Check if the IPv4 address is whitelisted
-            elif ip_address in ipv4_whitelist_data:
-                logging.info(f"IPv4 address {ip_address} is whitelisted.")
-                return
+
+            # Detailed BruteForce threat signature check for IPv4
+            elif ip_address in ipv4_addresses_bruteforce_signatures_data:
+                logging.warning(f"IPv4 address {ip_address} detected as a potential BruteForce threat.")
+                if dotnet_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.BruteForce.IPv4')
+                elif nuitka_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.BruteForce.IPv4')
+                elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                    logging.warning(f"IPv4 address {ip_address} detected as a potential BruteForce threat. NOTICE: There is still a chance the file is not related to PyInstaller")
+                    if pyinstaller_deepseek_flag:
+                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstallerDeepSeek.BruteForce.IPv4')
+                    else:
+                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstaller.BruteForce.IPv4')
+                else:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.BruteForce.IPv4')
+
+            # Check for standard malware signatures
+            elif ip_address in ipv4_addresses_signatures_data:
+                logging.warning(f"Malicious IPv4 address detected: {ip_address}")
+                if dotnet_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.Malware.IPv4')
+                elif nuitka_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Malware.IPv4')
+                elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                    logging.warning(f"Malicious IPv4 address detected: {ip_address} NOTICE: There is still a chance the file is not related to PyInstaller")
+                    if pyinstaller_deepseek_flag:
+                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstallerDeepSeek.Malware.IPv4')
+                    else:
+                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstaller.Malware.IPv4')
+                else:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Malware.IPv4')
             else:
                 logging.info(f"Unknown IPv4 address detected: {ip_address}")
                 print(f"Unknown IPv4 address detected: {ip_address}")
