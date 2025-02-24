@@ -38,3 +38,5 @@ __pycache__/
 # Big website files
 website/IPv4Malware.txt
 website/MalwareSubDomains.txt
+# Website cleaned
+website/cleaned
