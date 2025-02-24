@@ -310,11 +310,13 @@ excluded_rules_dir = os.path.join(script_dir, "excluded")
 excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
 website_rules_dir = os.path.join(script_dir, "website")
 ipv4_addresses_path = os.path.join(website_rules_dir, "IPv4Malware.txt")
+ipv4_addresses_spam_path = os.path.join(website_rules_dir, "IPv4Spam.txt")
 ipv4_addresses_bruteforce_path = os.path.join(website_rules_dir, "IPv4BruteForce.txt")
 ipv4_addresses_phishing_active_path = os.path.join(website_rules_dir, "IPv4PhishingActive.txt")
 ipv4_addresses_phishing_inactive_path = os.path.join(website_rules_dir, "IPv4PhishingInActive.txt")
 ipv4_whitelist_path = os.path.join(website_rules_dir, "IPv4Whitelist.txt")
-ipv6_addresses_path = os.path.join(website_rules_dir, "IPv6Malware.txt")
+ipv6_addresses_path = os.path.join(website_rules_dir, "IPv6Spam.txt")
+ipv6_addresses_spam_path = os.path.join(website_rules_dir, "IPv6Malware.txt")
 ipv4_addresses_ddos_path = os.path.join(website_rules_dir, "IPv4DDoS.txt")
 ipv6_addresses_ddos_path = os.path.join(website_rules_dir, "IPv6DDoS.txt")
 ipv6_whitelist_path = os.path.join(website_rules_dir, "IPv6Whitelist.txt")
@@ -345,11 +347,13 @@ icewater_rule_path = os.path.join(yara_folder_path, "icewater.yrc")
 valhalla_rule_path = os.path.join(yara_folder_path, "valhalla-rules.yrc")
 antivirus_domains_data = []
 ipv4_addresses_signatures_data = []
+ipv4_addresses_spam_signatures_data = []
 ipv4_addresses_bruteforce_signatures_data = []
 ipv4_addresses_phishing_active_signatures_data = []
 ipv4_addresses_phishing_inactive_signatures_data = []
 ipv4_addresses_ddos_signatures_data = []
 ipv6_addresses_signatures_data = []
+ipv6_addresses_spam_signatures_data = []
 ipv6_addresses_ddos_signatures_data = []
 ipv4_whitelist_data = []
 ipv6_whitelist_data = []
@@ -1566,12 +1570,28 @@ def load_website_data():
     global ipv4_addresses_signatures_data, ipv4_whitelist_data, ipv4_addresses_bruteforce_signatures_data, ipv4_addresses_phishing_active_signatures_data, ipv4_addresses_phishing_inactive_signatures_data, ipv6_addresses_signatures_data, ipv6_addresses_ddos_signatures_data, ipv4_addresses_ddos_signatures_data, ipv6_whitelist_data, urlhaus_data, malware_domains_data, malware_domains_mail_data, phishing_domains_data, abuse_domains_data, mining_domains_data, spam_domains_data, whitelist_domains_data, whitelist_domains_mail_data, malware_sub_domains_data, malware_mail_sub_domains_data, phishing_sub_domains_data, abuse_sub_domains_data, mining_sub_domains_data, spam_sub_domains_data, whitelist_sub_domains_data, whitelist_mail_sub_domains_data
 
     try:
-        # Load Malicious IPv4 addresses
+        # Load IPv4 Malicious addresses
         with open(ipv4_addresses_path, 'r') as ip_malicious_file:
             ipv4_addresses_signatures_data = ip_malicious_file.read().splitlines()
         print("Malicious IPv4 Addresses loaded successfully!")
     except Exception as ex:
         print(f"Error loading malicious IPv4 Addresses: {ex}")
+
+    try:
+        # Load IPv4 Spam addresses
+        with open(ipv4_addresses_spam_path, 'r') as ip_spam_file:
+            ipv4_addresses_spam_signatures_data = ip_spam_file.read().splitlines()
+        print("Spam IPv4 Addresses loaded successfully!")
+    except Exception as ex:
+        print(f"Error loading spam IPv4 Addresses: {ex}")
+
+    try:
+        # Load IPv6 Spam addresses
+        with open(ipv6_addresses_spam_path, 'r') as ipv6_spam_file:
+            ipv6_addresses_spam_signatures_data = ipv6_spam_file.read().splitlines()
+        print("IPv6 Spam Addresses loaded successfully!")
+    except Exception as ex:
+        print(f"Error loading IPv6 spam Addresses: {ex}")
 
     try:
         # Load BruteForce IPv4 addresses
@@ -2224,6 +2244,22 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstaller.DDoS.IPv6')
                 else:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DDoS.IPv6')
+
+            elif ip_address in ipv6_addresses_spam_signatures_data:
+                logging.warning(f"Spam IPv6 address detected: {ip_address}")
+                if dotnet_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.Spam.IPv6')
+                elif nuitka_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Spam.IPv6')
+                elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                    logging.warning(f"Malicious IPv6 address detected: {ip_address} NOTICE: There is still a chance the file is not related to PyInstaller")
+                    if pyinstaller_deepseek_flag:
+                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstallerDeepSeek.Spam.IPv6')
+                    else:
+                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstaller.Spam.IPv6')
+                else:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Spam.IPv6')
+
             elif ip_address in ipv6_addresses_signatures_data:
                 logging.warning(f"Malicious IPv6 address detected: {ip_address}")
                 if dotnet_flag:
@@ -2317,6 +2353,22 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstaller.BruteForce.IPv4')
                 else:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.BruteForce.IPv4')
+
+            # Check for spam signatures
+            elif ip_address in ipv4_addresses_spam_signatures_data:
+                logging.warning(f"Spam IPv4 address detected: {ip_address}")
+                if dotnet_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.Spam.IPv4')
+                elif nuitka_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Spam.IPv4')
+                elif pyinstaller_flag or pyinstaller_deepseek_flag:
+                    logging.warning(f"Spam IPv4 address detected: {ip_address} NOTICE: There is still a chance the file is not related to PyInstaller")
+                    if pyinstaller_deepseek_flag:
+                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstallerDeepSeek.Spam.IPv4')
+                    else:
+                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PyInstaller.Spam.IPv4')
+                else:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Spam.IPv4')
 
             # Check for standard malware signatures
             elif ip_address in ipv4_addresses_signatures_data:
@@ -2838,6 +2890,10 @@ class RealTimeWebProtectionHandler:
                     self.handle_detection('ipv6_address', ip_address, 'DDOS')
 
                 # Check against IPv6 Malware signatures
+                elif ip_address in ipv6_addresses_spam_signatures_data:
+                    self.handle_detection('ipv6_address', ip_address, 'SPAM')
+
+                # Check against IPv6 Malware signatures
                 elif ip_address in ipv6_addresses_signatures_data:
                     self.handle_detection('ipv6_address', ip_address, 'MALWARE')
 
@@ -2857,14 +2913,6 @@ class RealTimeWebProtectionHandler:
                 logging.info(message)
                 print(message)
 
-                # Check against IPv4 Malware signatures
-                if ip_address in ipv4_addresses_signatures_data:
-                    self.handle_detection('ipv4_address', ip_address, 'MALWARE')
-
-                # Check against IPv4 BruteForce signatures
-                elif ip_address in ipv4_addresses_bruteforce_signatures_data:
-                    self.handle_detection('ipv4_address', ip_address, 'BRUTEFORCE')
-
                 # Check against active phishing signatures
                 elif ip_address in ipv4_addresses_phishing_active_signatures_data:
                     self.handle_detection('ipv4_address', ip_address, 'PHISHING_ACTIVE')
@@ -2872,6 +2920,18 @@ class RealTimeWebProtectionHandler:
                 # Check against inactive phishing signatures
                 elif ip_address in ipv4_addresses_phishing_inactive_signatures_data:
                     self.handle_detection('ipv4_address', ip_address, 'PHISHING_INACTIVE')
+
+                # Check against IPv4 BruteForce signatures
+                elif ip_address in ipv4_addresses_bruteforce_signatures_data:
+                    self.handle_detection('ipv4_address', ip_address, 'BRUTEFORCE')
+
+                # Check against IPv4 Malware signatures
+                if ip_address in ipv4_addresses_spam_signatures_data:
+                    self.handle_detection('ipv4_address', ip_address, 'SPAM')
+
+                # Check against IPv4 Malware signatures
+                if ip_address in ipv4_addresses_signatures_data:
+                    self.handle_detection('ipv4_address', ip_address, 'MALWARE')
 
                 # Check if it is in the IPv4 whitelist
                 elif ip_address in ipv4_whitelist_data:
@@ -4196,8 +4256,8 @@ activate_uefi_drive() # Call the UEFI function
 load_website_data()
 load_antivirus_list()
 # Load Antivirus and Microsoft digital signatures
-antivirus_signatures = load_signatures(digital_signautres_list_antivirus_path, "Antivirus digital signatures")
-microsoft_signatures = load_signatures(digital_signautres_list_microsoft_path, "Microsoft digital signatures")
+antivirus_signatures = load_digital_signatures(digital_signautres_list_antivirus_path, "Antivirus digital signatures")
+microsoft_signatures = load_digital_signatures(digital_signautres_list_microsoft_path, "Microsoft digital signatures")
 
 try:
     # Load malicious file names from JSON file
