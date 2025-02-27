@@ -1,0 +1,1 @@
+The rules come from ditekshen, the Snort community and emergingthreats.
