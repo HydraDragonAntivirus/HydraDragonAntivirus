@@ -89,7 +89,6 @@ void WriteSigmaLog(const WCHAR* eventType, const WCHAR* details)
     QueueLogMessage(logEntry);
 }
 
-// Safe logging wrapper to prevent recursion.
 void SafeWriteSigmaLog(const WCHAR* eventType, const WCHAR* details)
 {
     if (g_bInLogging)
@@ -167,6 +166,26 @@ bool NormalizePath(std::wstring& path)
     return false;
 }
 
+// This function is used for detection: it checks the basename of the file.
+bool IsOurLogFileForDetection(LPCWSTR filePath)
+{
+    if (!filePath)
+        return false;
+    std::wstring path(filePath);
+    const std::wstring prefix = L"\\\\?\\";
+    if (path.compare(0, prefix.length(), prefix) == 0)
+        path = path.substr(prefix.length());
+    std::transform(path.begin(), path.end(), path.begin(), towlower);
+    size_t pos = path.find_last_of(L"\\/");
+    std::wstring basename = (pos != std::wstring::npos) ? path.substr(pos + 1) : path;
+    if (basename == L"dontremovesigma_log.txt" ||
+        basename == L"dontremoveerror_log.txt" ||
+        basename == L"dontremovedetectiteasy.json")
+        return true;
+    return false;
+}
+
+// This function is used to prevent logging our own file operations.
 bool IsOurLogFile(LPCWSTR filePath)
 {
     if (!filePath)
@@ -174,13 +193,10 @@ bool IsOurLogFile(LPCWSTR filePath)
     std::wstring path(filePath);
     NormalizePath(path);
     std::transform(path.begin(), path.end(), path.begin(), towlower);
-    // Check against our log file names.
     if (path.find(L"c:\\dontremovehydradragonantiviruslogs\\dontremovesigma_log.txt") != std::wstring::npos ||
         path.find(L"c:\\dontremovehydradragonantiviruslogs\\dontremoveerror_log.txt") != std::wstring::npos ||
         path.find(L"c:\\dontremovehydradragonantiviruslogs\\dontremovedetectiteasy.json") != std::wstring::npos)
-    {
         return true;
-    }
     return false;
 }
 
@@ -237,7 +253,6 @@ void ShowNotification_Internal(const WCHAR* title, const WCHAR* msg)
 {
     if (!g_hNotificationWnd)
         return;
-
     NOTIFYICONDATA nid = { 0 };
     nid.cbSize = sizeof(nid);
     nid.hWnd = g_hNotificationWnd;
@@ -247,13 +262,11 @@ void ShowNotification_Internal(const WCHAR* title, const WCHAR* msg)
     nid.hIcon = LoadIcon(NULL, IDI_WARNING);
     wcscpy_s(nid.szTip, title);
     Shell_NotifyIcon(NIM_ADD, &nid);
-
     nid.uFlags = NIF_INFO;
     wcscpy_s(nid.szInfo, msg);
     wcscpy_s(nid.szInfoTitle, title);
     nid.dwInfoFlags = NIIF_WARNING;
     Shell_NotifyIcon(NIM_MODIFY, &nid);
-
     Sleep(3000);
     Shell_NotifyIcon(NIM_DELETE, &nid);
 }
@@ -275,6 +288,29 @@ void TriggerNotification(const WCHAR* title, const WCHAR* msg)
 }
 
 // -----------------------------------------------------------------
+// Hook for RemoveDirectoryW to detect folder deletion.
+// -----------------------------------------------------------------
+typedef BOOL(WINAPI* RemoveDirectoryW_t)(LPCWSTR);
+static RemoveDirectoryW_t TrueRemoveDirectoryW = RemoveDirectoryW;
+
+BOOL WINAPI HookedRemoveDirectoryW(LPCWSTR lpPathName)
+{
+    if (lpPathName)
+    {
+        std::wstring path(lpPathName);
+        NormalizePath(path);
+        std::transform(path.begin(), path.end(), path.begin(), towlower);
+        // If the normalized path contains our log folder, trigger a wiper alert.
+        if (path.find(L"c:\\dontremovehydradragonantiviruslogs") != std::wstring::npos)
+        {
+            SafeWriteSigmaLog(L"RemoveDirectoryW", L"HEUR:Win32.Trojan.Wiper.Log.Generic - Log directory deletion detected");
+            TriggerNotification(L"Alert", L"Warning: Log directory was deleted (Wiper behavior detected)");
+        }
+    }
+    return TrueRemoveDirectoryW(lpPathName);
+}
+
+// -----------------------------------------------------------------
 // Ransomware Heuristic Functions
 // -----------------------------------------------------------------
 bool RunDetectItEasy(LPCWSTR filePath)
@@ -287,11 +323,9 @@ bool RunDetectItEasy(LPCWSTR filePath)
         return false;
     }
     SetHandleInformation(hRead, HANDLE_FLAG_INHERIT, 0);
-
     std::wstring command = L"\"C:\\Program Files\\HydraDragonAntivirus\\detectiteasy\\diec.exe\" \"";
     command += filePath;
     command += L"\"";
-
     STARTUPINFO si = { sizeof(si) };
     si.dwFlags = STARTF_USESTDHANDLES;
     si.hStdOutput = hWrite;
@@ -305,7 +339,6 @@ bool RunDetectItEasy(LPCWSTR filePath)
         return false;
     }
     CloseHandle(hWrite);
-
     char buffer[4096];
     DWORD bytesRead = 0;
     std::string output;
@@ -318,7 +351,6 @@ bool RunDetectItEasy(LPCWSTR filePath)
     WaitForSingleObject(pi.hProcess, 5000);
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
-
     // Save Detect It Easy results to JSON file.
     EnsureLogDirectory();
     FILE* f = nullptr;
@@ -332,7 +364,6 @@ bool RunDetectItEasy(LPCWSTR filePath)
         fwprintf(f, L"{\"file\":\"%s\", \"die_output\":\"%s\"}\n", filePath, wdieOutput.c_str());
         fclose(f);
     }
-
     if (output.find("Binary") != std::string::npos &&
         output.find("Unknown: Unknown") != std::string::npos)
         return true;
@@ -358,19 +389,16 @@ bool IsRansomware(LPCWSTR filePath)
         parts.push_back(filename.substr(start));
     if (parts.size() < 3)
         return false;
-
     std::wstring previousExt = parts[parts.size() - 2];
     if (previousExt[0] != L'.')
         previousExt = L"." + previousExt;
     if (std::find(g_knownExtensions.begin(), g_knownExtensions.end(), previousExt) == g_knownExtensions.end())
         return false;
-
     std::wstring finalExt = parts.back();
     if (finalExt[0] != L'.')
         finalExt = L"." + finalExt;
     if (std::find(g_knownExtensions.begin(), g_knownExtensions.end(), finalExt) != g_knownExtensions.end())
         return false;
-
     return RunDetectItEasy(filePath);
 }
 
@@ -415,20 +443,14 @@ BOOL WINAPI HookedDeleteFileW(LPCWSTR lpFileName)
 {
     if (lpFileName)
     {
-        std::wstring file(lpFileName);
-        std::wstring basename = file;
-        size_t pos = file.find_last_of(L"\\/");
-        if (pos != std::wstring::npos)
-            basename = file.substr(pos + 1);
-
-        if (_wcsicmp(basename.c_str(), L"log.txt") == 0)
+        if (IsOurLogFileForDetection(lpFileName))
         {
-            SafeWriteSigmaLog(L"DeleteFileW", L"HEUR:Win32.Generic.Trojan.Wiper.Log - log.txt deletion detected");
-            TriggerNotification(L"Alert", L"Warning: log.txt was deleted (Wiper behavior detected)");
+            SafeWriteSigmaLog(L"DeleteFileW", L"HEUR:Win32.Trojan.Wiper.Log.Generic - Log file deletion detected");
+            TriggerNotification(L"Alert", L"Warning: A log file was deleted (Wiper behavior detected)");
         }
         else if (IsRansomware(lpFileName))
         {
-            SafeWriteSigmaLog(L"DeleteFileW", L"HEUR:Win32.Generic.Ransom.Log - suspicious file deletion detected");
+            SafeWriteSigmaLog(L"DeleteFileW", L"HEUR:Win32.Ransom.Log.Generic - Suspicious file deletion detected");
             TriggerNotification(L"Alert", L"Warning: Suspicious file deletion (potential ransomware)");
         }
         else
@@ -598,6 +620,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         DetourAttach(&(PVOID&)TrueCreateFileW, HookedCreateFileW);
         DetourAttach(&(PVOID&)TrueWriteFile, HookedWriteFile);
         DetourAttach(&(PVOID&)TrueMoveFileW, HookedMoveFileW);
+        // Also attach hook for RemoveDirectoryW.
+        DetourAttach(&(PVOID&)TrueRemoveDirectoryW, HookedRemoveDirectoryW);
         DetourTransactionCommit();
         break;
     case DLL_PROCESS_DETACH:
@@ -610,6 +634,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         DetourDetach(&(PVOID&)TrueCreateFileW, HookedCreateFileW);
         DetourDetach(&(PVOID&)TrueWriteFile, HookedWriteFile);
         DetourDetach(&(PVOID&)TrueMoveFileW, HookedMoveFileW);
+        DetourDetach(&(PVOID&)TrueRemoveDirectoryW, HookedRemoveDirectoryW);
         DetourTransactionCommit();
         break;
     case DLL_THREAD_ATTACH:

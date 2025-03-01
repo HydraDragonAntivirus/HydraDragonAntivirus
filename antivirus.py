@@ -273,6 +273,7 @@ jar_extracted_dir = os.path.join(script_dir, "jar_extracted")
 dotnet_dir = os.path.join(script_dir, "dotnet")
 nuitka_dir = os.path.join(script_dir, "nuitka")
 extensions_dir = os.path.join(script_dir, "knownextensions")
+system_file_names_path = os.path.join(script_dir, "systemfilenames.txt")
 extensions_path = os.path.join(extensions_dir, "extensions.txt")
 magic_bytes_path = os.path.join(extensions_dir, "magicbytes.txt")
 pyintstaller_dir = os.path.join(script_dir, "pyinstaller")
@@ -4109,25 +4110,9 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-fake_system_files = [
-    'svchost.exe',
-    'rundll32.exe',
-    'powershell.exe',
-    'regsvr32.exe',
-    'spoolsv.exe',
-    'lsass.exe',
-    'smss.exe',
-    'csrss.exe',
-    'conhost.exe',
-    'wininit.exe',
-    'winlogon.exe',
-    'taskhost.exe',
-    'taskmgr.exe',
-    'runtimebroker.exe',
-    'smartscreen.exe',
-    'dllhost.exe',
-    'services.exe'
-]
+# Read the file and store the names in a list (ignoring empty lines)
+with open(system_file_names_path, "r") as f:
+    fake_system_files = [line.strip() for line in f if line.strip()]
 
 def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
     """

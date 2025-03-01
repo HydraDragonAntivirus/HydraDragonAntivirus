@@ -46,7 +46,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
  - You have to restart the program after the analysis.
 - Please don't share your IP in the logs.
 - Make sure that the ClamAV database is installed without problems.
-- We strongly recommend that you take a snapshot and then go back when you are finished. As you don't need to remove the Sandboxie folder, you need to close the anti-virus first, and then Sandboxie, to avoid strange alerts and bugs if you don't go back to the snapshot. This is due to the Sandboxie DLL injection. C:\Program Files\HydraDragonAntivirus\HydraDragonAntivirusAVSandboxie.dll causes this, but don't remove it.
+- We strongly recommend that you take a snapshot and then go back when you have finished your work.
 
 ## Discord Community Server
 
