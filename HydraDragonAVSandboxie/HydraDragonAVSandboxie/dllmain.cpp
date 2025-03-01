@@ -13,6 +13,8 @@
 #include <shlwapi.h>
 #include <process.h>
 #include <stdlib.h>
+#include <mmsystem.h>
+#pragma comment(lib, "winmm.lib")
 #pragma comment(lib, "Shlwapi.lib")
 #pragma comment(lib, "detours.lib")
 
@@ -271,11 +273,128 @@ void ShowNotification_Internal(const WCHAR* title, const WCHAR* msg)
     Shell_NotifyIcon(NIM_DELETE, &nid);
 }
 
+// Custom notification window procedure
+LRESULT CALLBACK CustomNotificationWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    // pData holds the title and message pair passed from NotificationThreadProc.
+    auto* pData = (std::pair<std::wstring, std::wstring>*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    switch (uMsg)
+    {
+    case WM_PAINT:
+    {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
+        RECT rect;
+        GetClientRect(hwnd, &rect);
+
+        // Fill background with a light color.
+        HBRUSH hBrush = CreateSolidBrush(RGB(255, 255, 240));
+        FillRect(hdc, &rect, hBrush);
+        DeleteObject(hBrush);
+
+        // Draw a border around the window.
+        FrameRect(hdc, &rect, (HBRUSH)GetStockObject(BLACK_BRUSH));
+
+        if (pData)
+        {
+            SetBkMode(hdc, TRANSPARENT);
+
+            // Draw the title in bold, centered.
+            HFONT hFont = CreateFont(16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                DEFAULT_PITCH, L"Segoe UI");
+            HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
+            RECT titleRect = rect;
+            titleRect.bottom = titleRect.top + 25;
+            DrawText(hdc, pData->first.c_str(), -1, &titleRect, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+            SelectObject(hdc, hOldFont);
+            DeleteObject(hFont);
+
+            // Draw the message below the title with word wrapping.
+            RECT msgRect = rect;
+            msgRect.top += 30;
+            DrawText(hdc, pData->second.c_str(), -1, &msgRect, DT_CENTER | DT_WORDBREAK);
+        }
+        EndPaint(hwnd, &ps);
+        break;
+    }
+    case WM_TIMER:
+        KillTimer(hwnd, 1);
+        DestroyWindow(hwnd);
+        break;
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        break;
+    default:
+        return DefWindowProc(hwnd, uMsg, wParam, lParam);
+    }
+    return 0;
+}
+
+// Plays an aggressive sound effect from a WAV file.
+void PlayAggressiveSoundEffect()
+{
+    // Ensure "aggressive.wav" exists in your application's directory.
+    PlaySound(L"C:\\Program Files\\HydraDragonAntivirus\\assets\\alert.wav", NULL, SND_FILENAME | SND_ASYNC);
+}
+
+// Updated NotificationThreadProc: Creates a custom GUI notification.
 DWORD WINAPI NotificationThreadProc(LPVOID param)
 {
     auto* pData = (std::pair<std::wstring, std::wstring>*)param;
-    ShowNotification_Internal(pData->first.c_str(), pData->second.c_str());
-    delete pData;
+
+    // Play the aggressive sound effect
+    PlayAggressiveSoundEffect();
+
+    // Register the custom window class for the notification.
+    const wchar_t* className = L"CustomNotificationWindowClass";
+    WNDCLASS wc = { 0 };
+    wc.lpfnWndProc = CustomNotificationWndProc;
+    wc.hInstance = GetModuleHandle(NULL);
+    wc.lpszClassName = className;
+    RegisterClass(&wc);
+
+    // Get the working area to position the window at the lower-right corner.
+    RECT workArea;
+    SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
+    int width = 300;
+    int height = 100;
+    int x = workArea.right - width - 10;
+    int y = workArea.bottom - height - 10;
+
+    // Create the notification window.
+    HWND hwnd = CreateWindowEx(
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+        className,
+        pData->first.c_str(), // Window title
+        WS_POPUP,
+        x, y, width, height,
+        NULL, NULL, GetModuleHandle(NULL), NULL);
+
+    if (hwnd)
+    {
+        // Store the notification data in the window's user data.
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
+        ShowWindow(hwnd, SW_SHOW);
+        UpdateWindow(hwnd);
+
+        // Set a timer to automatically close the window after 5 seconds.
+        SetTimer(hwnd, 1, 5000, NULL);
+
+        // Minimal message loop to keep the window responsive.
+        MSG msg;
+        while (GetMessage(&msg, NULL, 0, 0))
+        {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
+    }
+    else
+    {
+        // In case window creation fails, free the allocated memory.
+        delete pData;
+    }
     return 0;
 }
 
@@ -304,7 +423,7 @@ BOOL WINAPI HookedRemoveDirectoryW(LPCWSTR lpPathName)
         if (path.find(L"c:\\dontremovehydradragonantiviruslogs") != std::wstring::npos)
         {
             SafeWriteSigmaLog(L"RemoveDirectoryW", L"HEUR:Win32.Trojan.Wiper.Log.Generic - Log directory deletion detected");
-            TriggerNotification(L"Alert", L"Warning: Log directory was deleted (Wiper behavior detected)");
+            TriggerNotification(L"Alert", L"Warning: Log directory was deleted (Wiper behavior detected: HEUR:Win32.Trojan.Wiper.Log.Generic)");
         }
     }
     return TrueRemoveDirectoryW(lpPathName);
