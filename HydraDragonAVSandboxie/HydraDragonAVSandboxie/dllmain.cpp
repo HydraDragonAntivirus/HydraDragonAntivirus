@@ -166,7 +166,7 @@ bool NormalizePath(std::wstring& path)
     return false;
 }
 
-// This function is used for detection: it checks the basename of the file.
+// For detection, we compare the basename.
 bool IsOurLogFileForDetection(LPCWSTR filePath)
 {
     if (!filePath)
@@ -185,7 +185,7 @@ bool IsOurLogFileForDetection(LPCWSTR filePath)
     return false;
 }
 
-// This function is used to prevent logging our own file operations.
+// To prevent recursive logging of our own file operations.
 bool IsOurLogFile(LPCWSTR filePath)
 {
     if (!filePath)
@@ -311,96 +311,9 @@ BOOL WINAPI HookedRemoveDirectoryW(LPCWSTR lpPathName)
 }
 
 // -----------------------------------------------------------------
-// Ransomware Heuristic Functions
+// (Optional) Ransomware detection functions are removed since we only want wiper detection.
 // -----------------------------------------------------------------
-bool RunDetectItEasy(LPCWSTR filePath)
-{
-    SECURITY_ATTRIBUTES saAttr = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
-    HANDLE hRead = NULL, hWrite = NULL;
-    if (!CreatePipe(&hRead, &hWrite, &saAttr, 0))
-    {
-        WriteErrorLog(L"RunDetectItEasy", L"Failed to create pipe.");
-        return false;
-    }
-    SetHandleInformation(hRead, HANDLE_FLAG_INHERIT, 0);
-    std::wstring command = L"\"C:\\Program Files\\HydraDragonAntivirus\\detectiteasy\\diec.exe\" \"";
-    command += filePath;
-    command += L"\"";
-    STARTUPINFO si = { sizeof(si) };
-    si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdOutput = hWrite;
-    si.hStdError = hWrite;
-    PROCESS_INFORMATION pi = {};
-    if (!CreateProcess(NULL, &command[0], NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi))
-    {
-        WriteErrorLog(L"RunDetectItEasy", L"Failed to create process for diec.exe.");
-        CloseHandle(hWrite);
-        CloseHandle(hRead);
-        return false;
-    }
-    CloseHandle(hWrite);
-    char buffer[4096];
-    DWORD bytesRead = 0;
-    std::string output;
-    while (ReadFile(hRead, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead > 0)
-    {
-        buffer[bytesRead] = '\0';
-        output += buffer;
-    }
-    CloseHandle(hRead);
-    WaitForSingleObject(pi.hProcess, 5000);
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-    // Save Detect It Easy results to JSON file.
-    EnsureLogDirectory();
-    FILE* f = nullptr;
-    if (_wfopen_s(&f, DETECT_JSON_FILE, L"a+") == 0 && f)
-    {
-        int size_needed = MultiByteToWideChar(CP_UTF8, 0, output.c_str(), -1, NULL, 0);
-        std::wstring wdieOutput(size_needed, 0);
-        MultiByteToWideChar(CP_UTF8, 0, output.c_str(), -1, &wdieOutput[0], size_needed);
-        if (!wdieOutput.empty() && wdieOutput.back() == L'\0')
-            wdieOutput.pop_back();
-        fwprintf(f, L"{\"file\":\"%s\", \"die_output\":\"%s\"}\n", filePath, wdieOutput.c_str());
-        fclose(f);
-    }
-    if (output.find("Binary") != std::string::npos &&
-        output.find("Unknown: Unknown") != std::string::npos)
-        return true;
-    return false;
-}
 
-bool IsRansomware(LPCWSTR filePath)
-{
-    if (!filePath)
-        return false;
-    std::wstring fullPath(filePath);
-    std::wstring filename = PathFindFileNameW(fullPath.c_str());
-    std::vector<std::wstring> parts;
-    size_t start = 0;
-    size_t pos = filename.find(L'.');
-    while (pos != std::wstring::npos)
-    {
-        parts.push_back(filename.substr(start, pos - start));
-        start = pos;
-        pos = filename.find(L'.', start + 1);
-    }
-    if (start < filename.size())
-        parts.push_back(filename.substr(start));
-    if (parts.size() < 3)
-        return false;
-    std::wstring previousExt = parts[parts.size() - 2];
-    if (previousExt[0] != L'.')
-        previousExt = L"." + previousExt;
-    if (std::find(g_knownExtensions.begin(), g_knownExtensions.end(), previousExt) == g_knownExtensions.end())
-        return false;
-    std::wstring finalExt = parts.back();
-    if (finalExt[0] != L'.')
-        finalExt = L"." + finalExt;
-    if (std::find(g_knownExtensions.begin(), g_knownExtensions.end(), finalExt) != g_knownExtensions.end())
-        return false;
-    return RunDetectItEasy(filePath);
-}
 
 // -----------------------------------------------------------------
 // Windows API Hooking (Registry & File System)
@@ -447,11 +360,6 @@ BOOL WINAPI HookedDeleteFileW(LPCWSTR lpFileName)
         {
             SafeWriteSigmaLog(L"DeleteFileW", L"HEUR:Win32.Trojan.Wiper.Log.Generic - Log file deletion detected");
             TriggerNotification(L"Alert", L"Warning: A log file was deleted (Wiper behavior detected)");
-        }
-        else if (IsRansomware(lpFileName))
-        {
-            SafeWriteSigmaLog(L"DeleteFileW", L"HEUR:Win32.Ransom.Log.Generic - Suspicious file deletion detected");
-            TriggerNotification(L"Alert", L"Warning: Suspicious file deletion (potential ransomware)");
         }
         else
         {
