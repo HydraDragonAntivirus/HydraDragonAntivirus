@@ -4083,6 +4083,7 @@ sandboxie_folder = rf'C:\Sandbox\{username}\DefaultBox'
 hosts_path = rf'{sandboxie_folder}\drive\C\Windows\System32\drivers\etc\hosts'
 drivers_path = rf'{sandboxie_folder}\drive\C\Windows\System32\drivers'
 main_drive_path = rf'{sandboxie_folder}\drive\C'
+sandboxie_log_folder = rf'{sandboxie_folder}\drive\C\DONTREMOVEHydraDragonAntivirusLogs'
 
 # Define the list of known rootkit filenames
 known_rootkit_files = [
@@ -5040,11 +5041,22 @@ def ransomware_alert(file_path):
 
     try:
         logging.info(f"Running ransomware alert check for file '{file_path}'")
+        
+        # Check the ransomware flag once.
         if is_ransomware(file_path):
-            ransomware_detection_count += 1
-            logging.warning(f"File '{file_path}' might be ransomware sign. Count: {ransomware_detection_count}")
+            # If file is from the Sandboxie log folder, trigger Sandboxie-specific alert.
+            if file_path.startswith(sandboxie_log_folder):
+                ransomware_detection_count += 1
+                logging.warning(f"File '{file_path}' (Sandboxie log) flagged as potential ransomware. Count: {ransomware_detection_count}")
+                notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.Log.Generic")
+                logging.warning(f"User has been notified about potential ransomware in {main_file_path} (Sandboxie log alert)")
+                print(f"User has been notified about potential ransomware in {main_file_path} (Sandboxie log alert)")
             
-            # If two alerts happen, search directories for files with the same extension
+            # Normal processing for all flagged files.
+            ransomware_detection_count += 1
+            logging.warning(f"File '{file_path}' might be a ransomware sign. Count: {ransomware_detection_count}")
+            
+            # When exactly two alerts occur, search for files with the same extension.
             if ransomware_detection_count == 2:
                 _, ext = os.path.splitext(file_path)
                 if ext:
@@ -5055,11 +5067,12 @@ def ransomware_alert(file_path):
                         if is_ransomware(ransom_file):
                             logging.warning(f"File '{ransom_file}' might also be related to ransomware")
 
-            # Notify user if the detection count reaches the threshold
+            # When detections reach a threshold, notify the user with a generic flag.
             if ransomware_detection_count >= 10:
                 notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.Generic")
                 logging.warning(f"User has been notified about potential ransomware in {main_file_path}")
                 print(f"User has been notified about potential ransomware in {main_file_path}")
+                
     except Exception as ex:
         logging.error(f"Error in ransomware_alert: {ex}")
 
