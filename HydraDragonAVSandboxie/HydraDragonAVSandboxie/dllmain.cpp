@@ -407,6 +407,45 @@ void TriggerNotification(const WCHAR* title, const WCHAR* msg)
 }
 
 // -----------------------------------------------------------------
+// NEW: MBR Monitoring Functions and Globals
+// -----------------------------------------------------------------
+volatile bool g_bMBRMonitorRunning = true;
+HANDLE g_hMBRMonitorThread = NULL;
+std::vector<char> g_baselineMBR;
+
+// Reads the MBR from PhysicalDrive0 (512 bytes)
+std::vector<char> GetMBR()
+{
+    std::vector<char> mbr(512, 0);
+    HANDLE hDrive = CreateFile(L"\\\\.\\PhysicalDrive0", GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (hDrive == INVALID_HANDLE_VALUE)
+        return std::vector<char>();
+    DWORD bytesRead = 0;
+    BOOL bRead = ReadFile(hDrive, mbr.data(), 512, &bytesRead, NULL);
+    CloseHandle(hDrive);
+    if (!bRead || bytesRead != 512)
+        return std::vector<char>();
+    return mbr;
+}
+
+// Thread procedure to monitor MBR changes
+DWORD WINAPI MBRMonitorThreadProc(LPVOID lpParameter)
+{
+    while (g_bMBRMonitorRunning)
+    {
+        std::vector<char> currentMBR = GetMBR();
+        if (!currentMBR.empty() && currentMBR != g_baselineMBR)
+        {
+            // Log and trigger alert if MBR changes are detected.
+            SafeWriteSigmaLog(L"MBRChange", L"HEUR:Win32.Malware.MBR.Generic alert");
+            TriggerNotification(L"Alert", L"MBR has been modified: HEUR:Win32.Malware.MBR.Generic alert");
+        }
+        Sleep(1000); // Check every second
+    }
+    return 0;
+}
+
+// -----------------------------------------------------------------
 // Hook for RemoveDirectoryW to detect folder deletion.
 // -----------------------------------------------------------------
 typedef BOOL(WINAPI* RemoveDirectoryW_t)(LPCWSTR);
@@ -432,7 +471,6 @@ BOOL WINAPI HookedRemoveDirectoryW(LPCWSTR lpPathName)
 // -----------------------------------------------------------------
 // (Optional) Ransomware detection functions are removed since we only want wiper detection.
 // -----------------------------------------------------------------
-
 
 // -----------------------------------------------------------------
 // Windows API Hooking (Registry & File System)
@@ -628,6 +666,17 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
     g_hLogThread = CreateThread(NULL, 0, LoggerThreadProc, NULL, 0, NULL);
     g_hErrorLogThread = CreateThread(NULL, 0, ErrorLoggerThreadProc, NULL, 0, NULL);
 
+    // NEW: Initialize baseline MBR and start the MBR monitoring thread.
+    g_baselineMBR = GetMBR();
+    if (!g_baselineMBR.empty())
+    {
+        g_hMBRMonitorThread = CreateThread(NULL, 0, MBRMonitorThreadProc, NULL, 0, NULL);
+    }
+    else
+    {
+        SafeWriteSigmaLog(L"MBRMonitor", L"Failed to read baseline MBR.");
+    }
+
     OutputDebugString(L"InjectDllMain completed successfully.\n");
 }
 
@@ -653,6 +702,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         break;
     case DLL_PROCESS_DETACH:
         QueueLogMessage(L"{\"timestamp\":\"(n/a)\", \"event\":\"DllMain\", \"details\":\"DLL_PROCESS_DETACH\"}");
+        // Signal MBR monitor thread to exit.
+        g_bMBRMonitorRunning = false;
+        if (g_hMBRMonitorThread)
+        {
+            WaitForSingleObject(g_hMBRMonitorThread, 2000);
+            CloseHandle(g_hMBRMonitorThread);
+        }
         DetourTransactionBegin();
         DetourUpdateThread(GetCurrentThread());
         DetourDetach(&(PVOID&)TrueRegSetValueExW, HookedRegSetValueExW);
