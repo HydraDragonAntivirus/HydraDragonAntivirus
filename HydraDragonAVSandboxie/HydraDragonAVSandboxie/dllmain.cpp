@@ -10,6 +10,7 @@
 #include <string>
 #include <sstream>
 #include <algorithm>
+#include <unordered_map>
 #include <shlwapi.h>
 #include <process.h>
 #include <stdlib.h>
@@ -26,6 +27,49 @@ const WCHAR SIGMA_LOG_FILE[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREM
 const WCHAR ERROR_LOG_FILE[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEerror_log.txt";
 const WCHAR DETECT_JSON_FILE[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEdetectiteasy.json";
 const WCHAR KNOWN_EXTENSIONS_FILE[] = L"C:\\Program Files\\HydraDragonAntivirus\\knownextensions\\extensions.txt";
+
+// -----------------------------------------------------------------
+// Global Registry Mapping
+// -----------------------------------------------------------------
+CRITICAL_SECTION g_registryMapLock;
+std::unordered_map<HKEY, std::wstring> g_registryKeyMap;
+
+// Helper function: Converts a base HKEY to a string.
+std::wstring GetBaseKeyName(HKEY hKey) {
+    if (hKey == HKEY_CLASSES_ROOT) return L"HKEY_CLASSES_ROOT";
+    else if (hKey == HKEY_CURRENT_USER) return L"HKCU";
+    else if (hKey == HKEY_LOCAL_MACHINE) return L"HKLM";
+    else if (hKey == HKEY_USERS) return L"HKEY_USERS";
+    else if (hKey == HKEY_CURRENT_CONFIG) return L"HKEY_CURRENT_CONFIG";
+    else return L"(unknown)";
+}
+
+// Helper function: Constructs the full key path from a parent key and subkey,
+// and adds it to the global registry map.
+void AddRegistryKeyMapping(HKEY hParent, LPCWSTR lpSubKey, HKEY hNewKey) {
+    std::wstring parentPath;
+    if (hParent) {
+        EnterCriticalSection(&g_registryMapLock);
+        auto it = g_registryKeyMap.find(hParent);
+        if (it != g_registryKeyMap.end()) {
+            parentPath = it->second;
+        }
+        else {
+            parentPath = GetBaseKeyName(hParent);
+        }
+        LeaveCriticalSection(&g_registryMapLock);
+    }
+    else {
+        parentPath = L"(null)";
+    }
+    std::wstring fullPath = parentPath;
+    if (lpSubKey && lpSubKey[0] != L'\0') {
+        fullPath += L"\\" + std::wstring(lpSubKey);
+    }
+    EnterCriticalSection(&g_registryMapLock);
+    g_registryKeyMap[hNewKey] = fullPath;
+    LeaveCriticalSection(&g_registryMapLock);
+}
 
 // -----------------------------------------------------------------
 // Thread-local flag to prevent recursive logging.
@@ -166,7 +210,6 @@ bool NormalizePath(std::wstring& path)
     return false;
 }
 
-// For detection, we compare the basename.
 bool IsOurLogFileForDetection(LPCWSTR filePath)
 {
     if (!filePath)
@@ -185,7 +228,6 @@ bool IsOurLogFileForDetection(LPCWSTR filePath)
     return false;
 }
 
-// To prevent recursive logging of our own file operations.
 bool IsOurLogFile(LPCWSTR filePath)
 {
     if (!filePath)
@@ -204,12 +246,10 @@ bool IsOurLogFile(LPCWSTR filePath)
 // Load Known Extensions from File
 // -----------------------------------------------------------------
 std::vector<std::wstring> g_knownExtensions;
-// Global flag to ensure known extensions are loaded only once.
 static bool g_bExtensionsLoaded = false;
 
 void LoadKnownExtensions()
 {
-    // Return immediately if already loaded.
     if (g_bExtensionsLoaded)
         return;
 
@@ -231,7 +271,7 @@ void LoadKnownExtensions()
         }
         fclose(f);
         SafeWriteSigmaLog(L"LoadKnownExtensions", L"Known extensions loaded successfully.");
-        g_bExtensionsLoaded = true; // Mark as loaded.
+        g_bExtensionsLoaded = true;
     }
     else
     {
@@ -278,10 +318,8 @@ void ShowNotification_Internal(const WCHAR* title, const WCHAR* msg)
     Shell_NotifyIcon(NIM_DELETE, &nid);
 }
 
-// Custom notification window procedure
 LRESULT CALLBACK CustomNotificationWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-    // pData holds the title and message pair passed from NotificationThreadProc.
     auto* pData = (std::pair<std::wstring, std::wstring>*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
     switch (uMsg)
     {
@@ -291,20 +329,14 @@ LRESULT CALLBACK CustomNotificationWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, 
         HDC hdc = BeginPaint(hwnd, &ps);
         RECT rect;
         GetClientRect(hwnd, &rect);
-
-        // Fill background with a light color.
         HBRUSH hBrush = CreateSolidBrush(RGB(255, 255, 240));
         FillRect(hdc, &rect, hBrush);
         DeleteObject(hBrush);
-
-        // Draw a border around the window.
         FrameRect(hdc, &rect, (HBRUSH)GetStockObject(BLACK_BRUSH));
 
         if (pData)
         {
             SetBkMode(hdc, TRANSPARENT);
-
-            // Draw the title in bold, centered.
             HFONT hFont = CreateFont(16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                 CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
@@ -316,7 +348,6 @@ LRESULT CALLBACK CustomNotificationWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, 
             SelectObject(hdc, hOldFont);
             DeleteObject(hFont);
 
-            // Draw the message below the title with word wrapping.
             RECT msgRect = rect;
             msgRect.top += 30;
             DrawText(hdc, pData->second.c_str(), -1, &msgRect, DT_CENTER | DT_WORDBREAK);
@@ -337,22 +368,16 @@ LRESULT CALLBACK CustomNotificationWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, 
     return 0;
 }
 
-// Plays an aggressive sound effect from a WAV file.
 void PlayAggressiveSoundEffect()
 {
-    // Ensure "aggressive.wav" exists in your application's directory.
     PlaySound(L"C:\\Program Files\\HydraDragonAntivirus\\assets\\alert.wav", NULL, SND_FILENAME | SND_ASYNC);
 }
 
-// Updated NotificationThreadProc: Creates a custom GUI notification.
 DWORD WINAPI NotificationThreadProc(LPVOID param)
 {
     auto* pData = (std::pair<std::wstring, std::wstring>*)param;
-
-    // Play the aggressive sound effect
     PlayAggressiveSoundEffect();
 
-    // Register the custom window class for the notification.
     const wchar_t* className = L"CustomNotificationWindowClass";
     WNDCLASS wc = { 0 };
     wc.lpfnWndProc = CustomNotificationWndProc;
@@ -360,34 +385,27 @@ DWORD WINAPI NotificationThreadProc(LPVOID param)
     wc.lpszClassName = className;
     RegisterClass(&wc);
 
-    // Get the working area to position the window at the lower-right corner.
     RECT workArea;
     SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
-    int width = 300;
-    int height = 100;
+    int width = 500, height = 500;
     int x = workArea.right - width - 10;
     int y = workArea.bottom - height - 10;
 
-    // Create the notification window.
     HWND hwnd = CreateWindowEx(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
         className,
-        pData->first.c_str(), // Window title
+        pData->first.c_str(),
         WS_POPUP,
         x, y, width, height,
         NULL, NULL, GetModuleHandle(NULL), NULL);
 
     if (hwnd)
     {
-        // Store the notification data in the window's user data.
         SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
         ShowWindow(hwnd, SW_SHOW);
         UpdateWindow(hwnd);
-
-        // Set a timer to automatically close the window after 5 seconds.
         SetTimer(hwnd, 1, 5000, NULL);
 
-        // Minimal message loop to keep the window responsive.
         MSG msg;
         while (GetMessage(&msg, NULL, 0, 0))
         {
@@ -397,7 +415,6 @@ DWORD WINAPI NotificationThreadProc(LPVOID param)
     }
     else
     {
-        // In case window creation fails, free the allocated memory.
         delete pData;
     }
     return 0;
@@ -412,13 +429,12 @@ void TriggerNotification(const WCHAR* title, const WCHAR* msg)
 }
 
 // -----------------------------------------------------------------
-// NEW: MBR Monitoring Functions and Globals
+// MBR Monitoring Functions and Globals
 // -----------------------------------------------------------------
 volatile bool g_bMBRMonitorRunning = true;
 HANDLE g_hMBRMonitorThread = NULL;
 std::vector<char> g_baselineMBR;
 
-// Reads the MBR from PhysicalDrive0 (512 bytes)
 std::vector<char> GetMBR()
 {
     std::vector<char> mbr(512, 0);
@@ -433,7 +449,6 @@ std::vector<char> GetMBR()
     return mbr;
 }
 
-// Thread procedure to monitor MBR changes
 DWORD WINAPI MBRMonitorThreadProc(LPVOID lpParameter)
 {
     while (g_bMBRMonitorRunning)
@@ -441,11 +456,103 @@ DWORD WINAPI MBRMonitorThreadProc(LPVOID lpParameter)
         std::vector<char> currentMBR = GetMBR();
         if (!currentMBR.empty() && currentMBR != g_baselineMBR)
         {
-            // Log and trigger alert if MBR changes are detected.
-            SafeWriteSigmaLog(L"MBRChange", L"HEUR:Win32.Malware.MBR.Generic alert");
+            SafeWriteSigmaLog(L"MBRMonitor", L"HEUR:Win32.Malware.MBR.Generic alert");
             TriggerNotification(L"Alert", L"MBR has been modified: HEUR:Win32.Malware.MBR.Generic alert");
         }
     }
+    return 0;
+}
+
+// -----------------------------------------------------------------
+// Registry Monitoring via RegNotifyChangeKeyValue
+// -----------------------------------------------------------------
+// This version uses a dedicated monitoring thread (RegistryMonitorThreadProc)
+// that checks the key "HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\System"
+// for any changes to the following registry values:
+//  • DisablePerformanceMonitor
+//  • DisableTaskMgr
+//  • DisableMMC
+//  • DisableEventViewer
+//  • NoWinKeys
+//  • DisableSnippingTool
+//  • DisableMagnifier
+//  • DisableEaseOfAccess
+// If any value is found set to 1, a heuristic log is generated with the format:
+// HEUR:Win32.Reg.Suspicious.Trojan.<RegistryName>.Generic
+volatile bool g_bRegistryMonitorRunning = true;
+HANDLE g_hRegistryMonitorThread = NULL;
+
+DWORD WINAPI RegistryMonitorThreadProc(LPVOID lpParameter)
+{
+    HKEY hKey = NULL;
+    // Open the HKCU key for the target path with KEY_NOTIFY access.
+    LONG lResult = RegOpenKeyExW(
+        HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+        0,
+        KEY_READ | KEY_NOTIFY,
+        &hKey);
+    if (lResult != ERROR_SUCCESS)
+    {
+        SafeWriteSigmaLog(L"RegistryMonitor", L"Failed to open registry key for monitoring.");
+        return 1;
+    }
+
+    // List of registry values to monitor.
+    const WCHAR* monitoredValues[] = {
+        L"DisablePerformanceMonitor",
+        L"DisableTaskMgr",
+        L"DisableMMC",
+        L"DisableEventViewer",
+        L"NoWinKeys",
+        L"DisableSnippingTool",
+        L"DisableMagnifier",
+        L"DisableEaseOfAccess"
+    };
+    const int numValues = sizeof(monitoredValues) / sizeof(monitoredValues[0]);
+
+    while (g_bRegistryMonitorRunning)
+    {
+        // Wait for any change in the key.
+        lResult = RegNotifyChangeKeyValue(
+            hKey,                        // the key to monitor
+            FALSE,                       // do not watch subkeys
+            REG_NOTIFY_CHANGE_LAST_SET,  // monitor value changes
+            NULL,
+            FALSE);
+        if (lResult == ERROR_SUCCESS)
+        {
+            // A change occurred—iterate over the monitored values.
+            for (int i = 0; i < numValues; i++)
+            {
+                DWORD dwValue = 0;
+                DWORD dwSize = sizeof(dwValue);
+                lResult = RegQueryValueExW(hKey, monitoredValues[i], NULL, NULL, (LPBYTE)&dwValue, &dwSize);
+                if (lResult == ERROR_SUCCESS && dwValue == 1)
+                {
+                    WCHAR logMsg[256];
+                    _snwprintf_s(logMsg, 256, _TRUNCATE,
+                        L"HEUR:Win32.Reg.Suspicious.Trojan.%s.Generic", monitoredValues[i]);
+                    SafeWriteSigmaLog(L"RegistryMonitor", logMsg);
+
+                    WCHAR notifMsg[256];
+                    _snwprintf_s(notifMsg, 256, _TRUNCATE,
+                        L"Registry change detected: %s set to 1 (%s)", monitoredValues[i], logMsg);
+                    TriggerNotification(L"Alert", notifMsg);
+                }
+            }
+        }
+        else
+        {
+            WCHAR errBuffer[256];
+            _snwprintf_s(errBuffer, 256, _TRUNCATE, L"RegNotifyChangeKeyValue error: %d", lResult);
+            SafeWriteSigmaLog(L"RegistryMonitor", errBuffer);
+            break;
+        }
+    }
+
+    if (hKey)
+        RegCloseKey(hKey);
     return 0;
 }
 
@@ -462,7 +569,6 @@ BOOL WINAPI HookedRemoveDirectoryW(LPCWSTR lpPathName)
         std::wstring path(lpPathName);
         NormalizePath(path);
         std::transform(path.begin(), path.end(), path.begin(), towlower);
-        // If the normalized path contains our log folder, trigger a wiper alert.
         if (path.find(L"c:\\dontremovehydradragonantiviruslogs") != std::wstring::npos)
         {
             SafeWriteSigmaLog(L"RemoveDirectoryW", L"HEUR:Win32.Trojan.Wiper.Log.Generic - Log directory deletion detected");
@@ -473,79 +579,37 @@ BOOL WINAPI HookedRemoveDirectoryW(LPCWSTR lpPathName)
 }
 
 // -----------------------------------------------------------------
-// (Optional) Ransomware detection functions are removed since we only want wiper detection.
+// Registry Hooks
 // -----------------------------------------------------------------
 
-// -----------------------------------------------------------------
-// Windows API Hooking (Registry & File System)
-// -----------------------------------------------------------------
+// --- Hooked RegSetValueExW ---
+// In this modified version, the registry hook logs the call but does not perform
+// individual detection. The centralized RegistryMonitorThreadProc now handles detection.
 typedef LSTATUS(WINAPI* RegSetValueExW_t)(HKEY, LPCWSTR, DWORD, DWORD, const BYTE*, DWORD);
 static RegSetValueExW_t TrueRegSetValueExW = RegSetValueExW;
 
 LSTATUS WINAPI HookedRegSetValueExW(HKEY hKey, LPCWSTR lpValueName, DWORD Reserved, DWORD dwType,
     const BYTE* lpData, DWORD cbData)
 {
-    // Log the original call.
+    // Retrieve full key path from the global mapping.
+    std::wstring fullKeyPath;
+    EnterCriticalSection(&g_registryMapLock);
+    auto it = g_registryKeyMap.find(hKey);
+    if (it != g_registryKeyMap.end())
+        fullKeyPath = it->second;
+    LeaveCriticalSection(&g_registryMapLock);
+
     WCHAR buffer[1024];
     _snwprintf_s(buffer, 1024, _TRUNCATE,
-        L"RegSetValueExW called: ValueName = %s, Type = %u, DataSize = %u",
-        lpValueName ? lpValueName : L"(null)", dwType, cbData);
+        L"RegSetValueExW called: KeyPath = %s, ValueName = %s, Type = %u, DataSize = %u",
+        fullKeyPath.c_str(), lpValueName ? lpValueName : L"(null)", dwType, cbData);
     SafeWriteSigmaLog(L"RegSetValueExW", buffer);
 
-    // Hardcoded full paths for registry values.
-    const wchar_t* fullPathDisablePerformanceMonitor = L"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\DisablePerformanceMonitor";
-    const wchar_t* fullPathDisableTaskMgr = L"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\DisableTaskMgr";
-
-    // Check for DisablePerformanceMonitor registry change.
-    bool isDisablePerformanceMonitor = false;
-    if (lpValueName)
-    {
-        if (_wcsicmp(lpValueName, L"DisablePerformanceMonitor") == 0 ||
-            _wcsicmp(lpValueName, fullPathDisablePerformanceMonitor) == 0)
-        {
-            isDisablePerformanceMonitor = true;
-        }
-    }
-    if (isDisablePerformanceMonitor)
-    {
-        if (dwType == REG_DWORD && cbData >= sizeof(DWORD))
-        {
-            DWORD dwValue = *(DWORD*)lpData;
-            if (dwValue == 1)
-            {
-                SafeWriteSigmaLog(L"RegSetValueExW", L"HEUR:Win32.Reg.Suspicious.DisablePerformanceMonitor.Generic detected");
-                TriggerNotification(L"Alert", L"Registry change detected: DisablePerformanceMonitor set to 1 (HEUR:Win32.Reg.Suspicious.DisablePerformanceMonitor.Generic)");
-            }
-        }
-    }
-
-    // Check for DisableTaskMgr registry change.
-    bool isDisableTaskMgr = false;
-    if (lpValueName)
-    {
-        if (_wcsicmp(lpValueName, L"DisableTaskMgr") == 0 ||
-            _wcsicmp(lpValueName, fullPathDisableTaskMgr) == 0)
-        {
-            isDisableTaskMgr = true;
-        }
-    }
-    if (isDisableTaskMgr)
-    {
-        if (dwType == REG_DWORD && cbData >= sizeof(DWORD))
-        {
-            DWORD dwValue = *(DWORD*)lpData;
-            if (dwValue == 1)
-            {
-                SafeWriteSigmaLog(L"RegSetValueExW", L"HEUR:Win32.Reg.Suspicious.DisableTaskMgr.Generic detected");
-                TriggerNotification(L"Alert", L"Registry change detected: DisableTaskMgr set to 1 (HEUR:Win32.Reg.Suspicious.DisableTaskMgr.Generic)");
-            }
-        }
-    }
-
-    // Call the original function.
+    // Call the original function without additional registry callback detection.
     return TrueRegSetValueExW(hKey, lpValueName, Reserved, dwType, lpData, cbData);
 }
 
+// --- Hooked RegCreateKeyExW ---
 typedef LSTATUS(WINAPI* RegCreateKeyExW_t)(HKEY, LPCWSTR, DWORD, LPWSTR, DWORD, REGSAM,
     const LPSECURITY_ATTRIBUTES, PHKEY, LPDWORD);
 static RegCreateKeyExW_t TrueRegCreateKeyExW = RegCreateKeyExW;
@@ -556,13 +620,40 @@ LSTATUS WINAPI HookedRegCreateKeyExW(HKEY hKey, LPCWSTR lpSubKey, DWORD Reserved
 {
     WCHAR buffer[1024];
     _snwprintf_s(buffer, 1024, _TRUNCATE,
-        L"RegCreateKeyExW called: SubKey = %s",
-        lpSubKey ? lpSubKey : L"(null)");
+        L"RegCreateKeyExW called: SubKey = %s", lpSubKey ? lpSubKey : L"(null)");
     SafeWriteSigmaLog(L"RegCreateKeyExW", buffer);
-    return TrueRegCreateKeyExW(hKey, lpSubKey, Reserved, lpClass, dwOptions, samDesired,
+
+    LSTATUS status = TrueRegCreateKeyExW(hKey, lpSubKey, Reserved, lpClass, dwOptions, samDesired,
         lpSecurityAttributes, phkResult, lpdwDisposition);
+
+    if (status == ERROR_SUCCESS && phkResult && *phkResult) {
+        AddRegistryKeyMapping(hKey, lpSubKey, *phkResult);
+    }
+    return status;
 }
 
+// --- Hooked RegOpenKeyExW ---
+typedef LSTATUS(WINAPI* RegOpenKeyExW_t)(HKEY, LPCWSTR, DWORD, REGSAM, PHKEY);
+static RegOpenKeyExW_t TrueRegOpenKeyExW = RegOpenKeyExW;
+
+LSTATUS WINAPI HookedRegOpenKeyExW(HKEY hKey, LPCWSTR lpSubKey, DWORD ulOptions, REGSAM samDesired, PHKEY phkResult)
+{
+    WCHAR buffer[1024];
+    _snwprintf_s(buffer, 1024, _TRUNCATE,
+        L"RegOpenKeyExW called: SubKey = %s", lpSubKey ? lpSubKey : L"(null)");
+    SafeWriteSigmaLog(L"RegOpenKeyExW", buffer);
+
+    LSTATUS status = TrueRegOpenKeyExW(hKey, lpSubKey, ulOptions, samDesired, phkResult);
+    if (status == ERROR_SUCCESS && phkResult && *phkResult)
+    {
+        AddRegistryKeyMapping(hKey, lpSubKey, *phkResult);
+    }
+    return status;
+}
+
+// -----------------------------------------------------------------
+// Other Hooks (DeleteFileW, CreateFileW, WriteFile, MoveFileW, etc.)
+// -----------------------------------------------------------------
 typedef BOOL(WINAPI* DeleteFileW_t)(LPCWSTR);
 static DeleteFileW_t TrueDeleteFileW = DeleteFileW;
 
@@ -647,7 +738,7 @@ BOOL WINAPI HookedMoveFileW(LPCWSTR lpExistingFileName, LPCWSTR lpNewFileName)
 }
 
 // -----------------------------------------------------------------
-// Sandboxie SBIE API Hooking
+// Sandboxie SBIE API Hooking (unchanged)
 // -----------------------------------------------------------------
 typedef void* (__stdcall* P_SbieDll_Hook)(const char*, void*, void*);
 typedef LONG(WINAPI* P_SbieDll_UpdateConf)(WCHAR, const WCHAR*, const WCHAR*, const WCHAR*, const WCHAR*);
@@ -683,7 +774,6 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
     _snwprintf_s(buffer, 256, _TRUNCATE, L"InjectDllMain called. SbieDll handle: 0x%p", hSbieDll);
     SafeWriteSigmaLog(L"InjectDllMain", buffer);
 
-    // Load known extensions from file.
     LoadKnownExtensions();
 
     P_SbieDll_RegisterDllCallback p_RegisterDllCallback =
@@ -716,14 +806,12 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
         SafeWriteSigmaLog(L"SbieDll_Hook", L"Failed to retrieve SbieDll_Hook address.");
     }
 
-    // Create the hidden notification window.
     g_hNotificationWnd = CreateNotificationWindow();
 
-    // Create logger threads.
     g_hLogThread = CreateThread(NULL, 0, LoggerThreadProc, NULL, 0, NULL);
     g_hErrorLogThread = CreateThread(NULL, 0, ErrorLoggerThreadProc, NULL, 0, NULL);
 
-    // NEW: Initialize baseline MBR and start the MBR monitoring thread.
+    // Start MBR monitoring.
     g_baselineMBR = GetMBR();
     if (!g_baselineMBR.empty())
     {
@@ -733,6 +821,9 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
     {
         SafeWriteSigmaLog(L"MBRMonitor", L"Failed to read baseline MBR.");
     }
+
+    // Start Registry monitoring using RegNotifyChangeKeyValue.
+    g_hRegistryMonitorThread = CreateThread(NULL, 0, RegistryMonitorThreadProc, NULL, 0, NULL);
 
     OutputDebugString(L"InjectDllMain completed successfully.\n");
 }
@@ -744,38 +835,52 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
     case DLL_PROCESS_ATTACH:
         InitializeCriticalSection(&g_logLock);
         InitializeCriticalSection(&g_errorLogLock);
+        InitializeCriticalSection(&g_registryMapLock);
         QueueLogMessage(L"{\"timestamp\":\"(n/a)\", \"event\":\"DllMain\", \"details\":\"DLL_PROCESS_ATTACH\"}");
         DetourTransactionBegin();
         DetourUpdateThread(GetCurrentThread());
+        // Attach registry hooks.
         DetourAttach(&(PVOID&)TrueRegSetValueExW, HookedRegSetValueExW);
         DetourAttach(&(PVOID&)TrueRegCreateKeyExW, HookedRegCreateKeyExW);
+        DetourAttach(&(PVOID&)TrueRegOpenKeyExW, HookedRegOpenKeyExW);
+        // Attach other hooks.
         DetourAttach(&(PVOID&)TrueDeleteFileW, HookedDeleteFileW);
         DetourAttach(&(PVOID&)TrueCreateFileW, HookedCreateFileW);
         DetourAttach(&(PVOID&)TrueWriteFile, HookedWriteFile);
         DetourAttach(&(PVOID&)TrueMoveFileW, HookedMoveFileW);
-        // Also attach hook for RemoveDirectoryW.
         DetourAttach(&(PVOID&)TrueRemoveDirectoryW, HookedRemoveDirectoryW);
         DetourTransactionCommit();
         break;
     case DLL_PROCESS_DETACH:
         QueueLogMessage(L"{\"timestamp\":\"(n/a)\", \"event\":\"DllMain\", \"details\":\"DLL_PROCESS_DETACH\"}");
-        // Signal MBR monitor thread to exit.
+        // Stop MBR monitoring.
         g_bMBRMonitorRunning = false;
         if (g_hMBRMonitorThread)
         {
             WaitForSingleObject(g_hMBRMonitorThread, 2000);
             CloseHandle(g_hMBRMonitorThread);
         }
+        // Stop Registry monitoring.
+        g_bRegistryMonitorRunning = false;
+        if (g_hRegistryMonitorThread)
+        {
+            WaitForSingleObject(g_hRegistryMonitorThread, 2000);
+            CloseHandle(g_hRegistryMonitorThread);
+        }
         DetourTransactionBegin();
         DetourUpdateThread(GetCurrentThread());
         DetourDetach(&(PVOID&)TrueRegSetValueExW, HookedRegSetValueExW);
         DetourDetach(&(PVOID&)TrueRegCreateKeyExW, HookedRegCreateKeyExW);
+        DetourDetach(&(PVOID&)TrueRegOpenKeyExW, HookedRegOpenKeyExW);
         DetourDetach(&(PVOID&)TrueDeleteFileW, HookedDeleteFileW);
         DetourDetach(&(PVOID&)TrueCreateFileW, HookedCreateFileW);
         DetourDetach(&(PVOID&)TrueWriteFile, HookedWriteFile);
         DetourDetach(&(PVOID&)TrueMoveFileW, HookedMoveFileW);
         DetourDetach(&(PVOID&)TrueRemoveDirectoryW, HookedRemoveDirectoryW);
         DetourTransactionCommit();
+        DeleteCriticalSection(&g_logLock);
+        DeleteCriticalSection(&g_errorLogLock);
+        DeleteCriticalSection(&g_registryMapLock);
         break;
     case DLL_THREAD_ATTACH:
     case DLL_THREAD_DETACH:
