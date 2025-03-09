@@ -468,17 +468,25 @@ DWORD WINAPI MBRMonitorThreadProc(LPVOID lpParameter)
 // -----------------------------------------------------------------
 // This version uses a dedicated monitoring thread (RegistryMonitorThreadProc)
 // that checks the key "HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\System"
-// for any changes to the following registry values:
-//  • DisablePerformanceMonitor
-//  • DisableTaskMgr
-//  • DisableMMC
-//  • DisableEventViewer
-//  • NoWinKeys
-//  • DisableSnippingTool
-//  • DisableMagnifier
-//  • DisableEaseOfAccess
-// If any value is found set to 1, a heuristic log is generated with the format:
-// HEUR:Win32.Reg.Suspicious.Trojan.<RegistryName>.Generic
+// for any changes to the following registry values (case-insensitive):
+//   DisablePerformanceMonitor
+//   DisableTaskMgr
+//   DisableMMC
+//   DisableEventViewer
+//   NoWinKeys
+//   DisableSnippingTool
+//   DisableMagnifier
+//   DisableEaseOfAccess
+//   DisableCAD
+//   DisableMSCONFIG
+//   DisableCMD
+//   DisableRegistryTools
+//
+// If any value is found set to 1, a heuristic log is generated in the format:
+//   HEUR:Win32.Reg.Suspicious.Trojan.<RegistryName>.Generic
+// and a notification is triggered.
+// Note: Windows registry key/value names are case-insensitive, so even if the values
+// are added with different letter cases than those listed below, they will still be detected.
 volatile bool g_bRegistryMonitorRunning = true;
 HANDLE g_hRegistryMonitorThread = NULL;
 
@@ -498,7 +506,7 @@ DWORD WINAPI RegistryMonitorThreadProc(LPVOID lpParameter)
         return 1;
     }
 
-    // List of registry values to monitor.
+    // List of registry values to monitor (comparison is inherently case-insensitive).
     const WCHAR* monitoredValues[] = {
         L"DisablePerformanceMonitor",
         L"DisableTaskMgr",
@@ -507,7 +515,11 @@ DWORD WINAPI RegistryMonitorThreadProc(LPVOID lpParameter)
         L"NoWinKeys",
         L"DisableSnippingTool",
         L"DisableMagnifier",
-        L"DisableEaseOfAccess"
+        L"DisableEaseOfAccess",
+        L"DisableCAD",
+        L"DisableMSCONFIG",
+        L"DisableCMD",
+        L"DisableRegistryTools"
     };
     const int numValues = sizeof(monitoredValues) / sizeof(monitoredValues[0]);
 
