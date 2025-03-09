@@ -440,7 +440,6 @@ DWORD WINAPI MBRMonitorThreadProc(LPVOID lpParameter)
             SafeWriteSigmaLog(L"MBRChange", L"HEUR:Win32.Malware.MBR.Generic alert");
             TriggerNotification(L"Alert", L"MBR has been modified: HEUR:Win32.Malware.MBR.Generic alert");
         }
-        Sleep(1000); // Check every second
     }
     return 0;
 }
@@ -481,11 +480,42 @@ static RegSetValueExW_t TrueRegSetValueExW = RegSetValueExW;
 LSTATUS WINAPI HookedRegSetValueExW(HKEY hKey, LPCWSTR lpValueName, DWORD Reserved, DWORD dwType,
     const BYTE* lpData, DWORD cbData)
 {
+    // Log the original call.
     WCHAR buffer[1024];
     _snwprintf_s(buffer, 1024, _TRUNCATE,
         L"RegSetValueExW called: ValueName = %s, Type = %u, DataSize = %u",
         lpValueName ? lpValueName : L"(null)", dwType, cbData);
     SafeWriteSigmaLog(L"RegSetValueExW", buffer);
+
+    // Check for DisablePerformanceMonitor registry change.
+    if (lpValueName && _wcsicmp(lpValueName, L"DisablePerformanceMonitor") == 0)
+    {
+        if (dwType == REG_DWORD && cbData >= sizeof(DWORD))
+        {
+            DWORD dwValue = *(DWORD*)lpData;
+            if (dwValue == 1)
+            {
+                SafeWriteSigmaLog(L"RegSetValueExW", L"HEUR:Win32.Reg.Suspicious.DisablePerformanceMonitor.Generic detected");
+                TriggerNotification(L"Alert", L"Registry change detected: DisablePerformanceMonitor set to 1 (HEUR:Win32.Reg.Suspicious.DisablePerformanceMonitor.Generic)");
+            }
+        }
+    }
+
+    // Check for DisableTaskMgr registry change.
+    if (lpValueName && _wcsicmp(lpValueName, L"DisableTaskMgr") == 0)
+    {
+        if (dwType == REG_DWORD && cbData >= sizeof(DWORD))
+        {
+            DWORD dwValue = *(DWORD*)lpData;
+            if (dwValue == 1)
+            {
+                SafeWriteSigmaLog(L"RegSetValueExW", L"HEUR:Win32.Reg.Suspicious.DisableTaskMgr.Generic detected");
+                TriggerNotification(L"Alert", L"Registry change detected: DisableTaskMgr set to 1 (HEUR:Win32.Reg.Suspicious.DisableTaskMgr.Generic)");
+            }
+        }
+    }
+
+    // Call the original function.
     return TrueRegSetValueExW(hKey, lpValueName, Reserved, dwType, lpData, cbData);
 }
 

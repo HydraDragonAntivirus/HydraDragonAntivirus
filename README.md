@@ -31,7 +31,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Setup file on release HydraDragonAntivirus.exe
 
 ## Logs
-- You must look warnining at logs. They usually contain malware detections. Log file in C:\Program Files\HydraDragonAntivirus\log\antivirus.log 
+- You must look warnining at logs. They usually contain malware detections. Log file in C:\Program Files\HydraDragonAntivirus\log\antivirus.log and C:\Sandbox\yourusername\DefaultBox\drive\C\DONTREMOVEHydraDragonAntivirusLogs
 
 ## Ghidra
 - Ghidra: C:\Program Files\HydraDragonAntivirus\ghidra
