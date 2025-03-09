@@ -65,7 +65,6 @@ DWORD WINAPI LoggerThreadProc(LPVOID lpParameter)
                 fclose(f);
             }
         }
-        Sleep(100);
     }
     return 0;
 }
@@ -128,7 +127,6 @@ DWORD WINAPI ErrorLoggerThreadProc(LPVOID lpParameter)
                 fclose(f);
             }
         }
-        Sleep(100);
     }
     return 0;
 }
@@ -206,9 +204,15 @@ bool IsOurLogFile(LPCWSTR filePath)
 // Load Known Extensions from File
 // -----------------------------------------------------------------
 std::vector<std::wstring> g_knownExtensions;
+// Global flag to ensure known extensions are loaded only once.
+static bool g_bExtensionsLoaded = false;
 
 void LoadKnownExtensions()
 {
+    // Return immediately if already loaded.
+    if (g_bExtensionsLoaded)
+        return;
+
     g_knownExtensions.clear();
     FILE* f = nullptr;
     if (_wfopen_s(&f, KNOWN_EXTENSIONS_FILE, L"r") == 0 && f)
@@ -227,6 +231,7 @@ void LoadKnownExtensions()
         }
         fclose(f);
         SafeWriteSigmaLog(L"LoadKnownExtensions", L"Known extensions loaded successfully.");
+        g_bExtensionsLoaded = true; // Mark as loaded.
     }
     else
     {
@@ -269,7 +274,7 @@ void ShowNotification_Internal(const WCHAR* title, const WCHAR* msg)
     wcscpy_s(nid.szInfoTitle, title);
     nid.dwInfoFlags = NIIF_WARNING;
     Shell_NotifyIcon(NIM_MODIFY, &nid);
-    Sleep(3000);
+    Sleep(5000);
     Shell_NotifyIcon(NIM_DELETE, &nid);
 }
 
@@ -487,8 +492,21 @@ LSTATUS WINAPI HookedRegSetValueExW(HKEY hKey, LPCWSTR lpValueName, DWORD Reserv
         lpValueName ? lpValueName : L"(null)", dwType, cbData);
     SafeWriteSigmaLog(L"RegSetValueExW", buffer);
 
+    // Hardcoded full paths for registry values.
+    const wchar_t* fullPathDisablePerformanceMonitor = L"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\DisablePerformanceMonitor";
+    const wchar_t* fullPathDisableTaskMgr = L"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\DisableTaskMgr";
+
     // Check for DisablePerformanceMonitor registry change.
-    if (lpValueName && _wcsicmp(lpValueName, L"DisablePerformanceMonitor") == 0)
+    bool isDisablePerformanceMonitor = false;
+    if (lpValueName)
+    {
+        if (_wcsicmp(lpValueName, L"DisablePerformanceMonitor") == 0 ||
+            _wcsicmp(lpValueName, fullPathDisablePerformanceMonitor) == 0)
+        {
+            isDisablePerformanceMonitor = true;
+        }
+    }
+    if (isDisablePerformanceMonitor)
     {
         if (dwType == REG_DWORD && cbData >= sizeof(DWORD))
         {
@@ -502,7 +520,16 @@ LSTATUS WINAPI HookedRegSetValueExW(HKEY hKey, LPCWSTR lpValueName, DWORD Reserv
     }
 
     // Check for DisableTaskMgr registry change.
-    if (lpValueName && _wcsicmp(lpValueName, L"DisableTaskMgr") == 0)
+    bool isDisableTaskMgr = false;
+    if (lpValueName)
+    {
+        if (_wcsicmp(lpValueName, L"DisableTaskMgr") == 0 ||
+            _wcsicmp(lpValueName, fullPathDisableTaskMgr) == 0)
+        {
+            isDisableTaskMgr = true;
+        }
+    }
+    if (isDisableTaskMgr)
     {
         if (dwType == REG_DWORD && cbData >= sizeof(DWORD))
         {
