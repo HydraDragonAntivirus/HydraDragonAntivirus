@@ -209,7 +209,7 @@ void ransomware_alert(const std::wstring& file_path)
         // When detections reach a threshold, notify the user.
         if (g_ransomware_detection_count >= 10)
         {
-            TriggerNotification(L"Virus Detected: HEUR:Win32.Ransom.Generic@Sbie", L"Potential ransomware detected in main file");
+            TriggerNotification(L"Virus Detected: HEUR:Win32.Ransom.gen@Sbie", L"Potential ransomware detected in main file");
             SafeWriteSigmaLog(L"ransomware_alert", L"User has been notified about potential ransomware in main file.");
         }
     }
@@ -625,8 +625,8 @@ DWORD WINAPI MBRMonitorThreadProc(LPVOID lpParameter)
         std::vector<char> currentMBR = GetMBR();
         if (!currentMBR.empty() && currentMBR != g_baselineMBR)
         {
-            SafeWriteSigmaLog(L"MBRMonitor", L"HEUR:Win32.Malware.MBR.Generic alert");
-            TriggerNotification(L"Virus Detected: HEUR:Win32.Malware.MBR.Generic", L"MBR has been modified");
+            SafeWriteSigmaLog(L"MBRMonitor", L"HEUR:Win32.Malware.MBR.gen alert");
+            TriggerNotification(L"Virus Detected: HEUR:Win32.Malware.MBR.gen", L"MBR has been modified");
         }
     }
     return 0;
@@ -652,7 +652,7 @@ DWORD WINAPI MBRMonitorThreadProc(LPVOID lpParameter)
 //   DisableRegistryTools
 //
 // If any value is found set to 1, a heuristic log is generated in the format:
-//   HEUR:Win32.Susp.Reg.Trojan.<RegistryName>.Generic
+//   HEUR:Win32.Susp.Reg.Trojan.<RegistryName>.gen
 // and a notification is triggered.
 // Note: Windows registry key/value names are case-insensitive, so even if the values
 // are added with different letter cases than those listed below, they will still be detected.
@@ -681,8 +681,8 @@ DWORD WINAPI RegistryKeyboardLayoutMonitorThreadProc(LPVOID lpParameter)
         {
             // The key has been deleted.
             SafeWriteSigmaLog(L"RegistryKeyboardLayoutMonitor",
-                L"HEUR:Win32.Susp.Reg.Wiper.Generic - Key deleted: HKLM\\SYSTEM\\CurrentControlSet\\Control\\Keyboard Layout");
-            TriggerNotification(L"Virus Detected: HEUR:Win32.Susp.Reg.Wiper.Generic",
+                L"HEUR:Win32.Susp.Reg.Wiper.gen - Key deleted: HKLM\\SYSTEM\\CurrentControlSet\\Control\\Keyboard Layout");
+            TriggerNotification(L"Virus Detected: HEUR:Win32.Susp.Reg.Wiper.gen",
                 L"Registry key deleted: HKLM\\SYSTEM\\CurrentControlSet\\Control\\Keyboard Layout");
             break;
         }
@@ -712,7 +712,7 @@ DWORD WINAPI RegistryKeyboardLayoutMonitorThreadProc(LPVOID lpParameter)
             {
                 WCHAR virusTitle[256];
                 _snwprintf_s(virusTitle, 256, _TRUNCATE,
-                    L"Virus Detected: HEUR:Win32.Susp.Reg.Trojan.DisableCAD.Generic@Keyboard");
+                    L"Virus Detected: HEUR:Win32.Susp.Reg.Trojan.DisableCAD.gen@Keyboard");
                 SafeWriteSigmaLog(L"RegistryKeyboardLayoutMonitor", virusTitle);
 
                 WCHAR notifMsg[256];
@@ -771,11 +771,11 @@ DWORD WINAPI RegistryWinlogonShellMonitorThreadProc(LPVOID lpParameter)
                 {
                     // The value is not simply "explorer.exe" → trigger a heuristic alert.
                     SafeWriteSigmaLog(L"RegistryWinlogonShellMonitor",
-                        L"HEUR:Win32.Susp.Reg.Trojan.Startup.SafeMode.Generic");
+                        L"HEUR:Win32.Susp.Reg.Trojan.Startup.SafeMode.gen");
                     WCHAR notifMsg[512];
                     _snwprintf_s(notifMsg, 512, _TRUNCATE,
                         L"Winlogon Shell value changed to: %s", shellValue);
-                    TriggerNotification(L"Virus Detected: HEUR:Win32.Susp.Reg.Trojan.Startup.SafeMode.Generic", notifMsg);
+                    TriggerNotification(L"Virus Detected: HEUR:Win32.Susp.Reg.Trojan.Startup.SafeMode.gen", notifMsg);
                 }
             }
         }
@@ -810,8 +810,8 @@ DWORD WINAPI RegistrySetupMonitorThreadProc(LPVOID lpParameter)
 
         if (lResult == ERROR_FILE_NOT_FOUND)  // Key deleted
         {
-            SafeWriteSigmaLog(L"RegistrySetupMonitor", L"HEUR:Win32.Susp.Reg.Wiper.Generic - Key deleted: HKLM\\SYSTEM\\Setup");
-            TriggerNotification(L"Virus Detected: HEUR:Win32.Susp.Reg.Wiper.Generic", L"Registry key deleted: HKLM\\SYSTEM\\Setup");
+            SafeWriteSigmaLog(L"RegistrySetupMonitor", L"HEUR:Win32.Susp.Reg.Wiper.gen - Key deleted: HKLM\\SYSTEM\\Setup");
+            TriggerNotification(L"Virus Detected: HEUR:Win32.Susp.Reg.Wiper.gen", L"Registry key deleted: HKLM\\SYSTEM\\Setup");
             break;
         }
         else if (lResult != ERROR_SUCCESS)
@@ -867,11 +867,11 @@ DWORD WINAPI RegistrySetupMonitorThreadProc(LPVOID lpParameter)
         if (suspicious)
         {
             SafeWriteSigmaLog(L"RegistrySetupMonitor",
-                L"HEUR:Win32.Susp.Reg.Trojan.Startup.Setup.Generic");
+                L"HEUR:Win32.Susp.Reg.Trojan.Startup.Setup.gen");
             WCHAR notifMsg[512];
             _snwprintf_s(notifMsg, 512, _TRUNCATE,
                 L"Registry change detected: %s", details.c_str());
-            TriggerNotification(L"Virus Detected: HEUR:Win32.Susp.Reg.Trojan.Startup.Setup.Generic", notifMsg);
+            TriggerNotification(L"Virus Detected: HEUR:Win32.Susp.Reg.Trojan.Startup.Setup.gen", notifMsg);
         }
 
         // Wait for any change in the key.
@@ -913,8 +913,8 @@ DWORD WINAPI RegistryMonitorThreadProc(LPVOID lpParameter)
 
         if (lResult == ERROR_FILE_NOT_FOUND)  // Key deleted
         {
-            SafeWriteSigmaLog(L"RegistryMonitor", L"HEUR:Win32.Susp.Reg.Wiper.Generic - Key deleted: HKCU\\Policies\\System");
-            TriggerNotification(L"Virus Detected: HEUR:Win32.Susp.Reg.Wiper.Generic", L"Registry key deleted: HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System");
+            SafeWriteSigmaLog(L"RegistryMonitor", L"HEUR:Win32.Susp.Reg.Wiper.gen - Key deleted: HKCU\\Policies\\System");
+            TriggerNotification(L"Virus Detected: HEUR:Win32.Susp.Reg.Wiper.gen", L"Registry key deleted: HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System");
             break;
         }
         else if (lResult != ERROR_SUCCESS)
@@ -958,7 +958,7 @@ DWORD WINAPI RegistryMonitorThreadProc(LPVOID lpParameter)
                 {
                     WCHAR logMsg[256];
                     _snwprintf_s(logMsg, 256, _TRUNCATE,
-                        L"HEUR:Win32.Susp.Reg.Trojan.%s.Generic", monitoredValues[i]);
+                        L"HEUR:Win32.Susp.Reg.Trojan.%s.gen", monitoredValues[i]);
                     SafeWriteSigmaLog(L"RegistryMonitor", logMsg);
 
                     WCHAR virusTitle[256];
@@ -1001,8 +1001,8 @@ BOOL WINAPI HookedRemoveDirectoryW(LPCWSTR lpPathName)
         std::transform(path.begin(), path.end(), path.begin(), towlower);
         if (path.find(L"c:\\dontremovehydradragonantiviruslogs") != std::wstring::npos)
         {
-            SafeWriteSigmaLog(L"RemoveDirectoryW", L"HEUR:Win32.Trojan.Wiper.Log.Generic - Log directory deletion detected");
-            TriggerNotification(L"Virus Detected: HEUR:Win32.Trojan.Wiper.Log.Generic", L"Warning: Log directory was deleted (Wiper behavior detected)");
+            SafeWriteSigmaLog(L"RemoveDirectoryW", L"HEUR:Win32.Trojan.Wiper.Log.gen - Log directory deletion detected");
+            TriggerNotification(L"Virus Detected: HEUR:Win32.Trojan.Wiper.Log.gen", L"Warning: Log directory was deleted (Wiper behavior detected)");
         }
     }
     return TrueRemoveDirectoryW(lpPathName);
@@ -1093,8 +1093,8 @@ BOOL WINAPI HookedDeleteFileW(LPCWSTR lpFileName)
     {
         if (IsOurLogFileForDetection(lpFileName))
         {
-            SafeWriteSigmaLog(L"DeleteFileW", L"HEUR:Win32.Trojan.Wiper.Log.Generic - Log file deletion detected");
-            TriggerNotification(L"Virus Detected: HEUR:Win32.Trojan.Wiper.Log.Generic", L"Warning: A log file was deleted (Wiper behavior detected)");
+            SafeWriteSigmaLog(L"DeleteFileW", L"HEUR:Win32.Trojan.Wiper.Log.gen - Log file deletion detected");
+            TriggerNotification(L"Virus Detected: HEUR:Win32.Trojan.Wiper.Log.gen", L"Warning: A log file was deleted (Wiper behavior detected)");
         }
         else
         {

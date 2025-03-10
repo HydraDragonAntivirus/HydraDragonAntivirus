@@ -3699,7 +3699,7 @@ def scan_zip_file(file_path):
 
                 # Check for RLO in filenames before handling encryption
                 if contains_rlo_after_dot(zip_info.filename):
-                    virus_name = "HEUR:RLO.Susp.Name.Encrypted.ZIP.Generic"
+                    virus_name = "HEUR:RLO.Susp.Name.Encrypted.ZIP.gen"
                     logging.warning(
                         f"Filename {zip_info.filename} in {file_path} contains RLO character after a comma - "
                         f"flagged as {virus_name}"
@@ -3741,7 +3741,7 @@ def scan_7z_file(file_path):
 
                 # RLO check
                 if contains_rlo_after_dot(filename):
-                    virus_name = "HEUR:RLO.Susp.Name.Encrypted.7z.Generic"
+                    virus_name = "HEUR:RLO.Susp.Name.Encrypted.7z.gen"
                     logging.warning(
                         f"Filename {filename} in {file_path} contains RLO character after a dot - "
                         f"flagged as {virus_name}"
@@ -3821,7 +3821,7 @@ def scan_tar_file(file_path):
             for member in tar.getmembers():
                 # Check for RLO in filenames
                 if contains_rlo_after_dot(member.name):
-                    virus_name = "HEUR:RLO.Susp.Name.Encrypted.TAR.Generic"
+                    virus_name = "HEUR:RLO.Susp.Name.Encrypted.TAR.gen"
                     logging.warning(
                         f"Filename {member.name} in {file_path} contains RLO character after a dot - "
                         f"flagged as {virus_name}"
@@ -5048,7 +5048,7 @@ def ransomware_alert(file_path):
             if file_path.startswith(sandboxie_log_folder):
                 ransomware_detection_count += 1
                 logging.warning(f"File '{file_path}' (Sandboxie log) flagged as potential ransomware. Count: {ransomware_detection_count}")
-                notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.Log.Generic")
+                notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.Log.gen")
                 logging.warning(f"User has been notified about potential ransomware in {main_file_path} (Sandboxie log alert)")
                 print(f"User has been notified about potential ransomware in {main_file_path} (Sandboxie log alert)")
             
@@ -5069,7 +5069,7 @@ def ransomware_alert(file_path):
 
             # When detections reach a threshold, notify the user with a generic flag.
             if ransomware_detection_count >= 10:
-                notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.Generic")
+                notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.gen")
                 logging.warning(f"User has been notified about potential ransomware in {main_file_path}")
                 print(f"User has been notified about potential ransomware in {main_file_path}")
                 
@@ -5181,13 +5181,13 @@ def worm_alert(file_path):
 
                 if size_difference > 0.10:
                     logging.warning(f"File size difference for '{file_path}' exceeds 10%.")
-                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Agnostic.Generic.Malware")
+                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Agnostic.gen.Malware")
                     worm_alerted_files.append(file_path)
                     return  # Only flag once if a critical difference is found
 
                 if mtime_difference > 3600:  # 3600 seconds = 1 hour
                     logging.warning(f"Modification time difference for '{file_path}' exceeds 1 hour.")
-                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Time.Agnostic.Generic.Malware")
+                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Time.Agnostic.gen.Malware")
                     worm_alerted_files.append(file_path)
                     return  # Only flag once if a critical difference is found
 
@@ -5196,7 +5196,7 @@ def worm_alert(file_path):
 
             if worm_detected:
                 logging.warning(f"Worm '{file_path}' detected in critical directory. Alerting user.")
-                notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Critical.Generic.Malware")
+                notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Critical.gen.Malware")
                 worm_alerted_files.append(file_path)
         
         else:
@@ -5207,13 +5207,13 @@ def worm_alert(file_path):
             if worm_detected or worm_detected_count[file_path] >= 5:
                 if file_path not in worm_alerted_files:
                     logging.warning(f"Worm '{file_path}' detected under 5 different names or as potential worm. Alerting user.")
-                    notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Generic.Malware")
+                    notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.gen.Malware")
                     worm_alerted_files.append(file_path)
 
                 # Notify for all files that have reached the detection threshold
                 for detected_file in worm_detected_count:
                     if worm_detected_count[detected_file] >= 5 and detected_file not in worm_alerted_files:
-                        notify_user_worm(detected_file, "HEUR:Win32.Worm.Classic.Generic.Malware")
+                        notify_user_worm(detected_file, "HEUR:Win32.Worm.Classic.gen.Malware")
                         worm_alerted_files.append(detected_file)
 
     except Exception as ex:
@@ -5597,7 +5597,7 @@ def check_pe_file(file_path, pe_file, signature_check, file_name):
         if file_name in fake_system_files and os.path.abspath(file_path).startswith(main_drive_path):
             if pe_file and not signature_check["is_valid"]:
                 logging.warning(f"Detected fake system file: {file_path}")
-                notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.Generic")
+                notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.gen")
 
     except Exception as ex:
         logging.error(f"Error checking PE file {file_path}: {ex}")
@@ -5798,7 +5798,7 @@ def process_decompiled_code(output_file):
         if webhooks:
             logging.warning(f"[+] Webhook URLs found: {webhooks}")
             if source_code_path:
-                notify_user_for_malicious_source_code(source_code_path, 'HEUR:Win32.Discord.Pyinstaller.Exela.V2.Stealer.Generic.Malware')
+                notify_user_for_malicious_source_code(source_code_path, 'HEUR:Win32.Discord.Pyinstaller.Exela.V2.Stealer.gen.Malware')
             else:
                 logging.error("Failed to save the final decrypted source code.")
         else:
@@ -6284,10 +6284,10 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
             with open(file_path, 'rb') as fake_file:
                 file_content_read = fake_file.read(100 * 1024 * 1024)
                 if file_content_read == b'\x00' * 100 * 1024 * 1024:  # 100MB of continuous `0x00` bytes
-                    logging.warning(f"File {file_path} is flagged as HEUR:FakeSize.Generic")
-                    fake_size = "HEUR:FakeSize.Generic"
+                    logging.warning(f"File {file_path} is flagged as HEUR:FakeSize.gen")
+                    fake_size = "HEUR:FakeSize.gen"
                     if signature_check and signature_check["is_valid"]:
-                        fake_size = "HEUR:SIG.Win32.FakeSize.Generic"
+                        fake_size = "HEUR:SIG.Win32.FakeSize.gen"
                     notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(file_path, fake_size))
                     notify_user_fake_size_thread.start()
 
@@ -6482,16 +6482,16 @@ def check_startup_directories():
                         file_path = os.path.join(directory, file)
                         if os.path.isfile(file_path) and file_path not in alerted_files:
                             if file_path.endswith('.wll') and is_pe_file(file_path):
-                                malware_type = "HEUR:Win32.Startup.DLLwithWLL.Generic.Malware"
+                                malware_type = "HEUR:Win32.Startup.DLLwithWLL.gen.Malware"
                                 message = f"Confirmed DLL malware detected: {file_path}\nVirus: {malware_type}"
                             elif file_path.endswith(('.vbs', '.vbe', '.js', '.jse', '.bat', '.url', '.cmd', '.hta', '.ps1', '.psm1', '.wsf', '.wsb', '.sct')):
-                                malware_type = "HEUR:Win32.Startup.Script.Generic.Malware"
+                                malware_type = "HEUR:Win32.Startup.Script.gen.Malware"
                                 message = f"Confirmed script malware detected: {file_path}\nVirus: {malware_type}"
                             elif file_path.endswith(('.dll', '.jar', '.msi', '.scr', '.hta',)):
-                                malware_type = "HEUR:Win32.Startup.Susp.Extension.Generic.Malware"
+                                malware_type = "HEUR:Win32.Startup.Susp.Extension.gen.Malware"
                                 message = f"Confirmed malware with suspicious extension detected: {file_path}\nVirus: {malware_type}"
                             else:
-                                malware_type = "HEUR:Win32.Startup.Susp.Generic.Malware"
+                                malware_type = "HEUR:Win32.Startup.Susp.gen.Malware"
                                 message = f"Suspicious startup file detected: {file_path}\nVirus: {malware_type}"
 
                             logging.warning(f"Suspicious or malicious startup file detected in {directory}: {file}")
@@ -6525,12 +6525,12 @@ def check_hosts_file_for_blocked_antivirus():
         if blocked_domains:
             logging.warning(f"Malicious hosts file detected: {hosts_path}")
             print(f"Malicious hosts file detected: {hosts_path}")
-            notify_user_hosts(hosts_path, "HEUR:Win32.Trojan.Hosts.Hijacker.DisableAV.Generic")
+            notify_user_hosts(hosts_path, "HEUR:Win32.Trojan.Hosts.Hijacker.DisableAV.gen")
             return True
         else:
             logging.warning(f"Suspicious hosts file detected: {hosts_path}")
             print(f"Suspicious hosts file detected: {hosts_path}")
-            notify_user_hosts(hosts_path, "HEUR:Win32.Trojan.Hosts.Hijacker.Generic")
+            notify_user_hosts(hosts_path, "HEUR:Win32.Trojan.Hosts.Hijacker.gen")
             return True
 
     except Exception as ex:
@@ -6564,13 +6564,13 @@ def check_uefi_directories():
                     if uefi_path in uefi_100kb_paths and is_malicious_file(uefi_path, 100):
                         logging.warning(f"Malicious file detected: {uefi_path}")
                         print(f"Malicious file detected: {uefi_path}")
-                        notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.SecureBootRecovery.Generic.Malware")
+                        notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.SecureBootRecovery.gen.Malware")
                         scan_and_warn(uefi_path)
                         alerted_uefi_files.append(uefi_path)
                     elif uefi_path in uefi_paths and is_malicious_file(uefi_path, 1024):
                         logging.warning(f"Malicious file detected: {uefi_path}")
                         print(f"Malicious file detected: {uefi_path}")
-                        notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.ScreenLocker.Ransomware.Generic.Malware")
+                        notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.ScreenLocker.Ransomware.gen.Malware")
                         scan_and_warn(uefi_path)
                         alerted_uefi_files.append(uefi_path)
 
@@ -6582,7 +6582,7 @@ def check_uefi_directories():
                 if file_path.endswith(".efi") and file_path not in known_uefi_files and file_path not in alerted_uefi_files:
                     logging.warning(f"Unknown file detected: {file_path}")
                     print(f"Unknown file detected: {file_path}")
-                    notify_user_uefi(file_path, "HEUR:Win32.Rootkit.Startup.UEFI.Generic.Malware")
+                    notify_user_uefi(file_path, "HEUR:Win32.Rootkit.Startup.UEFI.gen.Malware")
                     scan_and_warn(file_path)
                     alerted_uefi_files.append(file_path)
 
@@ -6704,17 +6704,17 @@ class MonitorMessageCommandLine:
         self.known_malware_messages = {
             "classic": {
                 "message": "this program cannot be run under virtual environment or debugging software",
-                "virus_name": "HEUR:Win32.Trojan.Guloader.C4D9Dd33.Generic",
+                "virus_name": "HEUR:Win32.Trojan.Guloader.C4D9Dd33.gen",
                 "process_function": self.process_detected_text_classic
             },
             "av": {
                 "message": "disable your antivirus",
-                "virus_name": "HEUR:Win32.DisableAV.Generic",
+                "virus_name": "HEUR:Win32.DisableAV.gen",
                 "process_function": self.process_detected_text_av
             },
             "debugger": {
                 "message": "a debugger has been found running in your system please unload it from memory and restart your program",
-                "virus_name": "HEUR:Win32.Themida.Generic",
+                "virus_name": "HEUR:Win32.Themida.gen",
                 "process_function": self.process_detected_text_debugger
             },
             "fanmade": {
@@ -6725,7 +6725,7 @@ class MonitorMessageCommandLine:
                     "contains flashing lights", "run malware", "executed is a malware", "resulting in an unusable machine", "this malware will harm your computer",
                     "this trojan and", "using this malware", "this malware can", "gdi malware", "win32 trojan specifically", "malware will run"
                 ],
-                "virus_name": "HEUR:Win32.GDI.Fanmade.Generic",
+                "virus_name": "HEUR:Win32.GDI.Fanmade.gen",
                 "process_function": self.process_detected_text_fanmade
             },
             "rogue": {
@@ -6734,7 +6734,7 @@ class MonitorMessageCommandLine:
                     "has found viruses on computer", "windows security alert", "pc is at risk", "malicious program has been detected",
                     "warning virus detected"
                 ],
-                "virus_name": "HEUR:Win32.Rogue.Generic",
+                "virus_name": "HEUR:Win32.Rogue.gen",
                 "process_function": self.process_detected_text_rogue
             },
             "powershell_iex_download": {
@@ -6756,7 +6756,7 @@ class MonitorMessageCommandLine:
                     r'*iex ((new-object net.webclient).downloadstring(*',
                     r'*http*.replace(*iex*'
                 ],
-                "virus_name": "HEUR:Win32.PowerShell.IEX.Download.Generic",
+                "virus_name": "HEUR:Win32.PowerShell.IEX.Download.gen",
                 "process_function": self.process_detected_powershell_iex_download
             },
             "xmrig": {
@@ -6768,37 +6768,37 @@ class MonitorMessageCommandLine:
                     'xmrig --version',
                     'xmrig --config'
                 ],
-                "virus_name": "HEUR:Win32.Miner.XMRig.Generic",
+                "virus_name": "HEUR:Win32.Miner.XMRig.gen",
                 "process_function": self.process_detected_command_xmrig
             },
             "wifi": {
                 "command": 'netsh wlan show profile',
-                "virus_name": "HEUR:Win32.Trojan.Password.Stealer.Wi-Fi.Generic",
+                "virus_name": "HEUR:Win32.Trojan.Password.Stealer.Wi-Fi.gen",
                 "process_function": self.process_detected_command_wifi
             },
             "shadowcopy": {
                 "command": 'get-wmiobject win32_shadowcopy | foreach-object {$_.delete();}',
-                "virus_name": "HEUR:Win32.Ransom.ShadowCopy.Generic",
+                "virus_name": "HEUR:Win32.Ransom.ShadowCopy.gen",
                 "process_function": self.process_detected_command_ransom_shadowcopy
             },
             "wmic": {
                 "command": 'wmic shadowcopy delete',
-                "virus_name": "HEUR:Win32.Ransom.ShadowCopy.WMIC.Generic",
+                "virus_name": "HEUR:Win32.Ransom.ShadowCopy.WMIC.gen",
                 "process_function": self.process_detected_command_wmic_shadowcopy
             },
             "startup": {
                 "command": 'copy-item \\roaming\\microsoft\\windows\\start menu\\programs\\startup',
-                "virus_name": "HEUR:Win32.Startup.PowerShell.Injection.Generic",
+                "virus_name": "HEUR:Win32.Startup.PowerShell.Injection.gen",
                 "process_function": self.process_detected_command_copy_to_startup
                 },
             "schtasks": {
                 "command": 'schtasks*/create*/xml*\\temp\\*.tmp',
-                "virus_name": "HEUR:Win32.TaskScheduler.TempFile.Generic",
+                "virus_name": "HEUR:Win32.TaskScheduler.TempFile.gen",
                 "process_function": self.process_detected_command_schtasks_temp
             },
             "stopeventlog": {
                 "command": 'sc.exe stop eventlog',
-                "virus_name": "HEUR:Win32.StopEventLog.Generic",
+                "virus_name": "HEUR:Win32.StopEventLog.gen",
                 "process_function": self.process_detected_command_stop_eventlog
             },
             "koadic": {
@@ -6806,7 +6806,7 @@ class MonitorMessageCommandLine:
                 'chcp 437 & schtasks /query /tn k0adic',
                 'chcp 437 & schtasks /create /tn k0adic'
                 ],
-                "virus_name": "HEUR:Win32.Rootkit.Koadic.Generic",
+                "virus_name": "HEUR:Win32.Rootkit.Koadic.gen",
                 "process_function": self.process_detected_command_rootkit_koadic
                 },
             "fodhelper": {
