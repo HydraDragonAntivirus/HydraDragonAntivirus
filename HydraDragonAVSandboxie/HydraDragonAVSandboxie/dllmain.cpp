@@ -30,6 +30,12 @@ const WCHAR KNOWN_EXTENSIONS_FILE[] = L"C:\\Program Files\\HydraDragonAntivirus\
 // The full location of diec.exe (Detect It Easy Console)
 const std::wstring detectiteasy_console_path = L"C:\\Program Files\\HydraDragonAntivirus\\detectieasy\\diec.exe";
 
+void SafeWriteSigmaLog(const WCHAR* eventType, const WCHAR* details);
+void TriggerNotification(const WCHAR* title, const WCHAR* msg);
+
+std::vector<std::wstring> g_knownExtensions;
+static bool g_bExtensionsLoaded = false;
+
 // -----------------------------------------------------------------
 // Global Registry Mapping
 // -----------------------------------------------------------------
@@ -54,8 +60,8 @@ static int g_ransomware_detection_count = 0;
 // Checks if a file is readable by trying to open it.
 bool is_readable(const std::wstring& file_path)
 {
-    FILE* f = _wfopen(file_path.c_str(), L"rb");
-    if (f)
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, file_path.c_str(), L"rb") == 0 && f != nullptr)
     {
         fclose(f);
         return true;
@@ -104,7 +110,7 @@ bool is_ransomware(const std::wstring& file_path)
     }
 
     // Check the second last extension.
-    std::wstring prev_ext = L"." + parts[parts.size() - 2];
+    std::wstring prev_ext = std::wstring(L".") + parts[parts.size() - 2];
     std::transform(prev_ext.begin(), prev_ext.end(), prev_ext.begin(), towlower);
     bool prev_known = false;
     for (auto& known : g_knownExtensions)
@@ -124,7 +130,7 @@ bool is_ransomware(const std::wstring& file_path)
     }
 
     // Check the final extension.
-    std::wstring final_ext = L"." + parts.back();
+    std::wstring final_ext = std::wstring(L".") + parts.back();
     std::transform(final_ext.begin(), final_ext.end(), final_ext.begin(), towlower);
     bool final_known = false;
     for (auto& known : g_knownExtensions)
@@ -410,8 +416,6 @@ bool IsOurLogFile(LPCWSTR filePath)
 // -----------------------------------------------------------------
 // Load Known Extensions from File
 // -----------------------------------------------------------------
-std::vector<std::wstring> g_knownExtensions;
-static bool g_bExtensionsLoaded = false;
 
 void LoadKnownExtensions()
 {
