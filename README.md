@@ -110,7 +110,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 
 **Note 13:**
 
-- If you are testing a rootkit, please enable "bcdedit testsigning on" to allow the rootkit to run on your machine for analysis.
+- If you are testing a rootkit, please do not enable "bcdedit testsigning on" to run the rootkit on your machine for analysis. We will take care of that.
 
 ## Tips
 

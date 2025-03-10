@@ -28,7 +28,7 @@ const WCHAR ERROR_LOG_FILE[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREM
 const WCHAR DETECT_JSON_FILE[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEdetectiteasy.json";
 const WCHAR KNOWN_EXTENSIONS_FILE[] = L"C:\\Program Files\\HydraDragonAntivirus\\knownextensions\\extensions.txt";
 // The full location of diec.exe (Detect It Easy Console)
-const std::wstring detectiteasy_console_path = L"C:\\Program Files\\HydraDragonAntivirus\\detectieasy\\diec.exe";
+const std::wstring detectiteasy_console_path = L"C:\\Program Files\\HydraDragonAntivirus\\detectiteasy\\diec.exe";
 
 void SafeWriteSigmaLog(const WCHAR* eventType, const WCHAR* details);
 void TriggerNotification(const WCHAR* title, const WCHAR* msg);
