@@ -15,6 +15,9 @@
 #include <process.h>
 #include <stdlib.h>
 #include <mmsystem.h>
+#include <winternl.h>
+#include <sstream>
+#include <fstream>
 #pragma comment(lib, "winmm.lib")
 #pragma comment(lib, "Shlwapi.lib")
 #pragma comment(lib, "detours.lib")
@@ -25,7 +28,6 @@
 const WCHAR LOG_FOLDER[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs";
 const WCHAR SIGMA_LOG_FILE[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEsigma_log.txt";
 const WCHAR ERROR_LOG_FILE[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEerror_log.txt";
-const WCHAR DETECT_JSON_FILE[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEdetectiteasy.json";
 const WCHAR KNOWN_EXTENSIONS_FILE[] = L"C:\\Program Files\\HydraDragonAntivirus\\knownextensions\\extensions.txt";
 // The full location of diec.exe (Detect It Easy Console)
 const std::wstring detectiteasy_console_path = L"C:\\Program Files\\HydraDragonAntivirus\\detectiteasy\\diec.exe";
@@ -151,12 +153,13 @@ bool is_ransomware(const std::wstring& file_path)
 
     if (has_known_extension(file_path) || is_readable(file_path))
     {
-        SafeWriteSigmaLog(L"is_ransomware", L"File is readable or has known extension, not ransomware.");
+        SafeWriteSigmaLog(L"is_ransomware", L"File is readable or has known extension, not flagged as ransomware.");
         return false;
     }
     else
     {
-        std::wstring command = L"\"" + detectiteasy_console_path + L"\" \"" + file_path + L"\"";
+        // Use Detect It Easy with the -j argument.
+        std::wstring command = L"\"" + detectiteasy_console_path + L"\" -j \"" + file_path + L"\"";
         FILE* pipe = _wpopen(command.c_str(), L"r");
         if (!pipe)
         {
@@ -166,18 +169,33 @@ bool is_ransomware(const std::wstring& file_path)
         wchar_t buffer[128];
         std::wstring result;
         while (fgetws(buffer, 128, pipe))
-        {
             result += buffer;
-        }
         _pclose(pipe);
-        if (result.find(L"Binary") != std::wstring::npos && result.find(L"Unknown: Unknown") != std::wstring::npos)
+
+        // Save JSON output to a uniquely named file using _wfopen_s.
+        static int detectiteasyRansomCount = 1;
+        WCHAR jsonFileName[MAX_PATH];
+        _snwprintf_s(jsonFileName, MAX_PATH, _TRUNCATE,
+            L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\detectiteasy_ransom_%d.json", detectiteasyRansomCount);
+        detectiteasyRansomCount++;
+        FILE* jsonFile = nullptr;
+        if (_wfopen_s(&jsonFile, jsonFileName, L"w") == 0 && jsonFile != nullptr)
         {
-            SafeWriteSigmaLog(L"is_ransomware", L"Detect It Easy confirmed suspicious file.");
+            fwprintf(jsonFile, L"%s", result.c_str());
+            fclose(jsonFile);
+        }
+
+        // New check: if the output contains "Binary" and "Unknown: Unknown",
+        // then flag the file as a ransomware encrypted file (skip PE32/PE64 checks).
+        if (result.find(L"Binary") != std::wstring::npos &&
+            result.find(L"Unknown: Unknown") != std::wstring::npos)
+        {
+            SafeWriteSigmaLog(L"is_ransomware", L"Detect It Easy output indicates a possible ransomware encrypted file.");
             return true;
         }
         else
         {
-            SafeWriteSigmaLog(L"is_ransomware", L"Detect It Easy did not confirm suspicious status.");
+            SafeWriteSigmaLog(L"is_ransomware", L"Detect It Easy output did not confirm suspicious status.");
             return false;
         }
     }
@@ -381,6 +399,26 @@ bool NormalizePath(std::wstring& path)
     return false;
 }
 
+bool IsOurLogFile(LPCWSTR filePath)
+{
+    if (!filePath)
+        return false;
+    std::wstring path(filePath);
+    NormalizePath(path);
+    std::transform(path.begin(), path.end(), path.begin(), towlower);
+    // Check for our specific text log files.
+    if (path.find(L"c:\\dontremovehydradragonantiviruslogs\\dontremovesigma_log.txt") != std::wstring::npos ||
+        path.find(L"c:\\dontremovehydradragonantiviruslogs\\dontremoveerror_log.txt") != std::wstring::npos)
+        return true;
+    // For any JSON file, if it's in our logs folder, consider it ours.
+    if (path.find(L"c:\\dontremovehydradragonantiviruslogs\\") != std::wstring::npos)
+    {
+        if (path.size() >= 5 && path.compare(path.size() - 5, 5, L".json") == 0)
+            return true;
+    }
+    return false;
+}
+
 bool IsOurLogFileForDetection(LPCWSTR filePath)
 {
     if (!filePath)
@@ -392,23 +430,12 @@ bool IsOurLogFileForDetection(LPCWSTR filePath)
     std::transform(path.begin(), path.end(), path.begin(), towlower);
     size_t pos = path.find_last_of(L"\\/");
     std::wstring basename = (pos != std::wstring::npos) ? path.substr(pos + 1) : path;
+    // Check our text log files by name.
     if (basename == L"dontremovesigma_log.txt" ||
-        basename == L"dontremoveerror_log.txt" ||
-        basename == L"dontremovedetectiteasy.json")
+        basename == L"dontremoveerror_log.txt")
         return true;
-    return false;
-}
-
-bool IsOurLogFile(LPCWSTR filePath)
-{
-    if (!filePath)
-        return false;
-    std::wstring path(filePath);
-    NormalizePath(path);
-    std::transform(path.begin(), path.end(), path.begin(), towlower);
-    if (path.find(L"c:\\dontremovehydradragonantiviruslogs\\dontremovesigma_log.txt") != std::wstring::npos ||
-        path.find(L"c:\\dontremovehydradragonantiviruslogs\\dontremoveerror_log.txt") != std::wstring::npos ||
-        path.find(L"c:\\dontremovehydradragonantiviruslogs\\dontremovedetectiteasy.json") != std::wstring::npos)
+    // Instead of a hardcoded JSON file name, check if the file's name ends with ".json"
+    if (basename.size() >= 5 && basename.compare(basename.size() - 5, 5, L".json") == 0)
         return true;
     return false;
 }
@@ -1144,6 +1171,188 @@ BOOL WINAPI HookedDeleteFileW(LPCWSTR lpFileName)
     return TrueDeleteFileW(lpFileName);
 }
 
+// Define NtQuerySystemInformation function pointer type.
+typedef NTSTATUS(WINAPI* NtQuerySystemInformation_t)(
+    SYSTEM_INFORMATION_CLASS SystemInformationClass,
+    PVOID SystemInformation,
+    ULONG SystemInformationLength,
+    PULONG ReturnLength
+    );
+
+// Structure for boot environment information.
+typedef struct _SYSTEM_BOOT_ENVIRONMENT_INFORMATION {
+    BOOLEAN BootInTestSignMode;
+    BOOLEAN BootRomImage;
+    BOOLEAN BootDebugEnabled;
+    BOOLEAN BootDoubleCheck;
+    BOOLEAN BootDisplay;
+} SYSTEM_BOOT_ENVIRONMENT_INFORMATION, * PSYSTEM_BOOT_ENVIRONMENT_INFORMATION;
+
+// Check if test signing mode is enabled using Windows API.
+bool IsTestSigningEnabled()
+{
+    HMODULE hNtdll = GetModuleHandle(L"ntdll.dll");
+    if (!hNtdll)
+        return false;
+
+    NtQuerySystemInformation_t NtQuerySystemInformation =
+        (NtQuerySystemInformation_t)GetProcAddress(hNtdll, "NtQuerySystemInformation");
+    if (!NtQuerySystemInformation)
+        return false;
+
+    SYSTEM_BOOT_ENVIRONMENT_INFORMATION bootInfo = { 0 };
+    NTSTATUS status = NtQuerySystemInformation((SYSTEM_INFORMATION_CLASS)23, &bootInfo, sizeof(bootInfo), NULL);
+    if (status != 0)
+        return false;
+    return (bootInfo.BootInTestSignMode != 0);
+}
+
+// Helper: check if a string ends with ".sys"
+bool endsWithSys(const std::wstring& str)
+{
+    return (str.size() >= 4 && 0 == str.compare(str.size() - 4, 4, L".sys"));
+}
+
+// Helper: Check file signature via PowerShell.
+// Returns true if the signature is valid (and no issues are found).
+bool CheckSignature(const std::wstring& filePath, std::wstring& status)
+{
+    std::wstring psCommand = L"(Get-AuthenticodeSignature \"" + filePath + L"\").Status";
+    std::wstring fullCommand = L"powershell.exe -Command " + psCommand;
+
+    FILE* pipe = _wpopen(fullCommand.c_str(), L"r");
+    if (!pipe)
+    {
+        status = L"Failed to run PowerShell command";
+        return false;
+    }
+    wchar_t buffer[256];
+    std::wstring output;
+    while (fgetws(buffer, 256, pipe))
+        output += buffer;
+    _pclose(pipe);
+
+    size_t start = output.find_first_not_of(L" \n\r\t");
+    size_t end = output.find_last_not_of(L" \n\r\t");
+    if (start != std::wstring::npos && end != std::wstring::npos)
+        output = output.substr(start, end - start + 1);
+    status = output;
+
+    bool isValid = (output.find(L"Valid") != std::wstring::npos);
+    bool issues = (output.find(L"HashMismatch") != std::wstring::npos ||
+        output.find(L"NotTrusted") != std::wstring::npos);
+    return (isValid && !issues);
+}
+
+// Helper: Check if signature verification is manipulated using certutil.
+// If certutil output contains "Bypass" or "Manipulated", we treat the check as manipulated.
+bool IsSignatureCheckManipulated(const std::wstring& filePath, std::wstring& certOutput)
+{
+    std::wstring command = L"certutil -verify \"" + filePath + L"\"";
+    FILE* pipe = _wpopen(command.c_str(), L"r");
+    if (!pipe)
+    {
+        certOutput = L"Failed to execute certutil";
+        return false;
+    }
+    wchar_t buffer[256];
+    std::wstring output;
+    while (fgetws(buffer, 256, pipe))
+        output += buffer;
+    _pclose(pipe);
+    certOutput = output;
+    if (output.find(L"Bypass") != std::wstring::npos ||
+        output.find(L"Manipulated") != std::wstring::npos)
+    {
+        return true;
+    }
+    return false;
+}
+
+// Updated function to check unsigned driver (for .sys files)
+void CheckUnsignedDriver(const std::wstring& filePath)
+{
+    if (!endsWithSys(filePath))
+        return;
+
+    // Check if test signing mode is enabled.
+    static bool testModeFlagged = false;
+    if (IsTestSigningEnabled())
+    {
+        if (!testModeFlagged)
+        {
+            testModeFlagged = true;
+            return; // First time in test mode; do not flag.
+        }
+    }
+
+    // Use PowerShell to check the file's digital signature.
+    std::wstring signatureStatus;
+    bool isSignatureValid = CheckSignature(filePath, signatureStatus);
+    if (isSignatureValid)
+    {
+        SafeWriteSigmaLog(L"CheckUnsignedDriver", L"File signature is valid, no unsigned driver detected.");
+        return;
+    }
+    else
+    {
+        std::wstring logMsg = L"File signature check failed: " + signatureStatus;
+        SafeWriteSigmaLog(L"CheckUnsignedDriver", logMsg.c_str());
+    }
+
+    // Use certutil to check if the signature verification is manipulated.
+    std::wstring certOutput;
+    if (IsSignatureCheckManipulated(filePath, certOutput))
+    {
+        SafeWriteSigmaLog(L"CheckUnsignedDriver", L"Signature check manipulated detected: HEUR:Win32.Trojan.Bypass.Signing.gen");
+        TriggerNotification(L"Unsigned Driver Detected", L"HEUR:Win32.Trojan.Bypass.Signing.gen");
+        return;
+    }
+
+    // Run Detect It Easy (diec.exe) with the -j argument to obtain JSON output.
+    std::wstring command = L"\"" + detectiteasy_console_path + L"\" -j \"" + filePath + L"\"";
+    FILE* pipe = _wpopen(command.c_str(), L"r");
+    if (!pipe)
+    {
+        SafeWriteSigmaLog(L"CheckUnsignedDriver", L"Failed to execute detectiteasy command");
+        return;
+    }
+    wchar_t buffer[256];
+    std::wstring jsonResult;
+    while (fgetws(buffer, 256, pipe))
+        jsonResult += buffer;
+    _pclose(pipe);
+
+    // Save the JSON output to a uniquely named file using _wfopen_s.
+    static int detectiteasyCount = 1;
+    WCHAR jsonFileName[MAX_PATH];
+    _snwprintf_s(jsonFileName, MAX_PATH, _TRUNCATE,
+        L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\detectiteasy_%d.json", detectiteasyCount);
+    detectiteasyCount++;
+
+    FILE* jsonFile = nullptr;
+    if (_wfopen_s(&jsonFile, jsonFileName, L"w") == 0 && jsonFile != nullptr)
+    {
+        fwprintf(jsonFile, L"%s", jsonResult.c_str());
+        fclose(jsonFile);
+    }
+
+    // Check JSON output for PE markers.
+    bool isPE32 = (jsonResult.find(L"PE32") != std::wstring::npos);
+    bool isPE64 = (jsonResult.find(L"PE64") != std::wstring::npos);
+
+    if (isPE32)
+    {
+        SafeWriteSigmaLog(L"UnsignedDriverCheck", L"HEUR:Win32.Possible.Rootkit.gen detected");
+        TriggerNotification(L"Unsigned Driver Detected", L"HEUR:Win32.Possible.Rootkit.gen");
+    }
+    else if (isPE64)
+    {
+        SafeWriteSigmaLog(L"UnsignedDriverCheck", L"HEUR:Win64.Possible.Rootkit.gen detected");
+        TriggerNotification(L"Unsigned Driver Detected", L"HEUR:Win64.Possible.Rootkit.gen");
+    }
+}
+
 typedef HANDLE(WINAPI* CreateFileW_t)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 static CreateFileW_t TrueCreateFileW = CreateFileW;
 
@@ -1159,7 +1368,14 @@ HANDLE WINAPI HookedCreateFileW(LPCWSTR lpFileName, DWORD dwDesiredAccess, DWORD
             lpFileName ? lpFileName : L"(null)", dwDesiredAccess, dwCreationDisposition);
         SafeWriteSigmaLog(L"CreateFileW", buffer);
 
-        // ----- NEW: Call ransomware alert function on the file -----
+        // NEW: For .sys files, perform the unsigned driver check.
+        if (lpFileName && endsWithSys(lpFileName))
+        {
+            std::wstring filePath(lpFileName);
+            CheckUnsignedDriver(filePath);
+        }
+
+        // Existing: Call ransomware alert on the file.
         if (lpFileName)
         {
             std::wstring filePath(lpFileName);
@@ -1244,7 +1460,9 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
     _snwprintf_s(buffer, 256, _TRUNCATE, L"InjectDllMain called. SbieDll handle: 0x%p", hSbieDll);
     SafeWriteSigmaLog(L"InjectDllMain", buffer);
 
+    // Load known extensions and new digital signature checking modules.
     LoadKnownExtensions();
+    SafeWriteSigmaLog(L"InjectDllMain", L"Digital signature and unsigned driver checking modules loaded.");
 
     P_SbieDll_RegisterDllCallback p_RegisterDllCallback =
         (P_SbieDll_RegisterDllCallback)GetProcAddress(hSbieDll, "SbieDll_RegisterDllCallback");
@@ -1309,14 +1527,14 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
         SafeWriteSigmaLog(L"RegistryWinlogonShellMonitor", L"Failed to start RegistryWinlogonShellMonitor thread.");
     }
 
-    // Start Registry monitoring for HKLM\SYSTEM\CurrentControlSet\Control\Keyboard Layout.
+    // Start Registry monitoring for HKLM\SYSTEM\\CurrentControlSet\\Control\\Keyboard Layout.
     g_hRegistryKeyboardLayoutMonitorThread = CreateThread(NULL, 0, RegistryKeyboardLayoutMonitorThreadProc, NULL, 0, NULL);
     if (!g_hRegistryKeyboardLayoutMonitorThread)
     {
         SafeWriteSigmaLog(L"RegistryKeyboardLayoutMonitor", L"Failed to start RegistryKeyboardLayoutMonitor thread.");
     }
 
-    // --- Start the Time Monitor thread for real-time system date checks ---
+    // Start the Time Monitor thread for real-time system date checks.
     g_hTimeMonitorThread = CreateThread(NULL, 0, TimeMonitorThreadProc, NULL, 0, NULL);
     if (!g_hTimeMonitorThread)
     {
@@ -1335,13 +1553,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         InitializeCriticalSection(&g_errorLogLock);
         InitializeCriticalSection(&g_registryMapLock);
         QueueLogMessage(L"{\"timestamp\":\"(n/a)\", \"event\":\"DllMain\", \"details\":\"DLL_PROCESS_ATTACH\"}");
+
         DetourTransactionBegin();
         DetourUpdateThread(GetCurrentThread());
         // Attach registry hooks.
         DetourAttach(&(PVOID&)TrueRegSetValueExW, HookedRegSetValueExW);
         DetourAttach(&(PVOID&)TrueRegCreateKeyExW, HookedRegCreateKeyExW);
         DetourAttach(&(PVOID&)TrueRegOpenKeyExW, HookedRegOpenKeyExW);
-        // Attach other hooks.
+        // Attach file and directory hooks.
         DetourAttach(&(PVOID&)TrueDeleteFileW, HookedDeleteFileW);
         DetourAttach(&(PVOID&)TrueCreateFileW, HookedCreateFileW);
         DetourAttach(&(PVOID&)TrueWriteFile, HookedWriteFile);
@@ -1349,7 +1568,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         DetourAttach(&(PVOID&)TrueRemoveDirectoryW, HookedRemoveDirectoryW);
         DetourTransactionCommit();
 
-        // Start HKCU Registry monitoring thread.
+        // Start monitoring threads.
         g_hRegistryMonitorThread = CreateThread(NULL, 0, RegistryMonitorThreadProc, NULL, 0, NULL);
         // Start Registry monitoring for HKLM\SYSTEM\Setup.
         g_hRegistrySetupMonitorThread = CreateThread(NULL, 0, RegistrySetupMonitorThreadProc, NULL, 0, NULL);
@@ -1360,9 +1579,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         // Start the time monitor thread.
         g_hTimeMonitorThread = CreateThread(NULL, 0, TimeMonitorThreadProc, NULL, 0, NULL);
         break;
+
     case DLL_PROCESS_DETACH:
         QueueLogMessage(L"{\"timestamp\":\"(n/a)\", \"event\":\"DllMain\", \"details\":\"DLL_PROCESS_DETACH\"}");
-        // Stop MBR monitoring.
+        // Stop monitoring threads.
         g_bMBRMonitorRunning = false;
         if (g_hMBRMonitorThread)
         {
@@ -1404,6 +1624,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             WaitForSingleObject(g_hTimeMonitorThread, 2000);
             CloseHandle(g_hTimeMonitorThread);
         }
+
         DetourTransactionBegin();
         DetourUpdateThread(GetCurrentThread());
         DetourDetach(&(PVOID&)TrueRegSetValueExW, HookedRegSetValueExW);
@@ -1415,10 +1636,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         DetourDetach(&(PVOID&)TrueMoveFileW, HookedMoveFileW);
         DetourDetach(&(PVOID&)TrueRemoveDirectoryW, HookedRemoveDirectoryW);
         DetourTransactionCommit();
+
         DeleteCriticalSection(&g_logLock);
         DeleteCriticalSection(&g_errorLogLock);
         DeleteCriticalSection(&g_registryMapLock);
         break;
+
     case DLL_THREAD_ATTACH:
     case DLL_THREAD_DETACH:
         break;
