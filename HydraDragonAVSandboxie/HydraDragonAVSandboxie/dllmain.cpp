@@ -488,7 +488,105 @@ DWORD WINAPI MBRMonitorThreadProc(LPVOID lpParameter)
 // Note: Windows registry key/value names are case-insensitive, so even if the values
 // are added with different letter cases than those listed below, they will still be detected.
 volatile bool g_bRegistryMonitorRunning = true;
+volatile bool g_bRegistrySetupMonitorRunning = true;
 HANDLE g_hRegistryMonitorThread = NULL;
+HANDLE g_hRegistrySetupMonitorThread = NULL;
+
+DWORD WINAPI RegistrySetupMonitorThreadProc(LPVOID lpParameter)
+{
+    HKEY hKeySetup = NULL;
+    // Open the HKLM\SYSTEM\Setup key with KEY_READ and KEY_NOTIFY access.
+    LONG lResult = RegOpenKeyExW(
+        HKEY_LOCAL_MACHINE,
+        L"SYSTEM\\Setup",
+        0,
+        KEY_READ | KEY_NOTIFY,
+        &hKeySetup);
+    if (lResult != ERROR_SUCCESS)
+    {
+        SafeWriteSigmaLog(L"RegistrySetupMonitor", L"Failed to open HKLM\\SYSTEM\\Setup for monitoring.");
+        return 1;
+    }
+
+    while (g_bRegistrySetupMonitorRunning)
+    {
+        // Wait for any change in the key.
+        lResult = RegNotifyChangeKeyValue(
+            hKeySetup,
+            FALSE,
+            REG_NOTIFY_CHANGE_LAST_SET,
+            NULL,
+            FALSE);
+        if (lResult == ERROR_SUCCESS)
+        {
+            bool suspicious = false;
+            std::wstring details;
+
+            // Check CmdLine: if not empty.
+            WCHAR cmdLineValue[1024] = { 0 };
+            DWORD dwSize = sizeof(cmdLineValue);
+            lResult = RegQueryValueExW(hKeySetup, L"CmdLine", NULL, NULL, (LPBYTE)cmdLineValue, &dwSize);
+            if (lResult == ERROR_SUCCESS && cmdLineValue[0] != L'\0')
+            {
+                suspicious = true;
+                details += L"CmdLine not empty; ";
+            }
+
+            // Check OOBEInProgress: if equal to 1.
+            DWORD oobeValue = 0;
+            dwSize = sizeof(oobeValue);
+            lResult = RegQueryValueExW(hKeySetup, L"OOBEInProgress", NULL, NULL, (LPBYTE)&oobeValue, &dwSize);
+            if (lResult == ERROR_SUCCESS && oobeValue == 1)
+            {
+                suspicious = true;
+                details += L"OOBEInProgress=1; ";
+            }
+
+            // Check SystemSetupInProgress: if equal to 1.
+            DWORD sysSetupValue = 0;
+            dwSize = sizeof(sysSetupValue);
+            lResult = RegQueryValueExW(hKeySetup, L"SystemSetupInProgress", NULL, NULL, (LPBYTE)&sysSetupValue, &dwSize);
+            if (lResult == ERROR_SUCCESS && sysSetupValue == 1)
+            {
+                suspicious = true;
+                details += L"SystemSetupInProgress=1; ";
+            }
+
+            // Check SetupType: if equal to 2.
+            DWORD setupTypeValue = 0;
+            dwSize = sizeof(setupTypeValue);
+            lResult = RegQueryValueExW(hKeySetup, L"SetupType", NULL, NULL, (LPBYTE)&setupTypeValue, &dwSize);
+            if (lResult == ERROR_SUCCESS && setupTypeValue == 2)
+            {
+                suspicious = true;
+                details += L"SetupType=2; ";
+            }
+
+            // If any condition is met, trigger a single alert.
+            if (suspicious)
+            {
+                SafeWriteSigmaLog(L"RegistrySetupMonitor",
+                    L"HEUR:Win32.Suspicious.Reg.Trojan.Startup.Setup.Generic");
+                WCHAR notifMsg[512];
+                _snwprintf_s(notifMsg, 512, _TRUNCATE,
+                    L"Registry change detected: %s", details.c_str());
+                TriggerNotification(L"Alert", notifMsg);
+            }
+        }
+        else
+        {
+            WCHAR errBuffer[256];
+            _snwprintf_s(errBuffer, 256, _TRUNCATE,
+                L"RegNotifyChangeKeyValue error on HKLM\\SYSTEM\\Setup: %d", lResult);
+            SafeWriteSigmaLog(L"RegistrySetupMonitor", errBuffer);
+            break;
+        }
+    }
+
+    if (hKeySetup)
+        RegCloseKey(hKeySetup);
+    return 0;
+}
 
 DWORD WINAPI RegistryMonitorThreadProc(LPVOID lpParameter)
 {
@@ -534,7 +632,7 @@ DWORD WINAPI RegistryMonitorThreadProc(LPVOID lpParameter)
             FALSE);
         if (lResult == ERROR_SUCCESS)
         {
-            // A change occurred—iterate over the monitored values.
+            // A change occurred iterate over the monitored values.
             for (int i = 0; i < numValues; i++)
             {
                 DWORD dwValue = 0;
@@ -834,8 +932,16 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
         SafeWriteSigmaLog(L"MBRMonitor", L"Failed to read baseline MBR.");
     }
 
-    // Start Registry monitoring using RegNotifyChangeKeyValue.
+    // Start Registry monitoring using RegNotifyChangeKeyValue for HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\System.
     g_hRegistryMonitorThread = CreateThread(NULL, 0, RegistryMonitorThreadProc, NULL, 0, NULL);
+
+    // Start additional Registry monitoring for HKLM\SYSTEM\Setup.
+    // This thread will monitor for non-empty CmdLine and specific DWORD values.
+    g_hRegistrySetupMonitorThread = CreateThread(NULL, 0, RegistrySetupMonitorThreadProc, NULL, 0, NULL);
+    if (!g_hRegistrySetupMonitorThread)
+    {
+        SafeWriteSigmaLog(L"RegistrySetupMonitor", L"Failed to start RegistrySetupMonitor thread.");
+    }
 
     OutputDebugString(L"InjectDllMain completed successfully.\n");
 }
@@ -862,6 +968,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         DetourAttach(&(PVOID&)TrueMoveFileW, HookedMoveFileW);
         DetourAttach(&(PVOID&)TrueRemoveDirectoryW, HookedRemoveDirectoryW);
         DetourTransactionCommit();
+
+        // Start HKCU Registry monitoring thread.
+        g_hRegistryMonitorThread = CreateThread(NULL, 0, RegistryMonitorThreadProc, NULL, 0, NULL);
+        // Start additional Registry monitoring for HKLM\SYSTEM\Setup.
+        g_hRegistrySetupMonitorThread = CreateThread(NULL, 0, RegistrySetupMonitorThreadProc, NULL, 0, NULL);
         break;
     case DLL_PROCESS_DETACH:
         QueueLogMessage(L"{\"timestamp\":\"(n/a)\", \"event\":\"DllMain\", \"details\":\"DLL_PROCESS_DETACH\"}");
@@ -872,12 +983,19 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             WaitForSingleObject(g_hMBRMonitorThread, 2000);
             CloseHandle(g_hMBRMonitorThread);
         }
-        // Stop Registry monitoring.
+        // Stop HKCU Registry monitoring.
         g_bRegistryMonitorRunning = false;
         if (g_hRegistryMonitorThread)
         {
             WaitForSingleObject(g_hRegistryMonitorThread, 2000);
             CloseHandle(g_hRegistryMonitorThread);
+        }
+        // Stop HKLM\SYSTEM\Setup Registry monitoring.
+        g_bRegistrySetupMonitorRunning = false;
+        if (g_hRegistrySetupMonitorThread)
+        {
+            WaitForSingleObject(g_hRegistrySetupMonitorThread, 2000);
+            CloseHandle(g_hRegistrySetupMonitorThread);
         }
         DetourTransactionBegin();
         DetourUpdateThread(GetCurrentThread());
