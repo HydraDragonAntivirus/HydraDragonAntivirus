@@ -27,6 +27,8 @@ const WCHAR SIGMA_LOG_FILE[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREM
 const WCHAR ERROR_LOG_FILE[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEerror_log.txt";
 const WCHAR DETECT_JSON_FILE[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEdetectiteasy.json";
 const WCHAR KNOWN_EXTENSIONS_FILE[] = L"C:\\Program Files\\HydraDragonAntivirus\\knownextensions\\extensions.txt";
+// The full location of diec.exe (Detect It Easy Console)
+const std::wstring detectiteasy_console_path = L"C:\\Program Files\\HydraDragonAntivirus\\detectieasy\\diec.exe";
 
 // -----------------------------------------------------------------
 // Global Registry Mapping
@@ -42,6 +44,170 @@ std::wstring GetBaseKeyName(HKEY hKey) {
     else if (hKey == HKEY_USERS) return L"HKEY_USERS";
     else if (hKey == HKEY_CURRENT_CONFIG) return L"HKEY_CURRENT_CONFIG";
     else return L"(unknown)";
+}
+
+// ===== Added Global Variable for Ransomware Detection =====
+static int g_ransomware_detection_count = 0;
+
+// ===== Added Helper Functions for Ransomware Detection =====
+
+// Checks if a file is readable by trying to open it.
+bool is_readable(const std::wstring& file_path)
+{
+    FILE* f = _wfopen(file_path.c_str(), L"rb");
+    if (f)
+    {
+        fclose(f);
+        return true;
+    }
+    return false;
+}
+
+// Checks if the file has a known extension by comparing the final extension
+// with the list loaded in g_knownExtensions.
+bool has_known_extension(const std::wstring& file_path)
+{
+    std::wstring filename = PathFindFileNameW(file_path.c_str());
+    size_t pos = filename.find_last_of(L'.');
+    if (pos == std::wstring::npos)
+        return false;
+    std::wstring ext = filename.substr(pos);
+    std::wstring extLower = ext;
+    std::transform(extLower.begin(), extLower.end(), extLower.begin(), towlower);
+    for (auto& known : g_knownExtensions)
+    {
+        std::wstring knownLower = known;
+        std::transform(knownLower.begin(), knownLower.end(), knownLower.begin(), towlower);
+        if (extLower == knownLower)
+            return true;
+    }
+    return false;
+}
+
+// Converts the Python ransomware check to C++.
+// Returns true if the file is suspected to be ransomware.
+bool is_ransomware(const std::wstring& file_path)
+{
+    std::wstring filename = PathFindFileNameW(file_path.c_str());
+    std::vector<std::wstring> parts;
+    std::wstringstream wss(filename);
+    std::wstring token;
+    while (std::getline(wss, token, L'.'))
+    {
+        parts.push_back(token);
+    }
+
+    if (parts.size() < 3)
+    {
+        SafeWriteSigmaLog(L"is_ransomware", L"File does not have multiple extensions, not flagged as ransomware.");
+        return false;
+    }
+
+    // Check the second last extension.
+    std::wstring prev_ext = L"." + parts[parts.size() - 2];
+    std::transform(prev_ext.begin(), prev_ext.end(), prev_ext.begin(), towlower);
+    bool prev_known = false;
+    for (auto& known : g_knownExtensions)
+    {
+        std::wstring knownLower = known;
+        std::transform(knownLower.begin(), knownLower.end(), knownLower.begin(), towlower);
+        if (prev_ext == knownLower)
+        {
+            prev_known = true;
+            break;
+        }
+    }
+    if (!prev_known)
+    {
+        SafeWriteSigmaLog(L"is_ransomware", L"Previous extension not known, file not flagged as ransomware.");
+        return false;
+    }
+
+    // Check the final extension.
+    std::wstring final_ext = L"." + parts.back();
+    std::transform(final_ext.begin(), final_ext.end(), final_ext.begin(), towlower);
+    bool final_known = false;
+    for (auto& known : g_knownExtensions)
+    {
+        std::wstring knownLower = known;
+        std::transform(knownLower.begin(), knownLower.end(), knownLower.begin(), towlower);
+        if (final_ext == knownLower)
+        {
+            final_known = true;
+            break;
+        }
+    }
+    if (final_known)
+    {
+        SafeWriteSigmaLog(L"is_ransomware", L"Final extension is known, file not flagged as ransomware.");
+        return false;
+    }
+
+    if (has_known_extension(file_path) || is_readable(file_path))
+    {
+        SafeWriteSigmaLog(L"is_ransomware", L"File is readable or has known extension, not ransomware.");
+        return false;
+    }
+    else
+    {
+        std::wstring command = L"\"" + detectiteasy_console_path + L"\" \"" + file_path + L"\"";
+        FILE* pipe = _wpopen(command.c_str(), L"r");
+        if (!pipe)
+        {
+            SafeWriteSigmaLog(L"is_ransomware", L"Failed to execute Detect It Easy, flagging as ransomware.");
+            return true;
+        }
+        wchar_t buffer[128];
+        std::wstring result;
+        while (fgetws(buffer, 128, pipe))
+        {
+            result += buffer;
+        }
+        _pclose(pipe);
+        if (result.find(L"Binary") != std::wstring::npos && result.find(L"Unknown: Unknown") != std::wstring::npos)
+        {
+            SafeWriteSigmaLog(L"is_ransomware", L"Detect It Easy confirmed suspicious file.");
+            return true;
+        }
+        else
+        {
+            SafeWriteSigmaLog(L"is_ransomware", L"Detect It Easy did not confirm suspicious status.");
+            return false;
+        }
+    }
+}
+
+// Implements the ransomware alert logic.
+void ransomware_alert(const std::wstring& file_path)
+{
+    SafeWriteSigmaLog(L"ransomware_alert", (L"Running ransomware alert check for file: " + file_path).c_str());
+
+    if (is_ransomware(file_path))
+    {
+        g_ransomware_detection_count++;
+        wchar_t msg[256];
+        _snwprintf_s(msg, 256, _TRUNCATE, L"File '%s' flagged as potential ransomware. Count: %d", file_path.c_str(), g_ransomware_detection_count);
+        SafeWriteSigmaLog(L"ransomware_alert", msg);
+
+        // When exactly two alerts occur, a placeholder for searching files with the same extension.
+        if (g_ransomware_detection_count == 2)
+        {
+            LPCWSTR ext = PathFindExtensionW(file_path.c_str());
+            if (ext && ext[0] != L'\0')
+            {
+                SafeWriteSigmaLog(L"ransomware_alert", L"Searching for files with the same extension for additional ransomware signs.");
+                // (Implement directory scanning and checking for ransomware on each found file as needed.)
+            }
+        }
+
+        // When detections reach a threshold, notify the user.
+        if (g_ransomware_detection_count >= 10)
+        {
+            TriggerNotification(L"Ransomware Alert", L"HEUR:Win32.Ransom.Generic@Sbie");
+            SafeWriteSigmaLog(L"ransomware_alert", L"User has been notified about potential ransomware in main file.");
+            OutputDebugString(L"User has been notified about potential ransomware in main file (alert threshold reached).\n");
+        }
+    }
 }
 
 // Helper function: Constructs the full key path from a parent key and subkey,
@@ -483,16 +649,87 @@ DWORD WINAPI MBRMonitorThreadProc(LPVOID lpParameter)
 //   DisableRegistryTools
 //
 // If any value is found set to 1, a heuristic log is generated in the format:
-//   HEUR:Win32.Reg.Susp.Trojan.<RegistryName>.Generic
+//   HEUR:Win32.Susp.Reg.Trojan.<RegistryName>.Generic
 // and a notification is triggered.
 // Note: Windows registry key/value names are case-insensitive, so even if the values
 // are added with different letter cases than those listed below, they will still be detected.
 volatile bool g_bRegistryMonitorRunning = true;
 volatile bool g_bRegistrySetupMonitorRunning = true;
 volatile bool g_bRegistryWinlogonShellMonitorRunning = true;
+volatile bool g_bRegistryKeyboardLayoutMonitorRunning = true;
 HANDLE g_hRegistryMonitorThread = NULL;
 HANDLE g_hRegistrySetupMonitorThread = NULL;
 HANDLE g_hRegistryWinlogonShellMonitorThread = NULL;
+HANDLE g_hRegistryKeyboardLayoutMonitorThread = NULL;
+
+DWORD WINAPI RegistryKeyboardLayoutMonitorThreadProc(LPVOID lpParameter)
+{
+    while (g_bRegistryKeyboardLayoutMonitorRunning)
+    {
+        HKEY hKey = NULL;
+        // Try to open the Keyboard Layout registry key.
+        LONG lResult = RegOpenKeyExW(
+            HKEY_LOCAL_MACHINE,
+            L"SYSTEM\\CurrentControlSet\\Control\\Keyboard Layout",
+            0,
+            KEY_READ | KEY_NOTIFY,
+            &hKey);
+        if (lResult == ERROR_FILE_NOT_FOUND)
+        {
+            // The key has been deleted.
+            SafeWriteSigmaLog(L"RegistryKeyboardLayoutMonitor",
+                L"HEUR:Win32.Susp.Reg.Wiper.Generic - Key deleted: HKLM\\SYSTEM\\CurrentControlSet\\Control\\Keyboard Layout");
+            TriggerNotification(L"Alert",
+                L"Registry key deleted: HKLM\\SYSTEM\\CurrentControlSet\\Control\\Keyboard Layout");
+            break;
+        }
+        else if (lResult != ERROR_SUCCESS)
+        {
+            // Could not open key for some other reason; wait and try again.
+            SafeWriteSigmaLog(L"RegistryKeyboardLayoutMonitor",
+                L"Failed to open registry key: HKLM\\SYSTEM\\CurrentControlSet\\Control\\Keyboard Layout");
+            Sleep(1000);
+            continue;
+        }
+
+        // Wait for any change in the key.
+        lResult = RegNotifyChangeKeyValue(
+            hKey,
+            FALSE,
+            REG_NOTIFY_CHANGE_LAST_SET,
+            NULL,
+            FALSE);
+        if (lResult == ERROR_SUCCESS)
+        {
+            DWORD dwValue = 0;
+            DWORD dwSize = sizeof(dwValue);
+            // Query the "DisableCAD" value.
+            lResult = RegQueryValueExW(hKey, L"DisableCAD", NULL, NULL, (LPBYTE)&dwValue, &dwSize);
+            if (lResult == ERROR_SUCCESS && dwValue == 1)
+            {
+                WCHAR logMsg[256];
+                _snwprintf_s(logMsg, 256, _TRUNCATE,
+                    L"HEUR:Win32.Susp.Reg.Trojan.DisableCAD.Generic@Keyboard");
+                SafeWriteSigmaLog(L"RegistryKeyboardLayoutMonitor", logMsg);
+
+                WCHAR notifMsg[256];
+                _snwprintf_s(notifMsg, 256, _TRUNCATE,
+                    L"Registry change detected: DisableCAD set to 1 in Keyboard Layout");
+                TriggerNotification(L"Alert", notifMsg);
+            }
+        }
+        else
+        {
+            WCHAR errBuffer[256];
+            _snwprintf_s(errBuffer, 256, _TRUNCATE,
+                L"RegNotifyChangeKeyValue error on Keyboard Layout key: %d", lResult);
+            SafeWriteSigmaLog(L"RegistryKeyboardLayoutMonitor", errBuffer);
+        }
+        if (hKey)
+            RegCloseKey(hKey);
+    }
+    return 0;
+}
 
 DWORD WINAPI RegistryWinlogonShellMonitorThreadProc(LPVOID lpParameter)
 {
@@ -718,7 +955,7 @@ DWORD WINAPI RegistryMonitorThreadProc(LPVOID lpParameter)
                 {
                     WCHAR logMsg[256];
                     _snwprintf_s(logMsg, 256, _TRUNCATE,
-                        L"HEUR:Win32.Reg.Susp.Trojan.%s.Generic", monitoredValues[i]);
+                        L"HEUR:Win32.Susp.Reg.Trojan.%s.Generic", monitoredValues[i]);
                     SafeWriteSigmaLog(L"RegistryMonitor", logMsg);
 
                     WCHAR notifMsg[256];
@@ -881,6 +1118,13 @@ HANDLE WINAPI HookedCreateFileW(LPCWSTR lpFileName, DWORD dwDesiredAccess, DWORD
             L"CreateFileW called: FileName = %s, Access = 0x%X, Disposition = %u",
             lpFileName ? lpFileName : L"(null)", dwDesiredAccess, dwCreationDisposition);
         SafeWriteSigmaLog(L"CreateFileW", buffer);
+
+        // ----- NEW: Call ransomware alert function on the file -----
+        if (lpFileName)
+        {
+            std::wstring filePath(lpFileName);
+            ransomware_alert(filePath);
+        }
     }
     return TrueCreateFileW(lpFileName, dwDesiredAccess, dwShareMode,
         lpSecurityAttributes, dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile);
@@ -1018,11 +1262,18 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
         SafeWriteSigmaLog(L"RegistrySetupMonitor", L"Failed to start RegistrySetupMonitor thread.");
     }
 
-    // Start Winlogon Shell monitoring for HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon.
+    // Start Winlogon Shell monitoring for HKLM\SOFTWARE\Microsoft\Windows NT\\CurrentVersion\\Winlogon.
     g_hRegistryWinlogonShellMonitorThread = CreateThread(NULL, 0, RegistryWinlogonShellMonitorThreadProc, NULL, 0, NULL);
     if (!g_hRegistryWinlogonShellMonitorThread)
     {
         SafeWriteSigmaLog(L"RegistryWinlogonShellMonitor", L"Failed to start RegistryWinlogonShellMonitor thread.");
+    }
+
+    // Start Registry monitoring for HKLM\SYSTEM\CurrentControlSet\Control\Keyboard Layout.
+    g_hRegistryKeyboardLayoutMonitorThread = CreateThread(NULL, 0, RegistryKeyboardLayoutMonitorThreadProc, NULL, 0, NULL);
+    if (!g_hRegistryKeyboardLayoutMonitorThread)
+    {
+        SafeWriteSigmaLog(L"RegistryKeyboardLayoutMonitor", L"Failed to start RegistryKeyboardLayoutMonitor thread.");
     }
 
     OutputDebugString(L"InjectDllMain completed successfully.\n");
@@ -1057,6 +1308,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         g_hRegistrySetupMonitorThread = CreateThread(NULL, 0, RegistrySetupMonitorThreadProc, NULL, 0, NULL);
         // Start Winlogon Shell monitoring thread.
         g_hRegistryWinlogonShellMonitorThread = CreateThread(NULL, 0, RegistryWinlogonShellMonitorThreadProc, NULL, 0, NULL);
+        // Start Keyboard Layout monitoring thread.
+        g_hRegistryKeyboardLayoutMonitorThread = CreateThread(NULL, 0, RegistryKeyboardLayoutMonitorThreadProc, NULL, 0, NULL);
         break;
     case DLL_PROCESS_DETACH:
         QueueLogMessage(L"{\"timestamp\":\"(n/a)\", \"event\":\"DllMain\", \"details\":\"DLL_PROCESS_DETACH\"}");
@@ -1087,6 +1340,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         {
             WaitForSingleObject(g_hRegistryWinlogonShellMonitorThread, 2000);
             CloseHandle(g_hRegistryWinlogonShellMonitorThread);
+        }
+        // Stop Keyboard Layout monitoring.
+        g_bRegistryKeyboardLayoutMonitorRunning = false;
+        if (g_hRegistryKeyboardLayoutMonitorThread)
+        {
+            WaitForSingleObject(g_hRegistryKeyboardLayoutMonitorThread, 2000);
+            CloseHandle(g_hRegistryKeyboardLayoutMonitorThread);
         }
         DetourTransactionBegin();
         DetourUpdateThread(GetCurrentThread());
