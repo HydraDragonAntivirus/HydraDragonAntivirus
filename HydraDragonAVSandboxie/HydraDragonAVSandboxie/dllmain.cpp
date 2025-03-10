@@ -660,10 +660,43 @@ volatile bool g_bRegistryMonitorRunning = true;
 volatile bool g_bRegistrySetupMonitorRunning = true;
 volatile bool g_bRegistryWinlogonShellMonitorRunning = true;
 volatile bool g_bRegistryKeyboardLayoutMonitorRunning = true;
+volatile bool g_bTimeMonitorRunning = true;
 HANDLE g_hRegistryMonitorThread = NULL;
 HANDLE g_hRegistrySetupMonitorThread = NULL;
 HANDLE g_hRegistryWinlogonShellMonitorThread = NULL;
 HANDLE g_hRegistryKeyboardLayoutMonitorThread = NULL;
+HANDLE g_hTimeMonitorThread = NULL;
+
+// Function to check the system date.
+void CheckSystemDateAnomaly()
+{
+    time_t now = time(NULL);
+    struct tm tm_now;
+    localtime_s(&tm_now, &now);
+    int currentYear = tm_now.tm_year + 1900;  // tm_year is years since 1900
+
+    // For real-time monitoring, assume baselineYear is the expected year (e.g., 2025).
+    const int baselineYear = 2025;
+
+    // If the current year is more than 10 years ahead of the baseline or is 2035 or later,
+    // flag as malicious.
+    if ((currentYear - baselineYear) > 10 || currentYear >= 2035)
+    {
+        SafeWriteSigmaLog(L"TimeAnomaly", L"HEUR:Win32.Trojan.Bypass.Time.gen detected: Suspicious system date");
+        TriggerNotification(L"Virus Detected: HEUR:Win32.Trojan.Bypass.Time.gen", L"System time appears to be manipulated.");
+    }
+}
+
+// Thread procedure to continuously monitor the system date.
+DWORD WINAPI TimeMonitorThreadProc(LPVOID lpParameter)
+{
+    while (g_bTimeMonitorRunning)
+    {
+        CheckSystemDateAnomaly();
+        Sleep(1000);  // Check every second. Adjust as needed.
+    }
+    return 0;
+}
 
 DWORD WINAPI RegistryKeyboardLayoutMonitorThreadProc(LPVOID lpParameter)
 {
@@ -1283,6 +1316,13 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
         SafeWriteSigmaLog(L"RegistryKeyboardLayoutMonitor", L"Failed to start RegistryKeyboardLayoutMonitor thread.");
     }
 
+    // --- Start the Time Monitor thread for real-time system date checks ---
+    g_hTimeMonitorThread = CreateThread(NULL, 0, TimeMonitorThreadProc, NULL, 0, NULL);
+    if (!g_hTimeMonitorThread)
+    {
+        SafeWriteSigmaLog(L"TimeMonitor", L"Failed to start TimeMonitorThread.");
+    }
+
     OutputDebugString(L"InjectDllMain completed successfully.\n");
 }
 
@@ -1317,6 +1357,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         g_hRegistryWinlogonShellMonitorThread = CreateThread(NULL, 0, RegistryWinlogonShellMonitorThreadProc, NULL, 0, NULL);
         // Start Keyboard Layout monitoring thread.
         g_hRegistryKeyboardLayoutMonitorThread = CreateThread(NULL, 0, RegistryKeyboardLayoutMonitorThreadProc, NULL, 0, NULL);
+        // Start the time monitor thread.
+        g_hTimeMonitorThread = CreateThread(NULL, 0, TimeMonitorThreadProc, NULL, 0, NULL);
         break;
     case DLL_PROCESS_DETACH:
         QueueLogMessage(L"{\"timestamp\":\"(n/a)\", \"event\":\"DllMain\", \"details\":\"DLL_PROCESS_DETACH\"}");
@@ -1354,6 +1396,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         {
             WaitForSingleObject(g_hRegistryKeyboardLayoutMonitorThread, 2000);
             CloseHandle(g_hRegistryKeyboardLayoutMonitorThread);
+        }
+        // Signal the time monitor thread to stop.
+        g_bTimeMonitorRunning = false;
+        if (g_hTimeMonitorThread)
+        {
+            WaitForSingleObject(g_hTimeMonitorThread, 2000);
+            CloseHandle(g_hTimeMonitorThread);
         }
         DetourTransactionBegin();
         DetourUpdateThread(GetCurrentThread());
