@@ -495,21 +495,83 @@ HANDLE g_hRegistrySetupMonitorThread = NULL;
 DWORD WINAPI RegistrySetupMonitorThreadProc(LPVOID lpParameter)
 {
     HKEY hKeySetup = NULL;
-    // Open the HKLM\SYSTEM\Setup key with KEY_READ and KEY_NOTIFY access.
-    LONG lResult = RegOpenKeyExW(
-        HKEY_LOCAL_MACHINE,
-        L"SYSTEM\\Setup",
-        0,
-        KEY_READ | KEY_NOTIFY,
-        &hKeySetup);
-    if (lResult != ERROR_SUCCESS)
-    {
-        SafeWriteSigmaLog(L"RegistrySetupMonitor", L"Failed to open HKLM\\SYSTEM\\Setup for monitoring.");
-        return 1;
-    }
 
     while (g_bRegistrySetupMonitorRunning)
     {
+        // Try to open the key with KEY_NOTIFY access.
+        LONG lResult = RegOpenKeyExW(
+            HKEY_LOCAL_MACHINE,
+            L"SYSTEM\\Setup",
+            0,
+            KEY_READ | KEY_NOTIFY,
+            &hKeySetup);
+
+        if (lResult == ERROR_FILE_NOT_FOUND)  // Key deleted
+        {
+            SafeWriteSigmaLog(L"RegistrySetupMonitor", L"HEUR:Win32.Suspicious.Reg.Wiper.Generic - Key deleted: HKLM\\SYSTEM\\Setup");
+            TriggerNotification(L"Alert", L"Registry key deleted: HKLM\\SYSTEM\\Setup");
+            break;
+        }
+        else if (lResult != ERROR_SUCCESS)
+        {
+            SafeWriteSigmaLog(L"RegistrySetupMonitor", L"Failed to open HKLM\\SYSTEM\\Setup for monitoring.");
+            return 1;
+        }
+
+        bool suspicious = false;
+        std::wstring details;
+
+        // --- Check CmdLine: if not empty ---
+        WCHAR cmdLineValue[1024] = { 0 };
+        DWORD dwSize = sizeof(cmdLineValue);
+        lResult = RegQueryValueExW(hKeySetup, L"CmdLine", NULL, NULL, (LPBYTE)cmdLineValue, &dwSize);
+        if (lResult == ERROR_SUCCESS && cmdLineValue[0] != L'\0')
+        {
+            suspicious = true;
+            details += L"CmdLine not empty; ";
+        }
+
+        // --- Check OOBEInProgress ---
+        DWORD oobeValue = 0;
+        dwSize = sizeof(oobeValue);
+        lResult = RegQueryValueExW(hKeySetup, L"OOBEInProgress", NULL, NULL, (LPBYTE)&oobeValue, &dwSize);
+        if (lResult == ERROR_SUCCESS && oobeValue == 1)
+        {
+            suspicious = true;
+            details += L"OOBEInProgress=1; ";
+        }
+
+        // --- Check SystemSetupInProgress ---
+        DWORD sysSetupValue = 0;
+        dwSize = sizeof(sysSetupValue);
+        lResult = RegQueryValueExW(hKeySetup, L"SystemSetupInProgress", NULL, NULL, (LPBYTE)&sysSetupValue, &dwSize);
+        if (lResult == ERROR_SUCCESS && sysSetupValue == 1)
+        {
+            suspicious = true;
+            details += L"SystemSetupInProgress=1; ";
+        }
+
+        // --- Check SetupType ---
+        DWORD setupTypeValue = 0;
+        dwSize = sizeof(setupTypeValue);
+        lResult = RegQueryValueExW(hKeySetup, L"SetupType", NULL, NULL, (LPBYTE)&setupTypeValue, &dwSize);
+        if (lResult == ERROR_SUCCESS && setupTypeValue == 2)
+        {
+            suspicious = true;
+            details += L"SetupType=2; ";
+        }
+
+        // If any condition is met, trigger a single alert.
+        if (suspicious)
+        {
+            SafeWriteSigmaLog(L"RegistrySetupMonitor",
+                L"HEUR:Win32.Suspicious.Reg.Trojan.Startup.Setup.Generic");
+            WCHAR notifMsg[512];
+            _snwprintf_s(notifMsg, 512, _TRUNCATE,
+                L"Registry change detected: %s", details.c_str());
+            TriggerNotification(L"Alert", notifMsg);
+        }
+
         // Wait for any change in the key.
         lResult = RegNotifyChangeKeyValue(
             hKeySetup,
@@ -517,63 +579,8 @@ DWORD WINAPI RegistrySetupMonitorThreadProc(LPVOID lpParameter)
             REG_NOTIFY_CHANGE_LAST_SET,
             NULL,
             FALSE);
-        if (lResult == ERROR_SUCCESS)
-        {
-            bool suspicious = false;
-            std::wstring details;
 
-            // Check CmdLine: if not empty.
-            WCHAR cmdLineValue[1024] = { 0 };
-            DWORD dwSize = sizeof(cmdLineValue);
-            lResult = RegQueryValueExW(hKeySetup, L"CmdLine", NULL, NULL, (LPBYTE)cmdLineValue, &dwSize);
-            if (lResult == ERROR_SUCCESS && cmdLineValue[0] != L'\0')
-            {
-                suspicious = true;
-                details += L"CmdLine not empty; ";
-            }
-
-            // Check OOBEInProgress: if equal to 1.
-            DWORD oobeValue = 0;
-            dwSize = sizeof(oobeValue);
-            lResult = RegQueryValueExW(hKeySetup, L"OOBEInProgress", NULL, NULL, (LPBYTE)&oobeValue, &dwSize);
-            if (lResult == ERROR_SUCCESS && oobeValue == 1)
-            {
-                suspicious = true;
-                details += L"OOBEInProgress=1; ";
-            }
-
-            // Check SystemSetupInProgress: if equal to 1.
-            DWORD sysSetupValue = 0;
-            dwSize = sizeof(sysSetupValue);
-            lResult = RegQueryValueExW(hKeySetup, L"SystemSetupInProgress", NULL, NULL, (LPBYTE)&sysSetupValue, &dwSize);
-            if (lResult == ERROR_SUCCESS && sysSetupValue == 1)
-            {
-                suspicious = true;
-                details += L"SystemSetupInProgress=1; ";
-            }
-
-            // Check SetupType: if equal to 2.
-            DWORD setupTypeValue = 0;
-            dwSize = sizeof(setupTypeValue);
-            lResult = RegQueryValueExW(hKeySetup, L"SetupType", NULL, NULL, (LPBYTE)&setupTypeValue, &dwSize);
-            if (lResult == ERROR_SUCCESS && setupTypeValue == 2)
-            {
-                suspicious = true;
-                details += L"SetupType=2; ";
-            }
-
-            // If any condition is met, trigger a single alert.
-            if (suspicious)
-            {
-                SafeWriteSigmaLog(L"RegistrySetupMonitor",
-                    L"HEUR:Win32.Suspicious.Reg.Trojan.Startup.Setup.Generic");
-                WCHAR notifMsg[512];
-                _snwprintf_s(notifMsg, 512, _TRUNCATE,
-                    L"Registry change detected: %s", details.c_str());
-                TriggerNotification(L"Alert", notifMsg);
-            }
-        }
-        else
+        if (lResult != ERROR_SUCCESS)
         {
             WCHAR errBuffer[256];
             _snwprintf_s(errBuffer, 256, _TRUNCATE,
@@ -591,48 +598,55 @@ DWORD WINAPI RegistrySetupMonitorThreadProc(LPVOID lpParameter)
 DWORD WINAPI RegistryMonitorThreadProc(LPVOID lpParameter)
 {
     HKEY hKey = NULL;
-    // Open the HKCU key for the target path with KEY_NOTIFY access.
-    LONG lResult = RegOpenKeyExW(
-        HKEY_CURRENT_USER,
-        L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
-        0,
-        KEY_READ | KEY_NOTIFY,
-        &hKey);
-    if (lResult != ERROR_SUCCESS)
-    {
-        SafeWriteSigmaLog(L"RegistryMonitor", L"Failed to open registry key for monitoring.");
-        return 1;
-    }
-
-    // List of registry values to monitor (comparison is inherently case-insensitive).
-    const WCHAR* monitoredValues[] = {
-        L"DisablePerformanceMonitor",
-        L"DisableTaskMgr",
-        L"DisableMMC",
-        L"DisableEventViewer",
-        L"NoWinKeys",
-        L"DisableSnippingTool",
-        L"DisableMagnifier",
-        L"DisableEaseOfAccess",
-        L"DisableCAD",
-        L"DisableMSCONFIG",
-        L"DisableCMD",
-        L"DisableRegistryTools"
-    };
-    const int numValues = sizeof(monitoredValues) / sizeof(monitoredValues[0]);
 
     while (g_bRegistryMonitorRunning)
     {
+        // Try to open the key with KEY_NOTIFY access.
+        LONG lResult = RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+            0,
+            KEY_READ | KEY_NOTIFY,
+            &hKey);
+
+        if (lResult == ERROR_FILE_NOT_FOUND)  // Key deleted
+        {
+            SafeWriteSigmaLog(L"RegistryMonitor", L"HEUR:Win32.Suspicious.Reg.Wiper.Generic - Key deleted: HKCU\\Policies\\System");
+            TriggerNotification(L"Alert", L"Registry key deleted: HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System");
+            break;
+        }
+        else if (lResult != ERROR_SUCCESS)
+        {
+            SafeWriteSigmaLog(L"RegistryMonitor", L"Failed to open registry key for monitoring.");
+            return 1;
+        }
+
+        const WCHAR* monitoredValues[] = {
+            L"DisablePerformanceMonitor",
+            L"DisableTaskMgr",
+            L"DisableMMC",
+            L"DisableEventViewer",
+            L"NoWinKeys",
+            L"DisableSnippingTool",
+            L"DisableMagnifier",
+            L"DisableEaseOfAccess",
+            L"DisableCAD",
+            L"DisableMSCONFIG",
+            L"DisableCMD",
+            L"DisableRegistryTools"
+        };
+        const int numValues = sizeof(monitoredValues) / sizeof(monitoredValues[0]);
+
         // Wait for any change in the key.
         lResult = RegNotifyChangeKeyValue(
-            hKey,                        // the key to monitor
-            FALSE,                       // do not watch subkeys
-            REG_NOTIFY_CHANGE_LAST_SET,  // monitor value changes
+            hKey,
+            FALSE,
+            REG_NOTIFY_CHANGE_LAST_SET,
             NULL,
             FALSE);
+
         if (lResult == ERROR_SUCCESS)
         {
-            // A change occurred iterate over the monitored values.
             for (int i = 0; i < numValues; i++)
             {
                 DWORD dwValue = 0;
