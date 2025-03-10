@@ -1,4 +1,4 @@
-// dllmain.cpp : Defines the entry point for the DLL application.
+﻿// dllmain.cpp : Defines the entry point for the DLL application.
 #include "pch.h"
 #include <windows.h>
 #include <detours/detours.h>
@@ -483,14 +483,76 @@ DWORD WINAPI MBRMonitorThreadProc(LPVOID lpParameter)
 //   DisableRegistryTools
 //
 // If any value is found set to 1, a heuristic log is generated in the format:
-//   HEUR:Win32.Reg.Suspicious.Trojan.<RegistryName>.Generic
+//   HEUR:Win32.Reg.Susp.Trojan.<RegistryName>.Generic
 // and a notification is triggered.
 // Note: Windows registry key/value names are case-insensitive, so even if the values
 // are added with different letter cases than those listed below, they will still be detected.
 volatile bool g_bRegistryMonitorRunning = true;
 volatile bool g_bRegistrySetupMonitorRunning = true;
+volatile bool g_bRegistryWinlogonShellMonitorRunning = true;
 HANDLE g_hRegistryMonitorThread = NULL;
 HANDLE g_hRegistrySetupMonitorThread = NULL;
+HANDLE g_hRegistryWinlogonShellMonitorThread = NULL;
+
+DWORD WINAPI RegistryWinlogonShellMonitorThreadProc(LPVOID lpParameter)
+{
+    HKEY hKey = NULL;
+    // Open the Winlogon key with KEY_READ and KEY_NOTIFY access.
+    LONG lResult = RegOpenKeyExW(
+        HKEY_LOCAL_MACHINE,
+        L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+        0,
+        KEY_READ | KEY_NOTIFY,
+        &hKey);
+    if (lResult != ERROR_SUCCESS)
+    {
+        SafeWriteSigmaLog(L"RegistryWinlogonShellMonitor", L"Failed to open Winlogon key for monitoring.");
+        return 1;
+    }
+
+    while (g_bRegistryWinlogonShellMonitorRunning)
+    {
+        // Wait for any change in the key.
+        lResult = RegNotifyChangeKeyValue(
+            hKey,
+            FALSE,
+            REG_NOTIFY_CHANGE_LAST_SET,
+            NULL,
+            FALSE);
+        if (lResult == ERROR_SUCCESS)
+        {
+            WCHAR shellValue[1024] = { 0 };
+            DWORD dwSize = sizeof(shellValue);
+            lResult = RegQueryValueExW(hKey, L"Shell", NULL, NULL, (LPBYTE)shellValue, &dwSize);
+            if (lResult == ERROR_SUCCESS)
+            {
+                // Compare the current value to "explorer.exe" (case-insensitive).
+                if (_wcsicmp(shellValue, L"explorer.exe") != 0)
+                {
+                    // The value is not simply "explorer.exe" → trigger a heuristic alert.
+                    SafeWriteSigmaLog(L"RegistryWinlogonShellMonitor",
+                        L"HEUR:Win32.Susp.Reg.Trojan.Startup.SafeMode.Generic");
+                    WCHAR notifMsg[512];
+                    _snwprintf_s(notifMsg, 512, _TRUNCATE,
+                        L"Winlogon Shell value changed to: %s", shellValue);
+                    TriggerNotification(L"Alert", notifMsg);
+                }
+            }
+        }
+        else
+        {
+            WCHAR errBuffer[256];
+            _snwprintf_s(errBuffer, 256, _TRUNCATE,
+                L"RegNotifyChangeKeyValue error on Winlogon Shell: %d", lResult);
+            SafeWriteSigmaLog(L"RegistryWinlogonShellMonitor", errBuffer);
+            break;
+        }
+    }
+
+    if (hKey)
+        RegCloseKey(hKey);
+    return 0;
+}
 
 DWORD WINAPI RegistrySetupMonitorThreadProc(LPVOID lpParameter)
 {
@@ -508,7 +570,7 @@ DWORD WINAPI RegistrySetupMonitorThreadProc(LPVOID lpParameter)
 
         if (lResult == ERROR_FILE_NOT_FOUND)  // Key deleted
         {
-            SafeWriteSigmaLog(L"RegistrySetupMonitor", L"HEUR:Win32.Suspicious.Reg.Wiper.Generic - Key deleted: HKLM\\SYSTEM\\Setup");
+            SafeWriteSigmaLog(L"RegistrySetupMonitor", L"HEUR:Win32.Susp.Reg.Wiper.Generic - Key deleted: HKLM\\SYSTEM\\Setup");
             TriggerNotification(L"Alert", L"Registry key deleted: HKLM\\SYSTEM\\Setup");
             break;
         }
@@ -565,7 +627,7 @@ DWORD WINAPI RegistrySetupMonitorThreadProc(LPVOID lpParameter)
         if (suspicious)
         {
             SafeWriteSigmaLog(L"RegistrySetupMonitor",
-                L"HEUR:Win32.Suspicious.Reg.Trojan.Startup.Setup.Generic");
+                L"HEUR:Win32.Susp.Reg.Trojan.Startup.Setup.Generic");
             WCHAR notifMsg[512];
             _snwprintf_s(notifMsg, 512, _TRUNCATE,
                 L"Registry change detected: %s", details.c_str());
@@ -611,7 +673,7 @@ DWORD WINAPI RegistryMonitorThreadProc(LPVOID lpParameter)
 
         if (lResult == ERROR_FILE_NOT_FOUND)  // Key deleted
         {
-            SafeWriteSigmaLog(L"RegistryMonitor", L"HEUR:Win32.Suspicious.Reg.Wiper.Generic - Key deleted: HKCU\\Policies\\System");
+            SafeWriteSigmaLog(L"RegistryMonitor", L"HEUR:Win32.Susp.Reg.Wiper.Generic - Key deleted: HKCU\\Policies\\System");
             TriggerNotification(L"Alert", L"Registry key deleted: HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System");
             break;
         }
@@ -656,7 +718,7 @@ DWORD WINAPI RegistryMonitorThreadProc(LPVOID lpParameter)
                 {
                     WCHAR logMsg[256];
                     _snwprintf_s(logMsg, 256, _TRUNCATE,
-                        L"HEUR:Win32.Reg.Suspicious.Trojan.%s.Generic", monitoredValues[i]);
+                        L"HEUR:Win32.Reg.Susp.Trojan.%s.Generic", monitoredValues[i]);
                     SafeWriteSigmaLog(L"RegistryMonitor", logMsg);
 
                     WCHAR notifMsg[256];
@@ -916,7 +978,7 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
     }
 
     P_SbieDll_Hook p_SbieDll_Hook = (P_SbieDll_Hook)GetProcAddress(hSbieDll, "SbieDll_Hook");
-    if (p_SbieDll_Hook)
+    if (p_RegisterDllCallback)
     {
         TrueSbieDll_UpdateConf = (P_SbieDll_UpdateConf)
             p_SbieDll_Hook("SbieDll_UpdateConf", GetProcAddress(hSbieDll, "SbieDll_UpdateConf"), HookedSbieDll_UpdateConf);
@@ -946,15 +1008,21 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
         SafeWriteSigmaLog(L"MBRMonitor", L"Failed to read baseline MBR.");
     }
 
-    // Start Registry monitoring using RegNotifyChangeKeyValue for HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\System.
+    // Start Registry monitoring for HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\System.
     g_hRegistryMonitorThread = CreateThread(NULL, 0, RegistryMonitorThreadProc, NULL, 0, NULL);
 
-    // Start additional Registry monitoring for HKLM\SYSTEM\Setup.
-    // This thread will monitor for non-empty CmdLine and specific DWORD values.
+    // Start Registry monitoring for HKLM\SYSTEM\Setup.
     g_hRegistrySetupMonitorThread = CreateThread(NULL, 0, RegistrySetupMonitorThreadProc, NULL, 0, NULL);
     if (!g_hRegistrySetupMonitorThread)
     {
         SafeWriteSigmaLog(L"RegistrySetupMonitor", L"Failed to start RegistrySetupMonitor thread.");
+    }
+
+    // Start Winlogon Shell monitoring for HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon.
+    g_hRegistryWinlogonShellMonitorThread = CreateThread(NULL, 0, RegistryWinlogonShellMonitorThreadProc, NULL, 0, NULL);
+    if (!g_hRegistryWinlogonShellMonitorThread)
+    {
+        SafeWriteSigmaLog(L"RegistryWinlogonShellMonitor", L"Failed to start RegistryWinlogonShellMonitor thread.");
     }
 
     OutputDebugString(L"InjectDllMain completed successfully.\n");
@@ -985,8 +1053,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         // Start HKCU Registry monitoring thread.
         g_hRegistryMonitorThread = CreateThread(NULL, 0, RegistryMonitorThreadProc, NULL, 0, NULL);
-        // Start additional Registry monitoring for HKLM\SYSTEM\Setup.
+        // Start Registry monitoring for HKLM\SYSTEM\Setup.
         g_hRegistrySetupMonitorThread = CreateThread(NULL, 0, RegistrySetupMonitorThreadProc, NULL, 0, NULL);
+        // Start Winlogon Shell monitoring thread.
+        g_hRegistryWinlogonShellMonitorThread = CreateThread(NULL, 0, RegistryWinlogonShellMonitorThreadProc, NULL, 0, NULL);
         break;
     case DLL_PROCESS_DETACH:
         QueueLogMessage(L"{\"timestamp\":\"(n/a)\", \"event\":\"DllMain\", \"details\":\"DLL_PROCESS_DETACH\"}");
@@ -1010,6 +1080,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         {
             WaitForSingleObject(g_hRegistrySetupMonitorThread, 2000);
             CloseHandle(g_hRegistrySetupMonitorThread);
+        }
+        // Stop Winlogon Shell monitoring.
+        g_bRegistryWinlogonShellMonitorRunning = false;
+        if (g_hRegistryWinlogonShellMonitorThread)
+        {
+            WaitForSingleObject(g_hRegistryWinlogonShellMonitorThread, 2000);
+            CloseHandle(g_hRegistryWinlogonShellMonitorThread);
         }
         DetourTransactionBegin();
         DetourUpdateThread(GetCurrentThread());

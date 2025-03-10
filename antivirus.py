@@ -3699,7 +3699,7 @@ def scan_zip_file(file_path):
 
                 # Check for RLO in filenames before handling encryption
                 if contains_rlo_after_dot(zip_info.filename):
-                    virus_name = "HEUR:RLO.Suspicious.Name.Encrypted.ZIP.Generic"
+                    virus_name = "HEUR:RLO.Susp.Name.Encrypted.ZIP.Generic"
                     logging.warning(
                         f"Filename {zip_info.filename} in {file_path} contains RLO character after a comma - "
                         f"flagged as {virus_name}"
@@ -3716,7 +3716,7 @@ def scan_zip_file(file_path):
                 # Check for suspicious conditions: large files in small ZIP archives
                 extracted_file_size = os.path.getsize(extracted_file_path)
                 if zip_size < 20 * 1024 * 1024 and extracted_file_size > 650 * 1024 * 1024:
-                    virus_name = "HEUR:Win32.Suspicious.Size.Encrypted.ZIP"
+                    virus_name = "HEUR:Win32.Susp.Size.Encrypted.ZIP"
                     logging.warning(
                         f"ZIP file {file_path} is smaller than 20MB but contains a large file: {zip_info.filename} "
                         f"({extracted_file_size / (1024 * 1024)} MB) - flagged as {virus_name}. "
@@ -3741,7 +3741,7 @@ def scan_7z_file(file_path):
 
                 # RLO check
                 if contains_rlo_after_dot(filename):
-                    virus_name = "HEUR:RLO.Suspicious.Name.Encrypted.7z.Generic"
+                    virus_name = "HEUR:RLO.Susp.Name.Encrypted.7z.Generic"
                     logging.warning(
                         f"Filename {filename} in {file_path} contains RLO character after a dot - "
                         f"flagged as {virus_name}"
@@ -3760,7 +3760,7 @@ def scan_7z_file(file_path):
                 # Check for suspicious conditions: large files in small 7z archives
                 extracted_file_size = os.path.getsize(extracted_file_path)
                 if archive_size < 20 * 1024 * 1024 and extracted_file_size > 650 * 1024 * 1024:
-                    virus_name = "HEUR:Win32.Suspicious.Size.Encrypted.7z"
+                    virus_name = "HEUR:Win32.Susp.Size.Encrypted.7z"
                     logging.warning(
                         f"7z file {file_path} is smaller than 20MB but contains a large file: {filename} "
                         f"({extracted_file_size / (1024 * 1024)} MB) - flagged as {virus_name}. "
@@ -3821,7 +3821,7 @@ def scan_tar_file(file_path):
             for member in tar.getmembers():
                 # Check for RLO in filenames
                 if contains_rlo_after_dot(member.name):
-                    virus_name = "HEUR:RLO.Suspicious.Name.Encrypted.TAR.Generic"
+                    virus_name = "HEUR:RLO.Susp.Name.Encrypted.TAR.Generic"
                     logging.warning(
                         f"Filename {member.name} in {file_path} contains RLO character after a dot - "
                         f"flagged as {virus_name}"
@@ -3842,7 +3842,7 @@ def scan_tar_file(file_path):
                     # Check for suspicious conditions: large files in small TAR archives
                     extracted_file_size = os.path.getsize(extracted_file_path)
                     if tar_size < 20 * 1024 * 1024 and extracted_file_size > 650 * 1024 * 1024:
-                        virus_name = "HEUR:Win32.Suspicious.Size.Encrypted.TAR"
+                        virus_name = "HEUR:Win32.Susp.Size.Encrypted.TAR"
                         logging.warning(
                             f"TAR file {file_path} is smaller than 20MB but contains a large file: {member.name} "
                             f"({extracted_file_size / (1024 * 1024):.2f} MB) - flagged as {virus_name}. "
@@ -6172,7 +6172,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
                 logging.info(f"File '{file_path}' has a valid signature. Skipping worm detection.")
             elif signature_check["signature_status_issues"]:
                 logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
-                notify_user_invalid(file_path, "Win32.Suspicious.InvalidSignature")
+                notify_user_invalid(file_path, "Win32.Susp.InvalidSignature")
 
             # Additional checks for PE files and .NET files
             if is_pe_file(file_path):
@@ -6488,10 +6488,10 @@ def check_startup_directories():
                                 malware_type = "HEUR:Win32.Startup.Script.Generic.Malware"
                                 message = f"Confirmed script malware detected: {file_path}\nVirus: {malware_type}"
                             elif file_path.endswith(('.dll', '.jar', '.msi', '.scr', '.hta',)):
-                                malware_type = "HEUR:Win32.Startup.Suspicious.Extension.Generic.Malware"
+                                malware_type = "HEUR:Win32.Startup.Susp.Extension.Generic.Malware"
                                 message = f"Confirmed malware with suspicious extension detected: {file_path}\nVirus: {malware_type}"
                             else:
-                                malware_type = "HEUR:Win32.Startup.Suspicious.Generic.Malware"
+                                malware_type = "HEUR:Win32.Startup.Susp.Generic.Malware"
                                 message = f"Suspicious startup file detected: {file_path}\nVirus: {malware_type}"
 
                             logging.warning(f"Suspicious or malicious startup file detected in {directory}: {file}")
