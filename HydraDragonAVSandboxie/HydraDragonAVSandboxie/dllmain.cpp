@@ -625,8 +625,8 @@ DWORD WINAPI MBRMonitorThreadProc(LPVOID lpParameter)
         std::vector<char> currentMBR = GetMBR();
         if (!currentMBR.empty() && currentMBR != g_baselineMBR)
         {
-            SafeWriteSigmaLog(L"MBRMonitor", L"HEUR:Win32.Malware.MBR.gen alert");
-            TriggerNotification(L"Virus Detected: HEUR:Win32.Malware.MBR.gen", L"MBR has been modified");
+            SafeWriteSigmaLog(L"MBRMonitor", L"HEUR:Win32.Possible.Bootkit.MBR.gen alert");
+            TriggerNotification(L"Virus Detected: HEUR:Win32.Possible.Bootkit.MBR.gen", L"MBR has been modified");
         }
     }
     return 0;
