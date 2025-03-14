@@ -227,7 +227,7 @@ void ransomware_alert(const std::wstring& file_path)
         // When detections reach a threshold, notify the user.
         if (g_ransomware_detection_count >= 10)
         {
-            TriggerNotification(L"Virus Detected: HEUR:Win32.Ransom.gen@Sbie", L"Potential ransomware detected in main file");
+            TriggerNotification(L"Virus Detected: HEUR:Win32.Ransom.gen@FileTrap", L"Potential ransomware detected in main file");
             SafeWriteSigmaLog(L"ransomware_alert", L"User has been notified about potential ransomware in main file.");
         }
     }
@@ -1061,8 +1061,8 @@ BOOL WINAPI HookedRemoveDirectoryW(LPCWSTR lpPathName)
         std::transform(path.begin(), path.end(), path.begin(), towlower);
         if (path.find(L"c:\\dontremovehydradragonantiviruslogs") != std::wstring::npos)
         {
-            SafeWriteSigmaLog(L"RemoveDirectoryW", L"HEUR:Win32.Trojan.Wiper.Log.gen - Log directory deletion detected");
-            TriggerNotification(L"Virus Detected: HEUR:Win32.Trojan.Wiper.Log.gen", L"Warning: Log directory was deleted (Wiper behavior detected)");
+            SafeWriteSigmaLog(L"RemoveDirectoryW", L"HEUR:Win32.Trojan.Wiper.Log.gen@FileTrap - Log directory deletion detected");
+            TriggerNotification(L"Virus Detected: HEUR:Win32.Trojan.Wiper.Log.gen@FileTrap", L"Warning: Log directory was deleted (Wiper behavior detected)");
         }
     }
     return TrueRemoveDirectoryW(lpPathName);
