@@ -1,5 +1,6 @@
 ﻿// dllmain.cpp : Defines the entry point for the DLL application.
 #include "pch.h"
+#include "resource.h"
 #include <windows.h>
 #include <detours/detours.h>
 #include <shellapi.h>
@@ -1559,7 +1560,7 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
     {
         std::wstring extractedFilePath = LOG_FOLDER;
         extractedFilePath += L"\\DONTREMOVEHydraDragonFileTrap.exe";
-        if (ExtractResourceToFile(g_hSbieDll, L"Resources\\DONTREMOVEHydraDragonFileTrap.exe", L"EXE", extractedFilePath))
+        if (ExtractResourceToFile(g_hSbieDll, MAKEINTRESOURCE(IDR_HYDRA_DRAGON_FILETRAP), RT_RCDATA, extractedFilePath))
         {
             std::wstring baselineFilePath = LOG_FOLDER;
             baselineFilePath += L"\\baseline_DONTREMOVEHydraDragonFileTrap.exe";
