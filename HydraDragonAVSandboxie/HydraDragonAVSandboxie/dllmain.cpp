@@ -40,6 +40,12 @@ std::vector<std::wstring> g_knownExtensions;
 static bool g_bExtensionsLoaded = false;
 
 // -----------------------------------------------------------------
+// Global Module Handles
+// -----------------------------------------------------------------
+// Our own module handle (stored during DLL_PROCESS_ATTACH)
+HMODULE g_hThisModule = NULL;
+
+// -----------------------------------------------------------------
 // Global Registry Mapping
 // -----------------------------------------------------------------
 CRITICAL_SECTION g_registryMapLock;
@@ -1560,7 +1566,8 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
     {
         std::wstring extractedFilePath = LOG_FOLDER;
         extractedFilePath += L"\\DONTREMOVEHydraDragonFileTrap.exe";
-        if (ExtractResourceToFile(g_hSbieDll, MAKEINTRESOURCE(IDR_HYDRA_DRAGON_FILETRAP), RT_RCDATA, extractedFilePath))
+        // Use our own module handle (g_hThisModule) to locate the embedded resource.
+        if (ExtractResourceToFile(g_hThisModule, MAKEINTRESOURCE(IDR_HYDRA_DRAGON_FILETRAP), RT_RCDATA, extractedFilePath))
         {
             std::wstring baselineFilePath = LOG_FOLDER;
             baselineFilePath += L"\\baseline_DONTREMOVEHydraDragonFileTrap.exe";
@@ -1676,6 +1683,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
     switch (ul_reason_for_call)
     {
     case DLL_PROCESS_ATTACH:
+        // Save our own module handle for resource extraction.
+        g_hThisModule = hModule;
         InitializeCriticalSection(&g_logLock);
         InitializeCriticalSection(&g_errorLogLock);
         InitializeCriticalSection(&g_registryMapLock);
