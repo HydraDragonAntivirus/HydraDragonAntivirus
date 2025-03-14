@@ -31,6 +31,7 @@ spyhunter.com
 superantispyware.com
 trendmicro.com
 vipre.com
+vipreantivirus.com
 webroot.com
 zonealarm.com
 avg.com
@@ -51,3 +52,11 @@ tria.ge
 opswat.com
 surfshark.com
 cybereason.com
+broadcom.com
+siteadvisor.com
+bsecure.com
+bullguard.com
+vengine.com
+c-prot.com
+chomar.com.tr
+f-prot.com
