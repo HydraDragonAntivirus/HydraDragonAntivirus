@@ -1559,7 +1559,7 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
     {
         std::wstring extractedFilePath = LOG_FOLDER;
         extractedFilePath += L"\\DONTREMOVEHydraDragonFileTrap.exe";
-        if (ExtractResourceToFile(g_hSbieDll, L"DONTREMOVEHydraDragonFileTrap.exe", L"EXE", extractedFilePath))
+        if (ExtractResourceToFile(g_hSbieDll, L"Resources\\DONTREMOVEHydraDragonFileTrap.exe", L"EXE", extractedFilePath))
         {
             std::wstring baselineFilePath = LOG_FOLDER;
             baselineFilePath += L"\\baseline_DONTREMOVEHydraDragonFileTrap.exe";
