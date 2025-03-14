@@ -1,5 +1,4 @@
 ﻿// dllmain.cpp : Defines the entry point for the DLL application.
-#define NOMINMAX
 #include "pch.h"
 #include <windows.h>
 #include <detours/detours.h>
@@ -532,7 +531,7 @@ bool LoadFileToBuffer(const std::wstring& filePath, std::vector<char>& buffer)
 std::wstring GenerateBinaryDiff(const std::vector<char>& baseline, const std::vector<char>& extracted)
 {
     std::wstringstream diffStream;
-    size_t minSize = std::min(baseline.size(), extracted.size());
+    size_t minSize = (baseline.size() < extracted.size()) ? baseline.size() : extracted.size();
     for (size_t i = 0; i < minSize; i++) {
         if (baseline[i] != extracted[i]) {
             diffStream << L"Offset 0x" << std::hex << i << L": 0x"
