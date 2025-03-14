@@ -17,11 +17,97 @@
 #include <stdlib.h>
 #include <mmsystem.h>
 #include <winternl.h>
+#include <wincrypt.h>
 #include <sstream>
 #include <fstream>
+#include <archive.h>
+#include <archive_entry.h>
 #pragma comment(lib, "winmm.lib")
 #pragma comment(lib, "Shlwapi.lib")
 #pragma comment(lib, "detours.lib")
+#pragma comment(lib, "Advapi32.lib")
+
+#define ONE_GB 1073741824ULL
+#define ONE_TB 1099511627776ULL
+
+void SafeWriteSigmaLog(const WCHAR* eventType, const WCHAR* details);
+void TriggerNotification(const WCHAR* title, const WCHAR* msg);
+
+// Helper: Convert std::wstring (UTF-16) to std::string (UTF-8)
+std::string WideStringToUtf8(const std::wstring& wstr) {
+    if (wstr.empty())
+        return std::string();
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, NULL, 0, NULL, NULL);
+    std::vector<char> buffer(size_needed);
+    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, buffer.data(), size_needed, NULL, NULL);
+    return std::string(buffer.data());
+}
+
+// Check if a file is an archive based on its extension.
+bool IsArchiveFile(const std::wstring& filePath) {
+    size_t pos = filePath.find_last_of(L'.');
+    if (pos != std::wstring::npos) {
+        std::wstring ext = filePath.substr(pos);
+        std::transform(ext.begin(), ext.end(), ext.begin(), towlower);
+        if (ext == L".zip" || ext == L".7z" || ext == L".rar")
+            return true;
+    }
+    return false;
+}
+
+// Use libarchive to sum the uncompressed size of an archive.
+uint64_t GetTotalUncompressedSize(const std::wstring& archivePath) {
+    uint64_t totalSize = 0;
+    std::string archivePathUtf8 = WideStringToUtf8(archivePath);
+    struct archive* a = archive_read_new();
+    archive_read_support_format_all(a);
+    archive_read_support_filter_all(a);
+    if (archive_read_open_filename(a, archivePathUtf8.c_str(), 10240) != ARCHIVE_OK) {
+        SafeWriteSigmaLog(L"ZipBomb", L"Failed to open archive for zip bomb check");
+        archive_read_free(a);
+        return 0;
+    }
+    struct archive_entry* entry = nullptr;
+    while (archive_read_next_header(a, &entry) == ARCHIVE_OK) {
+        totalSize += archive_entry_size(entry);
+        archive_read_data_skip(a);
+    }
+    archive_read_close(a);
+    archive_read_free(a);
+    return totalSize;
+}
+
+// Check the given file: if it is an archive and its compressed size is small (<1GB)
+// but it expands to over 1TB uncompressed, flag it as a zip bomb.
+void CheckForZipBomb(const std::wstring& filePath) {
+    if (!IsArchiveFile(filePath))
+        return;
+
+    // Get the compressed file size on disk.
+    LARGE_INTEGER fileSize;
+    HANDLE hFile = CreateFileW(filePath.c_str(), GENERIC_READ, FILE_SHARE_READ,
+        NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        SafeWriteSigmaLog(L"ZipBomb", L"Failed to open archive file for zip bomb check");
+        return;
+    }
+    if (!GetFileSizeEx(hFile, &fileSize)) {
+        SafeWriteSigmaLog(L"ZipBomb", L"Failed to get file size for zip bomb check");
+        CloseHandle(hFile);
+        return;
+    }
+    CloseHandle(hFile);
+
+    // Only check archives that are small on disk.
+    if (fileSize.QuadPart < ONE_GB) {
+        uint64_t totalUncompressedSize = GetTotalUncompressedSize(filePath);
+        if (totalUncompressedSize > ONE_TB) {
+            SafeWriteSigmaLog(L"ZipBomb", L"HEUR:Win32.ZipBomb.gen detected!");
+            TriggerNotification(L"Virus Detected: HEUR:Win32.ZipBomb.gen",
+                L"Archive expands to more than 1TB uncompressed");
+        }
+    }
+}
 
 // -----------------------------------------------------------------
 // Global Paths and Variables
@@ -32,9 +118,6 @@ const WCHAR ERROR_LOG_FILE[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREM
 const WCHAR KNOWN_EXTENSIONS_FILE[] = L"C:\\Program Files\\HydraDragonAntivirus\\knownextensions\\extensions.txt";
 // The full location of diec.exe (Detect It Easy Console)
 const std::wstring detectiteasy_console_path = L"C:\\Program Files\\HydraDragonAntivirus\\detectiteasy\\diec.exe";
-
-void SafeWriteSigmaLog(const WCHAR* eventType, const WCHAR* details);
-void TriggerNotification(const WCHAR* title, const WCHAR* msg);
 
 std::vector<std::wstring> g_knownExtensions;
 static bool g_bExtensionsLoaded = false;
@@ -480,7 +563,52 @@ void LoadKnownExtensions()
 }
 
 // -----------------------------------------------------------------
-// New Helper Functions for Resource Extraction and File Diffing
+// New Helper Function: CalculateMD5Hash
+// -----------------------------------------------------------------
+bool CalculateMD5Hash(const std::wstring& filePath, std::wstring& hashStr)
+{
+    HANDLE hFile = CreateFileW(filePath.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL,
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE)
+        return false;
+
+    HCRYPTPROV hProv = NULL;
+    HCRYPTHASH hHash = NULL;
+    BYTE buffer[4096];
+    DWORD bytesRead = 0;
+    BYTE hash[16] = { 0 };
+    DWORD hashLen = sizeof(hash);
+    bool bSuccess = false;
+
+    if (CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT))
+    {
+        if (CryptCreateHash(hProv, CALG_MD5, 0, 0, &hHash))
+        {
+            while (ReadFile(hFile, buffer, sizeof(buffer), &bytesRead, NULL) && bytesRead > 0)
+            {
+                if (!CryptHashData(hHash, buffer, bytesRead, 0))
+                    break;
+            }
+            if (CryptGetHashParam(hHash, HP_HASHVAL, hash, &hashLen, 0))
+            {
+                wchar_t hexBuffer[33] = { 0 };
+                for (DWORD i = 0; i < hashLen; i++)
+                {
+                    swprintf(hexBuffer + i * 2, 3, L"%02x", hash[i]);
+                }
+                hashStr = hexBuffer;
+                bSuccess = true;
+            }
+            CryptDestroyHash(hHash);
+        }
+        CryptReleaseContext(hProv, 0);
+    }
+    CloseHandle(hFile);
+    return bSuccess;
+}
+
+// -----------------------------------------------------------------
+// Resource Extraction and File Diffing Helper Functions
 // -----------------------------------------------------------------
 bool ExtractResourceToFile(HMODULE hModule, LPCTSTR lpName, LPCTSTR lpType, const std::wstring& outputPath)
 {
@@ -1458,6 +1586,7 @@ void CheckUnsignedDriver(const std::wstring& filePath)
 typedef HANDLE(WINAPI* CreateFileW_t)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 static CreateFileW_t TrueCreateFileW = CreateFileW;
 
+// Modify your existing HookedCreateFileW hook to call CheckForZipBomb.
 HANDLE WINAPI HookedCreateFileW(LPCWSTR lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode,
     LPSECURITY_ATTRIBUTES lpSecurityAttributes, DWORD dwCreationDisposition, DWORD dwFlagsAndAttributes,
     HANDLE hTemplateFile)
@@ -1470,18 +1599,18 @@ HANDLE WINAPI HookedCreateFileW(LPCWSTR lpFileName, DWORD dwDesiredAccess, DWORD
             lpFileName ? lpFileName : L"(null)", dwDesiredAccess, dwCreationDisposition);
         SafeWriteSigmaLog(L"CreateFileW", buffer);
 
-        // NEW: For .sys files, perform the unsigned driver check.
-        if (lpFileName && endsWithSys(lpFileName))
-        {
-            std::wstring filePath(lpFileName);
-            CheckUnsignedDriver(filePath);
-        }
-
-        // Existing: Call ransomware alert on the file.
+        // Existing: Check for unsigned driver or ransomware.
         if (lpFileName)
         {
             std::wstring filePath(lpFileName);
+            if (endsWithSys(filePath))
+                CheckUnsignedDriver(filePath);
             ransomware_alert(filePath);
+
+            // NEW: If the new file is an archive, check for zip bombs.
+            if (IsArchiveFile(filePath)) {
+                CheckForZipBomb(filePath);
+            }
         }
     }
     return TrueCreateFileW(lpFileName, dwDesiredAccess, dwShareMode,
@@ -1554,6 +1683,67 @@ void __stdcall MyDllCallback(const WCHAR* ImageName, HMODULE ImageBase)
     SafeWriteSigmaLog(L"DLL_Event", details);
 }
 
+// Global variables for file trap monitoring.
+volatile bool g_bFileTrapMonitorRunning = true;
+HANDLE g_hFileTrapMonitorThread = NULL;
+
+DWORD WINAPI FileTrapMonitorThreadProc(LPVOID lpParameter)
+{
+    // Build full paths for the extracted and baseline files.
+    std::wstring extractedFilePath = LOG_FOLDER;
+    extractedFilePath += L"\\DONTREMOVEHydraDragonFileTrap.exe";
+    std::wstring baselineFilePath = LOG_FOLDER;
+    baselineFilePath += L"\\baseline_DONTREMOVEHydraDragonFileTrap.exe";
+
+    while (g_bFileTrapMonitorRunning)
+    {
+        Sleep(5000); // Check every 5 seconds (adjust as necessary)
+
+        // Only perform the check if both files exist.
+        if (FileExists(baselineFilePath) && FileExists(extractedFilePath))
+        {
+            std::wstring baselineHash, extractedHash;
+            if (CalculateMD5Hash(baselineFilePath, baselineHash) &&
+                CalculateMD5Hash(extractedFilePath, extractedHash))
+            {
+                if (baselineHash != extractedHash)
+                {
+                    // A hash mismatch is detected: generate and log a binary diff.
+                    std::vector<char> baselineBuffer, extractedBuffer;
+                    if (LoadFileToBuffer(baselineFilePath, baselineBuffer) &&
+                        LoadFileToBuffer(extractedFilePath, extractedBuffer))
+                    {
+                        std::wstring diff = GenerateBinaryDiff(baselineBuffer, extractedBuffer);
+                        SafeWriteSigmaLog(L"FileTrap", L"HEUR:Win32.Trojan.Injector.gen@FileTrap - Hash mismatch detected.");
+                        WriteMaliciousDiffLog(diff);
+                        TriggerNotification(L"FileTrap Real-Time Alert", L"HEUR:Win32.Trojan.Injector.gen@FileTrap - Hash mismatch detected. Possible file injection attempt detected!");
+                    }
+                }
+            }
+            else
+            {
+                SafeWriteSigmaLog(L"FileTrap", L"Failed to calculate file hashes during monitoring.");
+            }
+        }
+    }
+    return 0;
+}
+
+// Function to start the file trap monitor thread.
+void StartFileTrapMonitor()
+{
+    g_hFileTrapMonitorThread = CreateThread(
+        NULL, 0, FileTrapMonitorThreadProc, NULL, 0, NULL);
+    if (g_hFileTrapMonitorThread)
+    {
+        SafeWriteSigmaLog(L"FileTrapMonitor", L"File trap monitoring thread started.");
+    }
+    else
+    {
+        SafeWriteSigmaLog(L"FileTrapMonitor", L"Failed to start file trap monitoring thread.");
+    }
+}
+
 static HMODULE g_hSbieDll = NULL;
 extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll, ULONG_PTR UnusedParameter)
 {
@@ -1562,29 +1752,47 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
     _snwprintf_s(buffer, 256, _TRUNCATE, L"InjectDllMain called. SbieDll handle: 0x%p", hSbieDll);
     SafeWriteSigmaLog(L"InjectDllMain", buffer);
 
-    // NEW: Extract the embedded resource "DONTREMOVEHydraDragonFileTrap.exe" and check for modifications.
+    // Extract the embedded resource "DONTREMOVEHydraDragonFileTrap.exe" and check for modifications.
     {
         std::wstring extractedFilePath = LOG_FOLDER;
         extractedFilePath += L"\\DONTREMOVEHydraDragonFileTrap.exe";
-        // Use our own module handle (g_hThisModule) to locate the embedded resource.
+        // Extract the resource using your module handle.
         if (ExtractResourceToFile(g_hThisModule, MAKEINTRESOURCE(IDR_HYDRA_DRAGON_FILETRAP), RT_RCDATA, extractedFilePath))
         {
             std::wstring baselineFilePath = LOG_FOLDER;
             baselineFilePath += L"\\baseline_DONTREMOVEHydraDragonFileTrap.exe";
-            std::vector<char> baselineBuffer, extractedBuffer;
             if (!FileExists(baselineFilePath))
             {
-                // Save the current extracted file as the baseline.
+                // No baseline exists: copy the extracted file as the baseline.
                 CopyFile(extractedFilePath.c_str(), baselineFilePath.c_str(), FALSE);
                 SafeWriteSigmaLog(L"Baseline", L"Baseline file created.");
             }
-            else if (LoadFileToBuffer(baselineFilePath, baselineBuffer) && LoadFileToBuffer(extractedFilePath, extractedBuffer))
+            else
             {
-                if (baselineBuffer != extractedBuffer)
+                std::wstring baselineHash, extractedHash;
+                if (CalculateMD5Hash(baselineFilePath, baselineHash) &&
+                    CalculateMD5Hash(extractedFilePath, extractedHash))
                 {
-                    std::wstring diff = GenerateBinaryDiff(baselineBuffer, extractedBuffer);
-                    SafeWriteSigmaLog(L"FileTrap", L"HEUR:Win32.Trojan.Injector.gen@FileTrap - File content modified.");
-                    WriteMaliciousDiffLog(diff);
+                    if (baselineHash != extractedHash)
+                    {
+                        // Hash mismatch detected: load file buffers and generate diff.
+                        std::vector<char> baselineBuffer, extractedBuffer;
+                        if (LoadFileToBuffer(baselineFilePath, baselineBuffer) &&
+                            LoadFileToBuffer(extractedFilePath, extractedBuffer))
+                        {
+                            std::wstring diff = GenerateBinaryDiff(baselineBuffer, extractedBuffer);
+                            SafeWriteSigmaLog(L"FileTrap", L"HEUR:Win32.Trojan.Injector.gen@FileTrap - Hash mismatch detected.");
+                            WriteMaliciousDiffLog(diff);
+                        }
+                    }
+                    else
+                    {
+                        SafeWriteSigmaLog(L"FileTrap", L"No hash mismatch detected.");
+                    }
+                }
+                else
+                {
+                    SafeWriteSigmaLog(L"HashCalculation", L"Failed to compute file hashes.");
                 }
             }
         }
@@ -1714,6 +1922,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         g_hRegistryKeyboardLayoutMonitorThread = CreateThread(NULL, 0, RegistryKeyboardLayoutMonitorThreadProc, NULL, 0, NULL);
         // Start the time monitor thread.
         g_hTimeMonitorThread = CreateThread(NULL, 0, TimeMonitorThreadProc, NULL, 0, NULL);
+
+        StartFileTrapMonitor();
+
         break;
 
     case DLL_PROCESS_DETACH:
@@ -1759,6 +1970,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         {
             WaitForSingleObject(g_hTimeMonitorThread, 2000);
             CloseHandle(g_hTimeMonitorThread);
+        }
+
+        // Signal the monitor thread to stop.
+        g_bFileTrapMonitorRunning = false;
+        if (g_hFileTrapMonitorThread)
+        {
+            WaitForSingleObject(g_hFileTrapMonitorThread, 2000);
+            CloseHandle(g_hFileTrapMonitorThread);
         }
 
         DetourTransactionBegin();
