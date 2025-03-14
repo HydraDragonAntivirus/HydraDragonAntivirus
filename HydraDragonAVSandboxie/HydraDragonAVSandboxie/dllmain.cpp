@@ -1,4 +1,5 @@
 ﻿// dllmain.cpp : Defines the entry point for the DLL application.
+#define NOMINMAX
 #include "pch.h"
 #include <windows.h>
 #include <detours/detours.h>
@@ -240,21 +241,18 @@ void AddRegistryKeyMapping(HKEY hParent, LPCWSTR lpSubKey, HKEY hNewKey) {
     if (hParent) {
         EnterCriticalSection(&g_registryMapLock);
         auto it = g_registryKeyMap.find(hParent);
-        if (it != g_registryKeyMap.end()) {
+        if (it != g_registryKeyMap.end())
             parentPath = it->second;
-        }
-        else {
+        else
             parentPath = GetBaseKeyName(hParent);
-        }
         LeaveCriticalSection(&g_registryMapLock);
     }
     else {
         parentPath = L"(null)";
     }
     std::wstring fullPath = parentPath;
-    if (lpSubKey && lpSubKey[0] != L'\0') {
+    if (lpSubKey && lpSubKey[0] != L'\0')
         fullPath += L"\\" + std::wstring(lpSubKey);
-    }
     EnterCriticalSection(&g_registryMapLock);
     g_registryKeyMap[hNewKey] = fullPath;
     LeaveCriticalSection(&g_registryMapLock);
@@ -476,6 +474,104 @@ void LoadKnownExtensions()
 }
 
 // -----------------------------------------------------------------
+// New Helper Functions for Resource Extraction and File Diffing
+// -----------------------------------------------------------------
+bool ExtractResourceToFile(HMODULE hModule, LPCTSTR lpName, LPCTSTR lpType, const std::wstring& outputPath)
+{
+    HRSRC hRes = FindResource(hModule, lpName, lpType);
+    if (!hRes)
+    {
+        SafeWriteSigmaLog(L"ExtractResource", L"Failed to find resource.");
+        return false;
+    }
+    DWORD dwSize = SizeofResource(hModule, hRes);
+    if (dwSize == 0)
+    {
+        SafeWriteSigmaLog(L"ExtractResource", L"Resource size is zero.");
+        return false;
+    }
+    HGLOBAL hResData = LoadResource(hModule, hRes);
+    if (!hResData)
+    {
+        SafeWriteSigmaLog(L"ExtractResource", L"Failed to load resource.");
+        return false;
+    }
+    LPVOID pData = LockResource(hResData);
+    if (!pData)
+    {
+        SafeWriteSigmaLog(L"ExtractResource", L"Failed to lock resource.");
+        return false;
+    }
+    FILE* f = nullptr;
+    _wfopen_s(&f, outputPath.c_str(), L"wb");
+    if (!f)
+    {
+        SafeWriteSigmaLog(L"ExtractResource", L"Failed to open output file for writing.");
+        return false;
+    }
+    fwrite(pData, 1, dwSize, f);
+    fclose(f);
+    SafeWriteSigmaLog(L"ExtractResource", L"Resource extracted successfully.");
+    return true;
+}
+
+bool LoadFileToBuffer(const std::wstring& filePath, std::vector<char>& buffer)
+{
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, filePath.c_str(), L"rb") != 0 || !f)
+        return false;
+    fseek(f, 0, SEEK_END);
+    long fileSize = ftell(f);
+    rewind(f);
+    buffer.resize(fileSize);
+    size_t bytesRead = fread(buffer.data(), 1, fileSize, f);
+    fclose(f);
+    return bytesRead == (size_t)fileSize;
+}
+
+std::wstring GenerateBinaryDiff(const std::vector<char>& baseline, const std::vector<char>& extracted)
+{
+    std::wstringstream diffStream;
+    size_t minSize = std::min(baseline.size(), extracted.size());
+    for (size_t i = 0; i < minSize; i++) {
+        if (baseline[i] != extracted[i]) {
+            diffStream << L"Offset 0x" << std::hex << i << L": 0x"
+                << std::hex << (int)(unsigned char)baseline[i]
+                << L" -> 0x" << std::hex << (int)(unsigned char)extracted[i] << L"\n";
+        }
+    }
+    if (baseline.size() != extracted.size()) {
+        diffStream << L"File sizes differ. Baseline size: " << baseline.size()
+            << L", Extracted size: " << extracted.size() << L"\n";
+    }
+    return diffStream.str();
+}
+
+bool FileExists(const std::wstring& filePath)
+{
+    DWORD attrib = GetFileAttributes(filePath.c_str());
+    return (attrib != INVALID_FILE_ATTRIBUTES && !(attrib & FILE_ATTRIBUTE_DIRECTORY));
+}
+
+void WriteMaliciousDiffLog(const std::wstring& diff)
+{
+    std::wstring diffLogPath = LOG_FOLDER;
+    diffLogPath += L"\\malicious_diff_log.txt";
+    FILE* f = nullptr;
+    _wfopen_s(&f, diffLogPath.c_str(), L"a+");
+    if (f)
+    {
+        fwprintf(f, L"%s\n", diff.c_str());
+        fclose(f);
+        SafeWriteSigmaLog(L"DiffLog", L"Malicious diff log written.");
+    }
+    else
+    {
+        SafeWriteSigmaLog(L"DiffLog", L"Failed to write malicious diff log.");
+    }
+}
+
+// -----------------------------------------------------------------
 // Notification Infrastructure via Shell_NotifyIcon
 // -----------------------------------------------------------------
 HWND g_hNotificationWnd = NULL;
@@ -663,7 +759,7 @@ DWORD WINAPI MBRMonitorThreadProc(LPVOID lpParameter)
 // Registry Monitoring via RegNotifyChangeKeyValue
 // -----------------------------------------------------------------
 // This version uses a dedicated monitoring thread (RegistryMonitorThreadProc)
-// that checks the key "HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\System"
+// that checks the key "HKCU\Software\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
 // for any changes to the following registry values (case-insensitive):
 //   DisablePerformanceMonitor
 //   DisableTaskMgr
@@ -1460,6 +1556,37 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
     _snwprintf_s(buffer, 256, _TRUNCATE, L"InjectDllMain called. SbieDll handle: 0x%p", hSbieDll);
     SafeWriteSigmaLog(L"InjectDllMain", buffer);
 
+    // NEW: Extract the embedded resource "DONTREMOVEHydraDragonFileTrap.exe" and check for modifications.
+    {
+        std::wstring extractedFilePath = LOG_FOLDER;
+        extractedFilePath += L"\\DONTREMOVEHydraDragonFileTrap.exe";
+        if (ExtractResourceToFile(g_hSbieDll, L"DONTREMOVEHydraDragonFileTrap.exe", L"EXE", extractedFilePath))
+        {
+            std::wstring baselineFilePath = LOG_FOLDER;
+            baselineFilePath += L"\\baseline_DONTREMOVEHydraDragonFileTrap.exe";
+            std::vector<char> baselineBuffer, extractedBuffer;
+            if (!FileExists(baselineFilePath))
+            {
+                // Save the current extracted file as the baseline.
+                CopyFile(extractedFilePath.c_str(), baselineFilePath.c_str(), FALSE);
+                SafeWriteSigmaLog(L"Baseline", L"Baseline file created.");
+            }
+            else if (LoadFileToBuffer(baselineFilePath, baselineBuffer) && LoadFileToBuffer(extractedFilePath, extractedBuffer))
+            {
+                if (baselineBuffer != extractedBuffer)
+                {
+                    std::wstring diff = GenerateBinaryDiff(baselineBuffer, extractedBuffer);
+                    SafeWriteSigmaLog(L"FileTrap", L"HEUR:Win32.Trojan.Injector.gen@FileTrap - File content modified.");
+                    WriteMaliciousDiffLog(diff);
+                }
+            }
+        }
+        else
+        {
+            SafeWriteSigmaLog(L"FileTrap", L"Failed to extract resource DONTREMOVEHydraDragonFileTrap.exe");
+        }
+    }
+
     // Load known extensions and new digital signature checking modules.
     LoadKnownExtensions();
     SafeWriteSigmaLog(L"InjectDllMain", L"Digital signature and unsigned driver checking modules loaded.");
@@ -1510,24 +1637,24 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
         SafeWriteSigmaLog(L"MBRMonitor", L"Failed to read baseline MBR.");
     }
 
-    // Start Registry monitoring for HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\System.
+    // Start Registry monitoring for HKCU\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System.
     g_hRegistryMonitorThread = CreateThread(NULL, 0, RegistryMonitorThreadProc, NULL, 0, NULL);
 
-    // Start Registry monitoring for HKLM\SYSTEM\Setup.
+    // Start Registry monitoring for HKLM\\SYSTEM\\Setup.
     g_hRegistrySetupMonitorThread = CreateThread(NULL, 0, RegistrySetupMonitorThreadProc, NULL, 0, NULL);
     if (!g_hRegistrySetupMonitorThread)
     {
         SafeWriteSigmaLog(L"RegistrySetupMonitor", L"Failed to start RegistrySetupMonitor thread.");
     }
 
-    // Start Winlogon Shell monitoring for HKLM\SOFTWARE\Microsoft\Windows NT\\CurrentVersion\\Winlogon.
+    // Start Winlogon Shell monitoring for HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon.
     g_hRegistryWinlogonShellMonitorThread = CreateThread(NULL, 0, RegistryWinlogonShellMonitorThreadProc, NULL, 0, NULL);
     if (!g_hRegistryWinlogonShellMonitorThread)
     {
         SafeWriteSigmaLog(L"RegistryWinlogonShellMonitor", L"Failed to start RegistryWinlogonShellMonitor thread.");
     }
 
-    // Start Registry monitoring for HKLM\SYSTEM\\CurrentControlSet\\Control\\Keyboard Layout.
+    // Start Registry monitoring for HKLM\\SYSTEM\\CurrentControlSet\\Control\\Keyboard Layout.
     g_hRegistryKeyboardLayoutMonitorThread = CreateThread(NULL, 0, RegistryKeyboardLayoutMonitorThreadProc, NULL, 0, NULL);
     if (!g_hRegistryKeyboardLayoutMonitorThread)
     {
@@ -1570,7 +1697,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         // Start monitoring threads.
         g_hRegistryMonitorThread = CreateThread(NULL, 0, RegistryMonitorThreadProc, NULL, 0, NULL);
-        // Start Registry monitoring for HKLM\SYSTEM\Setup.
+        // Start Registry monitoring for HKLM\\SYSTEM\\Setup.
         g_hRegistrySetupMonitorThread = CreateThread(NULL, 0, RegistrySetupMonitorThreadProc, NULL, 0, NULL);
         // Start Winlogon Shell monitoring thread.
         g_hRegistryWinlogonShellMonitorThread = CreateThread(NULL, 0, RegistryWinlogonShellMonitorThreadProc, NULL, 0, NULL);
@@ -1596,7 +1723,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             WaitForSingleObject(g_hRegistryMonitorThread, 2000);
             CloseHandle(g_hRegistryMonitorThread);
         }
-        // Stop HKLM\SYSTEM\Setup Registry monitoring.
+        // Stop HKLM\\SYSTEM\\Setup Registry monitoring.
         g_bRegistrySetupMonitorRunning = false;
         if (g_hRegistrySetupMonitorThread)
         {
