@@ -1910,6 +1910,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         InitializeCriticalSection(&g_registryMapLock);
         QueueLogMessage(L"{\"timestamp\":\"(n/a)\", \"event\":\"DllMain\", \"details\":\"DLL_PROCESS_ATTACH\"}");
 
+        // Create the log directory and start the logging threads.
+        EnsureLogDirectory();
+        g_bLogThreadRunning = true;
+        g_hLogThread = CreateThread(NULL, 0, LoggerThreadProc, NULL, 0, NULL);
+        g_bErrorLogThreadRunning = true;
+        g_hErrorLogThread = CreateThread(NULL, 0, ErrorLoggerThreadProc, NULL, 0, NULL);
+
+        // Attach hooks using Detours.
         DetourTransactionBegin();
         DetourUpdateThread(GetCurrentThread());
         // Attach registry hooks.
@@ -1941,6 +1949,21 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
     case DLL_PROCESS_DETACH:
         QueueLogMessage(L"{\"timestamp\":\"(n/a)\", \"event\":\"DllMain\", \"details\":\"DLL_PROCESS_DETACH\"}");
+
+        // Stop logging threads.
+        g_bLogThreadRunning = false;
+        if (g_hLogThread)
+        {
+            WaitForSingleObject(g_hLogThread, 2000);
+            CloseHandle(g_hLogThread);
+        }
+        g_bErrorLogThreadRunning = false;
+        if (g_hErrorLogThread)
+        {
+            WaitForSingleObject(g_hErrorLogThread, 2000);
+            CloseHandle(g_hErrorLogThread);
+        }
+
         // Stop monitoring threads.
         g_bMBRMonitorRunning = false;
         if (g_hMBRMonitorThread)
@@ -1992,6 +2015,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             CloseHandle(g_hFileTrapMonitorThread);
         }
 
+        // Detach hooks.
         DetourTransactionBegin();
         DetourUpdateThread(GetCurrentThread());
         DetourDetach(&(PVOID&)TrueRegSetValueExW, HookedRegSetValueExW);
@@ -2015,3 +2039,4 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
     }
     return TRUE;
 }
+
