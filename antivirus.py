@@ -4076,7 +4076,6 @@ log_folder = "C:\\Snort\\log"
 snort_config_path = "C:\\Snort\\etc\\snort.conf"
 sandboxie_path = "C:\\Program Files\\Sandboxie\\Start.exe"
 sandboxie_control_path = "C:\\Program Files\\Sandboxie\\SbieCtrl.exe"
-sbie_ini_path = "C:\\Program Files\\Sandboxie\\SbieIni.exe"
 device_args = [f"-i {i}" for i in range(1, 26)]  # Fixed device arguments
 username = os.getlogin()
 sandboxie_folder = rf'C:\Sandbox\{username}\DefaultBox'
