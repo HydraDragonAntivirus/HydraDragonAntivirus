@@ -1822,7 +1822,7 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
     }
 
     P_SbieDll_Hook p_SbieDll_Hook = (P_SbieDll_Hook)GetProcAddress(hSbieDll, "SbieDll_Hook");
-    if (p_RegisterDllCallback)
+    if (p_SbieDll_Hook)
     {
         TrueSbieDll_UpdateConf = (P_SbieDll_UpdateConf)
             p_SbieDll_Hook("SbieDll_UpdateConf", GetProcAddress(hSbieDll, "SbieDll_UpdateConf"), HookedSbieDll_UpdateConf);
