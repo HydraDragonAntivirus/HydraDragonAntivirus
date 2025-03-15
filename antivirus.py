@@ -306,6 +306,7 @@ malicious_file_names = os.path.join(script_dir, "machinelearning", "malicious_fi
 malicious_numeric_features = os.path.join(script_dir, "machinelearning", "malicious_numeric.pkl")
 benign_file_names = os.path.join(script_dir, "machinelearning", "benign_file_names.json")
 benign_numeric_features = os.path.join(script_dir, "machinelearning", "benign_numeric.pkl")
+resource_extractor_dir = os.path.join(script_dir, "resourcesextracted")
 yara_folder_path = os.path.join(script_dir, "yara")
 excluded_rules_dir = os.path.join(script_dir, "excluded")
 excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
@@ -416,6 +417,61 @@ os.makedirs(united_python_source_code_dir, exist_ok=True)
 
 # Counter for ransomware detection
 ransomware_detection_count = 0 
+
+def get_resource_name(entry):
+    # Get the resource name, which might be a string or an ID
+    if hasattr(entry, 'name') and entry.name is not None:
+        return str(entry.name)
+    else:
+        return str(entry.id)
+
+def extract_resources(pe_path, output_dir):
+    try:
+        pe = pefile.PE(pe_path)
+    except Exception as e:
+        print(f"Error loading PE file: {e}")
+        return
+
+    # Check if the PE file has resources
+    if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
+        print("No resources found in this file.")
+        return
+
+    os.makedirs(output_dir, exist_ok=True)
+    resource_count = 0
+
+    # Traverse the resource directory
+    for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+        type_name = get_resource_name(resource_type)
+        if not hasattr(resource_type, 'directory'):
+            continue
+
+        for resource_id in resource_type.directory.entries:
+            res_id = get_resource_name(resource_id)
+            if not hasattr(resource_id, 'directory'):
+                continue
+
+            for resource_lang in resource_id.directory.entries:
+                lang_id = resource_lang.id
+                data_rva = resource_lang.data.struct.OffsetToData
+                size = resource_lang.data.struct.Size
+                data = pe.get_memory_mapped_image()[data_rva:data_rva + size]
+
+                # Create a filename: resourceType_resourceID_langID.bin
+                file_name = f"{type_name}_{res_id}_{lang_id}.bin"
+                output_path = os.path.join(output_dir, file_name)
+                with open(output_path, "wb") as f:
+                    f.write(data)
+                print(f"Resource saved: {output_path}")
+                resource_count += 1
+
+                # Call scan_and_warn on the extracted file
+                scan_and_warn(output_path)
+
+    if resource_count == 0:
+        print("No resources were extracted.")
+    else:
+        print(f"Extracted a total of {resource_count} resources.")
 
 # Read the file types from extensions.txt with try-except
 fileTypes = []
@@ -6059,6 +6115,8 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
         if os.path.getsize(file_path) == 0:
             logging.debug(f"File {file_path} is empty. Skipping scan. That doesn't mean it's not malicious. See here: https://github.com/HydraDragonAntivirus/0KBAttack")
             return False
+         
+        extract_resources(file_path, resource_extractor_dir)
 
         # Read the file content once for hash calculation (and later if needed).
         with open(file_path, 'rb') as scan_file:
