@@ -1905,9 +1905,15 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
     case DLL_PROCESS_ATTACH:
         // Save our own module handle for resource extraction.
         g_hThisModule = hModule;
+        // Disable thread notifications to reduce overhead.
+        DisableThreadLibraryCalls(hModule);
+
+        // Initialize critical sections.
         InitializeCriticalSection(&g_logLock);
         InitializeCriticalSection(&g_errorLogLock);
         InitializeCriticalSection(&g_registryMapLock);
+
+        // Queue the initial log message.
         QueueLogMessage(L"{\"timestamp\":\"(n/a)\", \"event\":\"DllMain\", \"details\":\"DLL_PROCESS_ATTACH\"}");
 
         // Create the log directory and start the logging threads.
@@ -2028,6 +2034,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         DetourDetach(&(PVOID&)TrueRemoveDirectoryW, HookedRemoveDirectoryW);
         DetourTransactionCommit();
 
+        // Delete critical sections.
         DeleteCriticalSection(&g_logLock);
         DeleteCriticalSection(&g_errorLogLock);
         DeleteCriticalSection(&g_registryMapLock);
