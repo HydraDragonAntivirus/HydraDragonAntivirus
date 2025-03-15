@@ -68,9 +68,6 @@ std::wstring GetBaseKeyName(HKEY hKey) {
 // ===== Added Global Variable for Ransomware Detection =====
 static int g_ransomware_detection_count = 0;
 
-void SafeWriteSigmaLog(const WCHAR* eventType, const WCHAR* details);
-void TriggerNotification(const WCHAR* title, const WCHAR* msg);
-
 // -----------------------------------------------------------------
 // Thread-local flag to prevent recursive logging.
 // -----------------------------------------------------------------
