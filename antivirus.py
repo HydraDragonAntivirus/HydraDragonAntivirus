@@ -429,12 +429,12 @@ def extract_resources(pe_path, output_dir):
     try:
         pe = pefile.PE(pe_path)
     except Exception as e:
-        print(f"Error loading PE file: {e}")
+        logging.info(f"Error loading PE file: {e}")
         return
 
     # Check if the PE file has resources
     if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-        print("No resources found in this file.")
+        logging.info("No resources found in this file.")
         return
 
     os.makedirs(output_dir, exist_ok=True)
@@ -469,9 +469,9 @@ def extract_resources(pe_path, output_dir):
                 scan_and_warn(output_path)
 
     if resource_count == 0:
-        print("No resources were extracted.")
+        logging.info("No resources were extracted.")
     else:
-        print(f"Extracted a total of {resource_count} resources.")
+        logging.info(f"Extracted a total of {resource_count} resources.")
 
 # Read the file types from extensions.txt with try-except
 fileTypes = []
@@ -6115,8 +6115,6 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
         if os.path.getsize(file_path) == 0:
             logging.debug(f"File {file_path} is empty. Skipping scan. That doesn't mean it's not malicious. See here: https://github.com/HydraDragonAntivirus/0KBAttack")
             return False
-         
-        extract_resources(file_path, resource_extractor_dir)
 
         # Read the file content once for hash calculation (and later if needed).
         with open(file_path, 'rb') as scan_file:
@@ -6246,6 +6244,9 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
                         scan_and_warn(saved_file_path)
                     except Exception as e:
                         logging.error(f"Error processing file {saved_file_path}: {e}")
+ 
+                # Extract resources
+                extract_resources(file_path, resource_extractor_dir)
 
                 # Use the `debloat` library to optimize PE file for scanning
                 try:
