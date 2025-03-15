@@ -1747,16 +1747,24 @@ void StartFileTrapMonitor()
 static HMODULE g_hSbieDll = NULL;
 extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll, ULONG_PTR UnusedParameter)
 {
+    // Save the Sandboxie DLL handle.
     g_hSbieDll = hSbieDll;
     WCHAR buffer[256];
     _snwprintf_s(buffer, 256, _TRUNCATE, L"InjectDllMain called. SbieDll handle: 0x%p", hSbieDll);
     SafeWriteSigmaLog(L"InjectDllMain", buffer);
 
+    // Verify that our own module handle has been initialized.
+    if (!g_hThisModule)
+    {
+        SafeWriteSigmaLog(L"InjectDllMain", L"g_hThisModule is not initialized.");
+        return;
+    }
+
     // Extract the embedded resource "DONTREMOVEHydraDragonFileTrap.exe" and check for modifications.
     {
         std::wstring extractedFilePath = LOG_FOLDER;
         extractedFilePath += L"\\DONTREMOVEHydraDragonFileTrap.exe";
-        // Extract the resource using your module handle.
+        // Extract the resource using our stored module handle.
         if (ExtractResourceToFile(g_hThisModule, MAKEINTRESOURCE(IDR_HYDRA_DRAGON_FILETRAP), RT_RCDATA, extractedFilePath))
         {
             std::wstring baselineFilePath = LOG_FOLDER;
@@ -1802,10 +1810,11 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
         }
     }
 
-    // Load known extensions and new digital signature checking modules.
+    // Load known extensions and digital signature checking modules.
     LoadKnownExtensions();
     SafeWriteSigmaLog(L"InjectDllMain", L"Digital signature and unsigned driver checking modules loaded.");
 
+    // Register the Sandboxie callback.
     P_SbieDll_RegisterDllCallback p_RegisterDllCallback =
         (P_SbieDll_RegisterDllCallback)GetProcAddress(hSbieDll, "SbieDll_RegisterDllCallback");
     if (p_RegisterDllCallback)
@@ -1821,6 +1830,7 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
         SafeWriteSigmaLog(L"RegisterDllCallback", L"Failed to retrieve SbieDll_RegisterDllCallback address.");
     }
 
+    // Retrieve and hook Sandboxie's API.
     P_SbieDll_Hook p_SbieDll_Hook = (P_SbieDll_Hook)GetProcAddress(hSbieDll, "SbieDll_Hook");
     if (p_SbieDll_Hook)
     {
@@ -1836,8 +1846,10 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
         SafeWriteSigmaLog(L"SbieDll_Hook", L"Failed to retrieve SbieDll_Hook address.");
     }
 
+    // Create the notification window.
     g_hNotificationWnd = CreateNotificationWindow();
 
+    // Start asynchronous logging threads.
     g_hLogThread = CreateThread(NULL, 0, LoggerThreadProc, NULL, 0, NULL);
     g_hErrorLogThread = CreateThread(NULL, 0, ErrorLoggerThreadProc, NULL, 0, NULL);
 
@@ -1852,31 +1864,31 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
         SafeWriteSigmaLog(L"MBRMonitor", L"Failed to read baseline MBR.");
     }
 
-    // Start Registry monitoring for HKCU\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System.
+    // Start Registry monitoring for HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\System.
     g_hRegistryMonitorThread = CreateThread(NULL, 0, RegistryMonitorThreadProc, NULL, 0, NULL);
 
-    // Start Registry monitoring for HKLM\\SYSTEM\\Setup.
+    // Start Registry monitoring for HKLM\SYSTEM\Setup.
     g_hRegistrySetupMonitorThread = CreateThread(NULL, 0, RegistrySetupMonitorThreadProc, NULL, 0, NULL);
     if (!g_hRegistrySetupMonitorThread)
     {
         SafeWriteSigmaLog(L"RegistrySetupMonitor", L"Failed to start RegistrySetupMonitor thread.");
     }
 
-    // Start Winlogon Shell monitoring for HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon.
+    // Start Winlogon Shell monitoring for HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon.
     g_hRegistryWinlogonShellMonitorThread = CreateThread(NULL, 0, RegistryWinlogonShellMonitorThreadProc, NULL, 0, NULL);
     if (!g_hRegistryWinlogonShellMonitorThread)
     {
         SafeWriteSigmaLog(L"RegistryWinlogonShellMonitor", L"Failed to start RegistryWinlogonShellMonitor thread.");
     }
 
-    // Start Registry monitoring for HKLM\\SYSTEM\\CurrentControlSet\\Control\\Keyboard Layout.
+    // Start Registry monitoring for HKLM\SYSTEM\CurrentControlSet\Control\Keyboard Layout.
     g_hRegistryKeyboardLayoutMonitorThread = CreateThread(NULL, 0, RegistryKeyboardLayoutMonitorThreadProc, NULL, 0, NULL);
     if (!g_hRegistryKeyboardLayoutMonitorThread)
     {
         SafeWriteSigmaLog(L"RegistryKeyboardLayoutMonitor", L"Failed to start RegistryKeyboardLayoutMonitor thread.");
     }
 
-    // Start the Time Monitor thread for real-time system date checks.
+    // Start the Time Monitor thread for system date checks.
     g_hTimeMonitorThread = CreateThread(NULL, 0, TimeMonitorThreadProc, NULL, 0, NULL);
     if (!g_hTimeMonitorThread)
     {
@@ -1914,7 +1926,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         // Start monitoring threads.
         g_hRegistryMonitorThread = CreateThread(NULL, 0, RegistryMonitorThreadProc, NULL, 0, NULL);
-        // Start Registry monitoring for HKLM\\SYSTEM\\Setup.
+        // Start Registry monitoring for HKLM\ SYSTEM\Setup.
         g_hRegistrySetupMonitorThread = CreateThread(NULL, 0, RegistrySetupMonitorThreadProc, NULL, 0, NULL);
         // Start Winlogon Shell monitoring thread.
         g_hRegistryWinlogonShellMonitorThread = CreateThread(NULL, 0, RegistryWinlogonShellMonitorThreadProc, NULL, 0, NULL);
@@ -1943,7 +1955,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             WaitForSingleObject(g_hRegistryMonitorThread, 2000);
             CloseHandle(g_hRegistryMonitorThread);
         }
-        // Stop HKLM\\SYSTEM\\Setup Registry monitoring.
+        // Stop HKLM\ SYSTEM\Setup Registry monitoring.
         g_bRegistrySetupMonitorRunning = false;
         if (g_hRegistrySetupMonitorThread)
         {
@@ -1972,7 +1984,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             CloseHandle(g_hTimeMonitorThread);
         }
 
-        // Signal the monitor thread to stop.
+        // Signal the file trap monitor thread to stop.
         g_bFileTrapMonitorRunning = false;
         if (g_hFileTrapMonitorThread)
         {
