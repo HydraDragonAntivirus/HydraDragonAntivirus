@@ -30,8 +30,267 @@
 #define ONE_GB 1073741824ULL
 #define ONE_TB 1099511627776ULL
 
+// -----------------------------------------------------------------
+// Global Paths and Variables
+// -----------------------------------------------------------------
+const WCHAR LOG_FOLDER[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs";
+const WCHAR SIGMA_LOG_FILE[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEsigma_log.txt";
+const WCHAR ERROR_LOG_FILE[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEerror_log.txt";
+const WCHAR KNOWN_EXTENSIONS_FILE[] = L"C:\\Program Files\\HydraDragonAntivirus\\knownextensions\\extensions.txt";
+// The full location of diec.exe (Detect It Easy Console)
+const std::wstring detectiteasy_console_path = L"C:\\Program Files\\HydraDragonAntivirus\\detectiteasy\\diec.exe";
+
+std::vector<std::wstring> g_knownExtensions;
+static bool g_bExtensionsLoaded = false;
+
+// -----------------------------------------------------------------
+// Global Module Handles
+// -----------------------------------------------------------------
+// Our own module handle (stored during DLL_PROCESS_ATTACH)
+HMODULE g_hThisModule = NULL;
+
+// -----------------------------------------------------------------
+// Global Registry Mapping
+// -----------------------------------------------------------------
+CRITICAL_SECTION g_registryMapLock;
+std::unordered_map<HKEY, std::wstring> g_registryKeyMap;
+
+// Helper function: Converts a base HKEY to a string.
+std::wstring GetBaseKeyName(HKEY hKey) {
+    if (hKey == HKEY_CLASSES_ROOT) return L"HKEY_CLASSES_ROOT";
+    else if (hKey == HKEY_CURRENT_USER) return L"HKCU";
+    else if (hKey == HKEY_LOCAL_MACHINE) return L"HKLM";
+    else if (hKey == HKEY_USERS) return L"HKEY_USERS";
+    else if (hKey == HKEY_CURRENT_CONFIG) return L"HKEY_CURRENT_CONFIG";
+    else return L"(unknown)";
+}
+
+// ===== Added Global Variable for Ransomware Detection =====
+static int g_ransomware_detection_count = 0;
+
 void SafeWriteSigmaLog(const WCHAR* eventType, const WCHAR* details);
 void TriggerNotification(const WCHAR* title, const WCHAR* msg);
+
+// -----------------------------------------------------------------
+// Thread-local flag to prevent recursive logging.
+// -----------------------------------------------------------------
+__declspec(thread) bool g_bInLogging = false;
+
+// -----------------------------------------------------------------
+// Notification Infrastructure via Shell_NotifyIcon
+// -----------------------------------------------------------------
+HWND g_hNotificationWnd = NULL;
+
+HWND CreateNotificationWindow()
+{
+    const wchar_t* className = L"HydraDragonNotificationWindowClass";
+    WNDCLASS wc = { 0 };
+    wc.lpfnWndProc = DefWindowProc;
+    wc.hInstance = GetModuleHandle(NULL);
+    wc.lpszClassName = className;
+    RegisterClass(&wc);
+    HWND hWnd = CreateWindow(className, L"", WS_OVERLAPPED, CW_USEDEFAULT, CW_USEDEFAULT, 100, 100, NULL, NULL, wc.hInstance, NULL);
+    return hWnd;
+}
+
+void ShowNotification_Internal(const WCHAR* title, const WCHAR* msg)
+{
+    if (!g_hNotificationWnd)
+        return;
+    NOTIFYICONDATA nid = { 0 };
+    nid.cbSize = sizeof(nid);
+    nid.hWnd = g_hNotificationWnd;
+    nid.uID = 1001;
+    nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    nid.uCallbackMessage = WM_USER + 1;
+    nid.hIcon = LoadIcon(NULL, IDI_WARNING);
+    wcscpy_s(nid.szTip, title);
+    Shell_NotifyIcon(NIM_ADD, &nid);
+    nid.uFlags = NIF_INFO;
+    wcscpy_s(nid.szInfo, msg);
+    wcscpy_s(nid.szInfoTitle, title);
+    nid.dwInfoFlags = NIIF_WARNING;
+    Shell_NotifyIcon(NIM_MODIFY, &nid);
+    Sleep(5000);
+    Shell_NotifyIcon(NIM_DELETE, &nid);
+}
+
+LRESULT CALLBACK CustomNotificationWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    auto* pData = (std::pair<std::wstring, std::wstring>*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    switch (uMsg)
+    {
+    case WM_PAINT:
+    {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
+        RECT rect;
+        GetClientRect(hwnd, &rect);
+        HBRUSH hBrush = CreateSolidBrush(RGB(255, 255, 240));
+        FillRect(hdc, &rect, hBrush);
+        DeleteObject(hBrush);
+        FrameRect(hdc, &rect, (HBRUSH)GetStockObject(BLACK_BRUSH));
+
+        if (pData)
+        {
+            SetBkMode(hdc, TRANSPARENT);
+            HFONT hFont = CreateFont(16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                DEFAULT_PITCH, L"Segoe UI");
+            HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
+            RECT titleRect = rect;
+            titleRect.bottom = titleRect.top + 25;
+            DrawText(hdc, pData->first.c_str(), -1, &titleRect, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+            SelectObject(hdc, hOldFont);
+            DeleteObject(hFont);
+
+            RECT msgRect = rect;
+            msgRect.top += 30;
+            DrawText(hdc, pData->second.c_str(), -1, &msgRect, DT_CENTER | DT_WORDBREAK);
+        }
+        EndPaint(hwnd, &ps);
+        break;
+    }
+    case WM_TIMER:
+        KillTimer(hwnd, 1);
+        DestroyWindow(hwnd);
+        break;
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        break;
+    default:
+        return DefWindowProc(hwnd, uMsg, wParam, lParam);
+    }
+    return 0;
+}
+
+void PlayAggressiveSoundEffect()
+{
+    PlaySound(L"C:\\Program Files\\HydraDragonAntivirus\\assets\\alert.wav", NULL, SND_FILENAME | SND_ASYNC);
+}
+
+DWORD WINAPI NotificationThreadProc(LPVOID param)
+{
+    auto* pData = (std::pair<std::wstring, std::wstring>*)param;
+    PlayAggressiveSoundEffect();
+
+    const wchar_t* className = L"CustomNotificationWindowClass";
+    WNDCLASS wc = { 0 };
+    wc.lpfnWndProc = CustomNotificationWndProc;
+    wc.hInstance = GetModuleHandle(NULL);
+    wc.lpszClassName = className;
+    RegisterClass(&wc);
+
+    RECT workArea;
+    SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
+    int width = 500, height = 500;
+    int x = workArea.right - width - 10;
+    int y = workArea.bottom - height - 10;
+
+    HWND hwnd = CreateWindowEx(
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+        className,
+        pData->first.c_str(),
+        WS_POPUP,
+        x, y, width, height,
+        NULL, NULL, GetModuleHandle(NULL), NULL);
+
+    if (hwnd)
+    {
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
+        ShowWindow(hwnd, SW_SHOW);
+        UpdateWindow(hwnd);
+        SetTimer(hwnd, 1, 5000, NULL);
+
+        MSG msg;
+        while (GetMessage(&msg, NULL, 0, 0))
+        {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
+    }
+    else
+    {
+        delete pData;
+    }
+    return 0;
+}
+
+void TriggerNotification(const WCHAR* title, const WCHAR* msg)
+{
+    auto* pData = new std::pair<std::wstring, std::wstring>(title, msg);
+    HANDLE hThread = CreateThread(NULL, 0, NotificationThreadProc, pData, 0, NULL);
+    if (hThread)
+        CloseHandle(hThread);
+}
+
+// -----------------------------------------------------------------
+// Asynchronous Logging for Regular Logs
+// -----------------------------------------------------------------
+CRITICAL_SECTION g_logLock;
+std::vector<std::wstring> g_logQueue;
+HANDLE g_hLogThread = NULL;
+volatile bool g_bLogThreadRunning = true;
+
+void EnsureLogDirectory()
+{
+    CreateDirectory(LOG_FOLDER, NULL);
+}
+
+DWORD WINAPI LoggerThreadProc(LPVOID lpParameter)
+{
+    while (g_bLogThreadRunning)
+    {
+        std::vector<std::wstring> localQueue;
+        EnterCriticalSection(&g_logLock);
+        if (!g_logQueue.empty())
+            localQueue.swap(g_logQueue);
+        LeaveCriticalSection(&g_logLock);
+        if (!localQueue.empty())
+        {
+            EnsureLogDirectory();
+            FILE* f = nullptr;
+            if (_wfopen_s(&f, SIGMA_LOG_FILE, L"a+") == 0 && f)
+            {
+                for (const auto& msg : localQueue)
+                    fwprintf(f, L"%s\n", msg.c_str());
+                fclose(f);
+            }
+        }
+    }
+    return 0;
+}
+
+void QueueLogMessage(const std::wstring& message)
+{
+    EnterCriticalSection(&g_logLock);
+    g_logQueue.push_back(message);
+    LeaveCriticalSection(&g_logLock);
+}
+
+void WriteSigmaLog(const WCHAR* eventType, const WCHAR* details)
+{
+    time_t now = time(NULL);
+    struct tm tm_now;
+    localtime_s(&tm_now, &now);
+    WCHAR timeBuffer[64];
+    wcsftime(timeBuffer, 64, L"%Y-%m-%dT%H:%M:%SZ", &tm_now);
+    WCHAR logEntry[2048];
+    _snwprintf_s(logEntry, 2048, _TRUNCATE,
+        L"{\"timestamp\":\"%s\", \"event\":\"%s\", \"details\":\"%s\"}",
+        timeBuffer, eventType, details);
+    QueueLogMessage(logEntry);
+}
+
+void SafeWriteSigmaLog(const WCHAR* eventType, const WCHAR* details)
+{
+    if (g_bInLogging)
+        return;
+    g_bInLogging = true;
+    WriteSigmaLog(eventType, details);
+    g_bInLogging = false;
+}
 
 // Helper: Convert std::wstring (UTF-16) to std::string (UTF-8)
 std::string WideStringToUtf8(const std::wstring& wstr) {
@@ -108,44 +367,6 @@ void CheckForZipBomb(const std::wstring& filePath) {
         }
     }
 }
-
-// -----------------------------------------------------------------
-// Global Paths and Variables
-// -----------------------------------------------------------------
-const WCHAR LOG_FOLDER[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs";
-const WCHAR SIGMA_LOG_FILE[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEsigma_log.txt";
-const WCHAR ERROR_LOG_FILE[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEerror_log.txt";
-const WCHAR KNOWN_EXTENSIONS_FILE[] = L"C:\\Program Files\\HydraDragonAntivirus\\knownextensions\\extensions.txt";
-// The full location of diec.exe (Detect It Easy Console)
-const std::wstring detectiteasy_console_path = L"C:\\Program Files\\HydraDragonAntivirus\\detectiteasy\\diec.exe";
-
-std::vector<std::wstring> g_knownExtensions;
-static bool g_bExtensionsLoaded = false;
-
-// -----------------------------------------------------------------
-// Global Module Handles
-// -----------------------------------------------------------------
-// Our own module handle (stored during DLL_PROCESS_ATTACH)
-HMODULE g_hThisModule = NULL;
-
-// -----------------------------------------------------------------
-// Global Registry Mapping
-// -----------------------------------------------------------------
-CRITICAL_SECTION g_registryMapLock;
-std::unordered_map<HKEY, std::wstring> g_registryKeyMap;
-
-// Helper function: Converts a base HKEY to a string.
-std::wstring GetBaseKeyName(HKEY hKey) {
-    if (hKey == HKEY_CLASSES_ROOT) return L"HKEY_CLASSES_ROOT";
-    else if (hKey == HKEY_CURRENT_USER) return L"HKCU";
-    else if (hKey == HKEY_LOCAL_MACHINE) return L"HKLM";
-    else if (hKey == HKEY_USERS) return L"HKEY_USERS";
-    else if (hKey == HKEY_CURRENT_CONFIG) return L"HKEY_CURRENT_CONFIG";
-    else return L"(unknown)";
-}
-
-// ===== Added Global Variable for Ransomware Detection =====
-static int g_ransomware_detection_count = 0;
 
 // ===== Added Helper Functions for Ransomware Detection =====
 
@@ -345,78 +566,6 @@ void AddRegistryKeyMapping(HKEY hParent, LPCWSTR lpSubKey, HKEY hNewKey) {
     EnterCriticalSection(&g_registryMapLock);
     g_registryKeyMap[hNewKey] = fullPath;
     LeaveCriticalSection(&g_registryMapLock);
-}
-
-// -----------------------------------------------------------------
-// Thread-local flag to prevent recursive logging.
-// -----------------------------------------------------------------
-__declspec(thread) bool g_bInLogging = false;
-
-// -----------------------------------------------------------------
-// Asynchronous Logging for Regular Logs
-// -----------------------------------------------------------------
-CRITICAL_SECTION g_logLock;
-std::vector<std::wstring> g_logQueue;
-HANDLE g_hLogThread = NULL;
-volatile bool g_bLogThreadRunning = true;
-
-void EnsureLogDirectory()
-{
-    CreateDirectory(LOG_FOLDER, NULL);
-}
-
-DWORD WINAPI LoggerThreadProc(LPVOID lpParameter)
-{
-    while (g_bLogThreadRunning)
-    {
-        std::vector<std::wstring> localQueue;
-        EnterCriticalSection(&g_logLock);
-        if (!g_logQueue.empty())
-            localQueue.swap(g_logQueue);
-        LeaveCriticalSection(&g_logLock);
-        if (!localQueue.empty())
-        {
-            EnsureLogDirectory();
-            FILE* f = nullptr;
-            if (_wfopen_s(&f, SIGMA_LOG_FILE, L"a+") == 0 && f)
-            {
-                for (const auto& msg : localQueue)
-                    fwprintf(f, L"%s\n", msg.c_str());
-                fclose(f);
-            }
-        }
-    }
-    return 0;
-}
-
-void QueueLogMessage(const std::wstring& message)
-{
-    EnterCriticalSection(&g_logLock);
-    g_logQueue.push_back(message);
-    LeaveCriticalSection(&g_logLock);
-}
-
-void WriteSigmaLog(const WCHAR* eventType, const WCHAR* details)
-{
-    time_t now = time(NULL);
-    struct tm tm_now;
-    localtime_s(&tm_now, &now);
-    WCHAR timeBuffer[64];
-    wcsftime(timeBuffer, 64, L"%Y-%m-%dT%H:%M:%SZ", &tm_now);
-    WCHAR logEntry[2048];
-    _snwprintf_s(logEntry, 2048, _TRUNCATE,
-        L"{\"timestamp\":\"%s\", \"event\":\"%s\", \"details\":\"%s\"}",
-        timeBuffer, eventType, details);
-    QueueLogMessage(logEntry);
-}
-
-void SafeWriteSigmaLog(const WCHAR* eventType, const WCHAR* details)
-{
-    if (g_bInLogging)
-        return;
-    g_bInLogging = true;
-    WriteSigmaLog(eventType, details);
-    g_bInLogging = false;
 }
 
 // -----------------------------------------------------------------
@@ -703,155 +852,6 @@ void WriteMaliciousDiffLog(const std::wstring& diff)
     {
         SafeWriteSigmaLog(L"DiffLog", L"Failed to write malicious diff log.");
     }
-}
-
-// -----------------------------------------------------------------
-// Notification Infrastructure via Shell_NotifyIcon
-// -----------------------------------------------------------------
-HWND g_hNotificationWnd = NULL;
-
-HWND CreateNotificationWindow()
-{
-    const wchar_t* className = L"HydraDragonNotificationWindowClass";
-    WNDCLASS wc = { 0 };
-    wc.lpfnWndProc = DefWindowProc;
-    wc.hInstance = GetModuleHandle(NULL);
-    wc.lpszClassName = className;
-    RegisterClass(&wc);
-    HWND hWnd = CreateWindow(className, L"", WS_OVERLAPPED, CW_USEDEFAULT, CW_USEDEFAULT, 100, 100, NULL, NULL, wc.hInstance, NULL);
-    return hWnd;
-}
-
-void ShowNotification_Internal(const WCHAR* title, const WCHAR* msg)
-{
-    if (!g_hNotificationWnd)
-        return;
-    NOTIFYICONDATA nid = { 0 };
-    nid.cbSize = sizeof(nid);
-    nid.hWnd = g_hNotificationWnd;
-    nid.uID = 1001;
-    nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-    nid.uCallbackMessage = WM_USER + 1;
-    nid.hIcon = LoadIcon(NULL, IDI_WARNING);
-    wcscpy_s(nid.szTip, title);
-    Shell_NotifyIcon(NIM_ADD, &nid);
-    nid.uFlags = NIF_INFO;
-    wcscpy_s(nid.szInfo, msg);
-    wcscpy_s(nid.szInfoTitle, title);
-    nid.dwInfoFlags = NIIF_WARNING;
-    Shell_NotifyIcon(NIM_MODIFY, &nid);
-    Sleep(5000);
-    Shell_NotifyIcon(NIM_DELETE, &nid);
-}
-
-LRESULT CALLBACK CustomNotificationWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
-{
-    auto* pData = (std::pair<std::wstring, std::wstring>*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
-    switch (uMsg)
-    {
-    case WM_PAINT:
-    {
-        PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hwnd, &ps);
-        RECT rect;
-        GetClientRect(hwnd, &rect);
-        HBRUSH hBrush = CreateSolidBrush(RGB(255, 255, 240));
-        FillRect(hdc, &rect, hBrush);
-        DeleteObject(hBrush);
-        FrameRect(hdc, &rect, (HBRUSH)GetStockObject(BLACK_BRUSH));
-
-        if (pData)
-        {
-            SetBkMode(hdc, TRANSPARENT);
-            HFONT hFont = CreateFont(16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
-                DEFAULT_PITCH, L"Segoe UI");
-            HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
-            RECT titleRect = rect;
-            titleRect.bottom = titleRect.top + 25;
-            DrawText(hdc, pData->first.c_str(), -1, &titleRect, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
-            SelectObject(hdc, hOldFont);
-            DeleteObject(hFont);
-
-            RECT msgRect = rect;
-            msgRect.top += 30;
-            DrawText(hdc, pData->second.c_str(), -1, &msgRect, DT_CENTER | DT_WORDBREAK);
-        }
-        EndPaint(hwnd, &ps);
-        break;
-    }
-    case WM_TIMER:
-        KillTimer(hwnd, 1);
-        DestroyWindow(hwnd);
-        break;
-    case WM_DESTROY:
-        PostQuitMessage(0);
-        break;
-    default:
-        return DefWindowProc(hwnd, uMsg, wParam, lParam);
-    }
-    return 0;
-}
-
-void PlayAggressiveSoundEffect()
-{
-    PlaySound(L"C:\\Program Files\\HydraDragonAntivirus\\assets\\alert.wav", NULL, SND_FILENAME | SND_ASYNC);
-}
-
-DWORD WINAPI NotificationThreadProc(LPVOID param)
-{
-    auto* pData = (std::pair<std::wstring, std::wstring>*)param;
-    PlayAggressiveSoundEffect();
-
-    const wchar_t* className = L"CustomNotificationWindowClass";
-    WNDCLASS wc = { 0 };
-    wc.lpfnWndProc = CustomNotificationWndProc;
-    wc.hInstance = GetModuleHandle(NULL);
-    wc.lpszClassName = className;
-    RegisterClass(&wc);
-
-    RECT workArea;
-    SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
-    int width = 500, height = 500;
-    int x = workArea.right - width - 10;
-    int y = workArea.bottom - height - 10;
-
-    HWND hwnd = CreateWindowEx(
-        WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
-        className,
-        pData->first.c_str(),
-        WS_POPUP,
-        x, y, width, height,
-        NULL, NULL, GetModuleHandle(NULL), NULL);
-
-    if (hwnd)
-    {
-        SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
-        ShowWindow(hwnd, SW_SHOW);
-        UpdateWindow(hwnd);
-        SetTimer(hwnd, 1, 5000, NULL);
-
-        MSG msg;
-        while (GetMessage(&msg, NULL, 0, 0))
-        {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-        }
-    }
-    else
-    {
-        delete pData;
-    }
-    return 0;
-}
-
-void TriggerNotification(const WCHAR* title, const WCHAR* msg)
-{
-    auto* pData = new std::pair<std::wstring, std::wstring>(title, msg);
-    HANDLE hThread = CreateThread(NULL, 0, NotificationThreadProc, pData, 0, NULL);
-    if (hThread)
-        CloseHandle(hThread);
 }
 
 // -----------------------------------------------------------------
