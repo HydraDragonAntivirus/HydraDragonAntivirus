@@ -246,6 +246,10 @@ start_time = time.time()
 from functools import lru_cache
 print(f"functools.lru_cache module loaded in {time.time() - start_time:.6f} seconds")
 
+start_time = time.time()
+from GoStringUngarbler.gostringungarbler_lib import process_file
+print(f"GoStringUngarbler.gostringungarbler_lib.process_file module loaded in {time.time() - start_time:.6f} seconds")
+
 # Calculate and print total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
@@ -307,7 +311,9 @@ malicious_numeric_features = os.path.join(script_dir, "machinelearning", "malici
 benign_file_names = os.path.join(script_dir, "machinelearning", "benign_file_names.json")
 benign_numeric_features = os.path.join(script_dir, "machinelearning", "benign_numeric.pkl")
 resource_extractor_dir = os.path.join(script_dir, "resourcesextracted")
-yara_folder_path = os.path.join(script_dir, "yara")
+ungarbler_dir = os.path.join(script_dir, "ungarbler")
+ungarbler_string_dir = os.path.join(script_dir, "ungarbler_string")
+yara_dir = os.path.join(script_dir, "yara")
 excluded_rules_dir = os.path.join(script_dir, "excluded")
 excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
 website_rules_dir = os.path.join(script_dir, "website")
@@ -342,11 +348,11 @@ whitelist_sub_domains_path = os.path.join(website_rules_dir, "WhiteListSubDomain
 whitelist_mail_sub_domains_path = os.path.join(website_rules_dir, "WhiteListSubDomainsMail.txt")
 urlhaus_path = os.path.join(website_rules_dir, "urlhaus.txt")
 antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
-yaraxtr_yrc_path = os.path.join(yara_folder_path, "yaraxtr.yrc")
-compiled_rule_path = os.path.join(yara_folder_path, "compiled_rule.yrc")
-yarGen_rule_path = os.path.join(yara_folder_path, "machinelearning.yrc")
-icewater_rule_path = os.path.join(yara_folder_path, "icewater.yrc")
-valhalla_rule_path = os.path.join(yara_folder_path, "valhalla-rules.yrc")
+yaraxtr_yrc_path = os.path.join(yara_dir, "yaraxtr.yrc")
+compiled_rule_path = os.path.join(yara_dir, "compiled_rule.yrc")
+yarGen_rule_path = os.path.join(yara_dir, "machinelearning.yrc")
+icewater_rule_path = os.path.join(yara_dir, "icewater.yrc")
+valhalla_rule_path = os.path.join(yara_dir, "valhalla-rules.yrc")
 antivirus_domains_data = []
 ipv4_addresses_signatures_data = []
 ipv4_addresses_spam_signatures_data = []
@@ -4410,7 +4416,7 @@ existing_projects = []
 # List of already scanned files and their modification times
 scanned_files = []
 file_mod_times = {}
-directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_deepseek_dir, nuitka_source_code_dir, memory_dir, debloat_dir]
+directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_deepseek_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir]
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
@@ -5304,6 +5310,12 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: This is the main file.")
         elif file_path.startswith(memory_dir):
             logging.info(f"{file_path}: It's a dynamic analysis memory dump file.")
+        elif file_path.startswith(resource_extractor_dir):
+            logging.info(f"{file_path}: It's an RCData resources extracted directory.")
+        elif file_path.startswith(ungarbler_dir):
+            logging.info(f"{file_path}: It's a deobfuscated Go Garble directory.")
+        elif file_path.startswith(ungarbler_string_dir):
+            logging.info(f"{file_path}: It's a directory of deobfuscated Go Garble strings.")
         elif file_path.startswith(debloat_dir):
             logging.info(f"{file_path}: It's a debloated file dir.")
         elif file_path.startswith(jar_extracted_dir):
@@ -5697,6 +5709,52 @@ def extract_all_files_with_7z(file_path):
     except Exception as ex:
         logging.error(f"Error during 7z extraction: {ex}")
         return []
+
+def is_go_garble(file_path):
+    """
+    Check if the file is considered garble based on DIE analysis.
+    A file is considered garble if the analysis output contains both:
+      - "Compiler: Go(unknown)"
+      - "Language: Go"
+    """
+    try:
+        logging.info(f"Analyzing file: {file_path} for garble check using Detect It Easy...")
+        
+        # Ensure the JSON output directory exists
+        output_dir = Path(detectiteasy_json_dir)
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True)
+        
+        # Define the base name for the output JSON file
+        base_name = Path(file_path).with_suffix(".json")
+        json_output_path = get_unique_output_path(output_dir, base_name)
+        
+        # Run the DIE console command with the -j flag to generate JSON output
+        result = subprocess.run(
+            [detectiteasy_console_path, "-j", file_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        # Check if the analysis output indicates a garble file
+        if "Compiler: Go(unknown)" in result.stdout and "Language: Go" in result.stdout:
+            logging.info(f"File {file_path} is detected as garble based on DIE analysis.")
+            # Save the JSON output for future reference
+            with open(json_output_path, "w") as json_file:
+                json_file.write(result.stdout)
+            logging.info(f"Garble analysis result saved to {json_output_path}")
+            return True
+        else:
+            logging.info(f"File {file_path} is not detected as garble. DIE output: {result.stdout}")
+            return False
+
+    except subprocess.SubprocessError as ex:
+        logging.error(f"Error in is_garble while running Detect It Easy for {file_path}: {ex}")
+        return False
+    except Exception as ex:
+        logging.error(f"General error in is_garble while running Detect It Easy for {file_path}: {ex}")
+        return False
 
 def is_pyc_file(file_path):
     """Check if the file is a Python compiled file (.pyc) using Detect It Easy."""
@@ -6156,6 +6214,16 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
 
        # Extract the file name
         file_name = os.path.basename(file_path)
+
+        #Deobfuscate binaries obfuscated by Go Garble.
+        if is_go_garble: 
+            output_path = os.path.join(ungarbler_dir, os.path.basename(file_path))
+            string_output_path = os.path.join(ungarbler_string_dir, os.path.basename(file_path) + "_strings.txt")
+
+            results = process_file_go(file_path, output_path, string_output_path)
+            # Send files for scanning
+            scan_file_and_warn(output_path)
+            scan_file_and_warn(string_output_path)
 
         # Check if it's a .pyc file and decompile if needed
         if is_pyc_file(file_path):

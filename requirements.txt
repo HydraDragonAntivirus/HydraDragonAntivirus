@@ -21,6 +21,8 @@ macholib
 debloat
 numpy
 cryptography
-transformers # You will also need download https://huggingface.co/TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T?library=transformers
+unicorn
+capstone
+transformers # You will also need download https://huggingface.co/deepseek-ai/deepseek-coder-1.3b-instruct
 scapy # You will also need to download https://npcap.com/#download
 spacy # python -m spacy download en_core_web_md
