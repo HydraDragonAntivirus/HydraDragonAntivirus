@@ -27,8 +27,8 @@
 #pragma comment(lib, "detours.lib")
 #pragma comment(lib, "Advapi32.lib")
 
-#define ONE_GB 1073741824ULL
-#define ONE_TB 1099511627776ULL
+constexpr unsigned long long ONE_GB = 1073741824ULL; 
+constexpr unsigned long long ONE_TB = 1099511627776ULL;
 
 // -----------------------------------------------------------------
 // Global Paths and Variables
