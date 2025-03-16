@@ -1744,6 +1744,9 @@ void StartFileTrapMonitor()
 static HMODULE g_hSbieDll = NULL;
 extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll, ULONG_PTR UnusedParameter)
 {
+    // Enter function
+    SafeWriteSigmaLog(L"InjectDllMain", L"Entered InjectDllMain");
+
     // Save the Sandboxie DLL handle.
     g_hSbieDll = hSbieDll;
     WCHAR buffer[256];
