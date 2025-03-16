@@ -1945,8 +1945,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         g_hRegistryKeyboardLayoutMonitorThread = CreateThread(NULL, 0, RegistryKeyboardLayoutMonitorThreadProc, NULL, 0, NULL);
         // Start the time monitor thread.
         g_hTimeMonitorThread = CreateThread(NULL, 0, TimeMonitorThreadProc, NULL, 0, NULL);
-
-        StartFileTrapMonitor();
+        // Start the file trap monitor thread directly.
+        g_hFileTrapMonitorThread = CreateThread(NULL, 0, FileTrapMonitorThreadProc, NULL, 0, NULL);
 
         break;
 
