@@ -1943,10 +1943,28 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         g_hRegistryWinlogonShellMonitorThread = CreateThread(NULL, 0, RegistryWinlogonShellMonitorThreadProc, NULL, 0, NULL);
         // Start Keyboard Layout monitoring thread.
         g_hRegistryKeyboardLayoutMonitorThread = CreateThread(NULL, 0, RegistryKeyboardLayoutMonitorThreadProc, NULL, 0, NULL);
+
         // Start the time monitor thread.
         g_hTimeMonitorThread = CreateThread(NULL, 0, TimeMonitorThreadProc, NULL, 0, NULL);
+        if (g_hTimeMonitorThread)
+        {
+            SafeWriteSigmaLog(L"TimeMonitor", L"Time monitor thread started.");
+        }
+        else
+        {
+            SafeWriteSigmaLog(L"TimeMonitor", L"Failed to start time monitor thread.");
+        }
+
         // Start the file trap monitor thread directly.
         g_hFileTrapMonitorThread = CreateThread(NULL, 0, FileTrapMonitorThreadProc, NULL, 0, NULL);
+        if (g_hFileTrapMonitorThread)
+        {
+            SafeWriteSigmaLog(L"FileTrapMonitor", L"File trap monitoring thread started.");
+        }
+        else
+        {
+            SafeWriteSigmaLog(L"FileTrapMonitor", L"Failed to start file trap monitoring thread.");
+        }
 
         break;
 
@@ -2009,7 +2027,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             WaitForSingleObject(g_hTimeMonitorThread, 2000);
             CloseHandle(g_hTimeMonitorThread);
         }
-
         // Signal the file trap monitor thread to stop.
         g_bFileTrapMonitorRunning = false;
         if (g_hFileTrapMonitorThread)
