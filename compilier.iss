@@ -13,7 +13,7 @@
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
 ; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
-AppId={{9B4A19B2-69BC-4AD2-8781-BDD85DCEF0C9}
+AppId={9B4A19B2-69BC-4AD2-8781-BDD85DCEF0C9}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
@@ -50,6 +50,7 @@ Source: "C:\Users\victim\Documents\hydradownload\npcap-1.80.exe"; DestDir: "{tmp
 Source: "C:\Users\victim\Documents\hydradownload\Snort_2_9_20_Installer.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydradownload\JavaSetup8u431.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydradownload\jdk-23_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydradownload\windowsdesktop-runtime-8.0.14-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydradownload\Sandboxie-Classic-x64-v5.70.8.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydradownload\setup.bat"; DestDir: "{tmp}"; Flags: deleteafterinstall
 ; Note: Don't use "Flags: ignoreversion" on any shared system files
@@ -73,5 +74,6 @@ Filename: "{tmp}\npcap-1.80.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\Snort_2_9_20_Installer.x64.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\JavaSetup8u431.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\jdk-23_windows-x64_bin.exe"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\windowsdesktop-runtime-8.0.14-win-x64.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\Sandboxie-Classic-x64-v5.70.8.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\setup.bat"; Flags: shellexec waituntilterminated
