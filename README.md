@@ -19,7 +19,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Install malicious (datamaliciousorder) and benign (data2) database, then install requirements.txt from train.py and just run train.py with the same folder as datamaliciousorder and data2.
 
 ## Guide to compiling from source
-- You can compile YARA-X and YARA from the yara folder. The website database is not a complication. See the machine learning training guide to compile machine learning database. To compile antivirus.py install requirements.txt and use assets/HydraDragonAV.png then use buildcxfreeze.txt arguments and change based on your installed folder of HydraDragonAntivirus. After compiling cx_Freeze with python 3.11, Machine Learning, YARA then look at the compiler.iss and replace the code with your installed environment, you can find other files in repo like hydradownload folder and then compile it. It's done! Now you are ready to release your fork of HydraDragonAntivirus.
+- You can compile YARA-X and YARA from the yara folder. The website database is not a complication. See the machine learning training guide to compile machine learning database. To compile antivirus.py install requirements.txt and use assets/HydraDragonAV.png then use buildcxfreeze.txt arguments and change based on your installed folder of HydraDragonAntivirus.After compiling Machine Learning, YARA then look at the compiler.iss and replace the code with your installed environment, you can find other files in repo like hydradownload folder and then compile it. It's done! Now you are ready to release your fork of HydraDragonAntivirus.
 
 ## Ghidra Source Code
 - I now using 11.2.1: https://ghidra-sre.org/
@@ -145,13 +145,10 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - It's very good at static analysis, better than Dr.Web and Comodo, but Norton and Kaspersky are better than my product at static analysis. In dynamic analysis, it is excellent at detecting unknown malware and clearly better than ClamAV in static analysis. ClamAV doesn't have dynamic analysis. It's the best Turkish and open source malware analysis product but it's very aggressive.
 
 **Why does my antivirus detect this as malware?**
-- It's a false positive. It's a one-file compiled cx_Freeze file and contains the website, HIPS signatures without obfuscation. It's a fully open source product.
+- It's a false positive. It's contains the website, HIPS signatures without obfuscation. It's a fully open source antivirus product.
 
 **Why is it 5GB+?**
-- Because of website signatures, Ghidra, ClamAV and Java Development Kit. Website signatures are not very effective but they can detect old and new viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space. Java Development Kit is for Ghidra. That's 1GB+, but DeepSeek-Coder-1.3b and cx_Freeze (transformers, torch modules etc.) make a total of 5GB+. Note that it's a completely local (except update database and cloud checking for known files) and very professional open source antivirus.
-
-**I get unexpected errors when using compiled YARA-X rules.**
-- I don't usually encounter this problem, please create an issue.
+- Because of website signatures, Ghidra, ClamAV and Java Development Kit. Website signatures are not very effective but they can detect old and new viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space. Java Development Kit is for Ghidra. That's 1GB+, but DeepSeek-Coder-1.3b make a total of 5GB+. Note that it's a completely local (except update database and cloud checking for known files) and professional open source antivirus.
 
 **Why does the antivirus.exe application take too long to run?**
 - Sometimes you have to wait 5+ minutes when you run the program for the first time because a lot of things are loading.
