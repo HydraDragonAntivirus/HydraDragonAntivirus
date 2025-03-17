@@ -5676,6 +5676,69 @@ def check_pe_file(file_path, signature_check, file_name):
     except Exception as ex:
         logging.error(f"Error checking PE file {file_path}: {ex}")
 
+def extract_rcdata_resource(pe_path):
+    try:
+        pe = pefile.PE(pe_path)
+    except Exception as e:
+        logging.info(f"Error loading PE file: {e}")
+        return {}
+
+    # Check if the PE file has resources
+    if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
+        logging.info("No resources found in this file.")
+        return {}
+
+    extracted_data = {}
+    resource_count = 0
+    all_extracted_files = []  # Store all extracted file paths for scanning
+
+    # Ensure output directory exists
+    output_dir = os.path.join(general_extracted_dir, os.path.splitext(os.path.basename(pe_path))[0])
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Traverse the resource directory
+    for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+        type_name = get_resource_name(resource_type)
+
+        if not hasattr(resource_type, 'directory'):
+            continue
+
+        for resource_id in resource_type.directory.entries:
+            res_id = get_resource_name(resource_id)
+            if not hasattr(resource_id, 'directory'):
+                continue
+
+            for resource_lang in resource_id.directory.entries:
+                lang_id = resource_lang.id
+                data_rva = resource_lang.data.struct.OffsetToData
+                size = resource_lang.data.struct.Size
+                data = pe.get_memory_mapped_image()[data_rva:data_rva + size]
+
+                # Save extracted resource to a file
+                file_name = f"{type_name}_{res_id}_{lang_id}.bin"
+                output_path = os.path.join(output_dir, file_name)
+                with open(output_path, "wb") as f:
+                    f.write(data)
+
+                logging.info(f"Extracted resource saved: {output_path}")
+                all_extracted_files.append(output_path)
+
+                # If it's an RCData resource, store it in the dictionary
+                if type_name.lower() in ("rcdata", "10"):
+                    key = f"{type_name}_{res_id}_{lang_id}"
+                    extracted_data[key] = data
+
+    # Scan all extracted files
+    for file_path in all_extracted_files:
+        scan_and_warn(file_path)
+
+    if resource_count == 0:
+        logging.info("No resources were extracted.")
+    else:
+        logging.info(f"Extracted a total of {resource_count} resources.")
+
+    return extracted_data  # Only returning RCData resources
+
 def extract_all_files_with_7z(file_path):
     try:
         counter = 1
@@ -6505,12 +6568,12 @@ def extract_nuitka_file(file_path, nuitka_type):
             logging.info(f"Extracting Nuitka executable {file_path} to {nuitka_output_dir}")
 
             # Use enhanced 7z extraction
-            extracted_files = extract_all_files_with_7z(file_path)
+            extracted_file = extract_rcdata_resource(file_path)
 
-            if extracted_files:
-                logging.info(f"Successfully extracted files from Nuitka executable: {file_path}")
-                # Scan for RSRC/RCDATA resources
-                scan_rsrc_directory(extracted_files)
+            if extracted_file:
+                logging.info(f"Successfully extracted bytecode file from Nuitka executable: {file_path}")
+                # Scan for RSRC/RCDATA bytecode resources
+                scan_rsrc_directory(extracted_file)
             else:
                 logging.error(f"Failed to extract normal Nuitka executable: {file_path}")
 
