@@ -10,7 +10,7 @@ Current phishing active-inactive repos:
 https://github.com/Phishing-Database/Phishing.Database?tab=readme-ov-file
 Current heuristic malware or phishing ipv4-ipv6 repo:
 https://github.com/HydraDragonAntivirus/HydraDragonAntivirusSearchEngine
-IPv4DDoS.txt comes from: 
+IPv4BruteForce.txt comes from: 
 https://list.rtbh.com.tr/
 listed_email_365.txt comes from:
 https://www.stopforumspam.com/downloads
