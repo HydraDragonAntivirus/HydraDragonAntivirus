@@ -5667,15 +5667,14 @@ def extract_rcdata_resource(pe_path):
         pe = pefile.PE(pe_path)
     except Exception as e:
         logging.info(f"Error loading PE file: {e}")
-        return {}
+        return None
 
     # Check if the PE file has resources
     if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
         logging.info("No resources found in this file.")
-        return {}
+        return None
 
-    extracted_data = {}
-    resource_count = 0
+    first_rcdata_file = None  # Will hold the first RCData resource file path
     all_extracted_files = []  # Store all extracted file paths for scanning
 
     # Ensure output directory exists
@@ -5685,7 +5684,6 @@ def extract_rcdata_resource(pe_path):
     # Traverse the resource directory
     for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
         type_name = get_resource_name(resource_type)
-
         if not hasattr(resource_type, 'directory'):
             continue
 
@@ -5709,21 +5707,20 @@ def extract_rcdata_resource(pe_path):
                 logging.info(f"Extracted resource saved: {output_path}")
                 all_extracted_files.append(output_path)
 
-                # If it's an RCData resource, store it in the dictionary
-                if type_name.lower() in ("rcdata", "10"):
-                    key = f"{type_name}_{res_id}_{lang_id}"
-                    extracted_data[key] = data
+                # If it's an RCData resource and we haven't already set one, record its file path
+                if type_name.lower() in ("rcdata", "10") and first_rcdata_file is None:
+                    first_rcdata_file = output_path
 
     # Scan all extracted files
     for file_path in all_extracted_files:
         scan_and_warn(file_path)
 
-    if resource_count == 0:
-        logging.info("No resources were extracted.")
+    if first_rcdata_file is None:
+        logging.info("No RCData resource found.")
     else:
-        logging.info(f"Extracted a total of {resource_count} resources.")
+        logging.info(f"Using RCData resource file: {first_rcdata_file}")
 
-    return extracted_data  # Only returning RCData resources
+    return first_rcdata_file
 
 def extract_all_files_with_7z(file_path):
     try:
