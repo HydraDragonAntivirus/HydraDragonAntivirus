@@ -4561,8 +4561,9 @@ def clean_text(input_text):
 
 def scan_rsrc_file(file_path):
     """
-    Scans the provided file: extracts the last 11 lines, saves the full source code,
-    cleans the lines, and performs scans for domains, URLs, IP addresses, and Discord webhooks.
+    Scans the provided file by searching for the first line that contains 'upython.exe'
+    and extracts the source code portion from that line onward. The extracted code is cleaned,
+    saved to a uniquely named file, and scanned for domains, URLs, IP addresses, and Discord webhooks.
     
     :param file_path: Path to the file to be scanned.
     """
@@ -4573,44 +4574,43 @@ def scan_rsrc_file(file_path):
                 # Read the full content of the file, handling invalid UTF-8 gracefully
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                     lines = f.readlines()
-                
+
                 if lines:
-                    # Clean the lines
-                    lines_cleaned = [clean_text(line.strip()) for line in lines]
-                    logging.info(f"Extracted and cleaned content from {file_path}.")
-                    
-                    # Save the last 11 cleaned lines to a uniquely named file
-                    base_name = os.path.splitext(os.path.basename(file_path))[0]
-                    last_lines_path = os.path.join(nuitka_source_code_dir, f"{base_name}_last_lines.txt")
-                    counter = 1
-                    while os.path.exists(last_lines_path):
-                        last_lines_path = os.path.join(
-                            nuitka_source_code_dir, f"{base_name}_last_lines_{counter}.txt"
-                        )
-                        counter += 1
-                        
-                    # Only write the last 11 lines (or all lines if there are less than 11)
-                    with open(last_lines_path, "w", encoding="utf-8") as save_file:
-                        for line in lines_cleaned[-11:]:
-                            save_file.write(line + '\n')
-                    logging.info(f"Saved last 11 lines from {file_path} to {last_lines_path}")
-                    
-                    # Save the full source code to a separate uniquely named file
-                    full_code_path = os.path.join(nuitka_source_code_dir, f"{base_name}_full_code.txt")
-                    counter = 1
-                    while os.path.exists(full_code_path):
-                        full_code_path = os.path.join(
-                            nuitka_source_code_dir, f"{base_name}_full_code_{counter}.txt"
-                        )
-                        counter += 1
-                        
-                    with open(full_code_path, "w", encoding="utf-8") as full_code_file:
-                        full_code_file.writelines(lines)
-                    logging.info(f"Saved full source code from {file_path} to {full_code_path}")
-                    
-                    # Perform the scans on the entire file content
-                    file_content = ''.join(lines)
-                    scan_code_for_links(file_content, nuitka_flag=True)
+                    # Look for the first line that contains "upython.exe"
+                    source_index = None
+                    for i, line in enumerate(lines):
+                        if "upython.exe" in line:
+                            source_index = i
+                            break
+
+                    if source_index is not None:
+                        # Extract source code starting from the found index
+                        source_code_lines = lines[source_index:]
+                        # Clean each line by removing non-printable characters
+                        cleaned_source_code = [clean_text(line.rstrip()) for line in source_code_lines]
+
+                        # Save the extracted, cleaned source code to a uniquely named file
+                        base_name = os.path.splitext(os.path.basename(file_path))[0]
+                        save_path = os.path.join(nuitka_source_code_dir, f"{base_name}_source_code.txt")
+                        counter = 1
+                        while os.path.exists(save_path):
+                            save_path = os.path.join(
+                                nuitka_source_code_dir, f"{base_name}_source_code_{counter}.txt"
+                            )
+                            counter += 1
+
+                        with open(save_path, "w", encoding="utf-8") as save_file:
+                            for line in cleaned_source_code:
+                                save_file.write(line + '\n')
+                        logging.info(f"Saved extracted source code from {file_path} to {save_path}")
+
+                        # Join the extracted source code for scanning purposes
+                        extracted_source_code = ''.join(source_code_lines)
+
+                        # Perform the scans on the extracted source code
+                        scan_code_for_links(extracted_source_code)
+                    else:
+                        logging.info(f"No line containing 'python.exe' found in {file_path}.")
                 else:
                     logging.info(f"File {file_path} is empty.")
             except Exception as ex:
