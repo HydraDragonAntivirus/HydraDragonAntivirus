@@ -4562,9 +4562,10 @@ def clean_text(input_text):
 def scan_rsrc_file(file_path):
     """
     Scans the provided file by searching for the first line that contains 'upython.exe'
-    and extracts the source code portion from that line onward. The extracted code is cleaned,
-    saved to a uniquely named file, and scanned for domains, URLs, IP addresses, and Discord webhooks.
-    
+    and extracts the source code portion starting after 'upython.exe' on that line.
+    The extracted code is cleaned, saved to a uniquely named file, and scanned for domains,
+    URLs, IP addresses, and Discord webhooks.
+
     :param file_path: Path to the file to be scanned.
     """
     try:
@@ -4584,8 +4585,18 @@ def scan_rsrc_file(file_path):
                             break
 
                     if source_index is not None:
-                        # Extract source code starting from the found index
-                        source_code_lines = lines[source_index:]
+                        # Process the line containing 'upython.exe' by taking only the text after it
+                        line_with_marker = lines[source_index]
+                        marker_index = line_with_marker.find("upython.exe")
+                        # Extract text after 'upython.exe'
+                        remainder = line_with_marker[marker_index + len("upython.exe"):].lstrip()
+                        
+                        # Build the list of source code lines starting with the remainder (if any) and subsequent lines
+                        source_code_lines = []
+                        if remainder:
+                            source_code_lines.append(remainder)
+                        source_code_lines.extend(lines[source_index + 1:])
+
                         # Clean each line by removing non-printable characters
                         cleaned_source_code = [clean_text(line.rstrip()) for line in source_code_lines]
 
@@ -4601,7 +4612,7 @@ def scan_rsrc_file(file_path):
 
                         with open(save_path, "w", encoding="utf-8") as save_file:
                             for line in cleaned_source_code:
-                                save_file.write(line + '\n')
+                                save_file.write(line + "\n")
                         logging.info(f"Saved extracted source code from {file_path} to {save_path}")
 
                         # Join the extracted source code for scanning purposes
@@ -4610,7 +4621,7 @@ def scan_rsrc_file(file_path):
                         # Perform the scans on the extracted source code
                         scan_code_for_links(extracted_source_code)
                     else:
-                        logging.info(f"No line containing 'python.exe' found in {file_path}.")
+                        logging.info(f"No line containing 'upython.exe' found in {file_path}.")
                 else:
                     logging.info(f"File {file_path} is empty.")
             except Exception as ex:
