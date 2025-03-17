@@ -4559,80 +4559,66 @@ def clean_text(input_text):
     cleaned_text = re.sub(r'[\x00-\x1F\x7F]+', '', input_text)
     return cleaned_text
 
-def scan_rsrc_directory(extracted_files):
+def scan_rsrc_file(file_path):
     """
-    Scans all files in the extracted_files list for .rsrc\\RCDATA, extracts
-    the last 11 lines, the full source code, cleans them, and performs scans for domains, URLs, IP addresses,
-    and Discord webhooks.
+    Scans the provided file: extracts the last 11 lines, saves the full source code,
+    cleans the lines, and performs scans for domains, URLs, IP addresses, and Discord webhooks.
     
-    :param extracted_files: List of files extracted by 7z.
+    :param file_path: Path to the file to be scanned.
     """
     try:
-        for extracted_file in extracted_files:
-            # Check if the file path contains .rsrc\RCDATA
-            if ".rsrc\\RCDATA" in extracted_file or ".rsrc/RCDATA" in extracted_file:
-                logging.info(f"Processing RCDATA file: {extracted_file}")
-
-                # Ensure the path refers to an actual file
-                if os.path.isfile(extracted_file):
-                    try:
-                        # Read the full content of the file, handling invalid UTF-8 gracefully
-                        with open(extracted_file, "r", encoding="utf-8", errors="ignore") as f:
-                            lines = f.readlines()
-                            if lines:
-                                # Clean the last lines
-                                lines_cleaned = [clean_text(line.strip()) for line in lines]
-
-                                # Log the success of processing last 11 lines
-                                logging.info(f"Extracted and cleaned last 11 lines from {extracted_file}.")
-
-                                # Save the last 11 lines to a uniquely named file
-                                base_name = os.path.splitext(os.path.basename(extracted_file))[0]
-                                last_lines_path = os.path.join(nuitka_source_code_dir, f"{base_name}_last_lines.txt")
-                                counter = 1
-                                while os.path.exists(last_lines_path):
-                                    last_lines_path = os.path.join(
-                                        nuitka_source_code_dir, f"{base_name}_last_lines_{counter}.txt"
-                                    )
-                                    counter += 1
-
-                                # Write each cleaned line to the file
-                                with open(last_lines_path, "w", encoding="utf-8") as save_file:
-                                    for line in lines_cleaned:
-                                        save_file.write(line + '\n')
-                                logging.info(f"Saved last 11 lines from {extracted_file} to {last_lines_path}")
-
-                                # Save the full source code to a separate file
-                                full_code_path = os.path.join(nuitka_source_code_dir, f"{base_name}_full_code.txt")
-                                counter = 1
-                                while os.path.exists(full_code_path):
-                                    full_code_path = os.path.join(
-                                        nuitka_source_code_dir, f"{base_name}_full_code_{counter}.txt"
-                                    )
-                                    counter += 1
-
-                                # Write the full content to the file
-                                with open(full_code_path, "w", encoding="utf-8") as full_code_file:
-                                    full_code_file.writelines(lines)
-                                logging.info(f"Saved full source code from {extracted_file} to {full_code_path}")
-
-                                # Scan the entire file content
-                                rsrc_content = ''.join(lines)  # Use the entire content of the file
-
-                                # Perform the scans
-                                scan_code_for_links(rsrc_content, nuitka_flag=True)
-
-                            else:
-                                logging.info(f"File {extracted_file} is empty.")
-                    except Exception as ex:
-                        logging.error(f"Error reading file {extracted_file}: {ex}")
+        if os.path.isfile(file_path):
+            logging.info(f"Processing file: {file_path}")
+            try:
+                # Read the full content of the file, handling invalid UTF-8 gracefully
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    lines = f.readlines()
+                
+                if lines:
+                    # Clean the lines
+                    lines_cleaned = [clean_text(line.strip()) for line in lines]
+                    logging.info(f"Extracted and cleaned content from {file_path}.")
+                    
+                    # Save the last 11 cleaned lines to a uniquely named file
+                    base_name = os.path.splitext(os.path.basename(file_path))[0]
+                    last_lines_path = os.path.join(nuitka_source_code_dir, f"{base_name}_last_lines.txt")
+                    counter = 1
+                    while os.path.exists(last_lines_path):
+                        last_lines_path = os.path.join(
+                            nuitka_source_code_dir, f"{base_name}_last_lines_{counter}.txt"
+                        )
+                        counter += 1
+                        
+                    # Only write the last 11 lines (or all lines if there are less than 11)
+                    with open(last_lines_path, "w", encoding="utf-8") as save_file:
+                        for line in lines_cleaned[-11:]:
+                            save_file.write(line + '\n')
+                    logging.info(f"Saved last 11 lines from {file_path} to {last_lines_path}")
+                    
+                    # Save the full source code to a separate uniquely named file
+                    full_code_path = os.path.join(nuitka_source_code_dir, f"{base_name}_full_code.txt")
+                    counter = 1
+                    while os.path.exists(full_code_path):
+                        full_code_path = os.path.join(
+                            nuitka_source_code_dir, f"{base_name}_full_code_{counter}.txt"
+                        )
+                        counter += 1
+                        
+                    with open(full_code_path, "w", encoding="utf-8") as full_code_file:
+                        full_code_file.writelines(lines)
+                    logging.info(f"Saved full source code from {file_path} to {full_code_path}")
+                    
+                    # Perform the scans on the entire file content
+                    file_content = ''.join(lines)
+                    scan_code_for_links(file_content, nuitka_flag=True)
                 else:
-                    logging.warning(f"Path {extracted_file} is not a valid file.")
-            else:
-                logging.debug(f"Skipping non-RCDATA file: {extracted_file}")
-
+                    logging.info(f"File {file_path} is empty.")
+            except Exception as ex:
+                logging.error(f"Error reading file {file_path}: {ex}")
+        else:
+            logging.warning(f"Path {file_path} is not a valid file.")
     except Exception as ex:
-        logging.error(f"Error during RCDATA file scanning: {ex}")
+        logging.error(f"Error during file scanning: {ex}")
 
 def scan_directory_for_executables(directory):
     """
@@ -6573,7 +6559,7 @@ def extract_nuitka_file(file_path, nuitka_type):
             if extracted_file:
                 logging.info(f"Successfully extracted bytecode file from Nuitka executable: {file_path}")
                 # Scan for RSRC/RCDATA bytecode resources
-                scan_rsrc_directory(extracted_file)
+                scan_rsrc_file(extracted_file)
             else:
                 logging.error(f"Failed to extract normal Nuitka executable: {file_path}")
 
