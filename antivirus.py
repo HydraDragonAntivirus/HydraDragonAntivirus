@@ -3917,7 +3917,7 @@ def scan_tar_file(file_path):
         logging.error(f"Error scanning tar file: {file_path} - {ex}")
         return False, ""
 
-def scan_file_real_time(file_path, signature_check, pe_file=False):
+def scan_file_real_time(file_path, signature_check, file_name, pe_file=False):
     """Scan file in real-time using multiple engines."""
     logging.info(f"Started scanning file: {file_path}")
 
@@ -3937,6 +3937,13 @@ def scan_file_real_time(file_path, signature_check, pe_file=False):
                 logging.info(f"No malware detected by Machine Learning in file: {file_path}")
         except Exception as ex:
             logging.error(f"An error occurred while scanning file with Machine Learning AI: {file_path}. Error: {ex}")
+
+        # Worm analysis and fake file analysis
+        try:
+            if pe_file:
+                check_pe_file(file_path, signature_check, file_name)
+        except Exception as ex:
+            logging.error(f"An error occurred while scanning the file for fake system files and worm analysis: {file_path}. Error: {ex}")
 
         # Scan with ClamAV
         try:
@@ -5655,14 +5662,14 @@ def decompile_dotnet_file(file_path):
     except Exception as ex:
         logging.error(f"Error decompiling .NET file {file_path}: {ex}")
 
-def check_pe_file(file_path, pe_file, signature_check, file_name):
+def check_pe_file(file_path, signature_check, file_name):
     try:
         logging.info(f"File {file_path} is a valid PE file.")
         worm_alert(file_path)
 
         # Check for fake system files after signature validation
         if file_name in fake_system_files and os.path.abspath(file_path).startswith(main_drive_path):
-            if pe_file and not signature_check["is_valid"]:
+            if not signature_check["is_valid"]:
                 logging.warning(f"Detected fake system file: {file_path}")
                 notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.gen")
 
@@ -6418,7 +6425,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
                     notify_user_fake_size_thread.start()
 
         # Perform real-time scan
-        is_malicious, virus_names, engine_detected = scan_file_real_time(file_path, signature_check, pe_file=pe_file)
+        is_malicious, virus_names, engine_detected = scan_file_real_time(file_path, signature_check, file_name, pe_file=pe_file)
 
         # Inside the scan check logic
         if is_malicious:
