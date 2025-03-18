@@ -61,5 +61,28 @@ if %errorlevel% equ 0 (
     echo Failed to install python requirements.
 )
 
+echo --- Starting Sandboxie Configuration Update ---
+
+REM 1. Copy Sandboxie.ini file to the target location
+if exist "C:\Program Files\HydraDragonAntivirus\SandboxieSettings\Sandboxie.ini" (
+    copy /Y "C:\Program Files\HydraDragonAntivirus\SandboxieSettings\Sandboxie.ini" "C:\Windows\Sandboxie.ini"
+    echo Sandboxie.ini was successfully copied.
+) else (
+    echo Source file not found: Sandboxie.ini
+)
+
+REM 2. Delete the SandboxieSettings folder
+if exist "C:\Program Files\HydraDragonAntivirus\SandboxieSettings" (
+    rmdir /s /q "C:\Program Files\HydraDragonAntivirus\SandboxieSettings"
+    echo SandboxieSettings folder has been deleted.
+) else (
+    echo SandboxieSettings folder not found.
+)
+
+REM 3. Restart Sandboxie configuration (restart the Sandboxie service)
+echo Restarting Sandboxie configuration...
+net stop SbieSvc
+net start SbieSvc
+
 echo Setup complete.
 pause
