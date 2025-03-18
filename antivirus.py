@@ -3550,8 +3550,6 @@ class NuitkaExtractor:
     
     def _detect_file_type(self) -> int:
         """Detect the executable file type using Detect It Easy methods"""
-        if is_nuitka_file(self.filepath):
-            return FileType.PE  # Assuming Nuitka files are detected as PE files
         elif is_pe_file(self.filepath):
             return FileType.PE
         elif is_elf_file(self.filepath):
