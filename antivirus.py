@@ -380,9 +380,6 @@ scanned_urls_general = []
 scanned_domains_general = []
 scanned_ipv4_addresses_general = []
 scanned_ipv6_addresses_general = []
-# Digital Signatures data
-digital_signautres_list_antivirus_path = []
-digital_signautres_list_microsoft_path = []
 
 clamdscan_path = "C:\\Program Files\\ClamAV\\clamdscan.exe"
 freshclam_path = "C:\\Program Files\\ClamAV\\freshclam.exe"
