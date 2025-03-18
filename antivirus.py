@@ -3339,7 +3339,7 @@ def is_elf_file(file_path):
         result = subprocess.run([detectiteasy_console_path, "-j", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
         # Check for ELF format in the result
-        if "ELF" in result.stdout:
+        if "ELF32" in result.stdout or "ELF64" in result.stdout:
             # Save the JSON output to the specified unique file
             with open(json_output_path, "w") as json_file:
                 json_file.write(result.stdout)
