@@ -564,16 +564,6 @@ class PEFeatureExtractor:
                     for debug in getattr(pe, 'DIRECTORY_ENTRY_DEBUG', [])
                 ] if hasattr(pe, 'DIRECTORY_ENTRY_DEBUG') else [],
 
-                # Relocations
-                'relocations': [
-                    {
-                        'virtual_address': entry.rva,
-                        'type': entry.type
-                    }
-                    for relocation in getattr(pe, 'DIRECTORY_ENTRY_BASERELOC', [])
-                    for entry in getattr(relocation, 'entries', [])
-                ] if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC') else [],
-
                 # Certificates
                 'certificates': self.analyze_certificates(pe),  # Analyze certificates
 

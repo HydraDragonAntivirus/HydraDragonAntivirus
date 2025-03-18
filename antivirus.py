@@ -1302,16 +1302,6 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
                 if hasattr(resource_lang, 'data')
             ] if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE') else [],
 
-            # Relocations
-            'relocations': [
-                {
-                    'virtual_address': entry.rva,
-                    'type': entry.type
-                }
-                for relocation in getattr(pe, 'DIRECTORY_ENTRY_BASERELOC', [])
-                for entry in getattr(relocation, 'entries', [])
-            ] if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC') else [],
-
             # Certificates
             'certificates': analyze_certificates(pe),  # Analyze certificates
 
@@ -1510,7 +1500,7 @@ def notify_user_worm(file_path, virus_name):
     notification.message = f"Potential worm detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
-def notify_user_for_web(domain=None, ip_address=None, url=None, file_path=None, detection_type=None):
+def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address, url=None, file_path=None, detection_type=None):
     notification = Notify()
     notification.title = "Malware or Phishing Alert"
 
@@ -1521,9 +1511,9 @@ def notify_user_for_web(domain=None, ip_address=None, url=None, file_path=None, 
     if domain:
         message_parts.append(f"Domain: {domain}")
     if ipv4_address:
-        message_parts.append(f"IPv4 Address: {ip_address}")
+        message_parts.append(f"IPv4 Address: {ipv4_address}")
     if ipv6_address:
-        message_parts.append(f"IPv6 Address: {ip_address}")
+        message_parts.append(f"IPv6 Address: {ipv6_address}")
     if url:
         message_parts.append(f"URL: {url}")
     if file_path:
