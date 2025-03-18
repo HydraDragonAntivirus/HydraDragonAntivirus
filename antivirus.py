@@ -6355,10 +6355,6 @@ def extract_nuitka_file(file_path, nuitka_type):
 
             # Extract the Nuitka executable
             file_name_without_extension = os.path.splitext(os.path.basename(file_path))[0]
-            nuitka_output_dir = os.path.join(nuitka_dir, f"Nuitka_{file_name_without_extension}")
-            os.makedirs(nuitka_output_dir, exist_ok=True)
-
-            logging.info(f"Extracting Nuitka executable {file_path} to {nuitka_output_dir}")
 
             # Use enhanced 7z extraction
             extracted_file = extract_rcdata_resource(file_path)
