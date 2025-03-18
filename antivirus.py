@@ -1,7 +1,7 @@
 import os
 import sys
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 import io
 
@@ -36,94 +36,78 @@ logging.info("Application started at %s", datetime.now().strftime("%Y-%m-%d %H:%
 # Start timing total duration
 total_start_time = time.time()
 
-# Measure and print time taken for each import
+# Measure and logging.info time taken for each import
 start_time = time.time()
 import shutil
-print(f"shutil module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"shutil module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import subprocess
-print(f"subprocess module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"subprocess module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import threading
-print(f"threading module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"threading module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import re
-print(f"re module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"re module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import json
-print(f"json module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QFileDialog, QMessageBox, QStackedWidget
-print(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from PySide6.QtCore import QObject, QThread, Signal
-print(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from PySide6.QtGui import QIcon
-print(f"PySide6.QtGui.QIcon module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"json module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import joblib
-print(f"joblib module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"joblib module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import pefile
-print(f"pefile module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"pefile module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import zipfile
-print(f"zipfile module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"zipfile module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import tarfile
-print(f"tarfile module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"tarfile module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import yara
-print(f"yara module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"yara module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import yara_x
-print(f"yara_x module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"yara_x module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import psutil
-print(f"psutil module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"psutil module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from notifypy import Notify
-print(f"notifypy.Notify module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"notifypy.Notify module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from watchdog.observers import Observer
-print(f"watchdog.observers.Observer module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"watchdog.observers.Observer module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from watchdog.events import FileSystemEventHandler
-print(f"watchdog.events.FileSystemEventHandler module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"watchdog.events.FileSystemEventHandler module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import win32file
-print(f"win32file module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"win32file module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import win32con
-print(f"win32con module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from datetime import timedelta
-print(f"datetime.timedelta modules loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"win32con module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import numpy as np
-print(f"numpy module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"numpy module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 
@@ -132,134 +116,144 @@ from scapy.layers.inet6 import IPv6
 from scapy.layers.dns import DNS, DNSQR, DNSRR
 from scapy.sendrecv import sniff
 
-print(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ctypes
-print(f"ctypes module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"ctypes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ipaddress
-print(f"ipaddress module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"ipaddress module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from urllib.parse import urlparse
-print(f"urlib.parse.urlparse module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"urlib.parse.urlparse module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import spacy
-print(f"spacy module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"spacy module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import csv
-print(f"csv module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"csv module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import struct
-print(f"struct module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"struct module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import zlib
-print(f"zlib module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"zlib module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import marshal
-print(f"marshal module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"marshal module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import base64
-print(f"base64 module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"base64 module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import base32_crockford
-print(f"base32_crockford module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"base32_crockford module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import binascii
-print(f"binascii module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"binascii module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from transformers import AutoTokenizer, AutoModelForCausalLM
-print(f"transformers.AutoTokenizer and AutoModelForCausalLM modules loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"transformers.AutoTokenizer and AutoModelForCausalLM modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from accelerate import Accelerator
-print(f"accelerate.Accelerator module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"accelerate.Accelerator module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import py7zr
-print(f"py7zr module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"py7zr module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import uncompyle6
-print(f"uncompyle6 module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"uncompyle6 module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import pymem
-print(f"pymem module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"pymem module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import inspect
-print(f"pymem module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"pymem module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import zstandard
-print(f"zstandard module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"zstandard module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from elftools.elf.elffile import ELFFile
-print(f"elftools.elf.effile, ELFFile module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"elftools.elf.effile, ELFFile module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import macholib.MachO
-print(f"macholib.Mach0 module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"macholib.Mach0 module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import macholib.mach_o
-print(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from typing import Optional, Tuple, BinaryIO, Dict, Any, List
-print(f"typing, Optional, Tuple, BinaryIO, Dict and Any module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"typing, Optional, Tuple, BinaryIO, Dict and Any module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-print(f"cryptography.hazmat.primitives.ciphers, Cipher, algorithms, modes module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"cryptography.hazmat.primitives.ciphers, Cipher, algorithms, modes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import debloat.processor
-print(f"debloat modules loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"debloat modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from pathlib import Path
-print(f"pathlib.Path module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"pathlib.Path module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import hashlib
-print(f"hashlib module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"hashlib module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import requests
-print(f"reqeusts module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"reqeusts module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from functools import lru_cache
-print(f"functools.lru_cache module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"functools.lru_cache module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from GoStringUngarbler.gostringungarbler_lib import process_file
-print(f"GoStringUngarbler.gostringungarbler_lib.process_file module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"GoStringUngarbler.gostringungarbler_lib.process_file module loaded in {time.time() - start_time:.6f} seconds")
 
-# Calculate and print total time
+start_time = time.time()
+import uvicorn
+logging.info(f"uvicorn module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from fastapi import FastAPI, HTTPException, File, UploadFile
+logging.info(f"fastapi.FastAPI, HTTPException, File and UploadFile module loaded in {time.time() - start_time:.6f} seconds")
+
+# Calculate and logging.info total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
-print(f"Total time for all imports: {total_duration:.6f} seconds")
+logging.info(f"Total time for all imports: {total_duration:.6f} seconds")
+
+app = FastAPI()
 
 sys.modules['sklearn.externals.joblib'] = joblib
 
 # Load the spaCy model globally
 nlp_spacy_lang = spacy.load("en_core_web_md")
-print("spaCy model 'en_core_web_md' loaded successfully")
+logging.info("spaCy model 'en_core_web_md' loaded successfully")
 
 # Initialize the accelerator
 accelerator = Accelerator()
@@ -280,7 +274,6 @@ extensions_dir = os.path.join(script_dir, "knownextensions")
 system_file_names_path = os.path.join(script_dir, "systemfilenames.txt")
 extensions_path = os.path.join(extensions_dir, "extensions.txt")
 magic_bytes_path = os.path.join(extensions_dir, "magicbytes.txt")
-pyintstaller_dir = os.path.join(script_dir, "pyinstaller")
 deepseek_dir = os.path.join(script_dir, "deepseek")
 deepseek_1b_dir = os.path.join(deepseek_dir, "DeepSeek-Coder-1.3B")
 python_source_code_dir = os.path.join(script_dir, "pythonsourcecode")
@@ -435,12 +428,12 @@ def extract_resources(pe_path, output_dir):
     try:
         pe = pefile.PE(pe_path)
     except Exception as e:
-        logging.info(f"Error loading PE file: {e}")
+        logging.error(f"Error loading PE file: {e}")
         return
 
     # Check if the PE file has resources
     if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-        logging.info("No resources found in this file.")
+        logging.error("No resources found in this file.")
         return
 
     os.makedirs(output_dir, exist_ok=True)
@@ -468,7 +461,7 @@ def extract_resources(pe_path, output_dir):
                 output_path = os.path.join(output_dir, file_name)
                 with open(output_path, "wb") as f:
                     f.write(data)
-                print(f"Resource saved: {output_path}")
+                logging.info(f"Resource saved: {output_path}")
                 resource_count += 1
 
                 # Call scan_and_warn on the extracted file
@@ -486,9 +479,9 @@ try:
         with open(extensions_path, 'r') as ext_file:
             fileTypes = [line.strip() for line in ext_file.readlines()]
 except Exception as ex:
-    print(f"Error reading {extensions_path}: {ex}")
+    logging.info(f"Error reading {extensions_path}: {ex}")
 
-print(f"File types read from {extensions_path}: {fileTypes}")
+logging.info(f"File types read from {extensions_path}: {fileTypes}")
 
 pe_file_paths = []  # List to store the PE file paths
 
@@ -505,52 +498,13 @@ try:
                 magic, file_type = parts
                 magic_bytes[magic] = file_type
 
-    # If reading and processing is successful, print the dictionary
-    print("Magic bytes have been successfully loaded.")
+    # If reading and processing is successful, logging.info the dictionary
+    logging.info("Magic bytes have been successfully loaded.")
 
 except FileNotFoundError:
-    print(f"Error: The file {magicbytes_path} was not found.")
+    logging.info(f"Error: The file {magicbytes_path} was not found.")
 except Exception as e:
-    print(f"An error occurred: {e}")
-
-antivirus_style = """
-QWidget {
-    background-color: #2b2b2b;
-    color: #e0e0e0;
-    font-family: Arial, sans-serif;
-    font-size: 14px;
-}
-
-QPushButton {
-    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
-                                stop:0.2 #007bff, stop:0.8 #0056b3);
-    color: white;
-    border: 2px solid #007bff;
-    padding: 4px 10px;  /* Adjusted padding */
-    border-radius: 8px;  /* Adjusted border-radius */
-    min-width: 250px;  /* Adjusted min-width */
-    font-weight: bold;
-    text-align: center;
-    qproperty-iconSize: 16px;
-}
-
-QPushButton:hover {
-    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
-                                stop:0.2 #0056b3, stop:0.8 #004380);
-    border-color: #0056b3;
-}
-
-QPushButton:pressed {
-    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
-                                stop:0.2 #004380, stop:0.8 #003d75);
-    border-color: #004380;
-}
-
-QFileDialog {
-    background-color: #2b2b2b;
-    color: #e0e0e0;
-}
-"""
+    logging.error(f"An error occurred: {e}")
 
 # --- Query MD5 Online Function with Caching ---
 @lru_cache(maxsize=1024)
@@ -770,7 +724,7 @@ def debloat_pe_file(file_path):
         # Use debloat.processor.process_pe to debloat the file, passing last_ditch_processing
         debloat.processor.process_pe(
             pe,
-            log_message=print,  # Log via print or a logger if preferred
+            log_message=logging.info,  # Log via logging.info or a logger if preferred
             last_ditch_processing=last_ditch_processing,  # Pass last_ditch_processing
             out_path=out_path,  # out_path is now a directory
         )
@@ -880,7 +834,6 @@ def process_file_data(file_path):
 
     except Exception as ex:
         logging.error(f"Error processing file {file_path}: {ex}")
-        print(f"Error processing file {file_path}: {ex}")
 
 def extract_infos(file_path, rank=None):
     """Extract information about file"""
@@ -1442,8 +1395,8 @@ def notify_user_for_malicious_source_code(file_path, virus_name):
     notification_message = f"Suspicious source code detected in: {file_path}\nVirus: {virus_name}"
     logging.warning(notification_title)
     logging.warning(notification_message)
-    print(notification_title)
-    print(notification_message)
+    logging.info(notification_title)
+    logging.info(notification_message)
 
 def notify_user_for_detected_command(message):
     logging.warning(f"Notification: {message}")
@@ -1606,7 +1559,7 @@ def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
     notification.title = "Web Malware Alert For File"
     notification.message = f"{status} file detected by Web related Message: {file_path}\nSource IP: {src_ip}\nAlert Line: {alert_line}"
     notification.send()
-    print(f"Real-time web message notification: Detected {status} file {file_path} from {src_ip} with alert line: {alert_line}")
+    logging.info(f"Real-time web message notification: Detected {status} file {file_path} from {src_ip} with alert line: {alert_line}")
 
 # Function to load antivirus list
 def load_antivirus_list():
@@ -1623,10 +1576,10 @@ def load_digital_signatures(file_path, description="Digital signatures"):
     try:
         with open(file_path, 'r', encoding='utf-8') as file:
             signatures = file.read().splitlines()
-        print(f"{description} loaded successfully!")
+        logging.info(f"{description} loaded successfully!")
         return signatures
     except Exception as ex:
-        print(f"Error loading {description}: {ex}")
+        logging.error(f"Error loading {description}: {ex}")
         return []
     
 def load_website_data():
@@ -1636,89 +1589,89 @@ def load_website_data():
         # Load IPv4 Malicious addresses
         with open(ipv4_addresses_path, 'r') as ip_malicious_file:
             ipv4_addresses_signatures_data = ip_malicious_file.read().splitlines()
-        print("Malicious IPv4 Addresses loaded successfully!")
+        logging.info("Malicious IPv4 Addresses loaded successfully!")
     except Exception as ex:
-        print(f"Error loading malicious IPv4 Addresses: {ex}")
+        logging.error(f"Error loading malicious IPv4 Addresses: {ex}")
 
     try:
         # Load IPv4 Spam addresses
         with open(ipv4_addresses_spam_path, 'r') as ip_spam_file:
             ipv4_addresses_spam_signatures_data = ip_spam_file.read().splitlines()
-        print("Spam IPv4 Addresses loaded successfully!")
+        logging.info("Spam IPv4 Addresses loaded successfully!")
     except Exception as ex:
-        print(f"Error loading spam IPv4 Addresses: {ex}")
+        logging.error(f"Error loading spam IPv4 Addresses: {ex}")
 
     try:
         # Load IPv6 Spam addresses
         with open(ipv6_addresses_spam_path, 'r') as ipv6_spam_file:
             ipv6_addresses_spam_signatures_data = ipv6_spam_file.read().splitlines()
-        print("IPv6 Spam Addresses loaded successfully!")
+        logging.info("IPv6 Spam Addresses loaded successfully!")
     except Exception as ex:
-        print(f"Error loading IPv6 spam Addresses: {ex}")
+        logging.error(f"Error loading IPv6 spam Addresses: {ex}")
 
     try:
         # Load BruteForce IPv4 addresses
         with open(ipv4_addresses_bruteforce_path, 'r') as ip_bruteforce_file:
             ipv4_addresses_bruteforce_signatures_data = ip_bruteforce_file.read().splitlines()
-        print("Malicious IPv4 Addresses loaded successfully!")
+        logging.info("Malicious IPv4 Addresses loaded successfully!")
     except Exception as ex:
-        print(f"Error loading malicious IPv4 Addresses: {ex}")
+        logging.error(f"Error loading malicious IPv4 Addresses: {ex}")
 
     try:
         # Load phishing active IPv4 addresses
         with open(ipv4_addresses_phishing_active_path, 'r') as ip_phishing_active_file:
             ipv4_addresses_phishing_active_signatures_data = ip_phishing_active_file.read().splitlines()
-        print("Active phishing IPv4 Addresses loaded successfully!")
+        logging.info("Active phishing IPv4 Addresses loaded successfully!")
     except Exception as ex:
-        print(f"Error loading active phishing IPv4 Addresses: {ex}")
+        logging.error(f"Error loading active phishing IPv4 Addresses: {ex}")
 
     try:
         # Load phishing inactive IPv4 addresses
         with open(ipv4_addresses_phishing_inactive_path, 'r') as ip_phishing_inactive_file:
             ipv4_addresses_phishing_inactive_signatures_data = ip_phishing_inactive_file.read().splitlines()
-        print("Inactive phishing IPv4 Addresses loaded successfully!")
+        logging.info("Inactive phishing IPv4 Addresses loaded successfully!")
     except Exception as ex:
-        print(f"Error loading inactive phishing IPv4 Addresses: {ex}")
+        logging.error(f"Error loading inactive phishing IPv4 Addresses: {ex}")
     
     try:
         # Load IPv4 whitelist
         with open(ipv4_whitelist_path, 'r') as whitelist_file:
             ipv4_whitelist_data = whitelist_file.read().splitlines()
-        print("IPv4 Whitelist loaded successfully!")
+        logging.info("IPv4 Whitelist loaded successfully!")
     except Exception as ex:
-        print(f"Error loading IPv4 Whitelist: {ex}")
+        logging.error(f"Error loading IPv4 Whitelist: {ex}")
 
     try:
         # Load IPv6 Malicious addresses
         with open(ipv6_addresses_path, 'r') as ipv6_malicious_file:
             ipv6_addresses_signatures_data = ipv6_malicious_file.read().splitlines()
-        print("IPv6 Malicious Addresses loaded successfully!")
+        logging.info("IPv6 Malicious Addresses loaded successfully!")
     except Exception as ex:
-        print(f"Error loading IPv6 Malicious Addresses: {ex}")
+        logging.error(f"Error loading IPv6 Malicious Addresses: {ex}")
 
     try:
         # Load IPv6 DDoS addresses
         with open(ipv6_addresses_ddos_path, 'r') as ipv6_ddos_file:
             ipv6_addresses_ddos_signatures_data = ipv6_ddos_file.read().splitlines()
-        print("IPv6 DDoS Addresses loaded successfully!")
+        logging.info("IPv6 DDoS Addresses loaded successfully!")
     except Exception as ex:
-        print(f"Error loading IPv6 DDoS Addresses: {ex}")
+        logging.error(f"Error loading IPv6 DDoS Addresses: {ex}")
 
     try:
         # Load IPv4 DDoS addresses
         with open(ipv4_addresses_ddos_path, 'r') as ipv4_ddos_file:
             ipv4_addresses_ddos_signatures_data = ipv4_ddos_file.read().splitlines()
-        print("IPv4 DDoS Addresses loaded successfully!")
+        logging.info("IPv4 DDoS Addresses loaded successfully!")
     except Exception as ex:
-        print(f"Error loading IPv4 DDoS Addresses: {ex}")
+        logging.error(f"Error loading IPv4 DDoS Addresses: {ex}")
 
     try:
         # Load IPv6 whitelist
         with open(ipv6_whitelist_path, 'r') as whitelist_file:
             ipv6_whitelist_data = whitelist_file.read().splitlines()
-        print("IPv6 Whitelist loaded successfully!")
+        logging.info("IPv6 Whitelist loaded successfully!")
     except Exception as ex:
-        print(f"Error loading IPv6 Whitelist: {ex}")
+        logging.error(f"Error loading IPv6 Whitelist: {ex}")
         ipv6_whitelist_data = []
 
     try:
@@ -1728,146 +1681,146 @@ def load_website_data():
             reader = csv.DictReader(urlhaus_file)
             for row in reader:
                 urlhaus_data.append(row)
-        print("URLhaus data loaded successfully!")
+        logging.info("URLhaus data loaded successfully!")
     except Exception as ex:
-        print(f"Error loading URLhaus data: {ex}")
+        logging.error(f"Error loading URLhaus data: {ex}")
 
     try:
         # Load malware domains
         with open(malware_domains_path, 'r') as domains_file:
             malware_domains_data = domains_file.read().splitlines()
-        print("Malware domains loaded successfully!")
+        logging.info("Malware domains loaded successfully!")
     except Exception as ex:
-        print(f"Error loading Malware domains: {ex}")
+        logging.error(f"Error loading Malware domains: {ex}")
         malware_domains_data = []
 
     try:
         # Load malware domains email path
         with open(malware_domains_mail_path, 'r') as mail_domains_file:
             malware_domains_mail_data = mail_domains_file.read().splitlines()
-        print("Malware email domains loaded successfully!")
+        logging.info("Malware email domains loaded successfully!")
     except Exception as ex:
-        print(f"Error loading Malware email domains: {ex}")
+        logging.error(f"Error loading Malware email domains: {ex}")
         malware_domains_mail_data = []
 
     try:
         # Load phishing domains
         with open(phishing_domains_path, 'r') as domains_file:
             phishing_domains_data = domains_file.read().splitlines()
-        print("Phishing domains loaded successfully!")
+        logging.info("Phishing domains loaded successfully!")
     except Exception as ex:
-        print(f"Error loading Phishing domains: {ex}")
+        logging.error(f"Error loading Phishing domains: {ex}")
         phishing_domains_data = []
 
     try:
         # Load abuse domains
         with open(abuse_domains_path, 'r') as domains_file:
             abuse_domains_data = domains_file.read().splitlines()
-        print("Abuse domains loaded successfully!")
+        logging.info("Abuse domains loaded successfully!")
     except Exception as ex:
-        print(f"Error loading Abuse domains: {ex}")
+        logging.error(f"Error loading Abuse domains: {ex}")
         abuse_domains_data = []
 
     try:
         # Load mining domains
         with open(mining_domains_path, 'r') as domains_file:
             mining_domains_data = domains_file.read().splitlines()
-        print("Mining domains loaded successfully!")
+        logging.info("Mining domains loaded successfully!")
     except Exception as ex:
-        print(f"Error loading Mining domains: {ex}")
+        logging.error(f"Error loading Mining domains: {ex}")
         mining_domains_data = []
 
     try:
         # Load spam domains
         with open(spam_domains_path, 'r') as domains_file:
             spam_domains_data = domains_file.read().splitlines()
-        print("Spam domains loaded successfully!")
+        logging.info("Spam domains loaded successfully!")
     except Exception as ex:
-        print(f"Error loading Spam domains: {ex}")
+        logging.error(f"Error loading Spam domains: {ex}")
         spam_domains_data = []
 
     try:
         # Load whitelist domains
         with open(whitelist_domains_path, 'r') as domains_file:
             whitelist_domains_data = domains_file.read().splitlines()
-        print("Whitelist domains loaded successfully!")
+        logging.info("Whitelist domains loaded successfully!")
     except Exception as ex:
-        print(f"Error loading Whitelist domains: {ex}")
+        logging.error(f"Error loading Whitelist domains: {ex}")
         whitelist_domains_data = []
 
     try:
         # Load Malware subdomains
         with open(malware_sub_domains_path, 'r') as file:
             malware_sub_domains_data = file.read().splitlines()
-        print("Malware subdomains loaded successfully!")
+        logging.info("Malware subdomains loaded successfully!")
     except Exception as ex:
-        print(f"Error loading Malware subdomains: {ex}")
+        logging.error(f"Error loading Malware subdomains: {ex}")
         malware_sub_domains_data = []
 
     try:
         # Load Malware mail subdomains
         with open(malware_mail_sub_domains_path, 'r') as file:
             malware_mail_sub_domains_data = file.read().splitlines()
-        print("Malware mail subdomains loaded successfully!")
+        logging.info("Malware mail subdomains loaded successfully!")
     except Exception as ex:
-        print(f"Error loading Malware mail subdomains: {ex}")
+        logging.error(f"Error loading Malware mail subdomains: {ex}")
         malware_mail_sub_domains_data = []
 
     try:
         # Load Phishing subdomains
         with open(phishing_sub_domains_path, 'r') as file:
             phishing_sub_domains_data = file.read().splitlines()
-        print("Phishing subdomains loaded successfully!")
+        logging.info("Phishing subdomains loaded successfully!")
     except Exception as ex:
-        print(f"Error loading Phishing subdomains: {ex}")
+        logging.error(f"Error loading Phishing subdomains: {ex}")
         phishing_sub_domains_data = []
 
     try:
         # Load Abuse subdomains
         with open(abuse_sub_domains_path, 'r') as file:
             abuse_sub_domains_data = file.read().splitlines()
-        print("Abuse subdomains loaded successfully!")
+        logging.info("Abuse subdomains loaded successfully!")
     except Exception as ex:
-        print(f"Error loading Abuse subdomains: {ex}")
+        logging.error(f"Error loading Abuse subdomains: {ex}")
         abuse_sub_domains_data = []
 
     try:
         # Load Mining subdomains
         with open(mining_sub_domains_path, 'r') as file:
             mining_sub_domains_data = file.read().splitlines()
-        print("Mining subdomains loaded successfully!")
+        logging.info("Mining subdomains loaded successfully!")
     except Exception as ex:
-        print(f"Error loading Mining subdomains: {ex}")
+        logging.error(f"Error loading Mining subdomains: {ex}")
         mining_sub_domains_data = []
 
     try:
         # Load Spam subdomains
         with open(spam_sub_domains_path, 'r') as file:
             spam_sub_domains_data = file.read().splitlines()
-        print("Spam subdomains loaded successfully!")
+        logging.info("Spam subdomains loaded successfully!")
     except Exception as ex:
-        print(f"Error loading Spam subdomains: {ex}")
+        logging.error(f"Error loading Spam subdomains: {ex}")
         spam_sub_domains_data = []
 
     try:
         # Load Whitelist subdomains
         with open(whitelist_sub_domains_path, 'r') as file:
             whitelist_sub_domains_data = file.read().splitlines()
-        print("Whitelist subdomains loaded successfully!")
+        logging.info("Whitelist subdomains loaded successfully!")
     except Exception as ex:
-        print(f"Error loading Whitelist subdomains: {ex}")
+        logging.error(f"Error loading Whitelist subdomains: {ex}")
         whitelist_sub_domains_data = []
 
     try:
         # Load Whitelist mail subdomains
         with open(whitelist_mail_sub_domains_path, 'r') as file:
             whitelist_mail_sub_domains_data = file.read().splitlines()
-        print("Whitelist mail subdomains loaded successfully!")
+        logging.info("Whitelist mail subdomains loaded successfully!")
     except Exception as ex:
-        print(f"Error loading Whitelist mail subdomains: {ex}")
+        logging.error(f"Error loading Whitelist mail subdomains: {ex}")
         whitelist_mail_sub_domains_data = []
 
-    print("All domain and ip address files loaded successfully!")
+    logging.info("All domain and ip address files loaded successfully!")
 
 # --------------------------------------------------------------------------
 # Check for Discord webhook URLs and invite links (including Canary)
@@ -2203,7 +2156,6 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
 
     except Exception as ex:
         logging.error(f"Error scanning domain {url}: {ex}")
-        print(f"Error scanning domain {url}: {ex}")
 
 # --------------------------------------------------------------------------
 # Generalized scan for URLs
@@ -2230,7 +2182,7 @@ def scan_url_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag
                     f"Reporter: {entry['reporter']}"
                 )
                 logging.warning(message)
-                print(message)
+                logging.info(message)
                 if dotnet_flag:
                     notify_user_for_malicious_source_code(url, 'HEUR:Win32.DotNET.URLhaus.Match')
                 elif nuitka_flag:
@@ -2246,11 +2198,9 @@ def scan_url_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag
                 return
 
         logging.info(f"No match found for URL: {url}")
-        print(f"No match found for URL: {url}")
 
     except Exception as ex:
         logging.error(f"Error scanning URL {url}: {ex}")
-        print(f"Error scanning URL {url}: {ex}")
 
 def fetch_html(url):
     """Fetch HTML content from the given URL."""
@@ -2273,14 +2223,14 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
         if is_local_ip(ip_address):
             message = f"Skipping local IP address: {ip_address}"
             logging.info(message)
-            print(message)
+            logging.info(message)
             return
 
         # Check if the IP address has already been scanned
         if ip_address in scanned_ipv4_addresses_general or ip_address in scanned_ipv6_addresses_general:
             message = f"IP address {ip_address} has already been scanned."
             logging.info(message)
-            print(message)
+            logging.info(message)
             return
 
         # Process IPv6 addresses
@@ -2288,7 +2238,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
             scanned_ipv6_addresses_general.append(ip_address)
             message = f"Scanning IPv6 address: {ip_address}"
             logging.info(message)
-            print(message)
+            logging.info(message)
             
             if ip_address in ipv6_whitelist_data:
                 logging.info(f"IPv6 address {ip_address} is whitelisted.")
@@ -2340,14 +2290,14 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
 
             else:
                 logging.info(f"Unknown IPv6 address detected: {ip_address}")
-                print(f"Unknown IPv6 address detected: {ip_address}")
+                logging.info(f"Unknown IPv6 address detected: {ip_address}")
 
         # Process IPv4 addresses
         elif re.match(IPv4_pattern, ip_address):
             scanned_ipv4_addresses_general.append(ip_address)
             message = f"Scanning IPv4 address: {ip_address}"
             logging.info(message)
-            print(message)
+            logging.info(message)
 
             # Check if the IPv4 address is whitelisted
             if ip_address in ipv4_whitelist_data:
@@ -2450,14 +2400,11 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Malware.IPv4')
             else:
                 logging.info(f"Unknown IPv4 address detected: {ip_address}")
-                print(f"Unknown IPv4 address detected: {ip_address}")
         else:
             logging.debug(f"Invalid IP address format detected: {ip_address}")
-            print(f"Invalid IP address format detected: {ip_address}")
 
     except Exception as ex:
         logging.error(f"Error scanning IP address {ip_address}: {ex}")
-        print(f"Error scanning IP address {ip_address}: {ex}")
 
 def scan_html_content(html_content, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False):
     """Scan extracted HTML content for any potential threats."""
@@ -2691,7 +2638,6 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
         logging.error(f"Error: {file_path} does not have a valid PE format.")
         return False, malware_definition, 0  # Default return value if the PE format is invalid
     except Exception as ex:
-        print(f"An error occurred while scanning file {file_path}: {ex}")
         logging.error(f"An error occurred while scanning file {file_path}: {ex}")
         return False, malware_definition, 0  # Default return value in case of general exception
 
@@ -2700,29 +2646,24 @@ def restart_clamd_thread():
         threading.Thread(target=restart_clamd).start()
     except Exception as ex:
         logging.error(f"Error starting clamd restart thread: {ex}")
-        print(f"Error starting clamd restart thread: {ex}")
 
 def restart_clamd():
     try:
-        print("Stopping ClamAV...")
+        logging.info("Stopping ClamAV...")
         stop_result = subprocess.run(["net", "stop", 'clamd'], capture_output=True, text=True)
         if stop_result.returncode != 0:
                 logging.error("Failed to stop ClamAV.")
-                print("Failed to stop ClamAV.")
             
-        print("Starting ClamAV...")
+        logging.info("Starting ClamAV...")
         start_result = subprocess.run(["net", "start", 'clamd'], capture_output=True, text=True)
         if start_result.returncode == 0:
             logging.info("ClamAV restarted successfully.")
-            print("ClamAV restarted successfully.")
             return True
         else:
             logging.error("Failed to start ClamAV.")
-            print("Failed to start ClamAV.")
             return False
     except Exception as ex:
         logging.error(f"An error occurred while restarting ClamAV: {ex}")
-        print(f"An error occurred while restarting ClamAV: {ex}")
         return False
 
 def scan_file_with_clamd(file_path):
@@ -2731,10 +2672,10 @@ def scan_file_with_clamd(file_path):
         file_path = os.path.abspath(file_path)  # Get absolute path
         result = subprocess.run([clamdscan_path, file_path], capture_output=True, text=True)
         clamd_output = result.stdout
-        print(f"Clamdscan output: {clamd_output}")
+        logging.info(f"Clamdscan output: {clamd_output}")
 
         if "ERROR" in clamd_output:
-            print(f"Clamdscan reported an error: {clamd_output}")
+            logging.info(f"Clamdscan reported an error: {clamd_output}")
             return "Clean"
         elif "FOUND" in clamd_output:
             match = re.search(r": (.+) FOUND", clamd_output)
@@ -2744,11 +2685,10 @@ def scan_file_with_clamd(file_path):
         elif "OK" in clamd_output or "Infected files: 0" in clamd_output:
             return "Clean"
         else:
-            print(f"Unexpected clamdscan output: {clamd_output}")
+            logging.info(f"Unexpected clamdscan output: {clamd_output}")
             return "Clean"
     except Exception as ex:
         logging.error(f"Error scanning file {file_path}: {ex}")
-        print(f"Error scanning file {file_path}: {ex}")
         return "Clean"
 
 def is_related_to_critical_paths(file_path):
@@ -2777,7 +2717,7 @@ class RealTimeWebProtectionHandler:
                 if detection_type:
                     message = f"{detection_type} {message}"
                 logging.warning(message)
-                print(message)
+                logging.info(message)
                 notify_info[entity_type] = entity_value
                 notify_info['file_path'] = file_path
             else:
@@ -2788,13 +2728,12 @@ class RealTimeWebProtectionHandler:
                 if detection_type:
                     message = f"{detection_type} {message}"
                 logging.info(message)
-                print(message)
+                logging.info(message)
 
             if any(notify_info.values()):
                 notify_user_for_web(**notify_info)
         except Exception as ex:
             logging.error(f"Error in handle_detection: {ex}")
-            print(f"Error in handle_detection: {ex}")
 
     def extract_ip_addresses(self, text):
         """Extract IPv4 and IPv6 addresses from text using regex."""
@@ -2819,7 +2758,7 @@ class RealTimeWebProtectionHandler:
             self.scanned_domains.append(domain)
             message = f"Scanning domain: {domain}"
             logging.info(message)
-            print(message)
+            logging.info(message)
 
             if domain.lower().startswith("www."):
                 domain = domain[4:]
@@ -2926,7 +2865,6 @@ class RealTimeWebProtectionHandler:
 
         except Exception as ex:
             logging.error(f"Error scanning domain {domain}: {ex}")
-            print(f"Error scanning domain {domain}: {ex}")
 
     def scan_ip_address(self, ip_address):
         try:
@@ -2934,7 +2872,7 @@ class RealTimeWebProtectionHandler:
             if is_local_ip(ip_address):
                 message = f"Skipping local IP address: {ip_address}"
                 logging.info(message)
-                print(message)
+                logging.info(message)
                 return
 
             # Check if the IP address has already been scanned
@@ -2946,7 +2884,7 @@ class RealTimeWebProtectionHandler:
                 self.scanned_ipv6_addresses.append(ip_address)
                 message = f"Scanning IPv6 address: {ip_address}"
                 logging.info(message)
-                print(message)
+                logging.info(message)
 
                 # Check against IPv6 DDoS signatures
                 if ip_address in ipv6_addresses_ddos_signatures_data:
@@ -2964,17 +2902,17 @@ class RealTimeWebProtectionHandler:
                 elif ip_address in ipv6_whitelist_data:
                     message = f"IPv6 address {ip_address} is whitelisted"
                     logging.info(message)
-                    print(message)
+                    logging.info(message)
                 else:
                     message = f"Unknown IPv6 address detected: {ip_address}"
                     logging.info(message)
-                    print(message)
+                    logging.info(message)
 
             else:  # IPv4 address
                 self.scanned_ipv4_addresses.append(ip_address)
                 message = f"Scanning IPv4 address: {ip_address}"
                 logging.info(message)
-                print(message)
+                logging.info(message)
 
                 # Check against active phishing signatures
                 elif ip_address in ipv4_addresses_phishing_active_signatures_data:
@@ -3000,11 +2938,11 @@ class RealTimeWebProtectionHandler:
                 elif ip_address in ipv4_whitelist_data:
                     message = f"IPv4 address {ip_address} is whitelisted"
                     logging.info(message)
-                    print(message)
+                    logging.info(message)
                 else:
                     message = f"Unknown IPv4 address detected: {ip_address}"
                     logging.info(message)
-                    print(message)
+                    logging.info(message)
             
             # Fetch HTML content from the IP address and scan for signatures
             full_url = f"http://{ip_address}"
@@ -3021,7 +2959,6 @@ class RealTimeWebProtectionHandler:
 
         except Exception as ex:
             logging.error(f"Error scanning IP address {ip_address}: {ex}")
-            print(f"Error scanning IP address {ip_address}: {ex}")
 
     def scan_url(self, url):
         try:
@@ -3061,7 +2998,7 @@ class RealTimeWebProtectionHandler:
                         f"Reporter: {entry['reporter']}"
                     )
                     logging.warning(message)
-                    print(message)
+                    logging.info(message)
 
                     # Use handle_detection for related file path and notification logic
                     self.handle_detection(
@@ -3072,11 +3009,9 @@ class RealTimeWebProtectionHandler:
                     return
 
             logging.info(f"No match found for URL: {url}")
-            print(f"No match found for URL: {url}")
 
         except Exception as ex:
             logging.error(f"Error scanning URL {url}: {ex}")
-            print(f"Error scanning URL {url}: {ex}")
 
     def handle_ipv4(self, packet):
         try:
@@ -3087,21 +3022,20 @@ class RealTimeWebProtectionHandler:
                         self.scan_domain(query_name)
                         message = f"DNS Query (IPv4): {query_name}"
                         logging.info(message)
-                        print(message)
+                        logging.info(message)
                 if packet[DNS].an:
                     for i in range(packet[DNS].ancount):
                         answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
                         self.scan_domain(answer_name)
                         message = f"DNS Answer (IPv4): {answer_name}"
                         logging.info(message)
-                        print(message)
+                        logging.info(message)
 
                 self.scan_ip_address(packet[IP].src)
                 self.scan_ip_address(packet[IP].dst)
                 
         except Exception as ex:
             logging.error(f"Error handling IPv4 packet: {ex}")
-            print(f"Error handling IPv4 packet: {ex}")
 
     def handle_ipv6(self, packet):
         try:
@@ -3112,14 +3046,14 @@ class RealTimeWebProtectionHandler:
                         self.scan_domain(query_name)
                         message = f"DNS Query (IPv6): {query_name}"
                         logging.info(message)
-                        print(message)
+                        logging.info(message)
                 if packet[DNS].an:
                     for i in range(packet[DNS].ancount):
                         answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
                         self.scan_domain(answer_name)
                         message = f"DNS Answer (IPv6): {answer_name}"
                         logging.info(message)
-                        print(message)
+                        logging.info(message)
 
                 self.scan_ip_address(packet[IPv6].src)
                 self.scan_ip_address(packet[IPv6].dst)
@@ -3128,7 +3062,6 @@ class RealTimeWebProtectionHandler:
                 
         except Exception as ex:
             logging.error(f"Error handling IPv6 packet: {ex}")
-            print(f"Error handling IPv6 packet: {ex}")
 
     def on_packet_received(self, packet):
         try:
@@ -3148,7 +3081,7 @@ class RealTimeWebProtectionHandler:
                         self.scan_domain(query_name)
                         message = f"DNS Query: {query_name}"
                         logging.info(message)
-                        print(message)
+                        logging.info(message)
 
                 if packet[DNS].an:
                     for i in range(packet[DNS].ancount):
@@ -3156,7 +3089,7 @@ class RealTimeWebProtectionHandler:
                         self.scan_domain(answer_name)
                         message = f"DNS Answer: {answer_name}"
                         logging.info(message)
-                        print(message)
+                        logging.info(message)
 
                 if IP in packet:
                     self.scan_ip_address(packet[IP].src)
@@ -3164,7 +3097,6 @@ class RealTimeWebProtectionHandler:
 
         except Exception as ex:
             logging.error(f"Error processing packet: {ex}")
-            print(f"Error processing packet: {ex}")
 
 class RealTimeWebProtectionObserver:
     def __init__(self):
@@ -3179,7 +3111,7 @@ class RealTimeWebProtectionObserver:
             self.is_started = True
             message = "Real-time web protection observer started"
             logging.info(message)
-            print(message)
+            logging.info(message)
 
     def start_sniffing(self):
         filter_expression = "(tcp or udp)"
@@ -3187,7 +3119,6 @@ class RealTimeWebProtectionObserver:
             sniff(filter=filter_expression, prn=self.handler.on_packet_received, store=0)
         except Exception as ex:
             logging.error(f"An error occurred while sniffing packets: {ex}")
-            print(f"Error while sniffing packets: {ex}")
 
 web_protection_observer = RealTimeWebProtectionObserver()
 
@@ -3297,7 +3228,7 @@ def check_signature(file_path):
         matches_antivirus_signature = any(sig in signature_data for sig in antivirus_signatures)
         if matches_antivirus_signature:
             warning_msg = f"TThe file '{file_path}' matches an antivirus signature. It might be a vulnerable driver or antivirus software, which may cause false positives!"
-            print(warning_msg)
+            logging.info(warning_msg)
             logging.warning(warning_msg)
 
         return {
@@ -3308,7 +3239,7 @@ def check_signature(file_path):
 
     except Exception as ex:
         error_msg = f"An error occurred while checking signature: {ex}"
-        print(error_msg)
+        logging.info(error_msg)
         logging.error(error_msg)
         return {
             "is_valid": False,
@@ -3329,7 +3260,6 @@ def check_valid_signature_only(file_path):
             "is_valid": is_valid
         }
     except Exception as ex:
-        print(f"An error occurred while verifying a valid signature: {ex}")
         logging.error(f"An error occurred while verifying a valid signature: {ex}")
         return {
             "is_valid": False
@@ -4025,115 +3955,6 @@ def scan_file_real_time(file_path, signature_check, file_name, pe_file=False):
 
     return False, "Clean", ""  # Default to clean if no malware found
 
-class WorkerSignals(QObject):
-    success = Signal()
-    failure = Signal()
-
-class AntivirusUI(QWidget):
-    folder_scan_finished = Signal()
-
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Hydra Dragon Antivirus")
-        self.stacked_widget = QStackedWidget()
-        self.main_widget = QWidget()
-        self.setup_main_ui()
-        self.stacked_widget.addWidget(self.main_widget)
-        main_layout = QVBoxLayout()
-        main_layout.addWidget(self.stacked_widget)
-        self.setLayout(main_layout)
-        self.setWindowIcon(QIcon(os.path.join(assets_dir,"HydraDragonAV.png")))
-        self.signals = WorkerSignals()
-        self.signals.success.connect(self.show_success_message)
-        self.signals.failure.connect(self.show_failure_message)
-
-        # Automatically update definitions during initialization
-        self.start_update_definitions_thread()
-
-    def setup_main_ui(self):
-        layout = QVBoxLayout()
-
-        self.sandbox_button = QPushButton("Scan File")
-        self.sandbox_button.clicked.connect(self.sandbox_analysis_for_file)
-        layout.addWidget(self.sandbox_button)
-
-        self.setLayout(layout)
-
-    def sandbox_analysis_for_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select File for Sandbox Analysis")
-        print(f"Selected file path: {file_path}")  # Debug statement
-        if isinstance(file_path, str) and file_path:
-            self.run_analysis_thread(file_path)
-        else:
-            print(f"Invalid file path: {file_path}")
-
-    def run_analysis_thread(self, file_path):
-        self.analysis_thread = AnalysisThread(file_path)
-        self.analysis_thread.execute_analysis()
-
-    def show_success_message(self):
-        QMessageBox.information(self, "Update Definitions", "AntiVirus definitions updated successfully and ClamAV has been restarted.")
-
-    def show_failure_message(self):
-        QMessageBox.critical(self, "Update Definitions", "Failed to update antivirus definitions.")
-
-    def update_definitions(self):
-        try:
-            # Iterate over the list of ClamAV database files and check each
-            for file_path in clamav_file_paths:
-                if os.path.exists(file_path):
-                    # File found, check its modification time
-                    file_mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
-                    file_age = datetime.now() - file_mod_time
-
-                    if file_age > timedelta(hours=6):
-                        # All files in directory must be older than 6 hours
-                        all_files_old = True
-                        for root, dirs, files in os.walk(clamav_database_directory_path):
-                            for file_name in files:
-                                other_file_path = os.path.join(root, file_name)
-                                other_file_mod_time = datetime.fromtimestamp(os.path.getmtime(other_file_path))
-                                other_file_age = datetime.now() - other_file_mod_time
-                                if other_file_age <= timedelta(hours=6):
-                                    all_files_old = False
-                                    break
-                            if not all_files_old:
-                                break
-
-                        if all_files_old:
-                            # Run freshclam to update definitions
-                            result = subprocess.run([freshclam_path], capture_output=True, text=True)
-                            if result.returncode == 0:
-                                self.signals.success.emit()
-                                restart_clamd_thread()
-                            else:
-                                self.signals.failure.emit()
-                                print(f"freshclam failed with output: {result.stdout}\n{result.stderr}")
-                            return
-                        else:
-                            print("One of the other files is not older than 6 hours. No update needed.")
-                            return
-                    else:
-                        print("The database is not older than 6 hours. No update needed.")
-                    return  # File checked, exit function
-
-            # If neither daily.cvd nor daily.cld exists, run freshclam
-            print("Neither daily.cvd nor daily.cld files exist. Running freshclam.")
-            result = subprocess.run([freshclam_path], capture_output=True, text=True)
-            if result.returncode == 0:
-                restart_clamd_thread()
-                self.signals.success.emit()
-            else:
-                self.signals.failure.emit()
-                print(f"freshclam failed with output: {result.stdout}\n{result.stderr}")
-
-        except Exception as ex:
-            logging.error(f"Error in update_definitions: {ex}")
-            self.signals.failure.emit()
-
-    def start_update_definitions_thread(self):
-        threading.Thread(target=self.update_definitions).start()
-
 # Regex for Snort alerts
 alert_regex = re.compile(r'\[Priority: (\d+)].*?\{(?:UDP|TCP)} (\d+\.\d+\.\d+\.\d+):\d+ -> (\d+\.\d+\.\d+\.\d+):\d+')
 
@@ -4205,18 +4026,18 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
                             if status == "Info":
                                 if not signature_info["is_valid"]:
                                     logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has an invalid or no signature. Alert Line: {alert_line}")
-                                    print(f"[INFO] File {file_path} associated with IP {src_ip} or {dst_ip} has an invalid or no signature. Alert Line: {alert_line}")
+                                    logging.info(f"[INFO] File {file_path} associated with IP {src_ip} or {dst_ip} has an invalid or no signature. Alert Line: {alert_line}")
                                 else:
                                     logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature. Alert Line: {alert_line}")
-                                    print(f"[INFO] File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature. Alert Line: {alert_line}")
+                                    logging.info(f"[INFO] File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature. Alert Line: {alert_line}")
                             else:
                                 if not signature_info["is_valid"]:
                                     logging.warning(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature. Alert Line: {alert_line}")
-                                    print(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature. Alert Line: {alert_line}")
+                                    logging.info(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature. Alert Line: {alert_line}")
                                     notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status)
                                 else:
                                     logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious. Alert Line: {alert_line}")
-                                    print(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious. Alert Line: {alert_line}")
+                                    logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious. Alert Line: {alert_line}")
 
         except psutil.ZombieProcess:
             logging.error(f"Zombie process encountered: {proc.info.get('pid')}")
@@ -4238,12 +4059,12 @@ def process_alert(line):
                 # Check if the source IP is in the IPv4 whitelist
                 if src_ip in ipv4_whitelist_data:
                     logging.info(f"Source IP {src_ip} is in the whitelist. Ignoring alert.")
-                    print(f"Source IP {src_ip} is in the whitelist. Ignoring alert.")
+                    logging.info(f"Source IP {src_ip} is in the whitelist. Ignoring alert.")
                     return False
 
                 if priority == 1:
                     logging.warning(f"Malicious activity detected: {line.strip()}")
-                    print(f"Malicious activity detected from {src_ip} to {dst_ip} with priority {priority}")
+                    logging.info(f"Malicious activity detected from {src_ip} to {dst_ip} with priority {priority}")
                     try:
                         notify_user_for_hips(ip_address=src_ip, dst_ip_address=dst_ip)
                     except Exception as ex:
@@ -4258,10 +4079,8 @@ def process_alert(line):
                     return True
             except Exception as ex:
                 logging.error(f"Error processing alert details: {ex}")
-                print(f"Error processing alert details: {ex}")
     except Exception as ex:
         logging.error(f"Error matching alert regex: {ex}")
-        print(f"Error matching alert regex: {ex}")
 
 def clean_directory():
     for filename in os.listdir(log_folder):
@@ -4281,15 +4100,14 @@ def run_snort():
         subprocess.run(snort_command, check=True)
         
         logging.info("Snort completed analysis.")
-        print("Snort completed analysis.")
+        logging.info("Snort completed analysis.")
 
     except subprocess.CalledProcessError as ex:
         logging.error(f"Snort encountered an error: {ex}")
-        print(f"Snort encountered an error: {ex}")
+        logging.info(f"Snort encountered an error: {ex}")
 
     except Exception as ex:
         logging.error(f"Failed to run Snort: {ex}")
-        print(f"Failed to run Snort: {ex}")
 
 def activate_uefi_drive():
     # Check if the platform is Windows
@@ -4297,12 +4115,11 @@ def activate_uefi_drive():
     try:
         # Execute the mountvol command
         subprocess.run(mount_command, shell=True, check=True)
-        print("UEFI drive activated!")
+        logging.info("UEFI drive activated!")
     except subprocess.CalledProcessError as ex:
-        print(f"Error mounting UEFI drive: {ex}")
+        logging.info(f"Error mounting UEFI drive: {ex}")
 
 threading.Thread(target=run_snort).start()
-restart_clamd_thread()
 clean_directories()
 activate_uefi_drive() # Call the UEFI function
 load_website_data()
@@ -4315,79 +4132,79 @@ try:
     # Load malicious file names from JSON file
     with open(malicious_file_names, 'r') as malicious_file:
         malicious_file_names = json.load(malicious_file)
-        print("Machine Learning Malicious Definitions loaded!")
+        logging.info("Machine Learning Malicious Definitions loaded!")
 except Exception as ex:
-    print(f"Error loading malicious file names: {ex}")
+    logging.error(f"Error loading malicious file names: {ex}")
 
 try:
     # Load malicious file names from JSON file
     with open(benign_file_names, 'r') as benign_file:
         benign_file_names = json.load(benign_file)
-        print("Machine Learning Benign Definitions loaded!")
+        logging.info("Machine Learning Benign Definitions loaded!")
 except Exception as ex:
-    print(f"Error loading benign file names: {ex}")
+    logging.error(f"Error loading benign file names: {ex}")
 
 try:
     # Load malicious numeric features from pickle file
     with open(malicious_numeric_features, 'rb') as malicious_numeric_file:
         malicious_numeric_features = joblib.load(malicious_numeric_file)
-        print("Malicious Feature Signatures loaded!")
+        logging.info("Malicious Feature Signatures loaded!")
 except Exception as ex:
-    print(f"Error loading malicious numeric features: {ex}")
+    logging.error(f"Error loading malicious numeric features: {ex}")
 
 try:
     # Load benign numeric features from pickle file
     with open(benign_numeric_features, 'rb') as benign_numeric_file:
         benign_numeric_features = joblib.load(benign_numeric_file)
-        print("Benign Feature Signatures loaded!")
+        logging.info("Benign Feature Signatures loaded!")
 except Exception as ex:
-    print(f"Error loading benign numeric features: {ex}")
+    logging.error(f"Error loading benign numeric features: {ex}")
 
-print("Machine Learning AI Signatures loaded!")
+logging.info("Machine Learning AI Signatures loaded!")
 
 try:
     # Load excluded rules from text file
     with open(excluded_rules_path, "r") as excluded_file:
         excluded_rules = excluded_file.read()
-        print("YARA Excluded Rules Definitions loaded!")
+        logging.info("YARA Excluded Rules Definitions loaded!")
 except Exception as ex:
-    print(f"Error loading excluded rules: {ex}")
+    logging.error(f"Error loading excluded rules: {ex}")
 
 try:
     # Load the precompiled yarGen rules from the .yrc file
     yarGen_rule = yara.load(yarGen_rule_path)
-    print("yarGen Rules Definitions loaded!")
+    logging.info("yarGen Rules Definitions loaded!")
 except yara.Error as ex:
-    print(f"Error loading precompiled YARA rule: {ex}")
+    logging.error(f"Error loading precompiled YARA rule: {ex}")
 
 try:
     # Load the precompiled icewater rules from the .yrc file
     icewater_rule = yara.load(icewater_rule_path)
-    print("Icewater Rules Definitions loaded!")
+    logging.info("Icewater Rules Definitions loaded!")
 except yara.Error as ex:
-    print(f"Error loading precompiled YARA rule: {ex}")
+    logging.error(f"Error loading precompiled YARA rule: {ex}")
 
 try:
     # Load the precompiled valhalla rules from the .yrc file
     valhalla_rule = yara.load(valhalla_rule_path)
-    print("Vallhalla Demo Rules Definitions loaded!")
+    logging.info("Vallhalla Demo Rules Definitions loaded!")
 except yara.Error as ex:
-    print(f"Error loading precompiled YARA rule: {ex}")
+    logging.error(f"Error loading precompiled YARA rule: {ex}")
 
 try:
     # Load the precompiled rules from the .yrc file
     compiled_rule = yara.load(compiled_rule_path)
-    print("YARA Rules Definitions loaded!")
+    logging.info("YARA Rules Definitions loaded!")
 except yara.Error as ex:
-    print(f"Error loading precompiled YARA rule: {ex}")
+    logging.error(f"Error loading precompiled YARA rule: {ex}")
 
 try:
     # Load the precompiled rule from the .yrc file using yara_x
     with open(yaraxtr_yrc_path, 'rb') as yara_x_f:
         yaraxtr_rule = yara_x.Rules.deserialize_from(yara_x_f)
-    print("YARA-X Rules Definitions loaded!")
+    logging.info("YARA-X Rules Definitions loaded!")
 except Exception as ex:
-    print(f"Error loading YARA-X rules: {ex}")
+    logging.error(f"Error loading YARA-X rules: {ex}")
 
 # Function to load DeepSeek-Coder-1.3b model and tokenizer
 def load_deepseek_1b_model(deepseek_dir):
@@ -4395,20 +4212,17 @@ def load_deepseek_1b_model(deepseek_dir):
         deepseek_1b_dir = os.path.join(deepseek_dir, "DeepSeek-Coder-1.3B")
         
         message = "Attempting to load DeepSeek-Coder-1.3B model and tokenizer..."
-        print(message)
         logging.info(message)
         
         deepseek_tokenizer = AutoTokenizer.from_pretrained(deepseek_1b_dir, local_files_only=True)
         deepseek_model = AutoModelForCausalLM.from_pretrained(deepseek_1b_dir, local_files_only=True)
         
         success_message = "DeepSeek-Coder-1.3B successfully loaded!"
-        print(success_message)
         logging.info(success_message)
         
         return deepseek_model, deepseek_tokenizer
     except Exception as ex:
         error_message = f"Error loading DeepSeek-Coder-1.3B model or tokenizer: {ex}"
-        print(error_message)
         logging.error(error_message)
         sys.exit(1)
 
@@ -4548,12 +4362,12 @@ def is_nuitka_file(file_path):
 
 def clean_text(input_text):
     """
-    Remove non-printable ASCII control characters from the input text.
+    Remove non-logging.infoable ASCII control characters from the input text.
 
     :param input_text: The string to clean.
     :return: Cleaned text with control characters removed.
     """
-    # Remove non-printable characters (ASCII 0-31 and 127)
+    # Remove non-logging.infoable characters (ASCII 0-31 and 127)
     cleaned_text = re.sub(r'[\x00-\x1F\x7F]+', '', input_text)
     return cleaned_text
 
@@ -4595,7 +4409,7 @@ def scan_rsrc_file(file_path):
                             source_code_lines.append(remainder)
                         source_code_lines.extend(lines[source_index + 1:])
 
-                        # Clean each line by removing non-printable characters
+                        # Clean each line by removing non-logging.infoable characters
                         cleaned_source_code = [clean_text(line.rstrip()) for line in source_code_lines]
 
                         # Save the extracted, cleaned source code to a uniquely named file
@@ -4852,7 +4666,7 @@ class PyInstArchive:
 
                 # Check for entry points (python scripts or pyc files)
                 if entry.typecmprsdata == b's':
-                    print(f"[+] Possible entry point: {entry.name}")
+                    logging.info(f"[+] Possible entry point: {entry.name}")
 
                 if self.pycMagic == b'\0' * 4:
                     self.barePycList.append(entry.name + '.pyc')
@@ -5113,7 +4927,7 @@ def ransomware_alert(file_path):
                 logging.warning(f"File '{file_path}' (Sandboxie log) flagged as potential ransomware. Count: {ransomware_detection_count}")
                 notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.Log.gen")
                 logging.warning(f"User has been notified about potential ransomware in {main_file_path} (Sandboxie log alert)")
-                print(f"User has been notified about potential ransomware in {main_file_path} (Sandboxie log alert)")
+                logging.info(f"User has been notified about potential ransomware in {main_file_path} (Sandboxie log alert)")
             
             # Normal processing for all flagged files.
             ransomware_detection_count += 1
@@ -5134,7 +4948,7 @@ def ransomware_alert(file_path):
             if ransomware_detection_count >= 10:
                 notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.gen")
                 logging.warning(f"User has been notified about potential ransomware in {main_file_path}")
-                print(f"User has been notified about potential ransomware in {main_file_path}")
+                logging.info(f"User has been notified about potential ransomware in {main_file_path}")
                 
     except Exception as ex:
         logging.error(f"Error in ransomware_alert: {ex}")
@@ -5545,7 +5359,7 @@ def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled
         elif decompiled_flag:
             final_response += "\nNote: This file was decompiled by our tool and is Python source code.\n"
 
-        print(final_response)
+        logging.info(final_response)
         logging.info(final_response)
 
         # Log the raw model response
@@ -5675,12 +5489,12 @@ def extract_rcdata_resource(pe_path):
     try:
         pe = pefile.PE(pe_path)
     except Exception as e:
-        logging.info(f"Error loading PE file: {e}")
+        logging.error(f"Error loading PE file: {e}")
         return None
 
     # Check if the PE file has resources
     if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-        logging.info("No resources found in this file.")
+        logging.error("No resources found in this file.")
         return None
 
     first_rcdata_file = None  # Will hold the first RCData resource file path
@@ -6119,7 +5933,7 @@ def show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name):
             with open(file_path, "rb") as dec_f:
                 decompiled_code = uncompyle6.pyeval.evaluate(dec_f)
         except Exception as e:
-            logging.warning(f"uncompyle6 failed: {e}")
+            logging.error(f"uncompyle6 failed: {e}")
             decompiled_code = None
 
         # Save the uncompyle6 output if decompilation succeeded
@@ -6338,7 +6152,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
 
                 logging.info(f"File {file_path} is not a valid archive or extraction failed. Proceeding with scanning.")
             except Exception as extraction_error:
-                logging.warning(f"Error during extraction of {file_path}: {extraction_error}")
+                logging.error(f"Error during extraction of {file_path}: {extraction_error}")
 
             # Decompile the file in a separate thread
             decompile_thread = threading.Thread(target=decompile_file, args=(file_path,))
@@ -6579,7 +6393,7 @@ def extract_nuitka_file(file_path, nuitka_type):
 
 def monitor_sandbox():
     if not os.path.exists(sandboxie_folder):
-        print(f"The sandboxie folder path does not exist: {sandboxie_folder}")
+        logging.info(f"The sandboxie folder path does not exist: {sandboxie_folder}")
         logging.error(f"The sandboxie folder path does not exist: {sandboxie_folder}")
         return
 
@@ -6617,14 +6431,12 @@ def monitor_sandbox():
             for action, file in results:
                 pathToScan = os.path.join(sandboxie_folder, file)
                 if os.path.exists(pathToScan):
-                    print(pathToScan)
+                    logging.info(pathToScan)
                     scan_and_warn(pathToScan)
                 else:
-                    print(f"File or folder not found: {pathToScan}")
                     logging.warning(f"File or folder not found: {pathToScan}")
 
     except Exception as ex:
-        print(f"An error occurred at monitor_sandbox: {ex}")
         logging.error(f"An error occurred at monitor_sandbox: {ex}")
     finally:
         win32file.CloseHandle(hDir)
@@ -6645,7 +6457,7 @@ def monitor_snort_log():
                     continue
                 process_alert(line)
             except Exception as ex:
-                print(f"Error processing line: {ex}")
+                logging.info(f"Error processing line: {ex}")
 
 def check_startup_directories():
     """Monitor startup directories for new files and handle them."""
@@ -6683,7 +6495,7 @@ def check_startup_directories():
                                 message = f"Suspicious startup file detected: {file_path}\nVirus: {malware_type}"
 
                             logging.warning(f"Suspicious or malicious startup file detected in {directory}: {file}")
-                            print(f"Suspicious or malicious startup file detected in {directory}: {file}")
+                            logging.info(f"Suspicious or malicious startup file detected in {directory}: {file}")
                             notify_user_startup(file_path, message)
                             scan_and_warn(file_path)
                             alerted_files.append(file_path)
@@ -6712,12 +6524,12 @@ def check_hosts_file_for_blocked_antivirus():
 
         if blocked_domains:
             logging.warning(f"Malicious hosts file detected: {hosts_path}")
-            print(f"Malicious hosts file detected: {hosts_path}")
+            logging.info(f"Malicious hosts file detected: {hosts_path}")
             notify_user_hosts(hosts_path, "HEUR:Win32.Trojan.Hosts.Hijacker.DisableAV.gen")
             return True
         else:
             logging.warning(f"Suspicious hosts file detected: {hosts_path}")
-            print(f"Suspicious hosts file detected: {hosts_path}")
+            logging.info(f"Suspicious hosts file detected: {hosts_path}")
             notify_user_hosts(hosts_path, "HEUR:Win32.Trojan.Hosts.Hijacker.gen")
             return True
 
@@ -6733,7 +6545,7 @@ def monitor_hosts_file():
         is_malicious_host = check_hosts_file_for_blocked_antivirus()
 
         if is_malicious_host:
-            print("Malicious hosts file detected and flagged.")
+            logging.info("Malicious hosts file detected and flagged.")
             break  # Stop monitoring after notifying once
 
 def is_malicious_file(file_path, size_limit_kb):
@@ -6751,13 +6563,13 @@ def check_uefi_directories():
                 if uefi_path not in alerted_uefi_files:
                     if uefi_path in uefi_100kb_paths and is_malicious_file(uefi_path, 100):
                         logging.warning(f"Malicious file detected: {uefi_path}")
-                        print(f"Malicious file detected: {uefi_path}")
+                        logging.info(f"Malicious file detected: {uefi_path}")
                         notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.SecureBootRecovery.gen.Malware")
                         scan_and_warn(uefi_path)
                         alerted_uefi_files.append(uefi_path)
                     elif uefi_path in uefi_paths and is_malicious_file(uefi_path, 1024):
                         logging.warning(f"Malicious file detected: {uefi_path}")
-                        print(f"Malicious file detected: {uefi_path}")
+                        logging.info(f"Malicious file detected: {uefi_path}")
                         notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.ScreenLocker.Ransomware.gen.Malware")
                         scan_and_warn(uefi_path)
                         alerted_uefi_files.append(uefi_path)
@@ -6769,7 +6581,7 @@ def check_uefi_directories():
                 file_path = os.path.join(root, file)
                 if file_path.endswith(".efi") and file_path not in known_uefi_files and file_path not in alerted_uefi_files:
                     logging.warning(f"Unknown file detected: {file_path}")
-                    print(f"Unknown file detected: {file_path}")
+                    logging.info(f"Unknown file detected: {file_path}")
                     notify_user_uefi(file_path, "HEUR:Win32.Rootkit.Startup.UEFI.gen.Malware")
                     scan_and_warn(file_path)
                     alerted_uefi_files.append(file_path)
@@ -7322,7 +7134,6 @@ def monitor_sandboxie_directory():
 
                             if file_path not in alerted_files:
                                 logging.info(f"New file detected in {root}: {file}")
-                                print(f"New file detected in {root}: {file}")
                                 alerted_files.append(file_path)
                                 scan_and_warn(file_path)
 
@@ -7333,7 +7144,6 @@ def monitor_sandboxie_directory():
                             elif file_mod_times[file_path] != last_mod_time:
                                 # File modified
                                 logging.info(f"File modified in {root}: {file}")
-                                print(f"File modified in {root}: {file}")
                                 scan_and_warn(file_path)
                                 file_mod_times[file_path] = last_mod_time
 
@@ -7380,36 +7190,105 @@ def perform_sandbox_analysis(file_path):
     except Exception as ex:
         logging.error(f"An error occurred during sandbox analysis: {ex}")
 
-class AnalysisThread(QThread):
-    def __init__(self, file_path):
-        super().__init__()
-        self.file_path = file_path
-
-    def execute_analysis(self):
-        try:
-            print(f"Running analysis for: {self.file_path}")  
-            logging.info(f"Running analysis for: {self.file_path}")
-            perform_sandbox_analysis(self.file_path)
-        except Exception as ex:
-            error_message = f"An error occurred during sandbox analysis: {ex}"
-            logging.error(error_message)
-            print(error_message)
-
 def run_sandboxie(file_path):
     try:
         subprocess.run([sandboxie_path, '/box:DefaultBox', file_path], check=True)
     except subprocess.CalledProcessError as ex:
         logging.error(f"Failed to run Sandboxie on {file_path}: {ex}")
 
-def main():
+@app.get("/update_definitions")
+def update_definitions():
+    """
+    Checks the modification times of ClamAV database files.
+    If the files are older than 6 hours, runs freshclam to update the definitions
+    and restarts the ClamAV daemon.
+    """
     try:
-        app = QApplication(sys.argv)
-        app.setStyleSheet(antivirus_style)  # Apply the style sheet
-        main_gui = AntivirusUI()
-        main_gui.show()
-        sys.exit(app.exec())
+        for file_path in clamav_file_paths:
+            if os.path.exists(file_path):
+                file_mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+                file_age = datetime.now() - file_mod_time
+
+                if file_age > timedelta(hours=6):
+                    # Check if all files in the database directory are older than 6 hours
+                    all_files_old = True
+                    for root, dirs, files in os.walk(clamav_database_directory_path):
+                        for file_name in files:
+                            other_file_path = os.path.join(root, file_name)
+                            other_file_mod_time = datetime.fromtimestamp(os.path.getmtime(other_file_path))
+                            other_file_age = datetime.now() - other_file_mod_time
+                            if other_file_age <= timedelta(hours=6):
+                                all_files_old = False
+                                break
+                        if not all_files_old:
+                            break
+
+                    if all_files_old:
+                        result = subprocess.run([freshclam_path], capture_output=True, text=True)
+                        if result.returncode == 0:
+                            restart_clamd_thread()
+                            return {
+                                "status": "success",
+                                "message": "Antivirus definitions updated successfully and ClamAV restarted."
+                            }
+                        else:
+                            logging.error(f"freshclam failed: {result.stdout}\n{result.stderr}")
+                            raise HTTPException(status_code=500, detail="Failed to update definitions.")
+                    else:
+                        return {
+                            "status": "no_update",
+                            "message": "Not all files are older than 6 hours. No update needed."
+                        }
+                else:
+                    return {
+                        "status": "no_update",
+                        "message": "Database files are not older than 6 hours. No update needed."
+                    }
+        # If none of the expected files exist, run freshclam
+        result = subprocess.run([freshclam_path], capture_output=True, text=True)
+        if result.returncode == 0:
+            restart_clamd_thread()
+            return {
+                "status": "success",
+                "message": "Antivirus definitions updated successfully and ClamAV restarted."
+            }
+        else:
+            logging.error(f"freshclam failed: {result.stdout}\n{result.stderr}")
+            raise HTTPException(status_code=500, detail="Failed to update definitions.")
     except Exception as ex:
-        print(f"An error occurred: {ex}")
+        logging.error(f"Error in update_definitions: {ex}")
+        raise HTTPException(status_code=500, detail="An error occurred during definitions update.")
+
+def run_analysis(file_path: str):
+    """
+    This function mirrors the original AnalysisThread.execute_analysis method.
+    It logs the file path, performs the sandbox analysis, and handles any exceptions.
+    """
+    try:
+        print(f"Running analysis for: {file_path}")
+        logging.info(f"Running analysis for: {file_path}")
+        perform_sandbox_analysis(file_path)
+    except Exception as ex:
+        error_message = f"An error occurred during sandbox analysis: {ex}"
+        logging.error(error_message)
+        print(error_message)
+
+@app.post("/analyze_file")
+async def analyze_file(file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
+    """
+    Receives an uploaded file, saves it to a temporary location,
+    and schedules the analysis to run in the background.
+    """
+    try:
+        file_location = f"/tmp/{file.filename}"
+        with open(file_location, "wb") as f:
+            f.write(await file.read())
+        if background_tasks:
+            background_tasks.add_task(run_analysis, file_location)
+        return {"status": "analysis_started", "file": file.filename}
+    except Exception as ex:
+        logging.error(f"Error in analyze_file endpoint: {ex}")
+        raise HTTPException(status_code=500, detail="File analysis failed.")
 
 if __name__ == "__main__":
-    main()
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

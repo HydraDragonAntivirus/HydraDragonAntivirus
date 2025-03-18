@@ -23,6 +23,8 @@ numpy
 cryptography
 unicorn
 capstone
+fastapi
+uvicorn
 transformers # You will also need download https://huggingface.co/deepseek-ai/deepseek-coder-1.3b-instruct
 scapy # You will also need to download https://npcap.com/#download
 spacy # python -m spacy download en_core_web_md
