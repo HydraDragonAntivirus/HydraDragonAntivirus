@@ -4432,8 +4432,9 @@ def scan_rsrc_file(file_path):
 
 def scan_directory_for_executables(directory):
     """
-    Recursively scan a directory for .exe, .dll, and other files, prioritizing Nuitka executables.
-    If an .exe file is found and confirmed as Nuitka, stop further scanning.
+    Recursively scan a directory for .exe, .dll, .msi, and .kext files,
+    prioritizing Nuitka executables.
+    If a file is found and confirmed as Nuitka, stop further scanning.
     """
     found_executables = []
 
@@ -4457,15 +4458,35 @@ def scan_directory_for_executables(directory):
                     found_executables.append((file_path, nuitka_type))
                     return found_executables  # Stop scanning further as .dll is found
 
-    # If no .exe or .dll found, check other files
+    # If no .exe or .dll found, look for .msi files
     for root, _, files in os.walk(directory):
         for file in files:
-            file_path = os.path.join(root, file)
-            if not file.lower().endswith(('.exe', '.dll')):  # Skip .exe and .dll files
+            if file.lower().endswith('.msi'):
+                file_path = os.path.join(root, file)
                 nuitka_type = is_nuitka_file(file_path)
                 if nuitka_type:
                     found_executables.append((file_path, nuitka_type))
-                    return found_executables  # Stop scanning further as Nuitka file is found
+                    return found_executables  # Stop scanning further as .msi is found
+
+    # Check for macOS kernel extensions (.kext files)
+    for root, _, files in os.walk(directory):
+        for file in files:
+            if file.lower().endswith('.kext'):
+                file_path = os.path.join(root, file)
+                nuitka_type = is_nuitka_file(file_path)
+                if nuitka_type:
+                    found_executables.append((file_path, nuitka_type))
+                    return found_executables  # Stop scanning further as .kext is found
+
+    # If none of the above, check other files
+    for root, _, files in os.walk(directory):
+        for file in files:
+            if not file.lower().endswith(('.exe', '.dll', '.msi', '.kext')):
+                file_path = os.path.join(root, file)
+                nuitka_type = is_nuitka_file(file_path)
+                if nuitka_type:
+                    found_executables.append((file_path, nuitka_type))
+                    return found_executables  # Stop scanning further as a Nuitka file is found
 
     return found_executables
 
