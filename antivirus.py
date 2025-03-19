@@ -6147,6 +6147,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
             if united_output_path:
                 logging.info(f"Scanning united decompiled file: {united_output_path}")
                 scan_and_warn(united_output_path)
+                scan_file_with_deepseek(united_output_path, united_python_code_flag=True)
             else:
                 logging.error(f"United decompilation failed for file {file_path}.")
 
