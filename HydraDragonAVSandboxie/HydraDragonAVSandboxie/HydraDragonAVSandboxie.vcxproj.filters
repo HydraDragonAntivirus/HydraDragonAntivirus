@@ -34,8 +34,11 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="Resource.resx">
+    <ResourceCompile Include="Resource.rc">
       <Filter>Resource Files</Filter>
-    </EmbeddedResource>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\DONTREMOVEHydraDragonFileTrap.exe" />
   </ItemGroup>
 </Project>
