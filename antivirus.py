@@ -1497,7 +1497,7 @@ def notify_user_worm(file_path, virus_name):
     notification.message = f"Potential worm detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
-def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address, url=None, file_path=None, detection_type=None):
+def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=None, file_path=None, detection_type=None):
     notification = Notify()
     notification.title = "Malware or Phishing Alert"
 
@@ -2902,15 +2902,15 @@ class RealTimeWebProtectionHandler:
                 logging.info(message)
 
                 # Check against active phishing signatures
-                elif ip_address in ipv4_addresses_phishing_active_signatures_data:
+                if ip_address in ipv4_addresses_phishing_active_signatures_data:
                     self.handle_detection('ipv4_address', ip_address, 'PHISHING_ACTIVE')
 
                 # Check against inactive phishing signatures
-                elif ip_address in ipv4_addresses_phishing_inactive_signatures_data:
+                if ip_address in ipv4_addresses_phishing_inactive_signatures_data:
                     self.handle_detection('ipv4_address', ip_address, 'PHISHING_INACTIVE')
 
                 # Check against IPv4 BruteForce signatures
-                elif ip_address in ipv4_addresses_bruteforce_signatures_data:
+                if ip_address in ipv4_addresses_bruteforce_signatures_data:
                     self.handle_detection('ipv4_address', ip_address, 'BRUTEFORCE')
 
                 # Check against IPv4 Malware signatures
@@ -4674,13 +4674,19 @@ class PyInstArchive:
 
                 # Check for entry points (python scripts or pyc files)
                 if entry.typecmprsdata == b's':
-                    logging.info(f"[+] Possible entry point: {entry.name}")
+                    logging.info(f"[+] Possible entry point (flagged): {entry.name}")
 
                 if self.pycMagic == b'\0' * 4:
                     self.barePycList.append(entry.name + '.pyc')
         except Exception as ex:
             logging.error(f"Error during file extraction: {ex}")
             return False
+
+        # New logic: detect potential entry point by executable name
+        exe_basename = os.path.splitext(os.path.basename(self.py_filepath))[0]
+        for entry in self.tocList:
+            if exe_basename.lower() in entry.name.lower():
+                logging.info(f"[+] Potential entry point by executable name: {entry.name}")
 
         # Fix bare pyc files if necessary
         self._fixbarepycs()
