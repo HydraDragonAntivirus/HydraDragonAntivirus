@@ -3,9 +3,29 @@
 #include "resource.h"
 #include <windows.h>
 #include <string>
+#include <fstream>
+
+// Define your log folder and log file paths.
+const WCHAR LOG_FOLDER[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs";
+const WCHAR LOG_FILE[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\inject_log.txt";
 
 // Global variable to store our module handle (which contains the resources).
 static HMODULE g_hThisModule = NULL;
+
+// Helper function to write log messages to a file.
+void WriteLog(const std::wstring& message)
+{
+    // Ensure the log directory exists.
+    CreateDirectoryW(LOG_FOLDER, NULL);
+
+    // Open the log file in append mode.
+    std::wofstream logFile(LOG_FILE, std::ios::app);
+    if (logFile.is_open())
+    {
+        logFile << message << std::endl;
+        logFile.close();
+    }
+}
 
 // Helper function to extract a resource from the module to an output file.
 // hModule: Module handle containing the resource.
@@ -18,7 +38,7 @@ bool ExtractResourceToFile(HMODULE hModule, LPCTSTR lpName, LPCTSTR lpType, cons
     HRSRC hResource = FindResource(hModule, lpName, lpType);
     if (!hResource)
     {
-        OutputDebugStringW(L"FindResource failed.\n");
+        WriteLog(L"FindResource failed.");
         return false;
     }
 
@@ -26,7 +46,7 @@ bool ExtractResourceToFile(HMODULE hModule, LPCTSTR lpName, LPCTSTR lpType, cons
     DWORD dwSize = SizeofResource(hModule, hResource);
     if (dwSize == 0)
     {
-        OutputDebugStringW(L"SizeofResource returned 0.\n");
+        WriteLog(L"SizeofResource returned 0.");
         return false;
     }
 
@@ -34,7 +54,7 @@ bool ExtractResourceToFile(HMODULE hModule, LPCTSTR lpName, LPCTSTR lpType, cons
     HGLOBAL hLoadedResource = LoadResource(hModule, hResource);
     if (!hLoadedResource)
     {
-        OutputDebugStringW(L"LoadResource failed.\n");
+        WriteLog(L"LoadResource failed.");
         return false;
     }
 
@@ -42,7 +62,7 @@ bool ExtractResourceToFile(HMODULE hModule, LPCTSTR lpName, LPCTSTR lpType, cons
     LPVOID pResourceData = LockResource(hLoadedResource);
     if (!pResourceData)
     {
-        OutputDebugStringW(L"LockResource failed.\n");
+        WriteLog(L"LockResource failed.");
         return false;
     }
 
@@ -50,7 +70,7 @@ bool ExtractResourceToFile(HMODULE hModule, LPCTSTR lpName, LPCTSTR lpType, cons
     HANDLE hFile = CreateFileW(outputFile.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE)
     {
-        OutputDebugStringW(L"CreateFile failed.\n");
+        WriteLog(L"CreateFile failed.");
         return false;
     }
 
@@ -61,25 +81,23 @@ bool ExtractResourceToFile(HMODULE hModule, LPCTSTR lpName, LPCTSTR lpType, cons
 
     if (!bWrite || dwWritten != dwSize)
     {
-        OutputDebugStringW(L"WriteFile failed or incomplete.\n");
+        WriteLog(L"WriteFile failed or incomplete.");
         return false;
     }
 
+    WriteLog(L"Resource extracted successfully to: " + outputFile);
     return true;
 }
 
-// Exported function to extract all DLL resources to 
-// "C:\Program Files\HydraDragonAntivirus\temp", load HydraDragonAVSandboxie.dll from that folder,
-// and then call its exported InjectDllMain function (if available).
+// Exported function to extract all DLL resources to LOG_FOLDER, load HydraDragonAVSandboxie.dll from that folder,
+// and then call its exported InjectDllMain function.
 extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll, ULONG_PTR UnusedParameter)
 {
     UNREFERENCED_PARAMETER(hSbieDll);
     UNREFERENCED_PARAMETER(UnusedParameter);
 
-    // Define the target extraction folder.
-    const std::wstring targetFolder = L"C:\\Program Files\\HydraDragonAntivirus\\temp";
-
-    // Create the target folder if it does not exist.
+    // Use the LOG_FOLDER as the target extraction folder.
+    std::wstring targetFolder = LOG_FOLDER;
     CreateDirectoryW(targetFolder.c_str(), NULL);
 
     // Define the list of DLL resources and their corresponding output filenames.
@@ -105,13 +123,11 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
         std::wstring outputFile = targetFolder + L"\\" + res.fileName;
         if (!ExtractResourceToFile(g_hThisModule, MAKEINTRESOURCE(res.resourceId), RT_RCDATA, outputFile))
         {
-            std::wstring debugMsg = L"Failed to extract resource with id: " + std::to_wstring(res.resourceId) + L"\n";
-            OutputDebugStringW(debugMsg.c_str());
+            WriteLog(L"Failed to extract resource with id: " + std::to_wstring(res.resourceId));
         }
         else
         {
-            std::wstring debugMsg = L"Successfully extracted resource with id: " + std::to_wstring(res.resourceId) + L"\n";
-            OutputDebugStringW(debugMsg.c_str());
+            WriteLog(L"Successfully extracted resource with id: " + std::to_wstring(res.resourceId));
         }
     }
 
@@ -120,26 +136,26 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
     HMODULE hDll = LoadLibraryW(sbieDllPath.c_str());
     if (hDll)
     {
-        OutputDebugStringW(L"HydraDragonAVSandboxie.dll loaded successfully.\n");
+        WriteLog(L"HydraDragonAVSandboxie.dll loaded successfully.");
 
         // Retrieve the InjectDllMain function from the loaded DLL.
         typedef void(__stdcall* PFN_InjectDllMain)(HINSTANCE, ULONG_PTR);
         PFN_InjectDllMain pInjectDllMain = (PFN_InjectDllMain)GetProcAddress(hDll, "InjectDllMain");
         if (pInjectDllMain)
         {
-            OutputDebugStringW(L"InjectDllMain function found. Calling it now...\n");
+            WriteLog(L"InjectDllMain function found. Calling it now...");
             // Call the function with our module handle and a parameter of 0.
             pInjectDllMain(g_hThisModule, 0);
-            OutputDebugStringW(L"InjectDllMain called successfully.\n");
+            WriteLog(L"InjectDllMain called successfully.");
         }
         else
         {
-            OutputDebugStringW(L"InjectDllMain function not found in HydraDragonAVSandboxie.dll.\n");
+            WriteLog(L"InjectDllMain function not found in HydraDragonAVSandboxie.dll.");
         }
     }
     else
     {
-        OutputDebugStringW(L"Failed to load HydraDragonAVSandboxie.dll.\n");
+        WriteLog(L"Failed to load HydraDragonAVSandboxie.dll from: " + sbieDllPath);
     }
 }
 
