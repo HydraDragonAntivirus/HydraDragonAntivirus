@@ -6120,10 +6120,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
             logging.info(f"File {file_path} is a .pyc (Python Compiled Module) file. Attempting to decompile...")
 
             # Call the show_code_with_uncompyle6_pycdc_pycdas function to decompile the .pyc file
-            decompiled_file_paths = show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name)
-
-            # If decompilation was successful for either uncompyle6 or pycdc, scan the decompiled files
-            uncompyle6_file_path, pycdc_file_path = decompiled_file_paths
+            uncompyle6_file_path, pycdc_file_path, pycdas_file_path, united_output_path = show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name)
 
             # Scan and warn for the uncompyle6 decompiled file, if available
             if uncompyle6_file_path:
@@ -6138,6 +6135,20 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
                 scan_and_warn(pycdc_file_path)
             else:
                 logging.error(f"pycdc decompilation failed for file {file_path}.")
+
+            # Scan and warn for the pycdas decompiled file, if available
+            if pycdas_file_path:
+                logging.info(f"Scanning decompiled file from pycdas: {pycdas_file_path}")
+                scan_and_warn(pycdas_file_path)
+            else:
+                logging.error(f"pycdas decompilation failed for file {file_path}.")
+
+            # Scan and warn for the united decompiled file, if available
+            if united_output_path:
+                logging.info(f"Scanning united decompiled file: {united_output_path}")
+                scan_and_warn(united_output_path)
+            else:
+                logging.error(f"United decompilation failed for file {file_path}.")
 
         # Initialize variables
         is_decompiled = False
