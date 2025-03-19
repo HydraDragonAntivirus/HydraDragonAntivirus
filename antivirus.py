@@ -5166,9 +5166,9 @@ def log_directory_type(file_path):
 def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled_flag=False):
     """
     Processes a file and analyzes it using DeepSeek-Coder-1.3b.
-    If united_python_code_flag is True (i.e. the file comes from pycdas, pycdc, uncomplye6 decompilation), the summary will consist solely of the full source code.
+    If united_python_code_flag is True (i.e. the file comes from pycdas, pycdc, uncompyle6 decompilation), the summary will consist solely of the full source code.
     If decompiled_flag is True (and united_python_code_flag is False), a normal summary is generated with an additional note indicating that the file was decompiled by our tool and is Python source code.
-    
+
     Args:
         file_path (str): The path to the file to be scanned.
         united_python_code_flag (bool): If True, indicates that the file was produced by the pycdas decompiler.
