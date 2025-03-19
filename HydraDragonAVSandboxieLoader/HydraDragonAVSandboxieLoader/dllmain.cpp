@@ -68,12 +68,9 @@ bool ExtractResourceToFile(HMODULE hModule, LPCTSTR lpName, LPCTSTR lpType, cons
     return true;
 }
 
-// Global handle to the loaded HydraDragonAVSandboxie.dll.
-static HMODULE g_hSbieDll = NULL;
-
 // Exported function to extract all DLL resources to 
 // "C:\Program Files\HydraDragonAntivirus\temp", load HydraDragonAVSandboxie.dll from that folder,
-// and then call its exported initialization function (if available).
+// and then call its exported InjectDllMain function (if available).
 extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll, ULONG_PTR UnusedParameter)
 {
     UNREFERENCED_PARAMETER(hSbieDll);
@@ -120,23 +117,24 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
 
     // Load HydraDragonAVSandboxie.dll from the target folder.
     std::wstring sbieDllPath = targetFolder + L"\\HydraDragonAVSandboxie.dll";
-    g_hSbieDll = LoadLibraryW(sbieDllPath.c_str());
-    if (g_hSbieDll)
+    HMODULE hDll = LoadLibraryW(sbieDllPath.c_str());
+    if (hDll)
     {
         OutputDebugStringW(L"HydraDragonAVSandboxie.dll loaded successfully.\n");
 
-        // Optionally, call an exported initialization function from HydraDragonAVSandboxie.dll.
-        // Update the function name "InitHydraDragon" if your DLL exports a different function.
-        typedef void(__stdcall* PFN_InitHydraDragon)();
-        PFN_InitHydraDragon pfnInit = (PFN_InitHydraDragon)GetProcAddress(g_hSbieDll, "InitHydraDragon");
-        if (pfnInit)
+        // Retrieve the InjectDllMain function from the loaded DLL.
+        typedef void(__stdcall* PFN_InjectDllMain)(HINSTANCE, ULONG_PTR);
+        PFN_InjectDllMain pInjectDllMain = (PFN_InjectDllMain)GetProcAddress(hDll, "InjectDllMain");
+        if (pInjectDllMain)
         {
-            pfnInit();
-            OutputDebugStringW(L"Called InitHydraDragon successfully.\n");
+            OutputDebugStringW(L"InjectDllMain function found. Calling it now...\n");
+            // Call the function with our module handle and a parameter of 0.
+            pInjectDllMain(g_hThisModule, 0);
+            OutputDebugStringW(L"InjectDllMain called successfully.\n");
         }
         else
         {
-            OutputDebugStringW(L"InitHydraDragon function not found in HydraDragonAVSandboxie.dll.\n");
+            OutputDebugStringW(L"InjectDllMain function not found in HydraDragonAVSandboxie.dll.\n");
         }
     }
     else
