@@ -76,6 +76,7 @@ __declspec(thread) bool g_bInLogging = false;
 // -----------------------------------------------------------------
 // Notification Infrastructure via Shell_NotifyIcon
 // -----------------------------------------------------------------
+// --------------------- Notification Infrastructure ---------------------
 HWND g_hNotificationWnd = NULL;
 
 HWND CreateNotificationWindow()
@@ -86,141 +87,48 @@ HWND CreateNotificationWindow()
     wc.hInstance = GetModuleHandle(NULL);
     wc.lpszClassName = className;
     RegisterClass(&wc);
-    HWND hWnd = CreateWindow(className, L"", WS_OVERLAPPED, CW_USEDEFAULT, CW_USEDEFAULT, 100, 100, NULL, NULL, wc.hInstance, NULL);
+    HWND hWnd = CreateWindow(className, L"", WS_OVERLAPPED,
+        CW_USEDEFAULT, CW_USEDEFAULT, 100, 100,
+        NULL, NULL, wc.hInstance, NULL);
     return hWnd;
-}
-
-void ShowNotification_Internal(const WCHAR* title, const WCHAR* msg)
-{
-    if (!g_hNotificationWnd)
-        return;
-    NOTIFYICONDATA nid = { 0 };
-    nid.cbSize = sizeof(nid);
-    nid.hWnd = g_hNotificationWnd;
-    nid.uID = 1001;
-    nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-    nid.uCallbackMessage = WM_USER + 1;
-    nid.hIcon = LoadIcon(NULL, IDI_WARNING);
-    wcscpy_s(nid.szTip, title);
-    Shell_NotifyIcon(NIM_ADD, &nid);
-    nid.uFlags = NIF_INFO;
-    wcscpy_s(nid.szInfo, msg);
-    wcscpy_s(nid.szInfoTitle, title);
-    nid.dwInfoFlags = NIIF_WARNING;
-    Shell_NotifyIcon(NIM_MODIFY, &nid);
-    Sleep(5000);
-    Shell_NotifyIcon(NIM_DELETE, &nid);
-}
-
-LRESULT CALLBACK CustomNotificationWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
-{
-    auto* pData = (std::pair<std::wstring, std::wstring>*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
-    switch (uMsg)
-    {
-    case WM_PAINT:
-    {
-        PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hwnd, &ps);
-        RECT rect;
-        GetClientRect(hwnd, &rect);
-        HBRUSH hBrush = CreateSolidBrush(RGB(255, 255, 240));
-        FillRect(hdc, &rect, hBrush);
-        DeleteObject(hBrush);
-        FrameRect(hdc, &rect, (HBRUSH)GetStockObject(BLACK_BRUSH));
-
-        if (pData)
-        {
-            SetBkMode(hdc, TRANSPARENT);
-            HFONT hFont = CreateFont(16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
-                DEFAULT_PITCH, L"Segoe UI");
-            HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
-            RECT titleRect = rect;
-            titleRect.bottom = titleRect.top + 25;
-            DrawText(hdc, pData->first.c_str(), -1, &titleRect, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
-            SelectObject(hdc, hOldFont);
-            DeleteObject(hFont);
-
-            RECT msgRect = rect;
-            msgRect.top += 30;
-            DrawText(hdc, pData->second.c_str(), -1, &msgRect, DT_CENTER | DT_WORDBREAK);
-        }
-        EndPaint(hwnd, &ps);
-        break;
-    }
-    case WM_TIMER:
-        KillTimer(hwnd, 1);
-        DestroyWindow(hwnd);
-        break;
-    case WM_DESTROY:
-        PostQuitMessage(0);
-        break;
-    default:
-        return DefWindowProc(hwnd, uMsg, wParam, lParam);
-    }
-    return 0;
-}
-
-void PlayAggressiveSoundEffect()
-{
-    PlaySound(L"C:\\Program Files\\HydraDragonAntivirus\\assets\\alert.wav", NULL, SND_FILENAME | SND_ASYNC);
-}
-
-DWORD WINAPI NotificationThreadProc(LPVOID param)
-{
-    auto* pData = (std::pair<std::wstring, std::wstring>*)param;
-    PlayAggressiveSoundEffect();
-
-    const wchar_t* className = L"CustomNotificationWindowClass";
-    WNDCLASS wc = { 0 };
-    wc.lpfnWndProc = CustomNotificationWndProc;
-    wc.hInstance = GetModuleHandle(NULL);
-    wc.lpszClassName = className;
-    RegisterClass(&wc);
-
-    RECT workArea;
-    SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
-    int width = 500, height = 500;
-    int x = workArea.right - width - 10;
-    int y = workArea.bottom - height - 10;
-
-    HWND hwnd = CreateWindowEx(
-        WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
-        className,
-        pData->first.c_str(),
-        WS_POPUP,
-        x, y, width, height,
-        NULL, NULL, GetModuleHandle(NULL), NULL);
-
-    if (hwnd)
-    {
-        SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)pData);
-        ShowWindow(hwnd, SW_SHOW);
-        UpdateWindow(hwnd);
-        SetTimer(hwnd, 1, 5000, NULL);
-
-        MSG msg;
-        while (GetMessage(&msg, NULL, 0, 0))
-        {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-        }
-    }
-    else
-    {
-        delete pData;
-    }
-    return 0;
 }
 
 void TriggerNotification(const WCHAR* title, const WCHAR* msg)
 {
     auto* pData = new std::pair<std::wstring, std::wstring>(title, msg);
-    HANDLE hThread = CreateThread(NULL, 0, NotificationThreadProc, pData, 0, NULL);
+    HANDLE hThread = CreateThread(NULL, 0,
+        [](LPVOID lpParam) -> DWORD {
+            auto* p = (std::pair<std::wstring, std::wstring>*)lpParam;
+            // Play sound.
+            PlaySound(L"C:\\Program Files\\HydraDragonAntivirus\\assets\\alert.wav",
+                NULL, SND_FILENAME | SND_ASYNC);
+            // Prepare notification.
+            NOTIFYICONDATA nid = { 0 };
+            nid.cbSize = sizeof(nid);
+            nid.hWnd = g_hNotificationWnd;
+            nid.uID = 1001;
+            nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+            nid.uCallbackMessage = WM_USER + 1;
+            nid.hIcon = LoadIcon(NULL, IDI_WARNING);
+            wcscpy_s(nid.szTip, p->first.c_str());
+            Shell_NotifyIcon(NIM_ADD, &nid);
+            nid.uFlags = NIF_INFO;
+            wcscpy_s(nid.szInfo, p->second.c_str());
+            wcscpy_s(nid.szInfoTitle, p->first.c_str());
+            nid.dwInfoFlags = NIIF_WARNING;
+            Shell_NotifyIcon(NIM_MODIFY, &nid);
+            Sleep(5000);
+            Shell_NotifyIcon(NIM_DELETE, &nid);
+            delete p;
+            return 0;
+        },
+        pData, 0, NULL);
     if (hThread)
         CloseHandle(hThread);
 }
+
+// --------------------- End Notification Infrastructure ---------------------
+
 
 // -----------------------------------------------------------------
 // Asynchronous Logging for Regular Logs
