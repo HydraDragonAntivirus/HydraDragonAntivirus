@@ -1,0 +1,1 @@
+Link: https://github.com/VeroFess/SbieHide/releases/tag/v1.2.2
