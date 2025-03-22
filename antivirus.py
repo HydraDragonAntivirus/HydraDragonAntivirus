@@ -7205,11 +7205,23 @@ def perform_sandbox_analysis(file_path):
     except Exception as ex:
         logging.error(f"An error occurred during sandbox analysis: {ex}")
 
+dll_entry_point = "InjectDllMain"
+
 def run_sandboxie_plugin():
+    # Construct the command to run rundll32 inside Sandboxie
+    command = [
+        sandboxie_path,
+        '/box:DefaultBox',
+        'rundll32.exe',
+        f"{HydraDragonAV_sandboxie_path},{dll_entry_point}"
+    ]
+    
     try:
-        subprocess.run([sandboxie_path, '/box:DefaultBox', HydraDragonAV_sandboxie_path], check=True)
+        logging.info(f"[INFO] Running DLL via rundll32 in Sandboxie: {' '.join(command)}")
+        subprocess.run(command, check=True)
+        logging.info("[SUCCESS] Plugin ran successfully in Sandboxie.")
     except subprocess.CalledProcessError as ex:
-        logging.error(f"Failed to run HydraDragonAV Sandboxie plugin on {HydraDragonAV_sandboxie_path}: {ex}")
+        logging.error(f"Failed to run plugin in Sandboxie: {ex}")
 
 def run_sandboxie(file_path):
     try:
