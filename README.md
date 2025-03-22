@@ -3,9 +3,6 @@
 <p align="center">
 <img src="assets/HydraDragonAntivirus.png" width=400px>
 </p>
-<p align="center">
-<img src="assets/HydraDragonAntivirusGUI.png" width=800px>
-</p>
 
 Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my machine learning AI, Behaviour analysis, NLP-Based detection, website signatures, Ghidra and Snort etc.
 
