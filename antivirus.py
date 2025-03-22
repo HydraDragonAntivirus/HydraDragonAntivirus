@@ -7209,7 +7209,7 @@ def run_sandboxie_plugin():
     try:
         subprocess.run([sandboxie_path, '/box:DefaultBox', HydraDragonAV_sandboxie_path], check=True)
     except subprocess.CalledProcessError as ex:
-        logging.error(f"Failed to run Sandboxie on {file_path}: {ex}")
+        logging.error(f"Failed to run HydraDragonAV Sandboxie plugin on {HydraDragonAV_sandboxie_path}: {ex}")
 
 def run_sandboxie(file_path):
     try:
