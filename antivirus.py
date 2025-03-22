@@ -293,6 +293,7 @@ detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
 detectiteasy_json_dir = os.path.join(script_dir, "detectiteasy_json")
 memory_dir = os.path.join(script_dir, "memory")
 debloat_dir = os.path.join(script_dir, "debloat")
+sandboxie_plugins_dir = os.path.join(script_dir, "sandboxie_plugins")
 detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
 pycdc_path = os.path.join(script_dir, "pycdc.exe")
@@ -346,6 +347,7 @@ compiled_rule_path = os.path.join(yara_dir, "compiled_rule.yrc")
 yarGen_rule_path = os.path.join(yara_dir, "machinelearning.yrc")
 icewater_rule_path = os.path.join(yara_dir, "icewater.yrc")
 valhalla_rule_path = os.path.join(yara_dir, "valhalla-rules.yrc")
+HydraDragonAV_sandboxie_path = os.path.join(sandboxie_plugins_dir, "HydraDragonAVSandboxie.dll")
 antivirus_domains_data = []
 ipv4_addresses_signatures_data = []
 ipv4_addresses_spam_signatures_data = []
@@ -7195,12 +7197,19 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=check_uefi_directories).start() # Start monitoring UEFI directories for malicious files in a separate thread
         threading.Thread(target=monitor_message.monitoring_command_line_and_messages).start() # Function to monitor specific windows in a separate thread
         threading.Thread(target=run_sandboxie_control).start()
+        threading.Thread(target=run_sandboxie_plugin).start()
         threading.Thread(target=run_sandboxie, args=(file_path,)).start()
 
         logging.info("Sandbox analysis started. Please check log after you close program. There is no limit to scan time.")
 
     except Exception as ex:
         logging.error(f"An error occurred during sandbox analysis: {ex}")
+
+def run_sandboxie(file_path):
+    try:
+        subprocess.run([sandboxie_path, '/box:DefaultBox', HydraDragonAV_sandboxie_path], check=True)
+    except subprocess.CalledProcessError as ex:
+        logging.error(f"Failed to run Sandboxie on {file_path}: {ex}")
 
 def run_sandboxie(file_path):
     try:
