@@ -7205,7 +7205,7 @@ def perform_sandbox_analysis(file_path):
     except Exception as ex:
         logging.error(f"An error occurred during sandbox analysis: {ex}")
 
-def run_sandboxie(file_path):
+def run_sandboxie_plugin():
     try:
         subprocess.run([sandboxie_path, '/box:DefaultBox', HydraDragonAV_sandboxie_path], check=True)
     except subprocess.CalledProcessError as ex:
