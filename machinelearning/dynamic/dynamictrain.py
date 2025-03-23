@@ -23,7 +23,7 @@ os.makedirs(DUMP_DIR, exist_ok=True)
 # Hardcoded log file path.
 log_file_path = os.path.join(LOG_DIR, "dynamictrain.log")
 
-# Configure logging to output to both console and the specified log file.
+# Configure logging.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -38,12 +38,15 @@ SANDBOXIE_PATH = r"C:\Program Files\Sandboxie\Start.exe"
 
 def full_cleanup_sandbox():
     """
-    Fully cleans up the Sandboxie environment using Sandboxie's own termination commands.
-    It issues commands using Start.exe with /terminate, /box:DefaultBox /terminate, and /terminate_all.
+    Fully cleans up the Sandboxie environment using Sandboxie's termination commands.
+    It issues:
+      - Start.exe /terminate
+      - Start.exe /box:DefaultBox /terminate
+      - Start.exe /terminate_all
+    with short delays between each command.
     """
     try:
         logging.info("Starting full sandbox cleanup using Start.exe termination commands...")
-
         cmd1 = [SANDBOXIE_PATH, "/terminate"]
         result1 = subprocess.run(cmd1, capture_output=True, text=True)
         if result1.returncode != 0:
@@ -51,7 +54,7 @@ def full_cleanup_sandbox():
         else:
             logging.info(f"Command {cmd1} successful.")
         time.sleep(2)
-
+        
         cmd2 = [SANDBOXIE_PATH, "/box:DefaultBox", "/terminate"]
         result2 = subprocess.run(cmd2, capture_output=True, text=True)
         if result2.returncode != 0:
@@ -59,7 +62,7 @@ def full_cleanup_sandbox():
         else:
             logging.info(f"Command {cmd2} successful.")
         time.sleep(2)
-
+        
         cmd3 = [SANDBOXIE_PATH, "/terminate_all"]
         result3 = subprocess.run(cmd3, capture_output=True, text=True)
         if result3.returncode != 0:
@@ -93,7 +96,7 @@ def cleanup_old_sandbox_data():
 def is_process_closed(process_name):
     """
     Checks if the given process (by image name) is closed.
-    Returns True if the process is not found in tasklist; False otherwise.
+    Returns True if not found in tasklist; otherwise, False.
     """
     try:
         cmd = ["tasklist", "/FI", f"IMAGENAME eq {process_name}", "/NH"]
@@ -119,10 +122,10 @@ def run_in_sandbox(file_path):
 
 def check_program_executed(file_path):
     """
-    Waits for 10 seconds (auto termination period) and then checks if the target process is closed.
-    Returns True if the process has terminated; otherwise, returns False.
+    Waits for 10 seconds (auto termination period) then checks if the target process is closed.
+    Returns True if terminated; otherwise, False.
     """
-    time.sleep(10)  # Wait 10 seconds
+    time.sleep(10)
     proc_name = os.path.basename(file_path)
     if is_process_closed(proc_name):
         logging.info(f"Process {proc_name} has terminated.")
@@ -163,9 +166,11 @@ def get_baseline_memory():
 def extract_malicious_signature(baseline, current):
     """
     Compares the clean baseline memory with the current memory dump.
-    Instead of using SHA256, it returns a dynamic dump signature composed of the diff length
-    and the first 16 bytes of the difference in hexadecimal.
+    Returns a dynamic dump signature composed of:
+      - The total number of difference bytes
+      - The hexadecimal representation of the first 16 bytes of the diff
     If no differences are found, returns "0".
+    (No hashlib is used.)
     """
     common_length = min(len(baseline), len(current))
     diff = bytearray()
@@ -176,7 +181,6 @@ def extract_malicious_signature(baseline, current):
         diff.extend(current[common_length:])
     
     if diff:
-        # Create a dynamic signature: diff length and first 16 bytes in hex.
         signature = f"{len(diff)}-{diff[:16].hex()}"
         logging.info(f"Extracted dynamic dump signature: {signature}")
         return signature, diff
@@ -184,12 +188,32 @@ def extract_malicious_signature(baseline, current):
         logging.info("No malicious changes detected.")
         return "0", None
 
+def extract_features_from_signature(signature):
+    """
+    Converts the dynamic dump signature string into a numerical feature vector.
+    The signature is expected in the form "diffLength-hexPrefix". If signature is "0",
+    returns a vector of zeros (length 64).
+    """
+    try:
+        if signature == "0":
+            return np.zeros(64, dtype=int)
+        parts = signature.split('-')
+        # We ignore the diff length and use the hexPrefix.
+        diff_prefix = [int(parts[1][i:i+2], 16) for i in range(0, len(parts[1]), 2)]
+        if len(diff_prefix) < 64:
+            diff_prefix += [0] * (64 - len(diff_prefix))
+        else:
+            diff_prefix = diff_prefix[:64]
+        return np.array(diff_prefix, dtype=int)
+    except Exception as ex:
+        logging.error(f"Feature extraction failed: {ex}")
+        return None
+
 def process_file(file_path):
     """
     Forces the file to run as an executable (renaming if needed), then runs it in the sandbox,
     performs a memory scan, compares the result with the baseline to extract the dynamic dump signature,
     and finally cleans up the sandbox.
-    If execution fails, logs the error and returns None.
     If malicious differences are found, saves the current memory dump for that target.
     Returns a tuple (signature, original_file_name) or None on failure.
     """
@@ -232,35 +256,12 @@ def process_file(file_path):
     full_cleanup_sandbox()
     return dynamic_signature, os.path.basename(original_path)
 
-def extract_features_from_signature(signature):
-    """
-    Converts the dynamic dump signature string into a numerical feature vector.
-    Here we split the signature by '-' and convert both parts into numbers.
-    If the signature is "0", returns a vector of zeros.
-    """
-    try:
-        if signature == "0":
-            return np.zeros(64, dtype=int)
-        parts = signature.split('-')
-        diff_length = int(parts[0])
-        diff_prefix = [int(parts[1][i:i+2], 16) for i in range(0, len(parts[1]), 2)]
-        # Create a feature vector: first element is the diff length, then pad diff_prefix to 63 elements.
-        features = [diff_length] + diff_prefix
-        if len(features) < 64:
-            features += [0]*(64 - len(features))
-        else:
-            features = features[:64]
-        return np.array(features)
-    except Exception as ex:
-        logging.error(f"Feature extraction failed: {ex}")
-        return None
-
 def collect_dynamic_features(directory, label):
     """
     Processes all files in the given directory, extracts dynamic dump signatures,
-    converts them to numerical feature vectors, and assigns the provided label.
-    Also collects the original file names.
-    'label': 0 for clean, 1 for malicious.
+    converts them to numerical feature vectors,
+    and assigns the provided label.
+    For benign files, label is 0.
     Returns a tuple (features, labels, file_names).
     """
     features = []
@@ -275,8 +276,39 @@ def collect_dynamic_features(directory, label):
             signature, fname = result
             feat = extract_features_from_signature(signature)
             if feat is not None:
+                if len(feat) < 64:
+                    feat = np.pad(feat, (0, 64 - len(feat)), 'constant')
+                else:
+                    feat = feat[:64]
                 features.append(feat)
                 labels.append(label)
+                file_names.append(fname)
+    return features, labels, file_names
+
+def collect_dynamic_features_malicious(directory):
+    """
+    Processes all files in the given malicious directory.
+    Each malicious file is assigned a unique label (starting at 1).
+    Returns a tuple (features, labels, file_names).
+    """
+    features = []
+    labels = []
+    file_names = []
+    file_list = glob.glob(os.path.join(directory, "*"))
+    logging.info(f"Found {len(file_list)} malicious files in {directory}")
+    for idx, file_path in enumerate(file_list):
+        logging.info(f"Processing malicious file: {file_path}")
+        result = process_file(file_path)
+        if result:
+            signature, fname = result
+            feat = extract_features_from_signature(signature)
+            if feat is not None:
+                if len(feat) < 64:
+                    feat = np.pad(feat, (0, 64 - len(feat)), 'constant')
+                else:
+                    feat = feat[:64]
+                features.append(feat)
+                labels.append(idx + 1)  # Unique label starting at 1.
                 file_names.append(fname)
     return features, labels, file_names
 
@@ -301,21 +333,36 @@ def train_model(features, labels):
         pickle.dump(clf, f)
     logging.info(f"Model trained and saved as {model_path}")
 
-def save_databases(benign_names, malicious_names):
+def save_databases(benign_names, malicious_names, malicious_features):
     """
-    Saves two JSON databases based on file names for benign and malicious files.
+    Saves two JSON databases.
+      - For benign files, saves a list of filenames.
+      - For malicious files, creates a mapping where each key is the sequential virus number (as a string)
+        and each value is the virus name (taken directly from the filename).
+    Also saves a separate JSON mapping from virus label to its feature vector.
     """
     benign_db_path = os.path.join(DUMP_DIR, "benign_database.json")
     malicious_db_path = os.path.join(DUMP_DIR, "malicious_database.json")
+    malicious_features_path = os.path.join(DUMP_DIR, "malicious_features.json")
+    
     with open(benign_db_path, "w") as f:
         json.dump({"files": benign_names}, f, indent=2)
+    logging.info(f"Saved benign database to {benign_db_path}")
+    
+    virus_mapping = {str(i+1): name for i, name in enumerate(malicious_names)}
     with open(malicious_db_path, "w") as f:
-        json.dump({"files": malicious_names}, f, indent=2)
-    logging.info(f"Saved benign database to {benign_db_path} and malicious database to {malicious_db_path}")
+        json.dump(virus_mapping, f, indent=2)
+    logging.info(f"Saved malicious database to {malicious_db_path}")
+    
+    # Save malicious features mapping.
+    malicious_features_mapping = {str(label): feat.tolist() for label, feat in zip(range(1, len(malicious_features)+1), malicious_features)}
+    with open(malicious_features_path, "w") as f:
+        json.dump(malicious_features_mapping, f, indent=2)
+    logging.info(f"Saved malicious features mapping to {malicious_features_path}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Dynamic Analysis and Memory Difference Detection Engine")
-    parser.add_argument("--benign-dir", default="data2", help="Directory containing clean files")
+    parser = argparse.ArgumentParser(description="Dynamic Analysis and Memory Difference Detection Engine (Multi-class)")
+    parser.add_argument("--benign-dir", default="data2", help="Directory containing benign files")
     parser.add_argument("--malicious-dir", default="datamaliciousorder", help="Directory containing malicious files")
     args = parser.parse_args()
 
@@ -336,7 +383,7 @@ def main():
             logging.error(f"Failed to cleanup old sandbox data: {ex}")
 
     benign_features, benign_labels, benign_names = collect_dynamic_features(args.benign_dir, label=0)
-    malicious_features, malicious_labels, malicious_names = collect_dynamic_features(args.malicious_dir, label=1)
+    malicious_features, malicious_labels, malicious_names = collect_dynamic_features_malicious(args.malicious_dir)
 
     all_features = benign_features + malicious_features
     all_labels = benign_labels + malicious_labels
@@ -345,7 +392,7 @@ def main():
         logging.error("No dynamic features extracted. Exiting.")
         return
 
-    save_databases(benign_names, malicious_names)
+    save_databases(benign_names, malicious_names, malicious_features)
     train_model(all_features, all_labels)
 
 if __name__ == "__main__":
