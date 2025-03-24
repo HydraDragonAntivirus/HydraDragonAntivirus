@@ -12,9 +12,9 @@ from dynamictrain import process_file, extract_features_from_signature, full_cle
 DUMP_DIR = r"C:\sandbox_dumps"
 MODEL_PATH = os.path.join(DUMP_DIR, "dynamic_model.pkl")
 BENIGN_DB_PATH = os.path.join(DUMP_DIR, "benign_database.json")
-BENIGN_FEATURES_PATH = os.path.join(DUMP_DIR, "benign_features.json")
 MALICIOUS_DB_PATH = os.path.join(DUMP_DIR, "malicious_database.json")
-MALICIOUS_FEATURES_PATH = os.path.join(DUMP_DIR, "malicious_features.json")
+BENIGN_FEATURES_PKL = os.path.join(DUMP_DIR, "benign_features.pkl")
+MALICIOUS_FEATURES_PKL = os.path.join(DUMP_DIR, "malicious_features.pkl")
 
 LOG_FILE = r"C:\sandbox_logs\scanner.log"
 logging.basicConfig(
@@ -41,6 +41,14 @@ def load_json(db_path):
         return {}
     with open(db_path, "r") as f:
         data = json.load(f)
+    return data
+
+def load_pickle(pkl_path):
+    if not os.path.exists(pkl_path):
+        logging.error(f"File not found: {pkl_path}")
+        return {}
+    with open(pkl_path, "rb") as f:
+        data = pickle.load(f)
     return data
 
 def cosine_similarity(v1, v2):
@@ -79,7 +87,6 @@ def scan_file(file_path, model, benign_features, malicious_features):
     feat = feat.reshape(1, -1)
     prediction = model.predict(feat)[0]
     
-    # Select the appropriate features mapping.
     db_features = benign_features if prediction == 0 else malicious_features
 
     best_sim = -1
@@ -102,9 +109,9 @@ def main():
     
     model = load_model(MODEL_PATH)
     benign_db = load_json(BENIGN_DB_PATH)
-    benign_features = load_json(BENIGN_FEATURES_PATH)
     malicious_db = load_json(MALICIOUS_DB_PATH)
-    malicious_features = load_json(MALICIOUS_FEATURES_PATH)
+    benign_features = load_pickle(BENIGN_FEATURES_PKL)
+    malicious_features = load_pickle(MALICIOUS_FEATURES_PKL)
     
     result = scan_file(file_path, model, benign_features, malicious_features)
     if result is None:

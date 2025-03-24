@@ -47,29 +47,18 @@ def full_cleanup_sandbox():
     """
     try:
         logging.info("Starting full sandbox cleanup using Start.exe termination commands...")
-        cmd1 = [SANDBOXIE_PATH, "/terminate"]
-        result1 = subprocess.run(cmd1, capture_output=True, text=True)
-        if result1.returncode != 0:
-            logging.error(f"Command {cmd1} failed: {result1.stderr}")
-        else:
-            logging.info(f"Command {cmd1} successful.")
-        time.sleep(2)
-        
-        cmd2 = [SANDBOXIE_PATH, "/box:DefaultBox", "/terminate"]
-        result2 = subprocess.run(cmd2, capture_output=True, text=True)
-        if result2.returncode != 0:
-            logging.error(f"Command {cmd2} failed: {result2.stderr}")
-        else:
-            logging.info(f"Command {cmd2} successful.")
-        time.sleep(2)
-        
-        cmd3 = [SANDBOXIE_PATH, "/terminate_all"]
-        result3 = subprocess.run(cmd3, capture_output=True, text=True)
-        if result3.returncode != 0:
-            logging.error(f"Command {cmd3} failed: {result3.stderr}")
-        else:
-            logging.info(f"Command {cmd3} successful.")
-        time.sleep(1)
+        cmds = [
+            [SANDBOXIE_PATH, "/terminate"],
+            [SANDBOXIE_PATH, "/box:DefaultBox", "/terminate"],
+            [SANDBOXIE_PATH, "/terminate_all"]
+        ]
+        for cmd in cmds:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                logging.error(f"Command {cmd} failed: {result.stderr}")
+            else:
+                logging.info(f"Command {cmd} successful.")
+            time.sleep(2)
     except Exception as ex:
         logging.error(f"Full sandbox cleanup encountered an exception: {ex}")
 
@@ -333,35 +322,32 @@ def train_model(features, labels):
 
 def save_databases(benign_names, benign_features, malicious_names, malicious_features):
     """
-    Saves four JSON databases:
-      - benign_database.json: mapping from index (starting at 1) to benign filename.
-      - benign_features.json: mapping from index to benign feature vector (list).
-      - malicious_database.json: mapping from index (starting at 1) to malicious filename.
-      - malicious_features.json: mapping from index to malicious feature vector (list).
+    Saves JSON databases mapping indices to filenames (for benign and malicious files).
+    Also saves separate pickle files for benign and malicious feature mappings.
     """
     benign_db_path = os.path.join(DUMP_DIR, "benign_database.json")
-    benign_features_path = os.path.join(DUMP_DIR, "benign_features.json")
     malicious_db_path = os.path.join(DUMP_DIR, "malicious_database.json")
-    malicious_features_path = os.path.join(DUMP_DIR, "malicious_features.json")
     
     benign_mapping = {str(i+1): name for i, name in enumerate(benign_names)}
     with open(benign_db_path, "w") as f:
         json.dump(benign_mapping, f, indent=2)
     logging.info(f"Saved benign database to {benign_db_path}")
     
-    benign_features_mapping = {str(i+1): feat.tolist() for i, feat in enumerate(benign_features)}
-    with open(benign_features_path, "w") as f:
-        json.dump(benign_features_mapping, f, indent=2)
-    logging.info(f"Saved benign features mapping to {benign_features_path}")
-    
     malicious_mapping = {str(i+1): name for i, name in enumerate(malicious_names)}
     with open(malicious_db_path, "w") as f:
         json.dump(malicious_mapping, f, indent=2)
     logging.info(f"Saved malicious database to {malicious_db_path}")
     
+    # Save benign and malicious features into separate pickle files.
+    benign_features_path = os.path.join(DUMP_DIR, "benign_features.pkl")
+    malicious_features_path = os.path.join(DUMP_DIR, "malicious_features.pkl")
+    benign_features_mapping = {str(i+1): feat.tolist() for i, feat in enumerate(benign_features)}
     malicious_features_mapping = {str(i+1): feat.tolist() for i, feat in enumerate(malicious_features)}
-    with open(malicious_features_path, "w") as f:
-        json.dump(malicious_features_mapping, f, indent=2)
+    with open(benign_features_path, "wb") as f:
+        pickle.dump(benign_features_mapping, f)
+    logging.info(f"Saved benign features mapping to {benign_features_path}")
+    with open(malicious_features_path, "wb") as f:
+        pickle.dump(malicious_features_mapping, f)
     logging.info(f"Saved malicious features mapping to {malicious_features_path}")
 
 def main():
