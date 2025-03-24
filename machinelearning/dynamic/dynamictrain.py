@@ -214,7 +214,7 @@ def process_file(file_path):
     Forces the file to run as an executable (renaming if needed), then runs it in the sandbox,
     performs a memory scan, compares the result with the baseline to extract the dynamic dump signature,
     and finally cleans up the sandbox.
-    If malicious differences are found (i.e. signature is not "0"), saves the current memory dump for that target.
+    If malicious differences are found (i.e. signature != "0"), saves the current memory dump for that target.
     Returns a tuple (signature, original_file_name) or None on failure.
     """
     full_cleanup_sandbox()
@@ -244,7 +244,6 @@ def process_file(file_path):
     current_memory = scan_memory(file_path)
     dynamic_signature, diff = extract_malicious_signature(baseline, current_memory)
     
-    # Only save dump if dynamic signature indicates differences.
     if dynamic_signature != "0":
         dump_file = os.path.join(DUMP_DIR, f"{os.path.basename(original_path)}_malicious_dump.bin")
         try:
@@ -332,7 +331,7 @@ def train_model(features, labels):
     logging.info(f"Model trained and saved as {model_path}")
     return clf
 
-def save_databases(benign_names, malicious_names, malicious_features):
+def save_databases(benign_names, benign_features, malicious_names, malicious_features):
     """
     Saves four JSON databases:
       - benign_database.json: mapping from index (starting at 1) to benign filename.
@@ -398,7 +397,7 @@ def main():
         return
 
     clf = train_model(all_features, all_labels)
-    save_databases(benign_names, malicious_names, malicious_features)
+    save_databases(benign_names, benign_features, malicious_names, malicious_features)
 
 if __name__ == "__main__":
     main()

@@ -60,7 +60,7 @@ def scan_file(file_path, model, benign_features, malicious_features):
       - If predicted label is 0, compares with stored benign features.
       - If predicted label > 0, compares with stored malicious features.
     Returns a tuple (prediction, similar_label, similarity) where similar_label is the label of the
-    most similar stored sample (or None if no sufficient similarity is found).
+    most similar stored sample.
     """
     full_cleanup_sandbox()
     result = process_file(file_path)
@@ -79,7 +79,7 @@ def scan_file(file_path, model, benign_features, malicious_features):
     feat = feat.reshape(1, -1)
     prediction = model.predict(feat)[0]
     
-    # Select appropriate database for similarity lookup.
+    # Select the appropriate features mapping.
     db_features = benign_features if prediction == 0 else malicious_features
 
     best_sim = -1
