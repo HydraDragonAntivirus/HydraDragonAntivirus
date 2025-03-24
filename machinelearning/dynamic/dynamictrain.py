@@ -123,7 +123,7 @@ def run_in_sandbox(file_path):
 def check_program_executed(file_path):
     """
     Waits for 10 seconds (auto termination period) then checks if the target process is closed.
-    Returns True if terminated; otherwise, False.
+    Returns True if the process has terminated; otherwise, False.
     """
     time.sleep(10)
     proc_name = os.path.basename(file_path)
@@ -214,7 +214,7 @@ def process_file(file_path):
     Forces the file to run as an executable (renaming if needed), then runs it in the sandbox,
     performs a memory scan, compares the result with the baseline to extract the dynamic dump signature,
     and finally cleans up the sandbox.
-    If malicious differences are found, saves the current memory dump for that target.
+    If malicious differences are found (i.e. signature is not "0"), saves the current memory dump for that target.
     Returns a tuple (signature, original_file_name) or None on failure.
     """
     full_cleanup_sandbox()
@@ -244,7 +244,8 @@ def process_file(file_path):
     current_memory = scan_memory(file_path)
     dynamic_signature, diff = extract_malicious_signature(baseline, current_memory)
     
-    if diff is not None:
+    # Only save dump if dynamic signature indicates differences.
+    if dynamic_signature != "0":
         dump_file = os.path.join(DUMP_DIR, f"{os.path.basename(original_path)}_malicious_dump.bin")
         try:
             with open(dump_file, "wb") as f:
@@ -258,10 +259,7 @@ def process_file(file_path):
 
 def collect_dynamic_features(directory, label):
     """
-    Processes all files in the given directory, extracts dynamic dump signatures,
-    converts them to numerical feature vectors,
-    and assigns the provided label.
-    For benign files, label is 0.
+    Processes all files in the given directory (for benign files).
     Returns a tuple (features, labels, file_names).
     """
     features = []
@@ -332,30 +330,37 @@ def train_model(features, labels):
     with open(model_path, "wb") as f:
         pickle.dump(clf, f)
     logging.info(f"Model trained and saved as {model_path}")
+    return clf
 
 def save_databases(benign_names, malicious_names, malicious_features):
     """
-    Saves two JSON databases.
-      - For benign files, saves a list of filenames.
-      - For malicious files, creates a mapping where each key is the sequential virus number (as a string)
-        and each value is the virus name (taken directly from the filename).
-    Also saves a separate JSON mapping from virus label to its feature vector.
+    Saves four JSON databases:
+      - benign_database.json: mapping from index (starting at 1) to benign filename.
+      - benign_features.json: mapping from index to benign feature vector (list).
+      - malicious_database.json: mapping from index (starting at 1) to malicious filename.
+      - malicious_features.json: mapping from index to malicious feature vector (list).
     """
     benign_db_path = os.path.join(DUMP_DIR, "benign_database.json")
+    benign_features_path = os.path.join(DUMP_DIR, "benign_features.json")
     malicious_db_path = os.path.join(DUMP_DIR, "malicious_database.json")
     malicious_features_path = os.path.join(DUMP_DIR, "malicious_features.json")
     
+    benign_mapping = {str(i+1): name for i, name in enumerate(benign_names)}
     with open(benign_db_path, "w") as f:
-        json.dump({"files": benign_names}, f, indent=2)
+        json.dump(benign_mapping, f, indent=2)
     logging.info(f"Saved benign database to {benign_db_path}")
     
-    virus_mapping = {str(i+1): name for i, name in enumerate(malicious_names)}
+    benign_features_mapping = {str(i+1): feat.tolist() for i, feat in enumerate(benign_features)}
+    with open(benign_features_path, "w") as f:
+        json.dump(benign_features_mapping, f, indent=2)
+    logging.info(f"Saved benign features mapping to {benign_features_path}")
+    
+    malicious_mapping = {str(i+1): name for i, name in enumerate(malicious_names)}
     with open(malicious_db_path, "w") as f:
-        json.dump(virus_mapping, f, indent=2)
+        json.dump(malicious_mapping, f, indent=2)
     logging.info(f"Saved malicious database to {malicious_db_path}")
     
-    # Save malicious features mapping.
-    malicious_features_mapping = {str(label): feat.tolist() for label, feat in zip(range(1, len(malicious_features)+1), malicious_features)}
+    malicious_features_mapping = {str(i+1): feat.tolist() for i, feat in enumerate(malicious_features)}
     with open(malicious_features_path, "w") as f:
         json.dump(malicious_features_mapping, f, indent=2)
     logging.info(f"Saved malicious features mapping to {malicious_features_path}")
@@ -392,8 +397,8 @@ def main():
         logging.error("No dynamic features extracted. Exiting.")
         return
 
+    clf = train_model(all_features, all_labels)
     save_databases(benign_names, malicious_names, malicious_features)
-    train_model(all_features, all_labels)
 
 if __name__ == "__main__":
     main()

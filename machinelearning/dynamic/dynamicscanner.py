@@ -8,13 +8,14 @@ import logging
 import numpy as np
 from dynamictrain import process_file, extract_features_from_signature, full_cleanup_sandbox
 
-# Hardcoded dump directory and model path.
+# Hardcoded dump directory and model paths.
 DUMP_DIR = r"C:\sandbox_dumps"
 MODEL_PATH = os.path.join(DUMP_DIR, "dynamic_model.pkl")
+BENIGN_DB_PATH = os.path.join(DUMP_DIR, "benign_database.json")
+BENIGN_FEATURES_PATH = os.path.join(DUMP_DIR, "benign_features.json")
 MALICIOUS_DB_PATH = os.path.join(DUMP_DIR, "malicious_database.json")
 MALICIOUS_FEATURES_PATH = os.path.join(DUMP_DIR, "malicious_features.json")
 
-# Hardcoded log file for scanner.
 LOG_FILE = r"C:\sandbox_logs\scanner.log"
 logging.basicConfig(
     level=logging.INFO,
@@ -51,12 +52,15 @@ def cosine_similarity(v1, v2):
         return 0
     return np.dot(v1, v2) / (norm1 * norm2)
 
-def scan_file(file_path, model, malicious_features):
+def scan_file(file_path, model, benign_features, malicious_features):
     """
-    Processes the given file using the dynamic analysis pipeline to extract a dynamic dump signature,
-    converts the signature into a feature vector, and uses the trained model to classify the file.
-    Additionally, if classified as malicious, computes cosine similarity against stored malicious features
-    to determine the most similar virus sample.
+    Processes the given file using the dynamic analysis pipeline to extract its feature vector.
+    Uses the trained model to classify the file.
+    Then, for similarity-based lookup:
+      - If predicted label is 0, compares with stored benign features.
+      - If predicted label > 0, compares with stored malicious features.
+    Returns a tuple (prediction, similar_label, similarity) where similar_label is the label of the
+    most similar stored sample (or None if no sufficient similarity is found).
     """
     full_cleanup_sandbox()
     result = process_file(file_path)
@@ -74,18 +78,18 @@ def scan_file(file_path, model, malicious_features):
         feat = feat[:64]
     feat = feat.reshape(1, -1)
     prediction = model.predict(feat)[0]
-    if prediction == 0:
-        return 0, None  # Clean file.
-    else:
-        # For a malicious file, compute cosine similarity with each stored malicious feature vector.
-        best_sim = -1
-        best_label = None
-        for label, stored_feat in malicious_features.items():
-            sim = cosine_similarity(feat.flatten(), np.array(stored_feat))
-            if sim > best_sim:
-                best_sim = sim
-                best_label = label
-        return prediction, (best_label, best_sim)
+    
+    # Select appropriate database for similarity lookup.
+    db_features = benign_features if prediction == 0 else malicious_features
+
+    best_sim = -1
+    best_label = None
+    for label, stored_feat in db_features.items():
+        sim = cosine_similarity(feat.flatten(), np.array(stored_feat))
+        if sim > best_sim:
+            best_sim = sim
+            best_label = label
+    return prediction, best_label, best_sim
 
 def main():
     parser = argparse.ArgumentParser(description="Dynamic Scanner using Sandboxie-based Multi-class analysis with Similarity")
@@ -97,18 +101,24 @@ def main():
         sys.exit(1)
     
     model = load_model(MODEL_PATH)
+    benign_db = load_json(BENIGN_DB_PATH)
+    benign_features = load_json(BENIGN_FEATURES_PATH)
     malicious_db = load_json(MALICIOUS_DB_PATH)
     malicious_features = load_json(MALICIOUS_FEATURES_PATH)
     
-    prediction, sim_info = scan_file(file_path, model, malicious_features)
-    if prediction is None:
+    result = scan_file(file_path, model, benign_features, malicious_features)
+    if result is None:
         logging.error("Scanning failed.")
         sys.exit(1)
+    prediction, sim_label, similarity = result
+    threshold = 0.7  # Adjust threshold as needed.
     if prediction == 0:
-        logging.info(f"File '{file_path}' is classified as CLEAN.")
+        virus_name = benign_db.get(sim_label, "Unknown Benign")
+        logging.info(f"File '{file_path}' is classified as BENIGN: {virus_name} (Similarity: {similarity:.4f})")
     else:
-        virus_name = malicious_db.get(sim_info[0], "Unknown Virus") if sim_info else "Unknown Virus"
-        similarity = sim_info[1] if sim_info else 0
+        virus_name = malicious_db.get(sim_label, "Unknown Virus")
+        if similarity < threshold:
+            virus_name = "Unknown Virus"
         logging.info(f"File '{file_path}' is classified as MALICIOUS: {virus_name} (Similarity: {similarity:.4f})")
 
 if __name__ == "__main__":
