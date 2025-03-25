@@ -7235,6 +7235,20 @@ def run_sandboxie(file_path):
     except subprocess.CalledProcessError as ex:
         logging.error(f"Failed to run Sandboxie on {file_path}: {ex}")
 
+def run_analysis(file_path: str):
+    """
+    This function mirrors the original AnalysisThread.execute_analysis method.
+    It logs the file path, performs the sandbox analysis, and handles any exceptions.
+    """
+    try:
+        print(f"Running analysis for: {file_path}")
+        logging.info(f"Running analysis for: {file_path}")
+        perform_sandbox_analysis(file_path)
+    except Exception as ex:
+        error_message = f"An error occurred during sandbox analysis: {ex}"
+        logging.error(error_message)
+        print(error_message)
+
 @app.get("/update_definitions")
 def update_definitions():
     """
@@ -7297,20 +7311,6 @@ def update_definitions():
     except Exception as ex:
         logging.error(f"Error in update_definitions: {ex}")
         raise HTTPException(status_code=500, detail="An error occurred during definitions update.")
-
-def run_analysis(file_path: str):
-    """
-    This function mirrors the original AnalysisThread.execute_analysis method.
-    It logs the file path, performs the sandbox analysis, and handles any exceptions.
-    """
-    try:
-        print(f"Running analysis for: {file_path}")
-        logging.info(f"Running analysis for: {file_path}")
-        perform_sandbox_analysis(file_path)
-    except Exception as ex:
-        error_message = f"An error occurred during sandbox analysis: {ex}"
-        logging.error(error_message)
-        print(error_message)
 
 @app.post("/analyze_file")
 async def analyze_file(file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
