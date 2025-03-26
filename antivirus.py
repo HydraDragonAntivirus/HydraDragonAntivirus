@@ -4686,6 +4686,11 @@ class PyInstArchive:
             if exe_basename.lower() in entry.name.lower():
                 logging.info(f"[+] Potential entry point by executable name: {entry.name}")
 
+        # Also check for main.pyc explicitly
+        for entry in self.tocList:
+            if entry.name.lower() == "main.pyc":
+                logging.info("[+] Found main.pyc as a potential entry point")
+
         # Fix bare pyc files if necessary
         self._fixbarepycs()
 
