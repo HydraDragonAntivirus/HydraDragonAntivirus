@@ -307,11 +307,6 @@ def process_file(file_path):
         full_cleanup_sandbox()
         return None
 
-    if not check_program_executed(file_path):
-        logging.error(f"Program did not execute properly: {file_path}")
-        full_cleanup_sandbox()
-        return None
-
     current_memory = scan_memory(file_path)
     dynamic_signature, diff = extract_malicious_signature(baseline, current_memory)
     
@@ -883,14 +878,12 @@ def get_target_hwnd(target_exe_name):
 
 def enum_windows_proc(hwnd, target_exe_name):
     proc_name = get_process_name(hwnd)  # Ensure this function returns a string
-    
-    if not isinstance(proc_name, str):  # Prevent AttributeError
-        return True  # Skip this hwnd if proc_name is invalid
 
-    if proc_name.lower() == target_exe_name.lower():
-        hwnds.append(hwnd)
+    if isinstance(proc_name, str):  # Only process valid strings
+        if proc_name.lower() == target_exe_name.lower():
+            hwnds.append(hwnd)
     
-    return True
+    return True  # Always return True at the end
 
 def extract_target_messages(target_exe_name):
     """
