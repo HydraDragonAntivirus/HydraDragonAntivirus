@@ -299,6 +299,7 @@ ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
 pycdc_path = os.path.join(script_dir, "pycdc.exe")
 pycdas_path = os.path.join(script_dir, "pycdas.exe")
 digital_signautres_list_antivirus_path = os.path.join(digital_signatures_list_dir, "antivirus.txt")
+digital_signautres_list_goodsign_path = os.path.join(digital_signatures_list_dir, "goodsign.txt")
 digital_signautres_list_microsoft_path = os.path.join(digital_signatures_list_dir, "microsoft.txt")
 malicious_file_names = os.path.join(script_dir, "machinelearning", "malicious_file_names.json")
 malicious_numeric_features = os.path.join(script_dir, "machinelearning", "malicious_numeric.pkl")
@@ -3196,44 +3197,56 @@ def check_signature(file_path):
         # Command to verify the executable signature status
         cmd = f'"{file_path}"'
         verify_command = "(Get-AuthenticodeSignature " + cmd + ").Status"
-        process = subprocess.run(['powershell.exe', '-Command', verify_command], stdout=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
-
+        process = subprocess.run(
+            ['powershell.exe', '-Command', verify_command],
+            stdout=subprocess.PIPE, text=True, encoding='utf-8', errors='replace'
+        )
         status = process.stdout.strip() if process.stdout else ""
         is_valid = "Valid" in status
         signature_status_issues = "HashMismatch" in status or "NotTrusted" in status
 
-        # Command to check for Microsoft signature if there are no issues
+        # Initialize signature_data for further checks
+        signature_data = ""
+        has_microsoft_signature = False
+        has_valid_goodsign_signature = False
+        
         if not signature_status_issues:
             ms_command = f"Get-AuthenticodeSignature '{file_path}' | Format-List"
-            ms_result = subprocess.run(["powershell.exe", "-Command", ms_command], capture_output=True, text=True, encoding='utf-8', errors='replace')
+            ms_result = subprocess.run(
+                ["powershell.exe", "-Command", ms_command],
+                capture_output=True, text=True, encoding='utf-8', errors='replace'
+            )
             signature_data = ms_result.stdout if ms_result.stdout else ""
 
-            # Check if the signature is from Microsoft using the loaded Microsoft signatures list
+            # Check if the signature is from Microsoft
             has_microsoft_signature = any(sig in signature_data for sig in microsoft_signatures)
-        else:
-            has_microsoft_signature = False
 
-        # Check if the file matches an antivirus signature
-        matches_antivirus_signature = any(sig in signature_data for sig in antivirus_signatures)
-        if matches_antivirus_signature:
-            warning_msg = f"TThe file '{file_path}' matches an antivirus signature. It might be a vulnerable driver or antivirus software, which may cause false positives!"
-            logging.info(warning_msg)
-            logging.warning(warning_msg)
+            # Check if any valid good signature exists
+            valid_goodsign_signatures = [sig.upper() for sig in goodsign_signatures]
+            has_valid_goodsign_signature = any(sig in signature_data.upper() for sig in valid_goodsign_signatures)
 
+            # Check if the file matches an antivirus signature
+            matches_antivirus_signature = any(f" {sig} " in f" {signature_data.upper()} " for sig in antivirus_signatures)
+            if matches_antivirus_signature:
+                logging.warning(f"The file '{file_path}' matches an antivirus signature. It might be a vulnerable driver, vulnerable DLL file or a false positive!")
+
+        # Return structured signature validation results
         return {
             "is_valid": is_valid,
             "has_microsoft_signature": has_microsoft_signature,
-            "signature_status_issues": signature_status_issues
+            "signature_status_issues": signature_status_issues,
+            "has_valid_goodsign_signature": has_valid_goodsign_signature,
+            "matches_antivirus_signature": matches_antivirus_signature
         }
 
     except Exception as ex:
-        error_msg = f"An error occurred while checking signature: {ex}"
-        logging.info(error_msg)
-        logging.error(error_msg)
+        logging.error(f"An error occurred while checking signature: {ex}")
         return {
             "is_valid": False,
             "has_microsoft_signature": False,
-            "signature_status_issues": False
+            "signature_status_issues": False,
+            "has_valid_goodsign_signature": False,
+            "matches_antivirus_signature": False
         }
 
 def check_valid_signature_only(file_path):
@@ -4115,6 +4128,7 @@ load_website_data()
 load_antivirus_list()
 # Load Antivirus and Microsoft digital signatures
 antivirus_signatures = load_digital_signatures(digital_signautres_list_antivirus_path, "Antivirus digital signatures")
+goodsign_signatures = load_digital_signatures(digital_signautres_list_antivirus_path, "UnHackMe digital signatures")
 microsoft_signatures = load_digital_signatures(digital_signautres_list_microsoft_path, "Microsoft digital signatures")
 
 try:
@@ -6189,6 +6203,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
 
             # Perform signature check only if the file is valid hex data
             signature_check = check_signature(file_path)
+            logging.info(f"Signature check result for {file_path}: {signature_check}")
             if not isinstance(signature_check, dict):
                 logging.error(f"check_signature did not return a dictionary for file: {file_path}, received: {signature_check}")
 
@@ -6196,6 +6211,12 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
             if signature_check["has_microsoft_signature"]:
                 logging.info(f"Valid Microsoft signature detected for file: {file_path}")
                 return False
+
+            # Check for good digital signatures (valid_goodsign_signatures) and return false if they exist and are valid
+            if signature_check.get("valid_goodsign_signatures"):
+                logging.info(f"Valid good signature(s) detected for file: {file_path}: {signature_check['valid_goodsign_signatures']}")
+                return False
+
             if signature_check["is_valid"]:
                 logging.info(f"File '{file_path}' has a valid signature. Skipping worm detection.")
             elif signature_check["signature_status_issues"]:
