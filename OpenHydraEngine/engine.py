@@ -191,20 +191,6 @@ def run_in_sandbox(file_path):
         logging.error(f"Sandboxie execution failed for {file_path}: {ex}")
         return False
 
-def check_program_executed(file_path):
-    """
-    Waits for 10 seconds (auto termination period) then checks if the target process is closed.
-    Returns True if the process has terminated; otherwise, False.
-    """
-    time.sleep(10)
-    proc_name = os.path.basename(file_path)
-    if is_process_closed(proc_name):
-        logging.info(f"Process {proc_name} has terminated.")
-        return True
-    else:
-        logging.warning(f"Process {proc_name} is still running.")
-        return False
-
 def scan_memory(file_path):
     """
     Simulates a dynamic memory scan by reading the file content as a byte array.
