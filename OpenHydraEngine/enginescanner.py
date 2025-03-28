@@ -23,110 +23,165 @@ def load_signatures(signatures_file=SIGNATURES_FILE):
 def dynamic_scan(file_path):
     """
     Runs dynamic analysis on an executable using process_file from engine.py.
-    Returns a token string if a dynamic signature is extracted.
+    Always returns a detailed MEMDUMP token.
     """
-    # process_file returns a tuple: (dynamic_signature, original_filename)
     try:
         result = process_file(file_path)
     except Exception as e:
         print(f"Dynamic analysis error: {e}", file=sys.stderr)
-        return ""
+        return "MEMDUMP:0"
     
     if result:
         dynamic_signature, fname = result
-        # Only add token if dynamic_signature is non-zero
         if dynamic_signature != "0":
             return f"MEMDUMP:{dynamic_signature}"
-    return ""
+    return "MEMDUMP:0"
 
-def static_scan(file_path):
+def detailed_static_scan(file_path):
     """
-    Runs static analysis using the PEFeatureExtractor from engine.py.
-    Constructs tokens based on various PE features.
+    Runs static analysis using PEFeatureExtractor from engine.py.
+    Constructs detailed tokens for every feature extracted.
     """
     extractor = PEFeatureExtractor()
     try:
-        numeric_features = extractor.extract_numeric_features(file_path)
+        nf = extractor.extract_numeric_features(file_path)
     except Exception as e:
         print(f"Static analysis failed: {e}", file=sys.stderr)
-        return ""
-    
+        nf = {}
+
     tokens = []
-    # DOS Stub: if the analysis shows the DOS stub exists (indicating potential modification)
-    dos_stub = numeric_features.get("dos_stub", {})
-    if dos_stub and dos_stub.get("exists"):
-        tokens.append("DOSSTUB:exists")
+
+    # Optional Header Fields
+    tokens.append(f"OPTIONALHEADER:SizeOfOptionalHeader={nf.get('SizeOfOptionalHeader','NA')}")
+    tokens.append(f"LINKERVERSION:{nf.get('MajorLinkerVersion','NA')}.{nf.get('MinorLinkerVersion','NA')}")
+    tokens.append(f"SizeOfCode={nf.get('SizeOfCode','NA')}")
+    tokens.append(f"SizeOfInitializedData={nf.get('SizeOfInitializedData','NA')}")
+    tokens.append(f"SizeOfUninitializedData={nf.get('SizeOfUninitializedData','NA')}")
+    tokens.append(f"AddressOfEntryPoint={hex(nf.get('AddressOfEntryPoint',0))}")
+    tokens.append(f"BaseOfCode={hex(nf.get('BaseOfCode',0))}")
+    tokens.append(f"BaseOfData={hex(nf.get('BaseOfData',0))}")
+    tokens.append(f"ImageBase={hex(nf.get('ImageBase',0))}")
+    tokens.append(f"SectionAlignment={nf.get('SectionAlignment','NA')}")
+    tokens.append(f"FileAlignment={nf.get('FileAlignment','NA')}")
+    tokens.append(f"OSVersion:{nf.get('MajorOperatingSystemVersion','NA')}.{nf.get('MinorOperatingSystemVersion','NA')}")
+    tokens.append(f"ImageVersion:{nf.get('MajorImageVersion','NA')}.{nf.get('MinorImageVersion','NA')}")
+    tokens.append(f"SubsystemVersion:{nf.get('MajorSubsystemVersion','NA')}.{nf.get('MinorSubsystemVersion','NA')}")
+    tokens.append(f"SizeOfImage={nf.get('SizeOfImage','NA')}")
+    tokens.append(f"SizeOfHeaders={nf.get('SizeOfHeaders','NA')}")
+    tokens.append(f"CheckSum={nf.get('CheckSum','NA')}")
+    tokens.append(f"Subsystem={nf.get('Subsystem','NA')}")
+    tokens.append(f"DllCharacteristics={nf.get('DllCharacteristics','NA')}")
+    tokens.append(f"SizeOfStackReserve={nf.get('SizeOfStackReserve','NA')}")
+    tokens.append(f"SizeOfStackCommit={nf.get('SizeOfStackCommit','NA')}")
+    tokens.append(f"SizeOfHeapReserve={nf.get('SizeOfHeapReserve','NA')}")
+    tokens.append(f"SizeOfHeapCommit={nf.get('SizeOfHeapCommit','NA')}")
+    tokens.append(f"LoaderFlags={nf.get('LoaderFlags','NA')}")
+    tokens.append(f"NumberOfRvaAndSizes={nf.get('NumberOfRvaAndSizes','NA')}")
     
-    # TLS Callbacks: if present, add token using the first callback address
-    tls = numeric_features.get("tls_callbacks", {})
+    # Sections (list each section)
+    sections = nf.get("sections", [])
+    tokens.append(f"SECTIONS:count={len(sections)}")
+    for sec in sections:
+        tokens.append(f"SECTION:{sec.get('name','NA')},virtSize={sec.get('virtual_size','NA')},rawSize={sec.get('size_of_raw_data','NA')},entropy={sec.get('entropy','NA')}")
+    
+    # Imports and Exports
+    imports = nf.get("imports", [])
+    tokens.append(f"IMPORTS:count={len(imports)}")
+    exports = nf.get("exports", [])
+    tokens.append(f"EXPORTS:count={len(exports)}")
+    
+    # Resources
+    resources = nf.get("resources", [])
+    tokens.append(f"RESOURCES:count={len(resources)}")
+    
+    # Debug
+    debug = nf.get("debug", [])
+    tokens.append(f"DEBUG:count={len(debug)}")
+    
+    # Certificates
+    cert = nf.get("certificates", {})
+    if cert:
+        tokens.append(f"CERTIFICATES:present,size={cert.get('size','NA')}")
+    else:
+        tokens.append("CERTIFICATES:absent")
+    
+    # DOS Stub
+    dos_stub = nf.get("dos_stub", {})
+    if dos_stub.get("exists"):
+        tokens.append(f"DOSSTUB:exists,size={dos_stub.get('size','NA')},entropy={dos_stub.get('entropy','NA')}")
+    else:
+        tokens.append("DOSSTUB:absent")
+    
+    # TLS Callbacks
+    tls = nf.get("tls_callbacks", {})
     callbacks = tls.get("callbacks", [])
     if callbacks:
-        # Format first callback as hexadecimal
-        tokens.append("TLS:" + hex(callbacks[0]))
+        tokens.append("TLS:callbacks=[" + ",".join(hex(cb) for cb in callbacks) + "]")
+    else:
+        tokens.append("TLS:absent")
     
-    # Overlay: if an overlay exists and its entropy is above a threshold
-    overlay = numeric_features.get("overlay", {})
-    if overlay.get("exists") and overlay.get("entropy", 0) > 7.5:
-        tokens.append("OVERLAY:Entropy>7.5")
+    # Delay Imports
+    delay_imports = nf.get("delay_imports", [])
+    tokens.append(f"DELAYIMPORTS:count={len(delay_imports)}")
     
-    # Certificate: if no certificate information is found, mark as invalid
-    cert = numeric_features.get("certificates", {})
-    if not cert:
-        tokens.append("CERT:Invalid")
+    # Load Config
+    load_config = nf.get("load_config", {})
+    if load_config:
+        tokens.append(f"LOADCONFIG:size={load_config.get('size','NA')},timestamp={load_config.get('timestamp','NA')}")
+    else:
+        tokens.append("LOADCONFIG:absent")
     
-    # Delay Imports: if no delay-load imports are found, mark as missing
-    delay_imports = numeric_features.get("delay_imports", [])
-    if not delay_imports:
-        tokens.append("DELAYIMPORTS:Missing")
+    # Bound Imports
+    bound_imports = nf.get("bound_imports", [])
+    tokens.append(f"BOUNDIMPORTS:count={len(bound_imports)}")
     
-    # Load Config: as a simple heuristic, if the load configuration size is very small, mark as anomaly
-    load_config = numeric_features.get("load_config", {})
-    if load_config and load_config.get("size", 0) < 100:
-        tokens.append("LOADCONFIG:Anomaly")
+    # Section Characteristics (detailed)
+    section_chars = nf.get("section_characteristics", {})
+    tokens.append(f"SECTIONCHAR:count={len(section_chars)}")
+    for sec_name, details in section_chars.items():
+        tokens.append(f"SECTIONCHAR:{sec_name},entropy={details.get('entropy','NA')},flags={details.get('flags','NA')}")
     
-    # Bound Imports: if no bound imports are found, mark as unverified
-    bound_imports = numeric_features.get("bound_imports", [])
-    if not bound_imports:
-        tokens.append("BOUNDIMPORTS:Unverified")
+    # Extended Headers
+    ext_headers = nf.get("extended_headers", {})
+    if ext_headers:
+        tokens.append("EXTHEADER:present")
+    else:
+        tokens.append("EXTHEADER:absent")
     
-    # Section Characteristics: add a token if sections are present (simulate unusual flags)
-    sections = numeric_features.get("sections", [])
-    if sections:
-        tokens.append("SECTION:Unusual")
+    # Rich Header
+    rich_header = nf.get("rich_header", {})
+    if rich_header and rich_header.get("values"):
+        tokens.append(f"RICHHEADER:present,count={len(rich_header.get('values'))}")
+    else:
+        tokens.append("RICHHEADER:absent")
     
-    # Extended Headers: if no extended header data is found, assume corruption
-    ext_headers = numeric_features.get("extended_headers", {})
-    if not ext_headers:
-        tokens.append("EXTHEADER:Corrupt")
-    
-    # Rich Header: if rich header values are missing or inconsistent
-    rich_header = numeric_features.get("rich_header", {})
-    if not rich_header or not rich_header.get("values"):
-        tokens.append("RICHHEADER:Inconsistent")
+    # Overlay
+    overlay = nf.get("overlay", {})
+    if overlay.get("exists"):
+        tokens.append(f"OVERLAY:exists,offset={overlay.get('offset','NA')},size={overlay.get('size','NA')},entropy={overlay.get('entropy','NA')}")
+    else:
+        tokens.append("OVERLAY:absent")
     
     return " ".join(tokens)
 
 def scan_file(file_path):
-    """Scans the provided file using both dynamic and static methods, then applies signatures."""
+    """Scans the provided file using both dynamic and detailed static analysis, then applies signatures."""
     print(f"Scanning file: {file_path}")
     report_tokens = []
-
-    # Run dynamic analysis only for executables
+    
+    # Dynamic analysis: always output the MEMDUMP token.
     if file_path.lower().endswith(".exe"):
-        dynamic_result = dynamic_scan(file_path)
-        if dynamic_result:
-            report_tokens.append(dynamic_result)
+        report_tokens.append(dynamic_scan(file_path))
+    else:
+        report_tokens.append("MEMDUMP:0")
     
-    # Run static analysis for PE files (executables or similar)
-    static_result = static_scan(file_path)
-    if static_result:
-        report_tokens.append(static_result)
+    # Detailed static analysis using all features.
+    report_tokens.append(detailed_static_scan(file_path))
     
-    # Combine tokens into one scan report string
     scan_report = " ".join(report_tokens)
     print("Scan Report:", scan_report)
     
-    # Load human-defined signatures and test against the scan report
+    # Load human-defined signatures and match using regex.
     signatures = load_signatures()
     matched_signatures = []
     for sig in signatures:
@@ -145,7 +200,7 @@ def scan_file(file_path):
         print("No signatures matched.")
 
 def main():
-    parser = argparse.ArgumentParser(description="Scanner for OpenHydra Antivirus Engine")
+    parser = argparse.ArgumentParser(description="Comprehensive Scanner for OpenHydra Antivirus Engine using all features")
     parser.add_argument("file", help="Path to the file to scan")
     args = parser.parse_args()
     

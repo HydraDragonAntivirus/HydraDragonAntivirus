@@ -1,13 +1,7 @@
 [
-  {
-    "name": "Comprehensive Anomaly Detection",
-    "pattern": "^(?=.*MEMDUMP:[1-9]\\\\d*-[0-9a-f]{16})(?=.*TLS:0x[1][0-9a-f]{7})(?=.*DOSSTUB:exists)(?=.*OVERLAY:Entropy>7\\\\.5)(?=.*CERT:Invalid)(?=.*DELAYIMPORTS:Missing)(?=.*LOADCONFIG:Anomaly)(?=.*BOUNDIMPORTS:Unverified)(?=.*SECTION:Unusual)(?=.*EXTHEADER:Corrupt)(?=.*RICHHEADER:Inconsistent)$",
-    "description": "This signature combines all major features of the OpenHydra engine. It targets files that show a dynamic memory dump deviation (MEMDUMP) from the clean baseline, have TLS callback addresses in a suspicious range, and contain a modified DOS stub. It also flags files with high-entropy overlay sections, invalid or missing certificate data, missing delay imports, anomalies in the load configuration, unverified bound imports, and unusual section characteristics. Finally, it checks for corrupt extended headers and inconsistent Rich header information. This multi-faceted signature is designed to detect sophisticated malware that uses obfuscation, packing, or injection techniques by correlating dynamic sandbox outputs with detailed static PE analysis.\nAdditional Notes: Enter additional notes, examples, or instructions for the signature here..."
-  }
-  ,  
-  {
-    "name": "Test Signature Which Cause False Positives",
-    "pattern": "^(?=.*DOSSTUB:exists)(?=.*OVERLAY:Entropy>7\\.5)(?=.*CERT:Invalid)(?=.*DELAYIMPORTS:Missing)(?=.*BOUNDIMPORTS:Unverified)(?=.*SECTION:Unusual).*$",
-    "description": "This signature flags files that exhibit a modified DOS stub, high entropy overlays, invalid certificate data, missing delay imports, unverified bound imports, and unusual section characteristics."
-  }
-]
+    {
+      "name": "Malware.AdvancedHeuristicDetection",
+      "pattern": "^(?=.*SECTION:.*?entropy=[7-9]\\.[5-9])(?=.*IMPORTS:.*?(VirtualAlloc|WriteProcessMemory|CreateRemoteThread|NtUnmapViewOfSection))(?=.*CERTIFICATES:present,size=\\d{1,10}(?!.*Valid))(?=.*AddressOfEntryPoint=0x[1-9A-Fa-f]{7,})(?=.*OVERLAY:exists,offset=\\d{5,},size=\\d{5,},entropy=[7-9]\\.[0-9])(?=.*TLS:callbacks=\\[0x[1-9A-Fa-f]{7,}\\])(?=.*MEMDUMP:[1-9]\\d*)$",
+      "description": "This advanced heuristic rule detects malware by combining multiple static and dynamic indicators. It checks for high-entropy sections (indicative of packing/encryption), suspicious API imports (used in process injection), fake or invalid digital certificates, unusual entry point locations, packed overlay data, abuse of TLS callbacks, and anomalies detected during dynamic memory analysis. By requiring multiple indicators to be present simultaneously, this rule significantly reduces false positives while maintaining strong detection capabilities."
+    }
+  ]  
