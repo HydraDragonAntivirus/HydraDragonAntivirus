@@ -16,13 +16,9 @@ import pefile
 import joblib
 import shutil
 import ctypes
+import difflib
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Tuple
-from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
-from tqdm import tqdm
-from fastapi import FastAPI, HTTPException
-import uvicorn
+from typing import Dict, List, Optional, Any
 
 # =============================================================================
 # Windows API Functions for GUI Text Extraction
@@ -996,35 +992,53 @@ def detailed_static_scan(file_path):
     
     return " ".join(tokens)
 
+def calculate_similarity(a: str, b: str) -> float:
+    """
+    Computes the similarity ratio between two strings.
+    A ratio of 1.0 means an exact match.
+    """
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
 def scan_file(file_path):
-    """Scans the provided file using both dynamic and detailed static analysis, then applies signatures."""
+    """Scans the provided file using both dynamic and detailed static analysis,
+    then applies signatures using similarity matching instead of hardcoded regex."""
     print(f"Scanning file: {file_path}")
     report_tokens = []
     
-    report_tokens.append(dynamic_scan(file_path))
+    # Run dynamic analysis to get MEMDUMP token.
+    dynamic_result = dynamic_scan(file_path)
+    # Run detailed static analysis to extract many features as tokens.
+    static_result = detailed_static_scan(file_path)
     
-    report_tokens.append(detailed_static_scan(file_path))
+    report_tokens.append(dynamic_result)
+    report_tokens.append(static_result)
     
+    # Join tokens into one full report string
     scan_report = " ".join(report_tokens)
     print("Scan Report:", scan_report)
     
+    # Load user-defined signatures (each expected to have a "pattern" and "name")
     signatures = load_signatures()
     matched_signatures = []
+    
+    # Set your similarity threshold (adjust as needed)
+    threshold = 0.8  
+    
+    # Instead of hardcoded regex matching, compute similarity for each signature pattern
     for sig in signatures:
         pattern = sig.get("pattern", "")
-        try:
-            if re.search(pattern, scan_report):
-                matched_signatures.append(sig.get("name"))
-        except re.error as re_err:
-            print(f"Regex error in signature '{sig.get('name', '')}': {re_err}", file=sys.stderr)
+        similarity = calculate_similarity(pattern, scan_report)
+        if similarity >= threshold:
+            matched_signatures.append((sig.get("name"), similarity))
     
     if matched_signatures:
         print("Matched Signatures:")
-        for ms in matched_signatures:
-            print(" -", ms)
+        for name, sim in matched_signatures:
+            print(f" - {name} (Similarity: {sim:.2f})")
     else:
         print("No signatures matched.")
 
+# Example usage in the main() function remains the same.
 def main():
     parser = argparse.ArgumentParser(description="Comprehensive Scanner for Hydra Dragon Antivirus Engine using all features")
     parser.add_argument("file", help="Path to the file to scan")
@@ -1035,8 +1049,8 @@ def main():
         return
     
     scan_file(args.file)
-    # Example usage of the Windows API functions to extract sandbox messages:
     extract_sandbox_messages()
 
 if __name__ == "__main__":
     main()
+
