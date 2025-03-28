@@ -1,7 +1,6 @@
 [
-    {
-      "name": "Malware.AdvancedHeuristicDetection",
-      "pattern": "^(?=.*SECTION:.*?entropy=[7-9]\\.[5-9])(?=.*IMPORTS:.*?(VirtualAlloc|WriteProcessMemory|CreateRemoteThread|NtUnmapViewOfSection))(?=.*CERTIFICATES:present,size=\\d{1,10}(?!.*Valid))(?=.*AddressOfEntryPoint=0x[1-9A-Fa-f]{7,})(?=.*OVERLAY:exists,offset=\\d{5,},size=\\d{5,},entropy=[7-9]\\.[0-9])(?=.*TLS:callbacks=\\[0x[1-9A-Fa-f]{7,}\\])(?=.*MEMDUMP:[1-9]\\d*)$",
-      "description": "This advanced heuristic rule detects malware by combining multiple static and dynamic indicators. It checks for high-entropy sections (indicative of packing/encryption), suspicious API imports (used in process injection), fake or invalid digital certificates, unusual entry point locations, packed overlay data, abuse of TLS callbacks, and anomalies detected during dynamic memory analysis. By requiring multiple indicators to be present simultaneously, this rule significantly reduces false positives while maintaining strong detection capabilities."
-    }
-  ]  
+  {
+    "name": "EpicMalwareDetectorSignature",
+    "pattern": "(?s)^(?=.*MEMDUMP:(?!0))(?=.*OPTIONALHEADER:SizeOfOptionalHeader=\\d+)(?=.*LINKERVERSION:\\d+\\.\\d+)(?=.*SizeOfCode=\\d+)(?=.*SizeOfInitializedData=\\d+)(?=.*AddressOfEntryPoint=0x[0-9a-fA-F]+)(?=.*ImageBase=0x[0-9a-fA-F]+)(?=.*SECTIONS:count=\\d+)(?=.*IMPORTS:count=\\d+)(?=.*EXPORTS:count=\\d+)(?=.*CERTIFICATES:absent)(?=.*DOSSTUB:absent)(?=.*OVERLAY:exists)(?=.*TLS:absent).*$"
+  }
+]

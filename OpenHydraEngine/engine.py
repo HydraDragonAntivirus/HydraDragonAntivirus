@@ -2,6 +2,7 @@
 
 import os
 import sys
+import re
 import glob
 import time
 import json
@@ -14,6 +15,7 @@ import hashlib
 import pefile
 import joblib
 import shutil
+import ctypes
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
@@ -21,6 +23,58 @@ from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 from fastapi import FastAPI, HTTPException
 import uvicorn
+
+# =============================================================================
+# Windows API Functions for GUI Text Extraction
+# =============================================================================
+
+# Constants for Windows API calls
+WM_GETTEXT = 0x000D
+WM_GETTEXTLENGTH = 0x000E
+
+def get_window_text(hwnd):
+    """Retrieve the text of a window."""
+    length = ctypes.windll.user32.GetWindowTextLengthW(hwnd) + 1
+    buffer = ctypes.create_unicode_buffer(length)
+    ctypes.windll.user32.GetWindowTextW(hwnd, buffer, length)
+    return buffer.value
+
+def get_control_text(hwnd):
+    """Retrieve the text from a control."""
+    length = ctypes.windll.user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) + 1
+    buffer = ctypes.create_unicode_buffer(length)
+    ctypes.windll.user32.SendMessageW(hwnd, WM_GETTEXT, length, buffer)
+    return buffer.value
+
+def find_child_windows(parent_hwnd):
+    """Find all child windows of the given parent window."""
+    child_windows = []
+
+    def enum_child_windows_callback(hwnd, lParam):
+        child_windows.append(hwnd)
+        return True
+
+    EnumChildWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+    ctypes.windll.user32.EnumChildWindows(parent_hwnd, EnumChildWindowsProc(enum_child_windows_callback), None)
+    
+    return child_windows
+
+def find_windows_with_text():
+    """Find all windows and their child windows along with their text."""
+    window_handles = []
+
+    def enum_windows_callback(hwnd, lParam):
+        if ctypes.windll.user32.IsWindowVisible(hwnd):
+            window_text = get_window_text(hwnd)
+            window_handles.append((hwnd, window_text))
+            for child in find_child_windows(hwnd):
+                control_text = get_control_text(child)
+                window_handles.append((child, control_text))
+        return True
+
+    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+    ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
+    return window_handles
 
 # =============================================================================
 # Logging Setup
@@ -60,15 +114,20 @@ os.makedirs(DUMP_DIR, exist_ok=True)
 
 dynamic_log_file_path = os.path.join(DYNAMIC_LOG_DIR, "dynamictrain.log")
 
+SANDBOXIE_PATH = r"C:\Program Files\Sandboxie\Start.exe"
+
 # =============================================================================
 # Dynamic Analysis Engine (Sandbox / Memory Signature Extraction)
 # =============================================================================
 
-SANDBOXIE_PATH = r"C:\Program Files\Sandboxie\Start.exe"
-
 def full_cleanup_sandbox():
     """
-    Fully cleans up the Sandboxie environment using termination commands.
+    Fully cleans up the Sandboxie environment using Sandboxie's termination commands.
+    It issues:
+      - Start.exe /terminate
+      - Start.exe /box:DefaultBox /terminate
+      - Start.exe /terminate_all
+    with short delays between each command.
     """
     try:
         logging.info("Starting full sandbox cleanup using Start.exe termination commands...")
@@ -99,7 +158,7 @@ def cleanup_old_sandbox_data():
                 continue
             file_path = os.path.join(DUMP_DIR, fname)
             if os.path.isdir(file_path):
-                shutil.rmtree(file_path, ignore_errors=True)
+                rmtree(file_path, ignore_errors=True)
                 logging.info(f"Removed old directory: {file_path}")
             else:
                 os.remove(file_path)
@@ -109,7 +168,8 @@ def cleanup_old_sandbox_data():
 
 def is_process_closed(process_name):
     """
-    Checks if the given process is closed.
+    Checks if the given process (by image name) is closed.
+    Returns True if not found in tasklist; otherwise, False.
     """
     try:
         cmd = ["tasklist", "/FI", f"IMAGENAME eq {process_name}", "/NH"]
@@ -123,7 +183,7 @@ def is_process_closed(process_name):
 
 def run_in_sandbox(file_path):
     """
-    Runs the given file in the Sandboxie environment.
+    Runs the given file in the Sandboxie environment using DefaultBox.
     """
     try:
         logging.info(f"Running {file_path} in sandbox (DefaultBox)...")
@@ -135,7 +195,8 @@ def run_in_sandbox(file_path):
 
 def check_program_executed(file_path):
     """
-    Waits then checks if the target process is closed.
+    Waits for 10 seconds (auto termination period) then checks if the target process is closed.
+    Returns True if the process has terminated; otherwise, False.
     """
     time.sleep(10)
     proc_name = os.path.basename(file_path)
@@ -148,7 +209,7 @@ def check_program_executed(file_path):
 
 def scan_memory(file_path):
     """
-    Simulates a dynamic memory scan.
+    Simulates a dynamic memory scan by reading the file content as a byte array.
     """
     try:
         with open(file_path, "rb") as f:
@@ -161,7 +222,7 @@ def scan_memory(file_path):
 
 def get_baseline_memory():
     """
-    Retrieves or creates a baseline memory file.
+    Retrieves the baseline (clean) memory state from a hardcoded file in the dump directory.
     """
     baseline_file = os.path.join(DUMP_DIR, "baseline_memory.bin")
     if os.path.exists(baseline_file):
@@ -177,7 +238,12 @@ def get_baseline_memory():
 
 def extract_malicious_signature(baseline, current):
     """
-    Compares baseline and current memory to extract a signature.
+    Compares the clean baseline memory with the current memory dump.
+    Returns a dynamic dump signature composed of:
+      - The total number of difference bytes
+      - The hexadecimal representation of the first 16 bytes of the diff
+    If no differences are found, returns "0".
+    (No hashlib is used.)
     """
     common_length = min(len(baseline), len(current))
     diff = bytearray()
@@ -197,12 +263,15 @@ def extract_malicious_signature(baseline, current):
 
 def extract_features_from_signature(signature):
     """
-    Converts signature string into a numerical feature vector.
+    Converts the dynamic dump signature string into a numerical feature vector.
+    The signature is expected in the form "diffLength-hexPrefix". If signature is "0",
+    returns a vector of zeros (length 64).
     """
     try:
         if signature == "0":
             return np.zeros(64, dtype=int)
         parts = signature.split('-')
+        # We ignore the diff length and use the hexPrefix.
         diff_prefix = [int(parts[1][i:i+2], 16) for i in range(0, len(parts[1]), 2)]
         if len(diff_prefix) < 64:
             diff_prefix += [0] * (64 - len(diff_prefix))
@@ -215,7 +284,11 @@ def extract_features_from_signature(signature):
 
 def process_file(file_path):
     """
-    Processes a file: renames if needed, runs it in sandbox, extracts dynamic signature.
+    Forces the file to run as an executable (renaming if needed), then runs it in the sandbox,
+    performs a memory scan, compares the result with the baseline to extract the dynamic dump signature,
+    and finally cleans up the sandbox.
+    If malicious differences are found (i.e. signature != "0"), saves the current memory dump for that target.
+    Returns a tuple (signature, original_file_name) or None on failure.
     """
     full_cleanup_sandbox()
     
@@ -255,141 +328,6 @@ def process_file(file_path):
     
     full_cleanup_sandbox()
     return dynamic_signature, os.path.basename(original_path)
-
-def collect_dynamic_features(directory, label):
-    """
-    Processes all benign files in the given directory.
-    """
-    features = []
-    labels = []
-    file_names = []
-    file_list = glob.glob(os.path.join(directory, "*"))
-    logging.info(f"Found {len(file_list)} files in {directory}")
-    for file_path in file_list:
-        logging.info(f"Processing file: {file_path}")
-        result = process_file(file_path)
-        if result:
-            signature, fname = result
-            feat = extract_features_from_signature(signature)
-            if feat is not None:
-                if len(feat) < 64:
-                    feat = np.pad(feat, (0, 64 - len(feat)), 'constant')
-                else:
-                    feat = feat[:64]
-                features.append(feat)
-                labels.append(label)
-                file_names.append(fname)
-    return features, labels, file_names
-
-def collect_dynamic_features_malicious(directory):
-    """
-    Processes all malicious files in the given directory.
-    """
-    features = []
-    labels = []
-    file_names = []
-    file_list = glob.glob(os.path.join(directory, "*"))
-    logging.info(f"Found {len(file_list)} malicious files in {directory}")
-    for idx, file_path in enumerate(file_list):
-        logging.info(f"Processing malicious file: {file_path}")
-        result = process_file(file_path)
-        if result:
-            signature, fname = result
-            feat = extract_features_from_signature(signature)
-            if feat is not None:
-                if len(feat) < 64:
-                    feat = np.pad(feat, (0, 64 - len(feat)), 'constant')
-                else:
-                    feat = feat[:64]
-                features.append(feat)
-                labels.append(idx + 1)
-                file_names.append(fname)
-    return features, labels, file_names
-
-def train_model(features, labels):
-    """
-    Trains a Random Forest classifier using dynamic features.
-    """
-    X = np.array(features)
-    y = np.array(labels)
-    if X.shape[1] > 64:
-        X = X[:, :64]
-    elif X.shape[1] < 64:
-        X = np.pad(X, ((0, 0), (0, 64 - X.shape[1])), 'constant')
-    from sklearn.model_selection import train_test_split
-    from sklearn.ensemble import RandomForestClassifier
-    from sklearn.metrics import classification_report
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    clf = RandomForestClassifier(n_estimators=100, random_state=42)
-    clf.fit(X_train, y_train)
-    y_pred = clf.predict(X_test)
-    report = classification_report(y_test, y_pred)
-    logging.info("Dynamic Analysis Classification Report:\n" + report)
-    model_path = os.path.join(DUMP_DIR, "dynamic_model.pkl")
-    with open(model_path, "wb") as f:
-        pickle.dump(clf, f)
-    logging.info(f"Dynamic model trained and saved as {model_path}")
-    return clf
-
-def save_databases(benign_names, benign_features, malicious_names, malicious_features):
-    """
-    Saves JSON databases and pickle files mapping file names to features.
-    """
-    benign_db_path = os.path.join(DUMP_DIR, "benign_database.json")
-    malicious_db_path = os.path.join(DUMP_DIR, "malicious_database.json")
-    
-    benign_mapping = {str(i+1): name for i, name in enumerate(benign_names)}
-    with open(benign_db_path, "w") as f:
-        json.dump(benign_mapping, f, indent=2)
-    logging.info(f"Saved benign database to {benign_db_path}")
-    
-    malicious_mapping = {str(i+1): name for i, name in enumerate(malicious_names)}
-    with open(malicious_db_path, "w") as f:
-        json.dump(malicious_mapping, f, indent=2)
-    logging.info(f"Saved malicious database to {malicious_db_path}")
-    
-    benign_features_path = os.path.join(DUMP_DIR, "benign_features.pkl")
-    malicious_features_path = os.path.join(DUMP_DIR, "malicious_features.pkl")
-    benign_features_mapping = {str(i+1): feat.tolist() for i, feat in enumerate(benign_features)}
-    malicious_features_mapping = {str(i+1): feat.tolist() for i, feat in enumerate(malicious_features)}
-    with open(benign_features_path, "wb") as f:
-        pickle.dump(benign_features_mapping, f)
-    logging.info(f"Saved benign features mapping to {benign_features_path}")
-    with open(malicious_features_path, "wb") as f:
-        pickle.dump(malicious_features_mapping, f)
-    logging.info(f"Saved malicious features mapping to {malicious_features_path}")
-
-def run_dynamic_analysis(benign_dir, malicious_dir):
-    """
-    Runs the dynamic analysis workflow.
-    """
-    cleanup_old = True
-    if cleanup_old:
-        try:
-            for fname in os.listdir(DUMP_DIR):
-                if fname.lower() != "baseline_memory.bin":
-                    file_path = os.path.join(DUMP_DIR, fname)
-                    if os.path.isdir(file_path):
-                        shutil.rmtree(file_path, ignore_errors=True)
-                        logging.info(f"Removed old directory: {file_path}")
-                    else:
-                        os.remove(file_path)
-                        logging.info(f"Removed old file: {file_path}")
-        except Exception as ex:
-            logging.error(f"Failed to cleanup old sandbox data: {ex}")
-
-    benign_features, benign_labels, benign_names = collect_dynamic_features(benign_dir, label=0)
-    malicious_features, malicious_labels, malicious_names = collect_dynamic_features_malicious(malicious_dir)
-
-    all_features = benign_features + malicious_features
-    all_labels = benign_labels + malicious_labels
-
-    if not all_features:
-        logging.error("No dynamic features extracted. Exiting dynamic analysis.")
-        return
-
-    clf = train_model(all_features, all_labels)
-    save_databases(benign_names, benign_features, malicious_names, malicious_features)
 
 # =============================================================================
 # Static Analysis Engine (PE Feature Extraction)
@@ -895,3 +833,210 @@ class PEFeatureExtractor:
         except Exception as ex:
             logging.error(f"Error extracting numeric features from {file_path}: {str(ex)}", exc_info=True)
             return None
+
+# =============================================================================
+# Helper Function to Extract Sandbox Environment Messages
+# =============================================================================
+
+def extract_sandbox_messages():
+    """
+    Uses Windows API functions to find windows (and their child controls)
+    and logs their texts. This can be used to retrieve messages from extracted
+    .exe files related to a sandbox environment.
+    """
+    windows = find_windows_with_text()
+    if windows:
+        logging.info("Extracted sandbox messages:")
+        for hwnd, text in windows:
+            logging.info(f"HWND: {hwnd}, Text: {text}")
+    else:
+        logging.info("No sandbox messages found.")
+
+# =============================================================================
+# Main Functionality for Static & Dynamic Scanning and Signature Matching
+# =============================================================================
+
+def load_signatures(signatures_file="signatures.json"):
+    """Loads human-defined signatures from a JSON file."""
+    if not os.path.exists(signatures_file):
+        print(f"Signatures file {signatures_file} not found.", file=sys.stderr)
+        return []
+    with open(signatures_file, "r") as f:
+        try:
+            return json.load(f)
+        except Exception as e:
+            print(f"Error loading signatures: {e}", file=sys.stderr)
+            return []
+
+def dynamic_scan(file_path):
+    """
+    Runs dynamic analysis on an executable using process_file.
+    Always returns a detailed MEMDUMP token.
+    """
+    try:
+        result = process_file(file_path)
+    except Exception as e:
+        print(f"Dynamic analysis error: {e}", file=sys.stderr)
+        return "MEMDUMP:0"
+    
+    if result:
+        dynamic_signature, fname = result
+        if dynamic_signature != "0":
+            return f"MEMDUMP:{dynamic_signature}"
+    return "MEMDUMP:0"
+
+def detailed_static_scan(file_path):
+    """
+    Runs static analysis using PEFeatureExtractor.
+    Constructs detailed tokens for every feature extracted.
+    """
+    extractor = PEFeatureExtractor()
+    try:
+        nf = extractor.extract_numeric_features(file_path)
+    except Exception as e:
+        print(f"Static analysis failed: {e}", file=sys.stderr)
+        nf = {}
+
+    tokens = []
+    tokens.append(f"OPTIONALHEADER:SizeOfOptionalHeader={nf.get('SizeOfOptionalHeader','NA')}")
+    tokens.append(f"LINKERVERSION:{nf.get('MajorLinkerVersion','NA')}.{nf.get('MinorLinkerVersion','NA')}")
+    tokens.append(f"SizeOfCode={nf.get('SizeOfCode','NA')}")
+    tokens.append(f"SizeOfInitializedData={nf.get('SizeOfInitializedData','NA')}")
+    tokens.append(f"SizeOfUninitializedData={nf.get('SizeOfUninitializedData','NA')}")
+    tokens.append(f"AddressOfEntryPoint={hex(nf.get('AddressOfEntryPoint',0))}")
+    tokens.append(f"BaseOfCode={hex(nf.get('BaseOfCode',0))}")
+    tokens.append(f"BaseOfData={hex(nf.get('BaseOfData',0))}")
+    tokens.append(f"ImageBase={hex(nf.get('ImageBase',0))}")
+    tokens.append(f"SectionAlignment={nf.get('SectionAlignment','NA')}")
+    tokens.append(f"FileAlignment={nf.get('FileAlignment','NA')}")
+    tokens.append(f"OSVersion:{nf.get('MajorOperatingSystemVersion','NA')}.{nf.get('MinorOperatingSystemVersion','NA')}")
+    tokens.append(f"ImageVersion:{nf.get('MajorImageVersion','NA')}.{nf.get('MinorImageVersion','NA')}")
+    tokens.append(f"SubsystemVersion:{nf.get('MajorSubsystemVersion','NA')}.{nf.get('MinorSubsystemVersion','NA')}")
+    tokens.append(f"SizeOfImage={nf.get('SizeOfImage','NA')}")
+    tokens.append(f"SizeOfHeaders={nf.get('SizeOfHeaders','NA')}")
+    tokens.append(f"CheckSum={nf.get('CheckSum','NA')}")
+    tokens.append(f"Subsystem={nf.get('Subsystem','NA')}")
+    tokens.append(f"DllCharacteristics={nf.get('DllCharacteristics','NA')}")
+    tokens.append(f"SizeOfStackReserve={nf.get('SizeOfStackReserve','NA')}")
+    tokens.append(f"SizeOfStackCommit={nf.get('SizeOfStackCommit','NA')}")
+    tokens.append(f"SizeOfHeapReserve={nf.get('SizeOfHeapReserve','NA')}")
+    tokens.append(f"SizeOfHeapCommit={nf.get('SizeOfHeapCommit','NA')}")
+    tokens.append(f"LoaderFlags={nf.get('LoaderFlags','NA')}")
+    tokens.append(f"NumberOfRvaAndSizes={nf.get('NumberOfRvaAndSizes','NA')}")
+    
+    sections = nf.get("sections", [])
+    tokens.append(f"SECTIONS:count={len(sections)}")
+    for sec in sections:
+        tokens.append(f"SECTION:{sec.get('name','NA')},virtSize={sec.get('virtual_size','NA')},rawSize={sec.get('size_of_raw_data','NA')},entropy={sec.get('entropy','NA')}")
+    
+    imports = nf.get("imports", [])
+    tokens.append(f"IMPORTS:count={len(imports)}")
+    exports = nf.get("exports", [])
+    tokens.append(f"EXPORTS:count={len(exports)}")
+    
+    resources = nf.get("resources", [])
+    tokens.append(f"RESOURCES:count={len(resources)}")
+    
+    debug = nf.get("debug", [])
+    tokens.append(f"DEBUG:count={len(debug)}")
+    
+    cert = nf.get("certificates", {})
+    if cert:
+        tokens.append(f"CERTIFICATES:present,size={cert.get('size','NA')}")
+    else:
+        tokens.append("CERTIFICATES:absent")
+    
+    dos_stub = nf.get("dos_stub", {})
+    if dos_stub.get("exists"):
+        tokens.append(f"DOSSTUB:exists,size={dos_stub.get('size','NA')},entropy={dos_stub.get('entropy','NA')}")
+    else:
+        tokens.append("DOSSTUB:absent")
+    
+    tls = nf.get("tls_callbacks", {})
+    callbacks = tls.get("callbacks", [])
+    if callbacks:
+        tokens.append("TLS:callbacks=[" + ",".join(hex(cb) for cb in callbacks) + "]")
+    else:
+        tokens.append("TLS:absent")
+    
+    delay_imports = nf.get("delay_imports", [])
+    tokens.append(f"DELAYIMPORTS:count={len(delay_imports)}")
+    
+    load_config = nf.get("load_config", {})
+    if load_config:
+        tokens.append(f"LOADCONFIG:size={load_config.get('size','NA')},timestamp={load_config.get('timestamp','NA')}")
+    else:
+        tokens.append("LOADCONFIG:absent")
+    
+    bound_imports = nf.get("bound_imports", [])
+    tokens.append(f"BOUNDIMPORTS:count={len(bound_imports)}")
+    
+    section_chars = nf.get("section_characteristics", {})
+    tokens.append(f"SECTIONCHAR:count={len(section_chars)}")
+    for sec_name, details in section_chars.items():
+        tokens.append(f"SECTIONCHAR:{sec_name},entropy={details.get('entropy','NA')},flags={details.get('flags','NA')}")
+    
+    ext_headers = nf.get("extended_headers", {})
+    if ext_headers:
+        tokens.append("EXTHEADER:present")
+    else:
+        tokens.append("EXTHEADER:absent")
+    
+    rich_header = nf.get("rich_header", {})
+    if rich_header and rich_header.get("values"):
+        tokens.append(f"RICHHEADER:present,count={len(rich_header.get('values'))}")
+    else:
+        tokens.append("RICHHEADER:absent")
+    
+    overlay = nf.get("overlay", {})
+    if overlay.get("exists"):
+        tokens.append(f"OVERLAY:exists,offset={overlay.get('offset','NA')},size={overlay.get('size','NA')},entropy={overlay.get('entropy','NA')}")
+    else:
+        tokens.append("OVERLAY:absent")
+    
+    return " ".join(tokens)
+
+def scan_file(file_path):
+    """Scans the provided file using both dynamic and detailed static analysis, then applies signatures."""
+    print(f"Scanning file: {file_path}")
+    report_tokens = []
+    
+    report_tokens.append(dynamic_scan(file_path))
+    
+    report_tokens.append(detailed_static_scan(file_path))
+    
+    scan_report = " ".join(report_tokens)
+    print("Scan Report:", scan_report)
+    
+    signatures = load_signatures()
+    matched_signatures = []
+    for sig in signatures:
+        pattern = sig.get("pattern", "")
+        try:
+            if re.search(pattern, scan_report):
+                matched_signatures.append(sig.get("name"))
+        except re.error as re_err:
+            print(f"Regex error in signature '{sig.get('name', '')}': {re_err}", file=sys.stderr)
+    
+    if matched_signatures:
+        print("Matched Signatures:")
+        for ms in matched_signatures:
+            print(" -", ms)
+    else:
+        print("No signatures matched.")
+
+def main():
+    parser = argparse.ArgumentParser(description="Comprehensive Scanner for Hydra Dragon Antivirus Engine using all features")
+    parser.add_argument("file", help="Path to the file to scan")
+    args = parser.parse_args()
+    
+    if not os.path.isfile(args.file):
+        print("Error: File does not exist.", file=sys.stderr)
+        return
+    
+    scan_file(args.file)
+    # Example usage of the Windows API functions to extract sandbox messages:
+    extract_sandbox_messages()
+
+if __name__ == "__main__":
+    main()
