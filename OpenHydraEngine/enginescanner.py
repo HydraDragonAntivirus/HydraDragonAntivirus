@@ -200,7 +200,7 @@ def scan_file(file_path):
         print("No signatures matched.")
 
 def main():
-    parser = argparse.ArgumentParser(description="Comprehensive Scanner for OpenHydra Antivirus Engine using all features")
+    parser = argparse.ArgumentParser(description="Comprehensive Scanner for Hydra Dragon Antivirus Engine using all features")
     parser.add_argument("file", help="Path to the file to scan")
     args = parser.parse_args()
     

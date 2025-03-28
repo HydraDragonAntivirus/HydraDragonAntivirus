@@ -5183,58 +5183,48 @@ def log_directory_type(file_path):
 def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled_flag=False):
     """
     Processes a file and analyzes it using DeepSeek-Coder-1.3b.
-    If united_python_code_flag is True (i.e. the file comes from pycdas, pycdc, uncompyle6 decompilation), the summary will consist solely of the full source code.
-    If decompiled_flag is True (and united_python_code_flag is False), a normal summary is generated with an additional note indicating that the file was decompiled by our tool and is Python source code.
-
+    If united_python_code_flag is True (i.e. the file comes from pycdas, pycdc, uncompyle6 decompilation), 
+    the summary will consist solely of the full source code.
+    If decompiled_flag is True (and united_python_code_flag is False), a normal summary is generated with 
+    an additional note indicating that the file was decompiled by our tool and is Python source code.
+    
     Args:
         file_path (str): The path to the file to be scanned.
         united_python_code_flag (bool): If True, indicates that the file was produced by the pycdas decompiler.
         decompiled_flag (bool): If True (and united_python_code_flag is False), indicates that the file was decompiled by our tool.
     """
     try:
-        # Log directory type based on the global variables
-        if file_path.startswith(sandboxie_folder):
-            logging.info(f"{file_path}: It's a Sandbox environment file.")
-        elif file_path.startswith(decompile_dir):
-            logging.info(f"{file_path}: Decompiled.")
-        elif file_path.startswith(nuitka_dir):
-            logging.info(f"{file_path}: Nuitka onefile extracted.")
-        elif file_path.startswith(dotnet_dir):
-            logging.info(f"{file_path}: .NET decompiled.")
-        elif file_path.startswith(pyinstaller_dir):
-            logging.info(f"{file_path}: PyInstaller onefile extracted.")
-        elif file_path.startswith(commandlineandmessage_dir):
-            logging.info(f"{file_path}: Command line message extracted.")
-        elif file_path.startswith(pe_extracted_dir):
-            logging.info(f"{file_path}: PE file extracted.")
-        elif file_path.startswith(zip_extracted_dir):
-            logging.info(f"{file_path}: ZIP extracted.")
-        elif file_path.startswith(seven_zip_extracted_dir):
-            logging.info(f"{file_path}: 7zip extracted.")
-        elif file_path.startswith(general_extracted_dir):
-            logging.info(f"{file_path}: all extractable files go here.")
-        elif file_path.startswith(tar_extracted_dir):
-            logging.info(f"{file_path}: TAR extracted.")
-        elif file_path.startswith(processed_dir):
-            logging.info(f"{file_path}: Processed - File is base64/base32, signature/magic bytes removed.")
-        elif file_path == main_file_path:  # Check for main file path
-            logging.info(f"{file_path}: This is the main file.")
-        elif file_path.startswith(memory_dir):
-            logging.info(f"{file_path}: It's a dynamic analysis memory dump file.")
-        elif file_path.startswith(debloat_dir):
-            logging.info(f"{file_path}: It's a debloated file dir.")
-        elif file_path.startswith(jar_extracted_dir):
-            logging.info(f"{file_path}: It's a directory containing extracted files from a JAR (Java Archive) file.")
-        elif file_path.startswith(pycdc_dir):
-            logging.info(f"{file_path}: It's a PyInstaller, .pyc reversed-engineered source code directory with pycdc.exe.")
-        elif file_path.startswith(pycdas_dir):
-            logging.info(f"{file_path}: It's a PyInstaller, .pyc reversed-engineered source code directory with pycdas.exe.")
-        elif file_path.startswith(pycdas_deepseek_dir):
-            logging.info(f"{file_path}: This is a PyInstaller .pyc reverse-engineered source code directory, decompiled with pycdas.exe and converted to non-bytecode Python code using DeepSeek-Coder 1.3b.")
-        elif file_path.startswith(python_source_code_dir):
-            logging.info(f"{file_path}: It's a PyInstaller, .pyc reversed-engineered source code directory with uncompyle6.")
-        elif file_path.startswith(nuitka_source_code_dir):
-            logging.info(f"{file_path}: It's a Nuitka reversed-engineered Python source code directory.")
+        # List of directory conditions and their corresponding logging messages.
+        # Note: For conditions that need an exact match (like the main file), a lambda is used accordingly.
+        directory_logging_info = [
+            (lambda fp: fp.startswith(sandboxie_folder), f"It's a Sandbox environment file."),
+            (lambda fp: fp.startswith(decompile_dir), f"Decompiled."),
+            (lambda fp: fp.startswith(nuitka_dir), f"Nuitka onefile extracted."),
+f            (lambda fp: fp.startswith(dotnet_dir), f".NET decompiled."),
+            (lambda fp: fp.startswith(pyinstaller_dir), f"PyInstaller onefile extracted."),
+            (lambda fp: fp.startswith(commandlineandmessage_dir), f"Command line message extracted."),
+            (lambda fp: fp.startswith(pe_extracted_dir), f"PE file extracted."),
+            (lambda fp: fp.startswith(zip_extracted_dir), f"ZIP extracted."),
+            (lambda fp: fp.startswith(seven_zip_extracted_dir), f"7zip extracted."),
+            (lambda fp: fp.startswith(general_extracted_dir), f"All extractable files go here."),
+            (lambda fp: fp.startswith(tar_extracted_dir), f"TAR extracted."),
+            (lambda fp: fp.startswith(processed_dir), f"Processed - File is base64/base32, signature/magic bytes removed."),
+            (lambda fp: fp == main_file_path, f"This is the main file."),
+            (lambda fp: fp.startswith(memory_dir), f"It's a dynamic analysis memory dump file."),
+            (lambda fp: fp.startswith(debloat_dir), f"It's a debloated file dir."),
+            (lambda fp: fp.startswith(jar_extracted_dir), f"Directory containing extracted files from a JAR (Java Archive) file."),
+            (lambda fp: fp.startswith(pycdc_dir), f"PyInstaller, .pyc reversed-engineered source code directory with pycdc.exe."),
+            (lambda fp: fp.startswith(pycdas_dir), f"PyInstaller, .pyc reversed-engineered source code directory with pycdas.exe."),
+            (lambda fp: fp.startswith(pycdas_deepseek_dir), f"PyInstaller .pyc reverse-engineered source code directory, decompiled with pycdas.exe and converted to non-bytecode Python code using DeepSeek-Coder 1.3b."),
+            (lambda fp: fp.startswith(python_source_code_dir), f"PyInstaller, .pyc reversed-engineered source code directory with uncompyle6."),
+            (lambda fp: fp.startswith(nuitka_source_code_dir), f"Nuitka reversed-engineered Python source code directory.")
+        ]
+    
+        # Iterate over the logging info list and log the first matching message.
+        for condition, message in directory_logging_info:
+            if condition(file_path):
+                logging.info(f"{file_path}: {message}")
+                break
 
         # Build the initial message based on flags
         if united_python_code_flag:
@@ -5284,10 +5274,7 @@ def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled
                 "Based on the file name, file path, and file content analysis:\n\n"
                 "If this file is obfuscated, it may be dangerous. I provide readable text for you to analyze it to determine if this file is malware.\n"
                 "If it is a script file and obfuscated, it is probably suspicious or malware.\n"
-                "If it registers itself in 'Shell Common Startup' or 'Shell Startup' and has these extensions, it could be harmful:\n"
-                "- .vbs, .vbe, .js, .jse, .bat, .url, .cmd, .hta, .ps1, .psm1, .wsf, .wsb, .sct (Windows script files)\n"
-                "- .dll, .jar, .msi, .scr (suspicious extensions) at Windows common startup (shell:common startup or shell:startup)\n"
-                "If it tries to register as .wll instead of .dll, it could also be harmful.\n"
+                "If it registers itself in 'Shell Common Startup' or 'Shell Startup' and has these extensions, it could be harmful.\n"
                 "Decode any encoded strings, such as base64 or base32, as needed.\n"
             )
 
@@ -5302,12 +5289,9 @@ def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled
         # Read the file content
         readable_file_content = ""
         line_count = 0
-
-        # Define max_lines for how many lines you want to read from the file
-        max_lines = 100000
+        max_lines = 100000  # Maximum number of lines to read
 
         try:
-            # Read the file with UTF-8 encoding
             with open(file_path, 'r', encoding="utf-8", errors="ignore") as deepseek_file:
                 for line in deepseek_file:
                     if line_count < max_lines:
@@ -5317,7 +5301,7 @@ def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled
                         break
         except Exception as ex:
             logging.error(f"Error reading file {file_path}: {ex}")
-            return None  # Handle error appropriately
+            return None
 
         # Tokenize the readable file content
         file_inputs = deepseek_1b_tokenizer(readable_file_content, return_tensors="pt")
@@ -5332,8 +5316,6 @@ def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled
 
         # Combine the initial message with the truncated file content
         combined_message = initial_message + f"File content:\n{truncated_file_content}\n"
-
-        # Tokenize the combined message
         inputs = deepseek_1b_tokenizer(combined_message, return_tensors="pt")
 
         # Generate the response
@@ -5391,13 +5373,12 @@ def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled
             final_response += "\nNote: This file was decompiled by our tool and is Python source code.\n"
 
         logging.info(final_response)
-        logging.info(final_response)
 
         # Log the raw model response
         answer_log_path = os.path.join(script_dir, "log", "answer.log")
         try:
             with open(answer_log_path, "a") as answer_log_file:
-                answer_log_file.write(relevant_response + "\n\n")  # Write the raw model response
+                answer_log_file.write(relevant_response + "\n\n")
         except Exception as ex:
             logging.error(f"Error writing to log file {answer_log_path}: {ex}")
 
@@ -5416,7 +5397,7 @@ def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled
             except Exception as ex:
                 logging.error(f"Error notifying user: {ex}")
 
-        # --- For pycdas decompiled files: save the extracted source code with a .py extension ---
+        # For pycdas decompiled files: save the extracted source code with a .py extension
         if united_python_code_flag:
             pycdas_deepseek_dir = os.path.join(python_source_code_dir, "united_deepseek")
             if not os.path.exists(pycdas_deepseek_dir):
