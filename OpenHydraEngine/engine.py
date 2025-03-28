@@ -17,6 +17,7 @@ import joblib
 import shutil
 import ctypes
 import difflib
+import threading
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 
@@ -97,7 +98,7 @@ logging.basicConfig(
 sys.stdout = open(console_log_file, "w", encoding="utf-8", errors="ignore")
 sys.stderr = open(console_log_file, "w", encoding="utf-8", errors="ignore")
 
-logging.info("OpenHydra Antivirus Engine started at %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+logging.info("Hydra Dragon Antivirus Engine started at %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
 # =============================================================================
 # Global Directories for Dynamic Analysis (Sandbox Environment)
@@ -879,16 +880,27 @@ def get_target_hwnd(target_exe_name):
     ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_proc), None)
     return target_hwnds
 
-def extract_target_messages(target_hwnds):
+def extract_target_messages(target_exe_name, poll_interval=1):
     """
-    Extracts the window text for each HWND in target_hwnds.
+    Continuously collects window messages from all windows whose process name matches
+    the target_exe_name while they are visible (i.e., until the target windows close).
+    Each unique message is added only once.
     """
-    messages = []
-    for hwnd in target_hwnds:
-        text = get_window_text(hwnd)
-        messages.append(text)
-        logging.info(f"Target HWND: {hwnd}, Message: {text}")
-    return messages
+    collected_messages = set()
+    
+    # Continuously poll for target windows and collect messages
+    while True:
+        target_hwnds = get_target_hwnd(target_exe_name)
+        if not target_hwnds:
+            break  # If no target windows are found, assume the program has terminated.
+        for hwnd in target_hwnds:
+            text = get_window_text(hwnd)
+            if text and text not in collected_messages:
+                collected_messages.add(text)
+                logging.info(f"Collected message from HWND {hwnd}: {text}")
+        time.sleep(poll_interval)
+        
+    return list(collected_messages)
 
 # =============================================================================
 # Main Functionality for Static & Dynamic Scanning and Signature Matching
@@ -1041,42 +1053,55 @@ def calculate_similarity(a: str, b: str) -> float:
     """
     return difflib.SequenceMatcher(None, a, b).ratio()
 
+def collect_messages(target_exe_name, collected_messages):
+    """
+    Helper function to collect messages from the target windows and store them in collected_messages.
+    """
+    msgs = extract_target_messages(target_exe_name)
+    collected_messages.extend(msgs)
+
 def scan_file(file_path):
-    """Scans the provided file using both dynamic and detailed static analysis,
-    then applies signatures using similarity matching. Additionally, retrieves the
-    HWND(s) of the target executable (using its process name) and adds their messages 
-    to the scan report.
+    """
+    Scans the provided file using both dynamic and detailed static analysis. 
+    It starts collecting window messages from the target application's windows 
+    (using its file name as the process name) before running dynamic analysis, 
+    ensuring messages are captured during execution.
     """
     print(f"Scanning file: {file_path}")
     report_tokens = []
+
+    # Use the base name of the file as the target process name.
+    target_exe_name = os.path.basename(file_path)
     
-    # Run dynamic analysis to get MEMDUMP token.
+    # Start a thread to collect window messages concurrently.
+    collected_messages = []
+    message_thread = threading.Thread(target=collect_messages, args=(target_exe_name, collected_messages))
+    message_thread.start()
+    
+    # Run dynamic analysis (which executes the target and generates a MEMDUMP token)
     dynamic_result = dynamic_scan(file_path)
-    # Run detailed static analysis to extract many features as tokens.
+    
+    # Run detailed static analysis to extract feature tokens.
     static_result = detailed_static_scan(file_path)
     
     report_tokens.append(dynamic_result)
     report_tokens.append(static_result)
     
-    # Use the base name of the file as the target process name
-    target_exe_name = os.path.basename(file_path)
-    target_hwnds = get_target_hwnd(target_exe_name)
-    target_messages = extract_target_messages(target_hwnds)
+    # Wait for the message collection thread to finish.
+    message_thread.join()
     
-    if target_messages:
-        report_tokens.append("TARGETMESSAGES:" + " ".join(target_messages))
+    if collected_messages:
+        report_tokens.append("TARGETMESSAGES:" + " ".join(collected_messages))
     
-    # Join tokens into one full report string
+    # Combine all tokens into a full scan report.
     scan_report = " ".join(report_tokens)
     print("Scan Report:", scan_report)
     
-    # Load user-defined signatures (each expected to have a "pattern" and "name")
+    # Load user-defined signatures and perform similarity matching.
     signatures = load_signatures()
     matched_signatures = []
     
-    # Set your similarity threshold (adjust as needed)
-    threshold = 0.8  
-    # Compute similarity for each signature pattern with the complete scan report
+    threshold = 0.8  # Similarity threshold
     for sig in signatures:
         pattern = sig.get("pattern", "")
         similarity = calculate_similarity(pattern, scan_report)
