@@ -834,19 +834,61 @@ class PEFeatureExtractor:
 # Helper Function to Extract Sandbox Environment Messages
 # =============================================================================
 
-def extract_sandbox_messages():
+def get_process_name(hwnd):
     """
-    Uses Windows API functions to find windows (and their child controls)
-    and logs their texts. This can be used to retrieve messages from extracted
-    .exe files related to a sandbox environment.
+    Retrieves the process executable name for the given window handle.
     """
-    windows = find_windows_with_text()
-    if windows:
-        logging.info("Extracted sandbox messages:")
-        for hwnd, text in windows:
-            logging.info(f"HWND: {hwnd}, Text: {text}")
-    else:
-        logging.info("No sandbox messages found.")
+    pid = ctypes.c_ulong()
+    ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    
+    # Open the process with limited query permissions
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+    process_name = ""
+    if handle:
+        buffer = ctypes.create_unicode_buffer(512)
+        size = ctypes.c_ulong(512)
+        # Use GetModuleBaseNameW from psapi.dll to retrieve the executable name
+        if ctypes.windll.psapi.GetModuleBaseNameW(handle, None, buffer, size):
+            process_name = buffer.value
+        ctypes.windll.kernel32.CloseHandle(handle)
+    return process_name
+
+def get_target_hwnd(target_exe_name):
+    """
+    Retrieves the window handles (HWND) for windows whose associated process
+    executable name matches the target_exe_name (case-insensitive).
+    """
+    target_hwnds = []
+    current_pid = os.getpid()
+
+    def enum_windows_proc(hwnd, lParam):
+        # Exclude windows belonging to the scanning process
+        pid = ctypes.c_ulong()
+        ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value == current_pid:
+            return True
+
+        proc_name = get_process_name(hwnd)
+        # Only add the window if its process name matches the target executable name
+        if proc_name.lower() == target_exe_name.lower():
+            target_hwnds.append(hwnd)
+        return True
+
+    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+    ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_proc), None)
+    return target_hwnds
+
+def extract_target_messages(target_hwnds):
+    """
+    Extracts the window text for each HWND in target_hwnds.
+    """
+    messages = []
+    for hwnd in target_hwnds:
+        text = get_window_text(hwnd)
+        messages.append(text)
+        logging.info(f"Target HWND: {hwnd}, Message: {text}")
+    return messages
 
 # =============================================================================
 # Main Functionality for Static & Dynamic Scanning and Signature Matching
@@ -1001,7 +1043,10 @@ def calculate_similarity(a: str, b: str) -> float:
 
 def scan_file(file_path):
     """Scans the provided file using both dynamic and detailed static analysis,
-    then applies signatures using similarity matching instead of hardcoded regex."""
+    then applies signatures using similarity matching. Additionally, retrieves the
+    HWND(s) of the target executable (using its process name) and adds their messages 
+    to the scan report.
+    """
     print(f"Scanning file: {file_path}")
     report_tokens = []
     
@@ -1013,6 +1058,14 @@ def scan_file(file_path):
     report_tokens.append(dynamic_result)
     report_tokens.append(static_result)
     
+    # Use the base name of the file as the target process name
+    target_exe_name = os.path.basename(file_path)
+    target_hwnds = get_target_hwnd(target_exe_name)
+    target_messages = extract_target_messages(target_hwnds)
+    
+    if target_messages:
+        report_tokens.append("TARGETMESSAGES:" + " ".join(target_messages))
+    
     # Join tokens into one full report string
     scan_report = " ".join(report_tokens)
     print("Scan Report:", scan_report)
@@ -1023,8 +1076,7 @@ def scan_file(file_path):
     
     # Set your similarity threshold (adjust as needed)
     threshold = 0.8  
-    
-    # Instead of hardcoded regex matching, compute similarity for each signature pattern
+    # Compute similarity for each signature pattern with the complete scan report
     for sig in signatures:
         pattern = sig.get("pattern", "")
         similarity = calculate_similarity(pattern, scan_report)
@@ -1049,7 +1101,6 @@ def main():
         return
     
     scan_file(args.file)
-    extract_sandbox_messages()
 
 if __name__ == "__main__":
     main()
