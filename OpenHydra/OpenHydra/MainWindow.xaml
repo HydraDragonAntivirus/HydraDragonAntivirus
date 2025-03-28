@@ -1,0 +1,72 @@
+﻿<Window x:Class="OpenHydra.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Antivirus Signature Definition Engine" Height="600" Width="900">
+    <Grid Margin="10">
+        <TabControl>
+            <!-- Wiki Tab -->
+            <TabItem Header="Wiki">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="10">
+                        <TextBlock Text="Antivirus Signature Definition Wiki" 
+                                   FontSize="24" FontWeight="Bold" Margin="0,0,0,10"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="14">
+                            <![CDATA[
+Welcome to the Antivirus Signature Definition Engine!
+
+This tool allows you to define antivirus signatures entirely by human input. A signature consists of the following elements:
+  
+1. Signature Name: A unique identifier for the signature.
+2. Signature Pattern: A text-based pattern (or rule) that describes the signature. This may be a specific string, regular expression, or other pattern that can be matched against file content.
+3. Description: Detailed information about what the signature means, examples of files it would detect, and any additional notes.
+
+Example Signature:
+--------------------------------------------------
+Signature Name: "Suspicious Macro"
+Signature Pattern: "AutoOpen\\("
+Description: "Detects the presence of the AutoOpen macro call commonly used in malicious Office documents. For example, when a document opens, it automatically executes a macro named AutoOpen."
+--------------------------------------------------
+
+Use the Editor tab below to create and review signatures.
+                            ]]>
+                        </TextBlock>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+            <!-- Editor Tab -->
+            <TabItem Header="Editor">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="2*"/>
+                        <ColumnDefinition Width="3*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Input Fields -->
+                    <StackPanel Grid.Row="0" Grid.Column="0" Margin="5">
+                        <TextBlock Text="Signature Name:" FontWeight="Bold"/>
+                        <TextBox x:Name="SignatureNameTextBox" Width="200" Margin="0,5,0,10"/>
+                        <TextBlock Text="Signature Pattern:" FontWeight="Bold"/>
+                        <TextBox x:Name="SignaturePatternTextBox" Width="200" Margin="0,5,0,10"/>
+                        <TextBlock Text="Description:" FontWeight="Bold"/>
+                        <TextBox x:Name="SignatureDescriptionTextBox" Width="200" Height="80" 
+                                 TextWrapping="Wrap" AcceptsReturn="True" Margin="0,5,0,10"/>
+                        <Button Content="Submit Signature" Width="150" Click="SubmitSignature_Click"/>
+                    </StackPanel>
+
+                    <!-- Rich Editor & Existing Signatures -->
+                    <StackPanel Grid.Row="0" Grid.Column="1" Grid.RowSpan="3" Margin="5">
+                        <TextBlock Text="Signature Editor (Rich Text)" FontSize="16" FontWeight="Bold"/>
+                        <RichTextBox x:Name="SignatureRichTextBox" Height="200" Margin="0,5"/>
+                        <TextBlock Text="Existing Signatures:" FontSize="16" FontWeight="Bold" Margin="0,15,0,5"/>
+                        <ListBox x:Name="SignatureListBox" Height="200"/>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+        </TabControl>
+    </Grid>
+</Window>
