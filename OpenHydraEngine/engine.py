@@ -18,6 +18,7 @@ import shutil
 import ctypes
 import difflib
 import threading
+import psutil
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 
@@ -880,27 +881,50 @@ def get_target_hwnd(target_exe_name):
     ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_proc), None)
     return target_hwnds
 
-def extract_target_messages(target_exe_name, poll_interval=1):
+def enum_windows_proc(hwnd, target_exe_name):
+    proc_name = get_process_name(hwnd)  # Ensure this function returns a string
+    
+    if not isinstance(proc_name, str):  # Prevent AttributeError
+        return True  # Skip this hwnd if proc_name is invalid
+
+    if proc_name.lower() == target_exe_name.lower():
+        hwnds.append(hwnd)
+    
+    return True
+
+def extract_target_messages(target_exe_name):
     """
-    Continuously collects window messages from all windows whose process name matches
-    the target_exe_name while they are visible (i.e., until the target windows close).
-    Each unique message is added only once.
+    Waits for the process (target_exe_name) to start, then tracks its window.
+    Collects messages until the original window disappears or changes.
     """
     collected_messages = set()
-    
-    # Continuously poll for target windows and collect messages
+    first_hwnd = None
+
+    # Step 1: Wait for the target process to start
+    while first_hwnd is None:
+        hwnds = get_process_hwnds(target_exe_name)
+        logging.info(f"Waiting for process {target_exe_name}, Found HWNDs: {hwnds}")
+        if hwnds:
+            first_hwnd = hwnds[0]  # Capture the first detected window
+            logging.info(f"Tracking first HWND: {first_hwnd}")
+
+    # Step 2: Track the window until it disappears or a new one appears
     while True:
-        target_hwnds = get_target_hwnd(target_exe_name)
-        if not target_hwnds:
-            break  # If no target windows are found, assume the program has terminated.
-        for hwnd in target_hwnds:
-            text = get_window_text(hwnd)
-            if text and text not in collected_messages:
-                collected_messages.add(text)
-                logging.info(f"Collected message from HWND {hwnd}: {text}")
-        time.sleep(poll_interval)
-        
-    return list(collected_messages)
+        current_hwnds = get_process_hwnds(target_exe_name)
+
+        logging.info(f"First HWND: {first_hwnd}, Current HWNDs: {current_hwnds}")
+
+        # Break if the first HWND disappears or a new one appears
+        if not current_hwnds or first_hwnd not in current_hwnds:
+            logging.info(f"Breaking loop! First HWND {first_hwnd} is gone or changed.")
+            break
+
+        text = get_window_text(first_hwnd)
+        if text and text not in collected_messages:
+            collected_messages.add(text)
+            logging.info(f"Collected message from HWND {first_hwnd}: {text}")
+
+    return list(collected_messages)  # Return collected messages once loop exits
 
 # =============================================================================
 # Main Functionality for Static & Dynamic Scanning and Signature Matching
