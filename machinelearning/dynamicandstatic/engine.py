@@ -1221,7 +1221,7 @@ def scan_file(file_path, auto_create=False, benign=False):
         if auto_create:
             label = "benign" if benign else ("malware" if dynamic_result != "MEMDUMP:0" else "benign")
             new_signature = {
-                "name": f"Auto_{label}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                "name": os.path.basename(file_path),  # Use file name instead of auto-generated name
                 "pattern": scan_report,
                 "label": label
             }
