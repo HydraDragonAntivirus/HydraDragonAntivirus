@@ -156,7 +156,7 @@ def cleanup_old_sandbox_data():
                 continue
             file_path = os.path.join(DUMP_DIR, fname)
             if os.path.isdir(file_path):
-                rmtree(file_path, ignore_errors=True)
+                shutil.rmtree(file_path, ignore_errors=True)
                 logging.info(f"Removed old directory: {file_path}")
             else:
                 os.remove(file_path)
