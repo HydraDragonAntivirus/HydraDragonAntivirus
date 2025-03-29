@@ -1377,22 +1377,19 @@ def main():
     parser.add_argument("path", help="Path to the file or directory to scan, OR target exe for injection")
     parser.add_argument("--auto-create", action="store_true", help="Auto create new signature if none matched (scan mode)")
     parser.add_argument("--benign", action="store_true", help="Force auto-created signature to be labeled as benign (scan mode)")
-    parser.add_argument("--inject", action="store_true", help="Enable injection mode")
-    parser.add_argument("--script", help="Path to Python script file to inject (in injection mode)")
+    parser.add_argument("--inject", action="store_true", help="Enable injection mode (always inject self)")
     parser.add_argument("--target", help="Path to target executable for injection (in injection mode)")
     args = parser.parse_args()
     
     if args.inject:
-        if not args.target or not args.script:
-            print("Injection mode requires --target and --script arguments.", file=sys.stderr)
+        if not args.target:
+            print("Injection mode requires --target argument.", file=sys.stderr)
             sys.exit(1)
         if not os.path.exists(args.target):
             print("Error: Target executable does not exist.", file=sys.stderr)
             sys.exit(1)
-        if not os.path.exists(args.script):
-            print("Error: Script file to inject does not exist.", file=sys.stderr)
-            sys.exit(1)
-        with open(args.script, "r", encoding="utf-8") as f:
+        # Always inject self (the current engine's source code)
+        with open(__file__, "r", encoding="utf-8") as f:
             script_content = f.read()
         inject_python_script(args.target, script_content)
     else:
