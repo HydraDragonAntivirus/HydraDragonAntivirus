@@ -297,7 +297,9 @@ def process_file(file_path):
     # Create an event to signal when to stop message collection.
     stop_event = threading.Event()
     collected_messages = []
-    message_thread = threading.Thread(target=collect_messages, args=(os.path.basename(file_path), collected_messages, stop_event))
+    # Use the full path (or at least the basename) of the file as the target.
+    target_exe = file_path
+    message_thread = threading.Thread(target=collect_messages, args=(target_exe, collected_messages, stop_event))
     message_thread.start()
 
     # Allow the executable to run for 10 seconds.
@@ -894,23 +896,53 @@ def enum_windows_proc(hwnd, target_exe_name):
     
     return True  # Always return True at the end
 
-def extract_target_messages(target_exe_name, stop_event):
+def hwnd_to_executable(hwnd):
     """
-    Iterates through all window handles, converts each hwnd to its associated
-    process name, and collects the window text for those windows whose process
-    matches the target_exe_name. The loop stops when stop_event is set.
+    Converts a window handle (HWND) to the full executable path of the process
+    that owns the window.
+    """
+    # Retrieve the process ID associated with the HWND.
+    pid = ctypes.c_ulong()
+    ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    
+    # Define necessary access rights.
+    PROCESS_QUERY_INFORMATION = 0x0400
+    PROCESS_VM_READ = 0x0010
+    
+    # Open the process with the required permissions.
+    handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid.value)
+    if handle:
+        # Allocate a buffer for the executable path (MAX_PATH=260).
+        buffer = ctypes.create_unicode_buffer(260)
+        # Get the full path of the executable.
+        ctypes.windll.psapi.GetModuleFileNameExW(handle, None, buffer, 260)
+        executable_path = buffer.value
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return executable_path
+    else:
+        return None
+
+def extract_target_messages(target_exe, stop_event):
+    """
+    Iterates through all window handles, converts each hwnd to its full executable path,
+    and collects the window text for those windows whose executable (or its basename)
+    matches target_exe. The loop stops when stop_event is set.
     """
     collected_messages = set()
     while not stop_event.is_set():
         window_handles = find_windows_with_text()
         for hwnd, text in window_handles:
-            proc_name = get_process_name(hwnd)
-            if proc_name.lower() == target_exe_name.lower():
-                if text and text not in collected_messages:
-                    collected_messages.add(text)
-                    logging.info(f"Collected message from {proc_name} (HWND {hwnd}): {text}")
-        # Sleep briefly to reduce CPU usage
-        time.sleep(0.5)
+            exe_path = hwnd_to_executable(hwnd)
+            if exe_path:
+                exe_basename = os.path.basename(exe_path).lower()
+                target_basename = os.path.basename(target_exe).lower()
+                logging.debug(f"Window HWND {hwnd} is from '{exe_path}' with text '{text}'")
+                if exe_basename == target_basename:
+                    if text and text not in collected_messages:
+                        # Format the message to include the full executable path.
+                        formatted_message = f"{exe_path} -> {text}"
+                        collected_messages.add(formatted_message)
+                        logging.info(f"Collected message: {formatted_message}")
     return list(collected_messages)
 
 # =============================================================================
@@ -1065,11 +1097,11 @@ def calculate_similarity(a: str, b: str) -> float:
     """
     return difflib.SequenceMatcher(None, a, b).ratio()
 
-def collect_messages(target_exe_name, collected_messages):
+def collect_messages(target_exe, collected_messages, stop_event):
     """
-    Helper function to collect messages from the target windows and store them in collected_messages.
+    Helper function to collect messages using extract_target_messages with a stop_event.
     """
-    msgs = extract_target_messages(target_exe_name)
+    msgs = extract_target_messages(target_exe, stop_event)
     collected_messages.extend(msgs)
 
 def scan_file(file_path):
