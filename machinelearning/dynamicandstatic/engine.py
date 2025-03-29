@@ -1231,195 +1231,23 @@ def scan_directory(directory, auto_create=False, benign=False):
             print(f"\nScanning file: {file_path}")
             scan_file(file_path, auto_create=auto_create, benign=benign)
 
-# =============================================================================
-# Injection Engine (Hybrid Approach using DLL/Python Injection)
-# =============================================================================
-# Constants for process creation and memory allocation
-CREATE_SUSPENDED = 0x00000004
-PROCESS_ALL_ACCESS = 0x1F0FFF
-MEM_COMMIT = 0x1000
-MEM_RESERVE = 0x2000
-PAGE_EXECUTE_READWRITE = 0x40
-
-class STARTUPINFO(ctypes.Structure):
-    _fields_ = [("cb", wintypes.DWORD),
-                ("lpReserved", wintypes.LPWSTR),
-                ("lpDesktop", wintypes.LPWSTR),
-                ("lpTitle", wintypes.LPWSTR),
-                ("dwX", wintypes.DWORD),
-                ("dwY", wintypes.DWORD),
-                ("dwXSize", wintypes.DWORD),
-                ("dwYSize", wintypes.DWORD),
-                ("dwXCountChars", wintypes.DWORD),
-                ("dwYCountChars", wintypes.DWORD),
-                ("dwFillAttribute", wintypes.DWORD),
-                ("dwFlags", wintypes.DWORD),
-                ("wShowWindow", wintypes.WORD),
-                ("cbReserved2", wintypes.WORD),
-                ("lpReserved2", ctypes.POINTER(ctypes.c_byte)),
-                ("hStdInput", wintypes.HANDLE),
-                ("hStdOutput", wintypes.HANDLE),
-                ("hStdError", wintypes.HANDLE)]
-
-class PROCESS_INFORMATION(ctypes.Structure):
-    _fields_ = [("hProcess", wintypes.HANDLE),
-                ("hThread", wintypes.HANDLE),
-                ("dwProcessId", wintypes.DWORD),
-                ("dwThreadId", wintypes.DWORD)]
-
-def create_suspended_process(exe_path, cmd_line=None):
-    startupinfo = STARTUPINFO()
-    startupinfo.cb = ctypes.sizeof(startupinfo)
-    process_information = PROCESS_INFORMATION()
-    creation_flags = CREATE_SUSPENDED
-    if cmd_line is None:
-        cmd_line = exe_path
-    success = ctypes.windll.kernel32.CreateProcessW(
-        exe_path, 
-        cmd_line,
-        None,
-        None,
-        False,
-        creation_flags,
-        None,
-        None,
-        ctypes.byref(startupinfo),
-        ctypes.byref(process_information)
-    )
-    if not success:
-        print("Failed to create process. Error:", ctypes.windll.kernel32.GetLastError())
-        sys.exit(1)
-    print(f"Created process {exe_path} with PID {process_information.dwProcessId} in suspended mode.")
-    return process_information
-
-def allocate_and_write(process_handle, data):
-    size = len(data)
-    addr = ctypes.windll.kernel32.VirtualAllocEx(process_handle, None, size, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE)
-    if not addr:
-        print("Failed to allocate memory in remote process.")
-        sys.exit(1)
-    written = ctypes.c_size_t(0)
-    if not ctypes.windll.kernel32.WriteProcessMemory(process_handle, addr, data, size, ctypes.byref(written)):
-        print("Failed to write memory in remote process.")
-        sys.exit(1)
-    print(f"Wrote {written.value} bytes to remote process at address {hex(addr)}.")
-    return addr
-
-def get_function_address(module_name, function_name):
-    h_module = ctypes.windll.kernel32.GetModuleHandleW(module_name)
-    if not h_module:
-        print(f"Failed to get handle for {module_name}.")
-        sys.exit(1)
-    addr = ctypes.windll.kernel32.GetProcAddress(h_module, function_name.encode('ascii'))
-    if not addr:
-        print(f"Failed to get address for {function_name} in {module_name}.")
-        sys.exit(1)
-    print(f"Address of {function_name} in {module_name} is {hex(addr)}.")
-    return addr
-
-def create_remote_thread(process_handle, func_addr, param_addr):
-    thread_id = wintypes.DWORD(0)
-    h_thread = ctypes.windll.kernel32.CreateRemoteThread(process_handle, None, 0, func_addr, param_addr, 0, ctypes.byref(thread_id))
-    if not h_thread:
-        print("Failed to create remote thread.")
-        sys.exit(1)
-    print(f"Remote thread created with TID {thread_id.value}.")
-    return h_thread
-
-def resume_process(thread_handle):
-    ret = ctypes.windll.kernel32.ResumeThread(thread_handle)
-    if ret == -1:
-        print("Failed to resume thread.")
-        sys.exit(1)
-    print("Resumed the process.")
-
-def set_remote_breakpoint(process_handle, address):
-    original_byte = ctypes.create_string_buffer(1)
-    bytesRead = ctypes.c_size_t(0)
-    if not ctypes.windll.kernel32.ReadProcessMemory(process_handle, address, original_byte, 1, ctypes.byref(bytesRead)):
-        print("Failed to read memory for breakpoint.")
-        sys.exit(1)
-    int3 = b"\xCC"
-    bytesWritten = ctypes.c_size_t(0)
-    if not ctypes.windll.kernel32.WriteProcessMemory(process_handle, address, int3, 1, ctypes.byref(bytesWritten)):
-        print("Failed to write breakpoint.")
-        sys.exit(1)
-    print(f"Breakpoint set at address {hex(address)} (original byte was {original_byte.raw.hex()}).")
-    return original_byte.raw
-
-def inject_python_script(target_exe, python_script_content):
-    # Launch the target process in suspended mode.
-    proc_info = create_suspended_process(target_exe)
-    process_handle = proc_info.hProcess
-    main_thread = proc_info.hThread
-    # Write the python script content (null-terminated)
-    script_bytes = python_script_content.encode('utf-8') + b'\x00'
-    remote_script_addr = allocate_and_write(process_handle, script_bytes)
-    # (Optional) Set a breakpoint at the script address (for demonstration)
-    original_byte = set_remote_breakpoint(process_handle, remote_script_addr)
-    # Get the address of PyRun_SimpleString (adjust module name if needed)
-    python_dll_name = "python313.dll"  # change as necessary
-    func_addr = get_function_address(python_dll_name, "PyRun_SimpleString")
-    # Create a remote thread to run the injected python script
-    h_remote_thread = create_remote_thread(process_handle, func_addr, remote_script_addr)
-    time.sleep(3)
-    # Resume the main thread of the process
-    resume_process(main_thread)
-    ctypes.windll.kernel32.WaitForSingleObject(h_remote_thread, 5000)
-    print("Injection complete. Process is now running.")
-
-# =============================================================================
-# Main Functionality
-# =============================================================================
-
 def main():
-    parser = argparse.ArgumentParser(description="Hydra Dragon Antivirus Engine & Injection Hybrid")
-    parser.add_argument("path", help="Path to the file or directory to scan, OR target file/directory for injection")
-    parser.add_argument("--auto-create", action="store_true", help="Auto create new signature if none matched (scan mode)")
-    parser.add_argument("--benign", action="store_true", help="Force auto-created signature to be labeled as benign (scan mode)")
-    parser.add_argument("--inject", action="store_true", help="Enable injection mode (always inject self)")
+    parser = argparse.ArgumentParser(description="Comprehensive Scanner for Hydra Dragon Antivirus Engine using all features")
+    parser.add_argument("path", help="Path to the file or directory to scan")
+    parser.add_argument("--auto-create", action="store_true", help="Auto create new signature if none matched")
+    parser.add_argument("--benign", action="store_true", help="Force auto-created signature to be labeled as benign")
     args = parser.parse_args()
     
-    if args.inject:
-        if not os.path.exists(args.path):
-            print("Error: The specified path does not exist.", file=sys.stderr)
-            sys.exit(1)
-        # Determine if the path is a file or directory
-        targets = []
-        if os.path.isfile(args.path):
-            targets.append(args.path)
-        elif os.path.isdir(args.path):
-            # Iterate over all files in the directory and add executable files;
-            # if file is not an .exe, rename it by appending .exe (for injection purposes)
-            for root, dirs, files in os.walk(args.path):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    if not file_path.lower().endswith(".exe"):
-                        new_path = file_path + ".exe"
-                        try:
-                            os.rename(file_path, new_path)
-                            print(f"Renamed {file_path} to {new_path} for injection.")
-                            file_path = new_path
-                        except Exception as ex:
-                            print(f"Failed to rename {file_path}: {ex}", file=sys.stderr)
-                            continue
-                    targets.append(file_path)
-        # Always inject self (the current engine's source code) into every target
-        with open(__file__, "r", encoding="utf-8") as f:
-            script_content = f.read()
-        for target in targets:
-            print(f"Injecting self into {target} ...")
-            inject_python_script(target, script_content)
+    if not os.path.exists(args.path):
+        print("Error: The specified path does not exist.", file=sys.stderr)
+        return
+    
+    if os.path.isfile(args.path):
+        scan_file(args.path, auto_create=args.auto_create, benign=args.benign)
+    elif os.path.isdir(args.path):
+        scan_directory(args.path, auto_create=args.auto_create, benign=args.benign)
     else:
-        if not os.path.exists(args.path):
-            print("Error: The specified path does not exist.", file=sys.stderr)
-            sys.exit(1)
-        if os.path.isfile(args.path):
-            scan_file(args.path, auto_create=args.auto_create, benign=args.benign)
-        elif os.path.isdir(args.path):
-            scan_directory(args.path, auto_create=args.auto_create, benign=args.benign)
-        else:
-            print("Error: The specified path is neither a file nor a directory.", file=sys.stderr)
+        print("Error: The specified path is neither a file nor a directory.", file=sys.stderr)
 
 if __name__ == "__main__":
     main()
