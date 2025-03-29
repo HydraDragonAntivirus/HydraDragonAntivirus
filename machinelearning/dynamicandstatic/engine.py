@@ -286,9 +286,6 @@ def process_file(file_path):
     sandbox_thread = threading.Thread(target=run_in_sandbox, args=(file_path,))
     sandbox_thread.start()
 
-    # Wait a moment to allow the executable to start.
-    time.sleep(10)
-
     # Create an event to signal when to stop message collection.
     stop_event = threading.Event()
     collected_messages = []
