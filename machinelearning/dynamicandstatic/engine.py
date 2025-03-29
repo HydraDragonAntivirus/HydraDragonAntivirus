@@ -872,28 +872,21 @@ def enum_windows_proc(hwnd, target_exe_name):
     return True  # Always return True at the end
 
 def extract_target_messages(target_exe_name):
-    """
-    Waits for the process (target_exe_name) to start, then tracks its window.
-    Collects messages until the original window disappears or changes.
-    """
     collected_messages = set()
     first_hwnd = None
 
-    # Step 1: Wait for the target process to start
+    # Use the correct function to get HWNDs
     while first_hwnd is None:
-        hwnds = get_process_hwnds(target_exe_name)
+        hwnds = get_target_hwnd(target_exe_name)
         logging.info(f"Waiting for process {target_exe_name}, Found HWNDs: {hwnds}")
         if hwnds:
-            first_hwnd = hwnds[0]  # Capture the first detected window
+            first_hwnd = hwnds[0]
             logging.info(f"Tracking first HWND: {first_hwnd}")
 
-    # Step 2: Track the window until it disappears or a new one appears
+    # Track the window until it disappears or changes
     while True:
-        current_hwnds = get_process_hwnds(target_exe_name)
-
+        current_hwnds = get_target_hwnd(target_exe_name)
         logging.info(f"First HWND: {first_hwnd}, Current HWNDs: {current_hwnds}")
-
-        # Break if the first HWND disappears or a new one appears
         if not current_hwnds or first_hwnd not in current_hwnds:
             logging.info(f"Breaking loop! First HWND {first_hwnd} is gone or changed.")
             break
@@ -903,7 +896,7 @@ def extract_target_messages(target_exe_name):
             collected_messages.add(text)
             logging.info(f"Collected message from HWND {first_hwnd}: {text}")
 
-    return list(collected_messages)  # Return collected messages once loop exits
+    return list(collected_messages)
 
 # =============================================================================
 # Main Functionality for Static & Dynamic Scanning and Signature Matching
