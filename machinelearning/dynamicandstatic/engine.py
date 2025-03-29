@@ -338,16 +338,14 @@ def process_file(file_path):
 # =============================================================================
 
 class PEFeatureExtractor:
-    """
-    Extracts various features from PE files.
-    """
     def __init__(self):
         self.features_cache = {}
 
     def _calculate_entropy(self, data: bytes) -> float:
-        """Calculate Shannon entropy."""
+        """Calculate Shannon entropy of binary data."""
         if not data:
             return 0.0
+
         entropy = 0
         for x in range(256):
             p_x = float(data.count(x)) / len(data)
@@ -356,14 +354,14 @@ class PEFeatureExtractor:
         return entropy
 
     def _calculate_md5(self, file_path: str) -> str:
-        """Calculate MD5 hash of a file."""
+        """Calculate MD5 hash of file."""
         hasher = hashlib.md5()
         with open(file_path, 'rb') as f:
             hasher.update(f.read())
         return hasher.hexdigest()
 
     def extract_section_data(self, section) -> Dict[str, Any]:
-        """Extracts section data with entropy."""
+        """Extract comprehensive section data including entropy."""
         raw_data = section.get_data()
         return {
             'name': section.Name.decode(errors='ignore').strip('\x00'),
@@ -377,7 +375,7 @@ class PEFeatureExtractor:
         }
 
     def extract_imports(self, pe) -> List[Dict[str, Any]]:
-        """Extracts import information."""
+        """Extract detailed import information."""
         imports = []
         if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT'):
             for entry in pe.DIRECTORY_ENTRY_IMPORT:
@@ -393,7 +391,7 @@ class PEFeatureExtractor:
         return imports
 
     def extract_exports(self, pe) -> List[Dict[str, Any]]:
-        """Extracts export information."""
+        """Extract detailed export information."""
         exports = []
         if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT'):
             for exp in pe.DIRECTORY_ENTRY_EXPORT.symbols:
@@ -407,9 +405,10 @@ class PEFeatureExtractor:
         return exports
 
     def analyze_tls_callbacks(self, pe) -> Dict[str, Any]:
-        """Analyzes TLS callbacks."""
+        """Analyze TLS (Thread Local Storage) callbacks and extract relevant details."""
         try:
             tls_callbacks = {}
+            # Check if the PE file has a TLS directory
             if hasattr(pe, 'DIRECTORY_ENTRY_TLS'):
                 tls = pe.DIRECTORY_ENTRY_TLS.struct
                 tls_callbacks = {
@@ -421,71 +420,84 @@ class PEFeatureExtractor:
                     'characteristics': tls.Characteristics,
                     'callbacks': []
                 }
+
+                # If there are callbacks, extract their addresses
                 if tls.AddressOfCallBacks:
                     callback_array = self._get_callback_addresses(pe, tls.AddressOfCallBacks)
                     if callback_array:
                         tls_callbacks['callbacks'] = callback_array
+
             return tls_callbacks
         except Exception as e:
             logging.error(f"Error analyzing TLS callbacks: {e}")
             return {}
 
     def _get_callback_addresses(self, pe, address_of_callbacks) -> List[int]:
-        """Retrieves callback addresses from the TLS directory."""
+        """Retrieve callback addresses from the TLS directory."""
         try:
             callback_addresses = []
+            # Read callback addresses from the memory-mapped file
             while True:
                 callback_address = pe.get_dword_at_rva(address_of_callbacks - pe.OPTIONAL_HEADER.ImageBase)
                 if callback_address == 0:
-                    break
+                    break  # End of callback list
                 callback_addresses.append(callback_address)
-                address_of_callbacks += 4
+                address_of_callbacks += 4  # Move to the next address (4 bytes for DWORD)
+
             return callback_addresses
         except Exception as e:
             logging.error(f"Error retrieving TLS callback addresses: {e}")
             return []
 
     def analyze_dos_stub(self, pe) -> Dict[str, Any]:
-        """Analyzes the DOS stub."""
+        """Analyze DOS stub program."""
         try:
             dos_stub = {
                 'exists': False,
                 'size': 0,
                 'entropy': 0.0,
             }
+
             if hasattr(pe, 'DOS_HEADER'):
-                stub_offset = pe.DOS_HEADER.e_lfanew - 64
+                stub_offset = pe.DOS_HEADER.e_lfanew - 64  # Typical DOS stub starts after DOS header
                 if stub_offset > 0:
                     dos_stub_data = pe.__data__[64:pe.DOS_HEADER.e_lfanew]
                     if dos_stub_data:
                         dos_stub['exists'] = True
                         dos_stub['size'] = len(dos_stub_data)
                         dos_stub['entropy'] = self.calculate_entropy(list(dos_stub_data))
+
             return dos_stub
         except Exception as e:
             logging.error(f"Error analyzing DOS stub: {e}")
             return {}
 
     def calculate_entropy(self, data: list) -> float:
-        """Calculates entropy from a list of integers."""
+        """Calculate Shannon entropy of data (provided as a list of integers)."""
         if not data:
             return 0.0
+
         total_items = len(data)
-        value_counts = [data.count(i) for i in range(256)]
+        value_counts = [data.count(i) for i in range(256)]  # Count occurrences of each byte (0-255)
+
         entropy = 0.0
         for count in value_counts:
             if count > 0:
+                # Calculate probability of each value and its contribution to entropy
                 p_x = count / total_items
                 entropy -= p_x * np.log2(p_x)
+
         return entropy
 
     def analyze_certificates(self, pe) -> Dict[str, Any]:
-        """Analyzes file certificates."""
+        """Analyze security certificates."""
         try:
             cert_info = {}
             if hasattr(pe, 'DIRECTORY_ENTRY_SECURITY'):
                 cert_info['virtual_address'] = pe.DIRECTORY_ENTRY_SECURITY.VirtualAddress
                 cert_info['size'] = pe.DIRECTORY_ENTRY_SECURITY.Size
+
+                # Extract certificate attributes if available
                 if hasattr(pe, 'VS_FIXEDFILEINFO'):
                     cert_info['fixed_file_info'] = {
                         'signature': pe.VS_FIXEDFILEINFO.Signature,
@@ -497,13 +509,14 @@ class PEFeatureExtractor:
                         'file_type': pe.VS_FIXEDFILEINFO.FileType,
                         'file_subtype': pe.VS_FIXEDFILEINFO.FileSubtype,
                     }
+
             return cert_info
         except Exception as e:
             logging.error(f"Error analyzing certificates: {e}")
             return {}
 
     def analyze_delay_imports(self, pe) -> List[Dict[str, Any]]:
-        """Analyzes delay-load imports."""
+        """Analyze delay-load imports with error handling for missing attributes."""
         try:
             delay_imports = []
             if hasattr(pe, 'DIRECTORY_ENTRY_DELAY_IMPORT'):
@@ -516,9 +529,10 @@ class PEFeatureExtractor:
                             'ordinal': imp.ordinal,
                         }
                         imports.append(import_info)
+
                     delay_import = {
                         'dll': entry.dll.decode() if entry.dll else None,
-                        'attributes': getattr(entry.struct, 'Attributes', None),
+                        'attributes': getattr(entry.struct, 'Attributes', None),  # Use getattr for safe access
                         'name': getattr(entry.struct, 'Name', None),
                         'handle': getattr(entry.struct, 'Handle', None),
                         'iat': getattr(entry.struct, 'IAT', None),
@@ -528,13 +542,14 @@ class PEFeatureExtractor:
                         'imports': imports
                     }
                     delay_imports.append(delay_import)
+
             return delay_imports
         except Exception as e:
             logging.error(f"Error analyzing delay imports: {e}")
             return []
 
     def analyze_load_config(self, pe) -> Dict[str, Any]:
-        """Analyzes the load configuration."""
+        """Analyze load configuration."""
         try:
             load_config = {}
             if hasattr(pe, 'DIRECTORY_ENTRY_LOAD_CONFIG'):
@@ -553,39 +568,45 @@ class PEFeatureExtractor:
                     'se_handler_table': config.SEHandlerTable,
                     'se_handler_count': config.SEHandlerCount
                 }
+
             return load_config
         except Exception as e:
             logging.error(f"Error analyzing load config: {e}")
             return {}
 
     def analyze_relocations(self, pe) -> List[Dict[str, Any]]:
-        """Analyzes base relocations."""
+        """Analyze base relocations with summarized entries."""
         try:
             relocations = []
             if hasattr(pe, 'DIRECTORY_ENTRY_BASERELOC'):
                 for base_reloc in pe.DIRECTORY_ENTRY_BASERELOC:
+                    # Summarize relocation entries
                     entry_types = {}
                     offsets = []
+
                     for entry in base_reloc.entries:
                         entry_types[entry.type] = entry_types.get(entry.type, 0) + 1
                         offsets.append(entry.rva - base_reloc.struct.VirtualAddress)
+
                     reloc_info = {
                         'virtual_address': base_reloc.struct.VirtualAddress,
                         'size_of_block': base_reloc.struct.SizeOfBlock,
                         'summary': {
                             'total_entries': len(base_reloc.entries),
-                            'types': entry_types,
+                            'types': entry_types,  # Counts of each relocation type
                             'offset_range': (min(offsets), max(offsets)) if offsets else None
                         }
                     }
+
                     relocations.append(reloc_info)
+
             return relocations
         except Exception as e:
             logging.error(f"Error analyzing relocations: {e}")
             return []
 
     def analyze_bound_imports(self, pe) -> List[Dict[str, Any]]:
-        """Analyzes bound imports."""
+        """Analyze bound imports with robust error handling."""
         try:
             bound_imports = []
             if hasattr(pe, 'DIRECTORY_ENTRY_BOUND_IMPORT'):
@@ -595,6 +616,8 @@ class PEFeatureExtractor:
                         'timestamp': bound_imp.struct.TimeDateStamp,
                         'references': []
                     }
+
+                    # Check if `references` exists
                     if hasattr(bound_imp, 'references') and bound_imp.references:
                         for ref in bound_imp.references:
                             reference = {
@@ -604,19 +627,23 @@ class PEFeatureExtractor:
                             bound_import['references'].append(reference)
                     else:
                         logging.warning(f"Bound import {bound_import['name']} has no references.")
+
                     bound_imports.append(bound_import)
+
             return bound_imports
         except Exception as e:
             logging.error(f"Error analyzing bound imports: {e}")
             return []
 
     def analyze_section_characteristics(self, pe) -> Dict[str, Dict[str, Any]]:
-        """Analyzes detailed section characteristics."""
+        """Analyze detailed section characteristics."""
         try:
             characteristics = {}
             for section in pe.sections:
                 section_name = section.Name.decode(errors='ignore').strip('\x00')
                 flags = section.Characteristics
+
+                # Decode section characteristics flags
                 section_flags = {
                     'CODE': bool(flags & 0x20),
                     'INITIALIZED_DATA': bool(flags & 0x40),
@@ -629,6 +656,7 @@ class PEFeatureExtractor:
                     'MEM_READ': bool(flags & 0x40000000),
                     'MEM_WRITE': bool(flags & 0x80000000)
                 }
+
                 characteristics[section_name] = {
                     'flags': section_flags,
                     'entropy': self._calculate_entropy(list(section.get_data())),
@@ -639,13 +667,14 @@ class PEFeatureExtractor:
                     'number_of_relocations': section.NumberOfRelocations,
                     'number_of_line_numbers': section.NumberOfLinenumbers,
                 }
+
             return characteristics
         except Exception as e:
             logging.error(f"Error analyzing section characteristics: {e}")
             return {}
 
     def analyze_extended_headers(self, pe) -> Dict[str, Any]:
-        """Analyzes extended header information."""
+        """Analyze extended header information."""
         try:
             headers = {
                 'dos_header': {
@@ -668,6 +697,8 @@ class PEFeatureExtractor:
                 },
                 'nt_headers': {}
             }
+
+            # Ensure NT_HEADERS exists and contains FileHeader
             if hasattr(pe, 'NT_HEADERS') and pe.NT_HEADERS is not None:
                 nt_headers = pe.NT_HEADERS
                 if hasattr(nt_headers, 'FileHeader'):
@@ -678,20 +709,21 @@ class PEFeatureExtractor:
                         'time_date_stamp': nt_headers.FileHeader.TimeDateStamp,
                         'characteristics': nt_headers.FileHeader.Characteristics
                     }
+
             return headers
         except Exception as e:
             logging.error(f"Error analyzing extended headers: {e}")
             return {}
 
     def serialize_data(self, data) -> Any:
-        """Serializes data for compatibility."""
+        """Serialize data for output, ensuring compatibility."""
         try:
             return list(data) if data else None
         except Exception:
             return None
 
     def analyze_rich_header(self, pe) -> Dict[str, Any]:
-        """Analyzes the Rich header."""
+        """Analyze Rich header details."""
         try:
             rich_header = {}
             if hasattr(pe, 'RICH_HEADER') and pe.RICH_HEADER is not None:
@@ -700,6 +732,8 @@ class PEFeatureExtractor:
                 rich_header['clear_data'] = self.serialize_data(pe.RICH_HEADER.clear_data)
                 rich_header['key'] = self.serialize_data(pe.RICH_HEADER.key)
                 rich_header['raw_data'] = self.serialize_data(pe.RICH_HEADER.raw_data)
+
+                # Decode CompID and build number information
                 compid_info = []
                 for i in range(0, len(pe.RICH_HEADER.values), 2):
                     if i + 1 < len(pe.RICH_HEADER.values):
@@ -712,13 +746,14 @@ class PEFeatureExtractor:
                             'count': count
                         })
                 rich_header['comp_id_info'] = compid_info
+
             return rich_header
         except Exception as e:
             logging.error(f"Error analyzing Rich header: {e}")
             return {}
 
     def analyze_overlay(self, pe, file_path: str) -> Dict[str, Any]:
-        """Analyzes file overlay (data appended after PE structure)."""
+        """Analyze file overlay (data appended after the PE structure)."""
         try:
             overlay_info = {
                 'exists': False,
@@ -726,17 +761,25 @@ class PEFeatureExtractor:
                 'size': 0,
                 'entropy': 0.0
             }
+
+            # Calculate the end of the PE structure
             last_section = max(pe.sections, key=lambda s: s.PointerToRawData + s.SizeOfRawData)
             end_of_pe = last_section.PointerToRawData + last_section.SizeOfRawData
+
+            # Get file size
             file_size = os.path.getsize(file_path)
+
+            # Check for overlay
             if file_size > end_of_pe:
                 with open(file_path, 'rb') as f:
                     f.seek(end_of_pe)
                     overlay_data = f.read()
+
                     overlay_info['exists'] = True
                     overlay_info['offset'] = end_of_pe
                     overlay_info['size'] = len(overlay_data)
-                    overlay_info['entropy'] = self._calculate_entropy(overlay_data)
+                    overlay_info['entropy'] = self._calculate_entropy(list(overlay_data))
+
             return overlay_info
         except Exception as e:
             logging.error(f"Error analyzing overlay: {e}")
@@ -744,11 +787,15 @@ class PEFeatureExtractor:
 
     def extract_numeric_features(self, file_path: str, rank: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """
-        Extracts numeric features from a PE file.
+        Extract numeric features of a file using pefile.
         """
         try:
+            # Load the PE file
             pe = pefile.PE(file_path)
+
+            # Extract features
             numeric_features = {
+                # Optional Header Features
                 'SizeOfOptionalHeader': pe.FILE_HEADER.SizeOfOptionalHeader,
                 'MajorLinkerVersion': pe.OPTIONAL_HEADER.MajorLinkerVersion,
                 'MinorLinkerVersion': pe.OPTIONAL_HEADER.MinorLinkerVersion,
@@ -778,6 +825,8 @@ class PEFeatureExtractor:
                 'SizeOfHeapCommit': pe.OPTIONAL_HEADER.SizeOfHeapCommit,
                 'LoaderFlags': pe.OPTIONAL_HEADER.LoaderFlags,
                 'NumberOfRvaAndSizes': pe.OPTIONAL_HEADER.NumberOfRvaAndSizes,
+
+                # Section Headers
                 'sections': [
                     {
                         'name': section.Name.decode(errors='ignore').strip('\x00'),
@@ -789,15 +838,21 @@ class PEFeatureExtractor:
                     }
                     for section in pe.sections
                 ],
+
+                # Imported Functions
                 'imports': [
                     imp.name.decode(errors='ignore') if imp.name else "Unknown"
                     for entry in getattr(pe, 'DIRECTORY_ENTRY_IMPORT', [])
                     for imp in getattr(entry, 'imports', [])
                 ] if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT') else [],
+
+                # Exported Functions
                 'exports': [
                     exp.name.decode(errors='ignore') if exp.name else "Unknown"
                     for exp in getattr(getattr(pe, 'DIRECTORY_ENTRY_EXPORT', None), 'symbols', [])
                 ] if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT') else [],
+
+                # Resources
                 'resources': [
                     {
                         'type_id': getattr(getattr(resource_type, 'struct', None), 'Id', None),
@@ -806,11 +861,14 @@ class PEFeatureExtractor:
                         'size': getattr(getattr(resource_lang, 'data', None), 'Size', None),
                         'codepage': getattr(getattr(resource_lang, 'data', None), 'CodePage', None),
                     }
-                    for resource_type in (pe.DIRECTORY_ENTRY_RESOURCE.entries if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE') and hasattr(pe.DIRECTORY_ENTRY_RESOURCE, 'entries') else [])
+                    for resource_type in
+                    (pe.DIRECTORY_ENTRY_RESOURCE.entries if hasattr(pe.DIRECTORY_ENTRY_RESOURCE, 'entries') else [])
                     for resource_id in (resource_type.directory.entries if hasattr(resource_type, 'directory') else [])
                     for resource_lang in (resource_id.directory.entries if hasattr(resource_id, 'directory') else [])
                     if hasattr(resource_lang, 'data')
                 ] if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE') else [],
+
+                # Debug Information
                 'debug': [
                     {
                         'type': debug.struct.Type,
@@ -820,20 +878,48 @@ class PEFeatureExtractor:
                     }
                     for debug in getattr(pe, 'DIRECTORY_ENTRY_DEBUG', [])
                 ] if hasattr(pe, 'DIRECTORY_ENTRY_DEBUG') else [],
-                'certificates': self.analyze_certificates(pe),
-                'dos_stub': self.analyze_dos_stub(pe),
-                'tls_callbacks': self.analyze_tls_callbacks(pe),
-                'delay_imports': self.analyze_delay_imports(pe),
-                'load_config': self.analyze_load_config(pe),
-                'bound_imports': self.analyze_bound_imports(pe),
+
+                # Certificates
+                'certificates': self.analyze_certificates(pe),  # Analyze certificates
+
+                # DOS Stub Analysis
+                'dos_stub': self.analyze_dos_stub(pe),  # DOS stub analysis here
+
+                # TLS Callbacks
+                'tls_callbacks': self.analyze_tls_callbacks(pe),  # TLS callback analysis here
+
+                # Delay Imports
+                'delay_imports': self.analyze_delay_imports(pe),  # Delay imports analysis here
+
+                # Load Config
+                'load_config': self.analyze_load_config(pe),  # Load config analysis here
+
+                # Bound Imports
+                'bound_imports': self.analyze_bound_imports(pe),  # Bound imports analysis here
+
+                # Section Characteristics
                 'section_characteristics': self.analyze_section_characteristics(pe),
-                'extended_headers': self.analyze_extended_headers(pe),
-                'rich_header': self.analyze_rich_header(pe),
-                'overlay': self.analyze_overlay(pe, file_path)
+                # Section characteristics analysis here
+
+                # Extended Headers
+                'extended_headers': self.analyze_extended_headers(pe),  # Extended headers analysis here
+
+                # Rich Header
+                'rich_header': self.analyze_rich_header(pe),  # Rich header analysis here
+
+                # Overlay
+                'overlay': self.analyze_overlay(pe, file_path)  # Overlay analysis here
+
+                #Relocations
+                'relocations': self.analyze_relocations(pe) #Relocations analysis here
             }
+
+            # Add numeric tag if provided
             if rank is not None:
                 numeric_features['numeric_tag'] = rank
+
             return numeric_features
+
         except Exception as ex:
             logging.error(f"Error extracting numeric features from {file_path}: {str(ex)}", exc_info=True)
             return None

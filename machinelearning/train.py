@@ -594,6 +594,9 @@ class PEFeatureExtractor:
 
                 # Overlay
                 'overlay': self.analyze_overlay(pe, file_path)  # Overlay analysis here
+                
+                #Relocations
+                'relocations': self.analyze_relocations(pe) #Relocations analysis here
             }
 
             # Add numeric tag if provided
