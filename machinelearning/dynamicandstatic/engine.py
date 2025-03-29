@@ -272,10 +272,10 @@ def process_file(file_path):
     and target window message collection. Returns a tuple (signature, original_file_name, messages)
     or None on failure.
     """
-    # Perform cleanup of any previous Sandboxie sessions.
+    # Cleanup previous Sandboxie sessions.
     full_cleanup_sandbox()
     
-    # Prepare the file name: if it doesn't end with .exe, rename it.
+    # If file is not an .exe, rename it.
     original_path = file_path
     if not file_path.lower().endswith(".exe"):
         file_path_exe = file_path + ".exe"
@@ -287,27 +287,27 @@ def process_file(file_path):
             logging.error(f"Failed to rename file {original_path} to .exe: {ex}")
             return None
 
-    # Start a thread to collect window messages for the target application.
-    # We use the base name of the file as the target process name.
+    # Start the sandbox execution in a separate thread so it doesn't block message collection.
+    sandbox_thread = threading.Thread(target=run_in_sandbox, args=(file_path,))
+    sandbox_thread.start()
+
+    # Wait a moment to allow the executable to start and potentially create its window.
+    time.sleep(1)
+
+    # Now start the message collection thread.
     collected_messages = []
     message_thread = threading.Thread(target=collect_messages, args=(os.path.basename(file_path), collected_messages))
     message_thread.start()
 
-    # Get the baseline memory state.
-    baseline = get_baseline_memory()
-
-    # Run the file in Sandboxie.
-    if not run_in_sandbox(file_path):
-        full_cleanup_sandbox()
-        # Allow a short timeout for message collection before returning.
-        message_thread.join(timeout=5)
-        return None
+    # Wait for the sandbox execution to finish.
+    sandbox_thread.join()
 
     # Perform the memory scan.
+    baseline = get_baseline_memory()
     current_memory = scan_memory(file_path)
     dynamic_signature, diff = extract_malicious_signature(baseline, current_memory)
     
-    # If a malicious signature is detected, save the memory dump.
+    # If a malicious signature is found, save the memory dump.
     if dynamic_signature != "0":
         dump_file = os.path.join(DUMP_DIR, f"{os.path.basename(original_path)}_malicious_dump.bin")
         try:
@@ -320,8 +320,11 @@ def process_file(file_path):
     # Cleanup the sandbox environment.
     full_cleanup_sandbox()
     
-    # Wait for the message collection thread to finish (with a timeout to prevent hanging).
-    message_thread.join(timeout=5)
+    # Sleep for 10 seconds to allow the executable to run and generate additional messages.
+    time.sleep(10)
+    
+    # Wait briefly for the message collection thread to finish.
+    message_thread.join(timeout=2)
     
     # Return the dynamic signature, original file name, and collected messages.
     return dynamic_signature, os.path.basename(original_path), collected_messages
@@ -1096,9 +1099,6 @@ def scan_file(file_path):
     
     report_tokens.append(dynamic_result)
     report_tokens.append(static_result)
-    
-    # Wait for the message collection thread to finish.
-    message_thread.join()
     
     if collected_messages:
         report_tokens.append("TARGETMESSAGES:" + " ".join(collected_messages))
