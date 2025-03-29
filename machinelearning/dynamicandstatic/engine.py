@@ -274,7 +274,7 @@ def process_file(file_path):
     """
     # Cleanup previous Sandboxie sessions.
     full_cleanup_sandbox()
-    
+
     # If file is not an .exe, rename it.
     original_path = file_path
     if not file_path.lower().endswith(".exe"):
@@ -291,7 +291,7 @@ def process_file(file_path):
     sandbox_thread = threading.Thread(target=run_in_sandbox, args=(file_path,))
     sandbox_thread.start()
 
-    # Wait a moment to allow the executable to start and potentially create its window.
+    # Wait a moment to allow the executable to start.
     time.sleep(1)
 
     # Now start the message collection thread.
@@ -299,14 +299,21 @@ def process_file(file_path):
     message_thread = threading.Thread(target=collect_messages, args=(os.path.basename(file_path), collected_messages))
     message_thread.start()
 
-    # Wait for the sandbox execution to finish.
+    # Wait for 10 seconds to allow the executable to run.
+    time.sleep(10)
+
+    # Terminate the executable by cleaning up the sandbox environment.
+    full_cleanup_sandbox()
+
+    # Join the threads.
     sandbox_thread.join()
+    message_thread.join(timeout=2)
 
     # Perform the memory scan.
     baseline = get_baseline_memory()
     current_memory = scan_memory(file_path)
     dynamic_signature, diff = extract_malicious_signature(baseline, current_memory)
-    
+
     # If a malicious signature is found, save the memory dump.
     if dynamic_signature != "0":
         dump_file = os.path.join(DUMP_DIR, f"{os.path.basename(original_path)}_malicious_dump.bin")
@@ -316,16 +323,7 @@ def process_file(file_path):
             logging.info(f"Saved malicious memory dump to {dump_file}")
         except Exception as ex:
             logging.error(f"Failed to save malicious dump for {original_path}: {ex}")
-    
-    # Cleanup the sandbox environment.
-    full_cleanup_sandbox()
-    
-    # Sleep for 10 seconds to allow the executable to run and generate additional messages.
-    time.sleep(10)
-    
-    # Wait briefly for the message collection thread to finish.
-    message_thread.join(timeout=2)
-    
+
     # Return the dynamic signature, original file name, and collected messages.
     return dynamic_signature, os.path.basename(original_path), collected_messages
 
