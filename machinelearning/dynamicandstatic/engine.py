@@ -242,27 +242,6 @@ def extract_malicious_signature(baseline, current):
         logging.info("No malicious changes detected.")
         return "0", None
 
-def extract_features_from_signature(signature):
-    """
-    Converts the dynamic dump signature string into a numerical feature vector.
-    The signature is expected in the form "diffLength-hexPrefix". If signature is "0",
-    returns a vector of zeros (length 64).
-    """
-    try:
-        if signature == "0":
-            return np.zeros(64, dtype=int)
-        parts = signature.split('-')
-        # We ignore the diff length and use the hexPrefix.
-        diff_prefix = [int(parts[1][i:i+2], 16) for i in range(0, len(parts[1]), 2)]
-        if len(diff_prefix) < 64:
-            diff_prefix += [0] * (64 - len(diff_prefix))
-        else:
-            diff_prefix = diff_prefix[:64]
-        return np.array(diff_prefix, dtype=int)
-    except Exception as ex:
-        logging.error(f"Feature extraction failed: {ex}")
-        return None
-
 def process_file(file_path):
     """
     Runs the given file in the sandbox and performs dynamic memory analysis 
