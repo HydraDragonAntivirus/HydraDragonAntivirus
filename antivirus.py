@@ -4384,6 +4384,9 @@ def scan_rsrc_files(file_paths):
     
     :param file_paths: List of file paths to be scanned.
     """
+    if isinstance(file_paths, str):
+        file_paths = [file_paths]
+
     executable_file = None
 
     # First, iterate over the file paths to find the one containing 'upython.exe'
