@@ -268,9 +268,9 @@ def extract_features_from_signature(signature):
 
 def process_file(file_path):
     """
-    Runs the given file in the sandbox and performs both dynamic memory analysis 
-    and target window message collection. Returns a tuple (signature, original_file_name, messages)
-    or None on failure.
+    Runs the given file in the sandbox and performs dynamic memory analysis 
+    and target window message collection. Returns a tuple 
+    (dynamic_signature, original_file_name, messages) or None on failure.
     """
     # Cleanup previous Sandboxie sessions.
     full_cleanup_sandbox()
@@ -294,13 +294,17 @@ def process_file(file_path):
     # Wait a moment to allow the executable to start.
     time.sleep(1)
 
-    # Now start the message collection thread.
+    # Create an event to signal when to stop message collection.
+    stop_event = threading.Event()
     collected_messages = []
-    message_thread = threading.Thread(target=collect_messages, args=(os.path.basename(file_path), collected_messages))
+    message_thread = threading.Thread(target=collect_messages, args=(os.path.basename(file_path), collected_messages, stop_event))
     message_thread.start()
 
-    # Wait for 10 seconds to allow the executable to run.
+    # Allow the executable to run for 10 seconds.
     time.sleep(10)
+
+    # Signal the message collection thread to stop.
+    stop_event.set()
 
     # Terminate the executable by cleaning up the sandbox environment.
     full_cleanup_sandbox()
@@ -890,31 +894,23 @@ def enum_windows_proc(hwnd, target_exe_name):
     
     return True  # Always return True at the end
 
-def extract_target_messages(target_exe_name):
+def extract_target_messages(target_exe_name, stop_event):
+    """
+    Iterates through all window handles, converts each hwnd to its associated
+    process name, and collects the window text for those windows whose process
+    matches the target_exe_name. The loop stops when stop_event is set.
+    """
     collected_messages = set()
-    first_hwnd = None
-
-    # Use the correct function to get HWNDs
-    while first_hwnd is None:
-        hwnds = get_target_hwnd(target_exe_name)
-        logging.info(f"Waiting for process {target_exe_name}, Found HWNDs: {hwnds}")
-        if hwnds:
-            first_hwnd = hwnds[0]
-            logging.info(f"Tracking first HWND: {first_hwnd}")
-
-    # Track the window until it disappears or changes
-    while True:
-        current_hwnds = get_target_hwnd(target_exe_name)
-        logging.info(f"First HWND: {first_hwnd}, Current HWNDs: {current_hwnds}")
-        if not current_hwnds or first_hwnd not in current_hwnds:
-            logging.info(f"Breaking loop! First HWND {first_hwnd} is gone or changed.")
-            break
-
-        text = get_window_text(first_hwnd)
-        if text and text not in collected_messages:
-            collected_messages.add(text)
-            logging.info(f"Collected message from HWND {first_hwnd}: {text}")
-
+    while not stop_event.is_set():
+        window_handles = find_windows_with_text()
+        for hwnd, text in window_handles:
+            proc_name = get_process_name(hwnd)
+            if proc_name.lower() == target_exe_name.lower():
+                if text and text not in collected_messages:
+                    collected_messages.add(text)
+                    logging.info(f"Collected message from {proc_name} (HWND {hwnd}): {text}")
+        # Sleep briefly to reduce CPU usage
+        time.sleep(0.5)
     return list(collected_messages)
 
 # =============================================================================
