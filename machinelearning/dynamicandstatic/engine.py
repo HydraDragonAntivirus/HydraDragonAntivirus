@@ -43,7 +43,7 @@ def find_child_windows(parent_hwnd):
     """Find all child windows of the given parent window."""
     child_windows = []
 
-    def enum_child_windows_callback(hwnd):
+    def enum_child_windows_callback(hwnd, lParam):
         child_windows.append(hwnd)
         return True
 
@@ -1176,36 +1176,34 @@ def collect_messages(target_exe, collected_messages, stop_event):
     msgs = extract_target_messages(target_exe, stop_event)
     collected_messages.extend(msgs)
 
-def scan_file(file_path):
-    """
-    Scans the provided file using both dynamic and detailed static analysis. 
-    It starts collecting window messages from the target application's windows 
-    (using its file name as the process name) before running dynamic analysis, 
-    ensuring messages are captured during execution.
-    """
+def scan_file(file_path, auto_create=False, benign=False):
     print(f"Scanning file: {file_path}")
     report_tokens = []
 
-    # Run dynamic analysis (which executes the target and generates a MEMDUMP token)
+    # Run dynamic and static analysis
     dynamic_result, collected_messages = dynamic_scan(file_path)
-    
-    # Run detailed static analysis to extract feature tokens.
     static_result = detailed_static_scan(file_path)
-    
     report_tokens.append(dynamic_result)
     report_tokens.append(static_result)
     
+    # Process collected messages to remove full file path
     if collected_messages:
-        report_tokens.append("TARGETMESSAGES:" + " ".join(collected_messages))
+        clean_messages = []
+        for msg in collected_messages:
+            # Expecting messages like "C:\full\path\program.exe -> window text"
+            if "->" in msg:
+                clean_messages.append(msg.split("->")[-1].strip())
+            else:
+                clean_messages.append(msg)
+        report_tokens.append("TARGETMESSAGES:" + " ".join(clean_messages))
     
-    # Combine all tokens into a full scan report.
+    # Combine tokens into a full scan report.
     scan_report = " ".join(report_tokens)
     print("Scan Report:", scan_report)
     
     # Load user-defined signatures and perform similarity matching.
     signatures = load_signatures()
     matched_signatures = []
-    
     threshold = 0.8  # Similarity threshold
     for sig in signatures:
         pattern = sig.get("pattern", "")
@@ -1219,18 +1217,56 @@ def scan_file(file_path):
             print(f" - {name} (Similarity: {sim:.2f})")
     else:
         print("No signatures matched.")
+        # --- Auto signature creator ---
+        if auto_create:
+            label = "benign" if benign else ("malware" if dynamic_result != "MEMDUMP:0" else "benign")
+            new_signature = {
+                "name": f"Auto_{label}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                "pattern": scan_report,
+                "label": label
+            }
+            auto_sig_file = "auto_signatures.json"
+            try:
+                if os.path.exists(auto_sig_file):
+                    with open(auto_sig_file, "r") as f:
+                        auto_sigs = json.load(f)
+                else:
+                    auto_sigs = []
+                auto_sigs.append(new_signature)
+                with open(auto_sig_file, "w") as f:
+                    json.dump(auto_sigs, f, indent=4)
+                print("Auto-created signature:", new_signature)
+            except Exception as ex:
+                print("Failed to auto-create signature:", ex)
 
-# Example usage in the main() function remains the same.
+def scan_directory(directory, auto_create=False, benign=False):
+    """
+    Recursively scans all files in the given directory.
+    For each file, it calls scan_file with the provided flags.
+    """
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            file_path = os.path.join(root, file)
+            print(f"\nScanning file: {file_path}")
+            scan_file(file_path, auto_create=auto_create, benign=benign)
+
 def main():
     parser = argparse.ArgumentParser(description="Comprehensive Scanner for Hydra Dragon Antivirus Engine using all features")
-    parser.add_argument("file", help="Path to the file to scan")
+    parser.add_argument("path", help="Path to the file or directory to scan")
+    parser.add_argument("--auto-create", action="store_true", help="Auto create new signature if none matched")
+    parser.add_argument("--benign", action="store_true", help="Force auto-created signature to be labeled as benign")
     args = parser.parse_args()
     
-    if not os.path.isfile(args.file):
-        print("Error: File does not exist.", file=sys.stderr)
+    if not os.path.exists(args.path):
+        print("Error: The specified path does not exist.", file=sys.stderr)
         return
     
-    scan_file(args.file)
+    if os.path.isfile(args.path):
+        scan_file(args.path, auto_create=args.auto_create, benign=args.benign)
+    elif os.path.isdir(args.path):
+        scan_directory(args.path, auto_create=args.auto_create, benign=args.benign)
+    else:
+        print("Error: The specified path is neither a file nor a directory.", file=sys.stderr)
 
 if __name__ == "__main__":
     main()
