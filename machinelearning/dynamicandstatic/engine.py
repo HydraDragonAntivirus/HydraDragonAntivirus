@@ -2,23 +2,18 @@
 
 import os
 import sys
-import re
-import glob
 import time
 import json
-import pickle
 import logging
 import argparse
 import subprocess
 import numpy as np
 import hashlib
 import pefile
-import joblib
 import shutil
 import ctypes
 import difflib
 import threading
-import psutil
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 
@@ -48,7 +43,7 @@ def find_child_windows(parent_hwnd):
     """Find all child windows of the given parent window."""
     child_windows = []
 
-    def enum_child_windows_callback(hwnd, lParam):
+    def enum_child_windows_callback(hwnd):
         child_windows.append(hwnd)
         return True
 
@@ -956,7 +951,7 @@ def get_target_hwnd(target_exe_name):
     target_hwnds = []
     current_pid = os.getpid()
 
-    def enum_windows_proc(hwnd, lParam):
+    def enum_windows_proc(hwnd):
         # Exclude windows belonging to the scanning process
         pid = ctypes.c_ulong()
         ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
@@ -972,15 +967,6 @@ def get_target_hwnd(target_exe_name):
     EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
     ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_proc), None)
     return target_hwnds
-
-def enum_windows_proc(hwnd, target_exe_name):
-    proc_name = get_process_name(hwnd)  # Ensure this function returns a string
-
-    if isinstance(proc_name, str):  # Only process valid strings
-        if proc_name.lower() == target_exe_name.lower():
-            hwnds.append(hwnd)
-    
-    return True  # Always return True at the end
 
 def hwnd_to_executable(hwnd):
     """
@@ -1200,9 +1186,6 @@ def scan_file(file_path):
     print(f"Scanning file: {file_path}")
     report_tokens = []
 
-    # Use the base name of the file as the target process name.
-    target_exe_name = os.path.basename(file_path)
-    
     # Run dynamic analysis (which executes the target and generates a MEMDUMP token)
     dynamic_result, collected_messages = dynamic_scan(file_path)
     
