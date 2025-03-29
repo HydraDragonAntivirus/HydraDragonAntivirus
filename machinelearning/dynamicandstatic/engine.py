@@ -908,7 +908,7 @@ class PEFeatureExtractor:
                 'rich_header': self.analyze_rich_header(pe),  # Rich header analysis here
 
                 # Overlay
-                'overlay': self.analyze_overlay(pe, file_path)  # Overlay analysis here
+                'overlay': self.analyze_overlay(pe, file_path),  # Overlay analysis here
 
                 #Relocations
                 'relocations': self.analyze_relocations(pe) #Relocations analysis here
