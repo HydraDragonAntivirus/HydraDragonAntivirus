@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 from ctypes import wintypes
 import struct
+import winreg
 
 # =============================================================================
 # Windows API Functions for GUI Text Extraction
@@ -1231,23 +1232,166 @@ def scan_directory(directory, auto_create=False, benign=False):
             print(f"\nScanning file: {file_path}")
             scan_file(file_path, auto_create=auto_create, benign=benign)
 
+# =============================================================================
+# Registry Snapshot Functions (Recursive - Monitoring Whole Registry)
+# =============================================================================
+def enumerate_registry_keys(root_key, path=""):
+    keys = {}
+    try:
+        hkey = winreg.OpenKey(root_key, path) if path else root_key
+        i = 0
+        while True:
+            try:
+                subkey = winreg.EnumKey(hkey, i)
+                full_key = path + "\\" + subkey if path else subkey
+                keys[full_key] = "present"
+                # Recursively enumerate subkeys; adjust depth if needed
+                sub_keys = enumerate_registry_keys(root_key, full_key)
+                keys.update(sub_keys)
+                i += 1
+            except OSError:
+                break
+        if path:
+            winreg.CloseKey(hkey)
+    except Exception as e:
+        keys["error"] = str(e)
+    return keys
+
+def get_registry_snapshot() -> Dict[str, Dict[str, str]]:
+    snapshot = {}
+    hives = {
+        "HKCU": winreg.HKEY_CURRENT_USER,
+        "HKLM": winreg.HKEY_LOCAL_MACHINE,
+        "HKCR": winreg.HKEY_CLASSES_ROOT
+    }
+    for hive_name, hive in hives.items():
+        snapshot[hive_name] = enumerate_registry_keys(hive)
+    return snapshot
+
+def diff_registry(before: Dict[str, Dict[str, str]], after: Dict[str, Dict[str, str]]) -> Dict[str, Dict[str, List[str]]]:
+    diff = {}
+    for hive in before:
+        if hive in after and isinstance(before[hive], dict) and isinstance(after[hive], dict):
+            before_keys = set(before[hive].keys())
+            after_keys = set(after[hive].keys())
+            diff[hive] = {
+                "added": list(after_keys - before_keys),
+                "removed": list(before_keys - after_keys)
+            }
+    return diff
+
+# =============================================================================
+# Injection Functionality (Sandboxie Self-Injection with Registry Monitoring)
+# =============================================================================
+def run_sandboxie_injection(target_exe, script_path):
+    # Define the path to Sandboxie Start.exe (adjust as needed)
+    sandboxie_path = r"C:\Program Files\Sandboxie\Start.exe"
+    # Define the log path where dynamic behavior will be saved
+    log_path = r"C:\DONTREMOVEHydraDragonAntivirusLogs\DONTREMOVEdynamic_behaviour.txt"
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    
+    # Capture baseline registry snapshot BEFORE execution
+    reg_before = get_registry_snapshot()
+    
+    # Instead of passing the whole source code, pass a short command that reads and executes the file.
+    cmd_arg = f"exec(open(r'{script_path}').read())"
+    
+    # Construct the command to run the target executable inside Sandboxie.
+    # We add an extra argument "--sandbox" so that the injected code knows it is in a sandbox.
+    command = [
+        sandboxie_path,
+        '/box:DefaultBox',
+        target_exe,
+        '-c',
+        cmd_arg,
+        '--sandbox'
+    ]
+    
+    try:
+        logging.info(f"[INFO] Running injection in Sandboxie: {' '.join(command)}")
+        # Launch the target process in Sandboxie, redirecting output to log file.
+        with open(log_path, "w") as log_file:
+            subprocess.run(command, check=True, stdout=log_file, stderr=log_file)
+        logging.info("[SUCCESS] Injection ran successfully in Sandboxie.")
+    except subprocess.CalledProcessError as ex:
+        logging.error(f"Failed to run injection in Sandboxie: {ex}")
+    
+    # Capture registry snapshot AFTER execution
+    reg_after = get_registry_snapshot()
+    reg_diff = diff_registry(reg_before, reg_after)
+    
+    # Create a registry pattern token containing only the changes made by the file
+    registry_pattern = " REGISTRY_DIFF:" + json.dumps(reg_diff)
+    
+    # Append registry change information to the log file
+    with open(log_path, "a") as log_file:
+        log_file.write("\n[Registry Changes]\n")
+        log_file.write(json.dumps(reg_diff, indent=4))
+    logging.info("[INFO] Registry changes captured and saved.")
+    
+    # Return the registry pattern so that it can be appended to the overall dynamic pattern.
+    return registry_pattern
+
+# =============================================================================
+# Main Functionality
+# =============================================================================
 def main():
+    # Check if we are running inside the sandbox by looking for the '--sandbox' flag.
+    if "--sandbox" in sys.argv:
+        print("Running inside Sandbox Environment.")
+        # Immediately capture a registry snapshot AFTER file execution.
+        reg_snapshot = get_registry_snapshot()
+        log_path = r"C:\DONTREMOVEHydraDragonAntivirusLogs\DONTREMOVEdynamic_behaviour.txt"
+        with open(log_path, "w") as f:
+            f.write(json.dumps(reg_snapshot, indent=4))
+        print("Registry snapshot saved to log file.")
+        # Create dynamic signature based on registry changes.
+        dynamic_signature = "SANDBOX_REGISTRY:" + json.dumps(reg_snapshot)
+        print("Dynamic Pattern for Signature:", dynamic_signature)
+        sys.exit(0)
+    
     parser = argparse.ArgumentParser(description="Comprehensive Scanner for Hydra Dragon Antivirus Engine using all features")
-    parser.add_argument("path", help="Path to the file or directory to scan")
+    parser.add_argument("path", help="Path to the file or directory to scan, or target file/directory for injection")
     parser.add_argument("--auto-create", action="store_true", help="Auto create new signature if none matched")
     parser.add_argument("--benign", action="store_true", help="Force auto-created signature to be labeled as benign")
+    # No separate injection flag; always inject self when running outside sandbox.
     args = parser.parse_args()
     
     if not os.path.exists(args.path):
         print("Error: The specified path does not exist.", file=sys.stderr)
-        return
-    
+        sys.exit(1)
+    targets = []
     if os.path.isfile(args.path):
-        scan_file(args.path, auto_create=args.auto_create, benign=args.benign)
+        targets.append(args.path)
     elif os.path.isdir(args.path):
-        scan_directory(args.path, auto_create=args.auto_create, benign=args.benign)
-    else:
-        print("Error: The specified path is neither a file nor a directory.", file=sys.stderr)
+        for root, dirs, files in os.walk(args.path):
+            for file in files:
+                file_path = os.path.join(root, file)
+                # If file is not an .exe, rename it by appending .exe for injection purposes
+                if not file_path.lower().endswith(".exe"):
+                    new_path = file_path + ".exe"
+                    try:
+                        os.rename(file_path, new_path)
+                        print(f"Renamed {file_path} to {new_path} for injection.")
+                        file_path = new_path
+                    except Exception as ex:
+                        print(f"Failed to rename {file_path}: {ex}", file=sys.stderr)
+                        continue
+                targets.append(file_path)
+    # Instead of passing the entire source code, pass the path to the current engine.
+    script_path = os.path.abspath(__file__)
+    for target in targets:
+        print(f"Injecting self into {target} ...")
+        reg_pattern = run_sandboxie_injection(target, script_path)
+        # Outside the sandbox, read the log file and create a complete dynamic pattern.
+        log_path = r"C:\DONTREMOVEHydraDragonAntivirusLogs\DONTREMOVEdynamic_behaviour.txt"
+        if os.path.exists(log_path):
+            with open(log_path, "r") as f:
+                reg_data = f.read()
+            dynamic_pattern = f"INJECTION:{target}" + reg_pattern
+            print("Dynamic Pattern for Signature:", dynamic_pattern)
+        else:
+            print("No registry log found for", target)
 
 if __name__ == "__main__":
     main()
