@@ -1006,13 +1006,13 @@ def extract_target_messages(target_exe, stop_event):
 def load_signatures(signatures_file="signatures.json"):
     """Loads human-defined signatures from a JSON file."""
     if not os.path.exists(signatures_file):
-        print(f"Signatures file {signatures_file} not found.", file=sys.stderr)
+        logging.info(f"Signatures file {signatures_file} not found.", file=sys.stderr)
         return []
     with open(signatures_file, "r") as f:
         try:
             return json.load(f)
         except Exception as e:
-            print(f"Error loading signatures: {e}", file=sys.stderr)
+            logging.error(f"Error loading signatures: {e}", file=sys.stderr)
             return []
 
 def dynamic_scan(file_path):
@@ -1024,7 +1024,7 @@ def dynamic_scan(file_path):
     try:
         result = process_file(file_path)
     except Exception as e:
-        print(f"Dynamic analysis error: {e}", file=sys.stderr)
+        logging.error(f"Dynamic analysis error: {e}", file=sys.stderr)
         return "MEMDUMP:0", []
     
     if result:
@@ -1042,7 +1042,7 @@ def detailed_static_scan(file_path):
     try:
         nf = extractor.extract_numeric_features(file_path)
     except Exception as e:
-        print(f"Static analysis failed: {e}", file=sys.stderr)
+        logging.error(f"Static analysis failed: {e}", file=sys.stderr)
         nf = {}
 
     tokens = []
@@ -1159,7 +1159,7 @@ def collect_messages(target_exe, collected_messages, stop_event):
     collected_messages.extend(msgs)
 
 def scan_file(file_path, auto_create=False, benign=False):
-    print(f"Scanning file: {file_path}")
+    logging.info(f"Scanning file: {file_path}")
     report_tokens = []
 
     # Run dynamic and static analysis
@@ -1181,7 +1181,7 @@ def scan_file(file_path, auto_create=False, benign=False):
     
     # Combine tokens into a full scan report.
     scan_report = " ".join(report_tokens)
-    print("Scan Report:", scan_report)
+    logging.info("Scan Report:", scan_report)
     
     # Load user-defined signatures and perform similarity matching.
     signatures = load_signatures()
@@ -1194,11 +1194,11 @@ def scan_file(file_path, auto_create=False, benign=False):
             matched_signatures.append((sig.get("name"), similarity))
     
     if matched_signatures:
-        print("Matched Signatures:")
+        logging.info("Matched Signatures:")
         for name, sim in matched_signatures:
-            print(f" - {name} (Similarity: {sim:.2f})")
+            logging.info(f" - {name} (Similarity: {sim:.2f})")
     else:
-        print("No signatures matched.")
+        logging.info("No signatures matched.")
         # --- Auto signature creator ---
         if auto_create:
             label = "benign" if benign else ("malware" if dynamic_result != "MEMDUMP:0" else "benign")
@@ -1217,9 +1217,9 @@ def scan_file(file_path, auto_create=False, benign=False):
                 auto_sigs.append(new_signature)
                 with open(auto_sig_file, "w") as f:
                     json.dump(auto_sigs, f, indent=4)
-                print("Auto-created signature:", new_signature)
+                logging.info("Auto-created signature:", new_signature)
             except Exception as ex:
-                print("Failed to auto-create signature:", ex)
+                logging.error("Failed to auto-create signature:", ex)
 
 def scan_directory(directory, auto_create=False, benign=False):
     """
@@ -1229,7 +1229,7 @@ def scan_directory(directory, auto_create=False, benign=False):
     for root, dirs, files in os.walk(directory):
         for file in files:
             file_path = os.path.join(root, file)
-            print(f"\nScanning file: {file_path}")
+            logging.info(f"\nScanning file: {file_path}")
             scan_file(file_path, auto_create=auto_create, benign=benign)
 
 # =============================================================================
@@ -1323,7 +1323,7 @@ def run_sandboxie_injection(target_exe, script_path):
 # =============================================================================
 
 def scan_file(file_path, auto_create=False, benign=False, injection=False, script_path=None):
-    print(f"Scanning file: {file_path}")
+    logging.info(f"Scanning file: {file_path}")
     dynamic_result, collected_messages = dynamic_scan(file_path)
     static_tokens = detailed_static_scan(file_path)
     if collected_messages:
@@ -1355,7 +1355,7 @@ def scan_file(file_path, auto_create=False, benign=False, injection=False, scrip
         for i, token in enumerate(registry_diff.split(" "), start=1):
             patterns.append(f"PATTERN_REGISTRY_{i}:{token}")
     scan_report = " ".join(patterns)
-    print("Scan Report:", scan_report)
+    logging.info("Scan Report:", scan_report)
     signatures = load_signatures()
     matched_signatures = []
     threshold = 0.8
@@ -1366,9 +1366,9 @@ def scan_file(file_path, auto_create=False, benign=False, injection=False, scrip
             matched_signatures.append(sig.get("name"))
     if matched_signatures:
         united_signature = "MATCHED_SIGNATURES:" + ",".join(matched_signatures)
-        print(united_signature)
+        logging.info(united_signature)
     else:
-        print("No signatures matched.")
+        logging.info("No signatures matched.")
         if auto_create:
             label = "benign" if benign else ("malware" if dynamic_result != "MEMDUMP:0" else "benign")
             new_signature = {
@@ -1386,9 +1386,9 @@ def scan_file(file_path, auto_create=False, benign=False, injection=False, scrip
                 auto_sigs.append(new_signature)
                 with open(auto_sig_file, "w") as f:
                     json.dump(auto_sigs, f, indent=4)
-                print("Auto-created signature:", new_signature)
+                logging.info("Auto-created signature:", new_signature)
             except Exception as ex:
-                print("Failed to auto-create signature:", ex)
+                logging.error("Failed to auto-create signature:", ex)
 
 # =============================================================================
 # Load Signatures
@@ -1396,49 +1396,71 @@ def scan_file(file_path, auto_create=False, benign=False, injection=False, scrip
 
 def load_signatures(signatures_file="signatures.json"):
     if not os.path.exists(signatures_file):
-        print(f"Signatures file {signatures_file} not found.", file=sys.stderr)
+        logging.info(f"Signatures file {signatures_file} not found.", file=sys.stderr)
         return []
     with open(signatures_file, "r") as f:
         try:
             return json.load(f)
         except Exception as e:
-            print(f"Error loading signatures: {e}", file=sys.stderr)
+            logging.error(f"Error loading signatures: {e}", file=sys.stderr)
             return []
+
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except Exception:
+        return False
+
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except Exception:
+        return False
+
+def scan_file(target, auto_create, benign, injection, script_path):
+    # Your scan_file implementation here
+    logging.info(f"Scanning {target} with options: auto_create={auto_create}, benign={benign}, injection={injection}")
 
 # =============================================================================
 # Main Function
 # =============================================================================
 
 def main():
+    if not is_admin():
+        logging.info("This script requires administrative privileges.")
+        sys.exit(1)
+
     parser = argparse.ArgumentParser(description="Comprehensive Scanner for Hydra Dragon Antivirus Engine using all features")
     parser.add_argument("path", help="Path to the file or directory to scan, or target file/directory for injection")
     parser.add_argument("--auto-create", action="store_true", help="Auto create new signature if none matched")
     parser.add_argument("--benign", action="store_true", help="Force auto-created signature to be labeled as benign")
     parser.add_argument("--injection", action="store_true", help="Perform registry injection scanning")
     args = parser.parse_args()
+
     if not os.path.exists(args.path):
-        print("Error: The specified path does not exist.", file=sys.stderr)
+        logging.error("The specified path does not exist.", file=sys.stderr)
         sys.exit(1)
+
     targets = []
+
     if os.path.isfile(args.path):
-        targets.append(os.path.abspath(args.path))
+        if args.path.lower().endswith(".exe"):
+            targets.append(os.path.abspath(args.path))
+        else:
+            logging.info("Skipping file: Not an .exe file.")
     elif os.path.isdir(args.path):
         for root, dirs, files in os.walk(args.path):
             for file in files:
                 file_path = os.path.join(root, file)
                 if not file_path.lower().endswith(".exe"):
-                    new_path = file_path + ".exe"
-                    try:
-                        os.rename(file_path, new_path)
-                        print(f"Renamed {file_path} to {new_path} for injection.")
-                        file_path = new_path
-                    except Exception as ex:
-                        print(f"Failed to rename {file_path}: {ex}", file=sys.stderr)
-                        continue
-                targets.append(file_path)
+                    logging.info(f"Skipping file (not .exe): {file_path}")
+                    continue
+                targets.append(os.path.abspath(file_path))
+
     script_path = os.path.abspath(__file__)
+
     for target in targets:
-        print(f"Processing file: {target}")
+        logging.info(f"Processing file: {target}")
         scan_file(target, auto_create=args.auto_create, benign=args.benign, injection=args.injection, script_path=script_path)
 
 if __name__ == "__main__":
