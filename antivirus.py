@@ -396,6 +396,7 @@ IPv6_pattern = r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b' # Simple IPv6 reg
 discord_webhook_pattern = r'https://discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
 discord_canary_webhook_pattern = r'https://canary\.discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
 discord_invite_pattern = r'https://discord\.gg/[A-Za-z0-9]+'
+telegram_token_pattern = r'\d+:[A-Za-z0-9_-]+'
 
 os.makedirs(python_source_code_dir, exist_ok=True)
 os.makedirs(nuitka_source_code_dir, exist_ok=True)
@@ -1814,16 +1815,17 @@ def load_website_data():
 
 # --------------------------------------------------------------------------
 # Check for Discord webhook URLs and invite links (including Canary)
-def contains_discord_code(decompiled_code, file_path, cs_file_path=None,
+def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=None,
                             nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False, dotnet_flag=False):
     """
-    Scan the decompiled code for Discord webhook URLs, Discord Canary webhook URLs, or Discord invite links.
+    Scan the decompiled code for Discord webhook URLs, Discord Canary webhook URLs, Discord invite links or Telegram bot links.
     For every detection, log a warning and immediately notify the user with an explicit unique heuristic
     signature that depends on the flags provided.
     """
     discord_webhook_matches = re.findall(discord_webhook_pattern, decompiled_code)
     discord_canary_webhook_matches = re.findall(discord_canary_webhook_pattern, decompiled_code)
     discord_invite_matches = re.findall(discord_invite_pattern, decompiled_code)
+    telegram_token_matches = re.findall(telegram_token_pattern, decompiled_code)
 
     if discord_webhook_matches:
         if dotnet_flag:
@@ -1885,6 +1887,26 @@ def contains_discord_code(decompiled_code, file_path, cs_file_path=None,
         else:
             logging.info(f"Discord invite link detected in decompiled code: {discord_invite_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Invite')
+
+    if telegram_token_matches:
+        if dotnet_flag:
+            if cs_file_path:
+                logging.warning(f"Telegram bot detected in .NET source code file: {cs_file_path} - Matches: {discord_invite_matches}")
+            else:
+                logging.warning(f"Telegram bot detected in .NET source code file: [cs_file_path not provided] - Matches: {discord_invite_matches}")
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.DotNET')
+        elif nuitka_flag:
+            logging.warning(f"Telegram bot detected in Nuitka compiled file: {file_path} - Matches: {discord_invite_matches}")
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.Nuitka')
+        elif pyinstaller_flag or pyinstaller_deepseek_flag:
+            logging.warning(f"Telegram bot detected in PyInstaller compiled file: {file_path} - Matches: {discord_invite_matches} NOTICE: There still a chance the file is not related with PyInstaller")
+            if pyinstaller_deepseek_flag:
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.PyInstallerDeepSeek')
+            else:
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.PyInstaller')
+        else:
+            logging.info(f"Telegram bot link detected in decompiled code: {discord_invite_matches}")
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot')
 
 # --------------------------------------------------------------------------
 # Generalized scan for domains
@@ -2398,7 +2420,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
 
 def scan_html_content(html_content, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False):
     """Scan extracted HTML content for any potential threats."""
-    contains_discord_code(html_content, "html_content", None,
+    contains_discord_or_telegram_code(html_content, "html_content", None,
                           dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
                           pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
     urls = set(re.findall(r'https?://[^\s/$.?#]\S*', html_content))
@@ -2428,19 +2450,19 @@ def scan_html_content(html_content, dotnet_flag=False, nuitka_flag=False, pyinst
 def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
                           dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False):
     """
-    Scan the decompiled code for Discord-related URLs (via contains_discord_code),
+    Scan the decompiled code for Discord-related URLs (via contains_discord_or_telegram_code),
     general URLs, domains, and IP addresses. The provided flags are passed along
     to each individual scanning function so that every detection scenario uses its unique
     virus signature.
     """
-    contains_discord_code(decompiled_code, file_path, cs_file_path,
+    contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path,
                             dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
                             pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
     
     urls = set(re.findall(r'https?://[^\s/$.?#]\S*', decompiled_code))
     for url in urls:
         html_content = fetch_html(url)
-        contains_discord_code(html_content, file_path, cs_file_path,
+        contains_discord_or_telegram_code(html_content, file_path, cs_file_path,
                               dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
                               pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
         scan_url_general(url, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
