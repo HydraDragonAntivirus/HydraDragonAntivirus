@@ -1181,7 +1181,7 @@ def scan_file(file_path, auto_create=False, benign=False):
     
     # Combine tokens into a full scan report.
     scan_report = " ".join(report_tokens)
-    logging.info("Scan Report:", scan_report)
+    logging.info("Scan Report: %s", scan_report)
     
     # Load user-defined signatures and perform similarity matching.
     signatures = load_signatures()
@@ -1191,12 +1191,12 @@ def scan_file(file_path, auto_create=False, benign=False):
         pattern = sig.get("pattern", "")
         similarity = calculate_similarity(pattern, scan_report)
         if similarity >= threshold:
-            matched_signatures.append((sig.get("name"), similarity))
+            matched_signatures.append((sig.get("name"), similarity, sig.get("label", "unknown")))
     
     if matched_signatures:
         logging.info("Matched Signatures:")
-        for name, sim in matched_signatures:
-            logging.info(f" - {name} (Similarity: {sim:.2f})")
+        for name, sim, label in matched_signatures:
+            logging.info(f" - {name} (Similarity: {sim:.2f}) - Label: {label}")
     else:
         logging.info("No signatures matched.")
         # --- Auto signature creator ---
@@ -1217,9 +1217,9 @@ def scan_file(file_path, auto_create=False, benign=False):
                 auto_sigs.append(new_signature)
                 with open(auto_sig_file, "w") as f:
                     json.dump(auto_sigs, f, indent=4)
-                logging.info("Auto-created signature:", new_signature)
+                logging.info("Auto-created signature: %s", new_signature)
             except Exception as ex:
-                logging.error("Failed to auto-create signature:", ex)
+                logging.error("Failed to auto-create signature: %s", ex)
 
 def scan_directory(directory, auto_create=False, benign=False):
     """
