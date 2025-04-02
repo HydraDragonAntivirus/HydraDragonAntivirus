@@ -162,3 +162,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 
 **Are you using leaked YARA rules?**
 - No we don't but if you have proof please create issue we can remove it.
+
+### Credits:
+- Logo: Arouwa, Discord: arouwaedits
+- Coding: Emirhan Uçan, Discord: hydra_dragon_antivirus
