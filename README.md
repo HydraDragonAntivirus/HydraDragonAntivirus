@@ -164,5 +164,5 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - No we don't but if you have proof please create issue we can remove it.
 
 ### Credits:
-- Logo: Arouwa, Discord: arouwaedits
+- Logo: Simon Sincap Discord: aertsimon90
 - Coding: Emirhan Uçan, Discord: hydra_dragon_antivirus
