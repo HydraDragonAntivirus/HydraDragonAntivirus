@@ -6475,7 +6475,6 @@ def extract_nuitka_file(file_path, nuitka_type):
 
 def monitor_sandbox():
     if not os.path.exists(sandboxie_folder):
-        logging.info(f"The sandboxie folder path does not exist: {sandboxie_folder}")
         logging.error(f"The sandboxie folder path does not exist: {sandboxie_folder}")
         return
 
