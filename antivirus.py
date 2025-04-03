@@ -397,6 +397,9 @@ discord_webhook_pattern = r'https://discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_
 discord_canary_webhook_pattern = r'https://canary\.discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
 discord_invite_pattern = r'https://discord\.gg/[A-Za-z0-9]+'
 telegram_token_pattern = r'\d+:[A-Za-z0-9_-]+'
+UBLOCK_REGEX = re.compile(
+    r'^https:\/\/s[cftz]y?[ace][aemnu][a-z]{1,4}o[mn][a-z]{4,8}[iy][a-z]?\.com\/$'
+)
 
 os.makedirs(python_source_code_dir, exist_ok=True)
 os.makedirs(nuitka_source_code_dir, exist_ok=True)
@@ -417,6 +420,26 @@ os.makedirs(united_python_source_code_dir, exist_ok=True)
 
 # Counter for ransomware detection
 ransomware_detection_count = 0 
+
+def ublock_detect(url):
+    """
+    Check if the given URL should be detected by the uBlock-style rule.
+
+    The rule matches:
+      - URLs that fit the regex pattern.
+      - Only applies to main document requests.
+    
+    The exception: if the URL includes 'steamcommunity.com', then the rule is not applied.
+    """
+    # First, check if the URL matches the regex pattern.
+    if not UBLOCK_REGEX.match(url):
+        return False
+
+    # Apply exception: if the URL's domain includes "steamcommunity.com", ignore it.
+    if 'steamcommunity.com' in url:
+        return False
+
+    return True
 
 def get_resource_name(entry):
     # Get the resource name, which might be a string or an ID
@@ -2180,6 +2203,7 @@ def scan_url_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag
         scanned_urls_general.append(url)
         logging.info(f"Scanning URL: {url}")
 
+        # First, check against URLhaus signatures.
         for entry in urlhaus_data:
             if entry['url'] in url:
                 message = (
@@ -2200,7 +2224,7 @@ def scan_url_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag
                 elif nuitka_flag:
                     notify_user_for_malicious_source_code(url, 'HEUR:Win32.Nuitka.URLhaus.Match')
                 elif pyinstaller_flag or pyinstaller_deepseek_flag:
-                    logging.warning(f"URL {url} matches the URLhaus signatures. NOTICE: There still a chance the file is not related with PyInstaller")
+                    logging.warning(f"URL {url} matches the URLhaus signatures. NOTICE: There still is a chance the file is not related with PyInstaller")
                     if pyinstaller_deepseek_flag:
                         notify_user_for_malicious_source_code(url, 'HEUR:Win32.PyInstallerDeepSeek.URLhaus.Match')
                     else:
@@ -2208,6 +2232,12 @@ def scan_url_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag
                 else:
                     notify_user_for_malicious_source_code(url, 'HEUR:Win32.URLhaus.Match')
                 return
+
+        # Heuristic check using uBlock Origin style detection.
+        if ublock_detect(url):
+            notify_user_for_malicious_source_code(url, 'HEUR:Phish.Steam.Community.gen')
+            logging.warning(f"URL {url} flagged by uBlock detection using HEUR:Phish.Steam.Community.gen.")
+            return
 
         logging.info(f"No match found for URL: {url}")
 
@@ -2995,7 +3025,7 @@ class RealTimeWebProtectionHandler:
                 for extracted_url in extracted_urls:
                     self.scan_url(extracted_url)
 
-            # Process URL against URLhaus signatures
+            # Process URL against URLhaus signatures.
             for entry in urlhaus_data:
                 if entry['url'] in url:
                     message = (
@@ -3011,14 +3041,23 @@ class RealTimeWebProtectionHandler:
                     )
                     logging.warning(message)
                     logging.info(message)
-
-                    # Use handle_detection for related file path and notification logic
+                    # Use handle_detection for related file path and notification logic.
                     self.handle_detection(
                         entity_type="url",
                         entity_value=url,
                         detection_type="URLhaus Match"
                     )
                     return
+
+            # Heuristic check using uBlock detection (e.g., Steam Community pattern).
+            if ublock_detect(url):
+                self.handle_detection(
+                    entity_type="url",
+                    entity_value=url,
+                    detection_type="HEUR:Phish.Steam.Community.gen"
+                )
+                logging.warning(f"URL {url} flagged by uBlock detection using HEUR:Phish.Steam.Community.gen.")
+                return
 
             logging.info(f"No match found for URL: {url}")
 
