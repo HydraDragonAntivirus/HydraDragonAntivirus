@@ -1933,7 +1933,7 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
 
 # --------------------------------------------------------------------------
 # Generalized scan for domains
-def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False, homepage_flag=False):
+def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False, homepage_flag=""):
     try:
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
@@ -1987,7 +1987,7 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
                     logging.warning(f"Spam subdomain detected: {full_domain}")
                     notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Spam.SubDomain")
                 if homepage_flag:
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Adware.Spam.HomePage.gen")
+                    notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.Adware.{homepage_flag}.Spam.HomePage.gen")
                 return
 
             if full_domain in mining_sub_domains_data:
@@ -2007,7 +2007,7 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
                     logging.warning(f"Mining subdomain detected: {full_domain}")
                     notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Mining.SubDomain")
                 if homepage_flag:
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Adware.Mining.HomePage.gen")
+                    notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.Adware.{homepage_flag}.Mining.HomePage.gen")
                 return
 
             if full_domain in abuse_sub_domains_data:
@@ -2027,7 +2027,7 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
                     logging.warning(f"Abuse subdomain detected: {full_domain}")
                     notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Abuse.SubDomain")
                 if homepage_flag:
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Adware.Abuse.HomePage.gen")
+                    notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.Adware.{homepage_flag}.Abuse.HomePage.gen")
                 return
 
             if full_domain in phishing_sub_domains_data:
@@ -2047,7 +2047,7 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
                     logging.warning(f"Phishing subdomain detected: {full_domain}")
                     notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Phishing.SubDomain")
                 if homepage_flag:
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Adware.Phishing.HomePage.gen")
+                    notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.Adware.{homepage_flag}.Phishing.HomePage.gen")
                 return
 
             if full_domain in malware_mail_sub_domains_data:
@@ -2067,7 +2067,7 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
                     logging.warning(f"Malware mail subdomain detected: {full_domain}")
                     notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Malware.Mail.SubDomain")
                 if homepage_flag:
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Adware.Malware.HomePage.gen")
+                    notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.Adware.{homepage_flag}.Malware.HomePage.gen")
                 return
 
             if full_domain in malware_sub_domains_data:
@@ -2087,7 +2087,7 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
                     logging.warning(f"Malware subdomain detected: {full_domain}")
                     notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Malware.SubDomain")
                 if homepage_flag:
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Adware.Malware.HomePage.gen")
+                    notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.Adware.{homepage_flag}.Malware.HomePage.gen")
                 return
 
         # Main domain threat checks
@@ -2108,7 +2108,7 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
                 logging.warning(f"Spam domain detected: {main_domain}")
                 notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Spam.Domain")
             if homepage_flag:
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Adware.Spam.HomePage.gen")
+                notify_user_for_malicious_source_code(main_domain, f"HEUR:Win32.Adware.{homepage_flag}.Spam.HomePage.gen")
             return
 
         if full_domain in mining_domains_data or main_domain in mining_domains_data:
@@ -2128,7 +2128,7 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
                 logging.warning(f"Mining domain detected: {main_domain}")
                 notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Mining.Domain")
             if homepage_flag:
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Adware.Mining.HomePage.gen")
+                notify_user_for_malicious_source_code(main_domain, f"HEUR:Win32.Adware.{homepage_flag}.Mining.HomePage.gen")
             return
 
         if full_domain in abuse_domains_data or main_domain in abuse_domains_data:
@@ -2148,7 +2148,7 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
                 logging.warning(f"Abuse domain detected: {main_domain}")
                 notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Abuse.Domain")
             if homepage_flag:
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Adware.Abuse.HomePage.gen")
+                notify_user_for_malicious_source_code(main_domain, f"HEUR:Win32.Adware.{homepage_flag}.Abuse.HomePage.gen")
             return
 
         if full_domain in phishing_domains_data or main_domain in phishing_domains_data:
@@ -2168,7 +2168,7 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
                 logging.warning(f"Phishing domain detected: {main_domain}")
                 notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Phishing.Domain")
             if homepage_flag:
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Adware.Phishing.HomePage.gen")
+                notify_user_for_malicious_source_code(main_domain, f"HEUR:Win32.Adware.{homepage_flag}.Phishing.HomePage.gen")
             return
 
         if full_domain in malware_domains_mail_data or main_domain in malware_domains_mail_data:
@@ -2188,7 +2188,7 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
                 logging.warning(f"Malware mail domain detected: {main_domain}")
                 notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Malware.Mail.Domain")
             if homepage_flag:
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Adware.Malware.HomePage.gen")
+                notify_user_for_malicious_source_code(main_domain, f"HEUR:Win32.Adware.{homepage_flag}.Malware.HomePage.gen")
             return
 
         if full_domain in malware_domains_data or main_domain in malware_domains_data:
@@ -2208,7 +2208,7 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
                 logging.warning(f"Malware domain detected: {main_domain}")
                 notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Malware.Domain")
             if homepage_flag:
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Adware.Malware.HomePage.gen")
+                notify_user_for_malicious_source_code(main_domain, f"HEUR:Win32.Adware.{homepage_flag}.Malware.HomePage.gen")
             return
 
         logging.info(f"Domain {full_domain} passed all checks.")
@@ -2218,7 +2218,7 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
 
 # --------------------------------------------------------------------------
 # Generalized scan for URLs
-def scan_url_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False, homepage_flag=False):
+def scan_url_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False, homepage_flag=""):
     try:
         if url in scanned_urls_general:
             logging.info(f"URL {url} has already been scanned.")
@@ -2255,8 +2255,9 @@ def scan_url_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag
                         notify_user_for_malicious_source_code(url, 'HEUR:Win32.PyInstaller.URLhaus.Match')
                 else:
                     notify_user_for_malicious_source_code(url, 'HEUR:Win32.URLhaus.Match')
+                # Use the homepage_flag string to append a browser tag to the virus signature.
                 if homepage_flag:
-                    notify_user_for_malicious_source_code(url, "HEUR:Win32.Adware.URLhaus.HomePage.gen")
+                    notify_user_for_malicious_source_code(url, f"HEUR:Win32.Adware.{homepage_flag}.URLhaus.HomePage.gen")
                 return
 
         # Heuristic check using uBlock Origin style detection.
@@ -2264,7 +2265,7 @@ def scan_url_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag
             notify_user_for_malicious_source_code(url, 'HEUR:Phish.Steam.Community.gen')
             logging.warning(f"URL {url} flagged by uBlock detection using HEUR:Phish.Steam.Community.gen.")
             if homepage_flag:
-                notify_user_for_malicious_source_code(url, "HEUR:Win32.Adware.Phishing.HomePage.gen")
+                notify_user_for_malicious_source_code(url, f"HEUR:Win32.Adware.{homepage_flag}.Phishing.HomePage.gen")
             return
 
         logging.info(f"No match found for URL: {url}")
@@ -2287,7 +2288,7 @@ def fetch_html(url):
 
 # --------------------------------------------------------------------------
 # Generalized scan for IP addresses
-def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False, homepage_flag=False):
+def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False, homepage_flag=""):
     try:
         # Check if the IP address is local
         if is_local_ip(ip_address):
@@ -2325,7 +2326,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                 else:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DDoS.IPv6')
                 if homepage_flag:
-                    notify_user_for_malicious_source_code(ip_address, "HEUR:Win32.Adware.DDoS.HomePage.gen")
+                    notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.DDoS.HomePage.gen")
             elif ip_address in ipv6_addresses_spam_signatures_data:
                 logging.warning(f"Spam IPv6 address detected: {ip_address}")
                 if dotnet_flag:
@@ -2341,7 +2342,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                 else:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Spam.IPv6')
                 if homepage_flag:
-                    notify_user_for_malicious_source_code(ip_address, "HEUR:Win32.Adware.Spam.HomePage.gen")
+                    notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.Spam.HomePage.gen")
             elif ip_address in ipv6_addresses_signatures_data:
                 logging.warning(f"Malicious IPv6 address detected: {ip_address}")
                 if dotnet_flag:
@@ -2357,7 +2358,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                 else:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Malware.IPv6')
                 if homepage_flag:
-                    notify_user_for_malicious_source_code(ip_address, "HEUR:Win32.Adware.Malware.HomePage.gen")
+                    notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.Malware.HomePage.gen")
             else:
                 logging.info(f"Unknown IPv6 address detected: {ip_address}")
 
@@ -2387,7 +2388,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                 else:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PhishingActive.IPv4')
                 if homepage_flag:
-                    notify_user_for_malicious_source_code(ip_address, "HEUR:Win32.Adware.Phishing.HomePage.gen")
+                    notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.Phishing.HomePage.gen")
             elif ip_address in ipv4_addresses_ddos_signatures_data:
                 logging.warning(f"IPv4 address {ip_address} detected as a potential DDoS threat.")
                 if dotnet_flag:
@@ -2403,7 +2404,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                 else:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DDoS.IPv4')
                 if homepage_flag:
-                    notify_user_for_malicious_source_code(ip_address, "HEUR:Win32.Adware.DDoS.HomePage.gen")
+                    notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.DDoS.HomePage.gen")
             elif ip_address in ipv4_addresses_phishing_inactive_signatures_data:
                 logging.warning(f"IPv4 address {ip_address} detected as an inactive phishing threat.")
                 if dotnet_flag:
@@ -2419,7 +2420,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                 else:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PhishingInactive.IPv4')
                 if homepage_flag:
-                    notify_user_for_malicious_source_code(ip_address, "HEUR:Win32.Adware.Phishing.HomePage.gen")
+                    notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.Phishing.HomePage.gen")
             elif ip_address in ipv4_addresses_bruteforce_signatures_data:
                 logging.warning(f"IPv4 address {ip_address} detected as a potential BruteForce threat.")
                 if dotnet_flag:
@@ -2435,7 +2436,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                 else:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.BruteForce.IPv4')
                 if homepage_flag:
-                    notify_user_for_malicious_source_code(ip_address, "HEUR:Win32.Adware.BruteForce.HomePage.gen")
+                    notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.BruteForce.HomePage.gen")
             elif ip_address in ipv4_addresses_spam_signatures_data:
                 logging.warning(f"Spam IPv4 address detected: {ip_address}")
                 if dotnet_flag:
@@ -2451,7 +2452,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                 else:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Spam.IPv4')
                 if homepage_flag:
-                    notify_user_for_malicious_source_code(ip_address, "HEUR:Win32.Adware.Spam.HomePage.gen")
+                    notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.Spam.HomePage.gen")
             elif ip_address in ipv4_addresses_signatures_data:
                 logging.warning(f"Malicious IPv4 address detected: {ip_address}")
                 if dotnet_flag:
@@ -2467,7 +2468,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                 else:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Malware.IPv4')
                 if homepage_flag:
-                    notify_user_for_malicious_source_code(ip_address, "HEUR:Win32.Adware.Malware.HomePage.gen")
+                    notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.Malware.HomePage.gen")
             else:
                 logging.info(f"Unknown IPv4 address detected: {ip_address}")
         else:
@@ -2507,7 +2508,7 @@ def scan_html_content(html_content, dotnet_flag=False, nuitka_flag=False, pyinst
 # Main scanner: combine all individual scans and pass the flags along
 def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
                           dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False,
-                          homepage_flag="Edge"):
+                          homepage_flag=""):
     """
     Scan the decompiled code for Discord-related URLs (via contains_discord_or_telegram_code),
     general URLs, domains, and IP addresses. The provided flags are passed along
