@@ -21,9 +21,6 @@
 #include <fstream>
 #include <archive.h>
 #include <archive_entry.h>
-#include <strsafe.h>
-#include <wchar.h>
-#pragma comment(lib, "winmm.lib")
 #pragma comment(lib, "Shlwapi.lib")
 #pragma comment(lib, "detours.lib")
 #pragma comment(lib, "Advapi32.lib")
