@@ -18,10 +18,11 @@
 #include <mmsystem.h>
 #include <winternl.h>
 #include <wincrypt.h>
-#include <sstream>
 #include <fstream>
 #include <archive.h>
 #include <archive_entry.h>
+#include <strsafe.h>
+#include <wchar.h>
 #pragma comment(lib, "winmm.lib")
 #pragma comment(lib, "Shlwapi.lib")
 #pragma comment(lib, "detours.lib")
@@ -72,6 +73,245 @@ static int g_ransomware_detection_count = 0;
 // Thread-local flag to prevent recursive logging.
 // -----------------------------------------------------------------
 __declspec(thread) bool g_bInLogging = false;
+
+// Helper: Write a timestamped log entry to DONTREMOVEHomePageChange.txt.
+void WriteLog(const wchar_t* message)
+{
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEHomePageChange.txt", L"a+") == 0 && f)
+    {
+        time_t now = time(NULL);
+        struct tm tmNow;
+        localtime_s(&tmNow, &now);
+        wchar_t timeBuffer[64] = { 0 };
+        wcsftime(timeBuffer, 64, L"%Y-%m-%d %H:%M:%S", &tmNow);
+        fwprintf(f, L"[%s] %s\n", timeBuffer, message);
+        fclose(f);
+    }
+}
+
+// Chrome Homepage Monitoring using Registry Notifications.
+// Monitors the registry key for Chrome homepage (adjust key/value as needed).
+DWORD WINAPI ChromeRegistryMonitorThread(LPVOID lpParam)
+{
+    HKEY hKey = NULL;
+    LONG lResult = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Policies\\Google\\Chrome", 0, KEY_READ | KEY_NOTIFY, &hKey);
+    if (lResult != ERROR_SUCCESS)
+    {
+        WriteLog(L"Chrome monitor: Failed to open registry key.");
+        return 1;
+    }
+
+    while (true)
+    {
+        lResult = RegNotifyChangeKeyValue(hKey, TRUE, REG_NOTIFY_CHANGE_LAST_SET, NULL, FALSE);
+        if (lResult == ERROR_SUCCESS)
+        {
+            wchar_t homepage[512] = { 0 };
+            DWORD bufSize = sizeof(homepage);
+            lResult = RegQueryValueExW(hKey, L"Homepage", NULL, NULL, (LPBYTE)homepage, &bufSize);
+            if (lResult == ERROR_SUCCESS)
+            {
+                wchar_t logMsg[1024] = { 0 };
+                StringCchPrintfW(logMsg, 1024, L"Chrome homepage changed: %s", homepage);
+                WriteLog(logMsg);
+            }
+            else
+            {
+                WriteLog(L"Chrome monitor: Homepage value changed but could not be read.");
+            }
+        }
+        else
+        {
+            WriteLog(L"Chrome monitor: RegNotifyChangeKeyValue failed.");
+            break;
+        }
+    }
+
+    if (hKey)
+        RegCloseKey(hKey);
+
+    return 0;
+}
+
+// Edge Homepage Monitoring using Registry Notifications.
+// Assumes Edge homepage is stored in HKEY_CURRENT_USER\Software\Policies\Microsoft\Edge
+// and the value is named "HomepageLocation" (adjust as needed).
+DWORD WINAPI EdgeRegistryMonitorThread(LPVOID lpParam)
+{
+    HKEY hKey = NULL;
+    LONG lResult = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Policies\\Microsoft\\Edge", 0, KEY_READ | KEY_NOTIFY, &hKey);
+    if (lResult != ERROR_SUCCESS)
+    {
+        WriteLog(L"Edge monitor: Failed to open registry key.");
+        return 1;
+    }
+
+    while (true)
+    {
+        lResult = RegNotifyChangeKeyValue(hKey, TRUE, REG_NOTIFY_CHANGE_LAST_SET, NULL, FALSE);
+        if (lResult == ERROR_SUCCESS)
+        {
+            wchar_t homepage[512] = { 0 };
+            DWORD bufSize = sizeof(homepage);
+            lResult = RegQueryValueExW(hKey, L"HomepageLocation", NULL, NULL, (LPBYTE)homepage, &bufSize);
+            if (lResult == ERROR_SUCCESS)
+            {
+                wchar_t logMsg[1024] = { 0 };
+                StringCchPrintfW(logMsg, 1024, L"Edge homepage changed: %s", homepage);
+                WriteLog(logMsg);
+            }
+            else
+            {
+                WriteLog(L"Edge monitor: Homepage value changed but could not be read.");
+            }
+        }
+        else
+        {
+            WriteLog(L"Edge monitor: RegNotifyChangeKeyValue failed.");
+            break;
+        }
+    }
+
+    if (hKey)
+        RegCloseKey(hKey);
+
+    return 0;
+}
+
+// Helper: Get the Firefox prefs.js path by scanning the Firefox Profiles directory.
+// Returns an empty string if no valid prefs.js is found.
+std::wstring GetFirefoxPrefsPath()
+{
+    wchar_t userProfile[MAX_PATH] = { 0 };
+    DWORD size = GetEnvironmentVariableW(L"USERPROFILE", userProfile, MAX_PATH);
+    if (size == 0 || size > MAX_PATH)
+        return L"";
+
+    // Construct the base path for Firefox profiles.
+    std::wstring profilesPath = std::wstring(userProfile) + L"\\AppData\\Roaming\\Mozilla\\Firefox\\Profiles";
+
+    // Use FindFirstFile to enumerate directories in the Profiles folder.
+    std::wstring prefsPath;
+    std::wstring searchPath = profilesPath + L"\\*";
+    WIN32_FIND_DATAW findData;
+    HANDLE hFind = FindFirstFileW(searchPath.c_str(), &findData);
+    if (hFind != INVALID_HANDLE_VALUE)
+    {
+        do
+        {
+            // Skip files and only consider directories (excluding "." and "..").
+            if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY &&
+                wcscmp(findData.cFileName, L".") != 0 &&
+                wcscmp(findData.cFileName, L"..") != 0)
+            {
+                std::wstring possiblePrefs = profilesPath + L"\\" + findData.cFileName + L"\\prefs.js";
+                if (PathFileExistsW(possiblePrefs.c_str()))
+                {
+                    prefsPath = possiblePrefs;
+                    break;  // Use the first valid profile found.
+                }
+            }
+        } while (FindNextFileW(hFind, &findData));
+        FindClose(hFind);
+    }
+    return prefsPath;
+}
+
+// Firefox Homepage Monitoring using File Change Notifications.
+// It retrieves the Firefox prefs.js path dynamically and monitors it for changes.
+DWORD WINAPI FirefoxFileMonitorThread(LPVOID lpParam)
+{
+    std::wstring prefsFilePath = GetFirefoxPrefsPath();
+    if (prefsFilePath.empty())
+    {
+        WriteLog(L"Firefox monitor: Could not locate prefs.js file.");
+        return 1;
+    }
+
+    // Extract the directory from prefsFilePath.
+    wchar_t directory[MAX_PATH] = { 0 };
+    wcscpy_s(directory, prefsFilePath.c_str());
+    wchar_t* pLastSlash = wcsrchr(directory, L'\\');
+    if (pLastSlash)
+        *pLastSlash = 0;
+
+    // Set up directory change notification.
+    HANDLE hChange = FindFirstChangeNotificationW(directory, FALSE, FILE_NOTIFY_CHANGE_LAST_WRITE);
+    if (hChange == INVALID_HANDLE_VALUE)
+    {
+        WriteLog(L"Firefox monitor: Failed to set up directory change notification.");
+        return 1;
+    }
+
+    while (true)
+    {
+        DWORD waitStatus = WaitForSingleObject(hChange, INFINITE);
+        if (waitStatus == WAIT_OBJECT_0)
+        {
+            // When a change is signaled, open prefs.js and search for the homepage setting.
+            FILE* f = nullptr;
+            if (_wfopen_s(&f, prefsFilePath.c_str(), L"r") == 0 && f)
+            {
+                wchar_t line[1024] = { 0 };
+                wchar_t homepage[512] = { 0 };
+                while (fgetws(line, 1024, f))
+                {
+                    // Look for the line containing "browser.startup.homepage"
+                    if (wcsstr(line, L"browser.startup.homepage") != NULL)
+                    {
+                        // Expected format: user_pref("browser.startup.homepage", "http://www.example.com");
+                        wchar_t* start = wcschr(line, L',');
+                        if (start)
+                        {
+                            start++; // Skip the comma.
+                            while (*start == L' ' || *start == L'\t') start++;
+                            if (*start == L'"')
+                            {
+                                start++;
+                                wchar_t* end = wcschr(start, L'"');
+                                if (end)
+                                {
+                                    size_t len = end - start;
+                                    wcsncpy_s(homepage, start, len);
+                                    homepage[len] = L'\0';
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                fclose(f);
+
+                wchar_t logMsg[1024] = { 0 };
+                if (wcslen(homepage) > 0)
+                    StringCchPrintfW(logMsg, 1024, L"Firefox homepage changed: %s", homepage);
+                else
+                    StringCchPrintfW(logMsg, 1024, L"Firefox prefs.js changed but homepage setting not found.");
+
+                WriteLog(logMsg);
+            }
+            else
+            {
+                WriteLog(L"Firefox monitor: Failed to open prefs.js for reading.");
+            }
+
+            if (FindNextChangeNotification(hChange) == FALSE)
+            {
+                WriteLog(L"Firefox monitor: Failed to reset change notification.");
+                break;
+            }
+        }
+        else
+        {
+            WriteLog(L"Firefox monitor: WaitForSingleObject failed.");
+            break;
+        }
+    }
+
+    FindCloseChangeNotification(hChange);
+    return 0;
+}
 
 // -----------------------------------------------------------------
 // Notification Infrastructure via Shell_NotifyIcon
@@ -1650,6 +1890,7 @@ void StartFileTrapMonitor()
 }
 
 static HMODULE g_hSbieDll = NULL;
+// ------------------ InjectDllMain ------------------
 extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll, ULONG_PTR UnusedParameter)
 {
     // Enter function
@@ -1762,7 +2003,7 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
     g_hErrorLogThread = CreateThread(NULL, 0, ErrorLoggerThreadProc, NULL, 0, NULL);
 
     // Start MBR monitoring.
-    g_baselineMBR = GetMBR();
+    std::vector<char> g_baselineMBR = GetMBR();
     if (!g_baselineMBR.empty())
     {
         g_hMBRMonitorThread = CreateThread(NULL, 0, MBRMonitorThreadProc, NULL, 0, NULL);
@@ -1803,9 +2044,15 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
         SafeWriteSigmaLog(L"TimeMonitor", L"Failed to start TimeMonitorThread.");
     }
 
+    // ***** Added: Create browser homepage monitoring threads *****
+    HANDLE hChromeThread = CreateThread(NULL, 0, ChromeRegistryMonitorThread, NULL, 0, NULL);
+    HANDLE hEdgeThread = CreateThread(NULL, 0, EdgeRegistryMonitorThread, NULL, 0, NULL);
+    HANDLE hFirefoxThread = CreateThread(NULL, 0, FirefoxFileMonitorThread, NULL, 0, NULL);
+
     OutputDebugString(L"InjectDllMain completed successfully.\n");
 }
 
+// ------------------ DllMain ------------------
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {
     switch (ul_reason_for_call)
@@ -1876,6 +2123,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         {
             SafeWriteSigmaLog(L"FileTrapMonitor", L"Failed to start file trap monitoring thread.");
         }
+
+        // ***** Added: Create browser homepage monitoring threads *****
+        HANDLE hChromeThread = CreateThread(NULL, 0, ChromeRegistryMonitorThread, NULL, 0, NULL);
+        HANDLE hEdgeThread = CreateThread(NULL, 0, EdgeRegistryMonitorThread, NULL, 0, NULL);
+        HANDLE hFirefoxThread = CreateThread(NULL, 0, FirefoxFileMonitorThread, NULL, 0, NULL);
 
         break;
 
