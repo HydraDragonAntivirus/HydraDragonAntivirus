@@ -448,54 +448,6 @@ def get_resource_name(entry):
     else:
         return str(entry.id)
 
-def extract_resources(pe_path, output_dir):
-    try:
-        pe = pefile.PE(pe_path)
-    except Exception as e:
-        logging.error(f"Error loading PE file: {e}")
-        return
-
-    # Check if the PE file has resources
-    if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-        logging.error("No resources found in this file.")
-        return
-
-    os.makedirs(output_dir, exist_ok=True)
-    resource_count = 0
-
-    # Traverse the resource directory
-    for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
-        type_name = get_resource_name(resource_type)
-        if not hasattr(resource_type, 'directory'):
-            continue
-
-        for resource_id in resource_type.directory.entries:
-            res_id = get_resource_name(resource_id)
-            if not hasattr(resource_id, 'directory'):
-                continue
-
-            for resource_lang in resource_id.directory.entries:
-                lang_id = resource_lang.id
-                data_rva = resource_lang.data.struct.OffsetToData
-                size = resource_lang.data.struct.Size
-                data = pe.get_memory_mapped_image()[data_rva:data_rva + size]
-
-                # Create a filename: resourceType_resourceID_langID.bin
-                file_name = f"{type_name}_{res_id}_{lang_id}.bin"
-                output_path = os.path.join(output_dir, file_name)
-                with open(output_path, "wb") as f:
-                    f.write(data)
-                logging.info(f"Resource saved: {output_path}")
-                resource_count += 1
-
-                # Call scan_and_warn on the extracted file
-                scan_and_warn(output_path)
-
-    if resource_count == 0:
-        logging.info("No resources were extracted.")
-    else:
-        logging.info(f"Extracted a total of {resource_count} resources.")
-
 # Read the file types from extensions.txt with try-except
 fileTypes = []
 try:
@@ -679,45 +631,6 @@ def is_jar_file(file_path):
         return False
 
     return False
-
-def extract_pe_sections(file_path: str):
-    try:
-        # Load the PE file
-        pe = pefile.PE(file_path)
-        logging.info(f"Loaded PE file: {file_path}")
-
-        # Ensure output directory exists
-        output_dir = Path(pe_extracted_dir)
-        if not output_dir.exists():
-            output_dir.mkdir(parents=True)
-            logging.info(f"Created output directory: {output_dir}")
-
-        # Extract sections
-        for section in pe.sections:
-            # Get section name and clean it
-            section_name = section.Name.decode().strip('\x00')
-            section_data = section.get_data()
-
-            # Use the provided get_unique_output_path to generate a unique file name
-            section_file = get_unique_output_path(output_dir, section_name)
-
-            # Write section data to the unique file
-            with open(section_file, "wb") as f:
-                f.write(section_data)
-            
-            logging.info(f"Section '{section_name}' saved to {section_file}")
-            pe_file_paths.append(section_file)  # Add the file path to the list
-
-            # Scan and warn after saving the file
-            for file_path in pe_file_paths:
-                scan_and_warn(file_path)
-
-        logging.info("Extraction completed successfully.")
-        return pe_file_paths  # Return the list of file paths
-
-    except Exception as e:
-        logging.error(f"An error occurred: {e}")
-        return []  # Return an empty list in case of error
 
 def is_hex_data(data_content):
     """Check if the given binary data can be valid hex-encoded data."""
@@ -5600,66 +5513,6 @@ def check_pe_file(file_path, signature_check, file_name):
     except Exception as ex:
         logging.error(f"Error checking PE file {file_path}: {ex}")
 
-def extract_rcdata_resource(pe_path):
-    try:
-        pe = pefile.PE(pe_path)
-    except Exception as e:
-        logging.error(f"Error loading PE file: {e}")
-        return None
-
-    # Check if the PE file has resources
-    if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-        logging.error("No resources found in this file.")
-        return None
-
-    first_rcdata_file = None  # Will hold the first RCData resource file path
-    all_extracted_files = []  # Store all extracted file paths for scanning
-
-    # Ensure output directory exists
-    output_dir = os.path.join(general_extracted_dir, os.path.splitext(os.path.basename(pe_path))[0])
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Traverse the resource directory
-    for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
-        type_name = get_resource_name(resource_type)
-        if not hasattr(resource_type, 'directory'):
-            continue
-
-        for resource_id in resource_type.directory.entries:
-            res_id = get_resource_name(resource_id)
-            if not hasattr(resource_id, 'directory'):
-                continue
-
-            for resource_lang in resource_id.directory.entries:
-                lang_id = resource_lang.id
-                data_rva = resource_lang.data.struct.OffsetToData
-                size = resource_lang.data.struct.Size
-                data = pe.get_memory_mapped_image()[data_rva:data_rva + size]
-
-                # Save extracted resource to a file
-                file_name = f"{type_name}_{res_id}_{lang_id}.bin"
-                output_path = os.path.join(output_dir, file_name)
-                with open(output_path, "wb") as f:
-                    f.write(data)
-
-                logging.info(f"Extracted resource saved: {output_path}")
-                all_extracted_files.append(output_path)
-
-                # If it's an RCData resource and we haven't already set one, record its file path
-                if type_name.lower() in ("rcdata", "10") and first_rcdata_file is None:
-                    first_rcdata_file = output_path
-
-    # Scan all extracted files
-    for file_path in all_extracted_files:
-        scan_and_warn(file_path)
-
-    if first_rcdata_file is None:
-        logging.info("No RCData resource found.")
-    else:
-        logging.info(f"Using RCData resource file: {first_rcdata_file}")
-
-    return first_rcdata_file
-
 def extract_all_files_with_7z(file_path):
     try:
         counter = 1
@@ -6459,6 +6312,105 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
         logging.error(f"Error scanning file {file_path}: {ex}")
         return False
 
+def extract_pe_sections(file_path: str):
+    try:
+        # Load the PE file
+        pe = pefile.PE(file_path)
+        logging.info(f"Loaded PE file: {file_path}")
+
+        # Ensure output directory exists
+        output_dir = Path(pe_extracted_dir)
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True)
+            logging.info(f"Created output directory: {output_dir}")
+
+        # Extract sections
+        for section in pe.sections:
+            # Get section name and clean it
+            section_name = section.Name.decode().strip('\x00')
+            section_data = section.get_data()
+
+            # Use the provided get_unique_output_path to generate a unique file name
+            section_file = get_unique_output_path(output_dir, section_name)
+
+            # Write section data to the unique file
+            with open(section_file, "wb") as f:
+                f.write(section_data)
+
+            logging.info(f"Section '{section_name}' saved to {section_file}")
+            pe_file_paths.append(section_file)  # Add the file path to the list
+
+            # Scan and warn after saving the file
+            for file_path in pe_file_paths:
+                scan_and_warn(file_path)
+
+        logging.info("Extraction completed successfully.")
+        return pe_file_paths  # Return the list of file paths
+
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        return []  # Return an empty list in case of error
+
+def extract_rcdata_resource(pe_path):
+    try:
+        pe = pefile.PE(pe_path)
+    except Exception as e:
+        logging.error(f"Error loading PE file: {e}")
+        return None
+
+    # Check if the PE file has resources
+    if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
+        logging.error("No resources found in this file.")
+        return None
+
+    first_rcdata_file = None  # Will hold the first RCData resource file path
+    all_extracted_files = []  # Store all extracted file paths for scanning
+
+    # Ensure output directory exists
+    output_dir = os.path.join(general_extracted_dir, os.path.splitext(os.path.basename(pe_path))[0])
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Traverse the resource directory
+    for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+        type_name = get_resource_name(resource_type)
+        if not hasattr(resource_type, 'directory'):
+            continue
+
+        for resource_id in resource_type.directory.entries:
+            res_id = get_resource_name(resource_id)
+            if not hasattr(resource_id, 'directory'):
+                continue
+
+            for resource_lang in resource_id.directory.entries:
+                lang_id = resource_lang.id
+                data_rva = resource_lang.data.struct.OffsetToData
+                size = resource_lang.data.struct.Size
+                data = pe.get_memory_mapped_image()[data_rva:data_rva + size]
+
+                # Save extracted resource to a file
+                file_name = f"{type_name}_{res_id}_{lang_id}.bin"
+                output_path = os.path.join(output_dir, file_name)
+                with open(output_path, "wb") as f:
+                    f.write(data)
+
+                logging.info(f"Extracted resource saved: {output_path}")
+                all_extracted_files.append(output_path)
+
+                # If it's an RCData resource and we haven't already set one, record its file path
+                if type_name.lower() in ("rcdata", "10") and first_rcdata_file is None:
+                    first_rcdata_file = output_path
+
+    # Scan all extracted files
+    for file_path in all_extracted_files:
+        scan_and_warn(file_path)
+
+    if first_rcdata_file is None:
+        logging.info("No RCData resource found.")
+    else:
+        logging.info(f"Using RCData resource file: {first_rcdata_file}")
+
+    return first_rcdata_file
+
 def extract_nuitka_file(file_path, nuitka_type):
     """
     Detect Nuitka type, extract Nuitka executable content, and scan for additional Nuitka executables.
@@ -6570,6 +6522,54 @@ def monitor_sandbox():
         logging.error(f"An error occurred at monitor_sandbox: {ex}")
     finally:
         win32file.CloseHandle(hDir)
+
+def extract_resources(pe_path, output_dir):
+    try:
+        pe = pefile.PE(pe_path)
+    except Exception as e:
+        logging.error(f"Error loading PE file: {e}")
+        return
+
+    # Check if the PE file has resources
+    if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
+        logging.error("No resources found in this file.")
+        return
+
+    os.makedirs(output_dir, exist_ok=True)
+    resource_count = 0
+
+    # Traverse the resource directory
+    for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+        type_name = get_resource_name(resource_type)
+        if not hasattr(resource_type, 'directory'):
+            continue
+
+        for resource_id in resource_type.directory.entries:
+            res_id = get_resource_name(resource_id)
+            if not hasattr(resource_id, 'directory'):
+                continue
+
+            for resource_lang in resource_id.directory.entries:
+                lang_id = resource_lang.id
+                data_rva = resource_lang.data.struct.OffsetToData
+                size = resource_lang.data.struct.Size
+                data = pe.get_memory_mapped_image()[data_rva:data_rva + size]
+
+                # Create a filename: resourceType_resourceID_langID.bin
+                file_name = f"{type_name}_{res_id}_{lang_id}.bin"
+                output_path = os.path.join(output_dir, file_name)
+                with open(output_path, "wb") as f:
+                    f.write(data)
+                logging.info(f"Resource saved: {output_path}")
+                resource_count += 1
+
+                # Call scan_and_warn on the extracted file
+                scan_and_warn(output_path)
+
+    if resource_count == 0:
+        logging.info("No resources were extracted.")
+    else:
+        logging.info(f"Extracted a total of {resource_count} resources.")
 
 def start_monitoring_sandbox():
     threading.Thread(target=monitor_sandbox).start()
