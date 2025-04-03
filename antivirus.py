@@ -2285,7 +2285,6 @@ def fetch_html(url):
         logging.error(f"Error fetching HTML content from {url}: {e}")
         return ""
 
-
 # --------------------------------------------------------------------------
 # Generalized scan for IP addresses
 def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False, homepage_flag=False):
@@ -2508,23 +2507,27 @@ def scan_html_content(html_content, dotnet_flag=False, nuitka_flag=False, pyinst
 # Main scanner: combine all individual scans and pass the flags along
 def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
                           dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False,
-                          homepage_flag=False):
+                          homepage_flag="Edge"):
     """
     Scan the decompiled code for Discord-related URLs (via contains_discord_or_telegram_code),
     general URLs, domains, and IP addresses. The provided flags are passed along
     to each individual scanning function so that every detection scenario uses its unique
     virus signature.
     """
+
+    # Call the Discord/Telegram scanner
     contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path,
                             dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
                             pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
 
+    # Extract URLs from the decompiled code
     urls = set(re.findall(r'https?://[^\s/$.?#]\S*', decompiled_code))
     for url in urls:
         html_content = fetch_html(url)
         contains_discord_or_telegram_code(html_content, file_path, cs_file_path,
                               dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
                               pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+        # Pass the homepage flag string into the scanning functions
         scan_url_general(url, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
                           pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag,
                           homepage_flag=homepage_flag)
