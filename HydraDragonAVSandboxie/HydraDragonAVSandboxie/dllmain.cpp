@@ -71,31 +71,26 @@ static int g_ransomware_detection_count = 0;
 // -----------------------------------------------------------------
 __declspec(thread) bool g_bInLogging = false;
 
-// Helper: Write a timestamped log entry to DONTREMOVEHomePageChange.txt.
+// Helper function: Write a timestamped CSV log entry to DONTREMOVEHomePageChange.txt.
 void WriteLog(const wchar_t* message)
 {
     FILE* f = nullptr;
     if (_wfopen_s(&f, L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEHomePageChange.txt", L"a+") == 0 && f)
     {
-        time_t now = time(NULL);
-        struct tm tmNow;
-        localtime_s(&tmNow, &now);
-        wchar_t timeBuffer[64] = { 0 };
-        wcsftime(timeBuffer, 64, L"%Y-%m-%d %H:%M:%S", &tmNow);
-        fwprintf(f, L"[%s] %s\n", timeBuffer, message);
+        // Write only the CSV-formatted message (for example: "Chrome,homepage_value")
+        fwprintf(f, L"%s\n", message);
         fclose(f);
     }
 }
 
-// Chrome Homepage Monitoring using Registry Notifications.
-// Monitors the registry key for Chrome homepage (adjust key/value as needed).
+// Chrome homepage monitoring thread
 DWORD WINAPI ChromeRegistryMonitorThread(LPVOID lpParam)
 {
     HKEY hKey = NULL;
     LONG lResult = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Policies\\Google\\Chrome", 0, KEY_READ | KEY_NOTIFY, &hKey);
     if (lResult != ERROR_SUCCESS)
     {
-        WriteLog(L"Chrome monitor: Failed to open registry key.");
+        SafeWriteSigmaLog(L"ChromeMonitor", L"Chrome monitor: Failed to open registry key.");
         return 1;
     }
 
@@ -109,18 +104,20 @@ DWORD WINAPI ChromeRegistryMonitorThread(LPVOID lpParam)
             lResult = RegQueryValueExW(hKey, L"Homepage", NULL, NULL, (LPBYTE)homepage, &bufSize);
             if (lResult == ERROR_SUCCESS)
             {
-                wchar_t logMsg[1024] = { 0 };
-                StringCchPrintfW(logMsg, 1024, L"Chrome homepage changed: %s", homepage);
-                WriteLog(logMsg);
+                // Build CSV message without using StringCchPrintfW
+                wchar_t csvLog[1024] = { 0 };
+                swprintf_s(csvLog, 1024, L"Chrome,%s", homepage);
+                // Log the match event using SafeWriteSigmaLog
+                SafeWriteSigmaLog(L"ChromeMonitorCSV", csvLog);
             }
             else
             {
-                WriteLog(L"Chrome monitor: Homepage value changed but could not be read.");
+                SafeWriteSigmaLog(L"ChromeMonitor", L"Chrome monitor: Homepage value changed but could not be read.");
             }
         }
         else
         {
-            WriteLog(L"Chrome monitor: RegNotifyChangeKeyValue failed.");
+            SafeWriteSigmaLog(L"ChromeMonitor", L"Chrome monitor: RegNotifyChangeKeyValue failed.");
             break;
         }
     }
@@ -131,16 +128,14 @@ DWORD WINAPI ChromeRegistryMonitorThread(LPVOID lpParam)
     return 0;
 }
 
-// Edge Homepage Monitoring using Registry Notifications.
-// Assumes Edge homepage is stored in HKEY_CURRENT_USER\Software\Policies\Microsoft\Edge
-// and the value is named "HomepageLocation" (adjust as needed).
+// Edge homepage monitoring thread
 DWORD WINAPI EdgeRegistryMonitorThread(LPVOID lpParam)
 {
     HKEY hKey = NULL;
     LONG lResult = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Policies\\Microsoft\\Edge", 0, KEY_READ | KEY_NOTIFY, &hKey);
     if (lResult != ERROR_SUCCESS)
     {
-        WriteLog(L"Edge monitor: Failed to open registry key.");
+        SafeWriteSigmaLog(L"EdgeMonitor", L"Edge monitor: Failed to open registry key.");
         return 1;
     }
 
@@ -154,18 +149,18 @@ DWORD WINAPI EdgeRegistryMonitorThread(LPVOID lpParam)
             lResult = RegQueryValueExW(hKey, L"HomepageLocation", NULL, NULL, (LPBYTE)homepage, &bufSize);
             if (lResult == ERROR_SUCCESS)
             {
-                wchar_t logMsg[1024] = { 0 };
-                StringCchPrintfW(logMsg, 1024, L"Edge homepage changed: %s", homepage);
-                WriteLog(logMsg);
+                wchar_t csvLog[1024] = { 0 };
+                swprintf_s(csvLog, 1024, L"Edge,%s", homepage);
+                SafeWriteSigmaLog(L"EdgeMonitorCSV", csvLog);
             }
             else
             {
-                WriteLog(L"Edge monitor: Homepage value changed but could not be read.");
+                SafeWriteSigmaLog(L"EdgeMonitor", L"Edge monitor: Homepage value changed but could not be read.");
             }
         }
         else
         {
-            WriteLog(L"Edge monitor: RegNotifyChangeKeyValue failed.");
+            SafeWriteSigmaLog(L"EdgeMonitor", L"Edge monitor: RegNotifyChangeKeyValue failed.");
             break;
         }
     }
@@ -215,14 +210,13 @@ std::wstring GetFirefoxPrefsPath()
     return prefsPath;
 }
 
-// Firefox Homepage Monitoring using File Change Notifications.
-// It retrieves the Firefox prefs.js path dynamically and monitors it for changes.
+// Firefox homepage monitoring thread (using file change notifications)
 DWORD WINAPI FirefoxFileMonitorThread(LPVOID lpParam)
 {
     std::wstring prefsFilePath = GetFirefoxPrefsPath();
     if (prefsFilePath.empty())
     {
-        WriteLog(L"Firefox monitor: Could not locate prefs.js file.");
+        SafeWriteSigmaLog(L"FirefoxMonitor", L"Firefox monitor: Could not locate prefs.js file.");
         return 1;
     }
 
@@ -237,7 +231,7 @@ DWORD WINAPI FirefoxFileMonitorThread(LPVOID lpParam)
     HANDLE hChange = FindFirstChangeNotificationW(directory, FALSE, FILE_NOTIFY_CHANGE_LAST_WRITE);
     if (hChange == INVALID_HANDLE_VALUE)
     {
-        WriteLog(L"Firefox monitor: Failed to set up directory change notification.");
+        SafeWriteSigmaLog(L"FirefoxMonitor", L"Firefox monitor: Failed to set up directory change notification.");
         return 1;
     }
 
@@ -280,28 +274,31 @@ DWORD WINAPI FirefoxFileMonitorThread(LPVOID lpParam)
                 }
                 fclose(f);
 
-                wchar_t logMsg[1024] = { 0 };
                 if (wcslen(homepage) > 0)
-                    StringCchPrintfW(logMsg, 1024, L"Firefox homepage changed: %s", homepage);
+                {
+                    wchar_t csvLog[1024] = { 0 };
+                    swprintf_s(csvLog, 1024, L"Firefox,%s", homepage);
+                    SafeWriteSigmaLog(L"FirefoxMonitorCSV", csvLog);
+                }
                 else
-                    StringCchPrintfW(logMsg, 1024, L"Firefox prefs.js changed but homepage setting not found.");
-
-                WriteLog(logMsg);
+                {
+                    SafeWriteSigmaLog(L"FirefoxMonitor", L"Firefox prefs.js changed but homepage setting not found.");
+                }
             }
             else
             {
-                WriteLog(L"Firefox monitor: Failed to open prefs.js for reading.");
+                SafeWriteSigmaLog(L"FirefoxMonitor", L"Firefox monitor: Failed to open prefs.js for reading.");
             }
 
             if (FindNextChangeNotification(hChange) == FALSE)
             {
-                WriteLog(L"Firefox monitor: Failed to reset change notification.");
+                SafeWriteSigmaLog(L"FirefoxMonitor", L"Firefox monitor: Failed to reset change notification.");
                 break;
             }
         }
         else
         {
-            WriteLog(L"Firefox monitor: WaitForSingleObject failed.");
+            SafeWriteSigmaLog(L"FirefoxMonitor", L"Firefox monitor: WaitForSingleObject failed.");
             break;
         }
     }
