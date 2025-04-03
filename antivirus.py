@@ -6118,6 +6118,29 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
         if is_hex_data(data_content):
             logging.info(f"File {file_path} contains valid hex-encoded data.")
 
+            # Check if the file_path equals the homepage change path.
+            if file_path == homepage_change_path:
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        lines = f.readlines()
+
+                    for line in lines:
+                        line = line.strip()
+                        if line:
+                            # Expecting a format like "Firefox,google.com"
+                            parts = line.split(',')
+                            if len(parts) == 2:
+                                browser_tag, homepage_value = parts[0].strip(), parts[1].strip()
+                                logging.info(
+                                    f"Processing homepage change entry: Browser={browser_tag}, Homepage={homepage_value}")
+                                # Call scan_code_for_links, using the homepage value as the code to scan.
+                                # Pass the browser tag as the homepage_flag.
+                                scan_code_for_links(homepage_value, file_path, homepage_flag=browser_tag)
+                            else:
+                                logging.error(f"Invalid format in homepage change file: {line}")
+                except Exception as ex:
+                    logging.error(f"Error processing homepage change file {file_path}: {ex}")
+
             # Attempt to extract the file, regardless of its type
             try:
                 logging.info(f"Attempting to extract file {file_path}...")
