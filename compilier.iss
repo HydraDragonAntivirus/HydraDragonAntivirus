@@ -51,7 +51,7 @@ Source: "C:\Users\victim\Documents\hydratempinstall\Snort_2_9_20_Installer.x64.e
 Source: "C:\Users\victim\Documents\hydratempinstall\JavaSetup8u431.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\jdk-23_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-8.0.14-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\Sandboxie-Classic-x64-v5.70.8.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydratempinstall\Sandboxie-Classic-x64-v5.70.9.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\setup.bat"; DestDir: "{tmp}"; Flags: deleteafterinstall
 ; Note: Don't use "Flags: ignoreversion" on any shared system files
 
@@ -75,5 +75,5 @@ Filename: "{tmp}\Snort_2_9_20_Installer.x64.exe"; Flags: shellexec waituntilterm
 Filename: "{tmp}\JavaSetup8u431.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\jdk-23_windows-x64_bin.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\windowsdesktop-runtime-8.0.14-win-x64.exe"; Flags: shellexec waituntilterminated
-Filename: "{tmp}\Sandboxie-Classic-x64-v5.70.8.exe"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\Sandboxie-Classic-x64-v5.70.9.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\setup.bat"; Flags: shellexec waituntilterminated
