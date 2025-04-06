@@ -1,4 +1,0 @@
-var File = IPA;
-var X = IPA;
-
-includeScript("result-general");

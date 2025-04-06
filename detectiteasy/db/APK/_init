@@ -1,4 +1,0 @@
-var File = APK;
-var X = APK;
-
-includeScript("result-general");

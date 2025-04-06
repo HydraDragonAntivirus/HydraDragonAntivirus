@@ -1,4 +1,0 @@
-var File = Archive;
-var X = Archive;
-
-includeScript("result-general");

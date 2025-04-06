@@ -1,4 +1,0 @@
-var File = JAR;
-var X = JAR;
-
-includeScript("result-general");
