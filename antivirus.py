@@ -275,6 +275,7 @@ nuitka_dir = os.path.join(script_dir, "nuitka")
 extensions_dir = os.path.join(script_dir, "knownextensions")
 system_file_names_path = os.path.join(script_dir, "systemfilenames.txt")
 extensions_path = os.path.join(extensions_dir, "extensions.txt")
+antivirus_process_list_path = os.path.join(extensions_dir, "antivirusprocesslist.txt")
 magic_bytes_path = os.path.join(extensions_dir, "magicbytes.txt")
 deepseek_dir = os.path.join(script_dir, "deepseek")
 deepseek_1b_dir = os.path.join(deepseek_dir, "DeepSeek-Coder-1.3B")
@@ -460,6 +461,17 @@ except Exception as ex:
     logging.info(f"Error reading {extensions_path}: {ex}")
 
 logging.info(f"File types read from {extensions_path}: {fileTypes}")
+
+# Read antivirus process list from antivirusprocesslist.txt with try-except.
+antivirus_process_list = []
+try:
+    if os.path.exists(antivirus_process_list_path):
+        with open(antivirus_process_list_path, 'r') as av_file:
+            antivirus_process_list = [line.strip() for line in av_file if line.strip()]
+except Exception as ex:
+    logging.info(f"Error reading {antivirus_process_list_path}: {ex}")
+
+logging.info(f"Antivirus process list read from {antivirus_process_list_path}: {antivirus_process_list}")
 
 pe_file_paths = []  # List to store the PE file paths
 
@@ -6971,13 +6983,7 @@ class MonitorMessageCommandLine:
                 "process_function": self.process_detected_command_fodhelper
                 },
             "antivirus": {
-                "patterns": [
-                    'findstr avastui.exe',
-                    'findstr avgui.exe',
-                    'findstr nswscsvc.exe',
-                    'findstr sophoshealth.exe',
-                    'findstr antivirus.exe'
-                ],
+                "patterns": antivirus_process_list,
                 "virus_name": "HEUR:Antivirus.Process.Search.Command",
                 "process_function": self.process_detected_command_antivirus_search
                 }
