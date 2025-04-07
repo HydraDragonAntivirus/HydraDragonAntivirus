@@ -317,4 +317,5 @@ cmdvirth.exe
 fortitray.exe
 sophoshealth.exe
 nswscsvc.exe
+rkill.exe
 antivirus.exe
