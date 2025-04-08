@@ -7520,8 +7520,10 @@ async def capture():
 async def compute_diff():
     """
     Computes a unified diff between the original and sandbox logs.
-    For each new or modified entry, it checks the MD5 online. If the MD5 is blacklisted or suspicious,
-    it invokes DeepSeek analysis (with HiJackThis_flag=True) for further malware detection and triggers alerts.
+    For each new or modified entry, it checks the MD5 online,
+    invokes DeepSeek analysis (with HiJackThis_flag=True) unconditionally,
+    and includes all results in the diff response. If any MD5 lookup yields a note,
+    it triggers an alert via notify_user_nichta().
     """
     if not orig_log_path or not sbx_log_path:
         raise HTTPException(status_code=400, detail="Capture both original and sandbox status first.")
@@ -7546,33 +7548,37 @@ async def compute_diff():
                 "entry": entry,
                 "file": file_path or "N/A",
                 "md5": md5 or "N/A",
-                "status": "Unknown",
-                "note": "No MD5 available."
+                "lookup_status": "Unknown",
+                "lookup_note": "No MD5 available.",
+                "deepseek_summary": "Skipped due to missing file or hash."
             })
             continue
 
-        # Use MD5 lookup for whitelist/blacklist check
+        # MD5 lookup
         status, note = query_md5_online_sync(md5)
+        # Always run DeepSeek analysis
+        deepseek_summary = scan_file_with_deepseek(file_path, HiJackThis_flag=True)
+
+        # Notify if there's any matching info from MD5 check
+        if note:
+            notify_user_nichta(file_path, note, HiJackThis_flag=True)
+
         entry_result = {
             "entry": entry,
             "file": file_path,
             "md5": md5,
             "lookup_status": status,
-            "lookup_note": note
+            "lookup_note": note,
+            "deepseek_summary": deepseek_summary
         }
-        # If the file is flagged (suspicious or blacklisted) then run DeepSeek analysis.
-        if status.lower() in ["maybe", "yes"]:
-            deepseek_summary = scan_file_with_deepseek(file_path, HiJackThis_flag=True)
-            entry_result["deepseek_summary"] = deepseek_summary
         additional_entries.append(entry_result)
 
-    # Optionally, if no additional entries were found, include a note.
     if not additional_entries:
         additional_entries.append("No new or modified entries found in parsed reports.")
 
     return {
         "unified_diff": diff_output,
-        "additional_entries": additional_entries
+        "diff_md5_results": additional_entries
     }
 
 @app.get("/update_definitions")
