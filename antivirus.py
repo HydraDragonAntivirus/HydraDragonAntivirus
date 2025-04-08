@@ -1362,21 +1362,13 @@ def notify_user_for_detected_command(message):
     notification.message = message
     notification.send()
     
-def notify_user_for_deepseek(file_path, virus_name, malware_status):
+def notify_user_for_deepseek(file_path, virus_name, malware_status, HiJackThis_flag=False):
     notification = Notify()
-    notification.title = "DeepSeek-Coder-1.3b Security Alert"  # Updated title
-    
-    if malware_status.lower() == "maybe":
-        notification.message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
-    elif malware_status.lower() == "yes":
-        notification.message = f"Malware detected: {file_path}\nVirus: {virus_name}"
+    if HiJackThis_flag:
+        notification.title = "DeepSeek-Coder-1.3b Security HiJackThis Alert"  # Updated title
+    else:
+        notification.title = "DeepSeek-Coder-1.3b Security Alert"  # Updated title
 
-    notification.send()
-
-def notify_user_for_deepseek_HiJackThis(file_path, virus_name, malware_status):
-    notification = Notify()
-    notification.title = "DeepSeek-Coder-1.3b Security HiJackThis Alert"  # Updated title
-    
     if malware_status.lower() == "maybe":
         notification.message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
     elif malware_status.lower() == "yes":
@@ -5284,8 +5276,22 @@ def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled
                 logging.info(f"{file_path}: {message}")
                 break
 
+        # Build the initial message. If HiJackThis_flag is True, tailor the prompt.
+        if HiJackThis_flag:
+            initial_message = (
+                "DeepSeek Report for HiJackThis log analysis:\n"
+                "The following report is produced based on HiJackThis log differences. "
+                "Analyze the file content and determine if there are suspicious changes that may indicate malware. "
+                "Include the following four lines in your response:\n"
+                "- Malware: [Yes/No/Maybe]\n"
+                "- Virus Name:\n"
+                "- Confidence: [percentage]\n"
+                "- Malicious Content: [Explanation]\n"
+                f"File name: {os.path.basename(file_path)}\n"
+                f"File path: {file_path}\n"
+            )
         # Build the initial message based on flags
-        if united_python_code_flag:
+        elif united_python_code_flag:
             initial_message = (
                 "This file was decompiled using pycdas.exe and further analyzed with DeepSeek-Coder-1.3b.\n"
                 "Based on the source code extracted via pycdas, please follow these instructions:\n"
@@ -5451,7 +5457,10 @@ def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled
         # If malware is detected (Maybe or Yes), notify the user
         if malware.lower() in ["maybe", "yes"]:
             try:
-                notify_user_for_deepseek(file_path, virus_name, malware)
+                if HiJackThis_flag:
+                    notify_user_for_deepseek(file_path, virus_name, malware, HiJackThis_flag=true)
+                else:
+                    notify_user_for_deepseek(file_path, virus_name, malware)
             except Exception as ex:
                 logging.error(f"Error notifying user: {ex}")
 
