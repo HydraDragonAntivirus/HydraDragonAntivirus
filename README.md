@@ -39,13 +39,16 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
  
  ## IMPORTANT
  - Any ghidra project will be removed after you restart the program. So be careful!
- - Don't forget to clean up commandlineandmessages, zip_extracted, etc. dirs, sandboxie dirs before analysis. Or take a snapshot before you running the program.
+ - Don't forget to clean up commandlineandmessages, HiJackThis_logs, zip_extracted, etc. dirs, sandboxie dirs before analysis. Or take a snapshot before you running the program.
  - You have to restart the program after the analysis.
 - Please don't share your IP in the logs.
 - Make sure that the ClamAV database is installed without problems.
 - We strongly recommend that you take a snapshot and then go back when you have finished your work.
-
-## Discord Community Server
+- Don't forget to take a HiJackThis report with logs (and update the signatures first) before starting the scan to detect malware for the final analysis.
+- The final analysis doesn't clean anything, so don't start a new scan afterward—it's only for detecting post-injection changes using HiJackThis. Please don't terminate the sandbox environment.
+- The new HiJackThis analysis removes the previous analysis file from the sandbox environment.
+-
+ ## Discord Community Server
 
 - Here is the server link: https://discord.gg/Rdyw59xqMC
 

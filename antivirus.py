@@ -392,6 +392,10 @@ freshclam_path = "C:\\Program Files\\ClamAV\\freshclam.exe"
 clamav_file_paths = ["C:\\Program Files\\ClamAV\\database\\daily.cvd", "C:\\Program Files\\ClamAV\\database\\daily.cld"]
 clamav_database_directory_path = "C:\\Program Files\\ClamAV\\database"
 seven_zip_path = "C:\\Program Files\\7-Zip\\7z.exe"  # Path to 7z.exe
+HiJackThis_directory = os.path.join(script_dir, "HiJackThis")
+HiJackThis_exe = os.path.join(HiJackThis_directory, "HiJackThis.exe")
+logs_dir = os.path.join(script_dir, "HiJackThis_logs")
+log_filename = "HiJackThis.log"
 
 IPv4_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b' # Simple IPv4 regex
 IPv6_pattern = r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b' # Simple IPv6 regex
@@ -3995,11 +3999,12 @@ sandboxie_control_path = "C:\\Program Files\\Sandboxie\\SbieCtrl.exe"
 device_args = [f"-i {i}" for i in range(1, 26)]  # Fixed device arguments
 username = os.getlogin()
 sandboxie_folder = rf'C:\Sandbox\{username}\DefaultBox'
-hosts_path = rf'{sandboxie_folder}\drive\C\Windows\System32\drivers\etc\hosts'
-drivers_path = rf'{sandboxie_folder}\drive\C\Windows\System32\drivers'
 main_drive_path = rf'{sandboxie_folder}\drive\C'
-sandboxie_log_folder = rf'{sandboxie_folder}\drive\C\DONTREMOVEHydraDragonAntivirusLogs'
+drivers_path = rf'{main_drive_path}\\Windows\System32\drivers'
+hosts_path = rf'{drivers_path}\hosts'
+sandboxie_log_folder = rf'{main_drive_path}\\DONTREMOVEHydraDragonAntivirusLogs'
 homepage_change_path = rf'{sandboxie_log_folder}\DONTREMOVEHomePageChange.txt'
+HiJackThis_log_path = rf'{main_drive_path}\Program Files\HydraDragonAntivirus\HiJackThis\HiJackThis.log'
 
 # Define the list of known rootkit filenames
 known_rootkit_files = [
@@ -5210,7 +5215,7 @@ def log_directory_type(file_path):
     except Exception as ex:
         logging.error(f"Error logging directory type for {file_path}: {ex}")
 
-def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled_flag=False):
+def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled_flag=False, HiJackThis_flag=False):
     """
     Processes a file and analyzes it using DeepSeek-Coder-1.3b.
     If united_python_code_flag is True (i.e. the file comes from pycdas, pycdc, uncompyle6 decompilation), 
@@ -5230,7 +5235,7 @@ def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled
             (lambda fp: fp.startswith(sandboxie_folder), f"It's a Sandbox environment file."),
             (lambda fp: fp.startswith(decompile_dir), f"Decompiled."),
             (lambda fp: fp.startswith(nuitka_dir), f"Nuitka onefile extracted."),
-f            (lambda fp: fp.startswith(dotnet_dir), f".NET decompiled."),
+            (lambda fp: fp.startswith(dotnet_dir), f".NET decompiled."),
             (lambda fp: fp.startswith(pyinstaller_dir), f"PyInstaller onefile extracted."),
             (lambda fp: fp.startswith(commandlineandmessage_dir), f"Command line message extracted."),
             (lambda fp: fp.startswith(pe_extracted_dir), f"PE file extracted."),
@@ -7388,6 +7393,149 @@ def run_analysis(file_path: str):
         error_message = f"An error occurred during sandbox analysis: {ex}"
         logging.error(error_message)
         print(error_message)
+
+# ----- Global Variables to hold captured data -----
+orig_log_path = None
+sbx_log_path = None
+original_entries = {}
+sandbox_entries = {}
+
+# ----- Utility Functions -----
+def force_remove_log():
+    """Forcefully remove the log file in the sandbox if it exists."""
+    if os.path.exists(HiJackThis_log_path):
+        try:
+            os.chmod(HiJackThis_log_path, 0o777)
+            os.remove(HiJackThis_log_path)
+            logging.info("Previous log removed successfully.")
+        except Exception as e:
+            logging.error("Failed to remove previous log: %s", e)
+
+def run_and_copy_log(label="orig"):
+    """
+    Remove any existing log file, launch HiJackThis via Sandboxie,
+    wait for the log to appear, then copy it to a timestamped file.
+    """
+    force_remove_log()
+    cmd = [sandboxie_path, '/box:DefaultBox', HiJackThis_exe]
+    subprocess.run(cmd, cwd=script_dir, check=True)
+    logging.debug("HiJackThis launched.")
+
+    # Wait for the log file to appear (a timeout is advisable)
+    timeout_seconds = 30
+    start_time = datetime.now()
+    while not os.path.exists(HiJackThis_log_path):
+        if (datetime.now() - start_time).seconds > timeout_seconds:
+            raise Exception("Log file did not appear within the timeout period.")
+        # Optional: Insert a short sleep here to reduce CPU usage:
+        # time.sleep(0.1)
+    
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    dest = os.path.join(logs_dir, f"{label}_{ts}.txt")
+    shutil.copy(HiJackThis_log_path, dest)
+    logging.info("Log copied to %s", dest)
+    return dest
+
+def parse_report(path):
+    """
+    Parse the HiJackThis report and return a dictionary where:
+      key   -> The log line (lines starting with O2, O4, or O23)
+      value -> A tuple containing (md5 hash, file path) if available.
+    """
+    entries = {}
+    with open(path, encoding='utf-8', errors='ignore') as f:
+        for line in f:
+            line = line.strip()
+            if not line.startswith(('O2', 'O4', 'O23')):
+                continue
+            file_path = None
+            md5 = None
+            for part in line.split():
+                if os.path.exists(part):
+                    file_path = part  # store the file path
+                    try:
+                        with open(part, 'rb') as fp:
+                            md5 = hashlib.md5(fp.read()).hexdigest()
+                    except Exception:
+                        md5 = None
+                    break
+            entries[line] = (md5, file_path)
+    return entries
+
+# ----- Unified Capture Endpoint -----
+@app.post("/capture")
+async def capture():
+    """
+    Single capture endpoint that first captures the original log,
+    then on the subsequent call captures the sandbox log.
+    """
+    global orig_log_path, sbx_log_path, original_entries, sandbox_entries
+
+    # If the original capture has not been done yet, do it first.
+    if orig_log_path is None:
+        try:
+            path = run_and_copy_log(label="orig")
+            orig_log_path = path  # Save original file path
+            original_entries = parse_report(path)
+            return {"status": "success", "message": f"Original status saved to {os.path.basename(path)}"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error capturing original status: {e}")
+    # Otherwise, if the sandbox capture hasn't been done, do that.
+    elif sbx_log_path is None:
+        try:
+            path = run_and_copy_log(label="sbx")
+            sbx_log_path = path  # Save sandbox file path
+            sandbox_entries = parse_report(path)
+            return {"status": "success", "message": f"Sandbox status saved to {os.path.basename(path)}"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error capturing sandbox status: {e}")
+    # If both have been captured, inform the client.
+    else:
+        return JSONResponse(
+            {"status": "info", "message": "Both original and sandbox statuses have already been captured."}
+        )
+
+@app.get("/compute_diff")
+async def compute_diff():
+    """
+    Computes a unified diff between the original and sandbox log files and
+    identifies new or modified entries (with MD5 check results).
+    """
+    if not orig_log_path or not sbx_log_path:
+        raise HTTPException(status_code=400, detail="Capture both original and sandbox status first.")
+    try:
+        with open(orig_log_path, encoding='utf-8', errors='ignore') as f:
+            orig_lines = f.readlines()
+        with open(sbx_log_path, encoding='utf-8', errors='ignore') as f:
+            sbx_lines = f.readlines()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reading log files: {e}")
+
+    diff = difflib.unified_diff(orig_lines, sbx_lines, fromfile='Original', tofile='Sandbox', lineterm='')
+    diff_output = list(diff)
+
+    # Process additional entries based on parsed reports.
+    diff_entries = set(sandbox_entries.keys()) - set(original_entries.keys())
+    additional_entries = []
+
+    if diff_entries:
+        for entry in sorted(diff_entries):
+            md5, file_path = sandbox_entries.get(entry, (None, None))
+            status, note = ("Unknown", "") if not md5 else query_md5_online_sync(md5)
+            additional_entries.append({
+                "entry": entry,
+                "file": file_path or "N/A",
+                "md5": md5 or "N/A",
+                "status": status,
+                "note": note
+            })
+    else:
+        additional_entries.append("No new or modified entries found in parsed reports.")
+
+    return {
+        "unified_diff": diff_output,
+        "additional_entries": additional_entries
+    }
 
 @app.get("/update_definitions")
 def update_definitions():
