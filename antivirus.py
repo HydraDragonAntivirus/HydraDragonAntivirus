@@ -1320,6 +1320,18 @@ def notify_user_nichta(file_path, virus_name):
                             f"Risk: {virus_name}\n")
     notification.send()
 
+def notify_user_nichta_HiJackThis(file_path, virus_name):
+    """
+    Notify function for cloud analysis (Nichta) warnings for HiJackThis logs.
+    Uses a different notification title or method as desired.
+    """
+    notification = Notify()  # Assuming Notify() is defined elsewhere
+    notification.title = "Nichta Cloud Analysis HiJackThis Alert"
+    notification.message = (f"Cloud analysis flagged the file:\n"
+                            f"Path: {file_path}\n"
+                            f"Risk: {virus_name}\n")
+    notification.send()
+
 def notify_user(file_path, virus_name, engine_detected): 
     notification = Notify()
     notification.title = "Malware Alert"
@@ -1353,6 +1365,17 @@ def notify_user_for_detected_command(message):
 def notify_user_for_deepseek(file_path, virus_name, malware_status):
     notification = Notify()
     notification.title = "DeepSeek-Coder-1.3b Security Alert"  # Updated title
+    
+    if malware_status.lower() == "maybe":
+        notification.message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
+    elif malware_status.lower() == "yes":
+        notification.message = f"Malware detected: {file_path}\nVirus: {virus_name}"
+
+    notification.send()
+
+def notify_user_for_deepseek_HiJackThis(file_path, virus_name, malware_status):
+    notification = Notify()
+    notification.title = "DeepSeek-Coder-1.3b Security HiJackThis Alert"  # Updated title
     
     if malware_status.lower() == "maybe":
         notification.message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
