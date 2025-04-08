@@ -4,6 +4,7 @@
         Title="Hydra Dragon Antivirus" Height="600" Width="800"
         Background="#F0F4F7">
     <DockPanel>
+
         <!-- Header -->
         <TextBlock DockPanel.Dock="Top"
                    Text="Hydra Dragon Antivirus Control Panel"
@@ -12,20 +13,50 @@
                    Margin="10"
                    HorizontalAlignment="Center"/>
 
+        <!-- Important Instructions -->
+        <TextBlock DockPanel.Dock="Top"
+                   TextWrapping="Wrap"
+                   FontSize="14"
+                   Margin="10,5,10,10"
+                   Foreground="#990000">
+            IMPORTANT: Only run this application from a Virtual Machine.
+            1. First, update virus definitions.
+            2. Then run the HiJackThis Report (first analysis).
+            3. After that, perform the main analysis.
+            4. Once done, do not close the application. Run HiJackThis again (final analysis).
+            5. Wait about 5 minutes after clicking the Compute Diff button, then return to a clean snapshot for a new analysis.
+        </TextBlock>
+
         <!-- Button Panel -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,10">
+
             <Button Name="BtnUpdateDefinitions" Content="Update Definitions" 
                     Width="180"
+                    Margin="10,0"
                     Style="{StaticResource AdvancedButtonStyle}"
                     Click="BtnUpdateDefinitions_Click"/>
+
             <Button Name="BtnAnalyzeFile" Content="Analyze File" 
                     Width="180"
+                    Margin="10,0"
                     Style="{StaticResource AdvancedButtonStyle}"
                     Click="BtnAnalyzeFile_Click"/>
+
+            <Button Name="BtnHijackThis" Content="Do First Analysis"
+                    Width="180"
+                    Margin="10,0"
+                    Style="{StaticResource AdvancedButtonStyle}"
+                    Click="BtnHijackThis_Click"/>
+
+            <Button Name="BtnComputeDiff" Content="Compute Diff"
+                    Width="180"
+                    Margin="10,0"
+                    Style="{StaticResource AdvancedButtonStyle}"
+                    Click="BtnComputeDiff_Click"/>
         </StackPanel>
 
         <!-- Log Viewer -->
-        <GroupBox Header="Realtime Logs" Style="{StaticResource AdvancedGroupBoxStyle}">
+        <GroupBox Header="Realtime Logs" Style="{StaticResource AdvancedGroupBoxStyle}" Margin="10">
             <RichTextBox Name="rtbLogs" 
                          Style="{StaticResource AdvancedRichTextBoxStyle}" 
                          IsReadOnly="True"/>
