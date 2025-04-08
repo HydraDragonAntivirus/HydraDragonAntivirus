@@ -5,6 +5,7 @@ using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Threading;
 using System.Xml.Linq; // Required for XDocument
+using System.Threading.Tasks; // For async methods
 
 namespace HydraDragonAntivirusGUI
 {
@@ -117,9 +118,44 @@ namespace HydraDragonAntivirusGUI
             MessageBox.Show(result, "Analyze File");
         }
 
-        /// <summary>
-        /// Sends an XML POST request using RestSharp and returns the response content as a string.
-        /// </summary>
+        // Event handler for First Analysis (HiJackThis)
+        private async void BtnHijackThis_Click(object sender, RoutedEventArgs e)
+        {
+            // Change button text for final analysis
+            BtnHijackThis.Content = "Do Final Analysis";
+
+            // Call the HiJackThis analysis endpoint (simulated as /capture)
+            string url = "http://localhost:8000/capture";
+            string xmlPayload = @"<?xml version=""1.0"" encoding=""UTF-8""?>
+                                  <capture>
+                                    <action>start_capture</action>
+                                  </capture>";
+            string result = await SendXmlRequestAsync(url, xmlPayload);
+            MessageBox.Show(result, "First Analysis Complete");
+        }
+
+        // Event handler for Compute Diff (final analysis)
+        private async void BtnComputeDiff_Click(object sender, RoutedEventArgs e)
+        {
+            // Wait for 5 minutes (simulate with a task delay)
+            BtnComputeDiff.IsEnabled = false; // Disable the button to prevent re-clicking
+            MessageBox.Show("Please wait for 5 minutes before proceeding.", "Wait", MessageBoxButton.OK, MessageBoxImage.Information);
+
+            await Task.Delay(TimeSpan.FromMinutes(5)); // Wait 5 minutes before calling the diff computation
+
+            // Call the compute_diff endpoint
+            string url = "http://localhost:8000/compute_diff";
+            string xmlPayload = @"<?xml version=""1.0"" encoding=""UTF-8""?>
+                                  <diff>
+                                    <action>compute_diff</action>
+                                  </diff>";
+            string result = await SendXmlRequestAsync(url, xmlPayload);
+            MessageBox.Show(result, "Compute Diff Complete");
+
+            // After 5 minutes, disable the button (since the analysis is done)
+            BtnHijackThis.IsEnabled = false; // Disable "Do Final Analysis" button
+        }
+
         private async Task<string> SendXmlRequestAsync(string url, string xmlPayload)
         {
             try
