@@ -1308,25 +1308,16 @@ def calculate_similarity(features1, features2):
     similarity = matching_keys / max(len(features1), len(features2))
     return similarity
 
-def notify_user_nichta(file_path, virus_name):
+def notify_user_nichta(file_path, virus_name, HiJackThis_flag=False):
     """
     Notify function for cloud analysis (Nichta) warnings.
     Uses a different notification title or method as desired.
     """
     notification = Notify()  # Assuming Notify() is defined elsewhere
-    notification.title = "Nichta Cloud Analysis Alert"
-    notification.message = (f"Cloud analysis flagged the file:\n"
-                            f"Path: {file_path}\n"
-                            f"Risk: {virus_name}\n")
-    notification.send()
-
-def notify_user_nichta_HiJackThis(file_path, virus_name):
-    """
-    Notify function for cloud analysis (Nichta) warnings for HiJackThis logs.
-    Uses a different notification title or method as desired.
-    """
-    notification = Notify()  # Assuming Notify() is defined elsewhere
-    notification.title = "Nichta Cloud Analysis HiJackThis Alert"
+    if HiJackThis_flag:
+        notification.title = "Nichta Cloud HiJackThis Analysis Alert"
+    else:
+        notification.title = "Nichta Cloud Analysis Alert"
     notification.message = (f"Cloud analysis flagged the file:\n"
                             f"Path: {file_path}\n"
                             f"Risk: {virus_name}\n")
@@ -7454,13 +7445,11 @@ def run_and_copy_log(label="orig"):
     logging.debug("HiJackThis launched.")
 
     # Wait for the log file to appear (a timeout is advisable)
-    timeout_seconds = 30
+    timeout_seconds = 300
     start_time = datetime.now()
     while not os.path.exists(HiJackThis_log_path):
         if (datetime.now() - start_time).seconds > timeout_seconds:
             raise Exception("Log file did not appear within the timeout period.")
-        # Optional: Insert a short sleep here to reduce CPU usage:
-        # time.sleep(0.1)
     
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = os.path.join(lHiJackThis_logs_dir, f"{label}_{ts}.txt")
@@ -7530,8 +7519,9 @@ async def capture():
 @app.get("/compute_diff")
 async def compute_diff():
     """
-    Computes a unified diff between the original and sandbox log files and
-    identifies new or modified entries (with MD5 check results).
+    Computes a unified diff between the original and sandbox logs.
+    For each new or modified entry, it checks the MD5 online. If the MD5 is blacklisted or suspicious,
+    it invokes DeepSeek analysis (with HiJackThis_flag=True) for further malware detection and triggers alerts.
     """
     if not orig_log_path or not sbx_log_path:
         raise HTTPException(status_code=400, detail="Capture both original and sandbox status first.")
@@ -7546,22 +7536,38 @@ async def compute_diff():
     diff = difflib.unified_diff(orig_lines, sbx_lines, fromfile='Original', tofile='Sandbox', lineterm='')
     diff_output = list(diff)
 
-    # Process additional entries based on parsed reports.
-    diff_entries = set(sandbox_entries.keys()) - set(original_entries.keys())
     additional_entries = []
-
-    if diff_entries:
-        for entry in sorted(diff_entries):
-            md5, file_path = sandbox_entries.get(entry, (None, None))
-            status, note = ("Unknown", "") if not md5 else query_md5_online_sync(md5)
+    # Process entries that are in the sandbox report but not in the original
+    diff_entries = set(sandbox_entries.keys()) - set(original_entries.keys())
+    for entry in sorted(diff_entries):
+        md5, file_path = sandbox_entries.get(entry, (None, None))
+        if not md5 or not file_path:
             additional_entries.append({
                 "entry": entry,
                 "file": file_path or "N/A",
                 "md5": md5 or "N/A",
-                "status": status,
-                "note": note
+                "status": "Unknown",
+                "note": "No MD5 available."
             })
-    else:
+            continue
+
+        # Use MD5 lookup for whitelist/blacklist check
+        status, note = query_md5_online_sync(md5)
+        entry_result = {
+            "entry": entry,
+            "file": file_path,
+            "md5": md5,
+            "lookup_status": status,
+            "lookup_note": note
+        }
+        # If the file is flagged (suspicious or blacklisted) then run DeepSeek analysis.
+        if status.lower() in ["maybe", "yes"]:
+            deepseek_summary = scan_file_with_deepseek(file_path, HiJackThis_flag=True)
+            entry_result["deepseek_summary"] = deepseek_summary
+        additional_entries.append(entry_result)
+
+    # Optionally, if no additional entries were found, include a note.
+    if not additional_entries:
         additional_entries.append("No new or modified entries found in parsed reports.")
 
     return {
