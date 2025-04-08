@@ -394,7 +394,7 @@ clamav_database_directory_path = "C:\\Program Files\\ClamAV\\database"
 seven_zip_path = "C:\\Program Files\\7-Zip\\7z.exe"  # Path to 7z.exe
 HiJackThis_directory = os.path.join(script_dir, "HiJackThis")
 HiJackThis_exe = os.path.join(HiJackThis_directory, "HiJackThis.exe")
-logs_dir = os.path.join(script_dir, "HiJackThis_logs")
+HiJackThis_logs_dir = os.path.join(script_dir, "HiJackThis_logs")
 log_filename = "HiJackThis.log"
 
 IPv4_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b' # Simple IPv4 regex
@@ -7454,7 +7454,7 @@ def run_and_copy_log(label="orig"):
         # time.sleep(0.1)
     
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    dest = os.path.join(logs_dir, f"{label}_{ts}.txt")
+    dest = os.path.join(lHiJackThis_logs_dir, f"{label}_{ts}.txt")
     shutil.copy(HiJackThis_log_path, dest)
     logging.info("Log copied to %s", dest)
     return dest
