@@ -404,6 +404,8 @@ discord_webhook_pattern = r'https://discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_
 discord_canary_webhook_pattern = r'https://canary\.discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
 discord_invite_pattern = r'https://discord\.gg/[A-Za-z0-9]+'
 telegram_token_pattern = r'\d+:[A-Za-z0-9_-]+'
+telegram_keyword_pattern = r'\btelegram\b'
+
 UBLOCK_REGEX = re.compile(
     r'^https:\/\/s[cftz]y?[ace][aemnu][a-z]{1,4}o[mn][a-z]{4,8}[iy][a-z]?\.com\/$'
 )
@@ -1782,10 +1784,16 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
     For every detection, log a warning and immediately notify the user with an explicit unique heuristic
     signature that depends on the flags provided.
     """
-    discord_webhook_matches = re.findall(discord_webhook_pattern, decompiled_code)
-    discord_canary_webhook_matches = re.findall(discord_canary_webhook_pattern, decompiled_code)
-    discord_invite_matches = re.findall(discord_invite_pattern, decompiled_code)
+    # Perform matches
+    discord_webhook_matches = re.findall(discord_webhook_pattern.lower(), code_lower)
+    discord_canary_webhook_matches = re.findall(discord_canary_webhook_pattern.lower(), code_lower)
+    discord_invite_matches = re.findall(discord_invite_pattern.lower(), code_lower)
+
+    # Telegram token (case-sensitive): run on original code
     telegram_token_matches = re.findall(telegram_token_pattern, decompiled_code)
+
+    # Telegram keyword (case-insensitive): run with re.IGNORECASE
+    telegram_keyword_matches = re.findall(telegram_keyword_pattern, decompiled_code, flags=re.IGNORECASE)
 
     if discord_webhook_matches:
         if dotnet_flag:
@@ -1848,24 +1856,24 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
             logging.info(f"Discord invite link detected in decompiled code: {discord_invite_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Invite')
 
-    if telegram_token_matches:
+    if telegram_token_matches and telegram_keyword_matches:
         if dotnet_flag:
             if cs_file_path:
-                logging.warning(f"Telegram bot detected in .NET source code file: {cs_file_path} - Matches: {discord_invite_matches}")
+                logging.warning(f"Telegram bot detected in .NET source code file: {cs_file_path} - Matches: {telegram_token_matches}")
             else:
-                logging.warning(f"Telegram bot detected in .NET source code file: [cs_file_path not provided] - Matches: {discord_invite_matches}")
+                logging.warning(f"Telegram bot detected in .NET source code file: [cs_file_path not provided] - Matches: {telegram_token_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.DotNET')
         elif nuitka_flag:
-            logging.warning(f"Telegram bot detected in Nuitka compiled file: {file_path} - Matches: {discord_invite_matches}")
+            logging.warning(f"Telegram bot detected in Nuitka compiled file: {file_path} - Matches: {telegram_token_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.Nuitka')
         elif pyinstaller_flag or pyinstaller_deepseek_flag:
-            logging.warning(f"Telegram bot detected in PyInstaller compiled file: {file_path} - Matches: {discord_invite_matches} NOTICE: There still a chance the file is not related with PyInstaller")
+            logging.warning(f"Telegram bot detected in PyInstaller compiled file: {file_path} - Matches: {telegram_token_matches} NOTICE: There still a chance the file is not related with PyInstaller")
             if pyinstaller_deepseek_flag:
                 notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.PyInstallerDeepSeek')
             else:
                 notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.PyInstaller')
         else:
-            logging.info(f"Telegram bot link detected in decompiled code: {discord_invite_matches}")
+            logging.info(f"Telegram bot link detected in decompiled code: {telegram_token_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot')
 
 # --------------------------------------------------------------------------
