@@ -5,7 +5,6 @@ using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Threading;
 using System.Xml.Linq; // Required for XDocument
-using System.Threading.Tasks; // For async methods
 
 namespace HydraDragonAntivirusGUI
 {
