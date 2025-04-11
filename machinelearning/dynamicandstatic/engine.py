@@ -902,6 +902,59 @@ class PEFeatureExtractor:
             return None
 
 # =============================================================================
+# Capstone Disassembly Engines (Static and Dynamic)
+# =============================================================================
+
+def static_capstone_disassembly(file_path):
+    """
+    Uses Capstone to disassemble the .text section of the target executable for static analysis.
+    """
+    try:
+        from capstone import Cs, CS_ARCH_X86, CS_MODE_32, CS_MODE_64
+        pe = pefile.PE(file_path)
+        # Determine architecture mode
+        arch_mode = CS_MODE_32
+        if pe.FILE_HEADER.Machine == 0x8664:
+            arch_mode = CS_MODE_64
+        # Find .text section
+        text_section = None
+        for section in pe.sections:
+            if b'.text' in section.Name:
+                text_section = section
+                break
+        if text_section is None:
+            logging.info("No .text section found in the executable for static disassembly.")
+            return ""
+        code = text_section.get_data()
+        # Initialize capstone disassembler
+        md = Cs(CS_ARCH_X86, arch_mode)
+        disassembly = ""
+        for i in md.disasm(code, text_section.VirtualAddress):
+            disassembly += "0x%x:\t%s\t%s\n" % (i.address, i.mnemonic, i.op_str)
+        logging.info("Static disassembly completed.")
+        return disassembly
+    except Exception as e:
+        logging.error(f"Static capstone disassembly error: {e}")
+        return ""
+
+def dynamic_capstone_disassembly(memory_dump):
+    """
+    Uses Capstone to disassemble a memory dump for dynamic analysis.
+    """
+    try:
+        from capstone import Cs, CS_ARCH_X86, CS_MODE_32, CS_MODE_64
+        # For dynamic memory dump, assuming 64-bit mode by default
+        md = Cs(CS_ARCH_X86, CS_MODE_64)
+        disassembly = ""
+        for i in md.disasm(memory_dump, 0x1000):  # arbitrary base address
+            disassembly += "0x%x:\t%s\t%s\n" % (i.address, i.mnemonic, i.op_str)
+        logging.info("Dynamic disassembly completed.")
+        return disassembly
+    except Exception as e:
+        logging.error(f"Dynamic capstone disassembly error: {e}")
+        return ""
+
+# =============================================================================
 # Helper Function to Extract Sandbox Environment Messages
 # =============================================================================
 
@@ -1158,17 +1211,21 @@ def collect_messages(target_exe, collected_messages, stop_event):
     msgs = extract_target_messages(target_exe, stop_event)
     collected_messages.extend(msgs)
 
-def scan_file(file_path, auto_create=False, benign=False):
+def scan_file(file_path, auto_create=False, benign=False, injection=False, script_path=None):
     logging.info(f"Scanning file: {file_path}")
-    report_tokens = []
-
-    # Run dynamic and static analysis
     dynamic_result, collected_messages = dynamic_scan(file_path)
-    static_result = detailed_static_scan(file_path)
-    report_tokens.append(dynamic_result)
-    report_tokens.append(static_result)
+    static_tokens = detailed_static_scan(file_path)
     
-    # Process collected messages to remove full file path
+    # ------------------------------------------------------------------------
+    # NEW: Capstone Disassembly Engines Integration
+    # ------------------------------------------------------------------------
+    # Perform static disassembly of the target executable.
+    static_disassembly = static_capstone_disassembly(file_path)
+    # Perform dynamic disassembly on the memory dump from scanning.
+    current_memory = scan_memory(file_path)
+    dynamic_disassembly = dynamic_capstone_disassembly(current_memory)
+    # ------------------------------------------------------------------------
+    
     if collected_messages:
         clean_messages = []
         for msg in collected_messages:
@@ -1177,13 +1234,43 @@ def scan_file(file_path, auto_create=False, benign=False):
                 clean_messages.append(msg.split("->")[-1].strip())
             else:
                 clean_messages.append(msg)
-        report_tokens.append("TARGETMESSAGES:" + " ".join(clean_messages))
+        target_messages = "TARGETMESSAGES:" + " ".join(clean_messages)
+    else:
+        target_messages = ""
     
-    # Combine tokens into a full scan report.
-    scan_report = " ".join(report_tokens)
+    registry_diff = ""
+    if injection and script_path is not None:
+        registry_diff = run_sandboxie_injection(file_path, script_path)
+    patterns = []
+    # Split static analysis tokens into separate pattern tokens.
+    for i, token in enumerate(static_tokens.split(" "), start=1):
+        patterns.append(f"PATTERN_STATIC_{i}:{token}")
+    # Split dynamic result tokens.
+    for i, token in enumerate(dynamic_result.split(" "), start=1):
+        patterns.append(f"PATTERN_DYNAMIC_{i}:{token}")
+    # Split target message tokens.
+    if target_messages:
+        for i, token in enumerate(target_messages.split(" "), start=1):
+            patterns.append(f"PATTERN_TARGET_{i}:{token}")
+    # Split registry diff tokens.
+    if registry_diff:
+        for i, token in enumerate(registry_diff.split(" "), start=1):
+            patterns.append(f"PATTERN_REGISTRY_{i}:{token}")
+    # Split Capstone disassembly tokens (static)
+    if static_disassembly:
+        patterns.append("PATTERN_STATIC_DISASSEMBLY_BEGIN")
+        for line in static_disassembly.splitlines():
+            patterns.append(f"PATTERN_STATIC_DISASSEMBLY:{line}")
+        patterns.append("PATTERN_STATIC_DISASSEMBLY_END")
+    # Split Capstone disassembly tokens (dynamic)
+    if dynamic_disassembly:
+        patterns.append("PATTERN_DYNAMIC_DISASSEMBLY_BEGIN")
+        for line in dynamic_disassembly.splitlines():
+            patterns.append(f"PATTERN_DYNAMIC_DISASSEMBLY:{line}")
+        patterns.append("PATTERN_DYNAMIC_DISASSEMBLY_END")
+    
+    scan_report = " ".join(patterns)
     logging.info("Scan Report: %s", scan_report)
-    
-    # Load user-defined signatures and perform similarity matching.
     signatures = load_signatures()
     matched_signatures = []
     threshold = 0.8  # Similarity threshold
@@ -1192,7 +1279,6 @@ def scan_file(file_path, auto_create=False, benign=False):
         similarity = calculate_similarity(pattern, scan_report)
         if similarity >= threshold:
             matched_signatures.append((sig.get("name"), similarity, sig.get("label", "unknown")))
-    
     if matched_signatures:
         logging.info("Matched Signatures:")
         for name, sim, label in matched_signatures:
@@ -1220,17 +1306,6 @@ def scan_file(file_path, auto_create=False, benign=False):
                 logging.info("Auto-created signature: %s", new_signature)
             except Exception as ex:
                 logging.error("Failed to auto-create signature: %s", ex)
-
-def scan_directory(directory, auto_create=False, benign=False):
-    """
-    Recursively scans all files in the given directory.
-    For each file, it calls scan_file with the provided flags.
-    """
-    for root, dirs, files in os.walk(directory):
-        for file in files:
-            file_path = os.path.join(root, file)
-            logging.info(f"\nScanning file: {file_path}")
-            scan_file(file_path, auto_create=auto_create, benign=benign)
 
 # =============================================================================
 # Registry Snapshot Functions (Recursive - Monitoring Whole Registry)
@@ -1319,78 +1394,6 @@ def run_sandboxie_injection(target_exe, script_path):
     return registry_pattern
 
 # =============================================================================
-# Scan File with Injection and Pattern Splitting
-# =============================================================================
-
-def scan_file(file_path, auto_create=False, benign=False, injection=False, script_path=None):
-    logging.info(f"Scanning file: {file_path}")
-    dynamic_result, collected_messages = dynamic_scan(file_path)
-    static_tokens = detailed_static_scan(file_path)
-    if collected_messages:
-        clean_messages = []
-        for msg in collected_messages:
-            if "->" in msg:
-                clean_messages.append(msg.split("->")[-1].strip())
-            else:
-                clean_messages.append(msg)
-        target_messages = " ".join(clean_messages)
-    else:
-        target_messages = ""
-    registry_diff = ""
-    if injection and script_path is not None:
-        registry_diff = run_sandboxie_injection(file_path, script_path)
-    patterns = []
-    # Split static analysis tokens into separate pattern tokens.
-    for i, token in enumerate(static_tokens.split(" "), start=1):
-        patterns.append(f"PATTERN_STATIC_{i}:{token}")
-    # Split dynamic result tokens.
-    for i, token in enumerate(dynamic_result.split(" "), start=1):
-        patterns.append(f"PATTERN_DYNAMIC_{i}:{token}")
-    # Split target message tokens.
-    if target_messages:
-        for i, token in enumerate(target_messages.split(" "), start=1):
-            patterns.append(f"PATTERN_TARGET_{i}:{token}")
-    # Split registry diff tokens.
-    if registry_diff:
-        for i, token in enumerate(registry_diff.split(" "), start=1):
-            patterns.append(f"PATTERN_REGISTRY_{i}:{token}")
-    scan_report = " ".join(patterns)
-    logging.info("Scan Report:", scan_report)
-    signatures = load_signatures()
-    matched_signatures = []
-    threshold = 0.8
-    for sig in signatures:
-        pattern = sig.get("pattern", "")
-        similarity = calculate_similarity(pattern, scan_report)
-        if similarity >= threshold:
-            matched_signatures.append(sig.get("name"))
-    if matched_signatures:
-        united_signature = "MATCHED_SIGNATURES:" + ",".join(matched_signatures)
-        logging.info(united_signature)
-    else:
-        logging.info("No signatures matched.")
-        if auto_create:
-            label = "benign" if benign else ("malware" if dynamic_result != "MEMDUMP:0" else "benign")
-            new_signature = {
-                "name": os.path.basename(file_path),
-                "pattern": scan_report,
-                "label": label
-            }
-            auto_sig_file = "auto_signatures.json"
-            try:
-                if os.path.exists(auto_sig_file):
-                    with open(auto_sig_file, "r") as f:
-                        auto_sigs = json.load(f)
-                else:
-                    auto_sigs = []
-                auto_sigs.append(new_signature)
-                with open(auto_sig_file, "w") as f:
-                    json.dump(auto_sigs, f, indent=4)
-                logging.info("Auto-created signature:", new_signature)
-            except Exception as ex:
-                logging.error("Failed to auto-create signature:", ex)
-
-# =============================================================================
 # Load Signatures
 # =============================================================================
 
@@ -1416,10 +1419,6 @@ def is_admin():
         return ctypes.windll.shell32.IsUserAnAdmin()
     except Exception:
         return False
-
-def scan_file(target, auto_create, benign, injection, script_path):
-    # Your scan_file implementation here
-    logging.info(f"Scanning {target} with options: auto_create={auto_create}, benign={benign}, injection={injection}")
 
 # =============================================================================
 # Main Function
