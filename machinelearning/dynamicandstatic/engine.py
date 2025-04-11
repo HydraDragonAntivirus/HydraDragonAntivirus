@@ -21,6 +21,68 @@ import struct
 import winreg
 
 # =============================================================================
+# Capstone-based Signature Engine
+# =============================================================================
+import capstone
+
+def generate_capstone_signature(file_path, architecture=capstone.CS_ARCH_X86, mode=capstone.CS_MODE_64):
+    """
+    Generates an antivirus signature using Capstone disassembly without using hash.
+    The function reads the binary content from the file, disassembles it using Capstone,
+    and creates a signature pattern based on the hexadecimal representation of each instruction's bytes.
+    
+    Args:
+        file_path (str): Path to the executable file.
+        architecture: Architecture constant (default: CS_ARCH_X86).
+        mode: Operating mode (default: CS_MODE_64).
+    
+    Returns:
+        str or None: The generated signature string or None if disassembly fails.
+    """
+    try:
+        with open(file_path, 'rb') as f:
+            code_bytes = f.read()
+    except Exception as e:
+        logging.error(f"Failed to read file {file_path}: {e}")
+        return None
+
+    md = capstone.Cs(architecture, mode)
+    instructions = list(md.disasm(code_bytes, 0x1000))
+    if not instructions:
+        logging.warning(f"No disassembly could be performed on {file_path}.")
+        return None
+
+    signature_parts = []
+    for ins in instructions:
+        # Convert each instruction's raw bytes into a hexadecimal string.
+        hex_bytes = " ".join(f"{b:02x}" for b in ins.bytes)
+        signature_parts.append(hex_bytes)
+    
+    # Join the parts with ' | ' to form the final signature pattern.
+    signature_pattern = " | ".join(signature_parts)
+    return signature_pattern
+
+def scan_signature_folder(folder_path):
+    """
+    Recursively scans all files in the specified folder (using os.walk).
+    For each file with a .exe extension, it generates an antivirus signature using Capstone disassembly
+    and prints the result.
+    
+    Args:
+        folder_path (str): The directory to scan.
+    """
+    for root, dirs, files in os.walk(folder_path):
+        for file in files:
+            if file.lower().endswith('.exe'):
+                file_path = os.path.join(root, file)
+                signature = generate_capstone_signature(file_path)
+                if signature:
+                    logging.info(f"Signature for {file_path}: {signature}")
+                    print(f"Signature for {file_path}:\n{signature}\n")
+                else:
+                    logging.info(f"Failed to generate signature for {file_path}.")
+
+# =============================================================================
 # Windows API Functions for GUI Text Extraction
 # =============================================================================
 
@@ -1031,7 +1093,7 @@ def dynamic_scan(file_path):
         dynamic_signature, fname, messages = result  # Unpack three values
         if dynamic_signature != "0":
             return f"MEMDUMP:{dynamic_signature}", messages
-    return "MEMDUMP:0", messages
+    return "MEMDUMP:0", []
 
 def detailed_static_scan(file_path):
     """
@@ -1165,8 +1227,7 @@ def scan_file(file_path, auto_create=False, benign=False):
     # Run dynamic and static analysis
     dynamic_result, collected_messages = dynamic_scan(file_path)
     static_result = detailed_static_scan(file_path)
-    report_tokens.append(dynamic_result)
-    report_tokens.append(static_result)
+    report_tokens = [dynamic_result, static_result]
     
     # Process collected messages to remove full file path
     if collected_messages:
@@ -1221,16 +1282,15 @@ def scan_file(file_path, auto_create=False, benign=False):
             except Exception as ex:
                 logging.error("Failed to auto-create signature: %s", ex)
 
-def scan_directory(directory, auto_create=False, benign=False):
-    """
-    Recursively scans all files in the given directory.
-    For each file, it calls scan_file with the provided flags.
-    """
-    for root, dirs, files in os.walk(directory):
-        for file in files:
-            file_path = os.path.join(root, file)
-            logging.info(f"\nScanning file: {file_path}")
-            scan_file(file_path, auto_create=auto_create, benign=benign)
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except Exception:
+        return False
+
+def scan_file_wrapper(target, auto_create, benign, injection, script_path):
+    logging.info(f"Scanning {target} with options: auto_create={auto_create}, benign={benign}, injection={injection}")
+    scan_file(target, auto_create=auto_create, benign=benign, injection=injection, script_path=script_path)
 
 # =============================================================================
 # Registry Snapshot Functions (Recursive - Monitoring Whole Registry)
@@ -1322,8 +1382,8 @@ def run_sandboxie_injection(target_exe, script_path):
 # Scan File with Injection and Pattern Splitting
 # =============================================================================
 
-def scan_file(file_path, auto_create=False, benign=False, injection=False, script_path=None):
-    logging.info(f"Scanning file: {file_path}")
+def scan_file_injection(file_path, auto_create=False, benign=False, injection=False, script_path=None):
+    logging.info(f"Scanning file with injection: {file_path}")
     dynamic_result, collected_messages = dynamic_scan(file_path)
     static_tokens = detailed_static_scan(file_path)
     if collected_messages:
@@ -1355,7 +1415,7 @@ def scan_file(file_path, auto_create=False, benign=False, injection=False, scrip
         for i, token in enumerate(registry_diff.split(" "), start=1):
             patterns.append(f"PATTERN_REGISTRY_{i}:{token}")
     scan_report = " ".join(patterns)
-    logging.info("Scan Report:", scan_report)
+    logging.info("Scan Report: %s", scan_report)
     signatures = load_signatures()
     matched_signatures = []
     threshold = 0.8
@@ -1386,40 +1446,9 @@ def scan_file(file_path, auto_create=False, benign=False, injection=False, scrip
                 auto_sigs.append(new_signature)
                 with open(auto_sig_file, "w") as f:
                     json.dump(auto_sigs, f, indent=4)
-                logging.info("Auto-created signature:", new_signature)
+                logging.info("Auto-created signature: %s", new_signature)
             except Exception as ex:
-                logging.error("Failed to auto-create signature:", ex)
-
-# =============================================================================
-# Load Signatures
-# =============================================================================
-
-def load_signatures(signatures_file="signatures.json"):
-    if not os.path.exists(signatures_file):
-        logging.info(f"Signatures file {signatures_file} not found.", file=sys.stderr)
-        return []
-    with open(signatures_file, "r") as f:
-        try:
-            return json.load(f)
-        except Exception as e:
-            logging.error(f"Error loading signatures: {e}", file=sys.stderr)
-            return []
-
-def is_admin():
-    try:
-        return ctypes.windll.shell32.IsUserAnAdmin()
-    except Exception:
-        return False
-
-def is_admin():
-    try:
-        return ctypes.windll.shell32.IsUserAnAdmin()
-    except Exception:
-        return False
-
-def scan_file(target, auto_create, benign, injection, script_path):
-    # Your scan_file implementation here
-    logging.info(f"Scanning {target} with options: auto_create={auto_create}, benign={benign}, injection={injection}")
+                logging.error("Failed to auto-create signature: %s", ex)
 
 # =============================================================================
 # Main Function
@@ -1431,18 +1460,24 @@ def main():
         sys.exit(1)
 
     parser = argparse.ArgumentParser(description="Comprehensive Scanner for Hydra Dragon Antivirus Engine using all features")
-    parser.add_argument("path", help="Path to the file or directory to scan, or target file/directory for injection")
+    parser.add_argument("path", help="Path to the file or directory to scan, or the target folder for signature generation")
     parser.add_argument("--auto-create", action="store_true", help="Auto create new signature if none matched")
     parser.add_argument("--benign", action="store_true", help="Force auto-created signature to be labeled as benign")
     parser.add_argument("--injection", action="store_true", help="Perform registry injection scanning")
+    parser.add_argument("--signature", action="store_true", help="Scan folder for antivirus signatures using Capstone disassembly")
     args = parser.parse_args()
 
     if not os.path.exists(args.path):
         logging.error("The specified path does not exist.", file=sys.stderr)
         sys.exit(1)
 
-    targets = []
+    # If signature mode is enabled, treat the provided path as a folder to scan for signatures.
+    if args.signature:
+        logging.info(f"Scanning directory for signatures: {args.path}")
+        scan_signature_folder(args.path)
+        sys.exit(0)
 
+    targets = []
     if os.path.isfile(args.path):
         if args.path.lower().endswith(".exe"):
             targets.append(os.path.abspath(args.path))
@@ -1461,7 +1496,7 @@ def main():
 
     for target in targets:
         logging.info(f"Processing file: {target}")
-        scan_file(target, auto_create=args.auto_create, benign=args.benign, injection=args.injection, script_path=script_path)
+        scan_file_wrapper(target, auto_create=args.auto_create, benign=args.benign, injection=args.injection, script_path=script_path)
 
 if __name__ == "__main__":
     main()
