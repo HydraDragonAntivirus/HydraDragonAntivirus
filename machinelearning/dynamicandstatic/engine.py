@@ -1428,67 +1428,6 @@ def run_sandboxie_injection(target_exe, script_path):
     logging.info("[INFO] Registry changes captured and saved.")
     return registry_pattern
 
-def scan_file_injection(file_path, auto_create=False, benign=False, script_path=None):
-    logging.info(f"Scanning file with injection: {file_path}")
-    dynamic_result, collected_messages = dynamic_scan(file_path)
-    static_tokens = detailed_static_scan(file_path)
-    if collected_messages:
-        clean_messages = []
-        for msg in collected_messages:
-            if "->" in msg:
-                clean_messages.append(msg.split("->")[-1].strip())
-            else:
-                clean_messages.append(msg)
-        target_messages = " ".join(clean_messages)
-    else:
-        target_messages = ""
-    registry_diff = run_sandboxie_injection(file_path, script_path)
-    patterns = []
-    for i, token in enumerate(static_tokens.split(" "), start=1):
-        patterns.append(f"PATTERN_STATIC_{i}:{token}")
-    for i, token in enumerate(dynamic_result.split(" "), start=1):
-        patterns.append(f"PATTERN_DYNAMIC_{i}:{token}")
-    if target_messages:
-        for i, token in enumerate(target_messages.split(" "), start=1):
-            patterns.append(f"PATTERN_TARGET_{i}:{token}")
-    for i, token in enumerate(registry_diff.split(" "), start=1):
-        patterns.append(f"PATTERN_REGISTRY_{i}:{token}")
-    scan_report = " ".join(patterns)
-    logging.info("Scan Report: %s", scan_report)
-    signatures = load_signatures()
-    matched_signatures = []
-    threshold = 0.8
-    for sig in signatures:
-        pattern = sig.get("pattern", "")
-        similarity = calculate_similarity(pattern, scan_report)
-        if similarity >= threshold:
-            matched_signatures.append(sig.get("name"))
-    if matched_signatures:
-        united_signature = "MATCHED_SIGNATURES:" + ",".join(matched_signatures)
-        logging.info(united_signature)
-    else:
-        logging.info("No signatures matched.")
-        if auto_create:
-            label = "benign" if benign else ("malware" if dynamic_result != "MEMDUMP:0" else "benign")
-            new_signature = {
-                "name": os.path.basename(file_path),
-                "pattern": scan_report,
-                "label": label
-            }
-            auto_sig_file = "auto_signatures.json"
-            try:
-                if os.path.exists(auto_sig_file):
-                    with open(auto_sig_file, "r") as f:
-                        auto_sigs = json.load(f)
-                else:
-                    auto_sigs = []
-                auto_sigs.append(new_signature)
-                with open(auto_sig_file, "w") as f:
-                    json.dump(auto_sigs, f, indent=4)
-                logging.info("Auto-created signature: %s", new_signature)
-            except Exception as ex:
-                logging.error("Failed to auto-create signature: %s", ex)
-
 # =============================================================================
 # Main Function
 # =============================================================================
