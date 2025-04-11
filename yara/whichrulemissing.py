@@ -35,9 +35,10 @@ if __name__ == '__main__':
     
     missing = compare_rules(new_file, old_file)
     
-    if missing:
-        print("The following rules are not found in veryoldcompiled_rule.yar:")
-        for rule in missing:
-            print(" -", rule)
-    else:
-        print("All rules are present in both files.")
+    with open('result.txt', 'w', encoding='utf-8') as result_file:
+        if missing:
+            result_file.write("The following rules are not found in veryoldcompiled_rule.yar:\n")
+            for rule in missing:
+                result_file.write(f"{rule}\n")
+        else:
+            result_file.write("All rules are present in both files.")
