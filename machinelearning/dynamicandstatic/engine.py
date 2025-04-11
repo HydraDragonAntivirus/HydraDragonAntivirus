@@ -57,26 +57,37 @@ def generate_capstone_signature(pe_path, architecture=capstone.CS_ARCH_X86, mode
         print(f"Error loading PE: {e}")
         return None
 
-    # Locate the .text section (or adjust if your code section has a different name)
-    text_section = None
+    executable_sections = []
     for section in pe.sections:
-        if b'.text' in section.Name:
-            text_section = section
-            break
-
-    if not text_section:
-        print("Could not find the .text section")
+        # Check if the section is marked as executable (MEM_EXECUTE flag: 0x20000000)
+        if section.Characteristics & 0x20000000:
+            executable_sections.append(section)
+    
+    if not executable_sections:
+        print("Could not find any executable section")
         return None
 
-    # Extract only the code from the .text section
-    code_bytes = text_section.get_data()
-
+    # Initialize the Capstone disassembler.
     md = capstone.Cs(architecture, mode)
-    instructions = list(md.disasm(code_bytes, pe.OPTIONAL_HEADER.AddressOfEntryPoint))
-    
-    # Build the signature based on disassembled instructions.
-    signature_parts = [f"{ins.mnemonic} {ins.op_str}" for ins in instructions]
-    signature_pattern = " | ".join(signature_parts)
+    md.detail = False
+
+    # Sort the executable sections by their virtual address, if ordering is needed.
+    executable_sections.sort(key=lambda s: s.VirtualAddress)
+
+    signature_parts = []
+    for section in executable_sections:
+        # Get the code bytes of the section.
+        code_bytes = section.get_data()
+        # Use the section's virtual address offset relative to the image base.
+        section_va = pe.OPTIONAL_HEADER.AddressOfEntryPoint + section.VirtualAddress
+        instructions = list(md.disasm(code_bytes, section_va))
+        # Build a signature portion for this section.
+        inst_sig = " | ".join(f"{ins.mnemonic} {ins.op_str}" for ins in instructions)
+        section_name = section.Name.decode(errors="ignore").strip("\x00")
+        signature_parts.append(f"SECTION {section_name}: {inst_sig}")
+
+    # Concatenate all section signatures.
+    signature_pattern = "\n".join(signature_parts)
     return signature_pattern
 
 def scan_signature_folder(folder_path):
@@ -100,7 +111,7 @@ def scan_signature_folder(folder_path):
 # =============================================================================
 
 def generate_static_capstone_signature(pe_path):
-    """Generates the static Capstone signature for the given file (using the .text section)."""
+    """Generates the static Capstone signature for the given file."""
     signature = generate_capstone_signature(pe_path)
     if signature is None:
         signature = "Error generating static signature"
