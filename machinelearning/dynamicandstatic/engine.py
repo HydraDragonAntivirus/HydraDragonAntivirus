@@ -937,23 +937,6 @@ def static_capstone_disassembly(file_path):
         logging.error(f"Static capstone disassembly error: {e}")
         return ""
 
-def dynamic_capstone_disassembly(memory_dump):
-    """
-    Uses Capstone to disassemble a memory dump for dynamic analysis.
-    """
-    try:
-        from capstone import Cs, CS_ARCH_X86, CS_MODE_32, CS_MODE_64
-        # For dynamic memory dump, assuming 64-bit mode by default
-        md = Cs(CS_ARCH_X86, CS_MODE_64)
-        disassembly = ""
-        for i in md.disasm(memory_dump, 0x1000):  # arbitrary base address
-            disassembly += "0x%x:\t%s\t%s\n" % (i.address, i.mnemonic, i.op_str)
-        logging.info("Dynamic disassembly completed.")
-        return disassembly
-    except Exception as e:
-        logging.error(f"Dynamic capstone disassembly error: {e}")
-        return ""
-
 # =============================================================================
 # Helper Function to Extract Sandbox Environment Messages
 # =============================================================================
@@ -1223,7 +1206,6 @@ def scan_file(file_path, auto_create=False, benign=False, injection=False, scrip
     static_disassembly = static_capstone_disassembly(file_path)
     # Perform dynamic disassembly on the memory dump from scanning.
     current_memory = scan_memory(file_path)
-    dynamic_disassembly = dynamic_capstone_disassembly(current_memory)
     # ------------------------------------------------------------------------
     
     if collected_messages:
