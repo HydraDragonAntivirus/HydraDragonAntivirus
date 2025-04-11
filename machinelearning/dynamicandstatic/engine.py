@@ -1399,7 +1399,7 @@ def run_sandboxie_injection(target_exe, script_path):
 
 def load_signatures(signatures_file="signatures.json"):
     if not os.path.exists(signatures_file):
-        logging.info(f"Signatures file {signatures_file} not found.", file=sys.stderr)
+        logging.info(f"Signatures file {signatures_file} not found.")
         return []
     with open(signatures_file, "r") as f:
         try:
