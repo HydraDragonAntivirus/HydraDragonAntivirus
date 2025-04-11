@@ -19,132 +19,6 @@ from typing import Dict, List, Optional, Any
 from ctypes import wintypes
 import struct
 import winreg
-import capstone
-
-# =============================================================================
-# Capstone-based Signature Engine
-# =============================================================================
-
-def generate_dynamic_assembly_signature(memory_bytes, entry_point=0x1000, architecture=capstone.CS_ARCH_X86, mode=capstone.CS_MODE_64):
-    """
-    Generates an antivirus signature by disassembling a memory dump using Capstone.
-    Instead of reading from the file directly, it works from the dynamically acquired memory bytes.
-    
-    Args:
-        memory_bytes (bytes): The dynamically obtained memory dump.
-        entry_point (int): Starting address for disassembly (can use the original entry point).
-        architecture: Capstone architecture constant (default: CS_ARCH_X86).
-        mode: Capstone mode constant (default: CS_MODE_64).
-    
-    Returns:
-        str: A signature pattern constructed from the assembly instructions.
-    """
-    md = capstone.Cs(architecture, mode)
-    instructions = list(md.disasm(memory_bytes, entry_point))
-    
-    if not instructions:
-        return None
-
-    # Build a signature from the disassembled instructions.
-    signature_parts = [f"{ins.mnemonic} {ins.op_str}" for ins in instructions]
-    signature_pattern = " | ".join(signature_parts)
-    return signature_pattern
-
-def generate_capstone_signature(pe_path, architecture=capstone.CS_ARCH_X86, mode=capstone.CS_MODE_64):
-    try:
-        pe = pefile.PE(pe_path)
-    except Exception as e:
-        print(f"Error loading PE: {e}")
-        return None
-
-    executable_sections = []
-    for section in pe.sections:
-        # Check if the section is marked as executable (MEM_EXECUTE flag: 0x20000000)
-        if section.Characteristics & 0x20000000:
-            executable_sections.append(section)
-    
-    if not executable_sections:
-        print("Could not find any executable section")
-        return None
-
-    # Initialize the Capstone disassembler.
-    md = capstone.Cs(architecture, mode)
-    md.detail = False
-
-    # Sort the executable sections by their virtual address, if ordering is needed.
-    executable_sections.sort(key=lambda s: s.VirtualAddress)
-
-    signature_parts = []
-    for section in executable_sections:
-        # Get the code bytes of the section.
-        code_bytes = section.get_data()
-        # Use the section's virtual address offset relative to the image base.
-        section_va = pe.OPTIONAL_HEADER.AddressOfEntryPoint + section.VirtualAddress
-        instructions = list(md.disasm(code_bytes, section_va))
-        # Build a signature portion for this section.
-        inst_sig = " | ".join(f"{ins.mnemonic} {ins.op_str}" for ins in instructions)
-        section_name = section.Name.decode(errors="ignore").strip("\x00")
-        signature_parts.append(f"SECTION {section_name}: {inst_sig}")
-
-    # Concatenate all section signatures.
-    signature_pattern = "\n".join(signature_parts)
-    return signature_pattern
-
-def scan_signature_folder(folder_path):
-    """
-    Recursively scans all files in the specified folder (using os.walk).
-    For each .exe file, it generates and prints the static Capstone signature.
-    """
-    for root, dirs, files in os.walk(folder_path):
-        for file in files:
-            if file.lower().endswith('.exe'):
-                file_path = os.path.join(root, file)
-                signature = generate_capstone_signature(file_path)
-                if signature:
-                    logging.info(f"Signature for {file_path}: {signature}")
-                    print(f"Signature for {file_path}:\n{signature}\n")
-                else:
-                    logging.info(f"Failed to generate signature for {file_path}.")
-
-# =============================================================================
-# JSON Integration: Always Build Signature JSON Report
-# =============================================================================
-
-def generate_static_capstone_signature(pe_path):
-    """Generates the static Capstone signature for the given file."""
-    signature = generate_capstone_signature(pe_path)
-    if signature is None:
-        signature = "Error generating static signature"
-    return signature
-
-def generate_dynamic_capstone_signature(file_path):
-    """
-    Generates the dynamic Capstone signature using the memory dump.
-    It uses the existing scan_memory function and then disassembles the dumped bytes.
-    """
-    memdump = scan_memory(file_path)
-    d_signature = generate_dynamic_assembly_signature(memdump, entry_point=0x1000)
-    if d_signature is None:
-        d_signature = "Error generating dynamic signature"
-    return d_signature
-
-def build_signature_json(file_path, script_path):
-    """
-    Builds a JSON object containing:
-      - The file name and timestamp.
-      - The static and dynamic Capstone signatures.
-      - The injection results (registry diff info).
-    Injection scanning is always performed.
-    """
-    result = {}
-    result["file_name"] = os.path.basename(file_path)
-    result["timestamp"] = datetime.now().isoformat()
-    result["static_capstone_signature"] = generate_static_capstone_signature(file_path)
-    result["dynamic_capstone_signature"] = generate_dynamic_capstone_signature(file_path)
-    # Always perform injection scanning
-    injection_result = run_sandboxie_injection(file_path, script_path)
-    result["injection_result"] = injection_result
-    return result
 
 # =============================================================================
 # Windows API Functions for GUI Text Extraction
@@ -348,9 +222,10 @@ def extract_malicious_signature(baseline, current):
     """
     Compares the clean baseline memory with the current memory dump.
     Returns a dynamic dump signature composed of:
-      - The total number of difference bytes and 
-      - The hexadecimal representation of the first 16 bytes of the diff.
+      - The total number of difference bytes
+      - The hexadecimal representation of the first 16 bytes of the diff
     If no differences are found, returns "0".
+    (No hashlib is used.)
     """
     common_length = min(len(baseline), len(current))
     diff = bytearray()
@@ -371,8 +246,8 @@ def extract_malicious_signature(baseline, current):
 def process_file(file_path):
     """
     Runs the given file in the sandbox and performs dynamic memory analysis 
-    and target window message collection.
-    Returns a tuple (dynamic_signature, original_file_name, messages) or None on failure.
+    and target window message collection. Returns a tuple 
+    (dynamic_signature, original_file_name, messages) or None on failure.
     """
     # Cleanup previous Sandboxie sessions.
     full_cleanup_sandbox()
@@ -963,7 +838,8 @@ class PEFeatureExtractor:
                         'size': getattr(getattr(resource_lang, 'data', None), 'Size', None),
                         'codepage': getattr(getattr(resource_lang, 'data', None), 'CodePage', None),
                     }
-                    for resource_type in (pe.DIRECTORY_ENTRY_RESOURCE.entries if hasattr(pe.DIRECTORY_ENTRY_RESOURCE, 'entries') else [])
+                    for resource_type in
+                    (pe.DIRECTORY_ENTRY_RESOURCE.entries if hasattr(pe.DIRECTORY_ENTRY_RESOURCE, 'entries') else [])
                     for resource_id in (resource_type.directory.entries if hasattr(resource_type, 'directory') else [])
                     for resource_lang in (resource_id.directory.entries if hasattr(resource_id, 'directory') else [])
                     if hasattr(resource_lang, 'data')
@@ -1011,7 +887,7 @@ class PEFeatureExtractor:
                 # Overlay
                 'overlay': self.analyze_overlay(pe, file_path),  # Overlay analysis here
 
-                # Relocations
+                #Relocations
                 'relocations': self.analyze_relocations(pe) #Relocations analysis here
             }
 
@@ -1142,7 +1018,8 @@ def load_signatures(signatures_file="signatures.json"):
 def dynamic_scan(file_path):
     """
     Runs dynamic analysis on an executable using process_file.
-    Returns a tuple (memdump_token, messages) where memdump_token is a string and messages is a list.
+    Returns a tuple (memdump_token, messages) where memdump_token is a string
+    and messages is a list of collected window messages.
     """
     try:
         result = process_file(file_path)
@@ -1151,15 +1028,15 @@ def dynamic_scan(file_path):
         return "MEMDUMP:0", []
     
     if result:
-        dynamic_signature, fname, messages = result
+        dynamic_signature, fname, messages = result  # Unpack three values
         if dynamic_signature != "0":
             return f"MEMDUMP:{dynamic_signature}", messages
-    return "MEMDUMP:0", []
+    return "MEMDUMP:0", messages
 
 def detailed_static_scan(file_path):
     """
     Runs static analysis using PEFeatureExtractor.
-    Constructs a detailed token string for every feature extracted.
+    Constructs detailed tokens for every feature extracted.
     """
     extractor = PEFeatureExtractor()
     try:
@@ -1288,7 +1165,8 @@ def scan_file(file_path, auto_create=False, benign=False):
     # Run dynamic and static analysis
     dynamic_result, collected_messages = dynamic_scan(file_path)
     static_result = detailed_static_scan(file_path)
-    report_tokens = [dynamic_result, static_result]
+    report_tokens.append(dynamic_result)
+    report_tokens.append(static_result)
     
     # Process collected messages to remove full file path
     if collected_messages:
@@ -1308,7 +1186,7 @@ def scan_file(file_path, auto_create=False, benign=False):
     # Load user-defined signatures and perform similarity matching.
     signatures = load_signatures()
     matched_signatures = []
-    threshold = 0.8
+    threshold = 0.8  # Similarity threshold
     for sig in signatures:
         pattern = sig.get("pattern", "")
         similarity = calculate_similarity(pattern, scan_report)
@@ -1325,7 +1203,7 @@ def scan_file(file_path, auto_create=False, benign=False):
         if auto_create:
             label = "benign" if benign else ("malware" if dynamic_result != "MEMDUMP:0" else "benign")
             new_signature = {
-                "name": os.path.basename(file_path),
+                "name": os.path.basename(file_path),  # Use file name instead of auto-generated name
                 "pattern": scan_report,
                 "label": label
             }
@@ -1343,15 +1221,16 @@ def scan_file(file_path, auto_create=False, benign=False):
             except Exception as ex:
                 logging.error("Failed to auto-create signature: %s", ex)
 
-def is_admin():
-    try:
-        return ctypes.windll.shell32.IsUserAnAdmin()
-    except Exception:
-        return False
-
-def scan_file_wrapper(target, auto_create, benign, script_path):
-    logging.info(f"Scanning {target} with auto_create={auto_create} and benign={benign}")
-    scan_file(target, auto_create=auto_create, benign=benign)
+def scan_directory(directory, auto_create=False, benign=False):
+    """
+    Recursively scans all files in the given directory.
+    For each file, it calls scan_file with the provided flags.
+    """
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            file_path = os.path.join(root, file)
+            logging.info(f"\nScanning file: {file_path}")
+            scan_file(file_path, auto_create=auto_create, benign=benign)
 
 # =============================================================================
 # Registry Snapshot Functions (Recursive - Monitoring Whole Registry)
@@ -1440,6 +1319,109 @@ def run_sandboxie_injection(target_exe, script_path):
     return registry_pattern
 
 # =============================================================================
+# Scan File with Injection and Pattern Splitting
+# =============================================================================
+
+def scan_file(file_path, auto_create=False, benign=False, injection=False, script_path=None):
+    logging.info(f"Scanning file: {file_path}")
+    dynamic_result, collected_messages = dynamic_scan(file_path)
+    static_tokens = detailed_static_scan(file_path)
+    if collected_messages:
+        clean_messages = []
+        for msg in collected_messages:
+            if "->" in msg:
+                clean_messages.append(msg.split("->")[-1].strip())
+            else:
+                clean_messages.append(msg)
+        target_messages = " ".join(clean_messages)
+    else:
+        target_messages = ""
+    registry_diff = ""
+    if injection and script_path is not None:
+        registry_diff = run_sandboxie_injection(file_path, script_path)
+    patterns = []
+    # Split static analysis tokens into separate pattern tokens.
+    for i, token in enumerate(static_tokens.split(" "), start=1):
+        patterns.append(f"PATTERN_STATIC_{i}:{token}")
+    # Split dynamic result tokens.
+    for i, token in enumerate(dynamic_result.split(" "), start=1):
+        patterns.append(f"PATTERN_DYNAMIC_{i}:{token}")
+    # Split target message tokens.
+    if target_messages:
+        for i, token in enumerate(target_messages.split(" "), start=1):
+            patterns.append(f"PATTERN_TARGET_{i}:{token}")
+    # Split registry diff tokens.
+    if registry_diff:
+        for i, token in enumerate(registry_diff.split(" "), start=1):
+            patterns.append(f"PATTERN_REGISTRY_{i}:{token}")
+    scan_report = " ".join(patterns)
+    logging.info("Scan Report:", scan_report)
+    signatures = load_signatures()
+    matched_signatures = []
+    threshold = 0.8
+    for sig in signatures:
+        pattern = sig.get("pattern", "")
+        similarity = calculate_similarity(pattern, scan_report)
+        if similarity >= threshold:
+            matched_signatures.append(sig.get("name"))
+    if matched_signatures:
+        united_signature = "MATCHED_SIGNATURES:" + ",".join(matched_signatures)
+        logging.info(united_signature)
+    else:
+        logging.info("No signatures matched.")
+        if auto_create:
+            label = "benign" if benign else ("malware" if dynamic_result != "MEMDUMP:0" else "benign")
+            new_signature = {
+                "name": os.path.basename(file_path),
+                "pattern": scan_report,
+                "label": label
+            }
+            auto_sig_file = "auto_signatures.json"
+            try:
+                if os.path.exists(auto_sig_file):
+                    with open(auto_sig_file, "r") as f:
+                        auto_sigs = json.load(f)
+                else:
+                    auto_sigs = []
+                auto_sigs.append(new_signature)
+                with open(auto_sig_file, "w") as f:
+                    json.dump(auto_sigs, f, indent=4)
+                logging.info("Auto-created signature:", new_signature)
+            except Exception as ex:
+                logging.error("Failed to auto-create signature:", ex)
+
+# =============================================================================
+# Load Signatures
+# =============================================================================
+
+def load_signatures(signatures_file="signatures.json"):
+    if not os.path.exists(signatures_file):
+        logging.info(f"Signatures file {signatures_file} not found.", file=sys.stderr)
+        return []
+    with open(signatures_file, "r") as f:
+        try:
+            return json.load(f)
+        except Exception as e:
+            logging.error(f"Error loading signatures: {e}", file=sys.stderr)
+            return []
+
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except Exception:
+        return False
+
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except Exception:
+        return False
+
+def scan_file(target, auto_create, benign, injection, script_path):
+    # Your scan_file implementation here
+    logging.info(f"Scanning {target} with options: auto_create={auto_create}, benign={benign}, injection={injection}")
+
+# =============================================================================
 # Main Function
 # =============================================================================
 
@@ -1448,37 +1430,38 @@ def main():
         logging.info("This script requires administrative privileges.")
         sys.exit(1)
 
-    parser = argparse.ArgumentParser(description="Comprehensive Scanner for Hydra Dragon Antivirus Engine using all features. "
-                                     "This version always builds a JSON signature report, always performs injection scanning, "
-                                     "and always generates a Capstone signature.")
-    parser.add_argument("path", help="Path to the file or directory to scan")
+    parser = argparse.ArgumentParser(description="Comprehensive Scanner for Hydra Dragon Antivirus Engine using all features")
+    parser.add_argument("path", help="Path to the file or directory to scan, or target file/directory for injection")
     parser.add_argument("--auto-create", action="store_true", help="Auto create new signature if none matched")
     parser.add_argument("--benign", action="store_true", help="Force auto-created signature to be labeled as benign")
-    # Note: The injection and signature options are now always enabled; any supplied flags are ignored.
+    parser.add_argument("--injection", action="store_true", help="Perform registry injection scanning")
     args = parser.parse_args()
 
     if not os.path.exists(args.path):
         logging.error("The specified path does not exist.", file=sys.stderr)
         sys.exit(1)
 
-    script_path = os.path.abspath(__file__)
+    targets = []
 
-    # If a single file is provided, build and output the JSON signature report.
-    if os.path.isfile(args.path) and args.path.lower().endswith(".exe"):
-        sig_json = build_signature_json(args.path, script_path)
-        print(json.dumps(sig_json, indent=4))
+    if os.path.isfile(args.path):
+        if args.path.lower().endswith(".exe"):
+            targets.append(os.path.abspath(args.path))
+        else:
+            logging.info("Skipping file: Not an .exe file.")
     elif os.path.isdir(args.path):
-        # For directories, process each .exe file and output its JSON report.
-        results = []
         for root, dirs, files in os.walk(args.path):
             for file in files:
                 file_path = os.path.join(root, file)
-                if file_path.lower().endswith(".exe"):
-                    sig_json = build_signature_json(file_path, script_path)
-                    results.append(sig_json)
-        print(json.dumps(results, indent=4))
-    else:
-        logging.info("The specified path is neither a valid .exe file nor a directory.")
+                if not file_path.lower().endswith(".exe"):
+                    logging.info(f"Skipping file (not .exe): {file_path}")
+                    continue
+                targets.append(os.path.abspath(file_path))
+
+    script_path = os.path.abspath(__file__)
+
+    for target in targets:
+        logging.info(f"Processing file: {target}")
+        scan_file(target, auto_create=args.auto_create, benign=args.benign, injection=args.injection, script_path=script_path)
 
 if __name__ == "__main__":
     main()
