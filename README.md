@@ -77,6 +77,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - https://github.com/horsicq/Detect-It-Easy
 - https://github.com/extremecoders-re/decompyle-builds
 - https://github.com/mandiant/gostringungarbler
+- https://github.com/cod3nym/Deobfuscar
 
 - I used these projects to decompile.
 

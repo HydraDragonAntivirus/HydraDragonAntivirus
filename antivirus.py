@@ -271,6 +271,7 @@ ghidra_scripts_dir = os.path.join(script_dir, "ghidra_scripts")
 compiled_scripts_dir = os.path.join(script_dir, "compiled_scripts")
 jar_extracted_dir = os.path.join(script_dir, "jar_extracted")
 dotnet_dir = os.path.join(script_dir, "dotnet")
+obfuscar_dir = os.path.join(script_dir, "obfuscar")
 nuitka_dir = os.path.join(script_dir, "nuitka")
 extensions_dir = os.path.join(script_dir, "knownextensions")
 system_file_names_path = os.path.join(script_dir, "systemfilenames.txt")
@@ -301,14 +302,16 @@ detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
 pycdc_path = os.path.join(script_dir, "pycdc.exe")
 pycdas_path = os.path.join(script_dir, "pycdas.exe")
+deobfuscar_path = os.path.join(script_dir, "Deobfuscar-Standalone-Win64.exe")
 digital_signautres_list_antivirus_path = os.path.join(digital_signatures_list_dir, "antivirus.txt")
 digital_signautres_list_goodsign_path = os.path.join(digital_signatures_list_dir, "goodsign.txt")
 digital_signautres_list_microsoft_path = os.path.join(digital_signatures_list_dir, "microsoft.txt")
-malicious_file_names = os.path.join(script_dir, "machinelearning", "malicious_file_names.json")
-malicious_numeric_features = os.path.join(script_dir, "machinelearning", "malicious_numeric.pkl")
-benign_file_names = os.path.join(script_dir, "machinelearning", "benign_file_names.json")
-benign_numeric_features = os.path.join(script_dir, "machinelearning", "benign_numeric.pkl")
-resource_extractor_dir = os.path.join(script_dir, "resourcesextracted")
+machine_learning_dir = os.path.join(script_dir, "machinelearning")
+malicious_file_names = os.path.join(machine_learning_dir, "malicious_file_names.json")
+malicious_numeric_features = os.path.join(machine_learning_dir, "malicious_numeric.pkl")
+benign_file_names = os.path.join(machine_learning_dir, "benign_file_names.json")
+benign_numeric_features = os.path.join(machine_learning_dir,"benign_numeric.pkl")
+resource_extractor_dir = os.path.join(machine_learning_dir, "resourcesextracted")
 ungarbler_dir = os.path.join(script_dir, "ungarbler")
 ungarbler_string_dir = os.path.join(script_dir, "ungarbler_string")
 yara_dir = os.path.join(script_dir, "yara")
@@ -415,6 +418,8 @@ os.makedirs(nuitka_source_code_dir, exist_ok=True)
 os.makedirs(commandlineandmessage_dir, exist_ok=True)
 os.makedirs(processed_dir, exist_ok=True)
 os.makedirs(memory_dir, exist_ok=True)
+os.makedirs(dotnet_dir, exist_ok=True)
+os.makedirs(obfuscar_dir, exist_ok=True)
 os.makedirs(pe_extracted_dir, exist_ok=True)
 os.makedirs(zip_extracted_dir, exist_ok=True)
 os.makedirs(tar_extracted_dir, exist_ok=True)
@@ -619,37 +624,124 @@ def run_jar_extractor(file_path):
         logging.error(f"General error while running JarExtractor: {ex}")
         return []  # Return an empty list in case of an error
 
-def is_jar_file(file_path):
+def analyze_file_with_die(file_path):
+    """
+    Runs Detect It Easy (DIE) on the given file once and returns the DIE output (JSON formatted).
+    The output is also saved to a unique JSON file.
+    """
     try:
-        # Ensure the JSON output directory exists
+        logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
         output_dir = Path(detectiteasy_json_dir)
-        if not output_dir.exists():
-            output_dir.mkdir(parents=True)
-
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
         # Define the base name for the output JSON file
         base_name = Path(file_path).with_suffix(".json")
-
-        # Get a unique file path for the JSON output
         json_output_path = get_unique_output_path(output_dir, base_name)
-
-        # Run the DIE console command with the -j flag to generate a JSON output
-        result = subprocess.run([detectiteasy_console_path, "-j", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-        # Check if the output contains information about JVM (indicating it's a JAR file)
-        if "Virtual machine: JVM" in result.stdout:
-            # Save the JSON output to the specified unique file
-            with open(json_output_path, "w") as json_file:
-                json_file.write(result.stdout)
-            logging.info(f"JSON output saved to {json_output_path}")
-            return True
+    
+        # Run the DIE command once with the -j flag for JSON output
+        result = subprocess.run(
+            [detectiteasy_console_path, "-j", file_path],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+    
+        # Save the JSON output
+        with open(json_output_path, "w") as json_file:
+            json_file.write(result.stdout)
+            
+        logging.info(f"Analysis result saved to {json_output_path}")
+        return result.stdout
 
     except subprocess.SubprocessError as ex:
-        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
-        return False
+        logging.error(
+            f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}"
+        )
+        return None
     except Exception as ex:
-        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
-        return False
+        logging.error(
+            f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}"
+        )
+        return None
 
+def is_go_garble_from_output(die_output):
+    """
+    Check if the DIE output indicates a Go garbled file.
+    A file is considered garble if the output contains both:
+      - "Compiler: Go(unknown)"
+      - "Language: Go"
+    """
+    if die_output and ("Compiler: Go(unknown)" in die_output and "Language: Go" in die_output):
+        logging.info("DIE output indicates a garbled Go file.")
+        return True
+    logging.info(f"DIE output does not indicate a garbled Go file: {die_output}")
+    return False
+
+def is_pyc_file_from_output(die_output):
+    """
+    Check if the DIE output indicates a Python compiled module (.pyc file).
+    It looks for markers that suggest it's a Python compiled module.
+    """
+    if die_output and ("Python" in die_output and "Compiled Module" in die_output and "Magic tag" in die_output):
+        logging.info("DIE output indicates a Python compiled module.")
+        return True
+    logging.info(f"DIE output does not indicate a Python compiled module: {die_output}")
+    return False
+
+def is_pe_file_from_output(die_output):
+    """Checks if DIE output indicates a PE (Portable Executable) file."""
+    if die_output and ("PE32" in die_output or "PE64" in die_output):
+        logging.info("DIE output indicates a PE file.")
+        return True
+    logging.info(f"DIE output does not indicate a PE file: {die_output}")
+    return False
+
+def is_elf_file_from_output(die_output):
+    """Checks if DIE output indicates an ELF file."""
+    if die_output and ("ELF32" in die_output or "ELF64" in die_output):
+        logging.info("DIE output indicates an ELF file.")
+        return True
+    logging.info(f"DIE output does not indicate an ELF file: {die_output}")
+    return False
+
+def is_macho_file_from_output(die_output):
+    """Checks if DIE output indicates a Mach-O file."""
+    if die_output and "Mach-O" in die_output:
+        logging.info("DIE output indicates a Mach-O file.")
+        return True
+    logging.info(f"DIE output does not indicate a Mach-O file: {die_output}")
+    return False
+
+def is_dotnet_file_from_output(die_output):
+    """Checks if DIE output indicates a .NET executable file.
+    
+    Returns:
+      True if it's a .NET file detected via "Microsoft .NET" or "CLR".
+      A string like "Protector: Obfuscar" or "Protector: Obfuscar(<version>)" if it's a .NET assembly protected with Obfuscar.
+      None if none of these markers are found.
+    """
+    if die_output:
+        if "Microsoft .NET" in die_output or "CLR" in die_output:
+            logging.info("DIE output indicates a .NET executable.")
+            return True
+        elif "Protector: Obfuscar" in die_output:
+            # Use regex to capture an optional version number following "Protector: Obfuscar"
+            match = re.search(r'Protector:\s*Obfuscar(?:\(?([^)]+)\)?)?', die_output)
+            if match:
+                version = match.group(1)
+                if version:
+                    result = f"Protector: Obfuscar({version.strip()})"
+                else:
+                    result = "Protector: Obfuscar"
+                logging.info(f"DIE output indicates a .NET assembly protected with {result}.")
+                return result
+    logging.info(f"DIE output does not indicate a .NET executable: {die_output}")
+    return None
+
+def is_jar_file_from_output(die_output):
+    """Checks if DIE output indicates a JAR file (Java archive)."""
+    if die_output and "Virtual machine: JVM" in die_output:
+        logging.info("DIE output indicates a JAR file.")
+        return True
+    logging.info(f"DIE output does not indicate a JAR file: {die_output}")
     return False
 
 def is_hex_data(data_content):
@@ -3341,117 +3433,6 @@ def clean_directories():
     except Exception as ex:
         logging.error(f"An error occurred while cleaning the directories: {ex}")
 
-def is_pe_file(file_path):
-    """Check if the file at the specified path is a PE (Portable Executable) file using Detect It Easy."""
-    try:
-        logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
-
-        # Ensure the JSON output directory exists
-        output_dir = Path(detectiteasy_json_dir)
-        if not output_dir.exists():
-            output_dir.mkdir(parents=True)
-
-        # Define the base name for the output JSON file (output will be PE check result)
-        base_name = Path(file_path).with_suffix(".json")
-
-        # Get a unique file path for the JSON output
-        json_output_path = get_unique_output_path(output_dir, base_name)
-
-        # Run the DIE console command with the -j flag to generate a JSON output
-        result = subprocess.run([detectiteasy_console_path, "-j", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-        # Check for PE32 or PE64 in the result
-        if "PE32" in result.stdout or "PE64" in result.stdout:
-            # Save the JSON output to the specified unique file
-            with open(json_output_path, "w") as json_file:
-                json_file.write(result.stdout)
-            logging.info(f"PE file analysis result saved to {json_output_path}")
-            return True
-        else:
-            logging.info(f"File {file_path} is not a PE file. Result: {result.stdout}")
-            return False
-
-    except subprocess.SubprocessError as ex:
-        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
-        return False
-    except Exception as ex:
-        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
-        return False
-
-def is_elf_file(file_path):
-    """Check if the file at the specified path is an ELF file using Detect It Easy."""
-    try:
-        logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
-
-        # Ensure the JSON output directory exists
-        output_dir = Path(detectiteasy_json_dir)
-        if not output_dir.exists():
-            output_dir.mkdir(parents=True)
-
-        # Define the base name for the output JSON file (output will be ELF check result)
-        base_name = Path(file_path).with_suffix(".json")
-
-        # Get a unique file path for the JSON output
-        json_output_path = get_unique_output_path(output_dir, base_name)
-
-        # Run the DIE console command with the -j flag to generate a JSON output
-        result = subprocess.run([detectiteasy_console_path, "-j", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-        # Check for ELF format in the result
-        if "ELF32" in result.stdout or "ELF64" in result.stdout:
-            # Save the JSON output to the specified unique file
-            with open(json_output_path, "w") as json_file:
-                json_file.write(result.stdout)
-            logging.info(f"ELF file analysis result saved to {json_output_path}")
-            return True
-        else:
-            logging.info(f"File {file_path} is not an ELF file. Result: {result.stdout}")
-            return False
-
-    except subprocess.SubprocessError as ex:
-        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
-        return False
-    except Exception as ex:
-        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
-        return False
-
-def is_macho_file(file_path):
-    """Check if the file at the specified path is a Mach-O file using Detect It Easy."""
-    try:
-        logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
-
-        # Ensure the JSON output directory exists
-        output_dir = Path(detectiteasy_json_dir)
-        if not output_dir.exists():
-            output_dir.mkdir(parents=True)
-
-        # Define the base name for the output JSON file (output will be Mach-O check result)
-        base_name = Path(file_path).with_suffix(".json")
-
-        # Get a unique file path for the JSON output
-        json_output_path = get_unique_output_path(output_dir, base_name)
-
-        # Run the DIE console command with the -j flag to generate a JSON output
-        result = subprocess.run([detectiteasy_console_path, "-j", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-        # Check for Mach-O in the result
-        if "Mach-O" in result.stdout:
-            # Save the JSON output to the specified unique file
-            with open(json_output_path, "w") as json_file:
-                json_file.write(result.stdout)
-            logging.info(f"Mach-O file analysis result saved to {json_output_path}")
-            return True
-        else:
-            logging.info(f"File {file_path} is not a Mach-O file. Result: {result.stdout}")
-            return False
-
-    except subprocess.SubprocessError as ex:
-        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
-        return False
-    except Exception as ex:
-        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
-        return False
-
 def is_encrypted(zip_info):
     """Check if a ZIP entry is encrypted."""
     return zip_info.flag_bits & 0x1 != 0
@@ -3526,11 +3507,13 @@ class NuitkaExtractor:
     
     def _detect_file_type(self) -> int:
         """Detect the executable file type using Detect It Easy methods"""
-        if is_pe_file(self.filepath):
+        die_result = analyze_file_with_die(file_path)
+
+        if is_pe_file_from_output(die_result):
             return FileType.PE
-        elif is_elf_file(self.filepath):
+        if is_elf_file_from_output(die_result):
             return FileType.ELF
-        elif is_macho_file(self.filepath):
+        if is_macho_file_from_output(die_result):
             return FileType.MACHO
         return FileType.UNKNOWN
 
@@ -4284,7 +4267,7 @@ existing_projects = []
 # List of already scanned files and their modification times
 scanned_files = []
 file_mod_times = {}
-directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_deepseek_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir]
+directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, obfuscar_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_deepseek_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir]
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
@@ -4364,49 +4347,26 @@ def extract_original_file_path_from_decompiled(file_path):
         logging.error(f"An error occurred while extracting the original file path: {ex}")
         return None
 
-def is_nuitka_file(file_path):
-    """Check if the file is a Nuitka executable using Detect It Easy."""
-    try:
-        logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
-
-        # Ensure the JSON output directory exists
-        output_dir = Path(detectiteasy_json_dir)
-        if not output_dir.exists():
-            output_dir.mkdir(parents=True)
-
-        # Define the base name for the output JSON file (output will be Nuitka check result)
-        base_name = Path(file_path).with_suffix(".json")
-
-        # Get a unique file path for the JSON output
-        json_output_path = get_unique_output_path(output_dir, base_name)
-
-        # Run the DIE console command with the -j flag to generate a JSON output
-        result = subprocess.run([detectiteasy_console_path, "-j", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-        # Check for Nuitka executable and OneFile
-        if "Packer: Nuitka[OneFile]" in result.stdout:
-            logging.info(f"File {file_path} is a Nuitka OneFile executable.")
-            # Save the JSON output to the specified unique file
-            with open(json_output_path, "w") as json_file:
-                json_file.write(result.stdout)
-            logging.info(f"Nuitka OneFile analysis result saved to {json_output_path}")
-            return "Nuitka OneFile"
-        elif "Packer: Nuitka" in result.stdout:
-            logging.info(f"File {file_path} is a Nuitka executable.")
-            # Save the JSON output to the specified unique file
-            with open(json_output_path, "w") as json_file:
-                json_file.write(result.stdout)
-            logging.info(f"Nuitka analysis result saved to {json_output_path}")
-            return "Nuitka"
-        else:
-            logging.info(f"File {file_path} is not a Nuitka executable. Result: {result.stdout}")
-            return None
-
-    except subprocess.SubprocessError as ex:
-        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
+def is_nuitka_file_from_output(die_output):
+    """
+    Check if the DIE output indicates a Nuitka executable.
+    Returns:
+      - "Nuitka OneFile" if the DIE output contains "Packer: Nuitka[OneFile]"
+      - "Nuitka" if the DIE output contains "Packer: Nuitka"
+      - None otherwise.
+    """
+    if die_output is None:
+        logging.error("No DIE output available for Nuitka check.")
         return None
-    except Exception as ex:
-        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
+
+    if "Packer: Nuitka[OneFile]" in die_output:
+        logging.info("DIE output indicates a Nuitka OneFile executable.")
+        return "Nuitka OneFile"
+    elif "Packer: Nuitka" in die_output:
+        logging.info("DIE output indicates a Nuitka executable.")
+        return "Nuitka"
+    else:
+        logging.info(f"DIE output does not indicate a Nuitka executable. Output: {die_output}")
         return None
 
 def clean_text(input_text):
@@ -4514,7 +4474,7 @@ def scan_directory_for_executables(directory):
         for file in files:
             if file.lower().endswith('.exe'):
                 file_path = os.path.join(root, file)
-                nuitka_type = is_nuitka_file(file_path)
+                nuitka_type = is_nuitka_file_from_output(die_result)
                 if nuitka_type:
                     found_executables.append((file_path, nuitka_type))
                     return found_executables  # Stop scanning further as .exe is found
@@ -4524,7 +4484,7 @@ def scan_directory_for_executables(directory):
         for file in files:
             if file.lower().endswith('.dll'):
                 file_path = os.path.join(root, file)
-                nuitka_type = is_nuitka_file(file_path)
+                nuitka_type = is_nuitka_file_from_output(die_result)
                 if nuitka_type:
                     found_executables.append((file_path, nuitka_type))
                     return found_executables  # Stop scanning further as .dll is found
@@ -4534,7 +4494,7 @@ def scan_directory_for_executables(directory):
         for file in files:
             if file.lower().endswith('.kext'):
                 file_path = os.path.join(root, file)
-                nuitka_type = is_nuitka_file(file_path)
+                nuitka_type = is_nuitka_file_from_output(die_result)
                 if nuitka_type:
                     found_executables.append((file_path, nuitka_type))
                     return found_executables  # Stop scanning further as .kext is found
@@ -4544,50 +4504,12 @@ def scan_directory_for_executables(directory):
         for file in files:
             if not file.lower().endswith(('.exe', '.dll', '.kext')):
                 file_path = os.path.join(root, file)
-                nuitka_type = is_nuitka_file(file_path)
+                nuitka_type = is_nuitka_file_from_output(die_result)
                 if nuitka_type:
                     found_executables.append((file_path, nuitka_type))
                     return found_executables  # Stop scanning further as a Nuitka file is found
 
     return found_executables
-
-def is_dotnet_file(file_path):
-    """Check if the file is a .NET executable using Detect It Easy."""
-    try:
-        logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
-
-        # Ensure the JSON output directory exists
-        output_dir = Path(detectiteasy_json_dir)
-        if not output_dir.exists():
-            output_dir.mkdir(parents=True)
-
-        # Define the base name for the output JSON file (output will be .NET check result)
-        base_name = Path(file_path).with_suffix(".json")
-
-        # Get a unique file path for the JSON output
-        json_output_path = get_unique_output_path(output_dir, base_name)
-
-        # Run the DIE console command with the -j flag to generate a JSON output
-        result = subprocess.run([detectiteasy_console_path, "-j", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-        # Check for .NET executable (Microsoft .NET or CLR)
-        if "Microsoft .NET" in result.stdout or "CLR" in result.stdout:
-            logging.info(f"File {file_path} is a .NET executable.")
-            # Save the JSON output to the specified unique file
-            with open(json_output_path, "w") as json_file:
-                json_file.write(result.stdout)
-            logging.info(f".NET analysis result saved to {json_output_path}")
-            return True
-        else:
-            logging.info(f"File {file_path} is not a .NET executable. Result: {result.stdout}")
-            return False
-
-    except subprocess.SubprocessError as ex:
-        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
-        return False
-    except Exception as ex:
-        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
-        return False
 
 class CTOCEntry:
     def __init__(self, position, cmprsddatasize, uncmprsddatasize, cmprsflag, typecmprsdata, name):
@@ -5186,6 +5108,8 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: Nuitka onefile extracted.")
         elif file_path.startswith(dotnet_dir):
             logging.info(f"{file_path}: .NET decompiled.")
+        elif file_path.startswith(obfuscar_dir):
+            logging.info(f"{file_path}: .NET file obfuscated with Obfuscar.")
         elif file_path.startswith(pyinstaller_dir):
             logging.info(f"{file_path}: PyInstaller onefile extracted.")
         elif file_path.startswith(commandlineandmessage_dir):
@@ -5250,6 +5174,7 @@ def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled
             (lambda fp: fp.startswith(decompile_dir), f"Decompiled."),
             (lambda fp: fp.startswith(nuitka_dir), f"Nuitka onefile extracted."),
             (lambda fp: fp.startswith(dotnet_dir), f".NET decompiled."),
+            (lambda fp: fp.startswith(obfuscar_dir), f".NET file obfuscated with Obfuscar."),
             (lambda fp: fp.startswith(pyinstaller_dir), f"PyInstaller onefile extracted."),
             (lambda fp: fp.startswith(commandlineandmessage_dir), f"Command line message extracted."),
             (lambda fp: fp.startswith(pe_extracted_dir), f"PE file extracted."),
@@ -5331,9 +5256,6 @@ def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled
                 f"This file is categorized as:\n"
                 f"- Sandboxie environment file: {sandboxie_folder}\n"
                 f"- Main file: {main_file_path}\n"
-                f"- Decompiled file: {decompile_dir}\n"
-                f"- .NET decompiled file: {dotnet_dir}\n"
-                f"- Command line message or Windows readable messages: {commandlineandmessage_dir}\n\n"
                 "Based on the file name, file path, and file content analysis:\n\n"
                 "If this file is obfuscated, it may be dangerous. I provide readable text for you to analyze it to determine if this file is malware.\n"
                 "If it is a script file and obfuscated, it is probably suspicious or malware.\n"
@@ -5506,7 +5428,7 @@ def extract_and_return_pyinstaller(file_path):
 
     return extracted_pyinstaller_file_paths
 
-def decompile_dotnet_file(file_path):
+def decompile_dotnet_file(file_path, flag_obfuscar=False):
     """
     Decompiles a .NET assembly using ILSpy and scans all decompiled .cs files 
     for URLs, IP addresses, domains, and Discord webhooks.
@@ -5515,6 +5437,11 @@ def decompile_dotnet_file(file_path):
     """
     try:
         logging.info(f"Detected .NET assembly: {file_path}")
+
+        # Check: if file_path is within obfuscar_dir and flag_obfuscar is not already True, then set it to True.
+        if obfuscar_dir in file_path.parents and not flag_obfuscar:
+            flag_obfuscar = True
+            logging.info(f"Flag set to True because '{file_path}' is inside the Obfuscar directory '{obfuscar_dir}'.")
 
         # Create a unique directory for decompiled output
         folder_number = 1
@@ -5603,91 +5530,6 @@ def extract_all_files_with_7z(file_path):
     except Exception as ex:
         logging.error(f"Error during 7z extraction: {ex}")
         return []
-
-def is_go_garble(file_path):
-    """
-    Check if the file is considered garble based on DIE analysis.
-    A file is considered garble if the analysis output contains both:
-      - "Compiler: Go(unknown)"
-      - "Language: Go"
-    """
-    try:
-        logging.info(f"Analyzing file: {file_path} for garble check using Detect It Easy...")
-        
-        # Ensure the JSON output directory exists
-        output_dir = Path(detectiteasy_json_dir)
-        if not output_dir.exists():
-            output_dir.mkdir(parents=True)
-        
-        # Define the base name for the output JSON file
-        base_name = Path(file_path).with_suffix(".json")
-        json_output_path = get_unique_output_path(output_dir, base_name)
-        
-        # Run the DIE console command with the -j flag to generate JSON output
-        result = subprocess.run(
-            [detectiteasy_console_path, "-j", file_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        
-        # Check if the analysis output indicates a garble file
-        if "Compiler: Go(unknown)" in result.stdout and "Language: Go" in result.stdout:
-            logging.info(f"File {file_path} is detected as garble based on DIE analysis.")
-            # Save the JSON output for future reference
-            with open(json_output_path, "w") as json_file:
-                json_file.write(result.stdout)
-            logging.info(f"Garble analysis result saved to {json_output_path}")
-            return True
-        else:
-            logging.info(f"File {file_path} is not detected as garble. DIE output: {result.stdout}")
-            return False
-
-    except subprocess.SubprocessError as ex:
-        logging.error(f"Error in is_garble while running Detect It Easy for {file_path}: {ex}")
-        return False
-    except Exception as ex:
-        logging.error(f"General error in is_garble while running Detect It Easy for {file_path}: {ex}")
-        return False
-
-def is_pyc_file(file_path):
-    """Check if the file is a Python compiled file (.pyc) using Detect It Easy."""
-    try:
-        logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
-
-        # Ensure the JSON output directory exists
-        output_dir = Path(detectiteasy_json_dir)
-        if not output_dir.exists():
-            output_dir.mkdir(parents=True)
-
-        # Define the base name for the output JSON file (output will be PyInstaller check result)
-        base_name = Path(file_path).with_suffix(".json")
-
-        # Get a unique file path for the JSON output
-        json_output_path = get_unique_output_path(output_dir, base_name)
-
-        # Run the DIE console command with the -j flag to generate a JSON output
-        result = subprocess.run([detectiteasy_console_path, "-j", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-        # Check if the file is detected as a Python compiled module
-        if "Python" in result.stdout and "Compiled Module" in result.stdout and "Magic tag" in result.stdout:
-            logging.info(f"File {file_path} is detected as a Python compiled module by DIE.")
-            
-            # Save the JSON output to the specified unique file
-            with open(json_output_path, "w") as json_file:
-                json_file.write(result.stdout)
-            logging.info(f"Python compiled module analysis result saved to {json_output_path}")
-            return True
-        else:
-            logging.info(f"File {file_path} is not a Python compiled module. Result: {result.stdout}")
-            return False
-
-    except subprocess.SubprocessError as ex:
-        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
-        return False
-    except Exception as ex:
-        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
-        return False
 
 def extract_line(content, prefix):
     """
@@ -6038,8 +5880,66 @@ def show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name):
         logging.error(f"Error processing python file {file_path}: {ex}")
         return None, None, None, None
 
+def deobfuscate_with_obfuscar(file_path, file_basename):
+    """
+    Deobfuscate a .NET assembly protected with Obfuscar.
+
+    This function:
+      1. Copies the original file from file_path into the obfuscar directory.
+      2. Calls the Deobfuscar-Standalone-Win64.exe executable with the copied file.
+      3. Waits indefinitely until a file prefixed with "unpacked_" appears in obfuscar_dir.
+      4. Sends the deobfuscated file to scan_and_warn() with flag_obfuscar=True.
+
+    Parameters:
+      file_path (str): Path to the file to be deobfuscated.
+      file_basename (str): The name of the file (e.g., from os.path.basename(file_path)).
+
+    Returns:
+      None
+    """
+    if not os.path.exists(deobfuscar_path):
+        logging.error(f"Deobfuscar executable not found at {deobfuscar_path}")
+        return
+
+    # Copy the file to the obfuscar directory
+    copied_file_path = os.path.join(obfuscar_dir, file_basename)
+    try:
+        shutil.copy(file_path, copied_file_path)
+        logging.info(f"Copied file {file_path} to {copied_file_path}")
+    except Exception as e:
+        logging.error(f"Failed to copy file to obfuscar directory: {e}")
+        return
+
+    # Run the deobfuscation tool
+    try:
+        command = [deobfuscar_path, copied_file_path]
+        logging.info(f"Running deobfuscation: {' '.join(command)}")
+        subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    except Exception as e:
+        logging.error(f"Error during deobfuscation execution: {e}")
+        return
+
+    # Monitor directory for the unpacked output
+    logging.info("Waiting for unpacked_ file to appear...")
+    deobfuscated_file_path = None
+    while True:
+        for entry in os.listdir(obfuscar_dir):
+            if entry.startswith("unpacked_"):
+                deobfuscated_file_path = os.path.join(obfuscar_dir, entry)
+                logging.info(f"Deobfuscated file found: {deobfuscated_file_path}")
+                break
+        if deobfuscated_file_path:
+            break
+
+    # Send the deobfuscated file to analysis
+    try:
+        scan_and_warn(deobfuscated_file_path, flag_obfuscar=True)
+        logging.info("Deobfuscated file sent for analysis.")
+    except Exception as e:
+        logging.error(f"Error during analysis of deobfuscated file: {e}")
+
 # --- Main Scanning Function ---
-def scan_and_warn(file_path, flag=False, flag_debloat=False):
+def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False):
     """
     Scans a file for potential issues, starting with an online cloud analysis
     using the file's MD5 hash. If the cloud analysis indicates the file is clean,
@@ -6109,8 +6009,16 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
        # Extract the file name
         file_name = os.path.basename(file_path)
 
-        #Deobfuscate binaries obfuscated by Go Garble.
-        if is_go_garble: 
+        die_result = analyze_file_with_die(file_path)
+
+        # Check: if file_path is within obfuscar_dir and flag_obfuscar is not already True, then set it to True.
+        if obfuscar_dir in file_path.parents and not flag_obfuscar:
+            flag_obfuscar = True
+            logging.info(f"Flag set to True because '{file_path}' is inside the Obfuscar directory '{obfuscar_dir}'.")
+            deobfuscate_with_obfuscar(file_path, file_name)
+
+        # Deobfuscate binaries obfuscated by Go Garble.
+        if is_go_garble_from_output(die_result):
             output_path = os.path.join(ungarbler_dir, os.path.basename(file_path))
             string_output_path = os.path.join(ungarbler_string_dir, os.path.basename(file_path) + "_strings.txt")
 
@@ -6120,7 +6028,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
             scan_file_and_warn(string_output_path)
 
         # Check if it's a .pyc file and decompile if needed
-        if is_pyc_file(file_path):
+        if is_pyc_file_from_output(die_result):
             logging.info(f"File {file_path} is a .pyc (Python Compiled Module) file. Attempting to decompile...")
 
             # Call the show_code_with_uncompyle6_pycdc_pycdas function to decompile the .pyc file
@@ -6233,8 +6141,8 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
                 logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
                 notify_user_invalid(file_path, "Win32.Susp.InvalidSignature")
 
-            # Additional checks for PE files and .NET files
-            if is_pe_file(file_path):
+            # Additional checks for PE files
+            if is_pe_file_from_output(die_result):
                 logging.info(f"File {file_path} is a valid PE file.")
                 pe_file = True
 
@@ -6267,20 +6175,25 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False):
                 except Exception as ex:
                     logging.error(f"Error during debloating of {file_path}: {ex}")
 
-            if is_dotnet_file(file_path):
+            # Analyze the DIE output for .NET file information
+            dotnet_result = is_dotnet_file_from_output(die_result)
+    
+            if dotnet_result is True:
                 dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(file_path,))
                 dotnet_thread.start()
+            elif "Protector: Obfuscar" in dotnet_result and not flag_obfuscar:
+                logging.info(f"The file is a .NET assembly protected with Obfuscar: {dotnet_result}")
 
-            if is_jar_file(file_path):
+            if is_jar_file_from_output(die_result):
                 extracted_jar_files = run_jar_extractor(file_path)
                 for extracted_jar_file in extracted_jar_files:
                     scan_and_warn(extracted_jar_file)
 
             # Check if the file contains Nuitka executable
-            nuitka_type = is_nuitka_file(file_path)
+            nuitka_type = is_nuitka_file_from_output(die_result)
 
             # Only proceed with extraction if Nuitka is detected
-            if nuitka_type:
+            if nuitka_result:
                 try:
                     logging.info(f"Checking if the file {file_path} contains Nuitka executable of type: {nuitka_type}")
                     # Pass both the file path and Nuitka type to the check_and_extract_nuitka function
