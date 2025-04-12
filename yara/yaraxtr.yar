@@ -7,6 +7,493 @@ import "macho"
 import "math"
 import "time"
 
+import "pe"
+
+rule SUSP_NET_Large_Static_Array_In_Small_File_Jan24 {
+   meta:
+      description = "Detects large static arrays in small .NET files "
+      author = "Jonathan Peters"
+      date = "2024-01-11"
+      reference = "https://github.com/Workingdaturah/Payload-Generator/tree/main"
+      hash = "7d68bfaed20d4d7cf2516c2b110f460cf113f81872cd0cc531cbfa63a91caa36"
+      score = 60
+   strings:
+      $op = { 5F 5F 53 74 61 74 69 63 41 72 72 61 79 49 6E 69 74 54 79 70 65 53 69 7A 65 3D [6-] 00 }
+   condition:
+      uint16(0) == 0x5a4d and
+	  pe.data_directories[pe.IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR].virtual_address != 0 and
+	  filesize < 300KB and
+	  #op == 1
+}
+import "pe"
+
+rule DOTNET_SingleFileHost_Bundled_App {
+	meta:
+		description = "Detects single file host .NET bundled apps."
+		author = "Jonathan Peters"
+		date = "2024-01-02"
+		reference = "https://learn.microsoft.com/en-us/dotnet/core/deploying/single-file"
+	strings:
+		$ = "singlefilehost.exe" ascii
+		$ = "singlefilehost.pdb" ascii
+	condition:
+		uint16(0) == 0x5a4d and
+		1 of them and
+		pe.exports("DotNetRuntimeInfo") and
+		pe.exports("CLRJitAttachState")
+}
+rule MAL_NET_LimeCrypter_RunPE_Jan24
+{
+	meta:
+		description = "Detects LimeCrypter RunPE module. LimeCrypter is an open source .NET based crypter and loader commonly used by threat actors"
+		author = "Jonathan Peters"
+		date = "2024-01-16"
+		reference = "https://github.com/NYAN-x-CAT/Lime-Crypter/tree/master"
+		hash = "bcc8c679acfc3aabf22ebdb2349b1fabd351a89fd23a716d85154049d352dd12"
+		score = 80
+	strings:
+		$op1 = { 1F 1A 58 1F 1A 58 28 }
+		$op2 = { 20 B3 00 00 00 8D ?? 00 00 01 13 ?? 11 ?? 16 20 02 00 01 00 }
+		$op3 = { 11 0? 11 0? 20 00 30 00 00 1F 40 28 ?? 00 00 06 }
+		$op4 = { 6E 20 FF 7F 00 00 6A FE 02 }
+
+		$s1 = "RawSecurityDescriptor" ascii
+		$s2 = "CommonAce" ascii
+	condition:
+		uint16(0) == 0x5a4d and
+		all of ($s*) and
+		2 of ($op*)
+}
+rule MAL_NET_NixImports_Loader_Jan24 {
+	meta:
+		description = "Detects open-source NixImports .NET malware loader. A stealthy loader using dynamic import resolving to evade static detection"
+		author = "Jonathan Peters"
+		date = "2024-01-12"
+		reference = "https://github.com/dr4k0nia/NixImports/tree/master"
+		hash = "dd3f22871879b0bc4990c96d1de957848c7ed0714635bb036c73d8a989fb0b39"
+		score = 80
+	strings:
+		$op1 = { 1F 0A 64 06 1F 11 62 60 } // Hash algorithm
+		$op2 = { 03 20 4D 5A 90 00 94 4B 2A } // Magic
+		$op3 = { 20 DE 7A 1F F3 20 F7 1B 18 BC } // Hardcoded function hashes
+		$op4 = { 20 CE 1F BE 70 20 DF 1F 3E F8 14 } // Hardcoded function hashes
+
+		$sa1 = "OffsetToStringData" ascii
+		$sa2 = "GetRuntimeMethods" ascii
+		$sa3 = "netstandard" ascii
+	condition:
+		uint16(0) == 0x5a4d and
+		all of ($sa*) and
+		2 of ($op*)
+}
+rule Eazfuscator_String_Encryption : suspicious
+{
+	meta:
+		name = "Eazfuscator"
+		category = "obfuscation"
+		description = "Eazfuscator.NET string encryption"
+		author = "Jonathan Peters"
+		created = "2024-01-01"
+		reliability = 90
+		tlp = "TLP:white"
+		sample = "3a9ee09ed965e3aee677043ba42c7fdbece0150ef9d1382c518b4b96bbd0e442"
+	strings:
+		$sa1 = "StackFrame" ascii
+		$sa2 = "StackTrace" ascii
+		$sa3 = "Enter" ascii
+		$sa4 = "Exit" ascii
+
+		$op1 = { 11 ?? 18 91 11 ?? 1? 91 1F 10 62 60 11 ?? 1? 91 1E 62 60 11 ?? 17 91 1F 18 62 60 }
+		$op2 = { D1 28 ?? 00 00 0A 0? 1F 10 63 D1 }
+		$op3 = { 1F 10 63 D1 28 [3] 0A }
+		$op4 = { 7B ?? 00 00 04 16 91 02 7B ?? 00 00 04 17 91 1E 62 60 02 7B ?? 00 00 04 18 91 1F 10 62 60 02 7B ?? 00 00 04 19 91 1F 18 62 60 }
+	condition:
+		uint16(0) == 0x5a4d and
+		all of ($sa*) and
+		(
+			2 of ($op*) or
+			#op1 == 2
+		)
+}
+
+rule Eazfuscator_Code_Virtualization : suspicious
+{
+	meta:
+		name = "Eazfuscator"
+		category = "obfuscation"
+		description = "Eazfuscator.NET code virtualization"
+		author = "Jonathan Peters"
+		created = "2024-01-01"
+		reliability = 90
+		tlp = "TLP:white"
+		sample = "53d5c2574c7f70b7aa69243916acf6e43fe4258fbd015660032784e150b3b4fa"
+	strings:
+		$sa1 = "BinaryReader" ascii
+		$sa2 = "GetManifestResourceStream" ascii
+		$sa3 = "get_HasElementType" ascii
+
+		$op1 = { 28 [2] 00 06 28 [2] 00 06 72 [2] 00 70 ?? 1? 2D 0? 26 26 26 26 2B }
+		$op2 = { 7E [3] 04 2D 3D D0 [3] 02 28 [3] 0A 6F [3] 0A 72 [3] 70 6F [3] 0A 20 80 00 00 00 8D ?? 00 00 01 25 D0 [3] 04 28 [3] 0A 28 [3] 06 28 [3] 06 80 [3] 04 7E [3] 04 2A } // VM Stream Init
+		$op3 = { 02 20 [4] 1F 09 73 [4] 7D [3] 04 }
+	condition:
+		uint16(0) == 0x5a4d and
+		all of ($sa*) and
+		2 of ($op*)
+}
+
+rule ConfuserEx_Naming_Pattern : suspicious
+{
+	meta:
+		name = "ConfuserEx"
+		category = "obfuscation"
+		description = "ConfuserEx Renaming Pattern"
+		author = "Jonathan Peters"
+		created = "2024-01-03"
+		reliability = 90
+	strings:
+		$s1 = "mscoree.dll" ascii
+		$s2 = "mscorlib" ascii 
+		$s3 = "System.Private.Corlib" ascii
+		$s4 = "#Strings" ascii
+		$s5 = { 5F 43 6F 72 [3] 4D 61 69 6E }
+
+		$name_pattern = { E2 ( 80 8? | 81 AA ) E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 80 AE}
+	condition:
+		uint16(0) == 0x5a4d
+		and 2 of ($s*)
+		and #name_pattern > 5
+}
+
+rule ConfuserEx_Packer : suspicious
+{
+	meta:
+		name = "ConfuserEx"
+		category = "obfuscation"
+		description = "ConfuserEx Packer"
+		author = "Jonathan Peters"
+		created = "2024-01-09"
+		reliability = 90
+	strings:
+		$s1 = "GCHandle" ascii
+		$s2 = "GCHandleType" ascii
+
+		$op1 = { 5A 20 89 C0 3F 14 6A 5E [8-20] 5A 20 FB 56 4D 44 6A 5E 6D 9E }
+		$op2 = { 20 61 FF 6F 00 13 ?? 06 13 ?? 16 13 [10-20] 20 1F 3F 5E 00 5A }
+		$op3 = { 16 91 7E [3] 04 17 91 1E 62 60 7E [3] 04 18 91 1F 10 62 60 7E [3] 04 19 91 1F 18 62 }
+	condition:
+		uint16(0) == 0x5a4d and
+		all of ($s*) and
+		2 of ($op*)
+}
+
+
+
+rule Reactor_Indicators : suspicious
+{
+	meta:
+		name = ".NET Reactor"
+		category = "obfuscation"
+		description = "Ezriz .NET Reactor obfuscator"
+		author = "Jonathan Peters"
+		created = "2024-01-09"
+		reliability = 90
+	strings:
+		$ = { 33 7B 00 [9] 00 2D 00 [9] 00 2D 00 [9] 00 2D 00 [9] 00 7D 00 }
+		$ = { 3C 50 72 69 76 61 74 65 49 6D 70 6C 65 6D 65 6E 74 61 74 69 6F 6E 44 65 74 61 69 6C 73 3E 7B [8] 2D [4] 2D [4] 2D [4] 2D [12] 7D }
+		$ = { 3C 4D 6F 64 75 6C 65 3E 7B [8] 2D [4] 2D [4] 2D [4] 2D [12] 7D }
+	condition:
+      uint16(0) == 0x5a4d
+		and 2 of them
+}
+rule SUSP_OBF_NET_ConfuserEx_Name_Pattern_Jan24 {
+	meta:
+		description = "Detects Naming Pattern used by ConfuserEx. ConfuserEx is a widely used open source obfuscator often found in malware"
+		author = "Jonathan Peters"
+		date = "2024-01-03"
+		reference = "https://github.com/yck1509/ConfuserEx/tree/master"
+		hash = "2f67f590cabb9c79257d27b578d8bf9d1a278afa96b205ad2b4704e7b9a87ca7"
+		score = 60
+	strings:
+		$s1 = "mscoree.dll" ascii
+		$s2 = "mscorlib" ascii 
+		$s3 = "System.Private.Corlib" ascii
+		$s4 = "#Strings" ascii
+		$s5 = { 5F 43 6F 72 [3] 4D 61 69 6E }
+
+		$name_pattern = { E2 ( 80 8? | 81 AA ) E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 [2] E2 80 AE}
+	condition:
+		uint16(0) == 0x5a4d
+		and 2 of ($s*)
+		and #name_pattern > 5
+}
+
+rule SUSP_OBF_NET_ConfuserEx_Packer_Jan24 {
+	meta:
+		description = "Detects binaries packed with ConfuserEx compression packer. This feature compresses and encrypts the actual image into a stub that unpacks and loads the original image on runtime."
+		author = "Jonathan Peters"
+		date = "2024-01-09"
+		reference = "https://github.com/yck1509/ConfuserEx/tree/master"
+		hash = "2570bd4c3f564a61d6b3d589126e0940af27715e1e8d95de7863579fbe25f86f"
+		score = 70
+	strings:
+		$s1 = "GCHandle" ascii
+		$s2 = "GCHandleType" ascii
+
+		$op1 = { 5A 20 89 C0 3F 14 6A 5E [8-20] 5A 20 FB 56 4D 44 6A 5E 6D 9E }
+		$op2 = { 20 61 FF 6F 00 13 ?? 06 13 ?? 16 13 [10-20] 20 1F 3F 5E 00 5A}
+		$op3 = { 16 91 7E [3] 04 17 91 1E 62 60 7E [3] 04 18 91 1F 10 62 60 7E [3] 04 19 91 1F 18 62 }
+	condition:
+		uint16(0) == 0x5a4d
+		and all of ($s*)
+		and 2 of ($op*)
+}
+rule SUSP_OBF_NET_Eazfuscator_String_Encryption_Jan24
+{
+	meta:
+		description = "Detects .NET images obfuscated with Eazfuscator string encryption. Eazfuscator is a widely used commercial obfuscation solution used by both legitimate software and malware."
+		author = "Jonathan Peters"
+		date = "2024-01-01"
+		reference = "https://www.gapotchenko.com/eazfuscator.net"
+		hash = "3a9ee09ed965e3aee677043ba42c7fdbece0150ef9d1382c518b4b96bbd0e442"
+		score = 60
+	strings:
+		$sa1 = "StackFrame" ascii
+		$sa2 = "StackTrace" ascii
+		$sa3 = "Enter" ascii
+		$sa4 = "Exit" ascii
+
+		$op1 = { 11 ?? 18 91 11 ?? 1? 91 1F 10 62 60 11 ?? 1? 91 1E 62 60 11 ?? 17 91 1F 18 62 60 }
+		$op2 = { D1 28 ?? 00 00 0A 0? 1F 10 63 D1 }
+		$op3 = { 1F 10 63 D1 28 [3] 0A }
+		$op4 = { 7B ?? 00 00 04 16 91 02 7B ?? 00 00 04 17 91 1E 62 60 02 7B ?? 00 00 04 18 91 1F 10 62 60 02 7B ?? 00 00 04 19 91 1F 18 62 60 } // (int)this.\u0003[0] | ((int)this.\u0003[1] << 8) | ((int)this.\u0003[2] << 0x10) | ((int)this.\u0003[3] << 0x18);
+	condition:
+		uint16(0) == 0x5a4d 
+		and all of ($sa*) 
+		and (
+			2 of ($op*) 
+			or
+			#op1 == 2
+		)
+}
+
+rule SUSP_OBF_NET_Eazfuscator_Virtualization_Jan24
+{
+	meta:
+		description = "Detects .NET images obfuscated with Eazfuscator virtualization protection. Eazfuscator is a widely used commercial obfuscation solution used by both legitimate software and malware."
+		author = "Jonathan Peters"
+		date = "2024-01-02"
+		reference = "https://www.gapotchenko.com/eazfuscator.net"
+		hash = "53d5c2574c7f70b7aa69243916acf6e43fe4258fbd015660032784e150b3b4fa"
+		score = 60
+	strings:
+		$sa1 = "BinaryReader" ascii
+		$sa2 = "GetManifestResourceStream" ascii
+		$sa3 = "get_HasElementType" ascii
+
+		$op1 = { 28 [2] 00 06 28 [2] 00 06 72 [2] 00 70 ?? 1? 2D 0? 26 26 26 26 2B }
+		$op2 = { 7E [3] 04 2D 3D D0 [3] 02 28 [3] 0A 6F [3] 0A 72 [3] 70 6F [3] 0A 20 80 00 00 00 8D ?? 00 00 01 25 D0 [3] 04 28 [3] 0A 28 [3] 06 28 [3] 06 80 [3] 04 7E [3] 04 2A } // VM Stream Init
+		$op3 = { 02 20 [4] 1F 09 73 [4] 7D [3] 04 }
+	condition:
+		uint16(0) == 0x5a4d 
+		and all of ($sa*)
+		and 2 of ($op*)
+}
+import "pe"
+
+rule SUSP_OBF_NET_Reactor_Native_Stub_Jan24 {
+	meta:
+		description = "Detects native packer stub for version 4.5-4.7 of .NET Reactor. A pirated copy of version 4.5 of this commercial obfuscation solution is used by various malware families like BlackBit, RedLine, AgentTesla etc."
+		author = "Jonathan Peters"
+		date = "2024-01-05"
+		reference = "https://notes.netbytesec.com/2023/08/understand-ransomware-ttps-blackbit.html"
+		hash = "6e8a7adf680bede7b8429a18815c232004057607fdfbf0f4b0fb1deba71c5df7"
+		score = 70
+	strings:
+		$op = {C6 44 24 18 E0 C6 44 24 19 3B C6 44 24 1A 8D C6 44 24 1B 2A C6 44 24 1C A2 C6 44 24 1D 2A C6 44 24 1E 2A C6 44 24 1F 41 C6 44 24 20 D3 C6 44 24 21 20 C6 44 24 22 64 C6 44 24 23 06 C6 44 24 24 8A C6 44 24 25 F7 C6 44 24 26 3D C6 44 24 27 9D C6 44 24 28 D9 C6 44 24 29 EE C6 44 24 2A 15 C6 44 24 2B 68 C6 44 24 2C F4 C6 44 24 2D 76 C6 44 24 2E B9 C6 44 24 2F 34 C6 44 24 30 BF C6 44 24 31 1E C6 44 24 32 E7 C6 44 24 33 78 C6 44 24 34 98 C6 44 24 35 E9 C6 44 24 36 6F C6 44 24 37 B4}
+	condition:
+		for any i in (0..pe.number_of_resources-1) : (pe.resources[i].name_string == "_\x00_\x00")
+		and $op
+}
+
+rule SUSP_OBF_NET_Reactor_Indicators_Jan24
+{
+	meta:
+		description = "Detects indicators of .NET Reactors managed obfuscation. Reactor is a commercial obfuscation solution, pirated versions are often abused by threat actors."
+		author = "Jonathan Peters"
+		date = "2024-01-09"
+		reference = "https://www.eziriz.com/dotnet_reactor.htm"
+		hash = "be842a9de19cfbf42ea5a94e3143d58390a1abd1e72ebfec5deeb8107dddf038"
+		score = 65
+	strings:
+		$ = { 33 7B 00 [9] 00 2D 00 [9] 00 2D 00 [9] 00 2D 00 [9] 00 7D 00 }
+		$ = { 3C 50 72 69 76 61 74 65 49 6D 70 6C 65 6D 65 6E 74 61 74 69 6F 6E 44 65 74 61 69 6C 73 3E 7B [8] 2D [4] 2D [4] 2D [4] 2D [12] 7D }
+		$ = { 3C 4D 6F 64 75 6C 65 3E 7B [8] 2D [4] 2D [4] 2D [4] 2D [12] 7D }
+	condition:
+      uint16(0) == 0x5a4d
+		and 2 of them
+}
+import "pe"
+
+rule SingleFileHost_App_Bundle
+{
+	meta:
+		name = "DotNet"
+		category = "compiler"
+		description = "DotNet singlefilehost app bundle"
+		author = "Jonathan Peters"
+		created = "2024-01-03"
+		reliability = 90
+	strings:
+		$ = "singlefilehost.exe" ascii
+		$ = "singlefilehost.pdb" ascii
+	condition:
+		uint16(0) == 0x5a4d and
+		1 of them and
+		pe.exports("DotNetRuntimeInfo") and
+		pe.exports("CLRJitAttachState")
+}
+rule SUSP_NET_Shellcode_Loader_Indicators_Jan24 {
+   meta:
+      description = "Detects indicators of shellcode loaders in .NET binaries"
+      author = "Jonathan Peters"
+      date = "2024-01-11"
+      reference = "https://github.com/Workingdaturah/Payload-Generator/tree/main"
+      hash = "c48752a5b07b58596564f13301276dd5b700bd648a04af2e27d3f78512a06408"
+      score = 65
+   strings:
+      $sa1 = "VirtualProtect" ascii
+      $sa2 = "VirtualAlloc" ascii
+      $sa3 = "WriteProcessMemory" ascii
+      $sa4 = "CreateRemoteThread" ascii
+      $sa5 = "CreateThread" ascii
+      $sa6 = "WaitForSingleObject" ascii
+
+      $x = "__StaticArrayInitTypeSize=" ascii
+   condition:
+      uint16(0) == 0x5a4d and
+      3 of ($sa*) and
+      #x == 1
+}
+rule SUSP_Direct_Syscall_Shellcode_Invocation_Jan24 {
+	meta:
+		description = "Detects direct syscall evasion technqiue using NtProtectVirtualMemory to invoke shellcode"
+		author = "Jonathan Peters"
+		date = "2024-01-14"
+		reference = "https://unprotect.it/technique/evasion-using-direct-syscalls/"
+		hash = "f7cd214e7460c539d6f8d02b6650098e3983862ff658b76ea02c33f5a45fc836"
+		score = 65
+	strings:
+		$ = { B8 40 00 00 00 67 4C 8D 08 49 89 CA 48 C7 C0 50 00 00 00 0F 05 [4-8] 4C 8D 3D 02 00 00 00 FF E0 }
+	condition:
+		all of them and
+		filesize < 2MB
+}
+rule SUSP_OBF_PyArmor_Jan24
+{
+	meta:
+		description = "Detects PyArmor python code obfuscation. PyArmor is used by various threat actors like BatLoader"
+		author = "Jonathan Peters"
+		date = "2024-01-16"
+		reference = "https://www.trendmicro.com/en_us/research/23/h/batloader-campaigns-use-pyarmor-pro-for-evasion.html"
+		hash = "2727a418f31e8c0841f8c3e79455067798a1c11c2b83b5c74d2de4fb3476b654"
+		score = 65
+	strings:
+		$ = "__pyarmor__" ascii
+		$ = "pyarmor_runtime" ascii
+		$ = "pyarmor(__" ascii
+		$ = { 50 79 61 72 6D 6F 72 20 [5] 20 28 70 72 6F 29 }
+		$ = { 5F 5F 61 72 6D 6F 72 5F ( 65 78 69 74 | 77 72 61 70 | 65 6E 74 65 72 ) 5F 5F }
+	condition:
+		2 of them
+}
+
+rule SUSP_RLO_Exe_Extension_Spoofing_Jan24 {
+   meta:
+      description = "Detects Right-To-Left (RLO) Unicode (U+202E) extension spoofing for .exe files"
+      author = "Jonathan Peters"
+      date = "2024-01-14"
+      reference = "https://unprotect.it/technique/right-to-left-override-rlo-extension-spoofing/"
+      hash = "cae0ab10f7c1afd7941aff767a9b59901270e3de4d44167e932dae0991515487"
+      score = 70
+   strings:
+      $ = { E2 80 AE 76 73 63 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) } // csv
+      $ = { E2 80 AE 66 64 70 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) } // pdf
+      $ = { E2 80 AE 78 73 6C 78 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) } // xlsx
+      $ = { E2 80 AE 78 63 6F 64 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) } // docx
+      $ = { E2 80 AE 70 69 7A ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) } // zip
+      $ = { E2 80 AE 67 6E 70 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) } // png
+      $ = { E2 80 AE 67 65 70 6A ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) } // jpeg
+      $ = { E2 80 AE 67 70 6A ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) } // jpg
+      $ = { E2 80 AE 6E 6C 73 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) } // sln
+
+      $ = { E2 80 AE 74 78 74 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 66 64 70 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 78 74 70 70 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 74 64 6f ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 63 74 65 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 66 69 67 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 70 6d 62 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 66 66 69 74 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 67 76 73 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 34 70 6d ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 69 76 61 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 76 6f 6d ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 76 6d 77 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 76 6c 66 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 76 6b 6d ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 33 70 6d ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 76 61 77 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 63 61 61 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 63 61 6c 66 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 67 67 6f ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 61 6d 77 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 72 61 72 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 7a 37 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 7a 67 72 61 74 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 6f 73 69 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 6c 6d 74 68 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 6c 6d 65 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 6d 74 68 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 66 74 72 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 6d 68 63 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 61 74 68 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 6b 6e 6c ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 73 6c 78 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 63 6f 64 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+      $ = { E2 80 AE 6d 63 6f 64 ( 2E 2E | 2E ) ( 65 78 65 | 73 63 72 ) }
+   condition:
+      1 of them
+}
+import "pe"
+
+rule SUSP_VCRuntime_Sideloading_Indicators_Aug23 {
+   meta:
+      description = "Detects indicators of .NET based malware sideloading as VCRUNTIME140"
+      author = "Jonathan Peters"
+      date = "2023-08-30"
+      hash = "b4bc73dfe9a781e2fee4978127cb9257bc2ffd67fc2df00375acf329d191ffd6"
+      score = 75
+   condition:
+      (filename == "VCRUNTIME140.dll" or filename == "vcruntime140.dll")
+      and pe.imports("mscoree.dll", "_CorDllMain")
+}
+
+rule SUSP_VCRuntime_Sideloading_Indicators_1_Aug23 {
+   meta:
+      description = "Detects indicators of malware sideloading as VCRUNTIME140"
+      author = "Jonathan Peters"
+      date = "2023-08-30"
+      hash = "b4bc73dfe9a781e2fee4978127cb9257bc2ffd67fc2df00375acf329d191ffd6"
+      score = 75
+   strings:
+      $x = "Wine builtin DLL" ascii
+   condition:
+      (filename == "VCRUNTIME140.dll" or filename == "vcruntime140.dll")
+      and ( pe.number_of_signatures == 0
+      or not pe.signatures[0].issuer contain "Microsoft Corporation" )
+      and not $x
+}
+
 rule Obfuscar
 {
     meta:
