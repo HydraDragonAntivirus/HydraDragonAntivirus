@@ -268,12 +268,14 @@ pyinstaller_dir = os.path.join(script_dir, "pyinstaller")
 ghidra_projects_dir = os.path.join(script_dir, "ghidra_projects")
 ghidra_logs_dir = os.path.join(script_dir, "ghidra_logs")
 ghidra_scripts_dir = os.path.join(script_dir, "ghidra_scripts")
-compiled_scripts_dir = os.path.join(script_dir, "compiled_scripts")
+jar_decompiler_dir = os.path.join(script_dir, "jar_decompiler")
+FernFlower_decompiled_dir = os.path.join(script_dir, "FernFlower_decompiled")
 jar_extracted_dir = os.path.join(script_dir, "jar_extracted")
 dotnet_dir = os.path.join(script_dir, "dotnet")
 obfuscar_dir = os.path.join(script_dir, "obfuscar")
 nuitka_dir = os.path.join(script_dir, "nuitka")
 extensions_dir = os.path.join(script_dir, "knownextensions")
+FernFlower_path = os.path.join(jar_decompiler_dir, "fernflower.jar")
 system_file_names_path = os.path.join(script_dir, "systemfilenames.txt")
 extensions_path = os.path.join(extensions_dir, "extensions.txt")
 antivirus_process_list_path = os.path.join(extensions_dir, "antivirusprocesslist.txt")
@@ -427,6 +429,7 @@ os.makedirs(seven_zip_extracted_dir, exist_ok=True)
 os.makedirs(general_extracted_dir, exist_ok=True)
 os.makedirs(debloat_dir, exist_ok=True)
 os.makedirs(jar_extracted_dir, exist_ok=True)
+os.makedirs(FernFlower_decompiled_dir, exist_ok=True)
 os.makedirs(detectiteasy_json_dir, exist_ok=True)
 os.makedirs(pycdc_dir, exist_ok=True)
 os.makedirs(pycdas_dir, exist_ok=True)
@@ -579,50 +582,82 @@ def get_unique_output_path(output_dir: Path, base_name: str, suffix: int = 1) ->
 
     return new_path
 
-def run_jar_extractor(file_path):
-    extracted_files = []  # List to store the paths of the extracted files
+def run_jar_extractor(file_path, flag_fenflower):
+    """
+    Extracts a JAR file to an "extracted_files" folder in script_dir.
+    Then conditionally calls the FernFlower decompiler unless decompilation was already performed.
+    The flag_java_class indicates if the DIE output also detected a Java class file.
+    """
     try:
-        # Ensure the output directory exists
-        output_dir = Path(jar_extracted_dir)
-        if not output_dir.exists():
-            output_dir.mkdir(parents=True)
+        # Define the extraction output directory (adjust as desired)
+        extracted_dir = os.path.join(script_dir, "extracted_files")
+        Path(extracted_dir).mkdir(parents=True, exist_ok=True)
         
-        # Path to the JarExtractor compiled .jar file
-        jar_extractor_path = os.path.join(compiled_scripts_dir, "JarExtractor.jar")  # Ensure this path points to the correct JAR file
+        # Build the command to extract the JAR file using the JDK jar tool.
+        # "jar xf" will extract the contents into the current working directory.
+        jar_command = ["jar", "xf", file_path]
+        result = subprocess.run(
+            jar_command,
+            cwd=extracted_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
 
-        # Command to run the JarExtractor (JAR file path and output directory)
-        java_command = ["java", "-jar", jar_extractor_path, file_path, str(output_dir)]
-
-        # Run the command to extract the JAR file
-        result = subprocess.run(java_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-        # Check if the extraction was successful
         if result.returncode == 0:
-            logging.info(f"Extraction completed successfully: {result.stdout}")
+            logging.info("Extraction completed successfully.")
         else:
             logging.error(f"Extraction failed: {result.stderr}")
+        
+        # If the FernFlower decompilation flag is already set, skip the decompilation
+        if flag_fenflower:
+            logging.info("FernFlower analysis already performed; skipping decompilation.")
+        else:
+            # Proceed with decompiling via FernFlower.
+            run_fernflower_decompiler(file_path)
 
-        # Get all files from the extracted directory and apply the unique naming
-        for extracted_file in Path(output_dir).rglob("*"):  # Recursively go through the extracted files
-            if extracted_file.is_file():
-                # Get a unique output path for each file
-                unique_file_path = get_unique_output_path(output_dir, extracted_file.name)
-                
-                # Optionally rename or move the file to the new unique path
-                extracted_file.rename(unique_file_path)
-                logging.info(f"File {extracted_file.name} saved to {unique_file_path}")
+        scan_and_warn(file_path, flag_fenflower)
 
-                # Append the unique file path to the list of extracted files
-                extracted_files.append(unique_file_path)
-
-        # Return the list of extracted file paths
-        return extracted_files
-
-    except subprocess.SubprocessError as ex:
-        logging.error(f"Error while running JarExtractor: {ex}")
     except Exception as ex:
-        logging.error(f"General error while running JarExtractor: {ex}")
-        return []  # Return an empty list in case of an error
+        logging.error(f"Error in run_jar_extractor: {ex}")
+
+def run_fernflower_decompiler(file_path, flag_fenflower=True):
+    """
+    Uses FernFlower to decompile the given JAR file.
+    The FernFlower JAR is expected to be located in jar_decompiler_dir.
+    The decompiled output is saved to a folder in script_dir.
+    After decompilation, the output is passed to scan_and_warn along with the decompilation flag.
+    The flag_java_class indicates if a Java class file was detected.
+    """
+    try:
+
+        # Build the path to fernflower.jar.
+        FernFlower_path = os.path.join(jar_decompiler_dir, "fernflower.jar")
+        # Define the output directory for the decompiled source code.
+        FernFlower_decompiled_dir = os.path.join(script_dir, "FernFlower_decompiled")
+        Path(FernFlower_decompiled_dir).mkdir(parents=True, exist_ok=True)
+        
+        # Build the FernFlower decompilation command.
+        # Typical usage: java -jar fernflower.jar <input.jar> <output_dir>
+        command = ["java", "-jar", FernFlower_path, file_path, FernFlower_decompiled_dir]
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        if result.returncode == 0:
+            logging.info("FernFlower decompilation successful.")
+            flag_fenflower = True
+        else:
+            logging.error(f"FernFlower decompilation failed: {result.stderr}")
+            flag_fenflower = False
+        
+        # Pass the decompiled folder and the decompilation flag to scan_and_warn.
+        scan_and_warn(FernFlower_decompiled_dir, flag_fenflower)
+    except Exception as ex:
+        logging.error(f"Error in run_fernflower_decompiler: {ex}")
 
 def analyze_file_with_die(file_path):
     """
@@ -742,6 +777,17 @@ def is_jar_file_from_output(die_output):
         logging.info("DIE output indicates a JAR file.")
         return True
     logging.info(f"DIE output does not indicate a JAR file: {die_output}")
+    return False
+
+def is_java_class_from_output(die_output):
+    """
+    Checks if the DIE output indicates a Java class file.
+    It does this by looking for 'Language: Java' and 'Format: Java Class File' in the output.
+    """
+    if die_output and "Language: Java" in die_output and "Format: Java Class File" in die_output:
+        logging.info("DIE output indicates a Java class file.")
+        return True
+    logging.info(f"DIE output does not indicate a Java class file: {die_output}")
     return False
 
 def is_hex_data(data_content):
@@ -4267,7 +4313,8 @@ existing_projects = []
 # List of already scanned files and their modification times
 scanned_files = []
 file_mod_times = {}
-directories_to_scan = [sandboxie_folder, decompile_dir, nuitka_dir, dotnet_dir, obfuscar_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_deepseek_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir]
+
+directories_to_scan = [sandboxie_folder, decompile_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_deepseek_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir]
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
@@ -5140,6 +5187,8 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: It's a debloated file dir.")
         elif file_path.startswith(jar_extracted_dir):
            logging.info(f"{file_path}: It's a directory containing extracted files from a JAR (Java Archive) file.")
+        elif file_path.startswith(FernFlower_decompiled_dir):
+           logging.info(f"{file_path}: It's a directory containing decompiled files from a JAR (Java Archive) file, decompiled using Fernflower decompiler.")
         elif file_path.startswith(pycdc_dir):
             logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code directory with pycdc.exe.")
         elif file_path.startswith(pycdas_dir):
@@ -5187,6 +5236,7 @@ def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled
             (lambda fp: fp.startswith(memory_dir), f"It's a dynamic analysis memory dump file."),
             (lambda fp: fp.startswith(debloat_dir), f"It's a debloated file dir."),
             (lambda fp: fp.startswith(jar_extracted_dir), f"Directory containing extracted files from a JAR (Java Archive) file."),
+            (lambda fp: fp.startswith(FernFlower_decompiled_dir), f"This directory contains source files decompiled from a JAR (Java Archive) using the Fernflower decompiler.."),
             (lambda fp: fp.startswith(pycdc_dir), f"PyInstaller, .pyc reversed-engineered source code directory with pycdc.exe."),
             (lambda fp: fp.startswith(pycdas_dir), f"PyInstaller, .pyc reversed-engineered source code directory with pycdas.exe."),
             (lambda fp: fp.startswith(pycdas_deepseek_dir), f"PyInstaller .pyc reverse-engineered source code directory, decompiled with pycdas.exe and converted to non-bytecode Python code using DeepSeek-Coder 1.3b."),
@@ -5939,7 +5989,7 @@ def deobfuscate_with_obfuscar(file_path, file_basename):
         logging.error(f"Error during analysis of deobfuscated file: {e}")
 
 # --- Main Scanning Function ---
-def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False):
+def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False, flag_fernflower=False):
     """
     Scans a file for potential issues, starting with an online cloud analysis
     using the file's MD5 hash. If the cloud analysis indicates the file is clean,
@@ -6185,9 +6235,10 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                 logging.info(f"The file is a .NET assembly protected with Obfuscar: {dotnet_result}")
 
             if is_jar_file_from_output(die_result):
-                extracted_jar_files = run_jar_extractor(file_path)
-                for extracted_jar_file in extracted_jar_files:
-                    scan_and_warn(extracted_jar_file)
+                run_jar_extractor(file_path, flag_fenflower)
+
+            if is_java_class_from_output(die_result):
+                run_fernflower_extractor(file_path)
 
             # Check if the file contains Nuitka executable
             nuitka_type = is_nuitka_file_from_output(die_result)
