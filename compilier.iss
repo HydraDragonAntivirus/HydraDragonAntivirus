@@ -46,7 +46,7 @@ Source: "C:\Users\victim\Documents\HydraDragonAntivirus\*"; DestDir: "{app}"; Fl
 Source: "C:\Users\victim\Documents\hydratempinstall\7z2409-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\clamav-1.4.2.win.x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\npcap-1.80.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydratempinstall\npcap-1.81.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\Snort_2_9_20_Installer.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\JavaSetup8u431.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\jdk-23_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
@@ -70,7 +70,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Filename: "{tmp}\7z2409-x64.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\VC_redist.x64.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\clamav-1.4.2.win.x64.msi"; Flags: shellexec waituntilterminated
-Filename: "{tmp}\npcap-1.80.exe"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\npcap-1.81.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\Snort_2_9_20_Installer.x64.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\JavaSetup8u431.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\jdk-23_windows-x64_bin.exe"; Flags: shellexec waituntilterminated
