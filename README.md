@@ -57,7 +57,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 
 ## Guide
 
-**Note:** 
+**Note 1:** 
 - You need to create a DefaultBox in Sandboxie by running it once with a random application.  Also, please clean the DefaultBox items each time you scan. 
 - Please don't open the log file while the malware analysis is running, as it may trigger the anti-virus if you didn't remove the log before and the previous sample was detected before.
 
@@ -106,15 +106,15 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - I added en_core_web_md manually to C:\Program Files\HydraDragonAntivirus you can find the spacy path from codechecker\spacyfind.py but you need to rename en_core_web_md folder name which contains config.cfg for an example if version 3.7.1 then it contains a subfolder en_core_web_md.3.8.0 
 - Also you need run "spacy download en_core_web_md"
 
-**Note 12:**
+**Note 11:**
 
 - Your Windows folder must be in C:\ because some codes are hard coded.
 
-**Note 13:**
+**Note 12:**
 
 - If you are testing a rootkit, please do not enable "bcdedit testsigning on" to run the rootkit on your machine for analysis. We will take care of that.
 
-**Note 14:**
+**Note 13:**
 - HiJackThis version: 3.4.0.17 Beta
 - HiJackThis source code: https://github.com/dragokas/hijackthis
 
