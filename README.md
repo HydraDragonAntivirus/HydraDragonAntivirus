@@ -90,32 +90,28 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 **Note 6:**.
 - You will need an internet connection to install. It's not an offline installer.
 
-**Note 7:**.
-
-- Test that ilspycmd.exe works on your machine because you need to install .NET 6.0 Runtime which some machines don't have.
-
-**Note 8:**
+**Note 7:**
 
 - Don't forget to do a clean up, as it takes up too much space while processing files against ransomware, etc. 
 - You need too much storage because it logs everything. 
 
-**Note 9:**
+**Note 8:**
 
 - I have collected every malicious IP, domain from the Internet. So there must be big false positives, but I handle them.
 
-**Note 10:**
+**Note 9:**
 - I added en_core_web_md manually to C:\Program Files\HydraDragonAntivirus you can find the spacy path from codechecker\spacyfind.py but you need to rename en_core_web_md folder name which contains config.cfg for an example if version 3.7.1 then it contains a subfolder en_core_web_md.3.8.0 
 - Also you need run "spacy download en_core_web_md"
 
-**Note 11:**
+**Note 10:**
 
 - Your Windows folder must be in C:\ because some codes are hard coded.
 
-**Note 12:**
+**Note 11:**
 
 - If you are testing a rootkit, please do not enable "bcdedit testsigning on" to run the rootkit on your machine for analysis. We will take care of that.
 
-**Note 13:**
+**Note 12:**
 - HiJackThis version: 3.4.0.17 Beta
 - HiJackThis source code: https://github.com/dragokas/hijackthis
 
