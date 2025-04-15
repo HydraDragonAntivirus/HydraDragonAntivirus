@@ -4898,21 +4898,35 @@ def is_ransomware(file_path):
                 # Add Detect It Easy check at this stage
                 try:
                     die_result = subprocess.run([detectiteasy_console_path, file_path], 
-                                                stdout=subprocess.PIPE, 
-                                                stderr=subprocess.PIPE, 
-                                                text=True)
+                                                  stdout=subprocess.PIPE, 
+                                                  stderr=subprocess.PIPE, 
+                                                  text=True)
                     
                     # Check Detect It Easy output
                     if "Binary" in die_result.stdout and "Unknown: Unknown" in die_result.stdout:
-                        logging.warning(f"Detect It Easy confirmed suspicious file: {file_path}")
-                        return True
+                        logging.warning(f"Detect It Easy reported unknown for file: {file_path}, proceeding with MD5 check")
+                        try:
+                            with open(file_path, 'rb') as f:
+                                file_content = f.read()
+                            md5_hash = hashlib.md5(file_content).hexdigest()
+                        except Exception as ex:
+                            logging.error(f"Error computing MD5 for file {file_path}: {ex}")
+                            return False
+                            
+                        risk_level, virus_name = query_md5_online_sync(md5_hash)
+                        if risk_level.startswith("Unknown"):
+                            logging.warning(f"MD5 online check returned {risk_level} for file '{file_path}', flagged as ransomware sign")
+                            return True
+                        else:
+                            logging.info(f"MD5 online check returned {risk_level} for file '{file_path}', not flagged as ransomware")
+                            return False
                     else:
                         logging.info(f"Detect It Easy did not confirm suspicious status for {file_path}")
                         return False
                 
                 except Exception as die_ex:
                     logging.error(f"Error running Detect It Easy for {file_path}: {die_ex}")
-                    return True
+                    return False
 
         logging.info(f"File '{file_path}' does not meet ransomware conditions")
         return False
