@@ -771,6 +771,18 @@ def is_dotnet_file_from_output(die_output):
     logging.info(f"DIE output does not indicate a .NET executable: {die_output}")
     return None
 
+def is_file_unknown(die_output):
+    """
+    Checks if DIE output indicates that the file is unknown.
+    This function looks for markers within the output to determine
+    if the file's type could not be recognized.
+    """
+    if die_output and "Binary" in die_output and "Unknown: Unknown" in die_output:
+        logging.info("DIE output indicates an unknown file.")
+        return True
+    logging.info(f"DIE output does not indicate an unknown file: {die_output}")
+    return False
+
 def is_jar_file_from_output(die_output):
     """Checks if DIE output indicates a JAR file (Java archive)."""
     if die_output and "Virtual machine: JVM" in die_output:
@@ -4893,40 +4905,8 @@ def is_ransomware(file_path):
                 logging.info(f"File '{file_path}' is not ransomware")
                 return False
             else:
-                logging.warning(f"File '{file_path}' might be ransomware sign")
-                
-                # Add Detect It Easy check at this stage
-                try:
-                    die_result = subprocess.run([detectiteasy_console_path, file_path], 
-                                                  stdout=subprocess.PIPE, 
-                                                  stderr=subprocess.PIPE, 
-                                                  text=True)
-                    
-                    # Check Detect It Easy output
-                    if "Binary" in die_result.stdout and "Unknown: Unknown" in die_result.stdout:
-                        logging.warning(f"Detect It Easy reported unknown for file: {file_path}, proceeding with MD5 check")
-                        try:
-                            with open(file_path, 'rb') as f:
-                                file_content = f.read()
-                            md5_hash = hashlib.md5(file_content).hexdigest()
-                        except Exception as ex:
-                            logging.error(f"Error computing MD5 for file {file_path}: {ex}")
-                            return False
-                            
-                        risk_level, virus_name = query_md5_online_sync(md5_hash)
-                        if risk_level.startswith("Unknown"):
-                            logging.warning(f"MD5 online check returned {risk_level} for file '{file_path}', flagged as ransomware sign")
-                            return True
-                        else:
-                            logging.info(f"MD5 online check returned {risk_level} for file '{file_path}', not flagged as ransomware")
-                            return False
-                    else:
-                        logging.info(f"Detect It Easy did not confirm suspicious status for {file_path}")
-                        return False
-                
-                except Exception as die_ex:
-                    logging.error(f"Error running Detect It Easy for {file_path}: {die_ex}")
-                    return False
+                logging.warning(f"File '{file_path}' might be a ransomware sign")
+                return True
 
         logging.info(f"File '{file_path}' does not meet ransomware conditions")
         return False
@@ -6007,6 +5987,9 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         with open(file_path, 'rb') as scan_file:
             data_content = scan_file.read()
 
+        # Flag to indicate whether the file is unknown based on MD5 cloud scan results
+        is_unknown_md5 = False
+
         # --- Cloud Analysis with Hash Calculation ---
         file_md5 = hashlib.md5(data_content).hexdigest()
         risk, virus = query_md5_online_sync(file_md5)
@@ -6029,11 +6012,12 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             logging.warning(f"File {file_path} flagged as suspicious by cloud analysis: {cloud_result}")
             notify_user_nichta(file_path, cloud_result)
             return True
-        elif risk.startswith("Unknown"):
+        elif risk== "Unknown":
             logging.info(f"Cloud analysis returned unknown for file {file_path}. Proceeding with local scanning.")
-        elif risk.startswith("Unknown (Result)"):
+            is_unknown_md5 = True
+        elif risk == "Unknown (Result)":
             logging.info(f"Cloud analysis returned an unknown result for file {file_path}. Proceeding with local scanning.")
-        elif risk.startswith("Unknown (API Error)"):
+        elif risk == "Unknown (API Error)":
             logging.info(f"Cloud analysis returned an API error for file {file_path}. Proceeding with local scanning.")
         else:
             logging.info(f"Cloud analysis returned an unhandled result for file {file_path}: {cloud_result}. Proceeding with local scanning.")
@@ -6257,7 +6241,8 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         log_directory_type(file_path)
 
         # Perform ransomware alert check
-        ransomware_alert(file_path)
+        if is_file_unknown(die_output) and is_unknown_md5:
+            ransomware_alert(file_path)
 
         # Check if the file is in decompile_dir
         if file_path.startswith(decompile_dir):
