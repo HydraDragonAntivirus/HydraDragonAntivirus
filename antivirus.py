@@ -506,7 +506,7 @@ try:
     logging.info("Magic bytes have been successfully loaded.")
 
 except FileNotFoundError:
-    logging.info(f"Error: The file {magicbytes_path} was not found.")
+    logging.error(f"Error: The file {magicbytes_path} was not found.")
 except Exception as e:
     logging.error(f"An error occurred: {e}")
 
@@ -1483,8 +1483,6 @@ def notify_user_for_malicious_source_code(file_path, virus_name):
     notification_message = f"Suspicious source code detected in: {file_path}\nVirus: {virus_name}"
     logging.warning(notification_title)
     logging.warning(notification_message)
-    logging.info(notification_title)
-    logging.info(notification_message)
 
 def notify_user_for_detected_command(message):
     logging.warning(f"Notification: {message}")
@@ -2891,7 +2889,6 @@ class RealTimeWebProtectionHandler:
                 if detection_type:
                     message = f"{detection_type} {message}"
                 logging.info(message)
-                logging.info(message)
 
             if any(notify_info.values()):
                 notify_user_for_web(**notify_info)
@@ -2920,7 +2917,6 @@ class RealTimeWebProtectionHandler:
                 return
             self.scanned_domains.append(domain)
             message = f"Scanning domain: {domain}"
-            logging.info(message)
             logging.info(message)
 
             if domain.lower().startswith("www."):
@@ -3035,7 +3031,6 @@ class RealTimeWebProtectionHandler:
             if is_local_ip(ip_address):
                 message = f"Skipping local IP address: {ip_address}"
                 logging.info(message)
-                logging.info(message)
                 return
 
             # Check if the IP address has already been scanned
@@ -3046,7 +3041,6 @@ class RealTimeWebProtectionHandler:
             if re.match(IPv6_pattern, ip_address): # IPv6 address
                 self.scanned_ipv6_addresses.append(ip_address)
                 message = f"Scanning IPv6 address: {ip_address}"
-                logging.info(message)
                 logging.info(message)
 
                 # Check against IPv6 DDoS signatures
@@ -3065,16 +3059,13 @@ class RealTimeWebProtectionHandler:
                 elif ip_address in ipv6_whitelist_data:
                     message = f"IPv6 address {ip_address} is whitelisted"
                     logging.info(message)
-                    logging.info(message)
                 else:
                     message = f"Unknown IPv6 address detected: {ip_address}"
-                    logging.info(message)
                     logging.info(message)
 
             else:  # IPv4 address
                 self.scanned_ipv4_addresses.append(ip_address)
                 message = f"Scanning IPv4 address: {ip_address}"
-                logging.info(message)
                 logging.info(message)
 
                 # Check against active phishing signatures
@@ -3101,10 +3092,8 @@ class RealTimeWebProtectionHandler:
                 elif ip_address in ipv4_whitelist_data:
                     message = f"IPv4 address {ip_address} is whitelisted"
                     logging.info(message)
-                    logging.info(message)
                 else:
                     message = f"Unknown IPv4 address detected: {ip_address}"
-                    logging.info(message)
                     logging.info(message)
             
             # Fetch HTML content from the IP address and scan for signatures
@@ -3161,7 +3150,6 @@ class RealTimeWebProtectionHandler:
                         f"Reporter: {entry['reporter']}"
                     )
                     logging.warning(message)
-                    logging.info(message)
                     # Use handle_detection for related file path and notification logic.
                     self.handle_detection(
                         entity_type="url",
@@ -3194,13 +3182,11 @@ class RealTimeWebProtectionHandler:
                         self.scan_domain(query_name)
                         message = f"DNS Query (IPv4): {query_name}"
                         logging.info(message)
-                        logging.info(message)
                 if packet[DNS].an:
                     for i in range(packet[DNS].ancount):
                         answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
                         self.scan_domain(answer_name)
                         message = f"DNS Answer (IPv4): {answer_name}"
-                        logging.info(message)
                         logging.info(message)
 
                 self.scan_ip_address(packet[IP].src)
@@ -3218,13 +3204,11 @@ class RealTimeWebProtectionHandler:
                         self.scan_domain(query_name)
                         message = f"DNS Query (IPv6): {query_name}"
                         logging.info(message)
-                        logging.info(message)
                 if packet[DNS].an:
                     for i in range(packet[DNS].ancount):
                         answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
                         self.scan_domain(answer_name)
                         message = f"DNS Answer (IPv6): {answer_name}"
-                        logging.info(message)
                         logging.info(message)
 
                 self.scan_ip_address(packet[IPv6].src)
@@ -3253,14 +3237,12 @@ class RealTimeWebProtectionHandler:
                         self.scan_domain(query_name)
                         message = f"DNS Query: {query_name}"
                         logging.info(message)
-                        logging.info(message)
 
                 if packet[DNS].an:
                     for i in range(packet[DNS].ancount):
                         answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
                         self.scan_domain(answer_name)
                         message = f"DNS Answer: {answer_name}"
-                        logging.info(message)
                         logging.info(message)
 
                 if IP in packet:
@@ -3282,7 +3264,6 @@ class RealTimeWebProtectionObserver:
             self.thread.start()
             self.is_started = True
             message = "Real-time web protection observer started"
-            logging.info(message)
             logging.info(message)
 
     def start_sniffing(self):
@@ -4103,17 +4084,13 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
                             if status == "Info":
                                 if not signature_info["is_valid"]:
                                     logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has an invalid or no signature. Alert Line: {alert_line}")
-                                    logging.info(f"[INFO] File {file_path} associated with IP {src_ip} or {dst_ip} has an invalid or no signature. Alert Line: {alert_line}")
                                 else:
                                     logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature. Alert Line: {alert_line}")
-                                    logging.info(f"[INFO] File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature. Alert Line: {alert_line}")
                             else:
                                 if not signature_info["is_valid"]:
                                     logging.warning(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature. Alert Line: {alert_line}")
-                                    logging.info(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature. Alert Line: {alert_line}")
                                     notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status)
                                 else:
-                                    logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious. Alert Line: {alert_line}")
                                     logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious. Alert Line: {alert_line}")
 
         except psutil.ZombieProcess:
@@ -4136,12 +4113,10 @@ def process_alert(line):
                 # Check if the source IP is in the IPv4 whitelist
                 if src_ip in ipv4_whitelist_data:
                     logging.info(f"Source IP {src_ip} is in the whitelist. Ignoring alert.")
-                    logging.info(f"Source IP {src_ip} is in the whitelist. Ignoring alert.")
                     return False
 
                 if priority == 1:
-                    logging.warning(f"Malicious activity detected: {line.strip()}")
-                    logging.info(f"Malicious activity detected from {src_ip} to {dst_ip} with priority {priority}")
+                    logging.warning(f"Malicious activity detected: {line.strip()} | Source: {src_ip} -> Destination: {dst_ip} | Priority: {priority}")
                     try:
                         notify_user_for_hips(ip_address=src_ip, dst_ip_address=dst_ip)
                     except Exception as ex:
@@ -4177,11 +4152,9 @@ def run_snort():
         subprocess.run(snort_command, check=True)
         
         logging.info("Snort completed analysis.")
-        logging.info("Snort completed analysis.")
 
     except subprocess.CalledProcessError as ex:
         logging.error(f"Snort encountered an error: {ex}")
-        logging.info(f"Snort encountered an error: {ex}")
 
     except Exception as ex:
         logging.error(f"Failed to run Snort: {ex}")
@@ -4976,7 +4949,6 @@ def ransomware_alert(file_path):
                 logging.warning(f"File '{file_path}' (Sandboxie log) flagged as potential ransomware. Count: {ransomware_detection_count}")
                 notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.Log.gen")
                 logging.warning(f"User has been notified about potential ransomware in {main_file_path} (Sandboxie log alert)")
-                logging.info(f"User has been notified about potential ransomware in {main_file_path} (Sandboxie log alert)")
             
             # Normal processing for all flagged files.
             ransomware_detection_count += 1
@@ -4997,7 +4969,6 @@ def ransomware_alert(file_path):
             if ransomware_detection_count >= 10:
                 notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.gen")
                 logging.warning(f"User has been notified about potential ransomware in {main_file_path}")
-                logging.info(f"User has been notified about potential ransomware in {main_file_path}")
                 
     except Exception as ex:
         logging.error(f"Error in ransomware_alert: {ex}")
@@ -6219,7 +6190,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                              logging.info(f"Debloated file saved at: {optimized_file_path}")
                              scan_and_warn(optimized_file_path, flag_debloat=True)
                         else:
-                             logging.warning(f"Debloating failed for {file_path}, continuing with the original file.")
+                             logging.error(f"Debloating failed for {file_path}, continuing with the original file.")
                 except ImportError as ex:
                     logging.error(f"Debloat library is not installed. Install it with `pip install debloat`: {ex}")
                 except Exception as ex:
@@ -6303,7 +6274,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                     logging.info(f"Scanning extracted file: {extracted_file}")
                     scan_and_warn(extracted_file)
             else:
-                logging.warning(f"No files extracted from PyInstaller archive: {file_path}")
+                logging.error(f"No files extracted from PyInstaller archive: {file_path}")
 
         # Check for fake file size
         if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
@@ -6552,7 +6523,7 @@ def monitor_sandbox():
                     logging.info(pathToScan)
                     scan_and_warn(pathToScan)
                 else:
-                    logging.warning(f"File or folder not found: {pathToScan}")
+                    logging.error(f"File or folder not found: {pathToScan}")
 
     except Exception as ex:
         logging.error(f"An error occurred at monitor_sandbox: {ex}")
@@ -6661,7 +6632,6 @@ def check_startup_directories():
                                 message = f"Suspicious startup file detected: {file_path}\nVirus: {malware_type}"
 
                             logging.warning(f"Suspicious or malicious startup file detected in {directory}: {file}")
-                            logging.info(f"Suspicious or malicious startup file detected in {directory}: {file}")
                             notify_user_startup(file_path, message)
                             scan_and_warn(file_path)
                             alerted_files.append(file_path)
@@ -6690,12 +6660,10 @@ def check_hosts_file_for_blocked_antivirus():
 
         if blocked_domains:
             logging.warning(f"Malicious hosts file detected: {hosts_path}")
-            logging.info(f"Malicious hosts file detected: {hosts_path}")
             notify_user_hosts(hosts_path, "HEUR:Win32.Trojan.Hosts.Hijacker.DisableAV.gen")
             return True
         else:
             logging.warning(f"Suspicious hosts file detected: {hosts_path}")
-            logging.info(f"Suspicious hosts file detected: {hosts_path}")
             notify_user_hosts(hosts_path, "HEUR:Win32.Trojan.Hosts.Hijacker.gen")
             return True
 
@@ -6729,13 +6697,11 @@ def check_uefi_directories():
                 if uefi_path not in alerted_uefi_files:
                     if uefi_path in uefi_100kb_paths and is_malicious_file(uefi_path, 100):
                         logging.warning(f"Malicious file detected: {uefi_path}")
-                        logging.info(f"Malicious file detected: {uefi_path}")
                         notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.SecureBootRecovery.gen.Malware")
                         scan_and_warn(uefi_path)
                         alerted_uefi_files.append(uefi_path)
                     elif uefi_path in uefi_paths and is_malicious_file(uefi_path, 1024):
                         logging.warning(f"Malicious file detected: {uefi_path}")
-                        logging.info(f"Malicious file detected: {uefi_path}")
                         notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.ScreenLocker.Ransomware.gen.Malware")
                         scan_and_warn(uefi_path)
                         alerted_uefi_files.append(uefi_path)
@@ -6747,7 +6713,6 @@ def check_uefi_directories():
                 file_path = os.path.join(root, file)
                 if file_path.endswith(".efi") and file_path not in known_uefi_files and file_path not in alerted_uefi_files:
                     logging.warning(f"Unknown file detected: {file_path}")
-                    logging.info(f"Unknown file detected: {file_path}")
                     notify_user_uefi(file_path, "HEUR:Win32.Rootkit.Startup.UEFI.gen.Malware")
                     scan_and_warn(file_path)
                     alerted_uefi_files.append(file_path)
@@ -7159,28 +7124,25 @@ class MonitorMessageCommandLine:
                         similarity = self.calculate_similarity_text(file_content, pattern)
                         if similarity > 0.8:
                             details["process_function"](file_content, file_path)
-                            logging.info(f"Detected malware pattern in {file_path}.")
-                            return
-                elif "message" in details:
+                            logging.warning("Detected malware pattern in {file_path}.")
+                if "message" in details:
                     similarity = self.calculate_similarity_text(file_content, details["message"])
                     if similarity > 0.8:
                         details["process_function"](file_content, file_path)
-                        logging.info(f"Detected malware message in {file_path}.")
-                        return
-                elif "command" in details:
+                        logging.warning(f"Detected malware message in {file_path}.")
+                if "command" in details:
                     similarity = self.calculate_similarity_text(file_content, details["command"])
                     if similarity > 0.8:
                         details["process_function"](file_content, file_path)
-                        logging.info(f"Detected malware command in {file_path}.")
-                        return
+                        logging.warning(f"Detected malware command in {file_path}.")
 
             # Adding ransomware check
             if self.contains_keywords_within_max_distance(file_content, max_distance=10):
                 self.process_detected_text_ransom(file_content, file_path)
-                logging.info(f"Detected ransomware keywords in {file_path}.")
+                logging.warning(f"Detected ransomware keywords in {file_path}.")
 
-            logging.info(f"Finished processing detection for {file_path}. No malware detected (detect_malware).")
-            return False  # Indicate no malware detected
+            logging.info(f"Finished processing detection for {file_path}.")
+            return False
 
         except FileNotFoundError as ex:
             logging.error(f"File not found: {file_path}. Error: {ex}")
@@ -7363,9 +7325,9 @@ def run_sandboxie_plugin():
     ]
     
     try:
-        logging.info(f"[INFO] Running DLL via rundll32 in Sandboxie: {' '.join(command)}")
+        logging.info(f"Running DLL via rundll32 in Sandboxie: {' '.join(command)}")
         subprocess.run(command, check=True)
-        logging.info("[SUCCESS] Plugin ran successfully in Sandboxie.")
+        logging.info("Plugin ran successfully in Sandboxie.")
     except subprocess.CalledProcessError as ex:
         logging.error(f"Failed to run plugin in Sandboxie: {ex}")
 
