@@ -80,7 +80,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - https://github.com/cod3nym/Deobfuscar
 - https://github.com/fesh0r/fernflower
 
-- I used these projects to decompile.
+- I used these projects to decompile (with a current custom database of Detect-It-Easy).
 
 - https://github.com/starhopp3r/ML-Antivirus
 - https://huggingface.co/deepseek-ai/deepseek-coder-1.3b-instruct
