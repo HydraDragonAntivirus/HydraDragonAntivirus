@@ -570,6 +570,47 @@ def query_md5_online_sync(md5_hash):
     except Exception as ex:
         return (f"Error: {ex}", "")
 
+@lru_cache(maxsize=1024)
+def query_sha256_online_sync(sha256_hash):
+    """
+    Queries the GridinSoft online scanner by SHA-256 and returns a tuple:
+        (status, virus_name)
+
+    - If the HTTP status is 404: returns ("Unknown", "")
+    - On any other non-200: returns ("Unknown (API error)", "")
+    - If the page contains "Clean File": returns ("Benign", "")
+    - If the page contains "Removal": extracts the token before "Removal" as the virus name,
+      strips any HTML tags, and returns ("Malware", virus_name)
+    - Otherwise: returns ("Unknown (Result)", "")
+    """
+    try:
+        h = sha256_hash.lower()
+        url = f"https://gridinsoft.com/online-virus-scanner/id/{h}"
+        resp = requests.get(url)
+
+        if resp.status_code == 404:
+            return ("Unknown", "")
+        if resp.status_code != 200:
+            return ("Unknown (API error)", "")
+
+        body = resp.text
+
+        if "Clean File" in body:
+            return ("Benign", "")
+
+        if "Removal" in body:
+            idx = body.find("Removal")
+            before = body[:idx].strip().split()
+            virus_name = before[-1] if before else ""
+            # Strip out any HTML tags around the virus name
+            virus_name = re.sub(r'<.*?>', '', virus_name)
+            return ("Malware", virus_name)
+
+        return ("Unknown (Result)", "")
+
+    except Exception as ex:
+        return (f"Error: {ex}", "")
+
 def get_unique_output_path(output_dir: Path, base_name: str, suffix: int = 1) -> Path:
     """
     Generate a unique file path by appending a suffix (e.g., _1, _2) if the file already exists.
@@ -5995,32 +6036,28 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         risk, virus = query_md5_online_sync(file_md5)
         # Create a descriptive result string that includes the virus name if available.
         cloud_result = risk if not virus else f"{risk} (detected as {virus})"
-        logging.info(f"Cloud analysis result for {file_path}: {cloud_result}")
+        logging.info(f"NictaSoft cloud analysis result for {file_path}: {cloud_result}")
 
         # --- Decision Based on Cloud Analysis ---
         if risk == "Benign":
-            logging.info(f"File {file_path} flagged as benign (exact match) by cloud analysis. Skipping further scanning.")
-            return False  # Clean file; no further scan
+            logging.info(f"File {file_path} flagged as benign (exact match) by NictaSoft cloud analysis. Continuing scanning.")
         if risk == "Benign (auto verdict)":
-            logging.info(f"File {file_path} flagged as benign (auto verdict) by cloud analysis. Skipping further scanning.")
-            return False  # Clean file; no further scan
+            logging.info(f"File {file_path} flagged as benign (auto verdict) by NictaSoft cloud analysis. Continuing scanning.")
         elif risk == "Malware":
-            logging.warning(f"File {file_path} flagged as malware by cloud analysis: {cloud_result}")
+            logging.warning(f"File {file_path} flagged as malware by NictaSoft cloud analysis: {cloud_result}")
             notify_user_nichta(file_path, cloud_result)
-            return True
         elif risk == "Suspicious":
-            logging.warning(f"File {file_path} flagged as suspicious by cloud analysis: {cloud_result}")
+            logging.warning(f"File {file_path} flagged as suspicious by NictaSoft cloud analysis: {cloud_result}")
             notify_user_nichta(file_path, cloud_result)
-            return True
         elif risk== "Unknown":
-            logging.info(f"Cloud analysis returned unknown for file {file_path}. Proceeding with local scanning.")
+            logging.info(f"NictaSoft cloud analysis returned unknown for file {file_path}. Proceeding with local scanning.")
             is_unknown_md5 = True
         elif risk == "Unknown (Result)":
-            logging.info(f"Cloud analysis returned an unknown result for file {file_path}. Proceeding with local scanning.")
+            logging.info(f"NictaSoft cloud analysis returned an unknown result for file {file_path}. Proceeding with local scanning.")
         elif risk == "Unknown (API Error)":
-            logging.info(f"Cloud analysis returned an API error for file {file_path}. Proceeding with local scanning.")
+            logging.info(f"NictaSoft cloud analysis returned an API error for file {file_path}. Proceeding with local scanning.")
         else:
-            logging.info(f"Cloud analysis returned an unhandled result for file {file_path}: {cloud_result}. Proceeding with local scanning.")
+            logging.info(f"NictaSoft cloud analysis returned an unhandled result for file {file_path}: {cloud_result}. Proceeding with local scanning.")
 
         with open(file_path, 'rb') as scan_file:
             data_content = scan_file.read()
