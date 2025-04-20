@@ -6,6 +6,11 @@
 
 Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my machine learning AI, Behaviour analysis, NLP-Based detection, website signatures, Ghidra and Snort etc.
 
+## IMPORTANT QUESTION TO MYSELF
+**Why don't you use NictaSoft and GridinSoft cloud for free and unlimited?**
+
+- That's a very important question, and it could significantly boost my antivirus — potentially making it one of the top antiviruses ever. However, there are some problems. These services are not open source unless you pay, but we still use GridinSoft to avoid false positives and process unknown website signature data. We're not only focused on detection, but also committed to maintaining open-source principles.
+
 ## Download Machine Learning Malware And Benign Database
 - **Malware Database:** [Download Link](https://drive.google.com/file/d/1QwdxdwX_nH-oF-5hVTkbTuFkrwUfR0-h)
 - **Benign Database:** [Download Link](https://drive.google.com/file/d/1JXcTVB205tJXqNmFWmnAiy1br_hn19Rj)
@@ -47,7 +52,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Don't forget to take a HiJackThis report with logs (and update the signatures first) before starting the scan to detect malware for the final analysis.
 - The final analysis doesn't clean anything, so don't start a new scan afterward—it's only for detecting post-injection changes using HiJackThis. Please don't terminate the sandbox environment.
 - The new HiJackThis analysis removes the previous analysis file from the sandbox environment.
--
+
  ## Discord Community Server
 
 - Here is the server link: https://discord.gg/Rdyw59xqMC
@@ -138,7 +143,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 
 ### FAQ:
 **Does this collect data?**
-- No.
+- No. We can allow GridinSoft and many other companies to collect data. Unlike other companies, they freely allow the use of their cloud, but I'm not allowing that.
 
 **How do I use it?**
 - Just run the shortcut from the desktop, then run advanced dynamic and static analysis on a file.

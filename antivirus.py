@@ -510,107 +510,6 @@ except FileNotFoundError:
 except Exception as e:
     logging.error(f"An error occurred: {e}")
 
-# --- Query MD5 Online Function with Caching ---
-@lru_cache(maxsize=1024)
-def query_md5_online_sync(md5_hash):
-    """
-    Queries the online API and returns a tuple:
-        (risk_level, virus_name)
-
-    The function inspects risk percentages:
-      - If the response indicates "[100% risk]", it returns ("Malware", virus_name)
-      - If the response indicates "[70% risk]", it returns ("Suspicious", virus_name)
-      - For safe statuses, it returns ("Benign", "") or ("Benign (auto verdict)", "")
-      - If the file is not yet rated or the result is unknown, returns ("Unknown", "")
-
-    The virus_name is extracted from a "detected as" phrase if present.
-
-    This function caches its results so that repeated calls with the same MD5 hash 
-    will return the cached result instead of re-querying the API.
-    """
-    try:
-        md5_hash_upper = md5_hash.upper()
-        url = f"https://www.nictasoft.com/ace/md5/{md5_hash_upper}"
-        response = requests.get(url)
-
-        if response.status_code == 200:
-            result = response.text.strip()
-            lower_result = result.lower()
-
-            # Check for high-risk (malware) indication.
-            if "[100% risk]" in lower_result:
-                if "detected as" in lower_result:
-                    virus_name = result.split("detected as", 1)[1].strip().split()[0]
-                    return ("Malware", virus_name)
-                else:
-                    return ("Malware", "")
-            
-            # Check for 70% risk which we treat as suspicious.
-            if "[70% risk]" in lower_result:
-                if "detected as" in lower_result:
-                    virus_name = result.split("detected as", 1)[1].strip().split()[0]
-                    return ("Suspicious", virus_name)
-                else:
-                    return ("Suspicious", "")
-            
-            # Check safe statuses.
-            if "[0% risk]" in lower_result:
-                return ("Benign", "")
-            if "[10% risk]" in lower_result:
-                return ("Benign (auto verdict)", "")
-            
-            # Unknown status.
-            if "this file is not yet rated" in lower_result:
-                return ("Unknown", "")
-            
-            # Default case.
-            return ("Unknown (Result)", "")
-        else:
-            return ("Unknown (API error)", "")
-    except Exception as ex:
-        return (f"Error: {ex}", "")
-
-@lru_cache(maxsize=1024)
-def query_sha256_online_sync(sha256_hash):
-    """
-    Queries the GridinSoft online scanner by SHA-256 and returns a tuple:
-        (status, virus_name)
-
-    - If the HTTP status is 404: returns ("Unknown", "")
-    - On any other non-200: returns ("Unknown (API error)", "")
-    - If the page contains "Clean File": returns ("Benign", "")
-    - If the page contains "Removal": extracts the token before "Removal" as the virus name,
-      strips any HTML tags, and returns ("Malware", virus_name)
-    - Otherwise: returns ("Unknown (Result)", "")
-    """
-    try:
-        h = sha256_hash.lower()
-        url = f"https://gridinsoft.com/online-virus-scanner/id/{h}"
-        resp = requests.get(url)
-
-        if resp.status_code == 404:
-            return ("Unknown", "")
-        if resp.status_code != 200:
-            return ("Unknown (API error)", "")
-
-        body = resp.text
-
-        if "Clean File" in body:
-            return ("Benign", "")
-
-        if "Removal" in body:
-            idx = body.find("Removal")
-            before = body[:idx].strip().split()
-            virus_name = before[-1] if before else ""
-            # Strip out any HTML tags around the virus name
-            virus_name = re.sub(r'<.*?>', '', virus_name)
-            return ("Malware", virus_name)
-
-        return ("Unknown (Result)", "")
-
-    except Exception as ex:
-        return (f"Error: {ex}", "")
-
 def get_unique_output_path(output_dir: Path, base_name: str, suffix: int = 1) -> Path:
     """
     Generate a unique file path by appending a suffix (e.g., _1, _2) if the file already exists.
@@ -1500,21 +1399,6 @@ def calculate_similarity(features1, features2):
     matching_keys = sum(1 for key in common_keys if features1[key] == features2[key])
     similarity = matching_keys / max(len(features1), len(features2))
     return similarity
-
-def notify_user_nichta(file_path, virus_name, HiJackThis_flag=False):
-    """
-    Notify function for cloud analysis (Nichta) warnings.
-    Uses a different notification title or method as desired.
-    """
-    notification = Notify()  # Assuming Notify() is defined elsewhere
-    if HiJackThis_flag:
-        notification.title = "Nichta Cloud HiJackThis Analysis Alert"
-    else:
-        notification.title = "Nichta Cloud Analysis Alert"
-    notification.message = (f"Cloud analysis flagged the file:\n"
-                            f"Path: {file_path}\n"
-                            f"Risk: {virus_name}\n")
-    notification.send()
 
 def notify_user(file_path, virus_name, engine_detected): 
     notification = Notify()
@@ -5997,10 +5881,7 @@ def deobfuscate_with_obfuscar(file_path, file_basename):
 # --- Main Scanning Function ---
 def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False, flag_fernflower=False):
     """
-    Scans a file for potential issues, starting with an online cloud analysis
-    using the file's MD5 hash. If the cloud analysis indicates the file is clean,
-    no further scanning is done. If the file is flagged (malware/suspicious), a warning 
-    is sent via a dedicated notify_user_nichta function.
+    Scans a file for potential issues.
     
     :param file_path: Path to the file or archive to scan.
     :param flag: Indicates if the file should be reprocessed even if already scanned.
@@ -6027,37 +5908,6 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         # Read the file content once for hash calculation (and later if needed).
         with open(file_path, 'rb') as scan_file:
             data_content = scan_file.read()
-
-        # Flag to indicate whether the file is unknown based on MD5 cloud scan results
-        is_unknown_md5 = False
-
-        # --- Cloud Analysis with Hash Calculation ---
-        file_md5 = hashlib.md5(data_content).hexdigest()
-        risk, virus = query_md5_online_sync(file_md5)
-        # Create a descriptive result string that includes the virus name if available.
-        cloud_result = risk if not virus else f"{risk} (detected as {virus})"
-        logging.info(f"NictaSoft cloud analysis result for {file_path}: {cloud_result}")
-
-        # --- Decision Based on Cloud Analysis ---
-        if risk == "Benign":
-            logging.info(f"File {file_path} flagged as benign (exact match) by NictaSoft cloud analysis. Continuing scanning.")
-        if risk == "Benign (auto verdict)":
-            logging.info(f"File {file_path} flagged as benign (auto verdict) by NictaSoft cloud analysis. Continuing scanning.")
-        elif risk == "Malware":
-            logging.warning(f"File {file_path} flagged as malware by NictaSoft cloud analysis: {cloud_result}")
-            notify_user_nichta(file_path, cloud_result)
-        elif risk == "Suspicious":
-            logging.warning(f"File {file_path} flagged as suspicious by NictaSoft cloud analysis: {cloud_result}")
-            notify_user_nichta(file_path, cloud_result)
-        elif risk== "Unknown":
-            logging.info(f"NictaSoft cloud analysis returned unknown for file {file_path}. Proceeding with local scanning.")
-            is_unknown_md5 = True
-        elif risk == "Unknown (Result)":
-            logging.info(f"NictaSoft cloud analysis returned an unknown result for file {file_path}. Proceeding with local scanning.")
-        elif risk == "Unknown (API Error)":
-            logging.info(f"NictaSoft cloud analysis returned an API error for file {file_path}. Proceeding with local scanning.")
-        else:
-            logging.info(f"NictaSoft cloud analysis returned an unhandled result for file {file_path}: {cloud_result}. Proceeding with local scanning.")
 
         with open(file_path, 'rb') as scan_file:
             data_content = scan_file.read()
@@ -6278,7 +6128,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         log_directory_type(file_path)
 
         # Perform ransomware alert check
-        if is_file_unknown(die_output) and is_unknown_md5:
+        if is_file_unknown(die_output):
             ransomware_alert(file_path)
 
         # Check if the file is in decompile_dir
@@ -7492,8 +7342,7 @@ async def compute_diff():
     Computes a unified diff between the original and sandbox logs.
     For each new or modified entry, it checks the MD5 online,
     invokes DeepSeek analysis (with HiJackThis_flag=True) unconditionally,
-    and includes all results in the diff response. If any MD5 lookup yields a note,
-    it triggers an alert via notify_user_nichta().
+    and includes all results in the diff response.
     """
     if not orig_log_path or not sbx_log_path:
         raise HTTPException(status_code=400, detail="Capture both original and sandbox status first.")
@@ -7524,14 +7373,8 @@ async def compute_diff():
             })
             continue
 
-        # MD5 lookup
-        status, note = query_md5_online_sync(md5)
         # Always run DeepSeek analysis
         deepseek_summary = scan_file_with_deepseek(file_path, HiJackThis_flag=True)
-
-        # Notify if there's any matching info from MD5 check
-        if note:
-            notify_user_nichta(file_path, note, HiJackThis_flag=True)
 
         entry_result = {
             "entry": entry,
