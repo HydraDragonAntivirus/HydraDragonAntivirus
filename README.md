@@ -9,7 +9,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 ## IMPORTANT QUESTION TO MYSELF
 **Why don't you use NictaSoft and GridinSoft cloud for free and unlimited?**
 
-- That's a very important question, and it could significantly boost my antivirus — potentially making it one of the top antiviruses ever. However, there are some problems. These services are not open source unless you pay, but we still use GridinSoft to avoid false positives and process unknown website signature data. We're not only focused on detection, but also committed to maintaining open-source principles.
+- That's a very important question, and it could significantly boost my antivirus — potentially making it one of the top antiviruses ever. However, there are some problems. These services are not open source unless you pay. We're not only focused on detection, but also committed to maintaining open-source principles.
 
 ## Download Machine Learning Malware And Benign Database
 - **Malware Database:** [Download Link](https://drive.google.com/file/d/1QwdxdwX_nH-oF-5hVTkbTuFkrwUfR0-h)
