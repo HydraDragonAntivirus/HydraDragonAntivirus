@@ -52,6 +52,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Don't forget to take a HiJackThis report with logs (and update the signatures first) before starting the scan to detect malware for the final analysis.
 - The final analysis doesn't clean anything, so don't start a new scan afterward—it's only for detecting post-injection changes using HiJackThis. Please don't terminate the sandbox environment.
 - The new HiJackThis analysis removes the previous analysis file from the sandbox environment.
+- Make your username defaultuser.
 
  ## Discord Community Server
 
@@ -84,6 +85,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - https://github.com/mandiant/gostringungarbler
 - https://github.com/cod3nym/Deobfuscar
 - https://github.com/fesh0r/fernflower
+- https://github.com/ViRb3/de4dot-cex
 
 - I used these projects to decompile (with a current custom database of Detect-It-Easy).
 

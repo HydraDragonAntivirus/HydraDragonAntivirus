@@ -287,6 +287,9 @@ pycdc_dir = os.path.join(python_source_code_dir, "pycdc")
 pycdas_dir = os.path.join(python_source_code_dir, "pycdas")
 united_python_source_code_dir = os.path.join(python_source_code_dir, "united")
 pycdas_deepseek_dir = os.path.join(python_source_code_dir, "pycdas_deepseek")
+de4dot_cex_dir = os.path.join(script_dir, "de4dot-cex")
+de4dot_cex_x64_path = os.path.join(detectiteasy_dir, "de4dot-x64.exe")
+de4dot_extracted_dir = os.path.join(script_dir, "de4dot_extracted")
 nuitka_source_code_dir = os.path.join(script_dir, "nuitkasourcecode")
 commandlineandmessage_dir = os.path.join(script_dir, "commandlineandmessage")
 pe_extracted_dir = os.path.join(script_dir, "pe_extracted")
@@ -300,6 +303,7 @@ detectiteasy_json_dir = os.path.join(script_dir, "detectiteasy_json")
 memory_dir = os.path.join(script_dir, "memory")
 debloat_dir = os.path.join(script_dir, "debloat")
 HydraDragonAV_sandboxie_dir = os.path.join(script_dir, "HydraDragonAVSandboxie")
+copied_sandbox_files_dir = os.path.join(script_dir, "copiedsandboxfiles")
 detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
 pycdc_path = os.path.join(script_dir, "pycdc.exe")
@@ -421,6 +425,7 @@ os.makedirs(commandlineandmessage_dir, exist_ok=True)
 os.makedirs(processed_dir, exist_ok=True)
 os.makedirs(memory_dir, exist_ok=True)
 os.makedirs(dotnet_dir, exist_ok=True)
+os.makedirs(de4dot_extracted_dir, exist_ok=True)
 os.makedirs(obfuscar_dir, exist_ok=True)
 os.makedirs(pe_extracted_dir, exist_ok=True)
 os.makedirs(zip_extracted_dir, exist_ok=True)
@@ -434,6 +439,7 @@ os.makedirs(detectiteasy_json_dir, exist_ok=True)
 os.makedirs(pycdc_dir, exist_ok=True)
 os.makedirs(pycdas_dir, exist_ok=True)
 os.makedirs(united_python_source_code_dir, exist_ok=True)
+os.makedirs(copied_sandbox_files_dir, exist_ok=True)
 
 # Counter for ransomware detection
 ransomware_detection_count = 0 
@@ -686,29 +692,57 @@ def is_macho_file_from_output(die_output):
     return False
 
 def is_dotnet_file_from_output(die_output):
-    """Checks if DIE output indicates a .NET executable file.
-    
-    Returns:
-      True if it's a .NET file detected via "Microsoft .NET" or "CLR".
-      A string like "Protector: Obfuscar" or "Protector: Obfuscar(<version>)" if it's a .NET assembly protected with Obfuscar.
-      None if none of these markers are found.
     """
-    if die_output:
-        if "Microsoft .NET" in die_output or "CLR" in die_output:
-            logging.info("DIE output indicates a .NET executable.")
-            return True
-        elif "Protector: Obfuscar" in die_output:
-            # Use regex to capture an optional version number following "Protector: Obfuscar"
-            match = re.search(r'Protector:\s*Obfuscar(?:\(?([^)]+)\)?)?', die_output)
-            if match:
-                version = match.group(1)
-                if version:
-                    result = f"Protector: Obfuscar({version.strip()})"
-                else:
-                    result = "Protector: Obfuscar"
-                logging.info(f"DIE output indicates a .NET assembly protected with {result}.")
-                return result
-    logging.info(f"DIE output does not indicate a .NET executable: {die_output}")
+    Checks if DIE output indicates a .NET executable file.
+
+    Returns:
+      - True
+        if it's a .NET file detected via "Microsoft .NET" or "CLR".
+      - "Protector: Obfuscar" or "Protector: Obfuscar(<version>)"
+        if it's a .NET assembly protected with Obfuscar.
+      - "<Label>: <Name>" or "<Label>: <Name>(<version>)"
+        for any other Protector:/Protection:/Obfuscation: marker.
+        (Use this to trigger de4dot.)
+      - None
+        if none of these markers are found.
+    """
+    if not die_output:
+        logging.info("Empty DIE output; no .NET markers found.")
+        return None
+
+    # 1) .NET runtime indication
+    if "Microsoft .NET" in die_output or "CLR" in die_output:
+        logging.info("DIE output indicates a .NET executable.")
+        return True
+
+    # 2) Specific Obfuscar protector
+    obfuscar_match = re.search(r'Protector:\s*Obfuscar(?:\(([^)]+)\))?', die_output)
+    if obfuscar_match:
+        version = obfuscar_match.group(1)
+        result = f"Protector: Obfuscar({version})" if version else "Protector: Obfuscar"
+        logging.info(f"DIE output indicates a .NET assembly protected with {result}.")
+        return result
+
+    # 3) Generic Protector/Protection/Obfuscation markers
+    generic_pattern = re.compile(
+        r'\b(?P<label>Protector|Protection|Obfuscation):\s*'
+        r'(?P<name>[\w\.]+)'
+        r'(?:\((?P<version>[^)]+)\))?'
+    )
+    generic_match = generic_pattern.search(die_output)
+    if generic_match:
+        label   = generic_match.group('label')
+        name    = generic_match.group('name')
+        version = generic_match.group('version')
+        if version:
+            marker = f"{label}: {name}({version})"
+        else:
+            marker = f"{label}: {name}"
+        logging.info(f"DIE output indicates .NET assembly requires de4dot: {marker}.")
+        return marker
+
+    # 4) Nothing .NET / protector-related found
+    logging.info(f"DIE output does not indicate a .NET executable or known protector: {die_output!r}")
     return None
 
 def is_file_unknown(die_output):
@@ -3958,14 +3992,16 @@ snort_config_path = "C:\\Snort\\etc\\snort.conf"
 sandboxie_path = "C:\\Program Files\\Sandboxie\\Start.exe"
 sandboxie_control_path = "C:\\Program Files\\Sandboxie\\SbieCtrl.exe"
 device_args = [f"-i {i}" for i in range(1, 26)]  # Fixed device arguments
-username = os.getlogin()
+username = defaultuser
 sandboxie_folder = rf'C:\Sandbox\{username}\DefaultBox'
 main_drive_path = rf'{sandboxie_folder}\drive\C'
 drivers_path = rf'{main_drive_path}\\Windows\System32\drivers'
 hosts_path = rf'{drivers_path}\hosts'
 sandboxie_log_folder = rf'{main_drive_path}\\DONTREMOVEHydraDragonAntivirusLogs'
 homepage_change_path = rf'{sandboxie_log_folder}\DONTREMOVEHomePageChange.txt'
-HiJackThis_log_path = rf'{main_drive_path}\Program Files\HydraDragonAntivirus\HiJackThis\HiJackThis.log'
+HydraDragonAntivirus_sandboxie_path = rf'{main_drive_path}\Program Files\HydraDragonAntivirus'
+HiJackThis_log_path = rf'{HydraDragonAntivirus_sandboxie_path}\HiJackThis\HiJackThis.log'
+de4dot_sandboxie_dir = rf'{HydraDragonAntivirus_sandboxie_path}\de4dot_extracted_dir'
 
 # Define the list of known rootkit filenames
 known_rootkit_files = [
@@ -4224,7 +4260,7 @@ existing_projects = []
 scanned_files = []
 file_mod_times = {}
 
-directories_to_scan = [sandboxie_folder, decompile_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_deepseek_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir]
+directories_to_scan = [sandboxie_folder, copied_sandbox_files_dir, decompile_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, de4dot_sandboxie_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_deepseek_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir]
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
@@ -5039,6 +5075,8 @@ def log_directory_type(file_path):
     try:
         if file_path.startswith(sandboxie_folder):
             logging.info(f"{file_path}: It's a Sandbox environment file.")
+        elif file_path.startswith(copied_sandbox_files_dir):
+            logging.info(f"{file_path}: It's a restored sandbox environment file.")
         elif file_path.startswith(decompile_dir):
             logging.info(f"{file_path}: Decompiled.")
         elif file_path.startswith(nuitka_dir):
@@ -5047,6 +5085,10 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: .NET decompiled.")
         elif file_path.startswith(obfuscar_dir):
             logging.info(f"{file_path}: .NET file obfuscated with Obfuscar.")
+        elif file_path.startswith(de4dot_sandboxie_dir):
+            logging.info(f"{file_path}: It's a Sandbox environment file, also a .NET file deobfuscated with de4dot.")
+        elif file_path.startswith(de4dot_extracted_dir):
+            logging.info(f"{file_path}: .NET file deobfuscated with de4dot.")
         elif file_path.startswith(pyinstaller_dir):
             logging.info(f"{file_path}: PyInstaller onefile extracted.")
         elif file_path.startswith(commandlineandmessage_dir):
@@ -5110,10 +5152,13 @@ def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled
         # Note: For conditions that need an exact match (like the main file), a lambda is used accordingly.
         directory_logging_info = [
             (lambda fp: fp.startswith(sandboxie_folder), f"It's a Sandbox environment file."),
+            (lambda fp: fp.startswith(copied_sandbox_files_dir), f"It's a restored sandbox environment file."),
             (lambda fp: fp.startswith(decompile_dir), f"Decompiled."),
             (lambda fp: fp.startswith(nuitka_dir), f"Nuitka onefile extracted."),
             (lambda fp: fp.startswith(dotnet_dir), f".NET decompiled."),
             (lambda fp: fp.startswith(obfuscar_dir), f".NET file obfuscated with Obfuscar."),
+            (lambda fp: fp.startswith(de4dot_extracted_dir), f".NET file deobfuscated with de4dot."),
+            (lambda fp: fp.startswith(de4dot_sandboxie_dir), f"It's a Sandbox environment file, also a .NET file deobfuscated with de4dot"),
             (lambda fp: fp.startswith(pyinstaller_dir), f"PyInstaller onefile extracted."),
             (lambda fp: fp.startswith(commandlineandmessage_dir), f"Command line message extracted."),
             (lambda fp: fp.startswith(pe_extracted_dir), f"PE file extracted."),
@@ -5879,7 +5924,7 @@ def deobfuscate_with_obfuscar(file_path, file_basename):
         logging.error(f"Error during analysis of deobfuscated file: {e}")
 
 # --- Main Scanning Function ---
-def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False, flag_fernflower=False):
+def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False, flag_fernflower=False, flag_de4dot=False):
     """
     Scans a file for potential issues.
     
@@ -5921,7 +5966,11 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         if obfuscar_dir in file_path.parents and not flag_obfuscar:
             flag_obfuscar = True
             logging.info(f"Flag set to True because '{file_path}' is inside the Obfuscar directory '{obfuscar_dir}'.")
-            deobfuscate_with_obfuscar(file_path, file_name)
+
+        # Check: if file_path is within obfuscar_dir and flag_obfuscar is not already True, then set it to True.
+        if any(Path(p) in Path(file_path).parents for p in [de4dot_extracted_dir, de4dot_sandboxie_dir]) and not flag_obfuscar:
+            flag_de4dot = True
+            logging.info(f"Flag set to True because '{file_path}' is inside the de4dot directory '{obfuscar_dir}'.")
 
         # Deobfuscate binaries obfuscated by Go Garble.
         if is_go_garble_from_output(die_result):
@@ -6089,7 +6138,10 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                 dotnet_thread.start()
             elif "Protector: Obfuscar" in dotnet_result and not flag_obfuscar:
                 logging.info(f"The file is a .NET assembly protected with Obfuscar: {dotnet_result}")
-
+                deobfuscate_with_obfuscar(file_path, file_name)
+            elif dotnet_result is not False:
+                de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(file_path,))
+                de4dot_thread.start()
             if is_jar_file_from_output(die_result):
                 run_jar_extractor(file_path, flag_fenflower)
 
@@ -7124,36 +7176,60 @@ class MonitorMessageCommandLine:
         except Exception as ex:
             logging.error(f"Error in monitor: {ex}")
 
+def _copy_to_dest(file_path, src_root, dest_root):
+    """
+    Copy file_path (under src_root) into dest_root, preserving subpath.
+    """
+    rel_path = os.path.relpath(file_path, src_root)
+    dest_path = os.path.join(dest_root, rel_path)
+    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    shutil.copy2(file_path, dest_path)
+    logging.info(f"Copied '{file_path}' → '{dest_path}'")
+
 def monitor_sandboxie_directory():
     """
-    Monitor sandboxie folder for new or modified files and scan them.
-    This includes functionality from both monitoring methods.
+    Monitor sandboxie folder for new or modified files and scan/copy them.
     """
     try:
-        alerted_files = []
+        alerted_files = set()
+        scanned_files = set()
+        file_mod_times = {}
 
         while True:
             for directory in directories_to_scan:
-                if os.path.exists(directory):
-                    for root, dirs, files in os.walk(directory):
-                        for file in files:
-                            file_path = os.path.join(root, file)
-                            last_mod_time = os.path.getmtime(file_path)
+                if not os.path.isdir(directory):
+                    continue
 
-                            if file_path not in alerted_files:
-                                logging.info(f"New file detected in {root}: {file}")
-                                alerted_files.append(file_path)
-                                scan_and_warn(file_path)
+                for root, _, files in os.walk(directory):
+                    for filename in files:
+                        file_path = os.path.join(root, filename)
+                        last_mod_time = os.path.getmtime(file_path)
 
-                            if file_path not in scanned_files:
-                                # New file detected
-                                scanned_files.append(file_path)
-                                file_mod_times[file_path] = last_mod_time
-                            elif file_mod_times[file_path] != last_mod_time:
-                                # File modified
-                                logging.info(f"File modified in {root}: {file}")
-                                scan_and_warn(file_path)
-                                file_mod_times[file_path] = last_mod_time
+                        # on first sight: alert + scan + copy
+                        if file_path not in alerted_files:
+                            logging.info(f"New file detected in {root}: {filename}")
+                            alerted_files.add(file_path)
+                            scan_and_warn(file_path)
+
+                            # choose destination based on origin
+                            if file_path.startswith(de4dot_sandboxie_dir):
+                                _copy_to_dest(file_path, de4dot_sandboxie_dir, de4dot_extracted_dir)
+                            else:
+                                _copy_to_dest(file_path, directory, copied_sandbox_files_dir)
+
+                        # on modification: rescan + recopy
+                        if file_path not in scanned_files:
+                            scanned_files.add(file_path)
+                            file_mod_times[file_path] = last_mod_time
+                        elif file_mod_times[file_path] != last_mod_time:
+                            logging.info(f"File modified in {root}: {filename}")
+                            scan_and_warn(file_path)
+                            file_mod_times[file_path] = last_mod_time
+
+                            if file_path.startswith(de4dot_sandboxie_dir):
+                                _copy_to_dest(file_path, de4dot_sandboxie_dir, de4dot_extracted_dir)
+                            else:
+                                _copy_to_dest(file_path, directory, copied_sandbox_files_dir)
 
     except Exception as ex:
         logging.error(f"Error in monitor_sandboxie_directory: {ex}")
@@ -7222,6 +7298,28 @@ def run_sandboxie(file_path):
         subprocess.run([sandboxie_path, '/box:DefaultBox', file_path], check=True)
     except subprocess.CalledProcessError as ex:
         logging.error(f"Failed to run Sandboxie on {file_path}: {ex}")
+
+def run_de4dot_in_sandbox(file_path, box_name="de4dotBox"):
+    """
+    Runs de4dot inside Sandboxie to avoid contaminating the host.
+    Extracts all files into de4dot_extracted_dir via -ro.
+    """
+    # make sure the output directory exists (inside the sandbox it will be mirrored)
+    os.makedirs(de4dot_extracted_dir, exist_ok=True)
+
+    cmd = [
+        sandboxie_path,
+        f"/box:{box_name}",
+        de4dot_cex_x64_path,
+        "-ro", de4dot_extracted_dir,
+        file_path
+    ]
+
+    try:
+        subprocess.run(cmd, check=True)
+        logging.info(f"de4dot extraction succeeded for {file_path} in sandbox '{box_name}'")
+    except subprocess.CalledProcessError as ex:
+        logging.error(f"Failed to run de4dot on {file_path} in sandbox '{box_name}': {ex}")
 
 def run_analysis(file_path: str):
     """
