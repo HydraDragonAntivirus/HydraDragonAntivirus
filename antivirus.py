@@ -706,6 +706,7 @@ def is_dotnet_file_from_output(die_output):
       - None
         if none of these markers are found.
     """
+
     if not die_output:
         logging.info("Empty DIE output; no .NET markers found.")
         return None
@@ -5413,7 +5414,7 @@ def extract_and_return_pyinstaller(file_path):
 
     return extracted_pyinstaller_file_paths
 
-def decompile_dotnet_file(file_path, flag_obfuscar=False):
+def decompile_dotnet_file(file_path):
     """
     Decompiles a .NET assembly using ILSpy and scans all decompiled .cs files 
     for URLs, IP addresses, domains, and Discord webhooks.
@@ -5422,11 +5423,6 @@ def decompile_dotnet_file(file_path, flag_obfuscar=False):
     """
     try:
         logging.info(f"Detected .NET assembly: {file_path}")
-
-        # Check: if file_path is within obfuscar_dir and flag_obfuscar is not already True, then set it to True.
-        if obfuscar_dir in file_path.parents and not flag_obfuscar:
-            flag_obfuscar = True
-            logging.info(f"Flag set to True because '{file_path}' is inside the Obfuscar directory '{obfuscar_dir}'.")
 
         # Create a unique directory for decompiled output
         folder_number = 1
@@ -5924,7 +5920,7 @@ def deobfuscate_with_obfuscar(file_path, file_basename):
         logging.error(f"Error during analysis of deobfuscated file: {e}")
 
 # --- Main Scanning Function ---
-def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False, flag_fernflower=False, flag_de4dot=False):
+def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False, flag_de4dot=False, flag_fernflower=False):
     """
     Scans a file for potential issues.
     
@@ -5967,10 +5963,17 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             flag_obfuscar = True
             logging.info(f"Flag set to True because '{file_path}' is inside the Obfuscar directory '{obfuscar_dir}'.")
 
-        # Check: if file_path is within obfuscar_dir and flag_obfuscar is not already True, then set it to True.
-        if any(Path(p) in Path(file_path).parents for p in [de4dot_extracted_dir, de4dot_sandboxie_dir]) and not flag_obfuscar:
+        # Find the first de4dot directory that contains file_path
+        match = next(
+            (p for p in (de4dot_extracted_dir, de4dot_sandboxie_dir)
+            if Path(p) in Path(file_path).parents),
+            None
+        )
+        if match and not flag_de4dot:
             flag_de4dot = True
-            logging.info(f"Flag set to True because '{file_path}' is inside the de4dot directory '{obfuscar_dir}'.")
+            logging.info(
+                f"Flag set to True because '{file_path}' is inside the de4dot directory '{match}'"
+        )
 
         # Deobfuscate binaries obfuscated by Go Garble.
         if is_go_garble_from_output(die_result):
@@ -6139,7 +6142,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             elif "Protector: Obfuscar" in dotnet_result and not flag_obfuscar:
                 logging.info(f"The file is a .NET assembly protected with Obfuscar: {dotnet_result}")
                 deobfuscate_with_obfuscar(file_path, file_name)
-            elif dotnet_result is not False:
+            elif dotnet_result is not False and not flag_de4dot:
                 de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(file_path,))
                 de4dot_thread.start()
             if is_jar_file_from_output(die_result):
