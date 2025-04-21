@@ -7,6 +7,67 @@ import "macho"
 import "math"
 import "time"
 
+/**
+This rule is use to match apk virus
+**/
+
+rule best_for_her_virus
+{
+    meta:
+        author = "loopher"
+        decription = "check best_for_her.apk "
+        info = "shellcode method: com.androlua.uaUtil.java -> captureScreen(Landroid/app/Activity;)Landroid/graphics/Bitmap;"
+    strings:
+        $str = "https://hmma.baidu.com/app.gif" nocase
+        $shellcode = {22  00  bd  00  70  10  96  02  00  00  1a  01  6f  21  6e  20  13  00  19  00  0c  09  1f  09  e6  00  72  10  72  03  09  00  0c  09  6e  20  a6  02  09  00  52  01  82  00  52  00  83  00  6e  10  a7  02  09  00  0a  09  22  02  6e  00  70  10  cc  01  02  00  71  20  cd  01  29  00  52  29  65  00  92  02  01  00  92  09  09  02  23  99  a7  05  12  03  12  34  71  00  6f  28  00  00  0c  05  23  46  ea  05  1a  07  05  02  4d  07  06  03  1a  07  c6  01  12  18  4d  07  06  08  1a  07  a4  13  12  28  4d  07  06  08  6e  20  6e  28  65  00  28  05  0d  05  71  10  9b  0e  05  00  22  05  d8  04  22  06  d7  04  1a  07  f8  01  70  20  62  27  76  00  70  20  7b  27  65  00  22  06  d5  04  70  20  59  27  56  00  6e  20  5b  27  96  00  28  05  0d  05  71  10  9b  0e  05  00  23  22  aa  05  21  25  35  53  27  00  da  05  03  04  48  06  09  05  d5  66  ff  00  d8  07  05  01  48  07  09  07  d5  77  ff  00  d8  08  05  02  48  08  09  08  d5  88  ff  00  b0  45  48  05  09  05  d5  55  ff  00  e0  05  05  18  e0  06  06  10  b0  65  e0  06  07  08  b0  65  b0  85  4b  05  02  03  d8  03  03  01  28  d9  62  09  58  00  71  40  7e  01  02  91  0c  09  11  09}
+    condition:
+        $str  and ($shellcode)
+
+}rule  BYL_bank_trojan: Android {
+    meta:
+        author = "loopher"
+    strings:
+        // $str = "http://ksjajsxccb.com" wide ascii
+        $str = "http://ksjajsxccb.com/api/index/information"
+        $shellcode ={22  00  ee  08  70  20  84  4a  40  00  12  41  23  11  54  0c  12  02  1a  03  bd  53  4d  03  01  02  12  12  4d  05  01  02  12  25  1a  02  5b  53  4d  02  01  05  12  35  4d  06  01  05  1a  05  83  40  71  30  59  4b  05  01  0e 
+ 00 }
+    condition:
+        $str and $shellcode
+}
+rule  sms_trojan {
+    meta:
+        author = "loopher"
+    strings:
+        $str = "http://su.5k3g.com/portal/m/c5/0.ashx?"
+        $shellcode = {55  40  38  00  38  00  03  00  0e  00  55  40  3a  00  39  00  fd  ff  52  40  37  00  54  41  35  00  6e  10  e7  02  01  00  0a  01  35  10  f3  ff  52  40  3d  00  d8  00  00  01  59  40  3d  00  52  41  31  00  34  10  e9  ff  1a  01  9a  00  22  02  8f  00  1a  00  04  03  70  20  a5  02  02  00  54  40  35  00  52  43  37  00  6e  20  e5  02  30  00  0c  00  1f  00  49  00  6e  10  4e  01  00  00  0c  00  6e  20  aa  02  02  00  0c  00  1a  02  8b  04  6e  20  aa  02  20  00  0c  02  54  40  35  00  52  43  37  00  6e  20  e5  02  30  00  0c  00  1f  00  49  00  6e  10  4d  01  00  00  0c  00  6e  20  aa  02  02  00  0c  00  6e  10  ac  02  00  00  0c  00  71  20  c2  01  01  00  12  10  5c  40  3a  00  12  00  59  40  3d  00  54  41  36  00  54  40  35  00  52  42  37  00  6e  20  e5  02  20  00  0c  00  1f  00  49  00  6e  10  4e  01  00  00  0c  02  54  40  35  00  52  43  37  00  6e  20  e5  02  30  00  0c  00  1f  00  49  00  6e  10  4d  01  00  00  0c  00  6e  30  56  01  21  00  52  40  37  00  d8  00  00  01  59  40  37  00  28  80}
+    condition:
+        $str or $shellcode
+}
+rule ApkVirus
+{
+    meta:
+        author = "loopher"
+        description = "This is for scan apk yara"
+    strings:
+        $shell_code = {12  0b  1a  0a  16  01  1a  00  00  00  71  10  3d  04  0c  00  0c  09  71  10  f6  02  09  00  0c  06  39  06  0a  00  1a  09  16  01  1a  09  e4  00  71  20  bf  00  9a  00  11  00  71  00  b1  05  00  00  0c  02  12  01  6e  10  b0  05  02  00  0c  01  12  03  6e  20  af  05  61  00  0c  03  38  06  05  00  6e  10  29  05  06  00  72  10  b3  05  03  00  0c  08  72  20  b5  05  d8  00  0c  07  72  20  b7  05  b7  00  0c  04  1f  04  f7  01  72  10  b4  05  04  00  0c  09  72  20  b7  05  b9  00  0c  09  72  10  b6  05  09  00  0c  00  28  d2  0d  05  1a  09  16  01  6e  10  b2  05  05  00  0c  09  71  20  bf  00  9a  00  28  d1  0d  09  07  95  1a  09  16  01  6e  10  b8  05  05  00  0c  09  71  20  bf  00  9a  00  28  cf  0d  09  07  95  1a  09  16  01  6e  10  27  05  05  00  0c  09  71  20  bf  00  9a  00  28  c3}
+        
+
+    condition:
+        any of them
+}
+//
+rule Trojan
+{
+    meta:
+        author = "loopher"
+        description = "This rule is for scanning Trojan Android.Kmin.a[org]"
+    strings:
+        $shelle_code = {12  1c  12  0b  12  02  1a  01  1a  06  1a  03  6a  05  71  20  c2  01  31  00  6e  10  2e  00  0d  00  0c  00  22  01  8f  00  1a  03  63  04  70  20  a5  02  31  00  6e  20  aa  02  f1  00  0c  01  1a  03  24  00  6e  20  aa  02  31  00  0c  01  6e  10  ac  02  01  00  0c  01  71  10  6e  00  01  00  0c  01  07  23  07  24  07  25  74  06  26  00  00  00  0c  07  38  07  6f  00  72  10  53  00  07  00  0c  0a  1a  01  1f  00  22  02  8f  00  1a  03  73  04  70  20  a5  02  32  00  72  10  54  00  07  00  0a  03  6e  20  a7  02  32  00  0c  02  6e  10  ac  02  02  00  0c  02  71  20  c2  01  21  00  72  10  54  00  07  00  0a  01  3c  01  04  00  01  b1  0f  01  72  10  5a  00  07  00  1a  06  00  00  12  08  21  a1  34  18  0d  00  71  10  e7  01  06  00  0c  09  38  0e  05  00  21  e1  39  01  28  00  01  c1  28  ec  46  01  0a  08  72  20  58  00  87  00  0c  02  39  02  16  00  1a  02  54  06  71  20  c2  01  21  00  46  01  0a  08  1a  02  b8  03  6e  20  8c  02  21  00  0a  01  38  01  0c  00  72  20  58  00  87  00  0c  06  28  da  72  20  58  00  87  00  0c  02  28  ea  d8  08  08  01  28  cf  12  08  21  e1  34  18  11  00  1a  01  1e  00  1a  02  20  00  71  20  c2  01  21  00  72  10  59  00  07  00  0a  01  38  01  11  00  01  b1  28  b5  46  01  0e  08  6e  20  8c  02  19  00  0a  01  38  01  04  00  01  c1  28  ab  d8  08  08  01  28  e2  72  10  5b  00  07  00  28  a8}
+        $string = "http://su.5k3g.com/portal/m/c5/0.ashx?"
+    condition:
+        any of them
+}
+
 import "pe"
 
 rule SUSP_NET_Large_Static_Array_In_Small_File_Jan24 {
