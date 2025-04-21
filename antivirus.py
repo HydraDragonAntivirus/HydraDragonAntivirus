@@ -7302,7 +7302,7 @@ def run_sandboxie(file_path):
     except subprocess.CalledProcessError as ex:
         logging.error(f"Failed to run Sandboxie on {file_path}: {ex}")
 
-def run_de4dot_in_sandbox(file_path, box_name="de4dotBox"):
+def run_de4dot_in_sandbox(file_path):
     """
     Runs de4dot inside Sandboxie to avoid contaminating the host.
     Extracts all files into de4dot_extracted_dir via -ro.
@@ -7312,7 +7312,7 @@ def run_de4dot_in_sandbox(file_path, box_name="de4dotBox"):
 
     cmd = [
         sandboxie_path,
-        f"/box:{box_name}",
+        f"/box:DefaultBox",
         de4dot_cex_x64_path,
         "-ro", de4dot_extracted_dir,
         file_path
