@@ -5961,16 +5961,23 @@ def extract_nuitka_file(file_path, nuitka_type):
         return None
 
 def extract_resources(pe_path, output_dir):
+    """
+    Extract resources from a PE file and scan each extracted file.
+
+    Returns:
+      list[str] | None: List of paths to extracted resource files, or None on error.
+    """
+    extracted_files = []
     try:
         pe = pefile.PE(pe_path)
     except Exception as e:
         logging.error(f"Error loading PE file: {e}")
-        return
+        return None
 
     # Check if the PE file has resources
     if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
         logging.error("No resources found in this file.")
-        return
+        return None
 
     os.makedirs(output_dir, exist_ok=True)
     resource_count = 0
@@ -5998,15 +6005,18 @@ def extract_resources(pe_path, output_dir):
                 with open(output_path, "wb") as f:
                     f.write(data)
                 logging.info(f"Resource saved: {output_path}")
-                resource_count += 1
 
                 # Call scan_and_warn on the extracted file
                 scan_and_warn(output_path)
+                extracted_files.append(output_path)
+                resource_count += 1
 
     if resource_count == 0:
         logging.info("No resources were extracted.")
     else:
         logging.info(f"Extracted a total of {resource_count} resources.")
+
+    return extracted_files
 
 # --- Main Scanning Function ---
 def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False, flag_de4dot=False, flag_fernflower=False):
@@ -6205,7 +6215,10 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                         logging.error(f"Error processing file {saved_file_path}: {e}")
  
                 # Extract resources
-                extract_resources(file_path, resource_extractor_dir)
+                extracted = extract_resources(file_path, resource_extractor_dir)
+                if extracted:
+                    for file in extracted:
+                        scan_and_warn(file)
 
                 # Use the `debloat` library to optimize PE file for scanning
                 try:
