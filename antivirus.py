@@ -5824,12 +5824,74 @@ def deobfuscate_with_obfuscar(file_path, file_basename):
 
     return deobfuscated_file_path
 
+def extract_rcdata_resource(pe_path):
+    try:
+        pe = pefile.PE(pe_path)
+    except Exception as e:
+        logging.error(f"Error loading PE file: {e}")
+        return None
+
+    # Check if the PE file has resources
+    if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
+        logging.error("No resources found in this file.")
+        return None
+
+    first_rcdata_file = None  # Will hold the first RCData resource file path
+    all_extracted_files = []  # Store all extracted file paths for scanning
+
+    # Ensure output directory exists
+    output_dir = os.path.join(general_extracted_dir, os.path.splitext(os.path.basename(pe_path))[0])
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Traverse the resource directory
+    for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+        type_name = get_resource_name(resource_type)
+        if not hasattr(resource_type, 'directory'):
+            continue
+
+        for resource_id in resource_type.directory.entries:
+            res_id = get_resource_name(resource_id)
+            if not hasattr(resource_id, 'directory'):
+                continue
+
+            for resource_lang in resource_id.directory.entries:
+                lang_id = resource_lang.id
+                data_rva = resource_lang.data.struct.OffsetToData
+                size = resource_lang.data.struct.Size
+                data = pe.get_memory_mapped_image()[data_rva:data_rva + size]
+
+                # Save extracted resource to a file
+                file_name = f"{type_name}_{res_id}_{lang_id}.bin"
+                output_path = os.path.join(output_dir, file_name)
+                with open(output_path, "wb") as f:
+                    f.write(data)
+
+                logging.info(f"Extracted resource saved: {output_path}")
+                all_extracted_files.append(output_path)
+
+                # If it's an RCData resource and we haven't already set one, record its file path
+                if type_name.lower() in ("rcdata", "10") and first_rcdata_file is None:
+                    first_rcdata_file = output_path
+
+    if first_rcdata_file is None:
+        logging.info("No RCData resource found.")
+    else:
+        logging.info(f"Using RCData resource file: {first_rcdata_file}")
+
+    return first_rcdata_file, all_extracted_files
+
 def extract_nuitka_file(file_path, nuitka_type):
     """
     Detect Nuitka type, extract Nuitka executable content, and scan for additional Nuitka executables.
-    :param file_path: Path to the Nuitka executable file.
-    :param nuitka_type: Type of Nuitka executable ("Nuitka OneFile" or "Nuitka").
+
+    Parameters:
+      file_path (str): Path to the Nuitka executable file.
+      nuitka_type (str): Type of Nuitka executable ("Nuitka OneFile" or "Nuitka").
+
+    Returns:
+      list[str] | None: List of extracted file paths for further analysis, or None on error.
     """
+    extracted_files_list = []
     try:
         if nuitka_type == "Nuitka OneFile":
             logging.info(f"Nuitka OneFile executable detected in {file_path}")
@@ -5860,7 +5922,11 @@ def extract_nuitka_file(file_path, nuitka_type):
             for exe_path, exe_type in found_executables:
                 if exe_type == "Nuitka":
                     logging.info(f"Found normal Nuitka executable in extracted files: {exe_path}")
-                    extract_nuitka_file(exe_path, exe_type)
+                    nested_files = extract_nuitka_file(exe_path, exe_type)
+                    if nested_files:
+                        extracted_files_list.extend(nested_files)
+
+            return extracted_files_list
 
         elif nuitka_type == "Nuitka":
             logging.info(f"Nuitka executable detected in {file_path}")
@@ -5873,21 +5939,26 @@ def extract_nuitka_file(file_path, nuitka_type):
 
             if extracted_files_nuitka:
                 logging.info(f"Successfully extracted bytecode or RCDATA file from Nuitka executable: {file_path}")
-                # Scan for RSRC/RCDATA bytecode resources
-                scan_rsrc_files(extracted_files)
+                scan_rsrc_files(extracted_files_nuitka)
+                extracted_files_list.extend(extracted_files_nuitka)
             else:
                 logging.error(f"Failed to extract normal Nuitka executable: {file_path}")
+
             if all_extracted_files:
-                # Scan all extracted files
-                for file_path in all_extracted_files:
-                    scan_and_warn(file_path)
+                extracted_files_list.extend(all_extracted_files)
+
+            return extracted_files_list
+
         else:
             logging.info(f"No Nuitka content found in {file_path}")
+            return None
 
     except PayloadError as ex:
         logging.error(f"Payload error while extracting Nuitka file: {ex}")
+        return None
     except Exception as ex:
         logging.error(f"Unexpected error while extracting Nuitka file: {ex}")
+        return None
 
 def extract_resources(pe_path, output_dir):
     try:
@@ -6185,7 +6256,15 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                 try:
                     logging.info(f"Checking if the file {file_path} contains Nuitka executable of type: {nuitka_type}")
                     # Pass both the file path and Nuitka type to the check_and_extract_nuitka function
-                    extract_nuitka_file(file_path, nuitka_type)
+                    nuitka_files = extract_nuitka_file(file_path, nuitka_type)
+                    if nuitka_files:
+                        for extracted_file in nuitka_files:
+                            try:
+                                scan_and_warn(extracted_file)
+                            except Exception as e:
+                                logging.error(f"Failed to analyze extracted file {extracted_file}: {e}")
+                    else: 
+                        logging.warning("No Nuitka files were extracted for scanning.")
                 except Exception as ex:
                     logging.error(f"Error checking or extracting Nuitka content from {file_path}: {ex}")
             else:
@@ -6286,62 +6365,6 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
     except Exception as ex:
         logging.error(f"Error scanning file {file_path}: {ex}")
         return False
-
-def extract_rcdata_resource(pe_path):
-    try:
-        pe = pefile.PE(pe_path)
-    except Exception as e:
-        logging.error(f"Error loading PE file: {e}")
-        return None
-
-    # Check if the PE file has resources
-    if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-        logging.error("No resources found in this file.")
-        return None
-
-    first_rcdata_file = None  # Will hold the first RCData resource file path
-    all_extracted_files = []  # Store all extracted file paths for scanning
-
-    # Ensure output directory exists
-    output_dir = os.path.join(general_extracted_dir, os.path.splitext(os.path.basename(pe_path))[0])
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Traverse the resource directory
-    for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
-        type_name = get_resource_name(resource_type)
-        if not hasattr(resource_type, 'directory'):
-            continue
-
-        for resource_id in resource_type.directory.entries:
-            res_id = get_resource_name(resource_id)
-            if not hasattr(resource_id, 'directory'):
-                continue
-
-            for resource_lang in resource_id.directory.entries:
-                lang_id = resource_lang.id
-                data_rva = resource_lang.data.struct.OffsetToData
-                size = resource_lang.data.struct.Size
-                data = pe.get_memory_mapped_image()[data_rva:data_rva + size]
-
-                # Save extracted resource to a file
-                file_name = f"{type_name}_{res_id}_{lang_id}.bin"
-                output_path = os.path.join(output_dir, file_name)
-                with open(output_path, "wb") as f:
-                    f.write(data)
-
-                logging.info(f"Extracted resource saved: {output_path}")
-                all_extracted_files.append(output_path)
-
-                # If it's an RCData resource and we haven't already set one, record its file path
-                if type_name.lower() in ("rcdata", "10") and first_rcdata_file is None:
-                    first_rcdata_file = output_path
-
-    if first_rcdata_file is None:
-        logging.info("No RCData resource found.")
-    else:
-        logging.info(f"Using RCData resource file: {first_rcdata_file}")
-
-    return first_rcdata_file, all_extracted_files
 
 def run_fernflower_decompiler(file_path, flag_fenflower=True):
     """
