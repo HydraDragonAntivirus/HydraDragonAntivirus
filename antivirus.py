@@ -6259,7 +6259,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                 else:
                     logging.warning("Java Archive Extraction or decompilation failed. Skipping scan.")
             if is_java_class_from_output(die_result):
-                run_fernflower_extractor(file_path)
+                run_fernflower_decompiler(sfile_path)
 
             # Check if the file contains Nuitka executable
             nuitka_type = is_nuitka_file_from_output(die_result)
