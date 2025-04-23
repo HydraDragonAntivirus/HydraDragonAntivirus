@@ -6072,10 +6072,14 @@ def run_jar_extractor(file_path, flag_fenflower):
     Extracts a JAR file to an "extracted_files" folder in script_dir.
     Then conditionally calls the FernFlower decompiler unless decompilation was already performed.
     The flag_java_class indicates if the DIE output also detected a Java class file.
-    Returns the file_path for further scanning if needed.
+    
+    Returns:
+      list[str] | None: List of file paths extracted or decompiled, or None on error.
     """
+    extracted_file_paths = []
+
     try:
-        # Define the extraction output directory (adjust as desired)
+        # Define the extraction output directory
         extracted_dir = os.path.join(script_dir, "extracted_files")
         Path(extracted_dir).mkdir(parents=True, exist_ok=True)
 
@@ -6091,23 +6095,26 @@ def run_jar_extractor(file_path, flag_fenflower):
         )
 
         if result.returncode == 0:
-            logging.info("Extraction completed successfully.")
+            logging.info("JAR extraction completed successfully.")
         else:
-            logging.error(f"Extraction failed: {result.stderr}")
+            logging.error(f"JAR extraction failed: {result.stderr}")
 
-        # If the FernFlower decompilation flag is already set, skip the decompilation
-        if flag_fenflower:
-            logging.info("FernFlower analysis already performed; skipping decompilation.")
-        else:
-            # Proceed with decompiling via FernFlower.
+        # Collect all files from extracted_dir
+        for root, _, files in os.walk(extracted_dir):
+            for name in files:
+                extracted_file_paths.append(os.path.join(root, name))
+
+        # Decompile via FernFlower if not already done
+        if not flag_fenflower:
             fernflower_decompiler_results = run_fernflower_decompiler(file_path)
-            if ferfnlower_decompiler_results:
-                for fernflower_decompiler_file in fenflower_decompiler_results:
-                    scan_and_warn(fernflower_decompiler_file)
+            if fernflower_decompiler_results:
+                extracted_file_paths.extend(fernflower_decompiler_results)
             else:
                 logging.info("No files returned from FernFlower decompiler.")
+        else:
+            logging.info("FernFlower analysis already performed; skipping decompilation.")
 
-        return file_path
+        return extracted_file_paths
 
     except Exception as ex:
         logging.error(f"Error in run_jar_extractor: {ex}")
@@ -6348,9 +6355,10 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                 de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(file_path,))
                 de4dot_thread.start()
             if is_jar_file_from_output(die_result):
-                jar_extractor_path = run_jar_extractor(file_path, flag_fenflower)
-                if jar_extractor_path:
-                    scan_and_warn(file_path, flag_fenflower)
+                jar_extractor_paths = run_jar_extractor(file_path, flag_fenflower)
+                if jar_extractor_paths:
+                    for jar_extractor_path in jar_extractor_paths:
+                        scan_and_warn(jar_extractor_path, flag_fenflower)
                 else:
                     logging.warning("Java Archive Extraction or decompilation failed. Skipping scan.")
             if is_java_class_from_output(die_result):
