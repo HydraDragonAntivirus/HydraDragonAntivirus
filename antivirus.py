@@ -5779,18 +5779,18 @@ def deobfuscate_with_obfuscar(file_path, file_basename):
       1. Copies the original file from file_path into the obfuscar directory.
       2. Calls the Deobfuscar-Standalone-Win64.exe executable with the copied file.
       3. Waits indefinitely until a file prefixed with "unpacked_" appears in obfuscar_dir.
-      4. Sends the deobfuscated file to scan_and_warn() with flag_obfuscar=True.
+      4. Returns the path of the deobfuscated file.
 
     Parameters:
       file_path (str): Path to the file to be deobfuscated.
       file_basename (str): The name of the file (e.g., from os.path.basename(file_path)).
 
     Returns:
-      None
+      str | None: Path to the deobfuscated file, or None on error.
     """
     if not os.path.exists(deobfuscar_path):
         logging.error(f"Deobfuscar executable not found at {deobfuscar_path}")
-        return
+        return None
 
     # Copy the file to the obfuscar directory
     copied_file_path = os.path.join(obfuscar_dir, file_basename)
@@ -5799,7 +5799,7 @@ def deobfuscate_with_obfuscar(file_path, file_basename):
         logging.info(f"Copied file {file_path} to {copied_file_path}")
     except Exception as e:
         logging.error(f"Failed to copy file to obfuscar directory: {e}")
-        return
+        return None
 
     # Run the deobfuscation tool
     try:
@@ -5808,7 +5808,7 @@ def deobfuscate_with_obfuscar(file_path, file_basename):
         subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     except Exception as e:
         logging.error(f"Error during deobfuscation execution: {e}")
-        return
+        return None
 
     # Monitor directory for the unpacked output
     logging.info("Waiting for unpacked_ file to appear...")
@@ -5822,72 +5822,7 @@ def deobfuscate_with_obfuscar(file_path, file_basename):
         if deobfuscated_file_path:
             break
 
-    # Send the deobfuscated file to analysis
-    try:
-        scan_and_warn(deobfuscated_file_path, flag_obfuscar=True)
-        logging.info("Deobfuscated file sent for analysis.")
-    except Exception as e:
-        logging.error(f"Error during analysis of deobfuscated file: {e}")
-
-def extract_rcdata_resource(pe_path):
-    try:
-        pe = pefile.PE(pe_path)
-    except Exception as e:
-        logging.error(f"Error loading PE file: {e}")
-        return None
-
-    # Check if the PE file has resources
-    if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-        logging.error("No resources found in this file.")
-        return None
-
-    first_rcdata_file = None  # Will hold the first RCData resource file path
-    all_extracted_files = []  # Store all extracted file paths for scanning
-
-    # Ensure output directory exists
-    output_dir = os.path.join(general_extracted_dir, os.path.splitext(os.path.basename(pe_path))[0])
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Traverse the resource directory
-    for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
-        type_name = get_resource_name(resource_type)
-        if not hasattr(resource_type, 'directory'):
-            continue
-
-        for resource_id in resource_type.directory.entries:
-            res_id = get_resource_name(resource_id)
-            if not hasattr(resource_id, 'directory'):
-                continue
-
-            for resource_lang in resource_id.directory.entries:
-                lang_id = resource_lang.id
-                data_rva = resource_lang.data.struct.OffsetToData
-                size = resource_lang.data.struct.Size
-                data = pe.get_memory_mapped_image()[data_rva:data_rva + size]
-
-                # Save extracted resource to a file
-                file_name = f"{type_name}_{res_id}_{lang_id}.bin"
-                output_path = os.path.join(output_dir, file_name)
-                with open(output_path, "wb") as f:
-                    f.write(data)
-
-                logging.info(f"Extracted resource saved: {output_path}")
-                all_extracted_files.append(output_path)
-
-                # If it's an RCData resource and we haven't already set one, record its file path
-                if type_name.lower() in ("rcdata", "10") and first_rcdata_file is None:
-                    first_rcdata_file = output_path
-
-    # Scan all extracted files
-    for file_path in all_extracted_files:
-        scan_and_warn(file_path)
-
-    if first_rcdata_file is None:
-        logging.info("No RCData resource found.")
-    else:
-        logging.info(f"Using RCData resource file: {first_rcdata_file}")
-
-    return first_rcdata_file
+    return deobfuscated_file_path
 
 def extract_nuitka_file(file_path, nuitka_type):
     """
@@ -6221,13 +6156,21 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                 dotnet_thread.start()
             elif "Protector: Obfuscar" in dotnet_result and not flag_obfuscar:
                 logging.info(f"The file is a .NET assembly protected with Obfuscar: {dotnet_result}")
-                deobfuscate_with_obfuscar(file_path, file_name)
+                deobfuscated_path = deobfuscate_with_obfuscar(file_path, file_name)
+                if deobfuscated_path:
+                    scan_and_warn(deobfuscated_path, flag_obfuscar=True)
+                else:
+                    logging.warning("Deobfuscation failed or unpacked file not found.")
+
             elif dotnet_result is not False and not flag_de4dot:
                 de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(file_path,))
                 de4dot_thread.start()
             if is_jar_file_from_output(die_result):
-                run_jar_extractor(file_path, flag_fenflower)
-
+                jar_extractor_path = run_jar_extractor(file_path, flag_fenflower)
+                if jar_extractor_path:
+                    scan_and_warn(file_path, flag_fenflower)
+                else:
+                    logging.warning("Java Archive Extraction or decompilation failed. Skipping scan.")
             if is_java_class_from_output(die_result):
                 run_fernflower_extractor(file_path)
 
@@ -6341,6 +6284,65 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         logging.error(f"Error scanning file {file_path}: {ex}")
         return False
 
+def extract_rcdata_resource(pe_path):
+    try:
+        pe = pefile.PE(pe_path)
+    except Exception as e:
+        logging.error(f"Error loading PE file: {e}")
+        return None
+
+    # Check if the PE file has resources
+    if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
+        logging.error("No resources found in this file.")
+        return None
+
+    first_rcdata_file = None  # Will hold the first RCData resource file path
+    all_extracted_files = []  # Store all extracted file paths for scanning
+
+    # Ensure output directory exists
+    output_dir = os.path.join(general_extracted_dir, os.path.splitext(os.path.basename(pe_path))[0])
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Traverse the resource directory
+    for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+        type_name = get_resource_name(resource_type)
+        if not hasattr(resource_type, 'directory'):
+            continue
+
+        for resource_id in resource_type.directory.entries:
+            res_id = get_resource_name(resource_id)
+            if not hasattr(resource_id, 'directory'):
+                continue
+
+            for resource_lang in resource_id.directory.entries:
+                lang_id = resource_lang.id
+                data_rva = resource_lang.data.struct.OffsetToData
+                size = resource_lang.data.struct.Size
+                data = pe.get_memory_mapped_image()[data_rva:data_rva + size]
+
+                # Save extracted resource to a file
+                file_name = f"{type_name}_{res_id}_{lang_id}.bin"
+                output_path = os.path.join(output_dir, file_name)
+                with open(output_path, "wb") as f:
+                    f.write(data)
+
+                logging.info(f"Extracted resource saved: {output_path}")
+                all_extracted_files.append(output_path)
+
+                # If it's an RCData resource and we haven't already set one, record its file path
+                if type_name.lower() in ("rcdata", "10") and first_rcdata_file is None:
+                    first_rcdata_file = output_path
+
+    # Scan all extracted files
+    for file_path in all_extracted_files:
+        scan_and_warn(file_path)
+
+    if first_rcdata_file is None:
+        logging.info("No RCData resource found.")
+    else:
+        logging.info(f"Using RCData resource file: {first_rcdata_file}")
+
+    return first_rcdata_file
 
 def run_fernflower_decompiler(file_path, flag_fenflower=True):
     """
@@ -6385,12 +6387,13 @@ def run_jar_extractor(file_path, flag_fenflower):
     Extracts a JAR file to an "extracted_files" folder in script_dir.
     Then conditionally calls the FernFlower decompiler unless decompilation was already performed.
     The flag_java_class indicates if the DIE output also detected a Java class file.
+    Returns the file_path for further scanning if needed.
     """
     try:
         # Define the extraction output directory (adjust as desired)
         extracted_dir = os.path.join(script_dir, "extracted_files")
         Path(extracted_dir).mkdir(parents=True, exist_ok=True)
-        
+
         # Build the command to extract the JAR file using the JDK jar tool.
         # "jar xf" will extract the contents into the current working directory.
         jar_command = ["jar", "xf", file_path]
@@ -6406,7 +6409,7 @@ def run_jar_extractor(file_path, flag_fenflower):
             logging.info("Extraction completed successfully.")
         else:
             logging.error(f"Extraction failed: {result.stderr}")
-        
+
         # If the FernFlower decompilation flag is already set, skip the decompilation
         if flag_fenflower:
             logging.info("FernFlower analysis already performed; skipping decompilation.")
@@ -6414,10 +6417,11 @@ def run_jar_extractor(file_path, flag_fenflower):
             # Proceed with decompiling via FernFlower.
             run_fernflower_decompiler(file_path)
 
-        scan_and_warn(file_path, flag_fenflower)
+        return file_path
 
     except Exception as ex:
         logging.error(f"Error in run_jar_extractor: {ex}")
+        return None
 
 def extract_pe_sections(file_path: str):
     try:
