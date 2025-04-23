@@ -6006,8 +6006,6 @@ def extract_resources(pe_path, output_dir):
                     f.write(data)
                 logging.info(f"Resource saved: {output_path}")
 
-                # Call scan_and_warn on the extracted file
-                scan_and_warn(output_path)
                 extracted_files.append(output_path)
                 resource_count += 1
 
