@@ -6018,6 +6018,101 @@ def extract_resources(pe_path, output_dir):
 
     return extracted_files
 
+def run_fernflower_decompiler(file_path, flag_fenflower=True):
+    """
+    Uses FernFlower to decompile the given JAR file.
+    The FernFlower JAR is expected to be located in jar_decompiler_dir.
+    The decompiled output is saved to a folder in script_dir.
+    The flag_java_class indicates if a Java class file was detected.
+
+    Returns:
+      list[str] | None: List of paths to files in the decompiled output directory, or None on error.
+    """
+    try:
+
+        # Build the path to fernflower.jar.
+        FernFlower_path = os.path.join(jar_decompiler_dir, "fernflower.jar")
+        base_name = os.path.splitext(os.path.basename(file_path))[0]
+        FernFlower_base_dir = os.path.join(script_dir, "FernFlower_decompiled")
+
+        # Find the next available numbered subfolder
+        folder_number = 1
+        while os.path.exists(os.path.join(FernFlower_base_dir, f"{base_name}_{folder_number}")):
+            folder_number += 1
+
+        # Final output dir: FernFlower_decompiled/<jarname>_N
+        FernFlower_output_dir = os.path.join(FernFlower_base_dir, f"{base_name}_{folder_number}")
+        Path(FernFlower_output_dir).mkdir(parents=True, exist_ok=True)
+
+        command = ["java", "-jar", FernFlower_path, file_path, FernFlower_output_dir]
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        if result.returncode == 0:
+            logging.info(f"FernFlower decompilation successful to: {FernFlower_output_dir}")
+            # List all files in output dir (recursively)
+            decompiled_files = []
+            for root, dirs, files in os.walk(FernFlower_output_dir):
+                for name in files:
+                    decompiled_files.append(os.path.join(root, name))
+            return decompiled_files
+        else:
+            logging.error(f"FernFlower decompilation failed: {result.stderr}")
+            return None
+    except Exception as ex:
+        logging.error(f"Error in run_fernflower_decompiler: {ex}")
+        return None
+
+def run_jar_extractor(file_path, flag_fenflower):
+    """
+    Extracts a JAR file to an "extracted_files" folder in script_dir.
+    Then conditionally calls the FernFlower decompiler unless decompilation was already performed.
+    The flag_java_class indicates if the DIE output also detected a Java class file.
+    Returns the file_path for further scanning if needed.
+    """
+    try:
+        # Define the extraction output directory (adjust as desired)
+        extracted_dir = os.path.join(script_dir, "extracted_files")
+        Path(extracted_dir).mkdir(parents=True, exist_ok=True)
+
+        # Build the command to extract the JAR file using the JDK jar tool.
+        # "jar xf" will extract the contents into the current working directory.
+        jar_command = ["jar", "xf", file_path]
+        result = subprocess.run(
+            jar_command,
+            cwd=extracted_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        if result.returncode == 0:
+            logging.info("Extraction completed successfully.")
+        else:
+            logging.error(f"Extraction failed: {result.stderr}")
+
+        # If the FernFlower decompilation flag is already set, skip the decompilation
+        if flag_fenflower:
+            logging.info("FernFlower analysis already performed; skipping decompilation.")
+        else:
+            # Proceed with decompiling via FernFlower.
+            fernflower_decompiler_results = run_fernflower_decompiler(file_path)
+            if ferfnlower_decompiler_results:
+                for fernflower_decompiler_file in fenflower_decompiler_results:
+                    scan_and_warn(fernflower_decompiler_file)
+            else:
+                logging.info("No files returned from FernFlower decompiler.")
+
+        return file_path
+
+    except Exception as ex:
+        logging.error(f"Error in run_jar_extractor: {ex}")
+        return None
+
 # --- Main Scanning Function ---
 def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False, flag_de4dot=False, flag_fernflower=False):
     """
@@ -6378,85 +6473,6 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
     except Exception as ex:
         logging.error(f"Error scanning file {file_path}: {ex}")
         return False
-
-def run_fernflower_decompiler(file_path, flag_fenflower=True):
-    """
-    Uses FernFlower to decompile the given JAR file.
-    The FernFlower JAR is expected to be located in jar_decompiler_dir.
-    The decompiled output is saved to a folder in script_dir.
-    After decompilation, the output is passed to scan_and_warn along with the decompilation flag.
-    The flag_java_class indicates if a Java class file was detected.
-    """
-    try:
-
-        # Build the path to fernflower.jar.
-        FernFlower_path = os.path.join(jar_decompiler_dir, "fernflower.jar")
-        # Define the output directory for the decompiled source code.
-        FernFlower_decompiled_dir = os.path.join(script_dir, "FernFlower_decompiled")
-        Path(FernFlower_decompiled_dir).mkdir(parents=True, exist_ok=True)
-        
-        # Build the FernFlower decompilation command.
-        # Typical usage: java -jar fernflower.jar <input.jar> <output_dir>
-        command = ["java", "-jar", FernFlower_path, file_path, FernFlower_decompiled_dir]
-        result = subprocess.run(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        
-        if result.returncode == 0:
-            logging.info("FernFlower decompilation successful.")
-            flag_fenflower = True
-        else:
-            logging.error(f"FernFlower decompilation failed: {result.stderr}")
-            flag_fenflower = False
-        
-        # Pass the decompiled folder and the decompilation flag to scan_and_warn.
-        scan_and_warn(FernFlower_decompiled_dir, flag_fenflower)
-    except Exception as ex:
-        logging.error(f"Error in run_fernflower_decompiler: {ex}")
-
-def run_jar_extractor(file_path, flag_fenflower):
-    """
-    Extracts a JAR file to an "extracted_files" folder in script_dir.
-    Then conditionally calls the FernFlower decompiler unless decompilation was already performed.
-    The flag_java_class indicates if the DIE output also detected a Java class file.
-    Returns the file_path for further scanning if needed.
-    """
-    try:
-        # Define the extraction output directory (adjust as desired)
-        extracted_dir = os.path.join(script_dir, "extracted_files")
-        Path(extracted_dir).mkdir(parents=True, exist_ok=True)
-
-        # Build the command to extract the JAR file using the JDK jar tool.
-        # "jar xf" will extract the contents into the current working directory.
-        jar_command = ["jar", "xf", file_path]
-        result = subprocess.run(
-            jar_command,
-            cwd=extracted_dir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-
-        if result.returncode == 0:
-            logging.info("Extraction completed successfully.")
-        else:
-            logging.error(f"Extraction failed: {result.stderr}")
-
-        # If the FernFlower decompilation flag is already set, skip the decompilation
-        if flag_fenflower:
-            logging.info("FernFlower analysis already performed; skipping decompilation.")
-        else:
-            # Proceed with decompiling via FernFlower.
-            run_fernflower_decompiler(file_path)
-
-        return file_path
-
-    except Exception as ex:
-        logging.error(f"Error in run_jar_extractor: {ex}")
-        return None
 
 def extract_pe_sections(file_path: str):
     try:
