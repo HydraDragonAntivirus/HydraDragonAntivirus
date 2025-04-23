@@ -261,7 +261,6 @@ logging.info("spaCy model 'en_core_web_md' loaded successfully")
 accelerator = Accelerator()
 
 # Define the paths to the ghidra related directories
-exela_extracted_dir = os.path.join(script_dir, "exela_extracted")
 decompile_dir = os.path.join(script_dir, "decompile")
 assets_dir = os.path.join(script_dir, "assets")
 digital_signatures_list_dir = os.path.join(script_dir, "digitalsignatureslist")
@@ -420,7 +419,6 @@ UBLOCK_REGEX = re.compile(
     r'^https:\/\/s[cftz]y?[ace][aemnu][a-z]{1,4}o[mn][a-z]{4,8}[iy][a-z]?\.com\/$'
 )
 
-os.makedirs(exela_extracted_dir, exist_ok=True)
 os.makedirs(python_source_code_dir, exist_ok=True)
 os.makedirs(nuitka_source_code_dir, exist_ok=True)
 os.makedirs(commandlineandmessage_dir, exist_ok=True)
@@ -4269,7 +4267,7 @@ existing_projects = []
 scanned_files = []
 file_mod_times = {}
 
-directories_to_scan = [sandboxie_folder, copied_sandbox_files_dir, exela_extracted_dir, decompile_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, de4dot_sandboxie_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_deepseek_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir]
+directories_to_scan = [sandboxie_folder, copied_sandbox_files_dir, decompile_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, de4dot_sandboxie_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_deepseek_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir]
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
@@ -4522,174 +4520,6 @@ class CTOCEntry:
         self.typecmprsdata = typecmprsdata
         self.name = name
 
-def decompile_stub(stub_path: Path, output_file: Path) -> Optional[Path]:
-    """
-    Attempt to decompile stub_path via pycdc.exe to output_file.
-    Returns output_file on success, or None on failure.
-    """
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-
-    try:
-        with output_file.open("w", encoding="utf-8") as out:
-            proc = subprocess.run(
-                ["pycdc.exe", str(stub_path)],
-                stdout=out,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-    except Exception as e:
-        logging.error("Failed to run pycdc.exe: %s", e)
-        return None
-
-    if proc.returncode != 0:
-        logging.error(
-            "Decompilation failed (exit code %d). Stderr:\n%s",
-            proc.returncode,
-            proc.stderr,
-        )
-        return None
-
-    logging.info("Decompilation succeeded; output written to %s", output_file)
-    return output_file
-
-def DecryptString(key, tag, nonce, _input):
-    cipher = Cipher(algorithms.AES(key), modes.GCM(nonce, tag))
-    decryptor = cipher.decryptor()
-    decrypted_data = decryptor.update(_input) + decryptor.finalize()
-    return decrypted_data.decode(errors="ignore")
-
-def add_base64_padding(b64_string):
-    padding = len(b64_string) % 4
-    if padding != 0:
-        b64_string += '=' * (4 - padding)
-    return b64_string
-
-def extract_base64_string(line):
-    """ Extract base64 string from the line, removing the surrounding code. """
-    match = re.search(r"'([^']+)'|\"([^\"]+)\"", line)
-    if match:
-        return match.group(1) or match.group(2)
-    return None
-
-def extract_webhooks(content):
-    """
-    Extracts webhook URLs (regular and Canary versions) from the content.
-
-    Args:
-        content: The content to scan for Discord webhooks.
-
-    Returns:
-        A list of webhook URLs found in the content.
-    """
-    # Combine matches from both patterns
-    webhooks = re.findall(discord_webhook_pattern, content) + re.findall(discord_canary_webhook_pattern, content)
-    return webhooks
-
-def analyze_exela_stub(result_file):
-    """
-    Decrypts the content of an Exela Stealer v2 result file through multiple stages,
-    logs progress, and extracts any webhook URLs found in the final payload.
-    """
-    logging.basicConfig(level=logging.DEBUG)
-
-    # Read full encrypted content
-    with open(result_file, 'r', encoding='utf-8') as file:
-        content = file.read()
-
-    # Stage 1: extract and decode key, tag, nonce
-    key_line = next(line for line in content.splitlines() if line.startswith("key = "))
-    tag_line = next(line for line in content.splitlines() if line.startswith("tag = "))
-    nonce_line = next(line for line in content.splitlines() if line.startswith("nonce = "))
-
-    key_b64 = extract_base64_string(key_line)
-    tag_b64 = extract_base64_string(tag_line)
-    nonce_b64 = extract_base64_string(nonce_line)
-
-    logging.debug(f"Extracted Base64 Key: {key_b64}")
-    logging.debug(f"Extracted Base64 Tag: {tag_b64}")
-    logging.debug(f"Extracted Base64 Nonce: {nonce_b64}")
-
-    try:
-        key = base64.b64decode(add_base64_padding(key_b64))
-        tag = base64.b64decode(add_base64_padding(tag_b64))
-        nonce = base64.b64decode(add_base64_padding(nonce_b64))
-    except (binascii.Error, ValueError) as e:
-        logging.error(f"Error decoding base64: {e}")
-        return
-
-    enc_line = next(line for line in content.splitlines() if "encrypted_data" in line)
-    enc_b64 = extract_base64_string(enc_line)
-    encrypted_data = base64.b64decode(add_base64_padding(enc_b64))
-
-    # First decryption
-    intermediate_data = DecryptString(key, tag, nonce, encrypted_data)
-
-    # Stage 2: extract from intermediate
-    lines2 = intermediate_data.strip().splitlines()
-    key_line2 = next(line for line in lines2 if line.startswith("key = "))
-    tag_line2 = next(line for line in lines2 if line.startswith("tag = "))
-    nonce_line2 = next(line for line in lines2 if line.startswith("nonce = "))
-
-    key_b642 = extract_base64_string(key_line2)
-    tag_b642 = extract_base64_string(tag_line2)
-    nonce_b642 = extract_base64_string(nonce_line2)
-
-    logging.debug(f"Extracted Base64 Key 2: {key_b642}")
-    logging.debug(f"Extracted Base64 Tag 2: {tag_b642}")
-    logging.debug(f"Extracted Base64 Nonce 2: {nonce_b642}")
-
-    try:
-        key2 = base64.b64decode(add_base64_padding(key_b642))
-        tag2 = base64.b64decode(add_base64_padding(tag_b642))
-        nonce2 = base64.b64decode(add_base64_padding(nonce_b642))
-    except (binascii.Error, ValueError) as e:
-        logging.error(f"Error decoding base64 in second decryption: {e}")
-        return
-
-    enc_line2 = next(line for line in lines2 if "encrypted_data" in line)
-    enc_b642 = extract_base64_string(enc_line2)
-    encrypted_data2 = base64.b64decode(add_base64_padding(enc_b642))
-
-    final_data = DecryptString(key2, tag2, nonce2, encrypted_data2)
-
-    # Stage 3: final extraction
-    lines3 = final_data.strip().splitlines()
-    key_line3 = next(line for line in lines3 if line.startswith("key = "))
-    tag_line3 = next(line for line in lines3 if line.startswith("tag = "))
-    nonce_line3 = next(line for line in lines3 if line.startswith("nonce = "))
-
-    key_b643 = extract_base64_string(key_line3)
-    tag_b643 = extract_base64_string(tag_line3)
-    nonce_b643 = extract_base64_string(nonce_line3)
-
-    logging.debug(f"Extracted Base64 Key Final: {key_b643}")
-    logging.debug(f"Extracted Base64 Tag Final: {tag_b643}")
-    logging.debug(f"Extracted Base64 Nonce Final: {nonce_b643}")
-
-    try:
-        key_final = base64.b64decode(add_base64_padding(key_b643))
-        tag_final = base64.b64decode(add_base64_padding(tag_b643))
-        nonce_final = base64.b64decode(add_base64_padding(nonce_b643))
-    except (binascii.Error, ValueError) as e:
-        logging.error(f"Error decoding base64 in final decryption: {e}")
-        return
-
-    enc_line3 = next(line for line in lines3 if "encrypted_data" in line)
-    enc_b643 = extract_base64_string(enc_line3)
-    encrypted_data3 = base64.b64decode(add_base64_padding(enc_b643))
-
-    decrypted = DecryptString(key_final, tag_final, nonce_final, encrypted_data3)
-
-    # Extract webhooks
-    webhooks = extract_webhooks(decrypted)
-    if webhooks:
-        logging.warning("Webhook URLs found:")
-        notify_user_exela_stealer_v2(result_File, "HEUR:Win32.Exela.Stealer.v2.gen")
-        for w in webhooks:
-            logging.warning(w)
-    else:
-        logging.info("No webhook URLs found.")
-
 class PyInstArchive:
     MAGIC = b'MEI\014\013\012\013\016'
     PYINST20_COOKIE_SIZE = 24
@@ -4845,18 +4675,6 @@ class PyInstArchive:
         for entry in self.tocList:
             if entry.name.lower() == "main.pyc":
                 logging.info("[+] Found main.pyc as a potential entry point")
-           
-        # Also check for Stub.pyc in case of an Exela Stealer
-        for entry in self.tocList:
-            if entry.name.lower() == "Stub.pyc":
-                logging.info("[+] Found Stub.pyc as a potential entry point, now checking for Exela Stealer v2")
-                output_file = exela_extracted_dir / (py_filepath.stem + "_decompiled.py")
-                resul_file = decompile_stub(py_filepath, output_file)
-                if result_file is not None:
-                    logging.warning("Decompilation succeeded; continuing to check for Exela Stealer v2.", result_file)
-                    analyze_exela_stub(result_file)
-                else:
-                    logging.info("Decompilation failed; this may not be Exela Stealer version 2.")
 
         # Fix bare pyc files if necessary
         self._fixbarepycs()
@@ -5266,8 +5084,6 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: It's a Sandbox environment file.")
         elif file_path.startswith(copied_sandbox_files_dir):
             logging.info(f"{file_path}: It's a restored sandbox environment file.")
-        elif file_path.startswith(exela_extracted_dir):
-            logging.info(f"{file_path}: Potential extracted files from Exela Stealer version 2.")
         elif file_path.startswith(decompile_dir):
             logging.info(f"{file_path}: Decompiled.")
         elif file_path.startswith(nuitka_dir):
@@ -5344,7 +5160,6 @@ def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled
         directory_logging_info = [
             (lambda fp: fp.startswith(sandboxie_folder), f"It's a Sandbox environment file."),
             (lambda fp: fp.startswith(copied_sandbox_files_dir), f"It's a restored sandbox environment file."),
-            (lambda fp: fp.startswith(exela_extracted_dir), f"Potential extracted files from Exela Stealer version 2."),
             (lambda fp: fp.startswith(decompile_dir), f"Decompiled."),
             (lambda fp: fp.startswith(nuitka_dir), f"Nuitka onefile extracted."),
             (lambda fp: fp.startswith(dotnet_dir), f".NET decompiled."),
