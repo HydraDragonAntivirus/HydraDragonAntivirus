@@ -2770,8 +2770,14 @@ class RealTimeWebProtectionHandler:
 
     def handle_detection(self, entity_type, entity_value, detection_type=None):
         file_path = self.map_domain_ip_to_file(entity_value)
-        notify_info = {'domain': None, 'ipv4_address': None, 'ipv6_address': None, 'url': None, 'file_path': None,
-                       'detection_type': detection_type}
+        notify_info = {
+            'domain': None,
+            'ipv4_address': None,
+            'ipv6_address': None,
+            'url': None,
+            'file_path': None,
+            'detection_type': detection_type
+        }
 
         try:
             if file_path and is_related_to_critical_paths(file_path):
@@ -2784,29 +2790,24 @@ class RealTimeWebProtectionHandler:
                 notify_info['file_path'] = file_path
             else:
                 if file_path:
-                    message = f"{entity_type.capitalize()} {entity_value} is not related to critical paths but associated with file path: {file_path}"
+                    message = (
+                        f"{entity_type.capitalize()} {entity_value} is not related to critical paths "
+                        f"but associated with file path: {file_path}"
+                    )
                 else:
-                    message = f"{entity_type.capitalize()} {entity_value} is not related to critical paths and has no associated file path."
+                    message = (
+                        f"{entity_type.capitalize()} {entity_value} is not related to critical paths "
+                        "and has no associated file path."
+                    )
                 if detection_type:
                     message = f"{detection_type} {message}"
                 logging.info(message)
 
             if any(notify_info.values()):
                 notify_user_for_web(**notify_info)
+
         except Exception as ex:
             logging.error(f"Error in handle_detection: {ex}")
-
-    def collect(self, entity_type, entity_value):
-        """
-        Common collector: dispatches every new entity into its proper scan method.
-        """
-        if entity_type in ('subdomain', 'domain'):
-            self.scan_domain(entity_value)
-        elif entity_type in ('ipv4_address', 'ipv6_address'):
-            self.scan_ip_address(entity_value)
-        elif entity_type == 'url':
-            self.scan_url(entity_value)
-        # otherwise: no-op for unknown types
 
     def extract_ip_addresses(self, text):
         """Extract IPv4 and IPv6 addresses from text using regex."""
@@ -2824,21 +2825,57 @@ class RealTimeWebProtectionHandler:
         domain_regex = r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b'
         return re.findall(domain_regex, text)
 
-    def scan_domain(self, domain):
-        try:
-            if domain in self.scanned_domains:
-                return
-            self.scanned_domains.append(domain)
-            message = f"Scanning domain: {domain}"
-            logging.info(message)
+    def scan(self, entity_type, entity_value, detection_type=None):
+        """
+        Unified scan entry-point.  
+        Dedupe, detect, fetch, extract, and recurse—all via this one method.
+        """
+        # 1) classify into our four buckets
+        if entity_type in ('subdomain', 'domain'):
+            kind = 'domain'
+        elif entity_type in ('ipv4_address', 'ipv6_address'):
+            kind = 'ipv6' if ':' in entity_value else 'ipv4'
+        elif entity_type == 'url':
+            kind = 'url'
+        else:
+            # unrecognized type
+            return
 
+        # 2) dedupe
+        if kind == 'domain':
+            if entity_value in self.scanned_domains:
+                return
+            self.scanned_domains.append(entity_value)
+
+        elif kind == 'ipv4':
+            if entity_value in self.scanned_ipv4_addresses:
+                return
+            self.scanned_ipv4_addresses.append(entity_value)
+
+        elif kind == 'ipv6':
+            if entity_value in self.scanned_ipv6_addresses:
+                return
+            self.scanned_ipv6_addresses.append(entity_value)
+
+        else:  # kind == 'url'
+            if entity_value in self.scanned_urls:
+                return
+            self.scanned_urls.append(entity_value)
+
+        # 3) run the same detection logic you had
+        self.handle_detection(entity_type, entity_value, detection_type)
+
+        # 4) now do fetch + extract + recurse
+        if kind == 'domain':
+            domain = entity_value
+            # strip www.
             if domain.lower().startswith("www."):
                 domain = domain[4:]
 
             parts = domain.split(".")
             main_domain = domain if len(parts) < 3 else ".".join(parts[-2:])
 
-            # Check against spam subdomains first
+            # — all your spam/mining/abuse/phishing/malware/whitelist checks exactly as before —
             if main_domain in spam_sub_domains_data:
                 self.handle_detection('subdomain', main_domain, 'SPAM SUBDOMAIN')
                 return
@@ -2918,45 +2955,28 @@ class RealTimeWebProtectionHandler:
                 logging.info(f"Domain {main_domain} is whitelisted (mail)")
                 return
 
-            # Fetch HTML content from the domain and scan for known harmful signatures
+            # fetch & parse HTML
             full_url = f"http://{domain}"
             html_content = fetch_html(full_url)
             if html_content:
-                # Extract IP addresses from HTML content and scan them
-                extracted_ips = self.extract_ip_addresses(html_content)
-                for ip in extracted_ips:
-                    self.collect('ipv4_address' if '.' in ip else 'ipv6_address', ip)
-                # Extract URLs from HTML content and scan them
-                extracted_urls = self.extract_urls(html_content)
-                for url in extracted_urls:
-                    self.collect('url', url)
-                # Extract domains from HTML content and scan them
-                extracted_domains = self.extract_domains(html_content)
-                for extracted_domain in extracted_domains:
-                    self.collect('domain', extracted_domain)
+                for ip in self.extract_ip_addresses(html_content):
+                    # recurse via scan()
+                    self.scan('ipv4_address' if '.' in ip else 'ipv6_address', ip)
+                for url in self.extract_urls(html_content):
+                    self.scan('url', url)
+                for dom in self.extract_domains(html_content):
+                    self.scan('domain', dom)
 
-        except Exception as ex:
-            logging.error(f"Error scanning domain {domain}: {ex}")
-
-    def scan_ip_address(self, ip_address):
-        try:
-            # First, check if the IP address is local
+        elif kind in ('ipv4', 'ipv6'):
+            ip_address = entity_value
+            # local check
             if is_local_ip(ip_address):
-                message = f"Skipping local IP address: {ip_address}"
-                logging.info(message)
+                logging.info(f"Skipping local IP address: {ip_address}")
                 return
 
-            # Check if the IP address has already been scanned
-            if ip_address in self.scanned_ipv6_addresses or ip_address in self.scanned_ipv4_addresses:
-                return
-
-            # Determine whether it's an IPv6 or IPv4 address
-            if re.match(IPv6_pattern, ip_address): # IPv6 address
-                self.scanned_ipv6_addresses.append(ip_address)
-                message = f"Scanning IPv6 address: {ip_address}"
-                logging.info(message)
-
-                # Check against IPv6 DDoS signatures
+            # signatures
+            if kind == 'ipv6':
+                logging.info(f"Scanning IPv6 address: {ip_address}")
                 if ip_address in ipv6_addresses_ddos_signatures_data:
                     self.handle_detection('ipv6_address', ip_address, 'DDOS')
 
@@ -2970,18 +2990,12 @@ class RealTimeWebProtectionHandler:
 
                 # Check if it is in the IPv6 whitelist
                 elif ip_address in ipv6_whitelist_data:
-                    message = f"IPv6 address {ip_address} is whitelisted"
-                    logging.info(message)
+                    logging.info(f"IPv6 address {ip_address} is whitelisted")
                 else:
-                    message = f"Unknown IPv6 address detected: {ip_address}"
-                    logging.info(message)
+                    logging.info(f"Unknown IPv6 address detected: {ip_address}")
 
-            else:  # IPv4 address
-                self.scanned_ipv4_addresses.append(ip_address)
-                message = f"Scanning IPv4 address: {ip_address}"
-                logging.info(message)
-
-                # Check against active phishing signatures
+            else:  # ipv4
+                logging.info(f"Scanning IPv4 address: {ip_address}")
                 if ip_address in ipv4_addresses_phishing_active_signatures_data:
                     self.handle_detection('ipv4_address', ip_address, 'PHISHING_ACTIVE')
 
@@ -3003,52 +3017,31 @@ class RealTimeWebProtectionHandler:
 
                 # Check if it is in the IPv4 whitelist
                 elif ip_address in ipv4_whitelist_data:
-                    message = f"IPv4 address {ip_address} is whitelisted"
-                    logging.info(message)
+                    logging.info(f"IPv4 address {ip_address} is whitelisted")
                 else:
-                    message = f"Unknown IPv4 address detected: {ip_address}"
-                    logging.info(message)
-            
-            # Fetch HTML content from the IP address and scan for signatures
+                    logging.info(f"Unknown IPv4 address detected: {ip_address}")
+
+            # fetch & parse
             full_url = f"http://{ip_address}"
             html_content = fetch_html(full_url)
             if html_content:
-                # Extract domains from HTML content and scan them
-                extracted_domains = self.extract_domains(html_content)
-                for domain in extracted_domains:
-                    self.collect('domain', domain)
-                # Extract URLs from HTML content and scan them
-                extracted_urls = self.extract_urls(html_content)
-                for url in extracted_urls:
-                    self.collect('url', url)
+                for dom in self.extract_domains(html_content):
+                    self.scan('domain', dom)
+                for url in self.extract_urls(html_content):
+                    self.scan('url', url)
 
-        except Exception as ex:
-            logging.error(f"Error scanning IP address {ip_address}: {ex}")
-
-    def scan_url(self, url):
-        try:
-            if url in self.scanned_urls:
-                logging.info(f"URL {url} has already been scanned.")
-                return
-
-            self.scanned_urls.append(url)  # Add to the scanned list
-            # Fetch HTML content from the URL
+        else:  # kind == 'url'
+            url = entity_value
             html_content = fetch_html(url)
             if html_content:
-                # Extract IP addresses from HTML content and scan them
-                extracted_ips = self.extract_ip_addresses(html_content)
-                for ip in extracted_ips:
-                    self.collect('ipv4_address' if '.' in ip else 'ipv6_address', ip)
-                # Extract domains from HTML content and scan them
-                extracted_domains = self.extract_domains(html_content)
-                for domain in extracted_domains:
-                    self.collect('domain', domain)
-                # Extract URLs from HTML content and scan them recursively
-                extracted_urls = self.extract_urls(html_content)
-                for extracted_url in extracted_urls:
-                    self.collect('url', extracted_url)
+                for ip in self.extract_ip_addresses(html_content):
+                    self.scan('ipv4_address' if '.' in ip else 'ipv6_address', ip)
+                for dom in self.extract_domains(html_content):
+                    self.scan('domain', dom)
+                for u in self.extract_urls(html_content):
+                    self.scan('url', u)
 
-            # Process URL against URLhaus signatures.
+            # URLhaus signatures
             for entry in urlhaus_data:
                 if entry['url'] in url:
                     message = (
@@ -3063,48 +3056,46 @@ class RealTimeWebProtectionHandler:
                         f"Reporter: {entry['reporter']}"
                     )
                     logging.warning(message)
-                    # Use handle_detection for related file path and notification logic.
-                    self.handle_detection(
-                        entity_type="url",
-                        entity_value=url,
-                        detection_type="URLhaus Match"
-                    )
+                    self.handle_detection('url', url, 'URLhaus Match')
                     return
 
             # Heuristic check using uBlock detection (e.g., Steam Community pattern).
             if ublock_detect(url):
-                self.handle_detection(
-                    entity_type="url",
-                    entity_value=url,
-                    detection_type="HEUR:Phish.Steam.Community.gen"
+                self.handle_detection('url', url, 'HEUR:Phish.Steam.Community.gen')
+                logging.warning(
+                    f"URL {url} flagged by uBlock detection using HEUR:Phish.Steam.Community.gen."
                 )
-                logging.warning(f"URL {url} flagged by uBlock detection using HEUR:Phish.Steam.Community.gen.")
                 return
 
             logging.info(f"No match found for URL: {url}")
 
-        except Exception as ex:
-            logging.error(f"Error scanning URL {url}: {ex}")
+    # thin wrappers so nothing outside changes
+    def scan_domain(self, domain):
+        self.scan('domain', domain)
+
+    def scan_ip_address(self, ip_address):
+        kind = 'ipv6_address' if ':' in ip_address else 'ipv4_address'
+        self.scan(kind, ip_address)
+
+    def scan_url(self, url):
+        self.scan('url', url)
 
     def handle_ipv4(self, packet):
         try:
             if IP in packet and DNS in packet:
                 if packet[DNS].qd:
                     for i in range(packet[DNS].qdcount):
-                        query_name = packet[DNSQR][i].qname.decode().rstrip('.')
-                        self.scan_domain(query_name)
-                        message = f"DNS Query (IPv4): {query_name}"
-                        logging.info(message)
+                        qn = packet[DNSQR][i].qname.decode().rstrip('.')
+                        self.scan_domain(qn)
+                        logging.info(f"DNS Query (IPv4): {qn}")
                 if packet[DNS].an:
                     for i in range(packet[DNS].ancount):
-                        answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
-                        self.scan_domain(answer_name)
-                        message = f"DNS Answer (IPv4): {answer_name}"
-                        logging.info(message)
+                        an = packet[DNSRR][i].rrname.decode().rstrip('.')
+                        self.scan_domain(an)
+                        logging.info(f"DNS Answer (IPv4): {an}")
 
                 self.scan_ip_address(packet[IP].src)
                 self.scan_ip_address(packet[IP].dst)
-                
         except Exception as ex:
             logging.error(f"Error handling IPv4 packet: {ex}")
 
@@ -3113,22 +3104,19 @@ class RealTimeWebProtectionHandler:
             if IPv6 in packet and DNS in packet:
                 if packet[DNS].qd:
                     for i in range(packet[DNS].qdcount):
-                        query_name = packet[DNSQR][i].qname.decode().rstrip('.')
-                        self.scan_domain(query_name)
-                        message = f"DNS Query (IPv6): {query_name}"
-                        logging.info(message)
+                        qn = packet[DNSQR][i].qname.decode().rstrip('.')
+                        self.scan_domain(qn)
+                        logging.info(f"DNS Query (IPv6): {qn}")
                 if packet[DNS].an:
                     for i in range(packet[DNS].ancount):
-                        answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
-                        self.scan_domain(answer_name)
-                        message = f"DNS Answer (IPv6): {answer_name}"
-                        logging.info(message)
+                        an = packet[DNSRR][i].rrname.decode().rstrip('.')
+                        self.scan_domain(an)
+                        logging.info(f"DNS Answer (IPv6): {an}")
 
                 self.scan_ip_address(packet[IPv6].src)
                 self.scan_ip_address(packet[IPv6].dst)
             else:
                 logging.debug("IPv6 layer or DNS layer not found in the packet.")
-                
         except Exception as ex:
             logging.error(f"Error handling IPv6 packet: {ex}")
 
@@ -3146,18 +3134,14 @@ class RealTimeWebProtectionHandler:
             if DNS in packet:
                 if packet[DNS].qd:
                     for i in range(packet[DNS].qdcount):
-                        query_name = packet[DNSQR][i].qname.decode().rstrip('.')
-                        self.scan_domain(query_name)
-                        message = f"DNS Query: {query_name}"
-                        logging.info(message)
-
+                        qn = packet[DNSQR][i].qname.decode().rstrip('.')
+                        self.scan_domain(qn)
+                        logging.info(f"DNS Query: {qn}")
                 if packet[DNS].an:
                     for i in range(packet[DNS].ancount):
-                        answer_name = packet[DNSRR][i].rrname.decode().rstrip('.')
-                        self.scan_domain(answer_name)
-                        message = f"DNS Answer: {answer_name}"
-                        logging.info(message)
-
+                        an = packet[DNSRR][i].rrname.decode().rstrip('.')
+                        self.scan_domain(an)
+                        logging.info(f"DNS Answer: {an}")
                 if IP in packet:
                     self.scan_ip_address(packet[IP].src)
                     self.scan_ip_address(packet[IP].dst)
