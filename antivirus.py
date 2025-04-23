@@ -528,83 +528,6 @@ def get_unique_output_path(output_dir: Path, base_name: str, suffix: int = 1) ->
 
     return new_path
 
-def run_jar_extractor(file_path, flag_fenflower):
-    """
-    Extracts a JAR file to an "extracted_files" folder in script_dir.
-    Then conditionally calls the FernFlower decompiler unless decompilation was already performed.
-    The flag_java_class indicates if the DIE output also detected a Java class file.
-    """
-    try:
-        # Define the extraction output directory (adjust as desired)
-        extracted_dir = os.path.join(script_dir, "extracted_files")
-        Path(extracted_dir).mkdir(parents=True, exist_ok=True)
-        
-        # Build the command to extract the JAR file using the JDK jar tool.
-        # "jar xf" will extract the contents into the current working directory.
-        jar_command = ["jar", "xf", file_path]
-        result = subprocess.run(
-            jar_command,
-            cwd=extracted_dir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-
-        if result.returncode == 0:
-            logging.info("Extraction completed successfully.")
-        else:
-            logging.error(f"Extraction failed: {result.stderr}")
-        
-        # If the FernFlower decompilation flag is already set, skip the decompilation
-        if flag_fenflower:
-            logging.info("FernFlower analysis already performed; skipping decompilation.")
-        else:
-            # Proceed with decompiling via FernFlower.
-            run_fernflower_decompiler(file_path)
-
-        scan_and_warn(file_path, flag_fenflower)
-
-    except Exception as ex:
-        logging.error(f"Error in run_jar_extractor: {ex}")
-
-def run_fernflower_decompiler(file_path, flag_fenflower=True):
-    """
-    Uses FernFlower to decompile the given JAR file.
-    The FernFlower JAR is expected to be located in jar_decompiler_dir.
-    The decompiled output is saved to a folder in script_dir.
-    After decompilation, the output is passed to scan_and_warn along with the decompilation flag.
-    The flag_java_class indicates if a Java class file was detected.
-    """
-    try:
-
-        # Build the path to fernflower.jar.
-        FernFlower_path = os.path.join(jar_decompiler_dir, "fernflower.jar")
-        # Define the output directory for the decompiled source code.
-        FernFlower_decompiled_dir = os.path.join(script_dir, "FernFlower_decompiled")
-        Path(FernFlower_decompiled_dir).mkdir(parents=True, exist_ok=True)
-        
-        # Build the FernFlower decompilation command.
-        # Typical usage: java -jar fernflower.jar <input.jar> <output_dir>
-        command = ["java", "-jar", FernFlower_path, file_path, FernFlower_decompiled_dir]
-        result = subprocess.run(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        
-        if result.returncode == 0:
-            logging.info("FernFlower decompilation successful.")
-            flag_fenflower = True
-        else:
-            logging.error(f"FernFlower decompilation failed: {result.stderr}")
-            flag_fenflower = False
-        
-        # Pass the decompiled folder and the decompilation flag to scan_and_warn.
-        scan_and_warn(FernFlower_decompiled_dir, flag_fenflower)
-    except Exception as ex:
-        logging.error(f"Error in run_fernflower_decompiler: {ex}")
-
 def analyze_file_with_die(file_path):
     """
     Runs Detect It Easy (DIE) on the given file once and returns the DIE output (JSON formatted).
@@ -940,6 +863,23 @@ def calculate_entropy(data: list) -> float:
             entropy -= p_x * np.log2(p_x)
 
     return entropy
+ 
+def get_callback_addresses(pe: pefile.PE, address_of_callbacks: int) -> List[int]:
+    """Retrieve callback addresses from the TLS directory."""
+    try:
+        callback_addresses = []
+        # Read callback addresses from the memory-mapped file
+        while True:
+            callback_address = pe.get_dword_at_rva(address_of_callbacks - pe.OPTIONAL_HEADER.ImageBase)
+            if callback_address == 0:
+                break  # End of callback list
+            callback_addresses.append(callback_address)
+            address_of_callbacks += 4  # Move to the next address (4 bytes for DWORD)
+
+        return callback_addresses
+    except Exception as e:
+        logging.error(f"Error retrieving TLS callback addresses: {e}")
+        return []
 
 def analyze_tls_callbacks(pe: pefile.PE) -> Dict[str, Any]:
     """Analyze TLS (Thread Local Storage) callbacks and extract relevant details."""
@@ -968,23 +908,6 @@ def analyze_tls_callbacks(pe: pefile.PE) -> Dict[str, Any]:
     except Exception as e:
         logging.error(f"Error analyzing TLS callbacks: {e}")
         return {}
-
-def get_callback_addresses(pe: pefile.PE, address_of_callbacks: int) -> List[int]:
-    """Retrieve callback addresses from the TLS directory."""
-    try:
-        callback_addresses = []
-        # Read callback addresses from the memory-mapped file
-        while True:
-            callback_address = pe.get_dword_at_rva(address_of_callbacks - pe.OPTIONAL_HEADER.ImageBase)
-            if callback_address == 0:
-                break  # End of callback list
-            callback_addresses.append(callback_address)
-            address_of_callbacks += 4  # Move to the next address (4 bytes for DWORD)
-
-        return callback_addresses
-    except Exception as e:
-        logging.error(f"Error retrieving TLS callback addresses: {e}")
-        return []
 
 def analyze_dos_stub(pe) -> Dict[str, Any]:
     """Analyze DOS stub program."""
@@ -3457,28 +3380,15 @@ class CompressionFlag:
     NON_COMPRESSED = 0
     COMPRESSED = 1
 
-class PayloadError(Exception):
-    """Custom exception for payload processing errors"""
-    def __init__(self, message):
-        super().__init__(message)
-        logging.error(f"PayloadError: {message}")
-
 class NuitkaPayload:
     MAGIC_KA = b'KA'
     MAGIC_UNCOMPRESSED = ord('X')
     MAGIC_COMPRESSED = ord('Y')
     
-    def __init__(self, data: bytes, offset: int, size: int):
-        self.data = data
-        self.offset = offset
-        self.size = size
-        self.compression = CompressionFlag.UNKNOWN
-        self._validate()
-    
     def _validate(self):
         """Validate payload magic and set compression flag"""
         if not self.data.startswith(self.MAGIC_KA):
-            raise PayloadError("Invalid Nuitka payload magic")
+            logging.error("Invalid Nuitka payload magic")
         
         magic_type = self.data[2]
         if magic_type == self.MAGIC_UNCOMPRESSED:
@@ -3486,8 +3396,16 @@ class NuitkaPayload:
         elif magic_type == self.MAGIC_COMPRESSED:
             self.compression = CompressionFlag.COMPRESSED
         else:
-            raise PayloadError(f"Unknown compression magic: {magic_type}")
+            logging.error(f"Unknown compression magic: {magic_type}")
+
+    def __init__(self, data: bytes, offset: int, size: int):
+        self.data = data
+        self.offset = offset
+        self.size = size
+        self.compression = CompressionFlag.UNKNOWN
+        self._validate()
     
+  
     def get_stream(self) -> BinaryIO:
         """Get a file-like object for reading the payload"""
         # Skip the 3-byte magic header
@@ -3500,7 +3418,7 @@ class NuitkaPayload:
                 # Create a stream reader with a large read size
                 return dctx.stream_reader(stream, read_size=8192)
             except zstandard.ZstdError as ex:
-                raise PayloadError(f"Failed to initialize decompression: {str(ex)}")
+                logging.error(f"Failed to initialize decompression: {str(ex)}")
         return stream
 
 class NuitkaExtractor:
@@ -3546,11 +3464,11 @@ class NuitkaExtractor:
             
             # Find RT_RCDATA resource with ID 27
             if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-                raise PayloadError("No resource directory found")
+                logging.error("No resource directory found")
             
             offset, size = self._find_pe_resource(pe)
             if offset is None or size is None:
-                raise PayloadError("No Nuitka payload found in PE resources")
+                logging.error("No Nuitka payload found in PE resources")
             
             # Read the payload data
             with open(self.filepath, 'rb') as f:
@@ -3560,7 +3478,7 @@ class NuitkaExtractor:
             return NuitkaPayload(payload_data, offset, size)
             
         except Exception as ex:
-            raise PayloadError(f"PE payload extraction failed: {str(ex)}")
+            logging.error(f"PE payload extraction failed: {str(ex)}")
 
     def _extract_elf_payload(self) -> Optional[NuitkaPayload]:
         """Extract payload from ELF file"""
@@ -3584,7 +3502,7 @@ class NuitkaExtractor:
                 return NuitkaPayload(payload_data, payload_offset, payload_size)
                 
         except Exception as ex:
-            raise PayloadError(f"ELF payload extraction failed: {str(ex)}")
+            logging.error(f"ELF payload extraction failed: {str(ex)}")
 
     def _extract_macho_payload(self) -> Optional[NuitkaPayload]:
         """Extract payload from Mach-O file"""
@@ -3604,10 +3522,10 @@ class NuitkaExtractor:
                                     payload_data = f.read(size)
                                     return NuitkaPayload(payload_data, offset, size)
                                     
-            raise PayloadError("No payload section found in Mach-O file")
+            logging.error("No payload section found in Mach-O file")
             
         except Exception as ex:
-            raise PayloadError(f"Mach-O payload extraction failed: {str(ex)}")
+            logging.error(f"Mach-O payload extraction failed: {str(ex)}")
 
     def _read_string(self, stream: BinaryIO, is_wide: bool = False) -> Optional[str]:
         """Read a null-terminated string from the stream"""
@@ -3683,7 +3601,7 @@ class NuitkaExtractor:
             # Detect file type using the new detection methods
             self.file_type = self._detect_file_type()
             if self.file_type == FileType.UNKNOWN:
-                raise PayloadError("Unsupported file type")
+                logging.error("Unsupported file type")
             
             logging.info(f"[+] Processing: {self.filepath}")
             logging.info(f"[+] Detected file type: {['ELF', 'PE', 'MACHO'][self.file_type]}")
@@ -3697,7 +3615,7 @@ class NuitkaExtractor:
                 self.payload = self._extract_macho_payload()
             
             if not self.payload:
-                raise PayloadError("Failed to extract payload")
+                logging.error("Failed to extract payload")
             
             logging.info(f"[+] Payload size: {self.payload.size} bytes")
             logging.info(f"[+] Compression: {'Yes' if self.payload.compression == CompressionFlag.COMPRESSED else 'No'}")
@@ -3878,6 +3796,163 @@ def scan_tar_file(file_path):
     except Exception as ex:
         logging.error(f"Error scanning tar file: {file_path} - {ex}")
         return False, ""
+
+# Global variables for worm detection
+worm_alerted_files = []
+worm_detected_count = {}
+worm_file_paths = []
+
+def calculate_similarity_worm(features1, features2):
+    """
+    Calculate similarity between two dictionaries of features for worm detection.
+    Adjusted threshold for worm detection.
+    """
+    try:
+        common_keys = set(features1.keys()) & set(features2.keys())
+        matching_keys = sum(1 for key in common_keys if features1[key] == features2[key])
+        similarity = matching_keys / max(len(features1), len(features2)) if max(len(features1), len(features2)) > 0 else 0
+        return similarity
+    except Exception as ex:
+        logging.error(f"Error calculating similarity: {ex}")
+        return 0  # Return a default value in case of an error
+
+def extract_numeric_worm_features(file_path: str) -> Optional[Dict[str, Any]]:
+    """
+    Extract numeric features of a file using pefile for worm detection.
+    """
+    res = {}
+    try:
+        # Reuse the numeric features extraction function for base data
+        res.update(extract_numeric_features(file_path) or {})
+
+    except Exception as ex:
+        logging.error(f"An error occurred while processing {file_path}: {ex}", exc_info=True)
+
+    return res
+
+def check_worm_similarity(file_path, features_current):
+    """
+    Check similarity between the main file, collected files, and the current file for worm detection.
+    """
+    worm_detected = False
+
+    try:
+        # Compare with the main file if available and distinct from the current file
+        if main_file_path and main_file_path != file_path:
+            features_main = extract_numeric_worm_features(main_file_path)
+            similarity_main = calculate_similarity_worm(features_current, features_main)
+            if similarity_main > 0.86:
+                logging.warning(
+                    f"Main file '{main_file_path}' is potentially spreading the worm to '{file_path}' "
+                    f"with similarity score: {similarity_main:.2f}"
+                )
+                worm_detected = True
+
+        # Compare with each collected file in the file paths
+        for collected_file_path in worm_file_paths:
+            if collected_file_path != file_path:
+                features_collected = extract_numeric_worm_features(collected_file_path)
+                similarity_collected = calculate_similarity_worm(features_current, features_collected)
+                if similarity_collected > 0.86:
+                    logging.warning(
+                        f"Worm has potentially spread to '{collected_file_path}' "
+                        f"from '{file_path}' with similarity score: {similarity_collected:.2f}"
+                    )
+                    worm_detected = True
+
+    except FileNotFoundError as fnf_error:
+        logging.error(f"File not found: {fnf_error}")
+    except Exception as ex:
+        logging.error(f"An unexpected error occurred while checking worm similarity for '{file_path}': {ex}")
+
+    return worm_detected
+
+def worm_alert(file_path):
+    global worm_alerted_files
+    global worm_detected_count
+    global worm_file_paths
+
+    if file_path in worm_alerted_files:
+        logging.info(f"Worm alert already triggered for {file_path}, skipping...")
+        return
+
+    try:
+        logging.info(f"Running worm detection for file '{file_path}'")
+
+        # Define directory paths
+        critical_directory = os.path.join('C:', 'Windows')
+        sandbox_critical_directory = os.path.join(sandboxie_folder, 'drive', 'C', 'Windows')
+
+        # Extract features
+        features_current = extract_numeric_worm_features(file_path)
+        is_critical = file_path.startswith(main_drive_path) or file_path.startswith(critical_directory) or file_path.startswith(sandbox_critical_directory)
+
+        if is_critical:
+            original_file_path = os.path.join(critical_directory, os.path.basename(file_path))
+            sandbox_file_path = os.path.join(sandbox_critical_directory, os.path.basename(file_path))
+
+            if os.path.exists(original_file_path) and os.path.exists(sandbox_file_path):
+                original_file_size = os.path.getsize(original_file_path)
+                current_file_size = os.path.getsize(sandbox_file_path)
+                size_difference = abs(current_file_size - original_file_size) / original_file_size
+
+                original_file_mtime = os.path.getmtime(original_file_path)
+                current_file_mtime = os.path.getmtime(sandbox_file_path)
+                mtime_difference = abs(current_file_mtime - original_file_mtime)
+
+                if size_difference > 0.10:
+                    logging.warning(f"File size difference for '{file_path}' exceeds 10%.")
+                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Agnostic.gen.Malware")
+                    worm_alerted_files.append(file_path)
+                    return  # Only flag once if a critical difference is found
+
+                if mtime_difference > 3600:  # 3600 seconds = 1 hour
+                    logging.warning(f"Modification time difference for '{file_path}' exceeds 1 hour.")
+                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Time.Agnostic.gen.Malware")
+                    worm_alerted_files.append(file_path)
+                    return  # Only flag once if a critical difference is found
+
+            # Proceed with worm detection based on critical file comparison
+            worm_detected = check_worm_similarity(file_path, features_current)
+
+            if worm_detected:
+                logging.warning(f"Worm '{file_path}' detected in critical directory. Alerting user.")
+                notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Critical.gen.Malware")
+                worm_alerted_files.append(file_path)
+        
+        else:
+            # Check for generic worm detection
+            worm_detected = check_worm_similarity(file_path, features_current)
+            worm_detected_count[file_path] = worm_detected_count.get(file_path, 0) + 1
+
+            if worm_detected or worm_detected_count[file_path] >= 5:
+                if file_path not in worm_alerted_files:
+                    logging.warning(f"Worm '{file_path}' detected under 5 different names or as potential worm. Alerting user.")
+                    notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.gen.Malware")
+                    worm_alerted_files.append(file_path)
+
+                # Notify for all files that have reached the detection threshold
+                for detected_file in worm_detected_count:
+                    if worm_detected_count[detected_file] >= 5 and detected_file not in worm_alerted_files:
+                        notify_user_worm(detected_file, "HEUR:Win32.Worm.Classic.gen.Malware")
+                        worm_alerted_files.append(detected_file)
+
+    except Exception as ex:
+        logging.error(f"Error in worm detection for file {file_path}: {ex}")
+
+def check_pe_file(file_path, signature_check, file_name):
+    try:
+        logging.info(f"File {file_path} is a valid PE file.")
+        worm_alert(file_path)
+
+        # Check for fake system files after signature validation
+        if file_name in fake_system_files and os.path.abspath(file_path).startswith(main_drive_path):
+            if not signature_check["is_valid"]:
+                logging.warning(f"Detected fake system file: {file_path}")
+                notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.gen")
+
+    except Exception as ex:
+        logging.error(f"Error checking PE file {file_path}: {ex}")
 
 def scan_file_real_time(file_path, signature_check, file_name, pe_file=False):
     """Scan file in real-time using multiple engines."""
@@ -4628,58 +4703,10 @@ class PyInstArchive:
 
         return True
 
-    def extractfiles(self):
-        folder_number = 1
-        base_extraction_dir = os.path.join(script_dir, os.path.basename(self.py_filepath) + '_extracted')
-
-        while os.path.exists(f"{base_extraction_dir}_{folder_number}"):
-            folder_number += 1
-
-        extractiondir = f"{base_extraction_dir}_{folder_number}"
-        os.makedirs(extractiondir, exist_ok=True)
-        os.chdir(extractiondir)
-
-        try:
-            for entry in self.tocList:
-                self.fPtr.seek(entry.position, os.SEEK_SET)
-                data_content = self.fPtr.read(entry.cmprsddatasize)
-                if entry.cmprsflag == 1:
-                    try:
-                        data_content = zlib.decompress(data_content)
-                    except zlib.error:
-                        return False
-
-                with open(entry.name, 'wb') as entry_f:
-                    entry_f.write(data_content)
-
-                if entry.name.endswith('.pyz'):
-                    self._extractpyz(entry.name)
-
-                # Check for entry points (python scripts or pyc files)
-                if entry.typecmprsdata == b's':
-                    logging.info(f"[+] Possible entry point (flagged): {entry.name}")
-
-                if self.pycMagic == b'\0' * 4:
-                    self.barePycList.append(entry.name + '.pyc')
-        except Exception as ex:
-            logging.error(f"Error during file extraction: {ex}")
-            return False
-
-        # New logic: detect potential entry point by executable name
-        exe_basename = os.path.splitext(os.path.basename(self.py_filepath))[0]
-        for entry in self.tocList:
-            if exe_basename.lower() in entry.name.lower():
-                logging.info(f"[+] Potential entry point by executable name: {entry.name}")
-
-        # Also check for main.pyc explicitly
-        for entry in self.tocList:
-            if entry.name.lower() == "main.pyc":
-                logging.info("[+] Found main.pyc as a potential entry point")
-
-        # Fix bare pyc files if necessary
-        self._fixbarepycs()
-
-        return True
+    def _fixbarepycs(self):
+        for pycFile in self.barePycList:
+            with open(pycFile, 'r+b') as pycFile:
+                pycFile.write(self.pycMagic)  # Overwrite the first four bytes with pyc magic
 
     def _extractpyz(self, name):
         dirname = name + '_extracted'
@@ -4739,10 +4766,58 @@ class PyInstArchive:
 
         return True
 
-    def _fixbarepycs(self):
-        for pycFile in self.barePycList:
-            with open(pycFile, 'r+b') as pycFile:
-                pycFile.write(self.pycMagic)  # Overwrite the first four bytes with pyc magic
+    def extractfiles(self):
+        folder_number = 1
+        base_extraction_dir = os.path.join(script_dir, os.path.basename(self.py_filepath) + '_extracted')
+
+        while os.path.exists(f"{base_extraction_dir}_{folder_number}"):
+            folder_number += 1
+
+        extractiondir = f"{base_extraction_dir}_{folder_number}"
+        os.makedirs(extractiondir, exist_ok=True)
+        os.chdir(extractiondir)
+
+        try:
+            for entry in self.tocList:
+                self.fPtr.seek(entry.position, os.SEEK_SET)
+                data_content = self.fPtr.read(entry.cmprsddatasize)
+                if entry.cmprsflag == 1:
+                    try:
+                        data_content = zlib.decompress(data_content)
+                    except zlib.error:
+                        return False
+
+                with open(entry.name, 'wb') as entry_f:
+                    entry_f.write(data_content)
+
+                if entry.name.endswith('.pyz'):
+                    self._extractpyz(entry.name)
+
+                # Check for entry points (python scripts or pyc files)
+                if entry.typecmprsdata == b's':
+                    logging.info(f"[+] Possible entry point (flagged): {entry.name}")
+
+                if self.pycMagic == b'\0' * 4:
+                    self.barePycList.append(entry.name + '.pyc')
+        except Exception as ex:
+            logging.error(f"Error during file extraction: {ex}")
+            return False
+
+        # New logic: detect potential entry point by executable name
+        exe_basename = os.path.splitext(os.path.basename(self.py_filepath))[0]
+        for entry in self.tocList:
+            if exe_basename.lower() in entry.name.lower():
+                logging.info(f"[+] Potential entry point by executable name: {entry.name}")
+
+        # Also check for main.pyc explicitly
+        for entry in self.tocList:
+            if entry.name.lower() == "main.pyc":
+                logging.info("[+] Found main.pyc as a potential entry point")
+
+        # Fix bare pyc files if necessary
+        self._fixbarepycs()
+
+        return True
 
 def is_pyinstaller_archive(file_path):
     """Check if the file is a PyInstaller archive using Detect It Easy."""
@@ -4934,149 +5009,6 @@ def ransomware_alert(file_path):
                 
     except Exception as ex:
         logging.error(f"Error in ransomware_alert: {ex}")
-
-# Global variables for worm detection
-worm_alerted_files = []
-worm_detected_count = {}
-worm_file_paths = []
-
-def calculate_similarity_worm(features1, features2):
-    """
-    Calculate similarity between two dictionaries of features for worm detection.
-    Adjusted threshold for worm detection.
-    """
-    try:
-        common_keys = set(features1.keys()) & set(features2.keys())
-        matching_keys = sum(1 for key in common_keys if features1[key] == features2[key])
-        similarity = matching_keys / max(len(features1), len(features2)) if max(len(features1), len(features2)) > 0 else 0
-        return similarity
-    except Exception as ex:
-        logging.error(f"Error calculating similarity: {ex}")
-        return 0  # Return a default value in case of an error
-
-def extract_numeric_worm_features(file_path: str) -> Optional[Dict[str, Any]]:
-    """
-    Extract numeric features of a file using pefile for worm detection.
-    """
-    res = {}
-    try:
-        # Reuse the numeric features extraction function for base data
-        res.update(extract_numeric_features(file_path) or {})
-
-    except Exception as ex:
-        logging.error(f"An error occurred while processing {file_path}: {ex}", exc_info=True)
-
-    return res
-
-def check_worm_similarity(file_path, features_current):
-    """
-    Check similarity between the main file, collected files, and the current file for worm detection.
-    """
-    worm_detected = False
-
-    try:
-        # Compare with the main file if available and distinct from the current file
-        if main_file_path and main_file_path != file_path:
-            features_main = extract_numeric_worm_features(main_file_path)
-            similarity_main = calculate_similarity_worm(features_current, features_main)
-            if similarity_main > 0.86:
-                logging.warning(
-                    f"Main file '{main_file_path}' is potentially spreading the worm to '{file_path}' "
-                    f"with similarity score: {similarity_main:.2f}"
-                )
-                worm_detected = True
-
-        # Compare with each collected file in the file paths
-        for collected_file_path in worm_file_paths:
-            if collected_file_path != file_path:
-                features_collected = extract_numeric_worm_features(collected_file_path)
-                similarity_collected = calculate_similarity_worm(features_current, features_collected)
-                if similarity_collected > 0.86:
-                    logging.warning(
-                        f"Worm has potentially spread to '{collected_file_path}' "
-                        f"from '{file_path}' with similarity score: {similarity_collected:.2f}"
-                    )
-                    worm_detected = True
-
-    except FileNotFoundError as fnf_error:
-        logging.error(f"File not found: {fnf_error}")
-    except Exception as ex:
-        logging.error(f"An unexpected error occurred while checking worm similarity for '{file_path}': {ex}")
-
-    return worm_detected
-
-def worm_alert(file_path):
-    global worm_alerted_files
-    global worm_detected_count
-    global worm_file_paths
-
-    if file_path in worm_alerted_files:
-        logging.info(f"Worm alert already triggered for {file_path}, skipping...")
-        return
-
-    try:
-        logging.info(f"Running worm detection for file '{file_path}'")
-
-        # Define directory paths
-        critical_directory = os.path.join('C:', 'Windows')
-        sandbox_critical_directory = os.path.join(sandboxie_folder, 'drive', 'C', 'Windows')
-
-        # Extract features
-        features_current = extract_numeric_worm_features(file_path)
-        is_critical = file_path.startswith(main_drive_path) or file_path.startswith(critical_directory) or file_path.startswith(sandbox_critical_directory)
-
-        if is_critical:
-            original_file_path = os.path.join(critical_directory, os.path.basename(file_path))
-            sandbox_file_path = os.path.join(sandbox_critical_directory, os.path.basename(file_path))
-
-            if os.path.exists(original_file_path) and os.path.exists(sandbox_file_path):
-                original_file_size = os.path.getsize(original_file_path)
-                current_file_size = os.path.getsize(sandbox_file_path)
-                size_difference = abs(current_file_size - original_file_size) / original_file_size
-
-                original_file_mtime = os.path.getmtime(original_file_path)
-                current_file_mtime = os.path.getmtime(sandbox_file_path)
-                mtime_difference = abs(current_file_mtime - original_file_mtime)
-
-                if size_difference > 0.10:
-                    logging.warning(f"File size difference for '{file_path}' exceeds 10%.")
-                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Agnostic.gen.Malware")
-                    worm_alerted_files.append(file_path)
-                    return  # Only flag once if a critical difference is found
-
-                if mtime_difference > 3600:  # 3600 seconds = 1 hour
-                    logging.warning(f"Modification time difference for '{file_path}' exceeds 1 hour.")
-                    notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Time.Agnostic.gen.Malware")
-                    worm_alerted_files.append(file_path)
-                    return  # Only flag once if a critical difference is found
-
-            # Proceed with worm detection based on critical file comparison
-            worm_detected = check_worm_similarity(file_path, features_current)
-
-            if worm_detected:
-                logging.warning(f"Worm '{file_path}' detected in critical directory. Alerting user.")
-                notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Critical.gen.Malware")
-                worm_alerted_files.append(file_path)
-        
-        else:
-            # Check for generic worm detection
-            worm_detected = check_worm_similarity(file_path, features_current)
-            worm_detected_count[file_path] = worm_detected_count.get(file_path, 0) + 1
-
-            if worm_detected or worm_detected_count[file_path] >= 5:
-                if file_path not in worm_alerted_files:
-                    logging.warning(f"Worm '{file_path}' detected under 5 different names or as potential worm. Alerting user.")
-                    notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.gen.Malware")
-                    worm_alerted_files.append(file_path)
-
-                # Notify for all files that have reached the detection threshold
-                for detected_file in worm_detected_count:
-                    if worm_detected_count[detected_file] >= 5 and detected_file not in worm_alerted_files:
-                        notify_user_worm(detected_file, "HEUR:Win32.Worm.Classic.gen.Malware")
-                        worm_alerted_files.append(detected_file)
-
-    except Exception as ex:
-        logging.error(f"Error in worm detection for file {file_path}: {ex}")
 
 def log_directory_type(file_path):
     try:
@@ -5463,20 +5395,6 @@ def decompile_dotnet_file(file_path):
     except Exception as ex:
         logging.error(f"Error decompiling .NET file {file_path}: {ex}")
 
-def check_pe_file(file_path, signature_check, file_name):
-    try:
-        logging.info(f"File {file_path} is a valid PE file.")
-        worm_alert(file_path)
-
-        # Check for fake system files after signature validation
-        if file_name in fake_system_files and os.path.abspath(file_path).startswith(main_drive_path):
-            if not signature_check["is_valid"]:
-                logging.warning(f"Detected fake system file: {file_path}")
-                notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.gen")
-
-    except Exception as ex:
-        logging.error(f"Error checking PE file {file_path}: {ex}")
-
 def extract_all_files_with_7z(file_path):
     try:
         counter = 1
@@ -5532,19 +5450,6 @@ def extract_line(content, prefix):
     lines = [line for line in content.splitlines() if line.startswith(prefix)]
     return lines[0] if lines else None
 
-def decode_base64_from_line(line):
-    """
-    Decodes a base64 string from a given line.
-
-    Args:
-        line: The line containing the base64 string.
-
-    Returns:
-        Decoded bytes.
-    """
-    base64_str = extract_base64_string(line)
-    return base64.b64decode(add_base64_padding(base64_str))
-
 def DecryptString(key, tag, nonce, _input):
     cipher = Cipher(algorithms.AES(key), modes.GCM(nonce, tag))
     decryptor = cipher.decryptor()
@@ -5560,6 +5465,19 @@ def add_base64_padding(b64_string):
 def extract_base64_string(line):
     match = re.search(r"'([^']+)'|\"([^\"]+)\"", line)
     return match.group(1) or match.group(2) if match else None
+
+def decode_base64_from_line(line):
+    """
+    Decodes a base64 string from a given line.
+
+    Args:
+        line: The line containing the base64 string.
+
+    Returns:
+        Decoded bytes.
+    """
+    base64_str = extract_base64_string(line)
+    return base64.b64decode(add_base64_padding(base64_str))
 
 def save_to_file(file_path, content):
     """
@@ -5911,6 +5829,176 @@ def deobfuscate_with_obfuscar(file_path, file_basename):
     except Exception as e:
         logging.error(f"Error during analysis of deobfuscated file: {e}")
 
+def extract_rcdata_resource(pe_path):
+    try:
+        pe = pefile.PE(pe_path)
+    except Exception as e:
+        logging.error(f"Error loading PE file: {e}")
+        return None
+
+    # Check if the PE file has resources
+    if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
+        logging.error("No resources found in this file.")
+        return None
+
+    first_rcdata_file = None  # Will hold the first RCData resource file path
+    all_extracted_files = []  # Store all extracted file paths for scanning
+
+    # Ensure output directory exists
+    output_dir = os.path.join(general_extracted_dir, os.path.splitext(os.path.basename(pe_path))[0])
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Traverse the resource directory
+    for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+        type_name = get_resource_name(resource_type)
+        if not hasattr(resource_type, 'directory'):
+            continue
+
+        for resource_id in resource_type.directory.entries:
+            res_id = get_resource_name(resource_id)
+            if not hasattr(resource_id, 'directory'):
+                continue
+
+            for resource_lang in resource_id.directory.entries:
+                lang_id = resource_lang.id
+                data_rva = resource_lang.data.struct.OffsetToData
+                size = resource_lang.data.struct.Size
+                data = pe.get_memory_mapped_image()[data_rva:data_rva + size]
+
+                # Save extracted resource to a file
+                file_name = f"{type_name}_{res_id}_{lang_id}.bin"
+                output_path = os.path.join(output_dir, file_name)
+                with open(output_path, "wb") as f:
+                    f.write(data)
+
+                logging.info(f"Extracted resource saved: {output_path}")
+                all_extracted_files.append(output_path)
+
+                # If it's an RCData resource and we haven't already set one, record its file path
+                if type_name.lower() in ("rcdata", "10") and first_rcdata_file is None:
+                    first_rcdata_file = output_path
+
+    # Scan all extracted files
+    for file_path in all_extracted_files:
+        scan_and_warn(file_path)
+
+    if first_rcdata_file is None:
+        logging.info("No RCData resource found.")
+    else:
+        logging.info(f"Using RCData resource file: {first_rcdata_file}")
+
+    return first_rcdata_file
+
+def extract_nuitka_file(file_path, nuitka_type):
+    """
+    Detect Nuitka type, extract Nuitka executable content, and scan for additional Nuitka executables.
+    :param file_path: Path to the Nuitka executable file.
+    :param nuitka_type: Type of Nuitka executable ("Nuitka OneFile" or "Nuitka").
+    """
+    try:
+        if nuitka_type == "Nuitka OneFile":
+            logging.info(f"Nuitka OneFile executable detected in {file_path}")
+
+            # Extract the file name (without extension) to include in the folder name
+            file_name_without_extension = os.path.splitext(os.path.basename(file_path))[0]
+
+            # Find the next available directory number for OneFile extraction
+            folder_number = 1
+            while os.path.exists(os.path.join(nuitka_dir, f"OneFile_{file_name_without_extension}_{folder_number}")):
+                folder_number += 1
+
+            # Create the new directory with the executable file name and folder number
+            nuitka_output_dir = os.path.join(nuitka_dir, f"OneFile_{file_name_without_extension}_{folder_number}")
+            os.makedirs(nuitka_output_dir, exist_ok=True)
+
+            logging.info(f"Extracting Nuitka OneFile {file_path} to {nuitka_output_dir}")
+
+            # Use NuitkaExtractor for extraction
+            extractor = NuitkaExtractor(file_path, nuitka_output_dir)
+            extractor.extract()
+
+            # Scan the extracted directory for additional Nuitka executables
+            logging.info(f"Scanning extracted directory for additional Nuitka executables...")
+            found_executables = scan_directory_for_executables(nuitka_output_dir)
+
+            # Process any found normal Nuitka executables
+            for exe_path, exe_type in found_executables:
+                if exe_type == "Nuitka":
+                    logging.info(f"Found normal Nuitka executable in extracted files: {exe_path}")
+                    extract_nuitka_file(exe_path, exe_type)
+
+        elif nuitka_type == "Nuitka":
+            logging.info(f"Nuitka executable detected in {file_path}")
+
+            # Extract the Nuitka executable
+            file_name_without_extension = os.path.splitext(os.path.basename(file_path))[0]
+
+            # Use enhanced 7z extraction
+            extracted_file = extract_rcdata_resource(file_path)
+
+            if extracted_files:
+                logging.info(f"Successfully extracted bytecode or RCDATA file from Nuitka executable: {file_path}")
+                # Scan for RSRC/RCDATA bytecode resources
+                scan_rsrc_files(extracted_files)
+            else:
+                logging.error(f"Failed to extract normal Nuitka executable: {file_path}")
+
+        else:
+            logging.info(f"No Nuitka content found in {file_path}")
+
+    except PayloadError as ex:
+        logging.error(f"Payload error while extracting Nuitka file: {ex}")
+    except Exception as ex:
+        logging.error(f"Unexpected error while extracting Nuitka file: {ex}")
+
+def extract_resources(pe_path, output_dir):
+    try:
+        pe = pefile.PE(pe_path)
+    except Exception as e:
+        logging.error(f"Error loading PE file: {e}")
+        return
+
+    # Check if the PE file has resources
+    if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
+        logging.error("No resources found in this file.")
+        return
+
+    os.makedirs(output_dir, exist_ok=True)
+    resource_count = 0
+
+    # Traverse the resource directory
+    for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+        type_name = get_resource_name(resource_type)
+        if not hasattr(resource_type, 'directory'):
+            continue
+
+        for resource_id in resource_type.directory.entries:
+            res_id = get_resource_name(resource_id)
+            if not hasattr(resource_id, 'directory'):
+                continue
+
+            for resource_lang in resource_id.directory.entries:
+                lang_id = resource_lang.id
+                data_rva = resource_lang.data.struct.OffsetToData
+                size = resource_lang.data.struct.Size
+                data = pe.get_memory_mapped_image()[data_rva:data_rva + size]
+
+                # Create a filename: resourceType_resourceID_langID.bin
+                file_name = f"{type_name}_{res_id}_{lang_id}.bin"
+                output_path = os.path.join(output_dir, file_name)
+                with open(output_path, "wb") as f:
+                    f.write(data)
+                logging.info(f"Resource saved: {output_path}")
+                resource_count += 1
+
+                # Call scan_and_warn on the extracted file
+                scan_and_warn(output_path)
+
+    if resource_count == 0:
+        logging.info("No resources were extracted.")
+    else:
+        logging.info(f"Extracted a total of {resource_count} resources.")
+
 # --- Main Scanning Function ---
 def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False, flag_de4dot=False, flag_fernflower=False):
     """
@@ -6253,6 +6341,84 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         logging.error(f"Error scanning file {file_path}: {ex}")
         return False
 
+
+def run_fernflower_decompiler(file_path, flag_fenflower=True):
+    """
+    Uses FernFlower to decompile the given JAR file.
+    The FernFlower JAR is expected to be located in jar_decompiler_dir.
+    The decompiled output is saved to a folder in script_dir.
+    After decompilation, the output is passed to scan_and_warn along with the decompilation flag.
+    The flag_java_class indicates if a Java class file was detected.
+    """
+    try:
+
+        # Build the path to fernflower.jar.
+        FernFlower_path = os.path.join(jar_decompiler_dir, "fernflower.jar")
+        # Define the output directory for the decompiled source code.
+        FernFlower_decompiled_dir = os.path.join(script_dir, "FernFlower_decompiled")
+        Path(FernFlower_decompiled_dir).mkdir(parents=True, exist_ok=True)
+        
+        # Build the FernFlower decompilation command.
+        # Typical usage: java -jar fernflower.jar <input.jar> <output_dir>
+        command = ["java", "-jar", FernFlower_path, file_path, FernFlower_decompiled_dir]
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        if result.returncode == 0:
+            logging.info("FernFlower decompilation successful.")
+            flag_fenflower = True
+        else:
+            logging.error(f"FernFlower decompilation failed: {result.stderr}")
+            flag_fenflower = False
+        
+        # Pass the decompiled folder and the decompilation flag to scan_and_warn.
+        scan_and_warn(FernFlower_decompiled_dir, flag_fenflower)
+    except Exception as ex:
+        logging.error(f"Error in run_fernflower_decompiler: {ex}")
+
+def run_jar_extractor(file_path, flag_fenflower):
+    """
+    Extracts a JAR file to an "extracted_files" folder in script_dir.
+    Then conditionally calls the FernFlower decompiler unless decompilation was already performed.
+    The flag_java_class indicates if the DIE output also detected a Java class file.
+    """
+    try:
+        # Define the extraction output directory (adjust as desired)
+        extracted_dir = os.path.join(script_dir, "extracted_files")
+        Path(extracted_dir).mkdir(parents=True, exist_ok=True)
+        
+        # Build the command to extract the JAR file using the JDK jar tool.
+        # "jar xf" will extract the contents into the current working directory.
+        jar_command = ["jar", "xf", file_path]
+        result = subprocess.run(
+            jar_command,
+            cwd=extracted_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        if result.returncode == 0:
+            logging.info("Extraction completed successfully.")
+        else:
+            logging.error(f"Extraction failed: {result.stderr}")
+        
+        # If the FernFlower decompilation flag is already set, skip the decompilation
+        if flag_fenflower:
+            logging.info("FernFlower analysis already performed; skipping decompilation.")
+        else:
+            # Proceed with decompiling via FernFlower.
+            run_fernflower_decompiler(file_path)
+
+        scan_and_warn(file_path, flag_fenflower)
+
+    except Exception as ex:
+        logging.error(f"Error in run_jar_extractor: {ex}")
+
 def extract_pe_sections(file_path: str):
     try:
         # Load the PE file
@@ -6291,128 +6457,6 @@ def extract_pe_sections(file_path: str):
     except Exception as e:
         logging.error(f"An error occurred: {e}")
         return []  # Return an empty list in case of error
-
-def extract_rcdata_resource(pe_path):
-    try:
-        pe = pefile.PE(pe_path)
-    except Exception as e:
-        logging.error(f"Error loading PE file: {e}")
-        return None
-
-    # Check if the PE file has resources
-    if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-        logging.error("No resources found in this file.")
-        return None
-
-    first_rcdata_file = None  # Will hold the first RCData resource file path
-    all_extracted_files = []  # Store all extracted file paths for scanning
-
-    # Ensure output directory exists
-    output_dir = os.path.join(general_extracted_dir, os.path.splitext(os.path.basename(pe_path))[0])
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Traverse the resource directory
-    for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
-        type_name = get_resource_name(resource_type)
-        if not hasattr(resource_type, 'directory'):
-            continue
-
-        for resource_id in resource_type.directory.entries:
-            res_id = get_resource_name(resource_id)
-            if not hasattr(resource_id, 'directory'):
-                continue
-
-            for resource_lang in resource_id.directory.entries:
-                lang_id = resource_lang.id
-                data_rva = resource_lang.data.struct.OffsetToData
-                size = resource_lang.data.struct.Size
-                data = pe.get_memory_mapped_image()[data_rva:data_rva + size]
-
-                # Save extracted resource to a file
-                file_name = f"{type_name}_{res_id}_{lang_id}.bin"
-                output_path = os.path.join(output_dir, file_name)
-                with open(output_path, "wb") as f:
-                    f.write(data)
-
-                logging.info(f"Extracted resource saved: {output_path}")
-                all_extracted_files.append(output_path)
-
-                # If it's an RCData resource and we haven't already set one, record its file path
-                if type_name.lower() in ("rcdata", "10") and first_rcdata_file is None:
-                    first_rcdata_file = output_path
-
-    # Scan all extracted files
-    for file_path in all_extracted_files:
-        scan_and_warn(file_path)
-
-    if first_rcdata_file is None:
-        logging.info("No RCData resource found.")
-    else:
-        logging.info(f"Using RCData resource file: {first_rcdata_file}")
-
-    return first_rcdata_file
-
-def extract_nuitka_file(file_path, nuitka_type):
-    """
-    Detect Nuitka type, extract Nuitka executable content, and scan for additional Nuitka executables.
-    :param file_path: Path to the Nuitka executable file.
-    :param nuitka_type: Type of Nuitka executable ("Nuitka OneFile" or "Nuitka").
-    """
-    try:
-        if nuitka_type == "Nuitka OneFile":
-            logging.info(f"Nuitka OneFile executable detected in {file_path}")
-
-            # Extract the file name (without extension) to include in the folder name
-            file_name_without_extension = os.path.splitext(os.path.basename(file_path))[0]
-
-            # Find the next available directory number for OneFile extraction
-            folder_number = 1
-            while os.path.exists(os.path.join(nuitka_dir, f"OneFile_{file_name_without_extension}_{folder_number}")):
-                folder_number += 1
-
-            # Create the new directory with the executable file name and folder number
-            nuitka_output_dir = os.path.join(nuitka_dir, f"OneFile_{file_name_without_extension}_{folder_number}")
-            os.makedirs(nuitka_output_dir, exist_ok=True)
-
-            logging.info(f"Extracting Nuitka OneFile {file_path} to {nuitka_output_dir}")
-
-            # Use NuitkaExtractor for extraction
-            extractor = NuitkaExtractor(file_path, nuitka_output_dir)
-            extractor.extract()
-
-            # Scan the extracted directory for additional Nuitka executables
-            logging.info(f"Scanning extracted directory for additional Nuitka executables...")
-            found_executables = scan_directory_for_executables(nuitka_output_dir)
-
-            # Process any found normal Nuitka executables
-            for exe_path, exe_type in found_executables:
-                if exe_type == "Nuitka":
-                    logging.info(f"Found normal Nuitka executable in extracted files: {exe_path}")
-                    extract_nuitka_file(exe_path, exe_type)
-
-        elif nuitka_type == "Nuitka":
-            logging.info(f"Nuitka executable detected in {file_path}")
-
-            # Extract the Nuitka executable
-            file_name_without_extension = os.path.splitext(os.path.basename(file_path))[0]
-
-            # Use enhanced 7z extraction
-            extracted_file = extract_rcdata_resource(file_path)
-
-            if extracted_files:
-                logging.info(f"Successfully extracted bytecode or RCDATA file from Nuitka executable: {file_path}")
-                # Scan for RSRC/RCDATA bytecode resources
-                scan_rsrc_files(extracted_files)
-            else:
-                logging.error(f"Failed to extract normal Nuitka executable: {file_path}")
-
-        else:
-            logging.info(f"No Nuitka content found in {file_path}")
-
-    except PayloadError as ex:
-        logging.error(f"Payload error while extracting Nuitka file: {ex}")
-    except Exception as ex:
-        logging.error(f"Unexpected error while extracting Nuitka file: {ex}")
 
 def monitor_sandbox():
     if not os.path.exists(sandboxie_folder):
@@ -6462,54 +6506,6 @@ def monitor_sandbox():
         logging.error(f"An error occurred at monitor_sandbox: {ex}")
     finally:
         win32file.CloseHandle(hDir)
-
-def extract_resources(pe_path, output_dir):
-    try:
-        pe = pefile.PE(pe_path)
-    except Exception as e:
-        logging.error(f"Error loading PE file: {e}")
-        return
-
-    # Check if the PE file has resources
-    if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-        logging.error("No resources found in this file.")
-        return
-
-    os.makedirs(output_dir, exist_ok=True)
-    resource_count = 0
-
-    # Traverse the resource directory
-    for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
-        type_name = get_resource_name(resource_type)
-        if not hasattr(resource_type, 'directory'):
-            continue
-
-        for resource_id in resource_type.directory.entries:
-            res_id = get_resource_name(resource_id)
-            if not hasattr(resource_id, 'directory'):
-                continue
-
-            for resource_lang in resource_id.directory.entries:
-                lang_id = resource_lang.id
-                data_rva = resource_lang.data.struct.OffsetToData
-                size = resource_lang.data.struct.Size
-                data = pe.get_memory_mapped_image()[data_rva:data_rva + size]
-
-                # Create a filename: resourceType_resourceID_langID.bin
-                file_name = f"{type_name}_{res_id}_{lang_id}.bin"
-                output_path = os.path.join(output_dir, file_name)
-                with open(output_path, "wb") as f:
-                    f.write(data)
-                logging.info(f"Resource saved: {output_path}")
-                resource_count += 1
-
-                # Call scan_and_warn on the extracted file
-                scan_and_warn(output_path)
-
-    if resource_count == 0:
-        logging.info("No resources were extracted.")
-    else:
-        logging.info(f"Extracted a total of {resource_count} resources.")
 
 def start_monitoring_sandbox():
     threading.Thread(target=monitor_sandbox).start()
