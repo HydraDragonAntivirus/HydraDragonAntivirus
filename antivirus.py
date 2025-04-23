@@ -1563,7 +1563,7 @@ def notify_user_ransomware(file_path, virus_name):
 
 def notify_user_exela_stealer_v2(file_path, virus_name):
     notification = Notify()
-    notification.title = "Exela Stealer version 2 Alert"
+    notification.title = "Exela Stealer version 2 Alert in Python source code"
     notification.message = f"Potential Exela Stealer version 2 detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
@@ -5819,7 +5819,7 @@ def process_decompiled_code(output_file):
         if webhooks:
             logging.warning(f"[+] Webhook URLs found: {webhooks}")
             if source_code_path:
-                notify_user_for_malicious_source_code(source_code_path, 'HEUR:Win32.Discord.Pyinstaller.Exela.V2.Stealer.gen.Malware')
+                notify_user_for_exelav2(source_code_path, 'HEUR:Win32.Discord.Pyinstaller.Exela.Stealer.v2.gen')
             else:
                 logging.error("Failed to save the final decrypted source code.")
         else:
