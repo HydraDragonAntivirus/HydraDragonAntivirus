@@ -1561,6 +1561,12 @@ def notify_user_ransomware(file_path, virus_name):
     notification.message = f"Potential ransomware detected: {file_path}\nVirus: {virus_name}"
     notification.send()
 
+def notify_user_exela_stealer_v2(file_path, virus_name):
+    notification = Notify()
+    notification.title = "Exela Stealer version 2 Alert"
+    notification.message = f"Potential Exela Stealer version 2 detected: {file_path}\nVirus: {virus_name}"
+    notification.send()
+
 def notify_user_hosts(file_path, virus_name):
     notification = Notify()
     notification.title = "Host Hijacker Alert"
@@ -4677,9 +4683,10 @@ def analyze_exela_stub(result_file):
     # Extract webhooks
     webhooks = extract_webhooks(decrypted)
     if webhooks:
-        logging.info("Webhook URLs found:")
+        logging.warning("Webhook URLs found:")
+        notify_user_exela_stealer_v2(result_File, "HEUR:Win32.Exela.Stealer.v2.gen")
         for w in webhooks:
-            logging.info(w)
+            logging.warning(w)
     else:
         logging.info("No webhook URLs found.")
 
