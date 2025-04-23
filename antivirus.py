@@ -2796,6 +2796,18 @@ class RealTimeWebProtectionHandler:
         except Exception as ex:
             logging.error(f"Error in handle_detection: {ex}")
 
+    def collect(self, entity_type, entity_value):
+        """
+        Common collector: dispatches every new entity into its proper scan method.
+        """
+        if entity_type in ('subdomain', 'domain'):
+            self.scan_domain(entity_value)
+        elif entity_type in ('ipv4_address', 'ipv6_address'):
+            self.scan_ip_address(entity_value)
+        elif entity_type == 'url':
+            self.scan_url(entity_value)
+        # otherwise: no-op for unknown types
+
     def extract_ip_addresses(self, text):
         """Extract IPv4 and IPv6 addresses from text using regex."""
         ips = re.findall(IPv4_pattern, text)
@@ -2913,15 +2925,15 @@ class RealTimeWebProtectionHandler:
                 # Extract IP addresses from HTML content and scan them
                 extracted_ips = self.extract_ip_addresses(html_content)
                 for ip in extracted_ips:
-                    self.scan_ip_address(ip)
+                    self.collect('ipv4_address' if '.' in ip else 'ipv6_address', ip)
                 # Extract URLs from HTML content and scan them
                 extracted_urls = self.extract_urls(html_content)
                 for url in extracted_urls:
-                    self.scan_url(url)
+                    self.collect('url', url)
                 # Extract domains from HTML content and scan them
                 extracted_domains = self.extract_domains(html_content)
                 for extracted_domain in extracted_domains:
-                    self.scan_domain(extracted_domain)
+                    self.collect('domain', extracted_domain)
 
         except Exception as ex:
             logging.error(f"Error scanning domain {domain}: {ex}")
@@ -3004,11 +3016,11 @@ class RealTimeWebProtectionHandler:
                 # Extract domains from HTML content and scan them
                 extracted_domains = self.extract_domains(html_content)
                 for domain in extracted_domains:
-                    self.scan_domain(domain)
+                    self.collect('domain', domain)
                 # Extract URLs from HTML content and scan them
                 extracted_urls = self.extract_urls(html_content)
                 for url in extracted_urls:
-                    self.scan_url(url)
+                    self.collect('url', url)
 
         except Exception as ex:
             logging.error(f"Error scanning IP address {ip_address}: {ex}")
@@ -3026,15 +3038,15 @@ class RealTimeWebProtectionHandler:
                 # Extract IP addresses from HTML content and scan them
                 extracted_ips = self.extract_ip_addresses(html_content)
                 for ip in extracted_ips:
-                    self.scan_ip_address(ip)
+                    self.collect('ipv4_address' if '.' in ip else 'ipv6_address', ip)
                 # Extract domains from HTML content and scan them
                 extracted_domains = self.extract_domains(html_content)
                 for domain in extracted_domains:
-                    self.scan_domain(domain)
+                    self.collect('domain', domain)
                 # Extract URLs from HTML content and scan them recursively
                 extracted_urls = self.extract_urls(html_content)
                 for extracted_url in extracted_urls:
-                    self.scan_url(extracted_url)
+                    self.collect('url', extracted_url)
 
             # Process URL against URLhaus signatures.
             for entry in urlhaus_data:
