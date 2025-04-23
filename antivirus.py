@@ -5868,16 +5868,19 @@ def extract_nuitka_file(file_path, nuitka_type):
             # Extract the Nuitka executable
             file_name_without_extension = os.path.splitext(os.path.basename(file_path))[0]
 
-            # Use enhanced 7z extraction
-            extracted_file = extract_rcdata_resource(file_path)
+            # Use enhanced pefile extraction
+            extracted_files_nuitka, all_extracted_files = extract_rcdata_resource(file_path)
 
-            if extracted_files:
+            if extracted_files_nuitka:
                 logging.info(f"Successfully extracted bytecode or RCDATA file from Nuitka executable: {file_path}")
                 # Scan for RSRC/RCDATA bytecode resources
                 scan_rsrc_files(extracted_files)
             else:
                 logging.error(f"Failed to extract normal Nuitka executable: {file_path}")
-
+            if all_extracted_files:
+                # Scan all extracted files
+                for file_path in all_extracted_files:
+                    scan_and_warn(file_path)
         else:
             logging.info(f"No Nuitka content found in {file_path}")
 
@@ -6333,16 +6336,12 @@ def extract_rcdata_resource(pe_path):
                 if type_name.lower() in ("rcdata", "10") and first_rcdata_file is None:
                     first_rcdata_file = output_path
 
-    # Scan all extracted files
-    for file_path in all_extracted_files:
-        scan_and_warn(file_path)
-
     if first_rcdata_file is None:
         logging.info("No RCData resource found.")
     else:
         logging.info(f"Using RCData resource file: {first_rcdata_file}")
 
-    return first_rcdata_file
+    return first_rcdata_file, all_extracted_files
 
 def run_fernflower_decompiler(file_path, flag_fenflower=True):
     """
