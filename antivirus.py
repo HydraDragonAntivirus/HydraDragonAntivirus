@@ -226,7 +226,7 @@ logging.info(f"hashlib module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import requests
-logging.info(f"reqeusts module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"requests module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from functools import lru_cache
