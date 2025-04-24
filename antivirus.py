@@ -16,7 +16,8 @@ if not os.path.exists(log_directory):
     os.makedirs(log_directory)
 
 # Separate log files for different purposes
-console_log_file = os.path.join(log_directory, "antivirusconsole.log")
+stdout_console_log_file = os.path.join(log_directory, "antivirusconsolestdout.log")
+stderr_console_log_file = os.path.join(log_directory, "antivirusconsolestderr.log")
 application_log_file = os.path.join(log_directory, "antivirus.log")
 
 # Configure logging for application log
@@ -27,10 +28,10 @@ logging.basicConfig(
 )
 
 # Redirect stdout to console log
-sys.stdout = open(console_log_file, "w", encoding="utf-8", errors="ignore")
+sys.stdout = open(stdout_console_log_file, "w", encoding="utf-8", errors="ignore")
 
 # Redirect stderr to console log
-sys.stderr = open(console_log_file, "w", encoding="utf-8", errors="ignore")
+sys.stderr = open(stderr_console_log_file, "w", encoding="utf-8", errors="ignore")
 
 # Logging for application initialization
 logging.info("Application started at %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
@@ -130,7 +131,7 @@ logging.info(f"ipaddress module loaded in {time.time() - start_time:.6f} seconds
 
 start_time = time.time()
 from urllib.parse import urlparse
-logging.info(f"urlib.parse.urlparse module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"urllib.parse.urlparse module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import spacy
@@ -186,7 +187,7 @@ logging.info(f"pymem module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import inspect
-logging.info(f"pymem module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"inspect module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import zstandard
@@ -198,7 +199,7 @@ logging.info(f"elftools.elf.effile, ELFFile module loaded in {time.time() - star
 
 start_time = time.time()
 import macholib.MachO
-logging.info(f"macholib.Mach0 module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"macholib.MachO module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import macholib.mach_o
@@ -288,7 +289,7 @@ pycdas_dir = os.path.join(python_source_code_dir, "pycdas")
 united_python_source_code_dir = os.path.join(python_source_code_dir, "united")
 pycdas_deepseek_dir = os.path.join(python_source_code_dir, "pycdas_deepseek")
 de4dot_cex_dir = os.path.join(script_dir, "de4dot-cex")
-de4dot_cex_x64_path = os.path.join(detectiteasy_dir, "de4dot-x64.exe")
+de4dot_cex_x64_path = os.path.join(de4dot_cex_dir, "de4dot-x64.exe")
 de4dot_extracted_dir = os.path.join(script_dir, "de4dot_extracted")
 nuitka_source_code_dir = os.path.join(script_dir, "nuitkasourcecode")
 commandlineandmessage_dir = os.path.join(script_dir, "commandlineandmessage")
@@ -309,9 +310,9 @@ ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
 pycdc_path = os.path.join(script_dir, "pycdc.exe")
 pycdas_path = os.path.join(script_dir, "pycdas.exe")
 deobfuscar_path = os.path.join(script_dir, "Deobfuscar-Standalone-Win64.exe")
-digital_signautres_list_antivirus_path = os.path.join(digital_signatures_list_dir, "antivirus.txt")
-digital_signautres_list_goodsign_path = os.path.join(digital_signatures_list_dir, "goodsign.txt")
-digital_signautres_list_microsoft_path = os.path.join(digital_signatures_list_dir, "microsoft.txt")
+digital_signatures_list_antivirus_path = os.path.join(digital_signatures_list_dir, "antivirus.txt")
+digital_signatures_list_goodsign_path = os.path.join(digital_signatures_list_dir, "goodsign.txt")
+digital_signatures_list_microsoft_path = os.path.join(digital_signatures_list_dir, "microsoft.txt")
 machine_learning_dir = os.path.join(script_dir, "machinelearning")
 malicious_file_names = os.path.join(machine_learning_dir, "malicious_file_names.json")
 malicious_numeric_features = os.path.join(machine_learning_dir, "malicious_numeric.pkl")
@@ -694,7 +695,7 @@ def is_java_class_from_output(die_output):
     Checks if the DIE output indicates a Java class file.
     It does this by looking for 'Language: Java' and 'Format: Java Class File' in the output.
     """
-    if die_output and "Language: Java" in die_output and "Format: Java Class File" in die_output:
+    if die_output and "Language: Java" in die_output and "Format: Java Class " in die_output:
         logging.info("DIE output indicates a Java class file.")
         return True
     logging.info(f"DIE output does not indicate a Java class file: {die_output}")
@@ -710,44 +711,56 @@ def is_hex_data(data_content):
         return False
 
 def debloat_pe_file(file_path):
+    """
+    Runs debloat.processor.process_pe on a PE file, writing all
+    output into its own uniquely-named subdirectory of debloat_dir.
+    """
     try:
         logging.info(f"Debloating PE file {file_path} for faster scanning.")
 
-        # Set the last_ditch_processing flag directly inside the function
-        last_ditch_processing = False  # Set to True if you want to enable it
+        # Flag for last-ditch processing
+        last_ditch_processing = False
 
-        # Read the PE file into memory
-        with open(file_path, "rb") as bloated_file:
-            pe_data = bloated_file.read()
+        # Normalize paths
+        file_path = Path(file_path)
+        base_dir  = Path(debloat_dir)
 
-        # Create the PE object
-        pe = pefile.PE(data=pe_data, fast_load=True)
+        # Build a unique output directory: debloat_dir/<stem>_<n>
+        output_dir = base_dir / file_path.stem
+        suffix = 1
+        while output_dir.exists():
+            output_dir = base_dir / f"{file_path.stem}_{suffix}"
+            suffix += 1
+        output_dir.mkdir(parents=True)
 
-        # Set output path (ensure debloat_dir is properly set, assuming it's defined elsewhere)
-        out_path = get_unique_output_path(debloat_dir, file_path)  # out_path should be a directory
+        # Load the PE into memory
+        pe_data = file_path.read_bytes()
+        pe      = pefile.PE(data=pe_data, fast_load=True)
 
-        # Use debloat.processor.process_pe to debloat the file, passing last_ditch_processing
+        # Debloat into our new directory
         debloat.processor.process_pe(
             pe,
-            log_message=logging.info,  # Log via logging.info or a logger if preferred
-            last_ditch_processing=last_ditch_processing,  # Pass last_ditch_processing
-            out_path=out_path,  # out_path is now a directory
+            log_message=logging.info,
+            last_ditch_processing=last_ditch_processing,
+            out_path=str(output_dir)   # pass the folder path
         )
 
-        # Check if the debloated file exists in the output directory
-        output_files = os.listdir(out_path)
-        if output_files:
-            logging.info(f"Debloated file(s) saved in: {out_path}")
-            return out_path  # Return the directory where the optimized files are saved
+        # Verify that something landed in there
+        if any(output_dir.iterdir()):
+            logging.info(f"Debloated file(s) saved in: {output_dir}")
+            return str(output_dir)
         else:
-            logging.warning(f"Debloating failed for {file_path}, no files found in output directory {out_path}.")
+            logging.warning(
+                f"Debloating failed for {file_path}; {output_dir} is empty."
+            )
             return None
-    except ImportError as ex:
-        logging.error(f"Debloat library is not installed. Install it with pip install debloat: {ex}")
-    except Exception as ex:
-        logging.error(f"Error during debloating of {file_path}: {ex}")
 
-    return None
+    except ImportError as ex:
+        logging.error(
+            "Debloat library not installed. Run `pip install debloat`: %s", ex
+        )
+    except Exception as ex:
+        logging.error("Error during debloating of %s: %s", file_path, ex)
 
 def remove_magic_bytes(data_content):
     """Remove magic bytes from data, considering it might be hex-encoded."""
@@ -758,7 +771,7 @@ def remove_magic_bytes(data_content):
 
             # Remove magic bytes by applying regex patterns
             for magic_byte in magic_bytes.keys():
-                pattern = re.compile(rf'{magic_bytes[magic_byte].replace(" ", "")}', re.IGNORECASE)
+                pattern = re.compile(rf'{magic_byte}', re.IGNORECASE)
                 hex_data = pattern.sub('', hex_data)
 
             # Convert hex data back to binary
@@ -775,7 +788,7 @@ def remove_magic_bytes(data_content):
             hex_data = binascii.hexlify(decoded_content.encode("utf-8")).decode(errors="ignore")
 
             for magic_byte in magic_bytes.keys():
-                pattern = re.compile(rf'{magic_bytes[magic_byte].replace(" ", "")}', re.IGNORECASE)
+                pattern = re.compile(rf'{magic_byte}', re.IGNORECASE)
                 hex_data = pattern.sub('', hex_data)
 
             try:
@@ -4226,9 +4239,9 @@ activate_uefi_drive() # Call the UEFI function
 load_website_data()
 load_antivirus_list()
 # Load Antivirus and Microsoft digital signatures
-antivirus_signatures = load_digital_signatures(digital_signautres_list_antivirus_path, "Antivirus digital signatures")
-goodsign_signatures = load_digital_signatures(digital_signautres_list_antivirus_path, "UnHackMe digital signatures")
-microsoft_signatures = load_digital_signatures(digital_signautres_list_microsoft_path, "Microsoft digital signatures")
+antivirus_signatures = load_digital_signatures(digital_signatures_list_antivirus_path, "Antivirus digital signatures")
+goodsign_signatures = load_digital_signatures(digital_signatures_list_antivirus_path, "UnHackMe digital signatures")
+microsoft_signatures = load_digital_signatures(digital_signatures_list_microsoft_path, "Microsoft digital signatures")
 
 try:
     # Load malicious file names from JSON file
