@@ -27,10 +27,10 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
 )
 
-# Redirect stdout to console log
+# Redirect stdout to stdout console log
 sys.stdout = open(stdout_console_log_file, "w", encoding="utf-8", errors="ignore")
 
-# Redirect stderr to console log
+# Redirect stderr to stderr console log
 sys.stderr = open(stderr_console_log_file, "w", encoding="utf-8", errors="ignore")
 
 # Logging for application initialization
