@@ -416,7 +416,7 @@ IPv6_pattern = r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b' # Simple IPv6 reg
 discord_webhook_pattern = r'https://discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
 discord_canary_webhook_pattern = r'https://canary\.discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
 discord_invite_pattern = r'https://discord\.gg/[A-Za-z0-9]+'
-telegram_token_pattern = r'\d+:[A-Za-z0-9_-]+'
+telegram_token_pattern = r'\d{9,10}:[A-Za-z0-9_-]{35}'
 telegram_keyword_pattern = r'\b(?:telegram|token)\b'
 
 UBLOCK_REGEX = re.compile(
