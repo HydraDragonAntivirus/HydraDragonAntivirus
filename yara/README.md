@@ -1,0 +1,1 @@
+- Please compile using the official VirusTotal YARA releases instead of yara-python to see warnings and avoid errors: https://github.com/VirusTotal/yara/releases
