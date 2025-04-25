@@ -12,6 +12,7 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import argparse
 from tqdm import tqdm
+import mmap
 
 logging.basicConfig(
     level=logging.INFO,
@@ -610,42 +611,55 @@ class PEFeatureExtractor:
             return None
 
 class DataProcessor:
-    def __init__(self, malicious_dir: str, benign_dir: str, output_root: str = None):
-        self.malicious_dir = Path(malicious_dir)
-        self.benign_dir = Path(benign_dir)
-        self.extractor = PEFeatureExtractor()
-        now = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self.output_dir = Path(output_root or f"pe_features_fast_{now}")
+    def __init__(self, malicious_dir: str = 'datamaliciousorder', benign_dir: str = 'data2'):
+        self.malicious_dir = malicious_dir
+        self.benign_dir = benign_dir
+        self.pe_extractor = PEFeatureExtractor()
         self.problematic_dir = Path('problematic_files')
         self.duplicates_dir = Path('duplicate_files')
-        for d in [self.output_dir, self.problematic_dir, self.duplicates_dir]:
-            d.mkdir(exist_ok=True, parents=True)
+        self.output_dir = Path(f"pe_features_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
 
-    def _move(self, path: Path, base_dir: Path):
-        dest = base_dir / path.relative_to(path.parent.parent)
+        for directory in [self.problematic_dir, self.duplicates_dir, self.output_dir]:
+            directory.mkdir(exist_ok=True, parents=True)
+
+    def _move(self, file_path: Path, dest_root: Path):
+        dest = dest_root / file_path.name
         dest.parent.mkdir(exist_ok=True, parents=True)
-        shutil.move(str(path), str(dest))
+        shutil.move(str(file_path), str(dest))
 
-    def _process_one(self, args) -> dict:
-        path, rank, is_malicious = args
+    def _process_one(self, args: tuple) -> Optional[Dict[str, Any]]:
+        file_path, rank, is_malicious = args
         try:
-            with open(path, 'rb') as f:
+            # memory-map once
+            with open(file_path, 'rb') as f:
                 mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-                feats = self.extractor.extract_numeric_features(mm, str(path), rank, is_malicious)
+                md5 = hashlib.md5(mm).hexdigest()
+                pe = pefile.PE(data=mm, fast_load=True)
+                pe.parse_data_directories()
+
+                features = self.pe_extractor.extract_numeric_features(file_path, rank)
+                if features:
+                    features['file_info'] = {
+                        'filename': file_path.name,
+                        'path': str(file_path),
+                        'md5': md5,
+                        'size': file_path.stat().st_size,
+                        'is_malicious': is_malicious
+                    }
                 mm.close()
-                return feats
-        except Exception:
-            self._move(path, self.problematic_dir)
+                return features
+        except Exception as e:
+            logging.error(f"Error processing {file_path}: {e}")
+            self._move(file_path, self.problematic_dir)
             return None
 
     def process_dir(self, directory: Path, is_malicious: bool):
-        files = list(directory.rglob('*.exe'))  # adjust pattern
-        seen = set()
-        tasks = []
-        for i, f in enumerate(files, 1):
-            tasks.append((f, i, is_malicious))
+        # collect all files regardless of extension
+        files = list(directory.rglob('*'))
+        tasks = [(f, i, is_malicious) for i, f in enumerate(files, 1) if f.is_file()]
 
         results = []
+        seen = set()
         with ProcessPoolExecutor() as exe:
             for feats in tqdm(exe.map(self._process_one, tasks), total=len(tasks), desc=f"Processing {'mal' if is_malicious else 'benign'}"):
                 if feats:
@@ -657,17 +671,22 @@ class DataProcessor:
                         results.append(feats)
         return results
 
-    def run(self):
-        mal = self.process_dir(self.malicious_dir, True)
-        ben = self.process_dir(self.benign_dir, False)
-        out = {'malicious': mal, 'benign': ben, 'metadata': {
-            'malicious_count': len(mal), 'benign_count': len(ben), 'timestamp': datetime.now().isoformat()
-        }}
-        with open(self.output_dir / 'results.json', 'w') as f:
-            json.dump(out, f, indent=2)
-        joblib.dump(mal, self.output_dir / 'malicious.pkl')
-        joblib.dump(ben, self.output_dir / 'benign.pkl')
-        logging.info(f"Saved outputs to {self.output_dir}")
+    def process_dataset(self):
+        logging.info("Processing malicious files...")
+        malicious_features = self.process_dir(Path(self.malicious_dir), True)
+
+        logging.info("Processing benign files...")
+        benign_features = self.process_dir(Path(self.benign_dir), False)
+
+        results = {
+            'timestamp': datetime.now().isoformat(),
+            'malicious': malicious_features,
+            'benign': benign_features
+        }
+        (self.output_dir / 'results.json').write_text(json.dumps(results, indent=2))
+        joblib.dump(malicious_features, self.output_dir / 'malicious.pkl')
+        joblib.dump(benign_features, self.output_dir / 'benign.pkl')
+        logging.info(f"Saved output to {self.output_dir}")
 
 def main():
     parser = argparse.ArgumentParser(description='PE File Feature Extractor')
@@ -676,7 +695,7 @@ def main():
     args = parser.parse_args()
 
     processor = DataProcessor(args.malicious_dir, args.benign_dir)
-    processor.run()
+    processor.process_dataset()
 
 if __name__ == "__main__":
     main()
