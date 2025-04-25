@@ -2,4 +2,5 @@
 - Example: yarac64.exe compiled_rule.yar compiled_rule.yrc
 - Example 2: yarac64.exe machinelearning.yar machinelearning.yrc
 - Example 3: yarac64 valhalla-rules.yar valhalla-rules.yrc
+- Example 4: yarac64 icewater.yar icewater.yrc
 - python compileryarax.py
