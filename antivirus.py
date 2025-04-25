@@ -6171,6 +6171,45 @@ def is_inno_setup_archive_from_output(die_output):
     logging.info(f"DIE output does not indicate an Inno Setup installer: {die_output!r}")
     return False
 
+def extract_pe_sections(file_path: str):
+    try:
+        # Load the PE file
+        pe = pefile.PE(file_path)
+        logging.info(f"Loaded PE file: {file_path}")
+
+        # Ensure output directory exists
+        output_dir = Path(pe_extracted_dir)
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True)
+            logging.info(f"Created output directory: {output_dir}")
+
+        # Extract sections
+        for section in pe.sections:
+            # Get section name and clean it
+            section_name = section.Name.decode().strip('\x00')
+            section_data = section.get_data()
+
+            # Use the provided get_unique_output_path to generate a unique file name
+            section_file = get_unique_output_path(output_dir, section_name)
+
+            # Write section data to the unique file
+            with open(section_file, "wb") as f:
+                f.write(section_data)
+
+            logging.info(f"Section '{section_name}' saved to {section_file}")
+            pe_file_paths.append(section_file)  # Add the file path to the list
+
+            # Scan and warn after saving the file
+            for file_path in pe_file_paths:
+                scan_and_warn(file_path)
+
+        logging.info("Extraction completed successfully.")
+        return pe_file_paths  # Return the list of file paths
+
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        return []  # Return an empty list in case of error
+
 # --- Main Scanning Function ---
 def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False, flag_de4dot=False, flag_fernflower=False):
     """
@@ -6373,7 +6412,20 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
 
             # Call analyze_process_memory if the file is a PE file
             if pe_file:
-                logging.info(f"File {file_path} is identified as a PE file. Performing process memory analysis...")
+                logging.info(f"File {file_path} is identified as a PE file.")
+
+                # PE section extraction and scanning
+                section_files = extract_pe_sections(pe_path)
+                if section_files:
+                    logging.info(f"Extracted {len(section_files)} PE sections. Scanning...")
+                    for fpath in section_files:
+                    try:
+                        scan_and_warn(fpath)
+                    except Exception as e:
+                        logging.error(f"Error scanning PE section {fpath}: {e}")
+                else:
+                    logging.error("PE section extraction failed or no sections found.")
+
                 saved_file_path = analyze_process_memory(file_path)
 
                 if saved_file_path:
@@ -6547,45 +6599,6 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
     except Exception as ex:
         logging.error(f"Error scanning file {file_path}: {ex}")
         return False
-
-def extract_pe_sections(file_path: str):
-    try:
-        # Load the PE file
-        pe = pefile.PE(file_path)
-        logging.info(f"Loaded PE file: {file_path}")
-
-        # Ensure output directory exists
-        output_dir = Path(pe_extracted_dir)
-        if not output_dir.exists():
-            output_dir.mkdir(parents=True)
-            logging.info(f"Created output directory: {output_dir}")
-
-        # Extract sections
-        for section in pe.sections:
-            # Get section name and clean it
-            section_name = section.Name.decode().strip('\x00')
-            section_data = section.get_data()
-
-            # Use the provided get_unique_output_path to generate a unique file name
-            section_file = get_unique_output_path(output_dir, section_name)
-
-            # Write section data to the unique file
-            with open(section_file, "wb") as f:
-                f.write(section_data)
-
-            logging.info(f"Section '{section_name}' saved to {section_file}")
-            pe_file_paths.append(section_file)  # Add the file path to the list
-
-            # Scan and warn after saving the file
-            for file_path in pe_file_paths:
-                scan_and_warn(file_path)
-
-        logging.info("Extraction completed successfully.")
-        return pe_file_paths  # Return the list of file paths
-
-    except Exception as e:
-        logging.error(f"An error occurred: {e}")
-        return []  # Return an empty list in case of error
 
 def monitor_sandbox():
     if not os.path.exists(sandboxie_folder):
