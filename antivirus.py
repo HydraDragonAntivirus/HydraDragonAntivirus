@@ -4527,13 +4527,18 @@ def scan_rsrc_files(file_paths):
                 cleaned_source_code = [clean_text(line.rstrip()) for line in source_code_lines]
 
                 base_name = os.path.splitext(os.path.basename(executable_file))[0]
-                save_path = os.path.join(nuitka_source_code_dir, f"{base_name}_source_code.txt")
+                save_filename = f"{base_name}_source_code.txt"
+                save_path = os.path.join(nuitka_source_code_dir, save_filename)
+
+                # If a file with the same name exists, append a counter
                 counter = 1
                 while os.path.exists(save_path):
-                    save_path = os.path.join(
-                        nuitka_source_code_dir, f"{base_name}_source_code_{counter}.txt"
-                    )
+                    save_filename = f"{base_name}_source_code_{counter}.txt"
+                    save_path = os.path.join(nuitka_source_code_dir, save_filename)
                     counter += 1
+
+                # Make absolutely sure the parent directory exists
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
                 with open(save_path, "w", encoding="utf-8") as save_file:
                     for line in cleaned_source_code:
