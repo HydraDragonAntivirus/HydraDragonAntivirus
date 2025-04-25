@@ -464,7 +464,7 @@ class PEFeatureExtractor:
                     overlay_info['exists'] = True
                     overlay_info['offset'] = end_of_pe
                     overlay_info['size'] = len(overlay_data)
-                    overlay_info['entropy'] = self._calculate_entropy(list(overlay_data))
+                    overlay_info['entropy'] = self._calculate_entropy(overlay_data)
 
             return overlay_info
         except Exception as e:
