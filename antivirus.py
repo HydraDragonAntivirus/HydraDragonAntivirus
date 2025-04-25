@@ -234,8 +234,8 @@ from functools import lru_cache
 logging.info(f"functools.lru_cache module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from GoStringUngarbler.gostringungarbler_lib import process_file
-logging.info(f"GoStringUngarbler.gostringungarbler_lib.process_file module loaded in {time.time() - start_time:.6f} seconds")
+from GoStringUngarbler.gostringungarbler_lib import process_file_go
+logging.info(f"GoStringUngarbler.gostringungarbler_lib.process_file_go module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import uvicorn
@@ -262,6 +262,9 @@ logging.info("spaCy model 'en_core_web_md' loaded successfully")
 accelerator = Accelerator()
 
 # Define the paths to the ghidra related directories
+inno_extract_dir = os.path.join(script_dir, "innoextract-1.9-windows")
+inno_extract_path = os.path.join(inno_extract_dir, "innoextract.exe")
+inno_setup_extracted_dir = os.path.join(script_dir, "inno_setup_extracted")
 decompile_dir = os.path.join(script_dir, "decompile")
 assets_dir = os.path.join(script_dir, "assets")
 digital_signatures_list_dir = os.path.join(script_dir, "digitalsignatureslist")
@@ -420,6 +423,7 @@ UBLOCK_REGEX = re.compile(
     r'^https:\/\/s[cftz]y?[ace][aemnu][a-z]{1,4}o[mn][a-z]{4,8}[iy][a-z]?\.com\/$'
 )
 
+os.makedirs(inno_setup_extracted_dir, exist_ok=True)
 os.makedirs(python_source_code_dir, exist_ok=True)
 os.makedirs(nuitka_source_code_dir, exist_ok=True)
 os.makedirs(commandlineandmessage_dir, exist_ok=True)
@@ -4351,7 +4355,7 @@ existing_projects = []
 scanned_files = []
 file_mod_times = {}
 
-directories_to_scan = [sandboxie_folder, copied_sandbox_files_dir, decompile_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, de4dot_sandboxie_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_deepseek_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir]
+directories_to_scan = [sandboxie_folder, copied_sandbox_files_dir, decompile_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, de4dot_sandboxie_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_deepseek_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir]
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
@@ -4828,43 +4832,19 @@ class PyInstArchive:
 
         return True
 
-def is_pyinstaller_archive(file_path):
-    """Check if the file is a PyInstaller archive using Detect It Easy."""
-    try:
-        logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
+def is_pyinstaller_archive_from_output(die_output):
+    """
+    Check if the DIE output indicates a PyInstaller archive.
+    A file is considered a PyInstaller archive if the output contains both:
+      - "Packer: PyInstaller"
+      - "Language: Python"
+    """
+    if die_output and ("Packer: PyInstaller" in die_output and "Language: Python" in die_output):
+        logging.info("DIE output indicates a PyInstaller archive.")
+        return True
 
-        # Ensure the JSON output directory exists
-        output_dir = Path(detectiteasy_json_dir)
-        if not output_dir.exists():
-            output_dir.mkdir(parents=True)
-
-        # Define the base name for the output JSON file (output will be PyInstaller check result)
-        base_name = Path(file_path).with_suffix(".json")
-
-        # Get a unique file path for the JSON output
-        json_output_path = get_unique_output_path(output_dir, base_name)
-
-        # Run the DIE console command with the -j flag to generate a JSON output
-        result = subprocess.run([detectiteasy_console_path, "-j", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-        # Check for PyInstaller archive and Python language
-        if "Packer: PyInstaller" in result.stdout and "Language: Python" in result.stdout:
-            logging.info(f"File {file_path} is a PyInstaller archive.")
-            # Save the JSON output to the specified unique file
-            with open(json_output_path, "w") as json_file:
-                json_file.write(result.stdout)
-            logging.info(f"PyInstaller analysis result saved to {json_output_path}")
-            return True
-        else:
-            logging.info(f"File {file_path} is not a PyInstaller archive. Result: {result.stdout}")
-            return False
-
-    except subprocess.SubprocessError as ex:
-        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
-        return False
-    except Exception as ex:
-        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
-        return False
+    logging.info(f"DIE output does not indicate a PyInstaller archive: {die_output}")
+    return False
 
 def extract_pyinstaller_archive(file_path):
     try:
@@ -5027,6 +5007,8 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: It's a restored sandbox environment file.")
         elif file_path.startswith(decompile_dir):
             logging.info(f"{file_path}: Decompiled.")
+        elif file_path.startswith(inno_setup_extracted_dir):
+            logging.info(f"{file_path}: Inno Setup extracted.")
         elif file_path.startswith(nuitka_dir):
             logging.info(f"{file_path}: Nuitka onefile extracted.")
         elif file_path.startswith(dotnet_dir):
@@ -5102,6 +5084,7 @@ def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled
             (lambda fp: fp.startswith(sandboxie_folder), f"It's a Sandbox environment file."),
             (lambda fp: fp.startswith(copied_sandbox_files_dir), f"It's a restored sandbox environment file."),
             (lambda fp: fp.startswith(decompile_dir), f"Decompiled."),
+            (lambda fp: fp.startswith(inno_setup_extracted_dir), f"Inno Setup extracted."),
             (lambda fp: fp.startswith(nuitka_dir), f"Nuitka onefile extracted."),
             (lambda fp: fp.startswith(dotnet_dir), f".NET decompiled."),
             (lambda fp: fp.startswith(obfuscar_dir), f".NET file obfuscated with Obfuscar."),
@@ -6127,11 +6110,72 @@ def run_jar_extractor(file_path, flag_fenflower):
         logging.error(f"Error in run_jar_extractor: {ex}")
         return None
 
+def extract_inno_setup(file_path):
+    """
+    Extracts an Inno Setup installer using innoextract.
+    Returns a list of extracted file paths, or None on failure.
+
+    :param file_path: Path to the Inno Setup installer (.exe)
+    :return: List of file paths under extraction directory, or None if extraction failed.
+    """
+    try:
+        logging.info(f"Detected Inno Setup installer: {file_path}")
+
+        # Create a unique output directory
+        base_dir = os.path.join(script_dir, "inno_setup_extracted")
+        folder_number = 1
+        while os.path.exists(f"{base_dir}_{folder_number}"):
+            folder_number += 1
+        output_dir = f"{base_dir}_{folder_number}"
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Run innoextract to extract files
+        cmd = [
+            inno_extract_path,
+            "-e",                # extract files
+            file_path,
+            "-d", output_dir     # output directory
+        ]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if result.returncode != 0:
+            logging.error(f"innoextract failed: {result.stderr}")
+            return None
+
+        logging.info(f"Inno Setup content extracted to {output_dir}")
+
+        # Gather all extracted file paths
+        extracted_paths = []
+        for root, _, files in os.walk(output_dir):
+            for filename in files:
+                extracted_paths.append(os.path.join(root, filename))
+
+        return extracted_paths
+
+    except Exception as ex:
+        logging.error(f"Error extracting Inno Setup file {file_path}: {ex}")
+        return None
+
+def is_inno_setup_archive_from_output(die_output):
+    """
+    Check if the DIE output indicates an Inno Setup installer.
+    A file is considered an Inno Setup installer if the output contains both:
+      - "Data: Inno Setup Installer data"
+      - "Installer: Inno Setup Module"
+    """
+    if die_output and \
+       "Data: Inno Setup Installer data" in die_output and \
+       "Installer: Inno Setup Module" in die_output:
+        logging.info("DIE output indicates an Inno Setup installer.")
+        return True
+
+    logging.info(f"DIE output does not indicate an Inno Setup installer: {die_output!r}")
+    return False
+
 # --- Main Scanning Function ---
 def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False, flag_de4dot=False, flag_fernflower=False):
     """
     Scans a file for potential issues.
-    
+
     :param file_path: Path to the file or archive to scan.
     :param flag: Indicates if the file should be reprocessed even if already scanned.
     :return: True if the scan was successful (or the file was flagged), False otherwise.
@@ -6182,6 +6226,21 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             logging.info(
                 f"Flag set to True because '{file_path}' is inside the de4dot directory '{match}'"
         )
+
+        # Detect Inno Setup installer
+        if is_inno_setup_archive_from_output(die_output):
+            # Extract Inno Setup installer files
+            extracted = extract_inno_setup(installer_path)
+                if extracted is not None:
+                    logging.info(f"Extracted {len(extracted)} files. Scanning...")
+                    for file_path in extracted:
+                        try:
+                            # send to scan_and_warn for analysis
+                            scan_and_warn(file_path)
+                        except Exception as e:
+                            logging.error(f"Error scanning {file_path}: {e}")
+            else:
+                logging.error("Extraction failed; nothing to scan.")
 
         # Deobfuscate binaries obfuscated by Go Garble.
         if is_go_garble_from_output(die_result):
@@ -6431,7 +6490,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             process_thread.start()
 
         # Check if the file is a PyInstaller archive
-        if is_pyinstaller_archive(file_path):
+        if is_pyinstaller_archive_from_output(die_output):
             logging.info(f"File {file_path} is a PyInstaller archive. Extracting...")
 
             # Extract the PyInstaller files and get their paths

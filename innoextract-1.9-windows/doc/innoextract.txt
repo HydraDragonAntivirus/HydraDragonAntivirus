@@ -1,0 +1,460 @@
+innoextract(1)                                 General Commands Manual                                 innoextract(1)
+
+NAME
+       innoextract - tool to extract installers created by Inno Setup
+
+SYNOPSIS
+       innoextract [--extract] [--lowercase] [options] [--] installers ...
+
+       innoextract --list [options] [--] installers ...
+
+       innoextract --test [options] [--] installers ...
+
+DESCRIPTION
+       innoextract is a tool that can extract installer executables created by Inno Setup.
+
+       innoextract will extract files from installers specified on the command line.
+
+       To  extract a multi-part installer with external data files, only the executable (.exe) file needs to be given
+       as an argument to innoextract.
+
+OPTIONS SUMMARY
+       Here is a short summary of the options available in innoextract. Please refer to the  detailed   documentation
+       below for a complete description.
+
+       Generic options:
+               -h --help               Show supported options
+               -v --version            Print version information
+                  --license            Show license information
+
+       Actions:
+               -t --test               Only verify checksums, don't write anything
+               -e --extract            Extract files (default action)
+               -l --list               Only list files, don't write anything
+                  --list-sizes         List file sizes
+                  --list-checksums     List file checksums
+               -i --info               Print information about the installer
+                  --list-languages     List languages supported by the installer
+                  --gog-game-id        Determine the GOG.com game ID for this installer
+                  --show-password      Show password check information
+                  --check-password     Abort if the password is incorrect
+               -V --data-version       Only print the data version
+
+       Modifiers:
+                  --codepage CODEPAGE  Encoding for ANSI strings
+                  --collisions ACTION  How to handle duplicate files
+                  --default-language   Default language for renaming
+                  --dump               Dump contents without converting filenames
+               -L --lowercase          Convert extracted filenames to lower-case
+               -T --timestamps TZ      Timezone for file times or "local" or "none"
+               -d --output-dir DIR     Extract files into the given directory
+               -P --password PASSWORD  Password for encrypted files
+                  --password-file FILE File to load password from
+               -g --gog                Process additional archives from GOG.com installers
+                  --no-gog-galaxy      Don't re-assemble GOG Galaxy file parts
+               -n --no-extract-unknown Don't extract unknown Inno Setup versions
+
+       Filters:
+               -m --exclude-temp       Don't extract temporary files
+                  --language LANG      Extract only files for this language
+                  --language-only      Only extract language-specific files
+               -I --include EXPR       Extract only files that match this path
+
+       Display options:
+               -q --quiet              Output less information
+               -s --silent             Output only error/warning information
+                  --no-warn-unused     Don't warn on unused .bin files
+               -c --color[=ENABLE]     Enable/disable color output
+               -p --progress[=ENABLE]  Enable/disable the progress bar
+
+OPTIONS
+       --     Treat all arguments after this one as files, even if they begin with a dash.
+
+       --check-password
+              Abort processing if the password provided using the --password or --password-file option does not match
+              the checksum stored in the installer.
+
+              The password checksum used for this check can be retrieved using the --show-password option.
+
+       --codepage CODEPAGE
+              Non-Unicode versions of Inno Setup store strings in an unspecified encoding.  By  default,  innoextract
+              will  guess  the encoding from the installer's language list, falling back to Windows-1252. This option
+              can be used to override that guess by specifying a non-zero Windows codepage number to use.
+
+              On non-Windows platforms, innoextract will ignore the  system  locale  and  always  use  UTF-8  as  the
+              filesystem  and  standard output encoding - the --codepage option only changes the input encoding. How‐
+              ever, using codepage number "65001" instructs innoextract to assume all strings are already encoded  as
+              UTF-8 and to output them without conversion.
+
+              This  option  has  no effect with Unicode-enabled installers, which always use UTF-16LE. Invalid UTF-16
+              data is represented using the WTF-8 encoding which is a straightforward extension of UTF-8 to represent
+              unpaired UTF-16 surrogate code units.
+
+       --collisions ACTION
+              Inno  Setup  installers  can  contain duplicate files with the same name. This option tells innoextract
+              what to do when such a collisions is encountered. Valid actions are:
+
+              "overwrite"
+                     Extract only one of the colliding files. The choice is done similar to how Inno Setup overwrites
+                     files during installation. This is the default.
+
+              "rename"
+                     Rename  files  that would be overwritten using the "overwrite" action by appending a suffix com‐
+                     prised of the file's language, its architecture, the component it belongs to and/or a number  to
+                     make  the  filename  unique. The language suffix (if applicable) is also appended to the default
+                     file that would have been extracted with the "overwrite" action.
+
+              "rename-all"
+                     Rename all colliding files by appending a suffix comprised of the file's language, its architec‐
+                     ture, the component it belongs to and/or a number to make the filename unique. The complete suf‐
+                     fix is appended to both files that would have been overwritten using the "overwrite" action  and
+                     to those that would have overwritten other files.
+
+              "error"
+                     Exit when a collision is detected.
+
+              Rename rules:
+
+              1.  If  the component is not the same for all files in the collision set (all files with the same file‐
+              name), "#" (without quotes) followed by the component id is appended to all files that are specific  to
+              a single component.
+
+              2. If the language is not the same for all files in the collision set, "@" (without quotes) followed by
+              the language id is appended to all files that are specific to a single language  unless  that  language
+              matches  the  default language specified by the --default-language. While the suffix is omitted for the
+              default language, no numbered suffix is added in it's place unless needed to make the filename unique.
+
+              3. If the architecture is not the same for all files in the collision set, "@32bit" or "@64bit"  (with‐
+              out quotes) is appended to all files that are specific to a single architecture.
+
+              4.  If  no  suffix  was added by the previous steps, or if the filename is not yet unique, "$" (without
+              quotes) followed by the lowest integer (starting at 0) to make the filename unique is appended.
+
+              With the "rename" action, steps 1 and 3 are only applied to files that would have been  overwritten  by
+              the "overwrite" action while "rename-all" applies them to all files in the collision set.
+
+       -c, --color[=ENABLE]
+              By  default  innoextract  will  try to detect if the terminal supports shell escape codes and enable or
+              disable color output accordingly. Specifically, colors will be enabled if both stdout and stderr  point
+              to  a  TTY, the TERM environment variable is not set to "dumb" and the NO_COLOR environment variable is
+              unset. Pass 1 or true to --color to force color output. Pass 0 or false to never output color codes.
+
+       -V, --data-version
+              Print the Inno Setup data version of the installer and exit immediately.
+
+              The version printed using this option is the one stored in the setup file and can differ from the  ver‐
+              sion printed with other actions as the stored data version is not always correct.
+
+              This  option  can  be  used  to determine if a file is an Inno Setup installer without loading any com‐
+              pressed headers.
+
+              This option cannot be combined with any other action.
+
+       --default-language LANG
+              Set a language as the default.
+
+              With --collisions=overwrite (the default) this will change the choice of which file to keep  to  always
+              prefer  the  given  language. In effect, --default-language behaves almost like --language, except that
+              files are extracted for all languages if they have different names.
+
+              When using the --collisions=rename option, --default-language chooses a language for  which  the  files
+              should keep the original name if possible.
+
+       --dump Don't convert Windows paths to UNIX paths and don't substitute constants in paths.
+
+              When combining --dump with --extract innoextract will not ensure that the paths don't point outside the
+              destination directory. Use this option with caution when handling untrusted files.
+
+       -m, --exclude-temp
+              Don't extract files that would have been deleted at the end of the  install  process.  Such  files  are
+              marked with [temp] in the file listing.
+
+              This  option  takes  precedence over --include and --language: temporary files are never extracted when
+              using the --exclude-temp, even if they match the selected language or include expressions.
+
+       -e, --extract
+              Extract all files to the current directory. This action is enabled by default, unless one  or  more  of
+              the --list, --list-sizes, --list-checksums, --test, --list-languages, --gog-game-id, --show-password or
+              --check-password actions are specified.
+
+              By default innoextract will continue after encountering file checksum errors. The --extract option  can
+              be combined with --test to abort on checksum errors.
+
+       -n, --no-extract-unknown
+              By default innoextract will try to extract installers with an unknown Inno Setup data version by treat‐
+              ing it as the closest known version. This option tells innoextract to abort instead.
+
+       -g, --gog
+              Try to process additional .bin files that have the same basename as the setup but are not actually part
+              of  the Inno Setup installer. This is the case for newer multi-part GOG.com installers where these .bin
+              files are RAR archives, potential encrypted with the MD5 checksum of the game ID (see the --gog-game-id
+              option).
+
+              Extracting  these  RAR  archives  requires  rar, unrar or lsar/unar command-line utilities to be in the
+              PATH.
+
+              The --list, --test, --extract and --output-dir options are passed along to unrar/unar,  but  other  op‐
+              tions  may  be  ignored  for the RAR files. For multi-part RAR archives, the --test requires a writable
+              output directory for temporary files which can be specified using the --output-dir option. If the  out‐
+              put directory does not exist it will be created and then removed after testing is done. Parent directo‐
+              ries are not created. Temporary files created inside the directory are always removed.
+
+              Note that is option is geared towards GOG.com installers. Other installers may  come  be  bundled  with
+              different extraneous .bin which this option might not be able to handle.
+
+              This  option  also  forces re-assembly of GOG Galaxy file parts. See the --no-gog-galaxy option for de‐
+              tails.
+
+       --no-gog-galaxy
+              Some GOG.com installers contain files in GOG Galaxy format (split into multiple parts that are individ‐
+              ually compressed) which are re-assembled using post-install scripts. By default innoextract will try to
+              re-assemble such files if it detects a GOG.com installer. This option disables that.
+
+              GOG.com installers are detected using the publisher and URL fields in the setup headers. Use the  --gog
+              option to force reassembly for all installers.
+
+       --gog-game-id
+              Determine  the  ID  used  by GOG.com for the game contained in this installer. This will only work with
+              Galaxy-ready GOG.com installers.
+
+              This option can be combined with --silent to print only the game  ID  without  additional  syntax  that
+              would make consumption by other scripts harder.
+
+              The  --gog-game-id  action  can  be combined with --list, --test, --extract and/or --list-languages. If
+              --silent and --gog-game-id are combined with --list and/or --list-languages, the game ID (or  an  empty
+              line) will be printed on it's own line before the file list but after the language list.
+
+              For newer multi-part GOG.com installers the .bin files are not part of the Inno Setup installer but in‐
+              stead are RAR archives. Some of these RAR files are encrypted, with the password being the MD5 checksum
+              of the game ID:
+
+                innoextract --gog-game-id --silent setup_....exe | md5sum | cut -d ' ' -f 1
+
+       -h, --help
+              Show a list of the supported options.
+
+       -I, --include EXPR
+              If  this  option is specified, innoextract will only process files whose path matches EXPR. The expres‐
+              sion can be either a single path component (a file or directory name) or a series  of  successive  path
+              components joined by the OS path separator (\ on Windows, / elsewhere).
+
+              The  expression is always matched against one or more full path components. Filtering by parts of file‐
+              names is currently not supported. Matching is done case-insensitively.
+
+              EXPR may contain one leading path separator, in which case  the  rest  of  the  expression  is  matched
+              against the start of the path. Otherwise, the expression is matched against any part of the path.
+
+              The --include option may be repeated in order allow files matching against one of multiple patterns. If
+              --include is not used, all files are processed.
+
+       -i --info
+              This is a convenience option to enable all actions that print information about the installer.
+
+              Scrips should not rely on the output format with this option and should instead enable  the  individual
+              actions instead.
+
+              Currently this option enables --list-languages, --gog-game-id and --show-password.
+
+       --language LANG
+              Extract  only language-independent files and files for the given language. By default all files are ex‐
+              tracted.
+
+              To also skip language-independent files, combine this option with --language-only.
+
+       --language-only
+              Only extract files that are language-specific.
+
+              This option can be combined with --language to only extract the files of a specific language.
+
+       --license
+              Show license information.
+
+       -l, --list
+              List files contained in the installer but don't extract anything.
+
+              This action also enables the --list-sizes action unless either --quiet or --silent is specified.
+
+              This option can be combined with --silent to print only the names of the contained files (one per line)
+              without additional syntax that would make consumption by other scripts harder.
+
+              The --list action can be combined with --test, --extract, --list-languages and/or --gog-game-id to dis‐
+              play the names of the files as they are extracted even with --silent.
+
+       --list-checksums
+              List checksums for files contained in the installer.
+
+              This option implies the --list action and can be combined with the --list-sizes option  to  print  both
+              the size and checksum for each file.
+
+              With  --silent  the  file checksum will be printed at the start of the line (but after the file size if
+              enabled with the --list-sizes option) followed by a space. Otherwise the checksum is printed after  the
+              file name.
+
+              The  checksum  type  can  be one of Adler32, CRC32, MD5 or SHA-1 and is printed in fron of the checksum
+              hash followed by a space. Adler32 and CRC32 checksums are printed as "0x" followed by the 32-bit  hexa‐
+              decimal value.
+
+              Different  files  in  the  same installer can have different checksum types if GOG Galaxy file part re‐
+              assembly is not disabled using the --no-gog-galaxy option.
+
+       --list-languages
+              List languages supported by the installer.
+
+              This option can be combined with --silent to print only the identifiers of the languages (one per line)
+              followed  by  a space and then the language name, without additional syntax that would make consumption
+              by other scripts harder.
+
+              The --list-languages action can be combined with --list, --test, --extract and/or --gog-game-id to dis‐
+              play  the available languages before doing anything else. If --silent and --list-languages are combined
+              with --list and/or --gog-game-id, the languages list will be terminated with an  empty  line  and  will
+              precede both the game ID and files list.
+
+       --list-sizes
+              List uncompressed sizes for files contained in the installer.
+
+              This  option  implies  the  --list action and can be combined with the --list-checksums option to print
+              both the size and checksum for each file.
+
+              With --silent the file size in bytes will be printed at the start of the line followed by a space. Oth‐
+              erwise the size is printed after the file name in a human-friendly format.
+
+       -L, --lowercase
+              Convert filenames stored in the installer to lower-case before extracting.
+
+       -d, --output-dir DIR
+              Extract  all files into the given directory. By default, innoextract will extract all files to the cur‐
+              rent directory.
+
+              If the specified directory does not exist, it will be created. However, the parent directory must exist
+              or extracting will fail.
+
+       -P, --password PASSWORD
+              Specifies  the  password to decrypt encrypted files. The password is assumed to be encoded as UTF-8 and
+              converted the internal encoding according used in the installer as needed.
+
+              Use the --password-file option to load the password from a file or standard input instead. This  option
+              cannot be combined with --password-file.
+
+              If  this  password does not match the checksum stored in the installer, encrypted files will be skipped
+              but unencrypted files will still be extracted. Use the --check-password option to abort processing  en‐
+              tirely if the password is incorrect.
+
+       --password-file FILE
+              Load  a password form the specified file. Only the first line excluding the terminating carriage return
+              and/or line break is used as the password. The password is assumed to be encoded as UTF-8 and converted
+              the internal encoding according used in the installer as needed.
+
+              If the special file name "-" is used, the password will be read from standard input.
+
+              Use  the  --password  option to specify the password on the command-line instead. This option cannot be
+              combined with --password.
+
+              If this password does not match the checksum stored in the installer, encrypted files will  be  skipped
+              but  unencrypted files will still be extracted. Use the --check-password option to abort processing en‐
+              tirely if the password is incorrect.
+
+       -p, --progress[=ENABLE]
+              By default innoextract will try to detect if the terminal supports shell escape  codes  and  enable  or
+              disable  progress  bar  output  accordingly. Pass 1 or true to --progress to force progress bar output.
+              Pass 0 or false to never show a progress bar.
+
+       -q, --quiet
+              Less verbose output.
+
+       --show-password
+              Show checksum $c and salt $s used for the password $p check as well as encoding of  the  password.  The
+              checksum is calculated from the salt concatenated with the password:
+
+               $c = hash($s . $p)
+
+              With  the  --silent option, the checksum name and hash is printed on one line seperated by a space fol‐
+              lowed by the salt encoded as hex bytes and password encoding on separate lines.
+
+              Checksum types can be CRC32, MD5 or SHA-1 although CRC32 is not used in installers with encryption.
+
+              Use the --password or --password-file option together with --check-password  to  check  if  a  password
+              matches this checksum.
+
+       -s, --silent
+              Don't output anything except errors and warnings unless explicitly requested and use a machine-readable
+              output format.
+
+              This option can be combined with --list to print only the names of the contained files (one  per  line)
+              without additional syntax that would make consumption by other scripts harder.
+
+       -t, --test
+              Test archive integrity but don't write any output files.
+
+              This option can be combined with --extract to abort on file checksum errors.
+
+       -T, --timestamps TZ
+              Inno Setup installers can contain timestamps in both UTC and 'local' timezones.
+
+              The --timestamps option specifies what timezone should be used to adjust these 'local' file times.
+
+              Valid  values  are those accepted by tzset in the TZ environment variable, except with the direction of
+              the time offset reversed: both -T CET and -T GMT+1 will (when DST is in effect) give the same result.
+
+              Besides timezones, two special values are accepted:
+
+              "none" Don't preserve file times for extracted files, both for UTC and  'local'  timestamps.  The  file
+                     times will be left the way the OS set them when creating the output files.
+
+              "local" Use the system timezone for 'local' timestamps. This is the normal Inno Setup behavior, and can
+                     be used together with the TZ environment variable.
+
+              The default value for this option is UTC, causing innoextract to not adjust 'local'  file  times.  File
+              times  marked  as  UTC in the Inno Setup file will never be adjusted no matter what --timestamps is set
+              to.
+
+       -v, --version
+              Print the innoextract version number and supported Inno Setup versions.
+
+              If combined with the --silent option, only the version number is printed. Otherwise,  the  output  will
+              contain  the  name  (innoextract)  followed  by  the  version number on the first line, and, unless the
+              --quiet options is specified, the range of suuported Inno Setup installer versions on the second line.
+
+       --no-warn-unused
+              By default, innoextract will print a warning if it encounters .bin files that look like they  could  be
+              part of the setup but are not used. This option disables that warning.
+
+PATH CONSTANTS
+       Paths  in  Inno  Setup installers can contain constants (variable or code references) that are expanded at in‐
+       stall time. innoextract expands all such constants to their name  and replaces unsafe characters with  $.  For
+       exmaple {app} is expanded to app while {code:Example} is expanded to code$Example.
+
+       There is currently no way to configure this expansion except for disabling it with the --dump option.
+
+EXIT VALUES
+       0      Success
+
+       1      Syntax or usage error
+
+       2+     Broken or unsupported setup file, or input/output error
+
+LIMITATIONS
+       There is no support for extracting individual components and limited support for filtering by name.
+
+       Included scripts and checks are not executed.
+
+       The mapping from Inno Setup constants like the application directory to subdirectories is hard-coded.
+
+       Names for data slice/disk files in multi-file installers must follow the standard naming scheme.
+
+SEE ALSO
+       cabextract(1), unar(1), unrar(1), unshield(1), tzset(3)
+
+BUGS
+       Please report bugs to https://innoextract.constexpr.org/issues.
+
+CREDITS
+       innoextract is distributed under the zlib/libpng license.  See the LICENSE file for details.
+
+       A website is available at https://constexpr.org/innoextract/.
+
+       This program uses the excellent lzma/xz decompression library written by Lasse Collin.
+
+AUTHOR
+       Daniel Scharrer (daniel@constexpr.org)
+
+1.9                                                  (2020-08-09)                                      innoextract(1)
