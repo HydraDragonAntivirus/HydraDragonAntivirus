@@ -6199,10 +6199,6 @@ def extract_pe_sections(file_path: str):
             logging.info(f"Section '{section_name}' saved to {section_file}")
             pe_file_paths.append(section_file)  # Add the file path to the list
 
-            # Scan and warn after saving the file
-            for file_path in pe_file_paths:
-                scan_and_warn(file_path)
-
         logging.info("Extraction completed successfully.")
         return pe_file_paths  # Return the list of file paths
 
@@ -6270,14 +6266,14 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         if is_inno_setup_archive_from_output(die_output):
             # Extract Inno Setup installer files
             extracted = extract_inno_setup(installer_path)
-                if extracted is not None:
-                    logging.info(f"Extracted {len(extracted)} files. Scanning...")
-                    for file_path in extracted:
-                        try:
-                            # send to scan_and_warn for analysis
-                            scan_and_warn(file_path)
-                        except Exception as e:
-                            logging.error(f"Error scanning {file_path}: {e}")
+            if extracted is not None:
+                logging.info(f"Extracted {len(extracted)} files. Scanning...")
+                for file_path in extracted:
+                    try:
+                        # send to scan_and_warn for analysis
+                        scan_and_warn(file_path)
+                    except Exception as e:
+                        logging.error(f"Error scanning {file_path}: {e}")
             else:
                 logging.error("Extraction failed; nothing to scan.")
 
@@ -6419,10 +6415,10 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                 if section_files:
                     logging.info(f"Extracted {len(section_files)} PE sections. Scanning...")
                     for fpath in section_files:
-                    try:
-                        scan_and_warn(fpath)
-                    except Exception as e:
-                        logging.error(f"Error scanning PE section {fpath}: {e}")
+                        try:
+                            scan_and_warn(fpath)
+                        except Exception as e:
+                            logging.error(f"Error scanning PE section {fpath}: {e}")
                 else:
                     logging.error("PE section extraction failed or no sections found.")
 
