@@ -3,7 +3,6 @@ yara-x
 joblib
 pefile
 psutil
-PySide6
 watchdog
 notify-py
 pywin32
