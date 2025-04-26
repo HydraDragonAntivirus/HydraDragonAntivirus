@@ -21,9 +21,6 @@
 #include <fstream>
 #include <archive.h>
 #include <archive_entry.h>
-#pragma comment(lib, "Shlwapi.lib")
-#pragma comment(lib, "detours.lib")
-#pragma comment(lib, "Advapi32.lib")
 
 constexpr unsigned long long ONE_GB = 1073741824ULL; 
 constexpr unsigned long long ONE_TB = 1099511627776ULL;
@@ -71,6 +68,44 @@ static int g_ransomware_detection_count = 0;
 // -----------------------------------------------------------------
 __declspec(thread) bool g_bInLogging = false;
 
+
+// -----------------------------------------------------------------
+// Asynchronous Logging for Regular Logs
+// -----------------------------------------------------------------
+CRITICAL_SECTION g_logLock;
+std::vector<std::wstring> g_logQueue;
+HANDLE g_hLogThread = NULL;
+volatile bool g_bLogThreadRunning = true;
+
+void EnsureLogDirectory()
+{
+    CreateDirectory(LOG_FOLDER, NULL);
+}
+
+DWORD WINAPI LoggerThreadProc(LPVOID lpParameter)
+{
+    while (g_bLogThreadRunning)
+    {
+        std::vector<std::wstring> localQueue;
+        EnterCriticalSection(&g_logLock);
+        if (!g_logQueue.empty())
+            localQueue.swap(g_logQueue);
+        LeaveCriticalSection(&g_logLock);
+        if (!localQueue.empty())
+        {
+            EnsureLogDirectory();
+            FILE* f = nullptr;
+            if (_wfopen_s(&f, SIGMA_LOG_FILE, L"a+") == 0 && f)
+            {
+                for (const auto& msg : localQueue)
+                    fwprintf(f, L"%s\n", msg.c_str());
+                fclose(f);
+            }
+        }
+    }
+    return 0;
+}
+
 // Helper function: Write a timestamped CSV log entry to DONTREMOVEHomePageChange.txt.
 void WriteLog(const wchar_t* message)
 {
@@ -81,6 +116,36 @@ void WriteLog(const wchar_t* message)
         fwprintf(f, L"%s\n", message);
         fclose(f);
     }
+}
+
+void QueueLogMessage(const std::wstring& message)
+{
+    EnterCriticalSection(&g_logLock);
+    g_logQueue.push_back(message);
+    LeaveCriticalSection(&g_logLock);
+}
+
+void WriteSigmaLog(const WCHAR* eventType, const WCHAR* details)
+{
+    time_t now = time(NULL);
+    struct tm tm_now;
+    localtime_s(&tm_now, &now);
+    WCHAR timeBuffer[64];
+    wcsftime(timeBuffer, 64, L"%Y-%m-%dT%H:%M:%SZ", &tm_now);
+    WCHAR logEntry[2048];
+    _snwprintf_s(logEntry, 2048, _TRUNCATE,
+        L"{\"timestamp\":\"%s\", \"event\":\"%s\", \"details\":\"%s\"}",
+        timeBuffer, eventType, details);
+    QueueLogMessage(logEntry);
+}
+
+void SafeWriteSigmaLog(const WCHAR* eventType, const WCHAR* details)
+{
+    if (g_bInLogging)
+        return;
+    g_bInLogging = true;
+    WriteSigmaLog(eventType, details);
+    g_bInLogging = false;
 }
 
 // Chrome homepage monitoring thread
@@ -363,73 +428,6 @@ void TriggerNotification(const WCHAR* title, const WCHAR* msg)
 
 // --------------------- End Notification Infrastructure ---------------------
 
-
-// -----------------------------------------------------------------
-// Asynchronous Logging for Regular Logs
-// -----------------------------------------------------------------
-CRITICAL_SECTION g_logLock;
-std::vector<std::wstring> g_logQueue;
-HANDLE g_hLogThread = NULL;
-volatile bool g_bLogThreadRunning = true;
-
-void EnsureLogDirectory()
-{
-    CreateDirectory(LOG_FOLDER, NULL);
-}
-
-DWORD WINAPI LoggerThreadProc(LPVOID lpParameter)
-{
-    while (g_bLogThreadRunning)
-    {
-        std::vector<std::wstring> localQueue;
-        EnterCriticalSection(&g_logLock);
-        if (!g_logQueue.empty())
-            localQueue.swap(g_logQueue);
-        LeaveCriticalSection(&g_logLock);
-        if (!localQueue.empty())
-        {
-            EnsureLogDirectory();
-            FILE* f = nullptr;
-            if (_wfopen_s(&f, SIGMA_LOG_FILE, L"a+") == 0 && f)
-            {
-                for (const auto& msg : localQueue)
-                    fwprintf(f, L"%s\n", msg.c_str());
-                fclose(f);
-            }
-        }
-    }
-    return 0;
-}
-
-void QueueLogMessage(const std::wstring& message)
-{
-    EnterCriticalSection(&g_logLock);
-    g_logQueue.push_back(message);
-    LeaveCriticalSection(&g_logLock);
-}
-
-void WriteSigmaLog(const WCHAR* eventType, const WCHAR* details)
-{
-    time_t now = time(NULL);
-    struct tm tm_now;
-    localtime_s(&tm_now, &now);
-    WCHAR timeBuffer[64];
-    wcsftime(timeBuffer, 64, L"%Y-%m-%dT%H:%M:%SZ", &tm_now);
-    WCHAR logEntry[2048];
-    _snwprintf_s(logEntry, 2048, _TRUNCATE,
-        L"{\"timestamp\":\"%s\", \"event\":\"%s\", \"details\":\"%s\"}",
-        timeBuffer, eventType, details);
-    QueueLogMessage(logEntry);
-}
-
-void SafeWriteSigmaLog(const WCHAR* eventType, const WCHAR* details)
-{
-    if (g_bInLogging)
-        return;
-    g_bInLogging = true;
-    WriteSigmaLog(eventType, details);
-    g_bInLogging = false;
-}
 
 // Helper: Convert std::wstring (UTF-16) to std::string (UTF-8)
 std::string WideStringToUtf8(const std::wstring& wstr) {
@@ -2038,11 +2036,6 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
         SafeWriteSigmaLog(L"TimeMonitor", L"Failed to start TimeMonitorThread.");
     }
 
-    // ***** Added: Create browser homepage monitoring threads *****
-    HANDLE hChromeThread = CreateThread(NULL, 0, ChromeRegistryMonitorThread, NULL, 0, NULL);
-    HANDLE hEdgeThread = CreateThread(NULL, 0, EdgeRegistryMonitorThread, NULL, 0, NULL);
-    HANDLE hFirefoxThread = CreateThread(NULL, 0, FirefoxFileMonitorThread, NULL, 0, NULL);
-
     OutputDebugString(L"InjectDllMain completed successfully.\n");
 }
 
@@ -2052,6 +2045,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
     switch (ul_reason_for_call)
     {
     case DLL_PROCESS_ATTACH:
+        HANDLE hChromeThread;
+        HANDLE hEdgeThread;
+        HANDLE hFirefoxThread;
         // Save our own module handle for resource extraction.
         g_hThisModule = hModule;
         // Disable thread notifications to reduce overhead.
@@ -2118,10 +2114,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             SafeWriteSigmaLog(L"FileTrapMonitor", L"Failed to start file trap monitoring thread.");
         }
 
-        // ***** Added: Create browser homepage monitoring threads *****
-        HANDLE hChromeThread = CreateThread(NULL, 0, ChromeRegistryMonitorThread, NULL, 0, NULL);
-        HANDLE hEdgeThread = CreateThread(NULL, 0, EdgeRegistryMonitorThread, NULL, 0, NULL);
-        HANDLE hFirefoxThread = CreateThread(NULL, 0, FirefoxFileMonitorThread, NULL, 0, NULL);
+        hChromeThread = CreateThread(nullptr, 0, ChromeRegistryMonitorThread, nullptr, 0, nullptr);
+        hEdgeThread = CreateThread(nullptr, 0, EdgeRegistryMonitorThread, nullptr, 0, nullptr);
+        hFirefoxThread = CreateThread(nullptr, 0, FirefoxFileMonitorThread, nullptr, 0, nullptr);
 
         break;
 
