@@ -48,9 +48,9 @@ Source: "C:\Users\victim\Documents\hydratempinstall\VC_redist.x64.exe"; DestDir:
 Source: "C:\Users\victim\Documents\hydratempinstall\clamav-1.4.2.win.x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\npcap-1.81.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\Snort_2_9_20_Installer.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\JavaSetup8u431.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\jdk-23_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-8.0.14-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydratempinstall\jre-8u451-windows-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydratempinstall\jdk-24_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydratempinstall\dotnet-sdk-8.0.408-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\python-3.13.3-amd64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\Sandboxie-Classic-x64-v5.70.11.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\setup.bat"; DestDir: "{tmp}"; Flags: deleteafterinstall
@@ -73,9 +73,9 @@ Filename: "{tmp}\VC_redist.x64.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\clamav-1.4.2.win.x64.msi"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\npcap-1.81.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\Snort_2_9_20_Installer.x64.exe"; Flags: shellexec waituntilterminated
-Filename: "{tmp}\JavaSetup8u431.exe"; Flags: shellexec waituntilterminated
-Filename: "{tmp}\jdk-23_windows-x64_bin.exe"; Flags: shellexec waituntilterminated
-Filename: "{tmp}\windowsdesktop-runtime-8.0.14-win-x64.exe"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\jre-8u451-windows-x64.exe"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\jdk-24_windows-x64_bin.exe"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\dotnet-sdk-8.0.408-win-x64.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\python-3.13.3-amd64.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\Sandboxie-Classic-x64-v5.70.11.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\setup.bat"; Flags: shellexec waituntilterminated
