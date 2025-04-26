@@ -127,6 +127,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - HydraDragonAntivirusSandboxie vcpkg install commandds:
 - vcpkg install detours
 - vcpkg install libarchive
+- vcpkg integrate install
 
 ## Tips
 
