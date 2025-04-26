@@ -53,6 +53,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - The final analysis doesn't clean anything, so don't start a new scan afterward—it's only for detecting post-injection changes using HiJackThis. Please don't terminate the sandbox environment.
 - The new HiJackThis analysis removes the previous analysis file from the sandbox environment.
 - Make your username hydradragonav.
+- Don't forget to add python to path.
 
  ## Discord Community Server
 
