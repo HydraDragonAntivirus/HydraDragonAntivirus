@@ -123,21 +123,25 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - HiJackThis version: 3.4.0.17 Beta
 - HiJackThis source code: https://github.com/dragokas/hijackthis
 
+**Note 13:**
+- HydraDragonAntivirusSandboxie vcpkg install commandds:
+- vcpkg install detours
+
 ## Tips
 
 **Tip 1:**
 
 - Don't use suspicious VM names on your machine. (victim, etc.)
 
-**Tip 2:**.
+**Tip 2:**
 
 - Use VSCode, VSCodium or another editor to see live changes to .log files
 
-**Tip 3:**.
+**Tip 3:**
 
 - Close the Windows Firewall on the VM to avoid any firewall blocking.
 
-**Tip 4:**.
+**Tip 4:**
 
 - Try reset the container if malware tries to reboot the PC.
 
