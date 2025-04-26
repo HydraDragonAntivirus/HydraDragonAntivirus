@@ -61,10 +61,6 @@ import json
 logging.info(f"json module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import joblib
-logging.info(f"joblib module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import pefile
 logging.info(f"pefile module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -252,8 +248,6 @@ logging.info(f"Total time for all imports: {total_duration:.6f} seconds")
 
 app = FastAPI()
 
-sys.modules['sklearn.externals.joblib'] = joblib
-
 # Load the spaCy model globally
 nlp_spacy_lang = spacy.load("en_core_web_md")
 logging.info("spaCy model 'en_core_web_md' loaded successfully")
@@ -317,10 +311,7 @@ digital_signatures_list_antivirus_path = os.path.join(digital_signatures_list_di
 digital_signatures_list_goodsign_path = os.path.join(digital_signatures_list_dir, "goodsign.txt")
 digital_signatures_list_microsoft_path = os.path.join(digital_signatures_list_dir, "microsoft.txt")
 machine_learning_dir = os.path.join(script_dir, "machinelearning")
-malicious_file_names = os.path.join(machine_learning_dir, "malicious_file_names.json")
-malicious_numeric_features = os.path.join(machine_learning_dir, "malicious_numeric.pkl")
-benign_file_names = os.path.join(machine_learning_dir, "benign_file_names.json")
-benign_numeric_features = os.path.join(machine_learning_dir,"benign_numeric.pkl")
+machine_learning_results_json = os.path.join(machine_learning_dir, "results.json")
 resource_extractor_dir = os.path.join(machine_learning_dir, "resourcesextracted")
 ungarbler_dir = os.path.join(script_dir, "ungarbler")
 ungarbler_string_dir = os.path.join(script_dir, "ungarbler_string")
@@ -2651,8 +2642,8 @@ def analyze_process_memory(file_path):
         logging.error(f"An error occurred: {ex}")
         return None
 
-def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
-    """Scan a file for malicious activity using machine learning."""
+def scan_file_with_machine_learning_ai(file_path, machine_learning_results_json, threshold=0.86):
+    """Scan a file for malicious activity using machine learning definitions loaded from JSON."""
 
     # Default assignment of malware_definition before starting the process
     malware_definition = "Unknown"  # Assume unknown until checked
@@ -2662,63 +2653,57 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
         pe = pefile.PE(file_path)
         if not pe:
             logging.warning(f"File {file_path} is not a valid PE file. Returning default value 'Unknown'.")
-            return False, malware_definition, 0  # If it's not a PE file, return the default value
+            return False, malware_definition, 0
 
         logging.info(f"File {file_path} is a valid PE file, proceeding with feature extraction.")
-        file_info = extract_infos(file_path)  # Extract detailed file info
+        file_info = extract_infos(file_path)
         file_numeric_features = extract_numeric_features(file_path)
 
-        is_malicious_machine_learning_ai = False
+        is_malicious_ml = False
         malware_rank = None
         nearest_malicious_similarity = 0
         nearest_benign_similarity = 0
 
-        # Logging the file info for detailed output
         logging.info(f"File information: {file_info}")
 
-        # Checking against malicious features
-        for malicious_features, info in zip(malicious_numeric_features, malicious_file_names):
+        # Check malicious definitions
+        for ml_feats, info in zip(malicious_numeric_features, malicious_file_names):
             rank = info['numeric_tag']
-            similarity = calculate_similarity(file_numeric_features, malicious_features)
-            if similarity > nearest_malicious_similarity:
-                nearest_malicious_similarity = similarity
+            similarity = calculate_similarity(file_numeric_features, ml_feats)
+            nearest_malicious_similarity = max(nearest_malicious_similarity, similarity)
             if similarity >= threshold:
-                is_malicious_machine_learning_ai = True
+                is_malicious_ml = True
                 malware_rank = rank
-                malware_definition = info['file_name']  # Set malware definition if malicious match is found
-                logging.warning(f"Malicious activity detected in {file_path}. Malware definition: {malware_definition}, similarity: {similarity}, rank: {malware_rank}")
+                malware_definition = info['file_name']
+                logging.warning(f"Malicious activity detected in {file_path}. Definition: {malware_definition}, similarity: {similarity}, rank: {rank}")
                 break
 
-        # If malicious not detected, check for benign features
-        if not is_malicious_machine_learning_ai:
-            for benign_features, info in zip(benign_numeric_features, benign_file_names):
-                similarity = calculate_similarity(file_numeric_features, benign_features)
-                if similarity > nearest_benign_similarity:
-                    nearest_benign_similarity = similarity
-                    benign_definition = info['file_name']  # Store the benign file name for logging
+        # If not malicious, check benign
+        if not is_malicious_ml:
+            for ml_feats, info in zip(benign_numeric_features, benign_file_names):
+                similarity = calculate_similarity(file_numeric_features, ml_feats)
+                nearest_benign_similarity = max(nearest_benign_similarity, similarity)
+                benign_definition = info['file_name']
 
-            # If similarity exceeds threshold, return as benign (no malicious detected)
             if nearest_benign_similarity >= 0.93:
                 malware_definition = "Benign"
-                logging.info(f"File {file_path} is classified as benign (Benign Definition: {benign_definition}) with similarity: {nearest_benign_similarity}")
+                logging.info(f"File {file_path} is classified as benign ({benign_definition}) with similarity: {nearest_benign_similarity}")
             else:
                 malware_definition = "Unknown"
                 logging.info(f"File {file_path} is classified as unknown with similarity: {nearest_benign_similarity}")
 
-        # Return True for malicious or False for benign/unknown
-        if is_malicious_machine_learning_ai:
-            logging.info(f"File {file_path} is flagged as malicious. Returning: False, {malware_definition}, rank: {malware_rank}.")
-            return False, malware_definition, nearest_benign_similarity  # Malicious detected, return False
+        # Return result
+        if is_malicious_ml:
+            return False, malware_definition, nearest_malicious_similarity
         else:
-            logging.info(f"File {file_path} is not malicious. Returning: False, {malware_definition}.")
-            return False, malware_definition, nearest_benign_similarity  # For benign or unknown, still False
+            return False, malware_definition, nearest_benign_similarity
 
     except pefile.PEFormatError:
         logging.error(f"Error: {file_path} does not have a valid PE format.")
-        return False, malware_definition, 0  # Default return value if the PE format is invalid
+        return False, malware_definition, 0
     except Exception as ex:
         logging.error(f"An error occurred while scanning file {file_path}: {ex}")
-        return False, malware_definition, 0  # Default return value in case of general exception
+        return False, malware_definition, 0
 
 def restart_clamd_thread():
     try:
@@ -4247,39 +4232,18 @@ antivirus_signatures = load_digital_signatures(digital_signatures_list_antivirus
 goodsign_signatures = load_digital_signatures(digital_signatures_list_antivirus_path, "UnHackMe digital signatures")
 microsoft_signatures = load_digital_signatures(digital_signatures_list_microsoft_path, "Microsoft digital signatures")
 
+# Load ML definitions
 try:
-    # Load malicious file names from JSON file
-    with open(malicious_file_names, 'r') as malicious_file:
-        malicious_file_names = json.load(malicious_file)
-        logging.info("Machine Learning Malicious Definitions loaded!")
+    with open(machine_learning_results_json, 'r') as results_file:
+        ml_defs = json.load(results_file)
+        malicious_numeric_features = ml_defs.get('malicious_numeric_features', [])
+        malicious_file_names = ml_defs.get('malicious_file_names', [])
+        benign_numeric_features = ml_defs.get('benign_numeric_features', [])
+        benign_file_names = ml_defs.get('benign_file_names', [])
+        logging.info("Machine Learning Definitions loaded!")
 except Exception as ex:
-    logging.error(f"Error loading malicious file names: {ex}")
-
-try:
-    # Load malicious file names from JSON file
-    with open(benign_file_names, 'r') as benign_file:
-        benign_file_names = json.load(benign_file)
-        logging.info("Machine Learning Benign Definitions loaded!")
-except Exception as ex:
-    logging.error(f"Error loading benign file names: {ex}")
-
-try:
-    # Load malicious numeric features from pickle file
-    with open(malicious_numeric_features, 'rb') as malicious_numeric_file:
-        malicious_numeric_features = joblib.load(malicious_numeric_file)
-        logging.info("Malicious Feature Signatures loaded!")
-except Exception as ex:
-    logging.error(f"Error loading malicious numeric features: {ex}")
-
-try:
-    # Load benign numeric features from pickle file
-    with open(benign_numeric_features, 'rb') as benign_numeric_file:
-        benign_numeric_features = joblib.load(benign_numeric_file)
-        logging.info("Benign Feature Signatures loaded!")
-except Exception as ex:
-    logging.error(f"Error loading benign numeric features: {ex}")
-
-logging.info("Machine Learning AI Signatures loaded!")
+    logging.error(f"Error loading ML definitions from {machine_learning_results_json}: {ex}")
+    return False, malware_definition, 0
 
 try:
     # Load excluded rules from text file

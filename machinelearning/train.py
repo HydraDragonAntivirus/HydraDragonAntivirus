@@ -3,7 +3,6 @@ import json
 import os
 import pefile
 import logging
-import joblib
 import shutil
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
@@ -684,8 +683,6 @@ class DataProcessor:
             'benign': benign_features
         }
         (self.output_dir / 'results.json').write_text(json.dumps(results, indent=2))
-        joblib.dump(malicious_features, self.output_dir / 'malicious.pkl')
-        joblib.dump(benign_features, self.output_dir / 'benign.pkl')
         logging.info(f"Saved output to {self.output_dir}")
 
 def main():
