@@ -129,6 +129,9 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - vcpkg install libarchive
 - vcpkg integrate install
 
+**Note 14:**
+- Inno Setup version 6.4.2
+
 ## Tips
 
 **Tip 1:**
