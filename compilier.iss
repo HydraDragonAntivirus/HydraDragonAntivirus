@@ -34,6 +34,8 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 DiskSpanning=yes
+ArchitecturesAllowed=x64
+ArchitecturesInstallIn64BitMode=x64
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
