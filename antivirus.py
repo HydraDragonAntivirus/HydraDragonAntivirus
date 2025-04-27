@@ -294,7 +294,7 @@ extensions_path = os.path.join(extensions_dir, "extensions.txt")
 antivirus_process_list_path = os.path.join(extensions_dir, "antivirusprocesslist.txt")
 magic_bytes_path = os.path.join(extensions_dir, "magicbytes.txt")
 deepseek_dir = os.path.join(script_dir, "deepseek")
-deepseek_1b_dir = os.path.join(deepseek_dir, "DeepSeek_Coder_1.3B")
+deepseek_1b_dir = os.path.join(deepseek_dir, "DeepSeekCoder1.3B")
 python_source_code_dir = os.path.join(script_dir, "pythonsourcecode")
 pycdc_dir = os.path.join(python_source_code_dir, "pycdc")
 pycdas_dir = os.path.join(python_source_code_dir, "pycdas")
@@ -4306,7 +4306,6 @@ except Exception as ex:
 # Function to load DeepSeek-Coder-1.3b model and tokenizer
 def load_deepseek_1b_model(deepseek_dir):
     try:
-        deepseek_1b_dir = os.path.join(deepseek_dir, "DeepSeek-Coder-1.3B")
         
         message = "Attempting to load DeepSeek-Coder-1.3B model and tokenizer..."
         logging.info(message)
