@@ -20,11 +20,22 @@ stdout_console_log_file = os.path.join(log_directory, "antivirusconsolestdout.lo
 stderr_console_log_file = os.path.join(log_directory, "antivirusconsolestderr.log")
 application_log_file = os.path.join(log_directory, "antivirus.log")
 
-# Configure logging for application log
-logging.basicConfig(
+# 1) Create a FileHandler that defers opening the file until the first emit()
+handler = FileHandler(
     filename=application_log_file,
+    mode='a',
+    delay=True,              # do not open until you actually write :contentReference[oaicite:0]{index=0}
+)
+
+# 2) Attach your formatter
+handler.setFormatter(
+    logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+)
+
+# 3) Install it on the root logger via basicConfig, without changing any logger names
+logging.basicConfig(
     level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[handler],      # use this handler instead of the default FileHandler :contentReference[oaicite:1]{index=1}
 )
 
 # Redirect stdout to stdout console log
@@ -35,6 +46,9 @@ sys.stderr = open(stderr_console_log_file, "w", encoding="utf-8", errors="ignore
 
 # Logging for application initialization
 logging.info("Application started at %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+# from here on, logging.debug/info/warning/etc. will open the file on first use
+logging.debug("Logging is now delayed until this first write, avoiding file busy errors.")
 
 # Start timing total duration
 total_start_time = time.time()
