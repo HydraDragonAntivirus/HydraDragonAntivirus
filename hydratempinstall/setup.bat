@@ -61,6 +61,15 @@ if %errorlevel% equ 0 (
     echo Failed to install python requirements.
 )
 
+:: Install spaCy English medium model
+echo Installing spaCy 'en_core_web_md' model...
+python -m spacy download en_core_web_md
+if %errorlevel% equ 0 (
+    echo spaCy model 'en_core_web_md' installed successfully.
+) else (
+    echo Failed to install spaCy model 'en_core_web_md'.
+)
+
 echo --- Starting Sandboxie Configuration Update ---
 
 REM 1. Copy Sandboxie.ini file to the target location
