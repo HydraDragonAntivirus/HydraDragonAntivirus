@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Threading;
+using System.Diagnostics;
 using System.Xml.Linq; // Required for XDocument
 
 namespace HydraDragonAntivirusGUI
@@ -19,6 +20,17 @@ namespace HydraDragonAntivirusGUI
         {
             InitializeComponent();
             StartLogWatcher();
+        }
+
+        /// <summary>
+        /// Helper to append a line into the RTF log viewer with a given color
+        /// </summary>
+        private void AppendLog(string? line, Brush color)
+        {
+            if (string.IsNullOrEmpty(line)) return;
+            var p = new Paragraph(new Run(line)) { Foreground = color };
+            rtbLogs.Document.Blocks.Add(p);
+            rtbLogs.ScrollToEnd();
         }
 
         /// <summary>
@@ -53,6 +65,44 @@ namespace HydraDragonAntivirusGUI
         {
             // Use the dispatcher to update UI safely from the watcher thread.
             Dispatcher.Invoke(() => LoadLogFile());
+        }
+
+        private void BtnRunBackend_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // assume antivirus.py sits in the same folder as your .exe
+                string pythonExe = Path.Combine(Environment.CurrentDirectory, "python.exe");
+                string script = Path.Combine(Environment.CurrentDirectory, "antivirus.py");
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = pythonExe,
+                    Arguments = $"\"{script}\"",
+                    WorkingDirectory = Environment.CurrentDirectory,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+
+                var proc = Process.Start(psi);
+                if (proc == null)
+                    throw new InvalidOperationException("Could not start python.exe");
+
+                // asynchronously read output and error
+                proc.OutputDataReceived += (s, ea) =>
+                    Dispatcher.Invoke(() => AppendLog(ea.Data, Brushes.LightGreen));
+                proc.ErrorDataReceived += (s, ea) =>
+                    Dispatcher.Invoke(() => AppendLog(ea.Data, Brushes.Red));
+
+                proc.BeginOutputReadLine();
+                proc.BeginErrorReadLine();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to run backend: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         /// <summary>

@@ -1,7 +1,7 @@
 ﻿<Window x:Class="HydraDragonAntivirusGUI.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Hydra Dragon Antivirus" Height="600" Width="800"
+        Title="Hydra Dragon Antivirus" Height="600" Width="1000"
         Background="#F0F4F7">
     <DockPanel>
 
@@ -53,6 +53,13 @@
                     Margin="10,0"
                     Style="{StaticResource AdvancedButtonStyle}"
                     Click="BtnComputeDiff_Click"/>
+
+            <!-- New Run Backend Button -->
+            <Button Name="BtnRunBackend" Content="Run Backend"
+                    Width="180"
+                    Margin="10,0"
+                    Style="{StaticResource AdvancedButtonStyle}"
+                    Click="BtnRunBackend_Click"/>
         </StackPanel>
 
         <!-- Log Viewer -->
