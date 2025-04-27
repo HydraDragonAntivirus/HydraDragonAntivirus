@@ -4243,7 +4243,6 @@ try:
         logging.info("Machine Learning Definitions loaded!")
 except Exception as ex:
     logging.error(f"Error loading ML definitions from {machine_learning_results_json}: {ex}")
-    return False, malware_definition, 0
 
 try:
     # Load excluded rules from text file
