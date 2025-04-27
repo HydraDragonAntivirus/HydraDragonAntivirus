@@ -72,7 +72,7 @@ namespace HydraDragonAntivirusGUI
             try
             {
                 // assume antivirus.py sits in the same folder as your .exe
-                string pythonExe = Path.Combine(Environment.CurrentDirectory, "python.exe");
+                string pythonExe = "python.exe";
                 string script = Path.Combine(Environment.CurrentDirectory, "antivirus.py");
 
                 var psi = new ProcessStartInfo
