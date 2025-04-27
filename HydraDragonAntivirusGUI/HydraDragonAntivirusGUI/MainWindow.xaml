@@ -62,6 +62,13 @@
                     Click="BtnRunBackend_Click"/>
         </StackPanel>
 
+        <!-- Search Box -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="10,0">
+            <TextBlock VerticalAlignment="Center" Text="Search:" Margin="0,0,5,0"/>
+            <TextBox Name="txtSearch" Width="200" KeyUp="TxtSearch_KeyUp"
+                 ToolTip="Type to filter logs in real time..."/>
+        </StackPanel>
+
         <!-- Log Viewer -->
         <GroupBox Header="Realtime Logs" Style="{StaticResource AdvancedGroupBoxStyle}" Margin="10">
             <RichTextBox Name="rtbLogs" 

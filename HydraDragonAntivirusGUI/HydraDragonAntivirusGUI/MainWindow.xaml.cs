@@ -6,6 +6,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using System.Diagnostics;
 using System.Xml.Linq; // Required for XDocument
+using System.Windows.Input;
 
 namespace HydraDragonAntivirusGUI
 {
@@ -15,6 +16,8 @@ namespace HydraDragonAntivirusGUI
         private FileSystemWatcher? logWatcher;
         // Update the path to your actual log file location.
         private readonly string logFilePath = Path.Combine(Environment.CurrentDirectory, "log", "antivirus.log");
+        // Store all log lines for filtering
+        private List<string> allLogLines = new List<string>();
 
         public MainWindow()
         {
@@ -65,6 +68,36 @@ namespace HydraDragonAntivirusGUI
         {
             // Use the dispatcher to update UI safely from the watcher thread.
             Dispatcher.Invoke(() => LoadLogFile());
+        }
+
+        private void TxtSearch_KeyUp(object sender, KeyEventArgs e)
+        {
+            // Update view on each keystroke
+            FilterAndDisplayLogs();
+        }
+
+        // Filter logs based on search text
+        private void FilterAndDisplayLogs()
+        {
+            string filter = txtSearch.Text.Trim();
+            rtbLogs.Document.Blocks.Clear();
+
+            var linesToShow = string.IsNullOrEmpty(filter)
+                ? allLogLines
+                : allLogLines.Where(line => line.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+
+            foreach (string line in linesToShow)
+            {
+                Brush color = Brushes.White;
+                if (line.Contains("ERROR")) color = Brushes.Red;
+                else if (line.Contains("WARNING")) color = Brushes.Orange;
+                else if (line.Contains("INFO")) color = Brushes.LightGreen;
+                else if (line.Contains("DEBUG", StringComparison.OrdinalIgnoreCase)) color = Brushes.LightBlue;
+
+                var para = new Paragraph(new Run(line)) { Foreground = color };
+                rtbLogs.Document.Blocks.Add(para);
+            }
+            rtbLogs.ScrollToEnd();
         }
 
         private void BtnRunBackend_Click(object sender, RoutedEventArgs e)
