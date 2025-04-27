@@ -511,7 +511,7 @@ magic_bytes = {}
 
 try:
     # Read the magicbytes.txt file and populate the dictionary
-    with open(magicbytes_path, "r") as file:
+    with open(magic_bytes_path, "r") as file:
         for line in file:
             # Split each line into magic bytes and file type
             parts = line.strip().split(": ")
@@ -523,7 +523,7 @@ try:
     logging.info("Magic bytes have been successfully loaded.")
 
 except FileNotFoundError:
-    logging.error(f"Error: The file {magicbytes_path} was not found.")
+    logging.error(f"Error: The file {magic_bytes_path} was not found.")
 except Exception as e:
     logging.error(f"An error occurred: {e}")
 
