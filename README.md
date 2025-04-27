@@ -178,7 +178,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - If you still want support for Windows 7, you will need to manually downgrade to Python 3.8 and many tools. 32-bit support is possible. Although Windows XP support is possible through the One Core API, we don't recommend using illegal things.
 
 **Minimum RAM?**
--10GB RAM is the minimum because I am using DeepSeek-Coder-1.3B locally. I strongly recommend 10GB RAM.
+-12GB RAM is the minimum because I am using DeepSeek-Coder-1.3B locally. I strongly recommend 12GB RAM.
 
 **Any sponsors or supporters?**
 - Yes, there are supporters for this project. Xcitium (Comodo) has expressed interest in supporting this project by providing malware samples, and Cisco Talos ClamAV community projects. But it's still a one man project.
