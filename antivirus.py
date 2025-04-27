@@ -253,7 +253,7 @@ import uvicorn
 logging.info(f"uvicorn module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from fastapi import FastAPI, HTTPException, File, UploadFile
+from fastapi import FastAPI, HTTPException, File, UploadFile, BackgroundTasks
 logging.info(f"fastapi.FastAPI, HTTPException, File and UploadFile module loaded in {time.time() - start_time:.6f} seconds")
 
 # Calculate and logging.info total time
