@@ -24,6 +24,7 @@ unicorn
 capstone
 fastapi
 uvicorn
+python-multipart
 lief #for GoStringUngrabler
 transformers # You will also need download https://huggingface.co/deepseek-ai/deepseek-coder-1.3b-instruct
 scapy # You will also need to download https://npcap.com/#download

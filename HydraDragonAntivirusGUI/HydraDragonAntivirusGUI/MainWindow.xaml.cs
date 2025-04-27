@@ -72,39 +72,33 @@ namespace HydraDragonAntivirusGUI
 
         private void TxtSearch_KeyUp(object sender, KeyEventArgs e)
         {
-            // Update view on each keystroke
-            FilterAndDisplayLogs();
+            string filter = txtSearch.Text.Trim();
+            if (!string.IsNullOrEmpty(filter))
+                ScrollToLine(filter);
         }
 
-        // Filter logs based on search text
-        private void FilterAndDisplayLogs()
+        private void ScrollToLine(string searchText)
         {
-            string filter = txtSearch.Text.Trim();
-            rtbLogs.Document.Blocks.Clear();
-
-            var linesToShow = string.IsNullOrEmpty(filter)
-                ? allLogLines
-                : allLogLines.Where(line => line.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
-
-            foreach (string line in linesToShow)
+            // Iterate through paragraphs to find match
+            foreach (var block in rtbLogs.Document.Blocks)
             {
-                Brush color = Brushes.White;
-                if (line.Contains("ERROR")) color = Brushes.Red;
-                else if (line.Contains("WARNING")) color = Brushes.Orange;
-                else if (line.Contains("INFO")) color = Brushes.LightGreen;
-                else if (line.Contains("DEBUG", StringComparison.OrdinalIgnoreCase)) color = Brushes.LightBlue;
-
-                var para = new Paragraph(new Run(line)) { Foreground = color };
-                rtbLogs.Document.Blocks.Add(para);
+                if (block is Paragraph para)
+                {
+                    string text = new TextRange(para.ContentStart, para.ContentEnd).Text;
+                    if (text.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        // Bring this paragraph into view
+                        para.BringIntoView();
+                        break;
+                    }
+                }
             }
-            rtbLogs.ScrollToEnd();
         }
 
         private void BtnRunBackend_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                // assume antivirus.py sits in the same folder as your .exe
                 string pythonExe = "python.exe";
                 string script = Path.Combine(Environment.CurrentDirectory, "antivirus.py");
 
@@ -123,7 +117,6 @@ namespace HydraDragonAntivirusGUI
                 if (proc == null)
                     throw new InvalidOperationException("Could not start python.exe");
 
-                // asynchronously read output and error
                 proc.OutputDataReceived += (s, ea) =>
                     Dispatcher.Invoke(() => AppendLog(ea.Data, Brushes.LightGreen));
                 proc.ErrorDataReceived += (s, ea) =>
@@ -153,7 +146,6 @@ namespace HydraDragonAntivirusGUI
                     Paragraph para = new Paragraph();
                     Run run = new Run(line);
 
-                    // Colorize based on log level keywords
                     if (line.Contains("ERROR"))
                         run.Foreground = Brushes.Red;
                     else if (line.Contains("WARNING"))
@@ -166,7 +158,6 @@ namespace HydraDragonAntivirusGUI
                     para.Inlines.Add(run);
                     rtbLogs.Document.Blocks.Add(para);
                 }
-                // Scroll to the end so the latest log is visible.
                 rtbLogs.ScrollToEnd();
             }
             catch (Exception ex)
