@@ -52,6 +52,16 @@ if %errorlevel% equ 0 (
     echo Failed to install clamd.
 )
 
+:: Upgrade pip
+echo Upgrading pip...
+py -3.12 -m pip install --upgrade pip
+
+if %ERRORLEVEL% EQU 0 (
+    echo pip was upgraded successfully.
+) else (
+    echo Failed to upgrade pip.
+)
+
 :: Install python requirements
 echo Installing python requirements..
 py.exe -3.12 -m pip install -r "C:\Program Files\HydraDragonAntivirus\requirements.txt"
