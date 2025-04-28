@@ -417,7 +417,6 @@ seven_zip_path = "C:\\Program Files\\7-Zip\\7z.exe"  # Path to 7z.exe
 HiJackThis_directory = os.path.join(script_dir, "HiJackThis")
 HiJackThis_exe = os.path.join(HiJackThis_directory, "HiJackThis.exe")
 HiJackThis_logs_dir = os.path.join(script_dir, "HiJackThis_logs")
-log_filename = "HiJackThis.log"
 
 IPv4_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b' # Simple IPv4 regex
 IPv6_pattern = r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b' # Simple IPv6 regex
@@ -1947,7 +1946,7 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
             url = 'https://' + url
         parsed_url = urlparse(url)
         if not parsed_url.netloc:
-            raise ValueError("Invalid URL or domain format")
+            logging.error("Invalid URL or domain format")
         full_domain = parsed_url.netloc.lower()
         domain_parts = full_domain.split('.')
         if len(domain_parts) > 2:
@@ -2576,7 +2575,7 @@ def enum_process_modules(handle):
         ctypes.byref(needed),
         pymem.ressources.structure.EnumProcessModuleEX.LIST_MODULES_ALL
     ):
-        raise RuntimeError("Failed to enumerate process modules")
+        logging.error("Failed to enumerate process modules")
     return [module for module in hmodules if module]
 
 def get_module_info(handle, base_addr):
@@ -2613,7 +2612,7 @@ def analyze_process_memory(file_path):
     """Perform memory analysis on the specified file path."""
     try:
         if not os.path.isfile(file_path):
-            raise FileNotFoundError(f"File not found: {file_path}")
+            logging.error(f"File not found: {file_path}")
 
         logging.info(f"Starting analysis on: {file_path}")
 
@@ -7353,7 +7352,7 @@ def perform_sandbox_analysis(file_path):
     global monitor_message
     try:
         if not isinstance(file_path, (str, bytes, os.PathLike)):
-            raise ValueError(f"Expected str, bytes or os.PathLike object, not {type(file_path).__name__}")
+            logging.error(f"Expected str, bytes or os.PathLike object, not {type(file_path).__name__}")
 
         logging.info(f"Performing sandbox analysis on: {file_path}")
 
@@ -7479,7 +7478,7 @@ def run_and_copy_log(label="orig"):
     start_time = datetime.now()
     while not os.path.exists(HiJackThis_log_path):
         if (datetime.now() - start_time).seconds > timeout_seconds:
-            raise Exception("Log file did not appear within the timeout period.")
+            logging.error("Log file did not appear within the timeout period.")
     
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = os.path.join(HiJackThis_logs_dir, f"{label}_{ts}.txt")
