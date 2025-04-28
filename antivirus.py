@@ -7531,7 +7531,7 @@ class AntivirusApp(QWidget):
         warning_text = (
             "IMPORTANT: Only run this application from a Virtual Machine.\n"
             "1. First, update virus definitions.\n"
-            "2. Then run the HiJackThis Report (first analysis).\n"
+            "2. Then run the HiJackThis Report (first analysis, capture logs).\n"
             "3. After that, perform the main analysis.\n"
             "4. Once done, do not close the application. Run HiJackThis again (final analysis).\n"
             "5. Wait about 5 minutes after clicking the Compute Diff button, then return to a clean snapshot for a new analysis."
