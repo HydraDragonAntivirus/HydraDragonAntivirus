@@ -1,4 +1,5 @@
 ﻿// MainWindow.xaml.cs
+using System;
 using System.Diagnostics;
 using System.Windows;
 
@@ -17,39 +18,18 @@ namespace HydraDragonAntivirusLauncher
             {
                 var psi = new ProcessStartInfo
                 {
-                    FileName = "py.exe",
-                    Arguments = "-3.12 \"antivirus.py\"",
+                    FileName = "py.exe", // Python executable
+                    Arguments = "-3.12 \"antivirus.py\"", // Launch antivirus GUI
                     WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
+                    UseShellExecute = false, // Optional: could be true if you don't need Redirects
+                    CreateNoWindow = false
                 };
 
-                var proc = Process.Start(psi);
-                if (proc == null)
-                {
-                    MessageBox.Show("Failed to start antivirus process.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-
-                proc.OutputDataReceived += (s, ea) =>
-                {
-                    if (!string.IsNullOrEmpty(ea.Data))
-                        Dispatcher.Invoke(() => MessageBox.Show(ea.Data, "Output", MessageBoxButton.OK, MessageBoxImage.Information));
-                };
-                proc.ErrorDataReceived += (s, ea) =>
-                {
-                    if (!string.IsNullOrEmpty(ea.Data))
-                        Dispatcher.Invoke(() => MessageBox.Show(ea.Data, "Error", MessageBoxButton.OK, MessageBoxImage.Error));
-                };
-
-                proc.BeginOutputReadLine();
-                proc.BeginErrorReadLine();
+                Process.Start(psi); // JUST START, no events, no monitoring
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Exception: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Failed to launch antivirus: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
     }
