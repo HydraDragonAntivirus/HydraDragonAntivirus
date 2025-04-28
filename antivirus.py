@@ -7694,8 +7694,8 @@ class Worker(QThread):
             self.output_signal.emit(f"[!] Error updating definitions: {str(e)}")
 
     def analyze_file(self, file_path):
-        # Simulate DeepSeek analysis (Assume deepseek logic is implemented)
-        deepseek_result = run_analysis(file_path, HiJackThis_flag=True)
+        # Simulate malware analysis
+        deepseek_result = run_analysis(file_path)
         self.output_signal.emit(deepseek_result)
 
     def run(self):
