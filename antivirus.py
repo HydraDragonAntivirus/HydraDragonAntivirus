@@ -7513,89 +7513,49 @@ def parse_report(path):
             entries[line] = (md5, file_path)
     return entries
 
-class Worker(QThread):
-    output_signal = Signal(str)
-
-    def __init__(self, task_type, *args):
-        super().__init__()
-        self.task_type = task_type
-        self.args = args
-
-    def run(self):
-        try:
-            if self.task_type == "capture_logs":
-                self.capture_logs()
-            elif self.task_type == "compute_diff":
-                self.compute_diff()
-            elif self.task_type == "update_defs":
-                self.update_definitions()
-            elif self.task_type == "analyze_file":
-                self.analyze_file(*self.args)
-        except Exception as e:
-            self.output_signal.emit(f"[!] Error: {str(e)}")
+class AntivirusApp(QWidget):
+    def _set_window_background(self):
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #1e1e1e;
+                color: white;
+            }
+        """)
 
     def capture_logs(self):
-        global orig_log_path, sbx_log_path, original_entries, sandbox_entries
-        if orig_log_path is None:
-            path = run_and_copy_log(label="orig")
-            orig_log_path = path
-            original_entries = parse_report(path)
-            self.output_signal.emit(f"[+] Original log captured: {os.path.basename(path)}")
-        elif sbx_log_path is None:
-            path = run_and_copy_log(label="sbx")
-            sbx_log_path = path
-            sandbox_entries = parse_report(path)
-            self.output_signal.emit(f"[+] Sandbox log captured: {os.path.basename(path)}")
-        else:
-            self.output_signal.emit("[!] Both original and sandbox captures have already been completed.")
+        worker = Worker("capture_logs")
+        worker.output_signal.connect(self.append_output)
+        worker.finished.connect(lambda: self.workers.remove(worker))  # Clean up finished threads
+        self.workers.append(worker)  # Keep a reference
+        worker.start()
 
     def compute_diff(self):
-        if not orig_log_path or not sbx_log_path:
-            self.output_signal.emit("[!] Please capture both original and sandbox logs first!")
-            return
-        try:
-            with open(orig_log_path, encoding='utf-8', errors='ignore') as f:
-                orig_lines = f.readlines()
-            with open(sbx_log_path, encoding='utf-8', errors='ignore') as f:
-                sbx_lines = f.readlines()
-            diff = difflib.unified_diff(orig_lines, sbx_lines, fromfile='Original', tofile='Sandbox', lineterm='')
-            diff_output = list(diff)
-            self.output_signal.emit("[*] Diff computation completed:")
-            self.output_signal.emit("\n".join(diff_output))
-        except Exception as e:
-            self.output_signal.emit(f"[!] Error computing diff: {str(e)}")
+        worker = Worker("compute_diff")
+        worker.output_signal.connect(self.append_output)
+        worker.finished.connect(lambda: self.workers.remove(worker))
+        self.workers.append(worker)
+        worker.start()
 
     def update_definitions(self):
-        try:
-            updated = False
-            for file_path in clamav_file_paths:
-                if os.path.exists(file_path):
-                    file_mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
-                    file_age = datetime.now() - file_mod_time
-                    if file_age > timedelta(hours=6):
-                        updated = True
-                        break
-            if updated:
-                result = subprocess.run([freshclam_path], capture_output=True, text=True)
-                if result.returncode == 0:
-                    restart_clamd_thread()
-                    self.output_signal.emit("[+] Virus definitions updated and ClamAV restarted.")
-                else:
-                    self.output_signal.emit(f"[!] Failed to update definitions: {result.stderr}")
-            else:
-                self.output_signal.emit("[*] Definitions are up-to-date. No update needed.")
-        except Exception as e:
-            self.output_signal.emit(f"[!] Error updating definitions: {str(e)}")
+        worker = Worker("update_defs")
+        worker.output_signal.connect(self.append_output)
+        worker.finished.connect(lambda: self.workers.remove(worker))
+        self.workers.append(worker)
+        worker.start()
 
-    def analyze_file(self, file_path):
-        # Simulate DeepSeek analysis (Assume deepseek logic is implemented)
-        deepseek_result = scan_file_with_deepseek(file_path, HiJackThis_flag=True)
-        self.output_signal.emit(deepseek_result)
+    def analyze_file(self):
+        file_dialog = QFileDialog(self)
+        file_dialog.setNameFilter("All Files (*)")
+        if file_dialog.exec():
+            file_path = file_dialog.selectedFiles()[0]
+            worker = Worker("analyze_file", file_path)
+            worker.output_signal.connect(self.append_output)
+            worker.finished.connect(lambda: self.workers.remove(worker))
+            self.workers.append(worker)
+            worker.start()
 
-class AntivirusApp(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.setup_ui()
+    def append_output(self, text):
+        self.output_text.append(text)
 
     def setup_ui(self):
         self.setWindowTitle("Hydra Dragon Antivirus")
@@ -7672,40 +7632,89 @@ class AntivirusApp(QWidget):
         layout.addWidget(self.analyze_file_button)
         layout.addWidget(self.output_text)
 
-    def _set_window_background(self):
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #1e1e1e;
-                color: white;
-            }
-        """)
+    def __init__(self):
+        super().__init__()
+        self.setup_ui()
+        self.workers = []
+
+class Worker(QThread):
+    output_signal = Signal(str)
 
     def capture_logs(self):
-        worker = Worker("capture_logs")
-        worker.output_signal.connect(self.append_output)
-        worker.start()
+        global orig_log_path, sbx_log_path, original_entries, sandbox_entries
+        if orig_log_path is None:
+            path = run_and_copy_log(label="orig")
+            orig_log_path = path
+            original_entries = parse_report(path)
+            self.output_signal.emit(f"[+] Original log captured: {os.path.basename(path)}")
+        elif sbx_log_path is None:
+            path = run_and_copy_log(label="sbx")
+            sbx_log_path = path
+            sandbox_entries = parse_report(path)
+            self.output_signal.emit(f"[+] Sandbox log captured: {os.path.basename(path)}")
+        else:
+            self.output_signal.emit("[!] Both original and sandbox captures have already been completed.")
 
     def compute_diff(self):
-        worker = Worker("compute_diff")
-        worker.output_signal.connect(self.append_output)
-        worker.start()
+        if not orig_log_path or not sbx_log_path:
+            self.output_signal.emit("[!] Please capture both original and sandbox logs first!")
+            return
+        try:
+            with open(orig_log_path, encoding='utf-8', errors='ignore') as f:
+                orig_lines = f.readlines()
+            with open(sbx_log_path, encoding='utf-8', errors='ignore') as f:
+                sbx_lines = f.readlines()
+            diff = difflib.unified_diff(orig_lines, sbx_lines, fromfile='Original', tofile='Sandbox', lineterm='')
+            diff_output = list(diff)
+            self.output_signal.emit("[*] Diff computation completed:")
+            self.output_signal.emit("\n".join(diff_output))
+        except Exception as e:
+            self.output_signal.emit(f"[!] Error computing diff: {str(e)}")
 
     def update_definitions(self):
-        worker = Worker("update_defs")
-        worker.output_signal.connect(self.append_output)
-        worker.start()
+        try:
+            updated = False
+            for file_path in clamav_file_paths:
+                if os.path.exists(file_path):
+                    file_mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+                    file_age = datetime.now() - file_mod_time
+                    if file_age > timedelta(hours=6):
+                        updated = True
+                        break
+            if updated:
+                result = subprocess.run([freshclam_path], capture_output=True, text=True)
+                if result.returncode == 0:
+                    restart_clamd_thread()
+                    self.output_signal.emit("[+] Virus definitions updated and ClamAV restarted.")
+                else:
+                    self.output_signal.emit(f"[!] Failed to update definitions: {result.stderr}")
+            else:
+                self.output_signal.emit("[*] Definitions are up-to-date. No update needed.")
+        except Exception as e:
+            self.output_signal.emit(f"[!] Error updating definitions: {str(e)}")
 
-    def analyze_file(self):
-        file_dialog = QFileDialog(self)
-        file_dialog.setNameFilter("All Files (*)")
-        if file_dialog.exec():
-            file_path = file_dialog.selectedFiles()[0]
-            worker = Worker("analyze_file", file_path)
-            worker.output_signal.connect(self.append_output)
-            worker.start()
+    def analyze_file(self, file_path):
+        # Simulate DeepSeek analysis (Assume deepseek logic is implemented)
+        deepseek_result = scan_file_with_deepseek(file_path, HiJackThis_flag=True)
+        self.output_signal.emit(deepseek_result)
 
-    def append_output(self, text):
-        self.output_text.append(text)
+    def run(self):
+        try:
+            if self.task_type == "capture_logs":
+                self.capture_logs()
+            elif self.task_type == "compute_diff":
+                self.compute_diff()
+            elif self.task_type == "update_defs":
+                self.update_definitions()
+            elif self.task_type == "analyze_file":
+                self.analyze_file(*self.args)
+        except Exception as e:
+            self.output_signal.emit(f"[!] Error: {str(e)}")
+
+    def __init__(self, task_type, *args):
+        super().__init__()
+        self.task_type = task_type
+        self.args = args
 
 if __name__ == "__main__":
     app = QApplication([])
