@@ -171,7 +171,7 @@ namespace HydraDragonAntivirusGUI
         // Event handler for Update Definitions using RestSharp
         private async void BtnUpdateDefinitions_Click(object sender, RoutedEventArgs e)
         {
-            string url = "http://localhost:8000/update_definitions";
+            string url = "http://127.0.0.1:8000/update_definitions";
             string xmlPayload = @"<?xml version=""1.0"" encoding=""UTF-8""?>
                                   <request>
                                     <action>update_definitions</action>
@@ -183,7 +183,7 @@ namespace HydraDragonAntivirusGUI
         // Event handler for Analyze File using RestSharp
         private async void BtnAnalyzeFile_Click(object sender, RoutedEventArgs e)
         {
-            string url = "http://localhost:8000/analyze_file";
+            string url = "http://127.0.0.1:8000/analyze_file";
             string xmlPayload = @"<?xml version=""1.0"" encoding=""UTF-8""?>
                                   <file>
                                     <name>sample.txt</name>
@@ -200,7 +200,7 @@ namespace HydraDragonAntivirusGUI
             BtnHijackThis.Content = "Do Final Analysis";
 
             // Call the HiJackThis analysis endpoint (simulated as /capture)
-            string url = "http://localhost:8000/capture";
+            string url = "http://127.0.0.1:8000/capture";
             string xmlPayload = @"<?xml version=""1.0"" encoding=""UTF-8""?>
                                   <capture>
                                     <action>start_capture</action>
@@ -219,7 +219,7 @@ namespace HydraDragonAntivirusGUI
             await Task.Delay(TimeSpan.FromMinutes(5)); // Wait 5 minutes before calling the diff computation
 
             // Call the compute_diff endpoint
-            string url = "http://localhost:8000/compute_diff";
+            string url = "http://127.0.0.1:8000/compute_diff";
             string xmlPayload = @"<?xml version=""1.0"" encoding=""UTF-8""?>
                                   <diff>
                                     <action>compute_diff</action>
