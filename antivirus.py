@@ -6235,10 +6235,12 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             flag_obfuscar = True
             logging.info(f"Flag set to True because '{file_path}' is inside the Obfuscar directory '{obfuscar_dir}'.")
 
+        wrap_file_path = Path(file_path) # <-- wrap the incoming path
+        # now .parents is safe
         # Find the first de4dot directory that contains file_path
         match = next(
             (p for p in (de4dot_extracted_dir, de4dot_sandboxie_dir)
-            if Path(p) in Path(file_path).parents),
+            if p in wrap_file_path.parents),
             None
         )
         if match and not flag_de4dot:
