@@ -6878,7 +6878,7 @@ def find_windows_with_text():
         return True
 
     window_handles = []
-    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
     ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
     return window_handles
 
