@@ -7682,4 +7682,4 @@ async def analyze_file(file: UploadFile = File(...), background_tasks: Backgroun
         raise HTTPException(status_code=500, detail="File analysis failed.")
 
 if __name__ == "__main__":
-    uvicorn.run("antivirus:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run(app, host="127.0.0.1", port=8000, reload=False)
