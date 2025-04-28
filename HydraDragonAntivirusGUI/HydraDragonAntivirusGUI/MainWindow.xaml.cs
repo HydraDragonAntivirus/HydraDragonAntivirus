@@ -99,13 +99,15 @@ namespace HydraDragonAntivirusGUI
         {
             try
             {
-                string pythonExe = "python.exe";
+                // still calling the launcher, but now requesting the 3.12 interpreter
+                string pythonExe = "py.exe";
                 string script = Path.Combine(Environment.CurrentDirectory, "antivirus.py");
 
                 var psi = new ProcessStartInfo
                 {
                     FileName = pythonExe,
-                    Arguments = $"\"{script}\"",
+                    // add -3.12 before the script path
+                    Arguments = $"-3.12 \"{script}\"",
                     WorkingDirectory = Environment.CurrentDirectory,
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
@@ -115,7 +117,7 @@ namespace HydraDragonAntivirusGUI
 
                 var proc = Process.Start(psi);
                 if (proc == null)
-                    throw new InvalidOperationException("Could not start python.exe");
+                    throw new InvalidOperationException("Could not start py.exe");
 
                 proc.OutputDataReceived += (s, ea) =>
                     Dispatcher.Invoke(() => AppendLog(ea.Data, Brushes.LightGreen));
