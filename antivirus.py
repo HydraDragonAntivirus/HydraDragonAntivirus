@@ -7695,7 +7695,7 @@ class Worker(QThread):
 
     def analyze_file(self, file_path):
         # Simulate DeepSeek analysis (Assume deepseek logic is implemented)
-        deepseek_result = scan_file_with_deepseek(file_path, HiJackThis_flag=True)
+        deepseek_result = run_analysis(file_path, HiJackThis_flag=True)
         self.output_signal.emit(deepseek_result)
 
     def run(self):
