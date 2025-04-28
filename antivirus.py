@@ -76,11 +76,11 @@ import json
 logging.info(f"json module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QTextEdit, QLabel, QFileDialog, QMessageBox, QThread
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QTextEdit, QLabel, QFileDialog, QMessageBox
 print(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, Signal
 print(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
