@@ -453,6 +453,7 @@ os.makedirs(pycdc_dir, exist_ok=True)
 os.makedirs(pycdas_dir, exist_ok=True)
 os.makedirs(united_python_source_code_dir, exist_ok=True)
 os.makedirs(copied_sandbox_files_dir, exist_ok=True)
+os.makedirs(HiJackThis_logs_dir, exist_ok=True)
 
 # Counter for ransomware detection
 ransomware_detection_count = 0 
