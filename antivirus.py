@@ -76,6 +76,18 @@ import json
 logging.info(f"json module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QFileDialog, QMessageBox, QStackedWidget, QGraphicsDropShadowEffect, QLabel
+print(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from PySide6.QtCore import QObject, QThread, Signal
+print(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from PySide6.QtGui import QIcon
+print(f"PySide6.QtGui.QIcon module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import pefile
 logging.info(f"pefile module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -248,20 +260,10 @@ start_time = time.time()
 from GoStringUngarbler.gostringungarbler_lib import process_file_go
 logging.info(f"GoStringUngarbler.gostringungarbler_lib.process_file_go module loaded in {time.time() - start_time:.6f} seconds")
 
-start_time = time.time()
-import uvicorn
-logging.info(f"uvicorn module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from fastapi import FastAPI, HTTPException, File, UploadFile, BackgroundTasks
-logging.info(f"fastapi.FastAPI, HTTPException, File and UploadFile module loaded in {time.time() - start_time:.6f} seconds")
-
 # Calculate and logging.info total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
 logging.info(f"Total time for all imports: {total_duration:.6f} seconds")
-
-app = FastAPI()
 
 # Load the spaCy model globally
 nlp_spacy_lang = spacy.load("en_core_web_md")
@@ -276,6 +278,7 @@ inno_extract_path = os.path.join(inno_extract_dir, "innoextract.exe")
 inno_setup_extracted_dir = os.path.join(script_dir, "inno_setup_extracted")
 decompile_dir = os.path.join(script_dir, "decompile")
 assets_dir = os.path.join(script_dir, "assets")
+icon_path = os.path.join(assets_dir, "HydraDragonAV.png")
 digital_signatures_list_dir = os.path.join(script_dir, "digitalsignatureslist")
 pyinstaller_dir = os.path.join(script_dir, "pyinstaller")
 ghidra_projects_dir = os.path.join(script_dir, "ghidra_projects")
@@ -7510,176 +7513,162 @@ def parse_report(path):
             entries[line] = (md5, file_path)
     return entries
 
-# ----- Unified Capture Endpoint -----
-@app.post("/capture")
-async def capture():
-    """
-    Single capture endpoint that first captures the original log,
-    then on the subsequent call captures the sandbox log.
-    """
-    global orig_log_path, sbx_log_path, original_entries, sandbox_entries
+class AntivirusApp(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setup_ui()
 
-    # If the original capture has not been done yet, do it first.
-    if orig_log_path is None:
-        try:
-            path = run_and_copy_log(label="orig")
-            orig_log_path = path  # Save original file path
-            original_entries = parse_report(path)
-            return {"status": "success", "message": f"Original status saved to {os.path.basename(path)}"}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error capturing original status: {e}")
-    # Otherwise, if the sandbox capture hasn't been done, do that.
-    elif sbx_log_path is None:
-        try:
-            path = run_and_copy_log(label="sbx")
-            sbx_log_path = path  # Save sandbox file path
-            sandbox_entries = parse_report(path)
-            return {"status": "success", "message": f"Sandbox status saved to {os.path.basename(path)}"}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error capturing sandbox status: {e}")
-    # If both have been captured, inform the client.
-    else:
-        return JSONResponse(
-            {"status": "info", "message": "Both original and sandbox statuses have already been captured."}
+    def setup_ui(self):
+        self.setWindowTitle("Hydra Dragon Antivirus")
+        self.setFixedSize(700, 600)
+        self.setWindowIcon(QIcon(icon_path))
+        self._set_window_background()
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # Important Warning Message
+        warning_text = (
+            "IMPORTANT: Only run this application from a Virtual Machine.\n"
+            "1. First, update virus definitions.\n"
+            "2. Then run the HiJackThis Report (first analysis).\n"
+            "3. After that, perform the main analysis.\n"
+            "4. Once done, do not close the application. Run HiJackThis again (final analysis).\n"
+            "5. Wait about 5 minutes after clicking the Compute Diff button, then return to a clean snapshot for a new analysis."
         )
-
-@app.get("/compute_diff")
-async def compute_diff():
-    """
-    Computes a unified diff between the original and sandbox logs.
-    For each new or modified entry, it checks the MD5 online,
-    invokes DeepSeek analysis (with HiJackThis_flag=True) unconditionally,
-    and includes all results in the diff response.
-    """
-    if not orig_log_path or not sbx_log_path:
-        raise HTTPException(status_code=400, detail="Capture both original and sandbox status first.")
-    try:
-        with open(orig_log_path, encoding='utf-8', errors='ignore') as f:
-            orig_lines = f.readlines()
-        with open(sbx_log_path, encoding='utf-8', errors='ignore') as f:
-            sbx_lines = f.readlines()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reading log files: {e}")
-
-    diff = difflib.unified_diff(orig_lines, sbx_lines, fromfile='Original', tofile='Sandbox', lineterm='')
-    diff_output = list(diff)
-
-    additional_entries = []
-    # Process entries that are in the sandbox report but not in the original
-    diff_entries = set(sandbox_entries.keys()) - set(original_entries.keys())
-    for entry in sorted(diff_entries):
-        md5, file_path = sandbox_entries.get(entry, (None, None))
-        if not md5 or not file_path:
-            additional_entries.append({
-                "entry": entry,
-                "file": file_path or "N/A",
-                "md5": md5 or "N/A",
-                "lookup_status": "Unknown",
-                "lookup_note": "No MD5 available.",
-                "deepseek_summary": "Skipped due to missing file or hash."
-            })
-            continue
-
-        # Always run DeepSeek analysis
-        deepseek_summary = scan_file_with_deepseek(file_path, HiJackThis_flag=True)
-
-        entry_result = {
-            "entry": entry,
-            "file": file_path,
-            "md5": md5,
-            "lookup_status": status,
-            "lookup_note": note,
-            "deepseek_summary": deepseek_summary
-        }
-        additional_entries.append(entry_result)
-
-    if not additional_entries:
-        additional_entries.append("No new or modified entries found in parsed reports.")
-
-    return {
-        "unified_diff": diff_output,
-        "diff_md5_results": additional_entries
-    }
-
-@app.get("/update_definitions")
-def update_definitions():
-    """
-    Checks the modification times of ClamAV database files.
-    If the files are older than 6 hours, runs freshclam to update the definitions
-    and restarts the ClamAV daemon.
-    """
-    try:
-        for file_path in clamav_file_paths:
-            if os.path.exists(file_path):
-                file_mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
-                file_age = datetime.now() - file_mod_time
-
-                if file_age > timedelta(hours=6):
-                    # Check if all files in the database directory are older than 6 hours
-                    all_files_old = True
-                    for root, dirs, files in os.walk(clamav_database_directory_path):
-                        for file_name in files:
-                            other_file_path = os.path.join(root, file_name)
-                            other_file_mod_time = datetime.fromtimestamp(os.path.getmtime(other_file_path))
-                            other_file_age = datetime.now() - other_file_mod_time
-                            if other_file_age <= timedelta(hours=6):
-                                all_files_old = False
-                                break
-                        if not all_files_old:
-                            break
-
-                    if all_files_old:
-                        result = subprocess.run([freshclam_path], capture_output=True, text=True)
-                        if result.returncode == 0:
-                            restart_clamd_thread()
-                            return {
-                                "status": "success",
-                                "message": "Antivirus definitions updated successfully and ClamAV restarted."
-                            }
-                        else:
-                            logging.error(f"freshclam failed: {result.stdout}\n{result.stderr}")
-                            raise HTTPException(status_code=500, detail="Failed to update definitions.")
-                    else:
-                        return {
-                            "status": "no_update",
-                            "message": "Not all files are older than 6 hours. No update needed."
-                        }
-                else:
-                    return {
-                        "status": "no_update",
-                        "message": "Database files are not older than 6 hours. No update needed."
-                    }
-        # If none of the expected files exist, run freshclam
-        result = subprocess.run([freshclam_path], capture_output=True, text=True)
-        if result.returncode == 0:
-            restart_clamd_thread()
-            return {
-                "status": "success",
-                "message": "Antivirus definitions updated successfully and ClamAV restarted."
+        self.warning_label = QLabel(warning_text, self)
+        self.warning_label.setWordWrap(True)
+        self.warning_label.setStyleSheet("""
+            QLabel {
+                color: yellow;
+                font: bold 12px;
+                background-color: #333;
+                border: 2px solid red;
+                border-radius: 10px;
+                padding: 10px;
             }
-        else:
-            logging.error(f"freshclam failed: {result.stdout}\n{result.stderr}")
-            raise HTTPException(status_code=500, detail="Failed to update definitions.")
-    except Exception as ex:
-        logging.error(f"Error in update_definitions: {ex}")
-        raise HTTPException(status_code=500, detail="An error occurred during definitions update.")
+        """)
 
-@app.post("/analyze_file")
-async def analyze_file(file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
-    """
-    Receives an uploaded file, saves it to a temporary location,
-    and schedules the analysis to run in the background.
-    """
-    try:
-        file_location = f"/tmp/{file.filename}"
-        with open(file_location, "wb") as f:
-            f.write(await file.read())
-        if background_tasks:
-            background_tasks.add_task(run_analysis, file_location)
-        return {"status": "analysis_started", "file": file.filename}
-    except Exception as ex:
-        logging.error(f"Error in analyze_file endpoint: {ex}")
-        raise HTTPException(status_code=500, detail="File analysis failed.")
+        # Buttons
+        self.capture_button = QPushButton("Capture Logs", self)
+        self.diff_button = QPushButton("Compute Diff", self)
+        self.update_defs_button = QPushButton("Update Definitions", self)
+        self.analyze_file_button = QPushButton("Analyze File", self)
+
+        # Text output area
+        self.output_text = QTextEdit(self)
+        self.output_text.setReadOnly(True)
+
+        # Button Styles
+        for btn in (self.capture_button, self.diff_button, self.update_defs_button, self.analyze_file_button):
+            btn.setFixedHeight(50)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet("""
+                QPushButton {
+                    color: white;
+                    font: bold 14px;
+                    border: none;
+                    border-radius: 10px;
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                        stop:0 #00BFFF, stop:1 #1E90FF);
+                }
+                QPushButton:hover {
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                        stop:0 #1E90FF, stop:1 #00BFFF);
+                }
+            """)
+
+        # Connect buttons
+        self.capture_button.clicked.connect(self.capture_logs)
+        self.diff_button.clicked.connect(self.compute_diff)
+        self.update_defs_button.clicked.connect(self.update_definitions)
+        self.analyze_file_button.clicked.connect(self.analyze_file)
+
+        # Layout Setup
+        layout.addWidget(self.warning_label)
+        layout.addSpacing(10)
+        layout.addWidget(self.capture_button)
+        layout.addWidget(self.diff_button)
+        layout.addWidget(self.update_defs_button)
+        layout.addWidget(self.analyze_file_button)
+        layout.addWidget(self.output_text)
+
+    def _set_window_background(self):
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #1e1e1e;
+                color: white;
+            }
+        """)
+
+    def capture_logs(self):
+        global orig_log_path, sbx_log_path, original_entries, sandbox_entries
+
+        if orig_log_path is None:
+            path = run_and_copy_log(label="orig")
+            orig_log_path = path
+            original_entries = parse_report(path)
+            self.output_text.append(f"[+] Original log captured: {os.path.basename(path)}")
+        elif sbx_log_path is None:
+            path = run_and_copy_log(label="sbx")
+            sbx_log_path = path
+            sandbox_entries = parse_report(path)
+            self.output_text.append(f"[+] Sandbox log captured: {os.path.basename(path)}")
+        else:
+            QMessageBox.information(self, "Capture Done", "Both original and sandbox captures have already been completed.")
+
+    def compute_diff(self):
+        if not orig_log_path or not sbx_log_path:
+            QMessageBox.warning(self, "Error", "Please capture both original and sandbox logs first!")
+            return
+        try:
+            with open(orig_log_path, encoding='utf-8', errors='ignore') as f:
+                orig_lines = f.readlines()
+            with open(sbx_log_path, encoding='utf-8', errors='ignore') as f:
+                sbx_lines = f.readlines()
+            diff = difflib.unified_diff(orig_lines, sbx_lines, fromfile='Original', tofile='Sandbox', lineterm='')
+            diff_output = list(diff)
+
+            self.output_text.append("[*] Diff computation completed:")
+            self.output_text.append("\n".join(diff_output))
+
+        except Exception as e:
+            QMessageBox.critical(self, "Diff Error", f"An error occurred while computing diff: {str(e)}")
+
+    def update_definitions(self):
+        try:
+            updated = False
+            for file_path in clamav_file_paths:
+                if os.path.exists(file_path):
+                    file_mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+                    file_age = datetime.now() - file_mod_time
+                    if file_age > timedelta(hours=6):
+                        updated = True
+                        break
+            if updated:
+                result = subprocess.run([freshclam_path], capture_output=True, text=True)
+                if result.returncode == 0:
+                    restart_clamd_thread()
+                    self.output_text.append("[+] Virus definitions updated and ClamAV restarted.")
+                else:
+                    self.output_text.append(f"[!] Failed to update definitions: {result.stderr}")
+            else:
+                self.output_text.append("[*] Definitions are up-to-date. No update needed.")
+        except Exception as e:
+            self.output_text.append(f"[!] Error updating definitions: {str(e)}")
+
+    def analyze_file(self):
+        file_dialog = QFileDialog(self)
+        file_dialog.setNameFilter("All Files (*)")
+        if file_dialog.exec():
+            file_path = file_dialog.selectedFiles()[0]
+            self.output_text.append(f"[*] Analyzing file: {file_path}")
+            # Simulate DeepSeek analysis
+            deepseek_result = scan_file_with_deepseek(file_path, HiJackThis_flag=True)
+            self.output_text.append(deepseek_result)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000, reload=False)
+    app = QApplication(sys.argv)
+    window = AntivirusApp()
+    window.show()
+    sys.exit(app.exec())

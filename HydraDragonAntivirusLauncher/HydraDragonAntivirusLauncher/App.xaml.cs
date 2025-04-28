@@ -2,7 +2,7 @@
 using System.Data;
 using System.Windows;
 
-namespace HydraDragonAntivirusGUI
+namespace HydraDragonAntivirusLauncher
 {
     /// <summary>
     /// Interaction logic for App.xaml
