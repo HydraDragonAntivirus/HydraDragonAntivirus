@@ -245,10 +245,6 @@ from pathlib import Path
 logging.info(f"pathlib.Path module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import hashlib
-logging.info(f"hashlib module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import requests
 logging.info(f"requests module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -6191,6 +6187,16 @@ def extract_pe_sections(file_path: str):
         logging.error(f"An error occurred: {e}")
         return []  # Return an empty list in case of error
 
+def _copy_to_dest(file_path, src_root, dest_root):
+    """
+    Copy file_path (under src_root) into dest_root, preserving subpath.
+    """
+    rel_path = os.path.relpath(file_path, src_root)
+    dest_path = os.path.join(dest_root, rel_path)
+    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    shutil.copy2(file_path, dest_path)
+    logging.info(f"Copied '{file_path}' to '{dest_path}'")
+
 # --- Main Scanning Function ---
 def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False, flag_de4dot=False, flag_fernflower=False):
     """
@@ -6218,12 +6224,15 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             logging.debug(f"File {file_path} is empty. Skipping scan. That doesn't mean it's not malicious. See here: https://github.com/HydraDragonAntivirus/0KBAttack")
             return False
 
-        # Read the file content once for hash calculation (and later if needed).
+        # Read the file content.
         with open(file_path, 'rb') as scan_file:
             data_content = scan_file.read()
 
-        with open(file_path, 'rb') as scan_file:
-            data_content = scan_file.read()
+        # choose destination based on origin
+        if file_path.startswith(de4dot_sandboxie_dir):
+            _copy_to_dest(file_path, de4dot_sandboxie_dir, de4dot_extracted_dir)
+        else:
+            _copy_to_dest(file_path, directory, copied_sandbox_files_dir)
 
        # Extract the file name
         file_name = os.path.basename(file_path)
@@ -7292,16 +7301,6 @@ class MonitorMessageCommandLine:
         except Exception as ex:
             logging.error(f"Error in monitor: {ex}")
 
-def _copy_to_dest(file_path, src_root, dest_root):
-    """
-    Copy file_path (under src_root) into dest_root, preserving subpath.
-    """
-    rel_path = os.path.relpath(file_path, src_root)
-    dest_path = os.path.join(dest_root, rel_path)
-    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-    shutil.copy2(file_path, dest_path)
-    logging.info(f"Copied '{file_path}' → '{dest_path}'")
-
 def monitor_sandboxie_directory():
     """
     Monitor sandboxie folder for new or modified files and scan/copy them.
@@ -7327,12 +7326,6 @@ def monitor_sandboxie_directory():
                             alerted_files.add(file_path)
                             scan_and_warn(file_path)
 
-                            # choose destination based on origin
-                            if file_path.startswith(de4dot_sandboxie_dir):
-                                _copy_to_dest(file_path, de4dot_sandboxie_dir, de4dot_extracted_dir)
-                            else:
-                                _copy_to_dest(file_path, directory, copied_sandbox_files_dir)
-
                         # on modification: rescan + recopy
                         if file_path not in scanned_files:
                             scanned_files.add(file_path)
@@ -7341,11 +7334,6 @@ def monitor_sandboxie_directory():
                             logging.info(f"File modified in {root}: {filename}")
                             scan_and_warn(file_path)
                             file_mod_times[file_path] = last_mod_time
-
-                            if file_path.startswith(de4dot_sandboxie_dir):
-                                _copy_to_dest(file_path, de4dot_sandboxie_dir, de4dot_extracted_dir)
-                            else:
-                                _copy_to_dest(file_path, directory, copied_sandbox_files_dir)
 
     except Exception as ex:
         logging.error(f"Error in monitor_sandboxie_directory: {ex}")
@@ -7493,7 +7481,7 @@ def parse_report(path):
     """
     Parse the HiJackThis report and return a dictionary where:
       key   -> The log line (lines starting with O2, O4, or O23)
-      value -> A tuple containing (md5 hash, file path) if available.
+      value -> A tuple containing (file path) if available.
     """
     entries = {}
     with open(path, encoding='utf-8', errors='ignore') as f:
@@ -7508,11 +7496,9 @@ def parse_report(path):
                     file_path = part  # store the file path
                     try:
                         with open(part, 'rb') as fp:
-                            md5 = hashlib.md5(fp.read()).hexdigest()
                     except Exception:
-                        md5 = None
                     break
-            entries[line] = (md5, file_path)
+            entries[line] = (file_path)
     return entries
 
 class AntivirusApp(QWidget):
