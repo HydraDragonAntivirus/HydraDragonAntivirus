@@ -76,7 +76,7 @@ import json
 logging.info(f"json module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QTextEdit, QLabel, QFileDialog, QMessageBox
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QTextEdit, QLabel, QFileDialog, QMessageBox, QThread
 print(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -7482,7 +7482,7 @@ def run_and_copy_log(label="orig"):
             raise Exception("Log file did not appear within the timeout period.")
     
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    dest = os.path.join(lHiJackThis_logs_dir, f"{label}_{ts}.txt")
+    dest = os.path.join(HiJackThis_logs_dir, f"{label}_{ts}.txt")
     shutil.copy(HiJackThis_log_path, dest)
     logging.info("Log copied to %s", dest)
     return dest
@@ -7512,6 +7512,85 @@ def parse_report(path):
                     break
             entries[line] = (md5, file_path)
     return entries
+
+class Worker(QThread):
+    output_signal = Signal(str)
+
+    def __init__(self, task_type, *args):
+        super().__init__()
+        self.task_type = task_type
+        self.args = args
+
+    def run(self):
+        try:
+            if self.task_type == "capture_logs":
+                self.capture_logs()
+            elif self.task_type == "compute_diff":
+                self.compute_diff()
+            elif self.task_type == "update_defs":
+                self.update_definitions()
+            elif self.task_type == "analyze_file":
+                self.analyze_file(*self.args)
+        except Exception as e:
+            self.output_signal.emit(f"[!] Error: {str(e)}")
+
+    def capture_logs(self):
+        global orig_log_path, sbx_log_path, original_entries, sandbox_entries
+        if orig_log_path is None:
+            path = run_and_copy_log(label="orig")
+            orig_log_path = path
+            original_entries = parse_report(path)
+            self.output_signal.emit(f"[+] Original log captured: {os.path.basename(path)}")
+        elif sbx_log_path is None:
+            path = run_and_copy_log(label="sbx")
+            sbx_log_path = path
+            sandbox_entries = parse_report(path)
+            self.output_signal.emit(f"[+] Sandbox log captured: {os.path.basename(path)}")
+        else:
+            self.output_signal.emit("[!] Both original and sandbox captures have already been completed.")
+
+    def compute_diff(self):
+        if not orig_log_path or not sbx_log_path:
+            self.output_signal.emit("[!] Please capture both original and sandbox logs first!")
+            return
+        try:
+            with open(orig_log_path, encoding='utf-8', errors='ignore') as f:
+                orig_lines = f.readlines()
+            with open(sbx_log_path, encoding='utf-8', errors='ignore') as f:
+                sbx_lines = f.readlines()
+            diff = difflib.unified_diff(orig_lines, sbx_lines, fromfile='Original', tofile='Sandbox', lineterm='')
+            diff_output = list(diff)
+            self.output_signal.emit("[*] Diff computation completed:")
+            self.output_signal.emit("\n".join(diff_output))
+        except Exception as e:
+            self.output_signal.emit(f"[!] Error computing diff: {str(e)}")
+
+    def update_definitions(self):
+        try:
+            updated = False
+            for file_path in clamav_file_paths:
+                if os.path.exists(file_path):
+                    file_mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+                    file_age = datetime.now() - file_mod_time
+                    if file_age > timedelta(hours=6):
+                        updated = True
+                        break
+            if updated:
+                result = subprocess.run([freshclam_path], capture_output=True, text=True)
+                if result.returncode == 0:
+                    restart_clamd_thread()
+                    self.output_signal.emit("[+] Virus definitions updated and ClamAV restarted.")
+                else:
+                    self.output_signal.emit(f"[!] Failed to update definitions: {result.stderr}")
+            else:
+                self.output_signal.emit("[*] Definitions are up-to-date. No update needed.")
+        except Exception as e:
+            self.output_signal.emit(f"[!] Error updating definitions: {str(e)}")
+
+    def analyze_file(self, file_path):
+        # Simulate DeepSeek analysis (Assume deepseek logic is implemented)
+        deepseek_result = scan_file_with_deepseek(file_path, HiJackThis_flag=True)
+        self.output_signal.emit(deepseek_result)
 
 class AntivirusApp(QWidget):
     def __init__(self):
@@ -7602,73 +7681,34 @@ class AntivirusApp(QWidget):
         """)
 
     def capture_logs(self):
-        global orig_log_path, sbx_log_path, original_entries, sandbox_entries
-
-        if orig_log_path is None:
-            path = run_and_copy_log(label="orig")
-            orig_log_path = path
-            original_entries = parse_report(path)
-            self.output_text.append(f"[+] Original log captured: {os.path.basename(path)}")
-        elif sbx_log_path is None:
-            path = run_and_copy_log(label="sbx")
-            sbx_log_path = path
-            sandbox_entries = parse_report(path)
-            self.output_text.append(f"[+] Sandbox log captured: {os.path.basename(path)}")
-        else:
-            QMessageBox.information(self, "Capture Done", "Both original and sandbox captures have already been completed.")
+        worker = Worker("capture_logs")
+        worker.output_signal.connect(self.append_output)
+        worker.start()
 
     def compute_diff(self):
-        if not orig_log_path or not sbx_log_path:
-            QMessageBox.warning(self, "Error", "Please capture both original and sandbox logs first!")
-            return
-        try:
-            with open(orig_log_path, encoding='utf-8', errors='ignore') as f:
-                orig_lines = f.readlines()
-            with open(sbx_log_path, encoding='utf-8', errors='ignore') as f:
-                sbx_lines = f.readlines()
-            diff = difflib.unified_diff(orig_lines, sbx_lines, fromfile='Original', tofile='Sandbox', lineterm='')
-            diff_output = list(diff)
-
-            self.output_text.append("[*] Diff computation completed:")
-            self.output_text.append("\n".join(diff_output))
-
-        except Exception as e:
-            QMessageBox.critical(self, "Diff Error", f"An error occurred while computing diff: {str(e)}")
+        worker = Worker("compute_diff")
+        worker.output_signal.connect(self.append_output)
+        worker.start()
 
     def update_definitions(self):
-        try:
-            updated = False
-            for file_path in clamav_file_paths:
-                if os.path.exists(file_path):
-                    file_mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
-                    file_age = datetime.now() - file_mod_time
-                    if file_age > timedelta(hours=6):
-                        updated = True
-                        break
-            if updated:
-                result = subprocess.run([freshclam_path], capture_output=True, text=True)
-                if result.returncode == 0:
-                    restart_clamd_thread()
-                    self.output_text.append("[+] Virus definitions updated and ClamAV restarted.")
-                else:
-                    self.output_text.append(f"[!] Failed to update definitions: {result.stderr}")
-            else:
-                self.output_text.append("[*] Definitions are up-to-date. No update needed.")
-        except Exception as e:
-            self.output_text.append(f"[!] Error updating definitions: {str(e)}")
+        worker = Worker("update_defs")
+        worker.output_signal.connect(self.append_output)
+        worker.start()
 
     def analyze_file(self):
         file_dialog = QFileDialog(self)
         file_dialog.setNameFilter("All Files (*)")
         if file_dialog.exec():
             file_path = file_dialog.selectedFiles()[0]
-            self.output_text.append(f"[*] Analyzing file: {file_path}")
-            # Simulate DeepSeek analysis
-            deepseek_result = scan_file_with_deepseek(file_path, HiJackThis_flag=True)
-            self.output_text.append(deepseek_result)
+            worker = Worker("analyze_file", file_path)
+            worker.output_signal.connect(self.append_output)
+            worker.start()
+
+    def append_output(self, text):
+        self.output_text.append(text)
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
+    app = QApplication([])
     window = AntivirusApp()
     window.show()
-    sys.exit(app.exec())
+    app.exec()
