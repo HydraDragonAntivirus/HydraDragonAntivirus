@@ -572,7 +572,7 @@ def analyze_file_with_die(file_path):
         # Run the DIE command once with the -j flag for JSON output
         result = subprocess.run(
             [detectiteasy_console_path, "-j", file_path],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore"
         )
     
         # Save the JSON output
@@ -4305,7 +4305,7 @@ def load_deepseek_1b_model():
         tokenizer (AutoTokenizer): The corresponding tokenizer.
     """
     # Load and verify configuration
-    cfg = AutoConfig.from_pretrained(deepseek_dir, local_files_only=True)
+    cfg = AutoConfig.from_pretrained(deepseek_1b_dir, local_files_only=True)
     print("CONFIG MODEL_TYPE:", cfg.model_type)
     if cfg.model_type.lower() != "llama":
         logging.error(f"Expected a Llama model, but config.model_type='{cfg.model_type}'")
