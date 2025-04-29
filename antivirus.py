@@ -4317,8 +4317,12 @@ def load_deepseek_1b_model(deepseek_dir):
             deepseek_dir,
             local_files_only=True
         )
+
+        # Check model type to ensure it’s correct
         if config.model_type != "llama":
             raise ValueError(f"Expected 'llama' model_type, got: {config.model_type}")
+
+        logging.info(f"Loaded model config: {config.model_type}")
 
         # Quantization config: 4-bit NF4
         bnb_config = BitsAndBytesConfig(
