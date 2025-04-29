@@ -7750,8 +7750,8 @@ class Worker(QThread):
 
     def analyze_file(self, file_path):
         # Simulate malware analysis
-        deepseek_result = run_analysis(file_path)
-        self.output_signal.emit(deepseek_result)
+        analysis_result = run_analysis(file_path)
+        self.output_signal.emit(analysis_result)
 
     def run(self):
         try:
