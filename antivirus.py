@@ -6522,7 +6522,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             nuitka_type = is_nuitka_file_from_output(die_output)
 
             # Only proceed with extraction if Nuitka is detected
-            if nuitka_result:
+            if nuitka_type:
                 try:
                     logging.info(f"Checking if the file {file_path} contains Nuitka executable of type: {nuitka_type}")
                     # Pass both the file path and Nuitka type to the check_and_extract_nuitka function
