@@ -3,10 +3,8 @@
 import os
 import sys
 import logging
-from logging import FileHandler
 from datetime import datetime, timedelta
 import time
-import io
 
 # Set script directory
 script_dir = os.getcwd()
@@ -44,6 +42,10 @@ logging.debug("Logging is now delayed until this first write, avoiding file busy
 total_start_time = time.time()
 
 # Measure and logging.info time taken for each import
+start_time = time.time()
+import io
+logging.info(f"io module loaded in {time.time() - start_time:.6f} seconds")
+
 start_time = time.time()
 import shutil
 logging.info(f"shutil module loaded in {time.time() - start_time:.6f} seconds")
@@ -612,6 +614,25 @@ def is_pe_file_from_output(die_output):
         logging.info("DIE output indicates a PE file.")
         return True
     logging.info(f"DIE output does not indicate a PE file: {die_output}")
+    return False
+
+def is_nsis_from_output(die_output: str) -> bool:
+    """Checks if DIE output indicates an NSIS installer file."""
+    if not die_output:
+        logging.info("DIE output is empty or None.")
+        return False
+
+    # Look for NSIS installer signatures in the output
+    indicators = [
+        "Nullsoft Scriptable Install System",  # e.g. Installer: Nullsoft Scriptable Install System(2.46-Unicode)[lzma]
+        "Data: NSIS data"
+    ]
+
+    if any(indicator in die_output for indicator in indicators):
+        logging.info("DIE output indicates an NSIS installer.")
+        return True
+
+    logging.info(f"DIE output does not indicate an NSIS installer: {die_output!r}")
     return False
 
 def is_elf_file_from_output(die_output):
@@ -1391,12 +1412,16 @@ def notify_user(file_path, virus_name, engine_detected):
     notification.title = "Malware Alert"
     notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
     notification.send()
+    logging.warning(notification_title)
+    logging.warning(notification_message)
 
 def notify_user_pua(file_path, virus_name, engine_detected):
     notification = Notify()
     notification.title = "PUA Alert"
     notification.message = f"PUA file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
     notification.send()
+    logging.warning(notification_title)
+    logging.warning(notification_message)
 
 def notify_user_for_malicious_source_code(file_path, virus_name):
     """
@@ -1404,6 +1429,7 @@ def notify_user_for_malicious_source_code(file_path, virus_name):
     """
     notification_title = f"Malicious Source Code detected: {virus_name}"
     notification_message = f"Suspicious source code detected in: {file_path}\nVirus: {virus_name}"
+    notification.send()
     logging.warning(notification_title)
     logging.warning(notification_message)
 
@@ -1413,7 +1439,9 @@ def notify_user_for_detected_command(message):
     notification.title = f"Malware Message Alert"
     notification.message = message
     notification.send()
-    
+    logging.warning(notification_title)
+    logging.warning(notification_message)
+
 def notify_user_for_deepseek(file_path, virus_name, malware_status, HiJackThis_flag=False):
     notification = Notify()
     if HiJackThis_flag:
@@ -1427,6 +1455,8 @@ def notify_user_for_deepseek(file_path, virus_name, malware_status, HiJackThis_f
         notification.message = f"Malware detected: {file_path}\nVirus: {virus_name}"
 
     notification.send()
+    logging.warning(notification_title)
+    logging.warning(notification_message)
 
 def notify_size_warning(file_path, archive_type, virus_name):
     """Send a notification for size-related warnings."""
@@ -1435,6 +1465,8 @@ def notify_size_warning(file_path, archive_type, virus_name):
     notification.message = (f"{archive_type} file {file_path} is smaller than 20MB but contains a large file "
                             f"which might be suspicious. Virus Name: {virus_name}")
     notification.send()
+    logging.warning(notification_title)
+    logging.warning(notification_message)
 
 def notify_rlo_warning(file_path, archive_type, virus_name):
     """Send a notification for RLO-related warnings."""
@@ -1443,13 +1475,17 @@ def notify_rlo_warning(file_path, archive_type, virus_name):
     notification.message = (f"Filename in {archive_type} file {file_path} contains RLO character after a dot. "
                             f"This could indicate suspicious activity. Virus Name: {virus_name}")
     notification.send()
+    logging.warning(notification_title)
+    logging.warning(notification_message)
 
 def notify_user_rlo(file_path, virus_name):
     notification = Notify()
     notification.title = "Suspicious RLO Name Alert"
     notification.message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
-    
+    logging.warning(notification_title)
+    logging.warning(notification_message)
+
 def notify_user_for_detected_fake_system_file(file_path, file_name, virus_name):
     notification = Notify()
     notification.title = "Fake System File Alert"
@@ -1460,6 +1496,8 @@ def notify_user_for_detected_fake_system_file(file_path, file_name, virus_name):
         f"Threat: {virus_name}"
     )
     notification.send()
+    logging.warning(notification_title)
+    logging.warning(notification_message)
 
 def notify_user_for_detected_rootkit(file_path, virus_name):
     notification = Notify()
@@ -1470,24 +1508,32 @@ def notify_user_for_detected_rootkit(file_path, virus_name):
         f"Threat: {virus_name}"
     )
     notification.send()
+    logging.warning(notification_title)
+    logging.warning(notification_message)
 
 def notify_user_invalid(file_path, virus_name):
     notification = Notify()
     notification.title = "Invalid signature Alert"
     notification.message = f"Invalid signature file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
+    logging.warning(notification_title)
+    logging.warning(notification_message)
 
 def notify_user_ghidra(file_path, virus_name):
     notification = Notify()
     notification.title = "Decompiled Malicious File Alert"
     notification.message = f"Malicious decompiled file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
+    logging.warning(notification_title)
+    logging.warning(notification_message)
 
 def notify_user_fake_size(file_path, virus_name):
     notification = Notify()
     notification.title = "Fake Size Alert"
     notification.message = f"Fake size file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
+    logging.warning(notification_title)
+    logging.warning(notification_message)
 
 def notify_user_startup(file_path, message):
     """Notify the user about suspicious or malicious startup files."""
@@ -1497,36 +1543,48 @@ def notify_user_startup(file_path, message):
     # Include file_path in the message
     notification.message = f"File: {file_path}\n{message}"
     notification.send()
+    logging.warning(notification_title)
+    logging.warning(notification_message)
 
 def notify_user_uefi(file_path, virus_name):
     notification = Notify()
     notification.title = "UEFI Malware Alert"
     notification.message = f"Suspicious UEFI file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
+    logging.warning(notification_title)
+    logging.warning(notification_message)
 
 def notify_user_ransomware(file_path, virus_name):
     notification = Notify()
     notification.title = "Ransomware Alert"
     notification.message = f"Potential ransomware detected: {file_path}\nVirus: {virus_name}"
     notification.send()
+    logging.warning(notification_title)
+    logging.warning(notification_message)
 
 def notify_user_exela_stealer_v2(file_path, virus_name):
     notification = Notify()
     notification.title = "Exela Stealer version 2 Alert in Python source code"
     notification.message = f"Potential Exela Stealer version 2 detected: {file_path}\nVirus: {virus_name}"
     notification.send()
+    logging.warning(notification_title)
+    logging.warning(notification_message)
 
 def notify_user_hosts(file_path, virus_name):
     notification = Notify()
     notification.title = "Host Hijacker Alert"
     notification.message = f"Potential host hijacker detected: {file_path}\nVirus: {virus_name}"
     notification.send()
+    logging.warning(notification_title)
+    logging.warning(notification_message)
 
 def notify_user_worm(file_path, virus_name):
     notification = Notify()
     notification.title = "Worm Alert"
     notification.message = f"Potential worm detected: {file_path}\nVirus: {virus_name}"
     notification.send()
+    logging.warning(notification_title)
+    logging.warning(notification_message)
 
 def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=None, file_path=None, detection_type=None):
     notification = Notify()
@@ -1553,6 +1611,8 @@ def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=N
         notification.message = "Phishing or Malicious activity detected"
 
     notification.send()
+    logging.warning(notification_title)
+    logging.warning(notification_message)
 
 def notify_user_for_hips(ip_address=None, dst_ip_address=None):
     notification = Notify()
@@ -1568,6 +1628,8 @@ def notify_user_for_hips(ip_address=None, dst_ip_address=None):
         notification.message = "Malicious activity detected"
     
     notification.send()
+    logging.warning(notification_title)
+    logging.warning(notification_message)
 
 def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
     """
@@ -1577,7 +1639,7 @@ def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
     notification.title = "Web Malware Alert For File"
     notification.message = f"{status} file detected by Web related Message: {file_path}\nSource IP: {src_ip}\nAlert Line: {alert_line}"
     notification.send()
-    logging.info(f"Real-time web message notification: Detected {status} file {file_path} from {src_ip} with alert line: {alert_line}")
+    logging.warning(f"Real-time web message notification: Detected {status} file {file_path} from {src_ip} with alert line: {alert_line}")
 
 # Function to load antivirus list
 def load_antivirus_list():
@@ -1842,7 +1904,7 @@ def load_website_data():
 
 # --------------------------------------------------------------------------
 # Check for Discord webhook URLs and invite links (including Canary)
-def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=None,
+def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=None, nsis_flag=False, 
                             nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False, dotnet_flag=False):
     """
     Scan the decompiled code for Discord webhook URLs, Discord Canary webhook URLs, Discord invite links or Telegram bot links.
@@ -1870,6 +1932,9 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
         elif nuitka_flag:
             logging.warning(f"Discord webhook URL detected in Nuitka compiled file: {file_path} - Matches: {discord_webhook_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.Nuitka')
+        elif nsis_flag:
+            logging.warning(f"Discord webhook URL detected in NSIS script compiled file (.nsi): {file_path} - Matches: {discord_webhook_matches}")
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.NSIS')
         elif pyinstaller_flag or pyinstaller_deepseek_flag:
             # In both cases, add the notice.
             logging.warning(f"Discord webhook URL detected in PyInstaller compiled file: {file_path} - Matches: {discord_webhook_matches} NOTICE: There still a chance the file is not related with PyInstaller")
@@ -1891,6 +1956,9 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
         elif nuitka_flag:
             logging.warning(f"Discord Canary webhook URL detected in Nuitka compiled file: {file_path} - Matches: {discord_canary_webhook_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.Nuitka')
+        elif nsis_flag:
+            logging.warning(f"Discord Canary webhook URL detected in NSIS script compiled file (.nsi): {file_path} - Matches: {discord_canary_webhook_matches}")
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.NSIS')
         elif pyinstaller_flag or pyinstaller_deepseek_flag:
             logging.warning(f"Discord Canary webhook URL detected in PyInstaller compiled file: {file_path} - Matches: {discord_canary_webhook_matches} NOTICE: There still a chance the file is not related with PyInstaller")
             if pyinstaller_deepseek_flag:
@@ -1907,19 +1975,22 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
                 logging.warning(f"Discord invite link detected in .NET source code file: {cs_file_path} - Matches: {discord_invite_matches}")
             else:
                 logging.warning(f"Discord invite link detected in .NET source code file: [cs_file_path not provided] - Matches: {discord_invite_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Invite.DotNET')
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Susp.Discord.Invite.DotNET')
         elif nuitka_flag:
             logging.warning(f"Discord invite link detected in Nuitka compiled file: {file_path} - Matches: {discord_invite_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Invite.Nuitka')
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Susp.Discord.Invite.Nuitka')
+        elif nsis_flag:
+            logging.warning(f"Discord invite link detected in NSIS script compiled file (.nsi): {file_path} - Matches: {discord_invite_matches}")
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Susp.Discord.Invite.NSIS')
         elif pyinstaller_flag or pyinstaller_deepseek_flag:
             logging.warning(f"Discord invite link detected in PyInstaller compiled file: {file_path} - Matches: {discord_invite_matches} NOTICE: There still a chance the file is not related with PyInstaller")
             if pyinstaller_deepseek_flag:
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Invite.PyInstallerDeepSeek')
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Susp.Discord.Invite.PyInstallerDeepSeek')
             else:
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Invite.PyInstaller')
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Susp.Discord.Invite.PyInstaller')
         else:
             logging.info(f"Discord invite link detected in decompiled code: {discord_invite_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Invite')
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Susp.Discord.Invite')
 
     if telegram_token_matches and telegram_keyword_matches:
         if dotnet_flag:
@@ -1931,6 +2002,9 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
         elif nuitka_flag:
             logging.warning(f"Telegram bot detected in Nuitka compiled file: {file_path} - Matches: {telegram_token_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.Nuitka')
+        elif nsis_flag:
+            logging.warning(f"Telegram bot detected in NSIS script compiled file (.nsi): {file_path} - Matches: {telegram_token_matches}")
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.NSIS')
         elif pyinstaller_flag or pyinstaller_deepseek_flag:
             logging.warning(f"Telegram bot detected in PyInstaller compiled file: {file_path} - Matches: {telegram_token_matches} NOTICE: There still a chance the file is not related with PyInstaller")
             if pyinstaller_deepseek_flag:
@@ -1943,7 +2017,7 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
 
 # --------------------------------------------------------------------------
 # Generalized scan for domains
-def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False, homepage_flag=""):
+def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False, homepage_flag=""):
     try:
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
@@ -1977,7 +2051,7 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
         for is_whitelisted, whitelist_type in whitelist_checks:
             if is_whitelisted:
                 logging.info(f"Domain {full_domain} is whitelisted ({whitelist_type}).")
-                return
+                return,
 
         if subdomain:
             if full_domain in spam_sub_domains_data:
@@ -1987,6 +2061,9 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
                 elif nuitka_flag:
                     logging.warning(f"Spam subdomain detected in Nuitka compiled file: {full_domain}")
                     notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Nuitka.Spam.SubDomain")
+                elif nsis_flag:
+                    logging.warning(f"Spam subdomain detected in NSIS script compiled file (.nsi): {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.NSIS.Spam.SubDomain")
                 elif pyinstaller_flag or pyinstaller_deepseek_flag:
                     logging.warning(f"Spam subdomain detected in PyInstaller compiled file: {full_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
                     if pyinstaller_deepseek_flag:
@@ -2007,6 +2084,9 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
                 elif nuitka_flag:
                     logging.warning(f"Mining subdomain detected in Nuitka compiled file: {full_domain}")
                     notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Nuitka.Mining.SubDomain")
+                elif nsis_flag:
+                    logging.warning(f"Mining subdomain detected in NSIS script compiled file (.nsi): {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.NSIS.Mining.SubDomain")
                 elif pyinstaller_flag or pyinstaller_deepseek_flag:
                     logging.warning(f"Mining subdomain detected in PyInstaller compiled file: {full_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
                     if pyinstaller_deepseek_flag:
@@ -2027,6 +2107,9 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
                 elif nuitka_flag:
                     logging.warning(f"Abuse subdomain detected in Nuitka compiled file: {full_domain}")
                     notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Nuitka.Abuse.SubDomain")
+                elif nsis_flag:
+                    logging.warning(f"Abuse subdomain detected in NSIS script compiled file (.nsi): {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.NSIS.Abuse.SubDomain")
                 elif pyinstaller_flag or pyinstaller_deepseek_flag:
                     logging.warning(f"Abuse subdomain detected in PyInstaller compiled file: {full_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
                     if pyinstaller_deepseek_flag:
@@ -2047,6 +2130,9 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
                 elif nuitka_flag:
                     logging.warning(f"Phishing subdomain detected in Nuitka compiled file: {full_domain}")
                     notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Nuitka.Phishing.SubDomain")
+                elif nsis_flag:
+                    logging.warning(f"Phishing subdomain detected in NSIS script compiled file (.nsi): {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.NSIS.Phishing.SubDomain")
                 elif pyinstaller_flag or pyinstaller_deepseek_flag:
                     logging.warning(f"Phishing subdomain detected in PyInstaller compiled file: {full_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
                     if pyinstaller_deepseek_flag:
@@ -2067,6 +2153,9 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
                 elif nuitka_flag:
                     logging.warning(f"Malware mail subdomain detected in Nuitka compiled file: {full_domain}")
                     notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Nuitka.Malware.Mail.SubDomain")
+                elif nsis_flag:
+                    logging.warning(f"Malware mail subdomain detected in NSIS script compiled file (.nsi): {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.NSIS.Malware.Mail.SubDomain")
                 elif pyinstaller_flag or pyinstaller_deepseek_flag:
                     logging.warning(f"Malware mail subdomain detected in PyInstaller compiled file: {full_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
                     if pyinstaller_deepseek_flag:
@@ -2087,6 +2176,9 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
                 elif nuitka_flag:
                     logging.warning(f"Malware subdomain detected in Nuitka compiled file: {full_domain}")
                     notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Nuitka.Malware.SubDomain")
+                elif nsis_flag:
+                    logging.warning(f"Malware subdomain detected in NSIS script compiled file (.nsi): {full_domain}")
+                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.NSIS.Malware.SubDomain")
                 elif pyinstaller_flag or pyinstaller_deepseek_flag:
                     logging.warning(f"Malware subdomain detected in PyInstaller compiled file: {full_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
                     if pyinstaller_deepseek_flag:
@@ -2108,6 +2200,9 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
             elif nuitka_flag:
                 logging.warning(f"Spam domain detected in Nuitka compiled file: {main_domain}")
                 notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Nuitka.Spam.Domain")
+            elif nsis_flag:
+                logging.warning(f"Spam domain detected in NSIS script compiled file (.nsi): {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.NSIS.Spam.Domain")
             elif pyinstaller_flag or pyinstaller_deepseek_flag:
                 logging.warning(f"Spam domain detected in PyInstaller compiled file: {main_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
                 if pyinstaller_deepseek_flag:
@@ -2128,6 +2223,9 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
             elif nuitka_flag:
                 logging.warning(f"Mining domain detected in Nuitka compiled file: {main_domain}")
                 notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Nuitka.Mining.Domain")
+            elif nsis_flag:
+                logging.warning(f"Mining domain detected in NSIS script compiled file (.nsi): {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.NSIS.Mining.Domain")
             elif pyinstaller_flag or pyinstaller_deepseek_flag:
                 logging.warning(f"Mining domain detected in PyInstaller compiled file: {main_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
                 if pyinstaller_deepseek_flag:
@@ -2148,6 +2246,9 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
             elif nuitka_flag:
                 logging.warning(f"Abuse domain detected in Nuitka compiled file: {main_domain}")
                 notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Nuitka.Abuse.Domain")
+            elif nsis_flag:
+                logging.warning(f"Abuse domain detected in NSIS script compiled file (.nsi): {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.NSIS.Abuse.Domain")
             elif pyinstaller_flag or pyinstaller_deepseek_flag:
                 logging.warning(f"Abuse domain detected in PyInstaller compiled file: {main_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
                 if pyinstaller_deepseek_flag:
@@ -2168,6 +2269,9 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
             elif nuitka_flag:
                 logging.warning(f"Phishing domain detected in Nuitka compiled file: {main_domain}")
                 notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Nuitka.Phishing.Domain")
+            elif nsis_flag:
+                logging.warning(f"Phishing domain detected in NSIS script compiled file (.nsi): {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.NSIS.Phishing.Domain")
             elif pyinstaller_flag or pyinstaller_deepseek_flag:
                 logging.warning(f"Phishing domain detected in PyInstaller compiled file: {main_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
                 if pyinstaller_deepseek_flag:
@@ -2188,6 +2292,9 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
             elif nuitka_flag:
                 logging.warning(f"Malware mail domain detected in Nuitka compiled file: {main_domain}")
                 notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Nuitka.Malware.Mail.Domain")
+            elif nsis_flag:
+                logging.warning(f"Malware mail domain detected in NSIS script compiled file (.nsi): {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.NSIS.Malware.Mail.Domain")
             elif pyinstaller_flag or pyinstaller_deepseek_flag:
                 logging.warning(f"Malware mail domain detected in PyInstaller compiled file: {main_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
                 if pyinstaller_deepseek_flag:
@@ -2208,6 +2315,9 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
             elif nuitka_flag:
                 logging.warning(f"Malware domain detected in Nuitka compiled file: {main_domain}")
                 notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Nuitka.Malware.Domain")
+            elif nsis_flag:
+                logging.warning(f"Malware domain detected in NSIS script compiled file (.nsi): {main_domain}")
+                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.NSIS.Malware.Domain")
             elif pyinstaller_flag or pyinstaller_deepseek_flag:
                 logging.warning(f"Malware domain detected in PyInstaller compiled file: {main_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
                 if pyinstaller_deepseek_flag:
@@ -2228,7 +2338,7 @@ def scan_domain_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_f
 
 # --------------------------------------------------------------------------
 # Generalized scan for URLs
-def scan_url_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False, homepage_flag=""):
+def scan_url_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False, homepage_flag=""):
     try:
         if url in scanned_urls_general:
             logging.info(f"URL {url} has already been scanned.")
@@ -2257,6 +2367,8 @@ def scan_url_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag
                     notify_user_for_malicious_source_code(url, 'HEUR:Win32.DotNET.URLhaus.Match')
                 elif nuitka_flag:
                     notify_user_for_malicious_source_code(url, 'HEUR:Win32.Nuitka.URLhaus.Match')
+                elif nsis_flag:
+                    notify_user_for_malicious_source_code(url, 'HEUR:Win32.NSIS.URLhaus.Match')
                 elif pyinstaller_flag or pyinstaller_deepseek_flag:
                     logging.warning(f"URL {url} matches the URLhaus signatures. NOTICE: There is still a chance the file is not related with PyInstaller")
                     if pyinstaller_deepseek_flag:
@@ -2308,7 +2420,7 @@ def fetch_html(url):
 
 # --------------------------------------------------------------------------
 # Generalized scan for IP addresses
-def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False, homepage_flag=""):
+def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False, homepage_flag=""):
     try:
         # Check if the IP address is local
         if is_local_ip(ip_address):
@@ -2337,6 +2449,8 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.DDoS.IPv6')
                 elif nuitka_flag:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.DDoS.IPv6')
+                elif nsis_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.DDoS.IPv6')
                 elif pyinstaller_flag or pyinstaller_deepseek_flag:
                     logging.warning(f"DDoS IPv6 address detected: {ip_address} NOTICE: There is still a chance the file is not related to PyInstaller")
                     if pyinstaller_deepseek_flag:
@@ -2353,6 +2467,8 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.Spam.IPv6')
                 elif nuitka_flag:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Spam.IPv6')
+                elif nsis_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.Spam.IPv6')
                 elif pyinstaller_flag or pyinstaller_deepseek_flag:
                     logging.warning(f"Spam IPv6 address detected: {ip_address} NOTICE: There is still a chance the file is not related to PyInstaller")
                     if pyinstaller_deepseek_flag:
@@ -2369,6 +2485,8 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.Malware.IPv6')
                 elif nuitka_flag:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Malware.IPv6')
+                elif nsis_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.Malware.IPv6')
                 elif pyinstaller_flag or pyinstaller_deepseek_flag:
                     logging.warning(f"Malicious IPv6 address detected: {ip_address} NOTICE: There is still a chance the file is not related to PyInstaller")
                     if pyinstaller_deepseek_flag:
@@ -2399,6 +2517,8 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.PhishingActive.IPv4')
                 elif nuitka_flag:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.PhishingActive.IPv4')
+                elif nsis_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.PhishingActive.IPv4')
                 elif pyinstaller_flag or pyinstaller_deepseek_flag:
                     logging.warning(f"IPv4 address {ip_address} detected as an active phishing threat. NOTICE: There is still a chance the file is not related to PyInstaller")
                     if pyinstaller_deepseek_flag:
@@ -2415,6 +2535,8 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.DDoS.IPv4')
                 elif nuitka_flag:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.DDoS.IPv4')
+                elif nsis_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.DDoS.IPv4')
                 elif pyinstaller_flag or pyinstaller_deepseek_flag:
                     logging.warning(f"IPv4 address {ip_address} detected as a potential DDoS threat. NOTICE: There is still a chance the file is not related to PyInstaller")
                     if pyinstaller_deepseek_flag:
@@ -2431,6 +2553,8 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.PhishingInactive.IPv4')
                 elif nuitka_flag:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.PhishingInactive.IPv4')
+                elif nsis_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.PhishingInactive.IPv4')
                 elif pyinstaller_flag or pyinstaller_deepseek_flag:
                     logging.warning(f"IPv4 address {ip_address} detected as an inactive phishing threat. NOTICE: There is still a chance the file is not related to PyInstaller")
                     if pyinstaller_deepseek_flag:
@@ -2447,6 +2571,8 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.BruteForce.IPv4')
                 elif nuitka_flag:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.BruteForce.IPv4')
+                elif nsis_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.BruteForce.IPv4')
                 elif pyinstaller_flag or pyinstaller_deepseek_flag:
                     logging.warning(f"IPv4 address {ip_address} detected as a potential BruteForce threat. NOTICE: There is still a chance the file is not related to PyInstaller")
                     if pyinstaller_deepseek_flag:
@@ -2463,6 +2589,8 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.Spam.IPv4')
                 elif nuitka_flag:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Spam.IPv4')
+                elif nsis_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.Spam.IPv4')
                 elif pyinstaller_flag or pyinstaller_deepseek_flag:
                     logging.warning(f"Spam IPv4 address detected: {ip_address} NOTICE: There is still a chance the file is not related to PyInstaller")
                     if pyinstaller_deepseek_flag:
@@ -2479,6 +2607,8 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nuitka_flag=False, py
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.Malware.IPv4')
                 elif nuitka_flag:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Malware.IPv4')
+                elif nsis_flag:
+                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.Malware.IPv4')
                 elif pyinstaller_flag or pyinstaller_deepseek_flag:
                     logging.warning(f"Malicious IPv4 address detected: {ip_address} NOTICE: There is still a chance the file is not related to PyInstaller")
                     if pyinstaller_deepseek_flag:
@@ -2501,13 +2631,13 @@ def scan_html_content(html_content, dotnet_flag=False, nuitka_flag=False, pyinst
     """Scan extracted HTML content for any potential threats."""
     contains_discord_or_telegram_code(html_content, "html_content", None,
                           dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                          pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+                          pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
     urls = set(re.findall(r'https?://[^\s/$.?#]\S*', html_content))
     for url in urls:
         scan_url_general(url, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                          pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+                          pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
         scan_domain_general(url, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                            pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+                            pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
     ipv4_addresses = set(re.findall(
         r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'
         r'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)',
@@ -2515,19 +2645,19 @@ def scan_html_content(html_content, dotnet_flag=False, nuitka_flag=False, pyinst
     ))
     for ip in ipv4_addresses:
         scan_ip_address_general(ip, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                                pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+                                pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
     ipv6_addresses = set(re.findall(
         r'([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}',
         html_content
     ))
     for ip in ipv6_addresses:
         scan_ip_address_general(ip, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                                pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+                                pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
 
 # --------------------------------------------------------------------------
 # Main scanner: combine all individual scans and pass the flags along
 def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
-                          dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False,
+                          dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False, nsis_flag=False,
                           homepage_flag=""):
     """
     Scan the decompiled code for Discord-related URLs (via contains_discord_or_telegram_code),
@@ -2539,7 +2669,7 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
     # Call the Discord/Telegram scanner
     contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path,
                             dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                            pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+                            pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
 
     # Extract URLs from the decompiled code
     urls = set(re.findall(r'https?://[^\s/$.?#]\S*', decompiled_code))
@@ -2547,16 +2677,16 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
         html_content = fetch_html(url)
         contains_discord_or_telegram_code(html_content, file_path, cs_file_path,
                               dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                              pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+                              pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
         # Pass the homepage flag string into the scanning functions
         scan_url_general(url, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                          pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag,
+                          pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag,
                           homepage_flag=homepage_flag)
         scan_domain_general(url, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                            pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag,
+                            pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag,
                             homepage_flag=homepage_flag)
         scan_html_content(html_content, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                          pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+                          pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
 
     ipv4_addresses = set(re.findall(
         r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'
@@ -2565,7 +2695,7 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
     ))
     for ip in ipv4_addresses:
         scan_ip_address_general(ip, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                                pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag,
+                                pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag,
                                 homepage_flag=homepage_flag)
 
     ipv6_addresses = set(re.findall(
@@ -2574,7 +2704,7 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
     ))
     for ip in ipv6_addresses:
         scan_ip_address_general(ip, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                                pyinstaller_flag=pyinstaller_flag, pyinstaller_deepseek_flag=pyinstaller_deepseek_flag,
+                                pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag,
                                 homepage_flag=homepage_flag)
 
 def enum_process_modules(handle):
@@ -5406,46 +5536,74 @@ def decompile_dotnet_file(file_path):
     except Exception as ex:
         logging.error(f"Error decompiling .NET file {file_path}: {ex}")
 
-def extract_all_files_with_7z(file_path):
-    try:
-        counter = 1
-        base_output_dir = os.path.join(general_extracted_dir, os.path.splitext(os.path.basename(file_path))[0])
+def extract_all_files_with_7z(file_path, nsis_flag=False):
+    """
+    Extracts all files from an archive via 7-Zip CLI.
+    Always returns a single path:
+      - If nsis_flag is False: the output directory path.
+      - If nsis_flag is True and a .nsi script is found: the path to the first extracted .nsi file
+        (after calling scan_code_for_links on its contents).
+      - Otherwise (nsis_flag True but no .nsi found): still returns the output directory path.
 
-        # Ensure output directory is unique
+    Side effects:
+      - If nsis_flag is True and an .nsi is found, calls scan_code_for_links(..., nsis_flag=True).
+    """
+    try:
+        # Prepare a unique output directory
+        counter = 1
+        base_name = os.path.splitext(os.path.basename(file_path))[0]
+        base_output_dir = os.path.join(general_extracted_dir, base_name)
         while os.path.exists(f"{base_output_dir}_{counter}"):
             counter += 1
-
         output_dir = f"{base_output_dir}_{counter}"
         os.makedirs(output_dir, exist_ok=True)
 
-        logging.info(f"Attempting to extract file {file_path} into {output_dir}...")
+        logging.info(f"Extracting {file_path} → {output_dir}")
+        cmd = [
+            seven_zip_path, "x", file_path,
+            f"-o{output_dir}", "-y", "-snl", "-spe"
+        ]
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="ignore"
+        )
+        if proc.returncode != 0:
+            logging.error(
+                f"7z failed (code {proc.returncode}): {proc.stderr.strip()}"
+            )
+            return output_dir
 
-        # Run the 7z extraction
-        command = [seven_zip_path, "x", file_path, f"-o{output_dir}", "-y", "-snl", "-spe"]
-        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
-
-        if result.returncode != 0:
-            logging.error(f"7z extraction failed with return code {result.returncode}: {result.stderr}")
-            return []
-
-        logging.info(f"7z extraction successful for {file_path}.")
-
-        # Gather all files in the output directory after extraction
-        extracted_files = []
+        # Walk the extracted files looking for .nsi scripts
+        nsi_path = None
         for root, _, files in os.walk(output_dir):
-            for name in files:
-                extracted_files.append(os.path.join(root, name))
+            for fname in files:
+                if fname.lower().endswith('.nsi'):
+                    nsi_path = os.path.join(root, fname)
+                    break
+            if nsi_path:
+                break
 
-        if not extracted_files:
-            logging.warning(f"No files were extracted from {file_path}.")
-        else:
-            logging.info(f"Extracted {len(extracted_files)} files from {file_path}.")
+        if nsis_flag and nsi_path:
+            try:
+                with open(nsi_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                # scan_code_for_links should be defined/imported elsewhere
+                links = scan_code_for_links(content, nsis_flag=True)
+                logging.info(f"Scanned NSIS script {nsi_path}, found {len(links)} links.")
+            except Exception as e:
+                logging.error(f"Failed to scan {nsi_path}: {e}")
 
-        return extracted_files
+            return nsi_path
+
+        # Default: return the directory path
+        return output_dir
 
     except Exception as ex:
-        logging.error(f"Error during 7z extraction: {ex}")
-        return []
+        logging.error(f"Error extracting with 7z: {ex}")
+        # On error, still return whatever directory was created (if any)
+        return output_dir
 
 def extract_line(content, prefix):
     """
@@ -6240,7 +6398,7 @@ def _copy_to_dest(file_path, src_root, dest_root):
     logging.info(f"Copied '{file_path}' '{dest_path}'")
 
 # --- Main Scanning Function ---
-def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False, flag_de4dot=False, flag_fernflower=False):
+def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False, flag_de4dot=False, flag_fernflower=False, nsis_flag=False):
     """
     Scans a file for potential issues.
 
@@ -6301,6 +6459,9 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             logging.info(
                 f"Flag set to True because '{file_path}' is inside the de4dot directory '{match}'"
         )
+       
+        if is_nsis_from_output(die_output):
+           nsis_flag= False
 
         # Detect Inno Setup installer
         if is_inno_setup_archive_from_output(die_output):
@@ -6402,7 +6563,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             # Attempt to extract the file, regardless of its type
             try:
                 logging.info(f"Attempting to extract file {file_path}...")
-                extracted_files = extract_all_files_with_7z(file_path)
+                extracted_files = extract_all_files_with_7z(file_path, nsis_flag)
 
                 if extracted_files:
                     logging.info(f"Extraction successful for {file_path}. Scanning extracted files...")
