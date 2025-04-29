@@ -190,7 +190,7 @@ logging.info(f"binascii module loaded in {time.time() - start_time:.6f} seconds"
 
 start_time = time.time()
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
-logging.info(f"transformers.AutoTokenizer and AutoModelForCausalLM modules loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"transformers.AutoTokenizer, AutoModelForCausalLM and BitsAndBytesConfig modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import torch
@@ -4306,29 +4306,38 @@ def load_deepseek_1b_model(deepseek_dir):
     try:
         logging.info("Attempting to load DeepSeek-Coder-1.3B model and tokenizer...")
 
-        # 1) Tokenizer
+        # Load tokenizer
         tokenizer = AutoTokenizer.from_pretrained(
             deepseek_dir,
             local_files_only=True
         )
 
-        # 2) Quantization config: 4-bit NF4
+        # Load config explicitly
+        config = AutoConfig.from_pretrained(
+            deepseek_dir,
+            local_files_only=True
+        )
+        if config.model_type != "llama":
+            raise ValueError(f"Expected 'llama' model_type, got: {config.model_type}")
+
+        # Quantization config: 4-bit NF4
         bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,                    
-            bnb_4bit_quant_type="nf4",            
-            bnb_4bit_compute_dtype=torch.float16  
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.float16
         )
 
-        # 3) Model load
+        # Load model
         model = AutoModelForCausalLM.from_pretrained(
             deepseek_dir,
+            config=config,  # Explicitly pass config
             local_files_only=True,
             quantization_config=bnb_config,
-            device_map="auto",                  
-            offload_folder="offload",           
-            offload_state_dict=True,            
-            torch_dtype=torch.float16,          
-            low_cpu_mem_usage=True              
+            device_map="auto",
+            offload_folder="offload",
+            offload_state_dict=True,
+            torch_dtype=torch.float16,
+            low_cpu_mem_usage=True
         )
 
         logging.info("DeepSeek-Coder-1.3B successfully loaded with 4-bit quantization!")
