@@ -454,6 +454,10 @@ os.makedirs(HiJackThis_logs_dir, exist_ok=True)
 # Counter for ransomware detection
 ransomware_detection_count = 0 
 
+def sanitize_filename(name: str) -> str:
+    """Replace illegal filename characters with underscores."""
+    return re.sub(r'[<>:"/\\|?*]', '_', name)
+
 def ublock_detect(url):
     """
     Check if the given URL should be detected by the uBlock-style rule.
@@ -528,13 +532,18 @@ except Exception as e:
 
 def get_unique_output_path(output_dir: Path, base_name: str, suffix: int = 1) -> Path:
     """
-    Generate a unique file path by appending a suffix (e.g., _1, _2) if the file already exists.
+    Generate a unique file path by appending a suffix (_1, _2, etc.) if the file already exists.
+    Also sanitize the base_name to remove invalid filename characters.
     """
-    new_path = output_dir / f"{base_name.stem}_{suffix}{base_name.suffix}"
+    # Sanitize base_name first
+    base_name = sanitize_filename(base_name)
+    base_name_path = Path(base_name)
 
-    while new_path.exists():  # If the file exists, increment the suffix
+    new_path = output_dir / f"{base_name_path.stem}_{suffix}{base_name_path.suffix}"
+
+    while new_path.exists():
         suffix += 1
-        new_path = output_dir / f"{base_name.stem}_{suffix}{base_name.suffix}"
+        new_path = output_dir / f"{base_name_path.stem}_{suffix}{base_name_path.suffix}"
 
     return new_path
 
@@ -6879,7 +6888,7 @@ def find_child_windows(parent_hwnd):
 # Function to find windows containing text
 def find_windows_with_text():
     """Find all windows and their child windows."""
-    def enum_windows_callback(hwnd):
+    def enum_windows_callback(hwnd, lParam):
         if ctypes.windll.user32.IsWindowVisible(hwnd):
             window_text = get_window_text(hwnd)
             window_handles.append((hwnd, window_text))
@@ -7457,20 +7466,18 @@ def force_remove_log():
 def run_and_copy_log(label="orig"):
     """
     Remove any existing log file, launch HiJackThis via Sandboxie,
-    wait for the log to appear, then copy it to a timestamped file.
+    wait indefinitely (no sleep) for the log to appear, then copy it to a timestamped file.
     """
     force_remove_log()
+
     cmd = [sandboxie_path, '/box:DefaultBox', HiJackThis_exe]
     subprocess.run(cmd, cwd=script_dir, check=True)
     logging.debug("HiJackThis launched.")
 
-    # Wait for the log file to appear (a timeout is advisable)
-    timeout_seconds = 300
-    start_time = datetime.now()
+    # Wait indefinitely (no time.sleep) for the log file
     while not os.path.exists(HiJackThis_log_path):
-        if (datetime.now() - start_time).seconds > timeout_seconds:
-            logging.error("Log file did not appear within the timeout period.")
-    
+        pass  # Busy wait
+
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = os.path.join(HiJackThis_logs_dir, f"{label}_{ts}.txt")
     shutil.copy(HiJackThis_log_path, dest)
