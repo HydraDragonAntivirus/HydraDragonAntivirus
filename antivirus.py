@@ -77,15 +77,15 @@ logging.info(f"json module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QTextEdit, QLabel, QFileDialog, QMessageBox
-print(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from PySide6.QtCore import Qt, QThread, Signal
-print(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from PySide6.QtGui import QIcon
-print(f"PySide6.QtGui.QIcon module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"PySide6.QtGui.QIcon module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import pefile
