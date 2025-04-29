@@ -6487,7 +6487,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             if dotnet_result is True:
                 dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(file_path,))
                 dotnet_thread.start()
-            elif isinstance(dotnet_result, str) and "Protector: Obfuscar" in dotnet_result and not flag_obfuscar
+            elif isinstance(dotnet_result, str) and "Protector: Obfuscar" in dotnet_result and not flag_obfuscar:
                 logging.info(f"The file is a .NET assembly protected with Obfuscar: {dotnet_result}")
                 deobfuscated_path = deobfuscate_with_obfuscar(file_path, file_name)
                 if deobfuscated_path:
