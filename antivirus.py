@@ -4295,40 +4295,45 @@ except Exception as ex:
     logging.error(f"Error loading YARA-X rules: {ex}")
 
 # Function to load DeepSeek-Coder-1.3b model and tokenizer
-def load_deepseek_1b_model(deepseek_dir):
-    try:
-        message = "Attempting to load DeepSeek-Coder-1.3B model and tokenizer..."
-        logging.info(message)
-        
-        # Check if the directory exists
-        if not os.path.exists(deepseek_dir):
-            raise FileNotFoundError(f"Model directory {deepseek_dir} not found.")
+def load_deepseek_1b_model():
+    """
+    Load the DeepSeek-Coder-1.3B Llama causal LM using the globally defined `deepseek_dir`.
+    Uses NVIDIA GPU (CUDA) if available; falls back to CPU otherwise.
 
-        # Load the tokenizer and model
-        deepseek_tokenizer = AutoTokenizer.from_pretrained(deepseek_dir, local_files_only=True)
-        deepseek_model = AutoModelForCausalLM.from_pretrained(deepseek_dir, local_files_only=True)
-        
-        # Free up GPU memory if necessary
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        
-        success_message = "DeepSeek-Coder-1.3B successfully loaded!"
-        logging.info(success_message)
-        
-        return deepseek_model, deepseek_tokenizer
+    Returns:
+        model (AutoModelForCausalLM): The loaded Llama model.
+        tokenizer (AutoTokenizer): The corresponding tokenizer.
+    """
+    # Load and verify configuration
+    cfg = AutoConfig.from_pretrained(deepseek_dir, local_files_only=True)
+    print("CONFIG MODEL_TYPE:", cfg.model_type)
+    if cfg.model_type.lower() != "llama":
+        logging.error(f"Expected a Llama model, but config.model_type='{cfg.model_type}'")
 
-    except FileNotFoundError as fnf_error:
-        error_message = f"Model directory not found: {fnf_error}"
-        logging.error(error_message)
-        sys.exit(1)
-        
-    except Exception as ex:
-        error_message = f"Error loading DeepSeek-Coder-1.3B model or tokenizer: {ex}"
-        logging.error(error_message)
-        sys.exit(1)
+    # Load tokenizer
+    deepseek_1b_tokenizer = AutoTokenizer.from_pretrained(deepseek_dir, local_files_only=True)
+
+    # Determine device (GPU if available)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print("Using device:", device)
+
+    # Select dtype: bfloat16 for GPU, float32 for CPU
+    dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
+
+    # Load model with appropriate device mapping
+    deepseek_1b_model = AutoModelForCausalLM.from_pretrained(
+        deepseek_dir,
+        config=cfg,
+        local_files_only=True,
+        torch_dtype=dtype,
+        device_map="auto" if device.type == "cuda" else None
+    )
+    model.eval()
+
+    return deepseek_1b_model, deepseek_1b_tokenizer 
 
 # Load the DeepSeek-Coder-1.3B model
-deepseek_1b_model, deepseek_1b_tokenizer = load_deepseek_1b_model(deepseek_dir)
+deepseek_1b_model, deepseek_1b_tokenizer = load_deepseek_1b_model()
 
 # List to keep track of existing project names
 existing_projects = []
