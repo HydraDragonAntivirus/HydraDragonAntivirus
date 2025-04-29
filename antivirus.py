@@ -189,8 +189,8 @@ import binascii
 logging.info(f"binascii module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from transformers import AutoTokenizer, AutoModelForCausalLM
-logging.info(f"transformers.AutoTokenizer and AutoModelForCausalLM modules loaded in {time.time() - start_time:.6f} seconds")
+from transformers import AutoConfig, AutoTokenizer, AutoModelForCausalLM
+logging.info(f"transformers.AutoConfig, AutoTokenizer and AutoModelForCausalLM modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import torch
