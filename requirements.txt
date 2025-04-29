@@ -10,6 +10,7 @@ pydumpck
 base32-crockford
 torch
 accelerate
+bitsandbytes
 py7zr
 chardet
 uncompyle6
@@ -22,9 +23,6 @@ numpy
 cryptography
 capstone
 PySide6
-torch
-torchvision 
-torchaudio
 unicorn #for GoStringUngrabler
 lief #for GoStringUngrabler
 transformers # You will also need download https://huggingface.co/deepseek-ai/deepseek-coder-1.3b-instruct
