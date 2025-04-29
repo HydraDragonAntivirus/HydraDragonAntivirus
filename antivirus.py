@@ -21,22 +21,11 @@ stdout_console_log_file = os.path.join(log_directory, "antivirusconsolestdout.lo
 stderr_console_log_file = os.path.join(log_directory, "antivirusconsolestderr.log")
 application_log_file = os.path.join(log_directory, "antivirus.log")
 
-# 1) Create a FileHandler that defers opening the file until the first emit()
-handler = FileHandler(
-    filename=application_log_file,
-    mode='a',
-    delay=True,              # do not open until you actually write :contentReference[oaicite:0]{index=0}
-)
-
-# 2) Attach your formatter
-handler.setFormatter(
-    logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-)
-
-# 3) Install it on the root logger via basicConfig, without changing any logger names
+# Configure logging for application log
 logging.basicConfig(
+    filename=application_log_file,
     level=logging.DEBUG,
-    handlers=[handler],      # use this handler instead of the default FileHandler :contentReference[oaicite:1]{index=1}
+    format='%(asctime)s - %(levelname)s - %(message)s',
 )
 
 # Redirect stdout to stdout console log
@@ -2745,12 +2734,12 @@ def restart_clamd_thread():
 def restart_clamd():
     try:
         logging.info("Stopping ClamAV...")
-        stop_result = subprocess.run(["net", "stop", 'clamd'], capture_output=True, text=True)
+        stop_result = subprocess.run(["net", "stop", 'clamd'], capture_output=True, text=True, encoding="utf-8", errors="ignore")
         if stop_result.returncode != 0:
                 logging.error("Failed to stop ClamAV.")
             
         logging.info("Starting ClamAV...")
-        start_result = subprocess.run(["net", "start", 'clamd'], capture_output=True, text=True)
+        start_result = subprocess.run(["net", "start", 'clamd'], capture_output=True, text=True, encoding="utf-8", errors="ignore")
         if start_result.returncode == 0:
             logging.info("ClamAV restarted successfully.")
             return True
@@ -2765,7 +2754,7 @@ def scan_file_with_clamd(file_path):
     """Scan file using clamd."""
     try:
         file_path = os.path.abspath(file_path)  # Get absolute path
-        result = subprocess.run([clamdscan_path, file_path], capture_output=True, text=True)
+        result = subprocess.run([clamdscan_path, file_path], capture_output=True, text=True, encoding="utf-8", errors="ignore")
         clamd_output = result.stdout
         logging.info(f"Clamdscan output: {clamd_output}")
 
@@ -3346,7 +3335,7 @@ def check_valid_signature_only(file_path):
     try:
         # Command to verify the executable signature status
         verify_command = f"(Get-AuthenticodeSignature '{file_path}').Status"
-        process = subprocess.run(['powershell.exe', '-Command', verify_command], capture_output=True, text=True)
+        process = subprocess.run(['powershell.exe', '-Command', verify_command], capture_output=True, text=True, encoding="utf-8", errors="ignore")
         
         status = process.stdout.strip()
         is_valid = "Valid" in status
@@ -4207,7 +4196,7 @@ def run_snort():
     try:
         clean_directory()
         # Run snort without capturing output
-        subprocess.run(snort_command, check=True)
+        subprocess.run(snort_command, check=True encoding="utf-8", errors="ignore")
         
         logging.info("Snort completed analysis.")
 
@@ -4222,7 +4211,7 @@ def activate_uefi_drive():
     mount_command = 'mountvol X: /S'  # Command to mount UEFI drive
     try:
         # Execute the mountvol command
-        subprocess.run(mount_command, shell=True, check=True)
+        subprocess.run(mount_command, shell=True, check=True, encoding="utf-8", errors="ignore")
         logging.info("UEFI drive activated!")
     except subprocess.CalledProcessError as ex:
         logging.info(f"Error mounting UEFI drive: {ex}")
@@ -4297,40 +4286,51 @@ except Exception as ex:
 # Function to load DeepSeek-Coder-1.3b model and tokenizer
 def load_deepseek_1b_model():
     """
-    Load the DeepSeek-Coder-1.3B Llama causal LM using the globally defined `deepseek_dir`.
+    Load the DeepSeek-Coder-1.3B Llama causal LM using the global `deepseek_1b_dir`.
     Uses NVIDIA GPU (CUDA) if available; falls back to CPU otherwise.
 
     Returns:
-        model (AutoModelForCausalLM): The loaded Llama model.
-        tokenizer (AutoTokenizer): The corresponding tokenizer.
+        tuple: (model, tokenizer) on success, or (None, None) on failure.
     """
-    # Load and verify configuration
-    cfg = AutoConfig.from_pretrained(deepseek_1b_dir, local_files_only=True)
-    print("CONFIG MODEL_TYPE:", cfg.model_type)
-    if cfg.model_type.lower() != "llama":
-        logging.error(f"Expected a Llama model, but config.model_type='{cfg.model_type}'")
+    try:
+        # Ensure the model directory exists
+        model_dir = deepseek_1b_dir
+        if not os.path.isdir(model_dir):
+            raise FileNotFoundError(f"Model directory not found: {model_dir}")
 
-    # Load tokenizer
-    deepseek_1b_tokenizer = AutoTokenizer.from_pretrained(deepseek_dir, local_files_only=True)
+        # Load and verify configuration
+        cfg = AutoConfig.from_pretrained(model_dir, local_files_only=True)
+        logging.info(f"Loaded config.model_type={cfg.model_type}")
+        if cfg.model_type.lower() != "llama":
+            raise ValueError(f"Expected a Llama model, but config.model_type='{cfg.model_type}'")
 
-    # Determine device (GPU if available)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("Using device:", device)
+        # Load tokenizer
+        tokenizer = AutoTokenizer.from_pretrained(model_dir, local_files_only=True)
 
-    # Select dtype: bfloat16 for GPU, float32 for CPU
-    dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
+        # Determine device (GPU if available)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logging.info(f"Using device: {device}")
 
-    # Load model with appropriate device mapping
-    deepseek_1b_model = AutoModelForCausalLM.from_pretrained(
-        deepseek_dir,
-        config=cfg,
-        local_files_only=True,
-        torch_dtype=dtype,
-        device_map="auto" if device.type == "cuda" else None
-    )
-    model.eval()
+        # Choose dtype based on device
+        dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
 
-    return deepseek_1b_model, deepseek_1b_tokenizer 
+        # Load model with appropriate device mapping
+        model = AutoModelForCausalLM.from_pretrained(
+            model_dir,
+            config=cfg,
+            local_files_only=True,
+            torch_dtype=dtype,
+            device_map="auto" if device.type == "cuda" else None
+        )
+        model.eval()
+
+        # Move model to the selected device
+        model.to(device)
+        return model, tokenizer
+
+    except Exception as e:
+        logging.error(f"Failed to load DeepSeek-Coder model: {e}", exc_info=True)
+        sys.exit(1)
 
 # Load the DeepSeek-Coder-1.3B model
 deepseek_1b_model, deepseek_1b_tokenizer = load_deepseek_1b_model()
@@ -4389,7 +4389,7 @@ def decompile_file(file_path):
         ]
 
         # Run the command
-        result = subprocess.run(command, capture_output=True, text=True)
+        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="ignore")
 
         # Check and log the results
         if result.returncode == 0:
@@ -5395,7 +5395,7 @@ def extract_all_files_with_7z(file_path):
 
         # Run the 7z extraction
         command = [seven_zip_path, "x", file_path, f"-o{output_dir}", "-y", "-snl", "-spe"]
-        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
 
         if result.returncode != 0:
             logging.error(f"7z extraction failed with return code {result.returncode}: {result.stderr}")
@@ -5564,7 +5564,7 @@ def run_pycdc_decompiler(file_path):
         command = [pycdc_path, "-o", output_path, file_path]
 
         # Run the pycdc command
-        result = subprocess.run(command, capture_output=True, text=True)
+        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="ignore")
 
         if result.returncode == 0:
             logging.info(f"Successfully decompiled using pycdc. Output saved to {output_path}")
@@ -5595,7 +5595,7 @@ def run_pycdas_decompiler(file_path):
         command = [pycdas_path, "-o", output_path, file_path]
 
         # Run the pycdas command
-        result = subprocess.run(command, capture_output=True, text=True)
+        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="ignore")
 
         if result.returncode == 0:
             logging.info(f"Successfully decompiled using pycdas. Output saved to {output_path}")
@@ -5789,7 +5789,7 @@ def deobfuscate_with_obfuscar(file_path, file_basename):
     try:
         command = [deobfuscar_path, copied_file_path]
         logging.info(f"Running deobfuscation: {' '.join(command)}")
-        subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
     except Exception as e:
         logging.error(f"Error during deobfuscation execution: {e}")
         return None
@@ -6031,7 +6031,9 @@ def run_fernflower_decompiler(file_path, flag_fenflower=True):
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
+            encoding="utf-8", 
+            errors="ignore"
         )
 
         if result.returncode == 0:
@@ -6073,7 +6075,9 @@ def run_jar_extractor(file_path, flag_fenflower):
             cwd=extracted_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
+            encoding="utf-8", 
+            errors="ignore"
         )
 
         if result.returncode == 0:
@@ -6128,7 +6132,7 @@ def extract_inno_setup(file_path):
             file_path,
             "-d", output_dir     # output directory
         ]
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
         if result.returncode != 0:
             logging.error(f"innoextract failed: {result.stderr}")
             return None
@@ -6848,7 +6852,7 @@ def run_sandboxie_control():
     try:
         logging.info("Running Sandboxie control.")
         # Include the '/open' argument to open the Sandboxie control window
-        result = subprocess.run([sandboxie_control_path, "/open"], shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        result = subprocess.run([sandboxie_control_path, "/open"], shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
         logging.info(f"Sandboxie control output: {result.stdout}")
     except subprocess.CalledProcessError as ex:
         logging.error(f"Error running Sandboxie control: {ex.stderr}")
@@ -7405,14 +7409,14 @@ def run_sandboxie_plugin():
     
     try:
         logging.info(f"Running DLL via rundll32 in Sandboxie: {' '.join(command)}")
-        subprocess.run(command, check=True)
+        subprocess.run(command, check=True, encoding="utf-8", errors="ignore")
         logging.info("Plugin ran successfully in Sandboxie.")
     except subprocess.CalledProcessError as ex:
         logging.error(f"Failed to run plugin in Sandboxie: {ex}")
 
 def run_sandboxie(file_path):
     try:
-        subprocess.run([sandboxie_path, '/box:DefaultBox', file_path], check=True)
+        subprocess.run([sandboxie_path, '/box:DefaultBox', file_path], check=True, encoding="utf-8", errors="ignore")
     except subprocess.CalledProcessError as ex:
         logging.error(f"Failed to run Sandboxie on {file_path}: {ex}")
 
@@ -7433,7 +7437,7 @@ def run_de4dot_in_sandbox(file_path):
     ]
 
     try:
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, encoding="utf-8", errors="ignore")
         logging.info(f"de4dot extraction succeeded for {file_path} in sandbox '{box_name}'")
     except subprocess.CalledProcessError as ex:
         logging.error(f"Failed to run de4dot on {file_path} in sandbox '{box_name}': {ex}")
@@ -7482,7 +7486,7 @@ def run_and_copy_log(label="orig", timeout=300):
 
     # Launch the tool
     cmd = [sandboxie_path, '/box:DefaultBox', HiJackThis_exe]
-    subprocess.run(cmd, cwd=script_dir, check=True)
+    subprocess.run(cmd, cwd=script_dir, check=True, encoding="utf-8", errors="ignore")
     logging.debug("HiJackThis launched.")
 
     # Record launch time
@@ -7706,7 +7710,7 @@ class Worker(QThread):
                         updated = True
                         break
             if updated:
-                result = subprocess.run([freshclam_path], capture_output=True, text=True)
+                result = subprocess.run([freshclam_path], capture_output=True, text=True, encoding="utf-8", errors="ignore")
                 if result.returncode == 0:
                     restart_clamd_thread()
                     self.output_signal.emit("[+] Virus definitions updated and ClamAV restarted.")
