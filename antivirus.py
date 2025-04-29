@@ -6239,11 +6239,13 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         with open(file_path, 'rb') as scan_file:
             data_content = scan_file.read()
 
+        src_root = os.path.dirname(file_pat)
+
         # choose destination based on origin
         if file_path.startswith(de4dot_sandboxie_dir):
             _copy_to_dest(file_path, de4dot_sandboxie_dir, de4dot_extracted_dir)
         else:
-            _copy_to_dest(file_path, directory, copied_sandbox_files_dir)
+            _copy_to_dest(file_path, src_root, copied_sandbox_files_dir)
 
        # Extract the file name
         file_name = os.path.basename(file_path)
