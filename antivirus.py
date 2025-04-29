@@ -81,8 +81,8 @@ import pefile
 logging.info(f"pefile module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import zipfile
-logging.info(f"zipfile module loaded in {time.time() - start_time:.6f} seconds")
+import pyzipper
+logging.info(f"pyzippr module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import tarfile
@@ -3653,41 +3653,38 @@ def scan_zip_file(file_path):
     """Scan files within a zip archive."""
     try:
         zip_size = os.path.getsize(file_path)
+        extracted_paths = []
 
-        with zipfile.ZipFile(file_path, 'r') as zfile:
-            for zip_info in zfile.infolist():
+        with pyzipper.ZipFile(file_path, 'r') as zf:
+            for info in zf.infolist():
+                # RLO check
+                if contains_rlo_after_dot(info.filename):
+                    notify_rlo_warning(file_path, "ZIP", "HEUR:RLO.Susp.Name.Encrypted.ZIP.gen")
 
-                # Check for RLO in filenames before handling encryption
-                if contains_rlo_after_dot(zip_info.filename):
-                    virus_name = "HEUR:RLO.Susp.Name.Encrypted.ZIP.gen"
-                    logging.warning(
-                        f"Filename {zip_info.filename} in {file_path} contains RLO character after a comma - "
-                        f"flagged as {virus_name}"
-                    )
-                    notify_rlo_warning(file_path, "ZIP", virus_name)
-                
-                if is_encrypted(zip_info):
-                    logging.info(f"Skipping encrypted file: {zip_info.filename}")
+                # encryption check via flag bit
+                if info.flag_bits & 0x1:
+                    logging.info(f"Skipping encrypted file: {info.filename}")
                     continue
 
-                extracted_file_path = os.path.join(zip_extracted_dir, zip_info.filename)
-                zfile.extract(zip_info, zip_extracted_dir)
+                # extract and record
+                out_path = os.path.join(zip_extracted_dir, info.filename)
+                zf.extract(info, zip_extracted_dir)
+                extracted_paths.append(out_path)
 
-                # Check for suspicious conditions: large files in small ZIP archives
-                extracted_file_size = os.path.getsize(extracted_file_path)
-                if zip_size < 20 * 1024 * 1024 and extracted_file_size > 650 * 1024 * 1024:
-                    virus_name = "HEUR:Win32.Susp.Size.Encrypted.ZIP"
-                    logging.warning(
-                        f"ZIP file {file_path} is smaller than 20MB but contains a large file: {zip_info.filename} "
-                        f"({extracted_file_size / (1024 * 1024)} MB) - flagged as {virus_name}. "
-                        "Potential ZIPbomb or Fake Size detected to avoid VirusTotal detections."
-                    )
-                    notify_size_warning(file_path, "ZIP", virus_name)
+                # size-bomb check
+                size = os.path.getsize(out_path)
+                if zip_size < 20*1024*1024 and size > 650*1024*1024:
+                    notify_size_warning(file_path, "ZIP", "HEUR:Win32.Susp.Size.Encrypted.ZIP")
 
-        return True, []
+        return True, extracted_paths
+
+    except (pyzipper.BadZipFile, zipfile.BadZipFile):
+        logging.error(f"Not a valid ZIP archive: {file_path}")
+        return False, []
+
     except Exception as ex:
-        logging.error(f"Error scanning zip file: {file_path} - {ex}")
-        return False, ""
+        logging.error(f"Error scanning zip file: {file_path} {ex}")
+        return False, []
 
 def scan_7z_file(file_path):
     """Scan files within a 7z archive."""
@@ -3945,6 +3942,26 @@ def check_pe_file(file_path, signature_check, file_name):
     except Exception as ex:
         logging.error(f"Error checking PE file {file_path}: {ex}")
 
+def is_zip_file(file_path):
+    """Checks if the file is a ZIP archive."""
+    try:
+        # Attempt to open the file as an AES Zip file
+        with pyzipper.AESZipFile(file_path) as zip_file:
+            # If it opens without error, return True indicating it's a ZIP file
+            return True
+    except (pyzipper.zipfile.BadZipFile, RuntimeError):
+        # If the file is not a valid ZIP archive, return False
+        return False
+    except PermissionError:
+        print(f"[-] Permission denied: {file_path}. Unable to access the file.")
+        return False
+    except FileNotFoundError:
+        print(f"[-] File not found: {file_path}. Ensure the file path is correct.")
+        return False
+    except Exception as e:
+        print(f"[-] Unexpected error while checking ZIP file: {e}")
+        return False
+
 def scan_file_real_time(file_path, signature_check, file_name, pe_file=False):
     """Scan file in real-time using multiple engines."""
     logging.info(f"Started scanning file: {file_path}")
@@ -4016,7 +4033,7 @@ def scan_file_real_time(file_path, signature_check, file_name, pe_file=False):
 
         # Scan ZIP files
         try:
-            if zipfile.is_zipfile(file_path):
+            if is_zip_file(file_path):
                 scan_result, virus_name = scan_zip_file(file_path)
                 if scan_result and virus_name not in ("Clean", ""):
                     if signature_check["is_valid"]:
@@ -6470,7 +6487,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             if dotnet_result is True:
                 dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(file_path,))
                 dotnet_thread.start()
-            elif "Protector: Obfuscar" in dotnet_result and not flag_obfuscar:
+            elif isinstance(dotnet_result, str) and "Protector: Obfuscar" in dotnet_result and not flag_obfuscar
                 logging.info(f"The file is a .NET assembly protected with Obfuscar: {dotnet_result}")
                 deobfuscated_path = deobfuscate_with_obfuscar(file_path, file_name)
                 if deobfuscated_path:
