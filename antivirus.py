@@ -2283,17 +2283,27 @@ def scan_url_general(url, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag
     except Exception as ex:
         logging.error(f"Error scanning URL {url}: {ex}")
 
+def ensure_http_prefix(url):
+    parsed = urlparse(url)
+    if not parsed.scheme:
+        return 'http://' + url
+    return url
+
 def fetch_html(url):
     """Fetch HTML content from the given URL."""
     try:
-        response = requests.get(url, timeout=10)
+        safe_url = ensure_http_prefix(url)
+        response = requests.get(safe_url, timeout=10)
         if response.status_code == 200:
             return response.text
         else:
-            logging.warning(f"Non-OK status {response.status_code} for URL: {url}")
+            logging.warning(f"Non-OK status {response.status_code} for URL: {safe_url}")
             return ""
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Request error while fetching HTML content from {url}: {e}")
+        return ""
     except Exception as e:
-        logging.error(f"Error fetching HTML content from {url}: {e}")
+        logging.error(f"Unexpected error fetching HTML content from {url}: {e}")
         return ""
 
 # --------------------------------------------------------------------------
