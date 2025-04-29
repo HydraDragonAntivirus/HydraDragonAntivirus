@@ -7455,9 +7455,9 @@ def run_de4dot_in_sandbox(file_path):
 
     try:
         subprocess.run(cmd, check=True, encoding="utf-8", errors="ignore")
-        logging.info(f"de4dot extraction succeeded for {file_path} in sandbox '{box_name}'")
+        logging.info(f"de4dot extraction succeeded for {file_path} in sandbox DefaultBox")
     except subprocess.CalledProcessError as ex:
-        logging.error(f"Failed to run de4dot on {file_path} in sandbox '{box_name}': {ex}")
+        logging.error(f"Failed to run de4dot on {file_path} in sandbox DefaultBox: {ex}")
 
 def run_analysis(file_path: str):
     """
