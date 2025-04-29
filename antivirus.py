@@ -4196,7 +4196,7 @@ def run_snort():
     try:
         clean_directory()
         # Run snort without capturing output
-        subprocess.run(snort_command, check=True encoding="utf-8", errors="ignore")
+        subprocess.run(snort_command, check=True, encoding="utf-8", errors="ignore")
         
         logging.info("Snort completed analysis.")
 
