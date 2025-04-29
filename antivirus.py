@@ -589,55 +589,55 @@ def analyze_file_with_die(file_path):
         )
         return None
 
-def is_go_garble_from_output(die_output):
+def is_go_garble_from_output(die_result):
     """
     Check if the DIE output indicates a Go garbled file.
     A file is considered garble if the output contains both:
       - "Compiler: Go(unknown)"
       - "Language: Go"
     """
-    if die_output and ("Compiler: Go(unknown)" in die_output and "Language: Go" in die_output):
+    if die_result and ("Compiler: Go(unknown)" in die_result and "Language: Go" in die_result):
         logging.info("DIE output indicates a garbled Go file.")
         return True
-    logging.info(f"DIE output does not indicate a garbled Go file: {die_output}")
+    logging.info(f"DIE output does not indicate a garbled Go file: {die_result}")
     return False
 
-def is_pyc_file_from_output(die_output):
+def is_pyc_file_from_output(die_result):
     """
     Check if the DIE output indicates a Python compiled module (.pyc file).
     It looks for markers that suggest it's a Python compiled module.
     """
-    if die_output and ("Python" in die_output and "Compiled Module" in die_output and "Magic tag" in die_output):
+    if die_result and ("Python" in die_result and "Compiled Module" in die_result and "Magic tag" in die_result):
         logging.info("DIE output indicates a Python compiled module.")
         return True
-    logging.info(f"DIE output does not indicate a Python compiled module: {die_output}")
+    logging.info(f"DIE output does not indicate a Python compiled module: {die_result}")
     return False
 
-def is_pe_file_from_output(die_output):
+def is_pe_file_from_output(die_result):
     """Checks if DIE output indicates a PE (Portable Executable) file."""
-    if die_output and ("PE32" in die_output or "PE64" in die_output):
+    if die_result and ("PE32" in die_result or "PE64" in die_result):
         logging.info("DIE output indicates a PE file.")
         return True
-    logging.info(f"DIE output does not indicate a PE file: {die_output}")
+    logging.info(f"DIE output does not indicate a PE file: {die_result}")
     return False
 
-def is_elf_file_from_output(die_output):
+def is_elf_file_from_output(die_result):
     """Checks if DIE output indicates an ELF file."""
-    if die_output and ("ELF32" in die_output or "ELF64" in die_output):
+    if die_result and ("ELF32" in die_result or "ELF64" in die_result):
         logging.info("DIE output indicates an ELF file.")
         return True
-    logging.info(f"DIE output does not indicate an ELF file: {die_output}")
+    logging.info(f"DIE output does not indicate an ELF file: {die_result}")
     return False
 
-def is_macho_file_from_output(die_output):
+def is_macho_file_from_output(die_result):
     """Checks if DIE output indicates a Mach-O file."""
-    if die_output and "Mach-O" in die_output:
+    if die_result and "Mach-O" in die_result:
         logging.info("DIE output indicates a Mach-O file.")
         return True
-    logging.info(f"DIE output does not indicate a Mach-O file: {die_output}")
+    logging.info(f"DIE output does not indicate a Mach-O file: {die_result}")
     return False
 
-def is_dotnet_file_from_output(die_output):
+def is_dotnet_file_from_output(die_result):
     """
     Checks if DIE output indicates a .NET executable file.
 
@@ -653,17 +653,17 @@ def is_dotnet_file_from_output(die_output):
         if none of these markers are found.
     """
 
-    if not die_output:
+    if not die_result:
         logging.info("Empty DIE output; no .NET markers found.")
         return None
 
     # 1) .NET runtime indication
-    if "Microsoft .NET" in die_output or "CLR" in die_output:
+    if "Microsoft .NET" in die_result or "CLR" in die_result:
         logging.info("DIE output indicates a .NET executable.")
         return True
 
     # 2) Specific Obfuscar protector
-    obfuscar_match = re.search(r'Protector:\s*Obfuscar(?:\(([^)]+)\))?', die_output)
+    obfuscar_match = re.search(r'Protector:\s*Obfuscar(?:\(([^)]+)\))?', die_result)
     if obfuscar_match:
         version = obfuscar_match.group(1)
         result = f"Protector: Obfuscar({version})" if version else "Protector: Obfuscar"
@@ -676,7 +676,7 @@ def is_dotnet_file_from_output(die_output):
         r'(?P<name>[\w\.]+)'
         r'(?:\((?P<version>[^)]+)\))?'
     )
-    generic_match = generic_pattern.search(die_output)
+    generic_match = generic_pattern.search(die_result)
     if generic_match:
         label   = generic_match.group('label')
         name    = generic_match.group('name')
@@ -689,38 +689,38 @@ def is_dotnet_file_from_output(die_output):
         return marker
 
     # 4) Nothing .NET / protector-related found
-    logging.info(f"DIE output does not indicate a .NET executable or known protector: {die_output!r}")
+    logging.info(f"DIE output does not indicate a .NET executable or known protector: {die_result!r}")
     return None
 
-def is_file_unknown(die_output):
+def is_file_unknown(die_result):
     """
     Checks if DIE output indicates that the file is unknown.
     This function looks for markers within the output to determine
     if the file's type could not be recognized.
     """
-    if die_output and "Binary" in die_output and "Unknown: Unknown" in die_output:
+    if die_result and "Binary" in die_result and "Unknown: Unknown" in die_result:
         logging.info("DIE output indicates an unknown file.")
         return True
-    logging.info(f"DIE output does not indicate an unknown file: {die_output}")
+    logging.info(f"DIE output does not indicate an unknown file: {die_result}")
     return False
 
-def is_jar_file_from_output(die_output):
+def is_jar_file_from_output(die_result):
     """Checks if DIE output indicates a JAR file (Java archive)."""
-    if die_output and "Virtual machine: JVM" in die_output:
+    if die_result and "Virtual machine: JVM" in die_result:
         logging.info("DIE output indicates a JAR file.")
         return True
-    logging.info(f"DIE output does not indicate a JAR file: {die_output}")
+    logging.info(f"DIE output does not indicate a JAR file: {die_result}")
     return False
 
-def is_java_class_from_output(die_output):
+def is_java_class_from_output(die_result):
     """
     Checks if the DIE output indicates a Java class file.
     It does this by looking for 'Language: Java' and 'Format: Java Class File' in the output.
     """
-    if die_output and "Language: Java" in die_output and "Format: Java Class " in die_output:
+    if die_result and "Language: Java" in die_result and "Format: Java Class " in die_result:
         logging.info("DIE output indicates a Java class file.")
         return True
-    logging.info(f"DIE output does not indicate a Java class file: {die_output}")
+    logging.info(f"DIE output does not indicate a Java class file: {die_result}")
     return False
 
 def is_hex_data(data_content):
@@ -3740,16 +3740,16 @@ def scan_7z_file(file_path):
         logging.error(f"Error scanning 7z file: {file_path} - {ex}")
         return False, ""
 
-def is_7z_file_from_output(die_output: str) -> bool:
+def is_7z_file_from_output(die_result: str) -> bool:
     """
     Checks if DIE output indicates a 7-Zip archive.
     Expects the raw stdout (or equivalent) from a Detect It Easy run.
     """
-    if die_output and "Archive: 7-Zip" in die_output:
+    if die_result and "Archive: 7-Zip" in die_result:
         logging.info("DIE output indicates a 7z archive.")
         return True
 
-    logging.info(f"DIE output does not indicate a 7z archive: {die_output!r}")
+    logging.info(f"DIE output does not indicate a 7z archive: {die_result!r}")
     return False
 
 def scan_tar_file(file_path):
@@ -4399,7 +4399,7 @@ def extract_original_file_path_from_decompiled(file_path):
         logging.error(f"An error occurred while extracting the original file path: {ex}")
         return None
 
-def is_nuitka_file_from_output(die_output):
+def is_nuitka_file_from_output(die_result):
     """
     Check if the DIE output indicates a Nuitka executable.
     Returns:
@@ -4407,18 +4407,18 @@ def is_nuitka_file_from_output(die_output):
       - "Nuitka" if the DIE output contains "Packer: Nuitka"
       - None otherwise.
     """
-    if die_output is None:
+    if die_result is None:
         logging.error("No DIE output available for Nuitka check.")
         return None
 
-    if "Packer: Nuitka[OneFile]" in die_output:
+    if "Packer: Nuitka[OneFile]" in die_result:
         logging.info("DIE output indicates a Nuitka OneFile executable.")
         return "Nuitka OneFile"
-    elif "Packer: Nuitka" in die_output:
+    elif "Packer: Nuitka" in die_result:
         logging.info("DIE output indicates a Nuitka executable.")
         return "Nuitka"
     else:
-        logging.info(f"DIE output does not indicate a Nuitka executable. Output: {die_output}")
+        logging.info(f"DIE output does not indicate a Nuitka executable. Output: {die_result}")
         return None
 
 def clean_text(input_text):
@@ -4801,18 +4801,18 @@ class PyInstArchive:
 
         return True
 
-def is_pyinstaller_archive_from_output(die_output):
+def is_pyinstaller_archive_from_output(die_result):
     """
     Check if the DIE output indicates a PyInstaller archive.
     A file is considered a PyInstaller archive if the output contains both:
       - "Packer: PyInstaller"
       - "Language: Python"
     """
-    if die_output and ("Packer: PyInstaller" in die_output and "Language: Python" in die_output):
+    if die_result and ("Packer: PyInstaller" in die_result and "Language: Python" in die_result):
         logging.info("DIE output indicates a PyInstaller archive.")
         return True
 
-    logging.info(f"DIE output does not indicate a PyInstaller archive: {die_output}")
+    logging.info(f"DIE output does not indicate a PyInstaller archive: {die_result}")
     return False
 
 def extract_pyinstaller_archive(file_path):
@@ -6124,20 +6124,20 @@ def extract_inno_setup(file_path):
         logging.error(f"Error extracting Inno Setup file {file_path}: {ex}")
         return None
 
-def is_inno_setup_archive_from_output(die_output):
+def is_inno_setup_archive_from_output(die_result):
     """
     Check if the DIE output indicates an Inno Setup installer.
     A file is considered an Inno Setup installer if the output contains both:
       - "Data: Inno Setup Installer data"
       - "Installer: Inno Setup Module"
     """
-    if die_output and \
-       "Data: Inno Setup Installer data" in die_output and \
-       "Installer: Inno Setup Module" in die_output:
+    if die_result and \
+       "Data: Inno Setup Installer data" in die_result and \
+       "Installer: Inno Setup Module" in die_result:
         logging.info("DIE output indicates an Inno Setup installer.")
         return True
 
-    logging.info(f"DIE output does not indicate an Inno Setup installer: {die_output!r}")
+    logging.info(f"DIE output does not indicate an Inno Setup installer: {die_result!r}")
     return False
 
 def extract_pe_sections(file_path: str):
@@ -6249,7 +6249,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         )
 
         # Detect Inno Setup installer
-        if is_inno_setup_archive_from_output(die_output):
+        if is_inno_setup_archive_from_output(die_result):
             # Extract Inno Setup installer files
             extracted = extract_inno_setup(installer_path)
             if extracted is not None:
@@ -6504,7 +6504,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         log_directory_type(file_path)
 
         # Perform ransomware alert check
-        if is_file_unknown(die_output):
+        if is_file_unknown(die_result):
             ransomware_alert(file_path)
 
         # Check if the file is in decompile_dir
@@ -6524,7 +6524,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             process_thread.start()
 
         # Check if the file is a PyInstaller archive
-        if is_pyinstaller_archive_from_output(die_output):
+        if is_pyinstaller_archive_from_output(die_result):
             logging.info(f"File {file_path} is a PyInstaller archive. Extracting...")
 
             # Extract the PyInstaller files and get their paths
