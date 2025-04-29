@@ -189,8 +189,8 @@ import binascii
 logging.info(f"binascii module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
-logging.info(f"transformers.AutoTokenizer, AutoModelForCausalLM and BitsAndBytesConfig modules loaded in {time.time() - start_time:.6f} seconds")
+from transformers import AutoTokenizer, AutoModelForCausalLM
+logging.info(f"transformers.AutoTokenizer and AutoModelForCausalLM modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import torch
@@ -4296,59 +4296,35 @@ except Exception as ex:
 
 # Function to load DeepSeek-Coder-1.3b model and tokenizer
 def load_deepseek_1b_model(deepseek_dir):
-    """
-    Loads the DeepSeek-Coder-1.3B model and tokenizer with:
-      - 4-bit NF4 quantization,
-      - FP16 mixed precision,
-      - automatic device mapping and CPU offload,
-      - reduced CPU memory usage at load time.
-    """
     try:
-        logging.info("Attempting to load DeepSeek-Coder-1.3B model and tokenizer...")
+        message = "Attempting to load DeepSeek-Coder-1.3B model and tokenizer..."
+        logging.info(message)
+        
+        # Check if the directory exists
+        if not os.path.exists(deepseek_dir):
+            raise FileNotFoundError(f"Model directory {deepseek_dir} not found.")
 
-        # Load tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(
-            deepseek_dir,
-            local_files_only=True
-        )
+        # Load the tokenizer and model
+        deepseek_tokenizer = AutoTokenizer.from_pretrained(deepseek_dir, local_files_only=True)
+        deepseek_model = AutoModelForCausalLM.from_pretrained(deepseek_dir, local_files_only=True)
+        
+        # Free up GPU memory if necessary
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        success_message = "DeepSeek-Coder-1.3B successfully loaded!"
+        logging.info(success_message)
+        
+        return deepseek_model, deepseek_tokenizer
 
-        # Load config explicitly
-        config = AutoConfig.from_pretrained(
-            deepseek_dir,
-            local_files_only=True
-        )
-
-        # Check model type to ensure it’s correct
-        if config.model_type != "llama":
-            raise ValueError(f"Expected 'llama' model_type, got: {config.model_type}")
-
-        logging.info(f"Loaded model config: {config.model_type}")
-
-        # Quantization config: 4-bit NF4
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.float16
-        )
-
-        # Load model
-        model = AutoModelForCausalLM.from_pretrained(
-            deepseek_dir,
-            config=config,  # Explicitly pass config
-            local_files_only=True,
-            quantization_config=bnb_config,
-            device_map="auto",
-            offload_folder="offload",
-            offload_state_dict=True,
-            torch_dtype=torch.float16,
-            low_cpu_mem_usage=True
-        )
-
-        logging.info("DeepSeek-Coder-1.3B successfully loaded with 4-bit quantization!")
-        return model, tokenizer
-
-    except Exception as e:
-        logging.error(f"Error loading DeepSeek-Coder-1.3B model or tokenizer: {e}")
+    except FileNotFoundError as fnf_error:
+        error_message = f"Model directory not found: {fnf_error}"
+        logging.error(error_message)
+        sys.exit(1)
+        
+    except Exception as ex:
+        error_message = f"Error loading DeepSeek-Coder-1.3B model or tokenizer: {ex}"
+        logging.error(error_message)
         sys.exit(1)
 
 # Load the DeepSeek-Coder-1.3B model
