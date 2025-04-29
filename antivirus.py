@@ -1412,7 +1412,7 @@ def notify_user(file_path, virus_name, engine_detected):
     notification.title = "Malware Alert"
     notification.message = f"Malicious file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_user_pua(file_path, virus_name, engine_detected):
@@ -1420,7 +1420,7 @@ def notify_user_pua(file_path, virus_name, engine_detected):
     notification.title = "PUA Alert"
     notification.message = f"PUA file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_user_for_malicious_source_code(file_path, virus_name):
@@ -1430,7 +1430,7 @@ def notify_user_for_malicious_source_code(file_path, virus_name):
     notification_title = f"Malicious Source Code detected: {virus_name}"
     notification_message = f"Suspicious source code detected in: {file_path}\nVirus: {virus_name}"
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_user_for_detected_command(message):
@@ -1439,7 +1439,7 @@ def notify_user_for_detected_command(message):
     notification.title = f"Malware Message Alert"
     notification.message = message
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_user_for_deepseek(file_path, virus_name, malware_status, HiJackThis_flag=False):
@@ -1455,7 +1455,7 @@ def notify_user_for_deepseek(file_path, virus_name, malware_status, HiJackThis_f
         notification.message = f"Malware detected: {file_path}\nVirus: {virus_name}"
 
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_size_warning(file_path, archive_type, virus_name):
@@ -1465,7 +1465,7 @@ def notify_size_warning(file_path, archive_type, virus_name):
     notification.message = (f"{archive_type} file {file_path} is smaller than 20MB but contains a large file "
                             f"which might be suspicious. Virus Name: {virus_name}")
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_rlo_warning(file_path, archive_type, virus_name):
@@ -1475,7 +1475,7 @@ def notify_rlo_warning(file_path, archive_type, virus_name):
     notification.message = (f"Filename in {archive_type} file {file_path} contains RLO character after a dot. "
                             f"This could indicate suspicious activity. Virus Name: {virus_name}")
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_user_rlo(file_path, virus_name):
@@ -1483,7 +1483,7 @@ def notify_user_rlo(file_path, virus_name):
     notification.title = "Suspicious RLO Name Alert"
     notification.message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_user_for_detected_fake_system_file(file_path, file_name, virus_name):
@@ -1496,7 +1496,7 @@ def notify_user_for_detected_fake_system_file(file_path, file_name, virus_name):
         f"Threat: {virus_name}"
     )
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_user_for_detected_rootkit(file_path, virus_name):
@@ -1508,7 +1508,7 @@ def notify_user_for_detected_rootkit(file_path, virus_name):
         f"Threat: {virus_name}"
     )
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_user_invalid(file_path, virus_name):
@@ -1516,7 +1516,7 @@ def notify_user_invalid(file_path, virus_name):
     notification.title = "Invalid signature Alert"
     notification.message = f"Invalid signature file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_user_ghidra(file_path, virus_name):
@@ -1524,7 +1524,7 @@ def notify_user_ghidra(file_path, virus_name):
     notification.title = "Decompiled Malicious File Alert"
     notification.message = f"Malicious decompiled file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_user_fake_size(file_path, virus_name):
@@ -1532,7 +1532,7 @@ def notify_user_fake_size(file_path, virus_name):
     notification.title = "Fake Size Alert"
     notification.message = f"Fake size file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_user_startup(file_path, message):
@@ -1543,7 +1543,7 @@ def notify_user_startup(file_path, message):
     # Include file_path in the message
     notification.message = f"File: {file_path}\n{message}"
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_user_uefi(file_path, virus_name):
@@ -1551,7 +1551,7 @@ def notify_user_uefi(file_path, virus_name):
     notification.title = "UEFI Malware Alert"
     notification.message = f"Suspicious UEFI file detected: {file_path}\nVirus: {virus_name}"
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_user_ransomware(file_path, virus_name):
@@ -1559,7 +1559,7 @@ def notify_user_ransomware(file_path, virus_name):
     notification.title = "Ransomware Alert"
     notification.message = f"Potential ransomware detected: {file_path}\nVirus: {virus_name}"
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_user_exela_stealer_v2(file_path, virus_name):
@@ -1567,7 +1567,7 @@ def notify_user_exela_stealer_v2(file_path, virus_name):
     notification.title = "Exela Stealer version 2 Alert in Python source code"
     notification.message = f"Potential Exela Stealer version 2 detected: {file_path}\nVirus: {virus_name}"
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_user_hosts(file_path, virus_name):
@@ -1575,7 +1575,7 @@ def notify_user_hosts(file_path, virus_name):
     notification.title = "Host Hijacker Alert"
     notification.message = f"Potential host hijacker detected: {file_path}\nVirus: {virus_name}"
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_user_worm(file_path, virus_name):
@@ -1583,7 +1583,7 @@ def notify_user_worm(file_path, virus_name):
     notification.title = "Worm Alert"
     notification.message = f"Potential worm detected: {file_path}\nVirus: {virus_name}"
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=None, file_path=None, detection_type=None):
@@ -1611,7 +1611,7 @@ def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=N
         notification.message = "Phishing or Malicious activity detected"
 
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_user_for_hips(ip_address=None, dst_ip_address=None):
@@ -1628,7 +1628,7 @@ def notify_user_for_hips(ip_address=None, dst_ip_address=None):
         notification.message = "Malicious activity detected"
     
     notification.send()
-    logging.warning(notification_title)
+    
     logging.warning(notification_message)
 
 def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
