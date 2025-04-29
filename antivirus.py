@@ -4248,6 +4248,7 @@ def activate_uefi_drive():
         logging.info(f"Error mounting UEFI drive: {ex}")
 
 threading.Thread(target=run_snort).start()
+restart_clamd_thread()
 clean_directories()
 activate_uefi_drive() # Call the UEFI function
 load_website_data()
