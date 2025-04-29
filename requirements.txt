@@ -10,7 +10,6 @@ pydumpck
 base32-crockford
 torch
 accelerate
-bitsandbytes
 py7zr
 chardet
 uncompyle6
