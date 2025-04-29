@@ -589,55 +589,55 @@ def analyze_file_with_die(file_path):
         )
         return None
 
-def is_go_garble_from_output(die_result):
+def is_go_garble_from_output(die_output):
     """
     Check if the DIE output indicates a Go garbled file.
     A file is considered garble if the output contains both:
       - "Compiler: Go(unknown)"
       - "Language: Go"
     """
-    if die_result and ("Compiler: Go(unknown)" in die_result and "Language: Go" in die_result):
+    if die_output and ("Compiler: Go(unknown)" in die_output and "Language: Go" in die_output):
         logging.info("DIE output indicates a garbled Go file.")
         return True
-    logging.info(f"DIE output does not indicate a garbled Go file: {die_result}")
+    logging.info(f"DIE output does not indicate a garbled Go file: {die_output}")
     return False
 
-def is_pyc_file_from_output(die_result):
+def is_pyc_file_from_output(die_output):
     """
     Check if the DIE output indicates a Python compiled module (.pyc file).
     It looks for markers that suggest it's a Python compiled module.
     """
-    if die_result and ("Python" in die_result and "Compiled Module" in die_result and "Magic tag" in die_result):
+    if die_output and ("Python" in die_output and "Compiled Module" in die_output and "Magic tag" in die_output):
         logging.info("DIE output indicates a Python compiled module.")
         return True
-    logging.info(f"DIE output does not indicate a Python compiled module: {die_result}")
+    logging.info(f"DIE output does not indicate a Python compiled module: {die_output}")
     return False
 
-def is_pe_file_from_output(die_result):
+def is_pe_file_from_output(die_output):
     """Checks if DIE output indicates a PE (Portable Executable) file."""
-    if die_result and ("PE32" in die_result or "PE64" in die_result):
+    if die_output and ("PE32" in die_output or "PE64" in die_output):
         logging.info("DIE output indicates a PE file.")
         return True
-    logging.info(f"DIE output does not indicate a PE file: {die_result}")
+    logging.info(f"DIE output does not indicate a PE file: {die_output}")
     return False
 
-def is_elf_file_from_output(die_result):
+def is_elf_file_from_output(die_output):
     """Checks if DIE output indicates an ELF file."""
-    if die_result and ("ELF32" in die_result or "ELF64" in die_result):
+    if die_output and ("ELF32" in die_output or "ELF64" in die_output):
         logging.info("DIE output indicates an ELF file.")
         return True
-    logging.info(f"DIE output does not indicate an ELF file: {die_result}")
+    logging.info(f"DIE output does not indicate an ELF file: {die_output}")
     return False
 
-def is_macho_file_from_output(die_result):
+def is_macho_file_from_output(die_output):
     """Checks if DIE output indicates a Mach-O file."""
-    if die_result and "Mach-O" in die_result:
+    if die_output and "Mach-O" in die_output:
         logging.info("DIE output indicates a Mach-O file.")
         return True
-    logging.info(f"DIE output does not indicate a Mach-O file: {die_result}")
+    logging.info(f"DIE output does not indicate a Mach-O file: {die_output}")
     return False
 
-def is_dotnet_file_from_output(die_result):
+def is_dotnet_file_from_output(die_output):
     """
     Checks if DIE output indicates a .NET executable file.
 
@@ -653,17 +653,17 @@ def is_dotnet_file_from_output(die_result):
         if none of these markers are found.
     """
 
-    if not die_result:
+    if not die_output:
         logging.info("Empty DIE output; no .NET markers found.")
         return None
 
     # 1) .NET runtime indication
-    if "Microsoft .NET" in die_result or "CLR" in die_result:
+    if "Microsoft .NET" in die_output or "CLR" in die_output:
         logging.info("DIE output indicates a .NET executable.")
         return True
 
     # 2) Specific Obfuscar protector
-    obfuscar_match = re.search(r'Protector:\s*Obfuscar(?:\(([^)]+)\))?', die_result)
+    obfuscar_match = re.search(r'Protector:\s*Obfuscar(?:\(([^)]+)\))?', die_output)
     if obfuscar_match:
         version = obfuscar_match.group(1)
         result = f"Protector: Obfuscar({version})" if version else "Protector: Obfuscar"
@@ -676,7 +676,7 @@ def is_dotnet_file_from_output(die_result):
         r'(?P<name>[\w\.]+)'
         r'(?:\((?P<version>[^)]+)\))?'
     )
-    generic_match = generic_pattern.search(die_result)
+    generic_match = generic_pattern.search(die_output)
     if generic_match:
         label   = generic_match.group('label')
         name    = generic_match.group('name')
@@ -689,38 +689,38 @@ def is_dotnet_file_from_output(die_result):
         return marker
 
     # 4) Nothing .NET / protector-related found
-    logging.info(f"DIE output does not indicate a .NET executable or known protector: {die_result!r}")
+    logging.info(f"DIE output does not indicate a .NET executable or known protector: {die_output!r}")
     return None
 
-def is_file_unknown(die_result):
+def is_file_unknown(die_output):
     """
     Checks if DIE output indicates that the file is unknown.
     This function looks for markers within the output to determine
     if the file's type could not be recognized.
     """
-    if die_result and "Binary" in die_result and "Unknown: Unknown" in die_result:
+    if die_output and "Binary" in die_output and "Unknown: Unknown" in die_output:
         logging.info("DIE output indicates an unknown file.")
         return True
-    logging.info(f"DIE output does not indicate an unknown file: {die_result}")
+    logging.info(f"DIE output does not indicate an unknown file: {die_output}")
     return False
 
-def is_jar_file_from_output(die_result):
+def is_jar_file_from_output(die_output):
     """Checks if DIE output indicates a JAR file (Java archive)."""
-    if die_result and "Virtual machine: JVM" in die_result:
+    if die_output and "Virtual machine: JVM" in die_output:
         logging.info("DIE output indicates a JAR file.")
         return True
-    logging.info(f"DIE output does not indicate a JAR file: {die_result}")
+    logging.info(f"DIE output does not indicate a JAR file: {die_output}")
     return False
 
-def is_java_class_from_output(die_result):
+def is_java_class_from_output(die_output):
     """
     Checks if the DIE output indicates a Java class file.
     It does this by looking for 'Language: Java' and 'Format: Java Class File' in the output.
     """
-    if die_result and "Language: Java" in die_result and "Format: Java Class " in die_result:
+    if die_output and "Language: Java" in die_output and "Format: Java Class " in die_output:
         logging.info("DIE output indicates a Java class file.")
         return True
-    logging.info(f"DIE output does not indicate a Java class file: {die_result}")
+    logging.info(f"DIE output does not indicate a Java class file: {die_output}")
     return False
 
 def is_hex_data(data_content):
@@ -3455,13 +3455,13 @@ class NuitkaExtractor:
     
     def _detect_file_type(self) -> int:
         """Detect the executable file type using Detect It Easy methods"""
-        die_result = analyze_file_with_die(file_path)
+        die_output = analyze_file_with_die(file_path)
 
-        if is_pe_file_from_output(die_result):
+        if is_pe_file_from_output(die_output):
             return FileType.PE
-        if is_elf_file_from_output(die_result):
+        if is_elf_file_from_output(die_output):
             return FileType.ELF
-        if is_macho_file_from_output(die_result):
+        if is_macho_file_from_output(die_output):
             return FileType.MACHO
         return FileType.UNKNOWN
 
@@ -3740,16 +3740,16 @@ def scan_7z_file(file_path):
         logging.error(f"Error scanning 7z file: {file_path} - {ex}")
         return False, ""
 
-def is_7z_file_from_output(die_result: str) -> bool:
+def is_7z_file_from_output(die_output: str) -> bool:
     """
     Checks if DIE output indicates a 7-Zip archive.
     Expects the raw stdout (or equivalent) from a Detect It Easy run.
     """
-    if die_result and "Archive: 7-Zip" in die_result:
+    if die_output and "Archive: 7-Zip" in die_output:
         logging.info("DIE output indicates a 7z archive.")
         return True
 
-    logging.info(f"DIE output does not indicate a 7z archive: {die_result!r}")
+    logging.info(f"DIE output does not indicate a 7z archive: {die_output!r}")
     return False
 
 def scan_tar_file(file_path):
@@ -4040,8 +4040,8 @@ def scan_file_real_time(file_path, signature_check, file_name, pe_file=False):
 
         # Scan 7z files
         try:
-            die_result = analyze_file_with_die(file_path)
-            if is_7z_file_from_output(die_result):
+            die_output = analyze_file_with_die(file_path)
+            if is_7z_file_from_output(die_output):
                 scan_result, virus_name = scan_7z_file(file_path)
                 if scan_result and virus_name not in ("Clean", ""):
                     if signature_check["is_valid"]:
@@ -4399,7 +4399,7 @@ def extract_original_file_path_from_decompiled(file_path):
         logging.error(f"An error occurred while extracting the original file path: {ex}")
         return None
 
-def is_nuitka_file_from_output(die_result):
+def is_nuitka_file_from_output(die_output):
     """
     Check if the DIE output indicates a Nuitka executable.
     Returns:
@@ -4407,18 +4407,18 @@ def is_nuitka_file_from_output(die_result):
       - "Nuitka" if the DIE output contains "Packer: Nuitka"
       - None otherwise.
     """
-    if die_result is None:
+    if die_output is None:
         logging.error("No DIE output available for Nuitka check.")
         return None
 
-    if "Packer: Nuitka[OneFile]" in die_result:
+    if "Packer: Nuitka[OneFile]" in die_output:
         logging.info("DIE output indicates a Nuitka OneFile executable.")
         return "Nuitka OneFile"
-    elif "Packer: Nuitka" in die_result:
+    elif "Packer: Nuitka" in die_output:
         logging.info("DIE output indicates a Nuitka executable.")
         return "Nuitka"
     else:
-        logging.info(f"DIE output does not indicate a Nuitka executable. Output: {die_result}")
+        logging.info(f"DIE output does not indicate a Nuitka executable. Output: {die_output}")
         return None
 
 def clean_text(input_text):
@@ -4531,7 +4531,7 @@ def scan_directory_for_executables(directory):
         for file in files:
             if file.lower().endswith('.exe'):
                 file_path = os.path.join(root, file)
-                nuitka_type = is_nuitka_file_from_output(die_result)
+                nuitka_type = is_nuitka_file_from_output(die_output)
                 if nuitka_type:
                     found_executables.append((file_path, nuitka_type))
                     return found_executables  # Stop scanning further as .exe is found
@@ -4541,7 +4541,7 @@ def scan_directory_for_executables(directory):
         for file in files:
             if file.lower().endswith('.dll'):
                 file_path = os.path.join(root, file)
-                nuitka_type = is_nuitka_file_from_output(die_result)
+                nuitka_type = is_nuitka_file_from_output(die_output)
                 if nuitka_type:
                     found_executables.append((file_path, nuitka_type))
                     return found_executables  # Stop scanning further as .dll is found
@@ -4551,7 +4551,7 @@ def scan_directory_for_executables(directory):
         for file in files:
             if file.lower().endswith('.kext'):
                 file_path = os.path.join(root, file)
-                nuitka_type = is_nuitka_file_from_output(die_result)
+                nuitka_type = is_nuitka_file_from_output(die_output)
                 if nuitka_type:
                     found_executables.append((file_path, nuitka_type))
                     return found_executables  # Stop scanning further as .kext is found
@@ -4561,7 +4561,7 @@ def scan_directory_for_executables(directory):
         for file in files:
             if not file.lower().endswith(('.exe', '.dll', '.kext')):
                 file_path = os.path.join(root, file)
-                nuitka_type = is_nuitka_file_from_output(die_result)
+                nuitka_type = is_nuitka_file_from_output(die_output)
                 if nuitka_type:
                     found_executables.append((file_path, nuitka_type))
                     return found_executables  # Stop scanning further as a Nuitka file is found
@@ -4801,18 +4801,18 @@ class PyInstArchive:
 
         return True
 
-def is_pyinstaller_archive_from_output(die_result):
+def is_pyinstaller_archive_from_output(die_output):
     """
     Check if the DIE output indicates a PyInstaller archive.
     A file is considered a PyInstaller archive if the output contains both:
       - "Packer: PyInstaller"
       - "Language: Python"
     """
-    if die_result and ("Packer: PyInstaller" in die_result and "Language: Python" in die_result):
+    if die_output and ("Packer: PyInstaller" in die_output and "Language: Python" in die_output):
         logging.info("DIE output indicates a PyInstaller archive.")
         return True
 
-    logging.info(f"DIE output does not indicate a PyInstaller archive: {die_result}")
+    logging.info(f"DIE output does not indicate a PyInstaller archive: {die_output}")
     return False
 
 def extract_pyinstaller_archive(file_path):
@@ -6124,20 +6124,20 @@ def extract_inno_setup(file_path):
         logging.error(f"Error extracting Inno Setup file {file_path}: {ex}")
         return None
 
-def is_inno_setup_archive_from_output(die_result):
+def is_inno_setup_archive_from_output(die_output):
     """
     Check if the DIE output indicates an Inno Setup installer.
     A file is considered an Inno Setup installer if the output contains both:
       - "Data: Inno Setup Installer data"
       - "Installer: Inno Setup Module"
     """
-    if die_result and \
-       "Data: Inno Setup Installer data" in die_result and \
-       "Installer: Inno Setup Module" in die_result:
+    if die_output and \
+       "Data: Inno Setup Installer data" in die_output and \
+       "Installer: Inno Setup Module" in die_output:
         logging.info("DIE output indicates an Inno Setup installer.")
         return True
 
-    logging.info(f"DIE output does not indicate an Inno Setup installer: {die_result!r}")
+    logging.info(f"DIE output does not indicate an Inno Setup installer: {die_output!r}")
     return False
 
 def extract_pe_sections(file_path: str):
@@ -6227,7 +6227,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
        # Extract the file name
         file_name = os.path.basename(file_path)
 
-        die_result = analyze_file_with_die(file_path)
+        die_output = analyze_file_with_die(file_path)
         # Wrap file_path in a Path once, up front
         wrap_file_path = Path(file_path)
 
@@ -6249,7 +6249,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         )
 
         # Detect Inno Setup installer
-        if is_inno_setup_archive_from_output(die_result):
+        if is_inno_setup_archive_from_output(die_output):
             # Extract Inno Setup installer files
             extracted = extract_inno_setup(installer_path)
             if extracted is not None:
@@ -6264,7 +6264,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                 logging.error("Extraction failed; nothing to scan.")
 
         # Deobfuscate binaries obfuscated by Go Garble.
-        if is_go_garble_from_output(die_result):
+        if is_go_garble_from_output(die_output):
             output_path = os.path.join(ungarbler_dir, os.path.basename(file_path))
             string_output_path = os.path.join(ungarbler_string_dir, os.path.basename(file_path) + "_strings.txt")
 
@@ -6274,7 +6274,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             scan_file_and_warn(string_output_path)
 
         # Check if it's a .pyc file and decompile if needed
-        if is_pyc_file_from_output(die_result):
+        if is_pyc_file_from_output(die_output):
             logging.info(f"File {file_path} is a .pyc (Python Compiled Module) file. Attempting to decompile...")
 
             # Call the show_code_with_uncompyle6_pycdc_pycdas function to decompile the .pyc file
@@ -6388,7 +6388,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                 notify_user_invalid(file_path, "Win32.Susp.InvalidSignature")
 
             # Additional checks for PE files
-            if is_pe_file_from_output(die_result):
+            if is_pe_file_from_output(die_output):
                 logging.info(f"File {file_path} is a valid PE file.")
                 pe_file = True
 
@@ -6438,7 +6438,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                     logging.error(f"Error during debloating of {file_path}: {ex}")
 
             # Analyze the DIE output for .NET file information
-            dotnet_result = is_dotnet_file_from_output(die_result)
+            dotnet_result = is_dotnet_file_from_output(die_output)
     
             if dotnet_result is True:
                 dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(file_path,))
@@ -6454,18 +6454,18 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             elif dotnet_result is not False and not flag_de4dot:
                 de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(file_path,))
                 de4dot_thread.start()
-            if is_jar_file_from_output(die_result):
+            if is_jar_file_from_output(die_output):
                 jar_extractor_paths = run_jar_extractor(file_path, flag_fenflower)
                 if jar_extractor_paths:
                     for jar_extractor_path in jar_extractor_paths:
                         scan_and_warn(jar_extractor_path, flag_fenflower)
                 else:
                     logging.warning("Java Archive Extraction or decompilation failed. Skipping scan.")
-            if is_java_class_from_output(die_result):
+            if is_java_class_from_output(die_output):
                 run_fernflower_decompiler(sfile_path)
 
             # Check if the file contains Nuitka executable
-            nuitka_type = is_nuitka_file_from_output(die_result)
+            nuitka_type = is_nuitka_file_from_output(die_output)
 
             # Only proceed with extraction if Nuitka is detected
             if nuitka_result:
@@ -6504,7 +6504,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         log_directory_type(file_path)
 
         # Perform ransomware alert check
-        if is_file_unknown(die_result):
+        if is_file_unknown(die_output):
             ransomware_alert(file_path)
 
         # Check if the file is in decompile_dir
@@ -6524,7 +6524,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             process_thread.start()
 
         # Check if the file is a PyInstaller archive
-        if is_pyinstaller_archive_from_output(die_result):
+        if is_pyinstaller_archive_from_output(die_output):
             logging.info(f"File {file_path} is a PyInstaller archive. Extracting...")
 
             # Extract the PyInstaller files and get their paths
