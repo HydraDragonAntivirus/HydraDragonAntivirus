@@ -189,8 +189,12 @@ import binascii
 logging.info(f"binascii module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 logging.info(f"transformers.AutoTokenizer and AutoModelForCausalLM modules loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import torch
+logging.info(f"torch module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from accelerate import Accelerator
@@ -4292,21 +4296,46 @@ except Exception as ex:
 
 # Function to load DeepSeek-Coder-1.3b model and tokenizer
 def load_deepseek_1b_model(deepseek_dir):
+    """
+    Loads the DeepSeek-Coder-1.3B model and tokenizer with:
+      - 4-bit NF4 quantization,
+      - FP16 mixed precision,
+      - automatic device mapping and CPU offload,
+      - reduced CPU memory usage at load time.
+    """
     try:
-        
-        message = "Attempting to load DeepSeek-Coder-1.3B model and tokenizer..."
-        logging.info(message)
-        
-        deepseek_tokenizer = AutoTokenizer.from_pretrained(deepseek_1b_dir, local_files_only=True)
-        deepseek_model = AutoModelForCausalLM.from_pretrained(deepseek_1b_dir, local_files_only=True)
-        
-        success_message = "DeepSeek-Coder-1.3B successfully loaded!"
-        logging.info(success_message)
-        
-        return deepseek_model, deepseek_tokenizer
-    except Exception as ex:
-        error_message = f"Error loading DeepSeek-Coder-1.3B model or tokenizer: {ex}"
-        logging.error(error_message)
+        logging.info("Attempting to load DeepSeek-Coder-1.3B model and tokenizer...")
+
+        # 1) Tokenizer
+        tokenizer = AutoTokenizer.from_pretrained(
+            deepseek_dir,
+            local_files_only=True
+        )
+
+        # 2) Quantization config: 4-bit NF4
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,                    
+            bnb_4bit_quant_type="nf4",            
+            bnb_4bit_compute_dtype=torch.float16  
+        )
+
+        # 3) Model load
+        model = AutoModelForCausalLM.from_pretrained(
+            deepseek_dir,
+            local_files_only=True,
+            quantization_config=bnb_config,
+            device_map="auto",                  
+            offload_folder="offload",           
+            offload_state_dict=True,            
+            torch_dtype=torch.float16,          
+            low_cpu_mem_usage=True              
+        )
+
+        logging.info("DeepSeek-Coder-1.3B successfully loaded with 4-bit quantization!")
+        return model, tokenizer
+
+    except Exception as e:
+        logging.error(f"Error loading DeepSeek-Coder-1.3B model or tokenizer: {e}")
         sys.exit(1)
 
 # Load the DeepSeek-Coder-1.3B model

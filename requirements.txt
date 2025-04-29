@@ -20,12 +20,13 @@ macholib
 debloat
 numpy
 cryptography
-unicorn
 capstone
-fastapi
-uvicorn
-python-multipart
+PySide6
+torch
+torchvision 
+torchaudio
+unicorn #for GoStringUngrabler
 lief #for GoStringUngrabler
 transformers # You will also need download https://huggingface.co/deepseek-ai/deepseek-coder-1.3b-instruct
 scapy # You will also need to download https://npcap.com/#download
-spacy # py.exe -3.12 -m spacy download en_core_web_md
+spaCy # py.exe -3.12 -m spacy download en_core_web_md
