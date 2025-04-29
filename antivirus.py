@@ -6195,7 +6195,7 @@ def _copy_to_dest(file_path, src_root, dest_root):
     dest_path = os.path.join(dest_root, rel_path)
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
     shutil.copy2(file_path, dest_path)
-    logging.info(f"Copied '{file_path}' to '{dest_path}'")
+    logging.info(f"Copied '{file_path}' '{dest_path}'")
 
 # --- Main Scanning Function ---
 def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False, flag_de4dot=False, flag_fernflower=False):
@@ -7481,7 +7481,8 @@ def parse_report(path):
     """
     Parse the HiJackThis report and return a dictionary where:
       key   -> The log line (lines starting with O2, O4, or O23)
-      value -> A tuple containing (file path) if available.
+      value -> A 1-tuple containing the first existing file path found on that line,
+                or (None,) if no path could be opened.
     """
     entries = {}
     with open(path, encoding='utf-8', errors='ignore') as f:
@@ -7489,16 +7490,23 @@ def parse_report(path):
             line = line.strip()
             if not line.startswith(('O2', 'O4', 'O23')):
                 continue
+
             file_path = None
-            md5 = None
             for part in line.split():
                 if os.path.exists(part):
-                    file_path = part  # store the file path
                     try:
-                        with open(part, 'rb') as fp:
-                    except Exception:
+                        # test open for readability
+                        with open(part, 'rb'):
+                            file_path = part
+                    except (OSError, IOError):
+                        # couldn't open; treat as if not found
+                        file_path = None
+                    # in either case, stop scanning further parts
                     break
-            entries[line] = (file_path)
+
+            # store a 1-tuple as the spec’d “tuple containing (file path)”
+            entries[line] = (file_path,)
+
     return entries
 
 class AntivirusApp(QWidget):
