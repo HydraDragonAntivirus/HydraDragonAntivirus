@@ -2051,7 +2051,7 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
         for is_whitelisted, whitelist_type in whitelist_checks:
             if is_whitelisted:
                 logging.info(f"Domain {full_domain} is whitelisted ({whitelist_type}).")
-                return,
+                return
 
         if subdomain:
             if full_domain in spam_sub_domains_data:
