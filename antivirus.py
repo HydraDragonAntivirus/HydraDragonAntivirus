@@ -6239,7 +6239,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         with open(file_path, 'rb') as scan_file:
             data_content = scan_file.read()
 
-        src_root = os.path.dirname(file_pat)
+        src_root = os.path.dirname(file_path)
 
         # choose destination based on origin
         if file_path.startswith(de4dot_sandboxie_dir):
