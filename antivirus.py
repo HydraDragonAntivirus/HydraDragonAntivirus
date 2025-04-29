@@ -454,9 +454,11 @@ os.makedirs(HiJackThis_logs_dir, exist_ok=True)
 # Counter for ransomware detection
 ransomware_detection_count = 0 
 
-def sanitize_filename(name: str) -> str:
-    """Replace illegal filename characters with underscores."""
-    return re.sub(r'[<>:"/\\|?*]', '_', name)
+def sanitize_filename(filename: str) -> str:
+    """
+    Sanitize the filename by replacing invalid characters for Windows.
+    """
+    return filename.replace(':', '_').replace('\\', '_').replace('/', '_')
 
 def ublock_detect(url):
     """
