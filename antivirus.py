@@ -532,22 +532,24 @@ except FileNotFoundError:
 except Exception as e:
     logging.error(f"An error occurred: {e}")
 
-def get_unique_output_path(output_dir: Path, base_name: str, suffix: int = 1) -> Path:
+def get_unique_output_path(output_dir: Path, base_name: Path) -> Path:
     """
-    Generate a unique file path by appending a suffix (_1, _2, etc.) if the file already exists.
-    Also sanitize the base_name to remove invalid filename characters.
+    Generate a unique file path by appending a counter suffix (_1, _2, etc.) if the file already exists.
     """
-    # Sanitize base_name first
-    base_name = sanitize_filename(base_name)
-    base_name_path = Path(base_name)
+    # Ensure output directory exists
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    new_path = output_dir / f"{base_name_path.stem}_{suffix}{base_name_path.suffix}"
+    # Sanitize stem and suffix
+    stem = sanitize_filename(base_name.stem)
+    suffix = base_name.suffix
 
-    while new_path.exists():
-        suffix += 1
-        new_path = output_dir / f"{base_name_path.stem}_{suffix}{base_name_path.suffix}"
+    candidate = output_dir / f"{stem}{suffix}"
+    counter = 1
+    while candidate.exists():
+        candidate = output_dir / f"{stem}_{counter}{suffix}"
+        counter += 1
 
-    return new_path
+    return candidate
 
 def analyze_file_with_die(file_path):
     """
@@ -3738,44 +3740,17 @@ def scan_7z_file(file_path):
         logging.error(f"Error scanning 7z file: {file_path} - {ex}")
         return False, ""
 
-def is_7z_file(file_path):
+def is_7z_file_from_output(die_output: str) -> bool:
     """
-    Check if the file is a valid 7z archive using Detect It Easy console.
+    Checks if DIE output indicates a 7-Zip archive.
+    Expects the raw stdout (or equivalent) from a Detect It Easy run.
     """
-    try:
-        logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
+    if die_output and "Archive: 7-Zip" in die_output:
+        logging.info("DIE output indicates a 7z archive.")
+        return True
 
-        # Ensure the JSON output directory exists
-        output_dir = Path(detectiteasy_json_dir)
-        if not output_dir.exists():
-            output_dir.mkdir(parents=True)
-
-        # Define the base name for the output JSON file (output will be 7z check result)
-        base_name = Path(file_path).with_suffix(".json")
-
-        # Get a unique file path for the JSON output
-        json_output_path = get_unique_output_path(output_dir, base_name)
-
-        # Run the DIE console command with the -j flag to generate a JSON output
-        result = subprocess.run([detectiteasy_console_path, "-j", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-        # Check for 7-Zip in the result
-        if "Archive: 7-Zip" in result.stdout:
-            # Save the JSON output to the specified unique file
-            with open(json_output_path, "w") as json_file:
-                json_file.write(result.stdout)
-            logging.info(f"7z file analysis result saved to {json_output_path}")
-            return True
-        else:
-            logging.info(f"File {file_path} is not a 7z file. Result: {result.stdout}")
-            return False
-
-    except subprocess.SubprocessError as ex:
-        logging.error(f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
-        return False
-    except Exception as ex:
-        logging.error(f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}")
-        return False
+    logging.info(f"DIE output does not indicate a 7z archive: {die_output!r}")
+    return False
 
 def scan_tar_file(file_path):
     """Scan files within a tar archive."""
@@ -4065,7 +4040,8 @@ def scan_file_real_time(file_path, signature_check, file_name, pe_file=False):
 
         # Scan 7z files
         try:
-            if is_7z_file(file_path):
+            die_result = analyze_file_with_die(file_path)
+            if is_7z_file_from_output(die_result):
                 scan_result, virus_name = scan_7z_file(file_path)
                 if scan_result and virus_name not in ("Clean", ""):
                     if signature_check["is_valid"]:
@@ -6252,18 +6228,18 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         file_name = os.path.basename(file_path)
 
         die_result = analyze_file_with_die(file_path)
+        # Wrap file_path in a Path once, up front
+        wrap_file_path = Path(file_path)
 
-        # Check: if file_path is within obfuscar_dir and flag_obfuscar is not already True, then set it to True.
-        if obfuscar_dir in file_path.parents and not flag_obfuscar:
+        # 1) Obfuscar-dir check
+        if Path(obfuscar_dir) in wrap_file_path.parents and not flag_obfuscar:
             flag_obfuscar = True
             logging.info(f"Flag set to True because '{file_path}' is inside the Obfuscar directory '{obfuscar_dir}'.")
 
-        wrap_file_path = Path(file_path) # <-- wrap the incoming path
-        # now .parents is safe
-        # Find the first de4dot directory that contains file_path
+        # 2) de4dot directories check
         match = next(
-            (p for p in (de4dot_extracted_dir, de4dot_sandboxie_dir)
-            if p in wrap_file_path.parents),
+            (Path(p) for p in (de4dot_extracted_dir, de4dot_sandboxie_dir)
+            if Path(p) in wrap_file_path.parents),
             None
         )
         if match and not flag_de4dot:
