@@ -6876,7 +6876,7 @@ def find_child_windows(parent_hwnd):
     """Find all child windows of the given parent window."""
     child_windows = []
 
-    def enum_child_windows_callback(hwnd):
+    def enum_child_windows_callback(hwnd, lParam):
         child_windows.append(hwnd)
         return True
 
@@ -6884,6 +6884,23 @@ def find_child_windows(parent_hwnd):
     ctypes.windll.user32.EnumChildWindows(parent_hwnd, EnumChildWindowsProc(enum_child_windows_callback), None)
     
     return child_windows
+
+# Function to find windows containing text
+def find_windows_with_text():
+    """Find all windows and their child windows."""
+    def enum_windows_callback(hwnd, lParam):
+        if ctypes.windll.user32.IsWindowVisible(hwnd):
+            window_text = get_window_text(hwnd)
+            window_handles.append((hwnd, window_text))
+            for child in find_child_windows(hwnd):
+                control_text = get_control_text(child)
+                window_handles.append((child, control_text))
+        return True
+
+    window_handles = []
+    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
+    return window_handles
 
 class MonitorMessageCommandLine:
     def __init__(self):
