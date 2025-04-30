@@ -143,7 +143,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 
 **Tip 2:**
 
-- Use VSCode, VSCodium or another editor to see live changes to .log files
+- Use VSCode, VSCodium, or another editor to see live changes to .log files if you're on Windows 10, because Windows 11 Notepad automatically detects changes.
 
 **Tip 3:**
 
