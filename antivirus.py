@@ -5640,7 +5640,7 @@ def extract_all_files_with_7z(file_path, nsis_flag=False):
 
             for path in extracted_files:
                 if path.lower().endswith('.nsi'):
-                    t = threading.Thread(target=_scan_nsi, args=(path,), daemon=True)
+                    t = threading.Thread(target=_scan_nsi, args=(path,))
                     t.start()
 
         return extracted_files
@@ -6910,7 +6910,7 @@ def monitor_directories():
     """
     threads = []
     for d in directories_to_scan:
-        t = threading.Thread(target=monitor_directory, args=(d,), daemon=True)
+        t = threading.Thread(target=monitor_directory, args=(d,))
         t.start()
         threads.append(t)
         logging.info(f"Started monitoring thread for: {d}")
@@ -7637,7 +7637,7 @@ class MonitorMessageCommandLine:
             )
             if not (self._win_event_hook_show and self._win_event_hook_hide and self._win_event_hook_name):
                 raise ctypes.WinError()
-            threading.Thread(target=_pump_messages, daemon=True).start()
+            threading.Thread(target=_pump_messages).start()
             logging.info("WinEvent hooks (show, hide, name-change) installed.")
         except Exception as ex:
             logging.error(f"Failed to install WinEvent hooks: {ex}")
