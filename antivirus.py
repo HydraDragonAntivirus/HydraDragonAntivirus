@@ -401,6 +401,8 @@ scanned_domains_general = []
 scanned_ipv4_addresses_general = []
 scanned_ipv6_addresses_general = []
 
+directories_to_scan = [sandboxie_folder, copied_sandbox_files_dir, decompile_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, de4dot_sandboxie_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_deepseek_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
+
 clamdscan_path = "C:\\Program Files\\ClamAV\\clamdscan.exe"
 freshclam_path = "C:\\Program Files\\ClamAV\\freshclam.exe"
 clamav_file_paths = ["C:\\Program Files\\ClamAV\\database\\daily.cvd", "C:\\Program Files\\ClamAV\\database\\daily.cld"]
@@ -4512,8 +4514,6 @@ existing_projects = []
 scanned_files = []
 file_mod_times = {}
 
-directories_to_scan = [sandboxie_folder, copied_sandbox_files_dir, decompile_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, de4dot_sandboxie_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_deepseek_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
-
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
     try:
@@ -6806,14 +6806,33 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         logging.error(f"Error scanning file {file_path}: {ex}")
         return False
 
-def monitor_sandbox():
-    if not os.path.exists(sandboxie_folder):
-        logging.error(f"The sandboxie folder path does not exist: {sandboxie_folder}")
+# Constants for all notification filters
+NOTIFY_FILTER = (
+    win32con.FILE_NOTIFY_CHANGE_FILE_NAME |
+    win32con.FILE_NOTIFY_CHANGE_DIR_NAME |
+    win32con.FILE_NOTIFY_CHANGE_ATTRIBUTES |
+    win32con.FILE_NOTIFY_CHANGE_SIZE |
+    win32con.FILE_NOTIFY_CHANGE_LAST_WRITE |
+    win32con.FILE_NOTIFY_CHANGE_SECURITY |
+    FILE_NOTIFY_CHANGE_LAST_ACCESS |
+    FILE_NOTIFY_CHANGE_CREATION |
+    FILE_NOTIFY_CHANGE_EA |
+    FILE_NOTIFY_CHANGE_STREAM_NAME |
+    FILE_NOTIFY_CHANGE_STREAM_SIZE |
+    FILE_NOTIFY_CHANGE_STREAM_WRITE,
+)
+
+def monitor_directory(path):
+    """
+    Monitor a single directory for changes and invoke scan_and_warn on new/modified items.
+    """
+    if not os.path.exists(path):
+        logging.error(f"The directory does not exist: {path}")
         return
 
     hDir = win32file.CreateFile(
-        sandboxie_folder,
-        1,
+        path,
+        win32con.FILE_LIST_DIRECTORY,
         win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
         None,
         win32con.OPEN_EXISTING,
@@ -6827,36 +6846,39 @@ def monitor_sandbox():
                 hDir,
                 1024,
                 True,
-                win32con.FILE_NOTIFY_CHANGE_FILE_NAME |
-                win32con.FILE_NOTIFY_CHANGE_DIR_NAME |
-                win32con.FILE_NOTIFY_CHANGE_ATTRIBUTES |
-                win32con.FILE_NOTIFY_CHANGE_SIZE |
-                win32con.FILE_NOTIFY_CHANGE_LAST_WRITE |
-                win32con.FILE_NOTIFY_CHANGE_SECURITY |
-                FILE_NOTIFY_CHANGE_LAST_ACCESS |
-                FILE_NOTIFY_CHANGE_CREATION |
-                FILE_NOTIFY_CHANGE_EA |
-                FILE_NOTIFY_CHANGE_STREAM_NAME |
-                FILE_NOTIFY_CHANGE_STREAM_SIZE |
-                FILE_NOTIFY_CHANGE_STREAM_WRITE,
+                NOTIFY_FILTER,
                 None,
                 None
             )
-            for action, file in results:
-                pathToScan = os.path.join(sandboxie_folder, file)
-                if os.path.exists(pathToScan):
-                    logging.info(pathToScan)
-                    scan_and_warn(pathToScan)
+            for action, filename in results:
+                full_path = os.path.join(path, filename)
+                if os.path.exists(full_path):
+                    logging.info(f"Detected change in: {full_path}")
+                    scan_and_warn(full_path)
                 else:
-                    logging.error(f"File or folder not found: {pathToScan}")
-
-    except Exception as ex:
-        logging.error(f"An error occurred at monitor_sandbox: {ex}")
+                    logging.error(f"File or folder not found: {full_path}")
+    except Exception as e:
+        logging.error(f"Error monitoring {path}: {e}")
     finally:
         win32file.CloseHandle(hDir)
 
+def monitor_directories(directories):
+    """
+    Start a background thread for each directory in the list.
+    """
+    threads = []
+    for d in directories:
+        t = threading.Thread(target=monitor_directory, args=(d,), daemon=True)
+        t.start()
+        threads.append(t)
+        logging.info(f"Started monitoring thread for: {d}")
+
+    # Optionally join threads if you want to block here
+    for t in threads:
+        t.join()
+
 def start_monitoring_sandbox():
-    threading.Thread(target=monitor_sandbox).start()
+    threading.Thread(target=monitor_directories).start()
 
 def monitor_snort_log():
     if not os.path.exists(log_path):
