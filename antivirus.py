@@ -7644,40 +7644,46 @@ class MonitorMessageCommandLine:
 
         while True:
             # 1) Window and control enumeration
-            windows = find_windows_with_text()  # now returns (hwnd, text, path)
-            logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
-            for hwnd, text, path in windows:
-                logging.debug(f"hwnd={hwnd}, path={path}, text={text!r}")
-                if not self._is_in_sandbox(path):
-                    logging.debug(f"Skipping {path}")
-                    continue
-                # Handle all three pieces (original + preprocessed)
-                self.handle_event(hwnd, text, path)
+            try:
+                windows = find_windows_with_text()  # returns (hwnd, text, path)
+                logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
+                for hwnd, text, path in windows:
+                    logging.debug(f"hwnd={hwnd}, path={path}, text={text!r}")
+                    if not self._is_in_sandbox(path):
+                        logging.debug(f"Skipping {path}")
+                        continue
+                    # Handle window/control event
+                    self.handle_event(hwnd, text, path)
+            except Exception as e:
+                logging.error(f"Error during window/control enumeration: {e}", exc_info=True)
 
             # 2) Command‐line snapshot
-            cmdlines = self.capture_command_lines()  # returns (cmd, exe_path)
-            logging.debug(f"Enumerated {len(cmdlines)} command‐line(s)")
-            for cmd, exe_path in cmdlines:
-                logging.debug(f"cmd={cmd!r}, exe_path={exe_path}")
-                if not self._is_in_sandbox(exe_path):
-                    logging.debug(f"Skipping {exe_path}")
-                    continue
+            try:
+                cmdlines = self.capture_command_lines()  # returns (cmd, exe_path)
+                logging.debug(f"Enumerated {len(cmdlines)} command‐line(s)")
+                for cmd, exe_path in cmdlines:
+                    logging.debug(f"cmd={cmd!r}, exe_path={exe_path}")
+                    if not self._is_in_sandbox(exe_path):
+                        logging.debug(f"Skipping {exe_path}")
+                        continue
 
-                # write original cmd
-                orig_fn = self.get_unique_filename(f"cmd_{os.path.basename(exe_path)}")
-                with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
-                    f.write(cmd[:1_000_000])
-                logging.info(f"Wrote cmd -> {orig_fn}")
-                scan_and_warn(orig_fn)
+                    # write original cmd
+                    orig_fn = self.get_unique_filename(f"cmd_{os.path.basename(exe_path)}")
+                    with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
+                        f.write(cmd[:1_000_000])
+                    logging.info(f"Wrote cmd -> {orig_fn}")
+                    scan_and_warn(orig_fn)
 
-                # write preprocessed cmd
-                pre_cmd = self.preprocess_text(cmd)
-                if pre_cmd:
-                    pre_fn = self.get_unique_filename(f"cmd_pre_{os.path.basename(exe_path)}")
-                    with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
-                        f.write(pre_cmd[:1_000_000])
-                    logging.info(f"Wrote cmd pre -> {pre_fn}")
-                    scan_and_warn(pre_fn)
+                    # write preprocessed cmd
+                    pre_cmd = self.preprocess_text(cmd)
+                    if pre_cmd:
+                        pre_fn = self.get_unique_filename(f"cmd_pre_{os.path.basename(exe_path)}")
+                        with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
+                            f.write(pre_cmd[:1_000_000])
+                        logging.info(f"Wrote cmd pre -> {pre_fn}")
+                        scan_and_warn(pre_fn)
+            except Exception as e:
+                logging.error(f"Error during command-line snapshot: {e}", exc_info=True)
 
 def monitor_sandboxie_directory():
     """
