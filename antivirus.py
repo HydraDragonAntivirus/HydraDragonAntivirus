@@ -2405,6 +2405,9 @@ def ensure_http_prefix(url):
         return 'http://' + url
     return url
 
+# a global (or outer-scope) list to collect every saved path
+saved_paths = []
+
 def fetch_html(url, return_file_path=False):
     """Fetch HTML content from the given URL, always save it, and optionally return the file path."""
     try:
@@ -2422,6 +2425,8 @@ def fetch_html(url, return_file_path=False):
             with open(out_path, 'w', encoding='utf-8', errors='ignore') as f:
                 f.write(html)
             logging.info(f"Saved HTML for {safe_url} to {out_path}")
+            # record the new path
+            saved_paths.append(out_path)
             return (html, out_path) if return_file_path else html
         else:
             logging.warning(f"Non-OK status {response.status_code} for URL: {safe_url}")
@@ -6806,6 +6811,15 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         logging.error(f"Error scanning file {file_path}: {ex}")
         return False
 
+def monitor_saved_paths():
+    """Continuously monitor the saved_paths list and call scan_and_warn on new items."""
+    seen = set()
+    while True:
+        for path in saved_paths:
+            if path not in seen:
+                seen.add(path)
+                scan_and_warn(path)
+
 # Constants for all notification filters
 NOTIFY_FILTER = (
     win32con.FILE_NOTIFY_CHANGE_FILE_NAME |
@@ -6862,12 +6876,12 @@ def monitor_directory(path):
     finally:
         win32file.CloseHandle(hDir)
 
-def monitor_directories(directories):
+def monitor_directories():
     """
     Start a background thread for each directory in the list.
     """
     threads = []
-    for d in directories:
+    for d in directories_to_scan:
         t = threading.Thread(target=monitor_directory, args=(d,), daemon=True)
         t.start()
         threads.append(t)
@@ -7063,13 +7077,13 @@ class ScanAndWarnHandler(FileSystemEventHandler):
             self.process_file(event.dest_path)
             logging.info(f"File moved: {event.src_path} to {event.dest_path}")
 
-def monitor_directories_with_watchdog(directories):
+def monitor_directories_with_watchdog():
     """
     Use watchdog Observer to monitor multiple directories with the ScanAndWarnHandler.
     """
     event_handler = ScanAndWarnHandler()
     observer = Observer()
-    for path in directories:
+    for path in directories_to_scan:
         observer.schedule(event_handler, path=path, recursive=False)
         logging.info(f"Scheduled watchdog observer for: {path}")
     observer.start()
@@ -7078,8 +7092,6 @@ def monitor_directories_with_watchdog(directories):
     except KeyboardInterrupt:
         observer.stop()
     observer.join()
-
-monitor_directories_with_watchdog(directories_to_scan)
 
 def run_sandboxie_control():
     try:
@@ -7612,7 +7624,7 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=web_protection_observer.begin_observing).start()
 
         # Start other sandbox analysis tasks in separate threads
-        threading.Thread(target=observer.start).start()
+        threading.Thread(target=monitor_directories_with_watchdog).start()
         threading.Thread(target=scan_and_warn, args=(file_path,)).start()
         threading.Thread(target=start_monitoring_sandbox).start()
         threading.Thread(target=monitor_sandboxie_directory).start()
@@ -7620,6 +7632,7 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=monitor_hosts_file).start()
         threading.Thread(target=check_uefi_directories).start() # Start monitoring UEFI directories for malicious files in a separate thread
         threading.Thread(target=monitor_message.monitoring_command_line_and_messages).start() # Function to monitor specific windows in a separate thread
+        threading.Thread(target=monitor_saved_paths).start()
         threading.Thread(target=run_sandboxie_control).start()
         threading.Thread(target=run_sandboxie_plugin).start()
         threading.Thread(target=run_sandboxie, args=(file_path,)).start()
