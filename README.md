@@ -94,7 +94,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - I used these projects to decompile (with a current custom database of Detect-It-Easy).
 
 - https://github.com/starhopp3r/ML-Antivirus
-- https://huggingface.co/deepseek-ai/deepseek-coder-1.3b-instruct
+- https://huggingface.co/meta-llama/Llama-3.2-1B
 
 - I used these projects for AI.
 
@@ -173,8 +173,8 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 **Why does my antivirus detect this as malware?**
 - It's a false positive. It's contains the website, HIPS signatures without obfuscation. It's a fully open source antivirus product.
 
-**Why is it 5GB+?**
-- Because of website signatures, Ghidra, ClamAV and Java Development Kit. Website signatures are not very effective but they can detect old and new viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space. Java Development Kit is for Ghidra. That's 1GB+, but DeepSeek-Coder-1.3b make a total of 5GB+. Note that it's a completely local (except update database and cloud checking for known files) and professional open source antivirus.
+**Why is it 3GB+?**
+- Because of website signatures, Ghidra, ClamAV and Java Development Kit. Website signatures are not very effective but they can detect old and new viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space. Java Development Kit is for Ghidra. That's 1GB+, but Llama3.2-1B make a total of 3GB+. Note that it's a completely local (except update database and cloud checking for known files) and professional open source antivirus.
 
 **Why does the antivirus.exe application take too long to run?**
 - Sometimes you have to wait 5+ minutes when you run the program for the first time because a lot of things are loading.
@@ -183,8 +183,8 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - (Python 3.12 is required because spaCy does not yet have a stable release for Python 3.13.) Windows 10 64-bit and Windows 11 only (you can run ClamAV, but you can't run HydraDragonAntivirus on Windows 8.1 and it's not supported). If you want, I can create a 32-bit version for Windows 10 32-bit, but I faced some problems. ClamAV has limitations on 32-bit, so it's problematic. On Windows 8.1, ClamAV isn't supported because it's an outdated Windows version. You will get the `api-ms-win-crt-runtime-l1-1-0.dll` error. Even if you add this DLL, you will get another error: "Application failed to start properly (0xc000007b)." Then install this: [Microsoft VC Redist](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170). After running `C:\Program Files\ClamAV\freshclam.exe` and `clamd.exe` with `clamd --install`, the setup is complete, but you can't run HydraDragonAntivirus on Windows 8.1 because you get an ImportError on line nine due to PySide6.
 - If you still want support for Windows 7, you will need to manually downgrade to Python 3.8 and many tools. 32-bit support is possible. Although Windows XP support is possible through the One Core API, we don't recommend using illegal things.
 
-**Minimum RAM andd space?**
--12.9GB (13172 MB) RAM is the minimum because I am using DeepSeek-Coder-1.3B locally. I strongly recommend 12.9GB (13172 MB) RAM. A minimum of 110 GB of disk space and 4 processors is also recommended.
+**Minimum RAM?**
+- 8GB RAM is the minimum because I am using Llama3.2-1B locally. I strongly recommend 8GB RAM.
 
 **Any sponsors or supporters?**
 - Yes, there are supporters for this project. Xcitium (Comodo) has expressed interest in supporting this project by providing malware samples, and Cisco Talos ClamAV community projects. But it's still a one man project.
