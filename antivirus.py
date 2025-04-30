@@ -327,6 +327,7 @@ ungarbler_string_dir = os.path.join(script_dir, "ungarbler_string")
 yara_dir = os.path.join(script_dir, "yara")
 excluded_rules_dir = os.path.join(script_dir, "excluded")
 excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
+html_extracted_dir = os.path.join(script_dir, "html_extracted")
 website_rules_dir = os.path.join(script_dir, "website")
 # Define all website file paths
 ipv4_addresses_path = os.path.join(website_rules_dir, "IPv4Malware.txt")
@@ -445,6 +446,7 @@ os.makedirs(pycdas_dir, exist_ok=True)
 os.makedirs(united_python_source_code_dir, exist_ok=True)
 os.makedirs(copied_sandbox_files_dir, exist_ok=True)
 os.makedirs(HiJackThis_logs_dir, exist_ok=True)
+os.makedirs(html_extracted_dir, exist_ok=True)
 
 # Counter for ransomware detection
 ransomware_detection_count = 0 
@@ -2401,22 +2403,33 @@ def ensure_http_prefix(url):
         return 'http://' + url
     return url
 
-def fetch_html(url):
-    """Fetch HTML content from the given URL."""
+def fetch_html(url, return_file_path=False):
+    """Fetch HTML content from the given URL, always save it, and optionally return the file path."""
     try:
         safe_url = ensure_http_prefix(url)
         response = requests.get(safe_url, timeout=10)
         if response.status_code == 200:
-            return response.text
+            html = response.text
+            # Determine a safe filename from the URL path
+            parsed = urlparse(safe_url)
+            fname = Path(parsed.path if parsed.path else "index.html").name or "index.html"
+            base_name = Path(fname)
+            # Generate unique output path
+            out_path = get_unique_output_path(Path(html_extracted_dir), base_name)
+            # Save the HTML
+            with open(out_path, 'w', encoding='utf-8', errors='ignore') as f:
+                f.write(html)
+            logging.info(f"Saved HTML for {safe_url} to {out_path}")
+            return (html, out_path) if return_file_path else html
         else:
             logging.warning(f"Non-OK status {response.status_code} for URL: {safe_url}")
-            return ""
+            return ("", None) if return_file_path else ""
     except requests.exceptions.RequestException as e:
         logging.error(f"Request error while fetching HTML content from {url}: {e}")
-        return ""
+        return ("", None) if return_file_path else ""
     except Exception as e:
         logging.error(f"Unexpected error fetching HTML content from {url}: {e}")
-        return ""
+        return ("", None) if return_file_path else ""
 
 # --------------------------------------------------------------------------
 # Generalized scan for IP addresses
@@ -2627,32 +2640,32 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
     except Exception as ex:
         logging.error(f"Error scanning IP address {ip_address}: {ex}")
 
-def scan_html_content(html_content, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False):
+def scan_html_content(html_content, html_content_file_path, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False):
     """Scan extracted HTML content for any potential threats."""
-    contains_discord_or_telegram_code(html_content, "html_content", None,
-                          dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                          pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+    contains_discord_or_telegram_code(html_content, html_content, None,
+                          dotnet_flag nuitka_flag,
+                          pyinstaller_flag, nsis_flag, pyinstaller_deepseek_flag)
     urls = set(re.findall(r'https?://[^\s/$.?#]\S*', html_content))
     for url in urls:
-        scan_url_general(url, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                          pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
-        scan_domain_general(url, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                            pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+        scan_url_general(url, dotnet_flag, nuitka_flag
+                          pyinstaller_flag, nsis_flag,pyinstaller_deepseek_flag)
+        scan_domain_general(url, dotnet_flag, nuitka_flag,
+                            pyinstaller_flag, nsis_flag, pyinstaller_deepseek_flag)
     ipv4_addresses = set(re.findall(
         r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'
         r'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)',
         html_content
     ))
     for ip in ipv4_addresses:
-        scan_ip_address_general(ip, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                                pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+        scan_ip_address_general(ip, dotnet_flag, nuitka_flag,
+                                pyinstaller_flag, nsis_flag ,pyinstaller_deepseek_flag)
     ipv6_addresses = set(re.findall(
         r'([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}',
         html_content
     ))
     for ip in ipv6_addresses:
-        scan_ip_address_general(ip, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                                pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+        scan_ip_address_general(ip, dotnet_flag, nuitka_flag,
+                                pyinstaller_flag, nsis_flag, pyinstaller_deepseek_flag)
 
 # --------------------------------------------------------------------------
 # Main scanner: combine all individual scans and pass the flags along
@@ -2668,25 +2681,25 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
 
     # Call the Discord/Telegram scanner
     contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path,
-                            dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                            pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+                            dotnet_flag, nuitka_flag,
+                            pyinstaller_flag, nsis_flag ,pyinstaller_deepseek_flag)
 
     # Extract URLs from the decompiled code
     urls = set(re.findall(r'https?://[^\s/$.?#]\S*', decompiled_code))
     for url in urls:
-        html_content = fetch_html(url)
+        html_content, html_content_file_path = fetch_html(url, return_file_path=True)
         contains_discord_or_telegram_code(html_content, file_path, cs_file_path,
-                              dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                              pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+                              dotnet_flag, nuitka_flag,
+                              pyinstaller_flag, nsis_flag ,pyinstaller_deepseek_flag)
         # Pass the homepage flag string into the scanning functions
-        scan_url_general(url, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                          pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag,
-                          homepage_flag=homepage_flag)
-        scan_domain_general(url, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                            pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag,
-                            homepage_flag=homepage_flag)
-        scan_html_content(html_content, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                          pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag)
+        scan_url_general(url, dotnet_flag, nuitka_flag,
+                          pyinstaller_flag, nsis_flag, pyinstaller_deepseek_flag,
+                          homepage_flag)
+        scan_domain_general(url, dotnet_flag, nuitka_flag,
+                            pyinstaller_flag, nsis_flag, pyinstaller_deepseek_flag,
+                            homepage_flag)
+        scan_html_content(html_content, html_content_file_path, dotnet_flag, nuitka_flag,
+                          pyinstaller_flag, nsis_flag ,pyinstaller_deepseek_flag)
 
     ipv4_addresses = set(re.findall(
         r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'
@@ -2694,18 +2707,18 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
         decompiled_code
     ))
     for ip in ipv4_addresses:
-        scan_ip_address_general(ip, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                                pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag,
-                                homepage_flag=homepage_flag)
+        scan_ip_address_general(ip, dotnet_flag, nuitka_flag,
+                                pyinstaller_flag, nsis_flag ,pyinstaller_deepseek_flag,
+                                homepage_flag)
 
     ipv6_addresses = set(re.findall(
         r'([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}',
         decompiled_code
     ))
     for ip in ipv6_addresses:
-        scan_ip_address_general(ip, dotnet_flag=dotnet_flag, nuitka_flag=nuitka_flag,
-                                pyinstaller_flag=pyinstaller_flag, nsis_flag=nsis_flag ,pyinstaller_deepseek_flag=pyinstaller_deepseek_flag,
-                                homepage_flag=homepage_flag)
+        scan_ip_address_general(ip, dotnet_flag, nuitka_flag,
+                                pyinstaller_flag, nsis_flag ,pyinstaller_deepseek_flag,
+                                homepage_flag)
 
 def enum_process_modules(handle):
     """Enumerate and retrieve loaded modules in a process."""
@@ -2966,7 +2979,7 @@ class RealTimeWebProtectionHandler:
                 logging.info(message)
 
             if any(notify_info.values()):
-                notify_user_for_web(**notify_info)
+                notify_user_for_web(**notify_info)g
 
         except Exception as ex:
             logging.error(f"Error in handle_detection: {ex}")
@@ -4499,7 +4512,7 @@ existing_projects = []
 scanned_files = []
 file_mod_times = {}
 
-directories_to_scan = [sandboxie_folder, copied_sandbox_files_dir, decompile_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, de4dot_sandboxie_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_deepseek_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir]
+directories_to_scan = [sandboxie_folder, copied_sandbox_files_dir, decompile_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, de4dot_sandboxie_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_deepseek_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
 
 def get_next_project_name(base_name):
     """Generate the next available project name with an incremental suffix."""
@@ -5208,6 +5221,8 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code directory with uncompyle6.")
         elif file_path.startswith(nuitka_source_code_dir):
             logging.info(f"{file_path}: It's a Nuitka reversed-engineered Python source code directory.")
+        elif file_path.startswith(html_extracted_dir):
+            logging.info(f"{file_path}: This is the directory for HTML files of visited websites.")
         else:
             logging.warning(f"{file_path}: File does not match known directories.")
     except Exception as ex:
@@ -5539,15 +5554,12 @@ def decompile_dotnet_file(file_path):
 def extract_all_files_with_7z(file_path, nsis_flag=False):
     """
     Extracts all files from an archive via 7-Zip CLI.
-    Always returns a single path:
-      - If nsis_flag is False: the output directory path.
-      - If nsis_flag is True and a .nsi script is found: the path to the first extracted .nsi file
-        (after calling scan_code_for_links on its contents).
-      - Otherwise (nsis_flag True but no .nsi found): still returns the output directory path.
+    Always returns a list of extracted file paths.
 
     Side effects:
-      - If nsis_flag is True and an .nsi is found, calls scan_code_for_links(..., nsis_flag=True).
+      - If nsis_flag is True, every .nsi script found will be scanned asynchronously via scan_code_for_links(..., nsis_flag=True).
     """
+    extracted_files = []
     try:
         # Prepare a unique output directory
         counter = 1
@@ -5558,7 +5570,7 @@ def extract_all_files_with_7z(file_path, nsis_flag=False):
         output_dir = f"{base_output_dir}_{counter}"
         os.makedirs(output_dir, exist_ok=True)
 
-        logging.info(f"Extracting {file_path} → {output_dir}")
+        logging.info(f"Extracting {file_path} into {output_dir}...")
         cmd = [
             seven_zip_path, "x", file_path,
             f"-o{output_dir}", "-y", "-snl", "-spe"
@@ -5571,39 +5583,36 @@ def extract_all_files_with_7z(file_path, nsis_flag=False):
         )
         if proc.returncode != 0:
             logging.error(
-                f"7z failed (code {proc.returncode}): {proc.stderr.strip()}"
+                f"7z extraction failed (code {proc.returncode}): {proc.stderr.strip()}"
             )
-            return output_dir
+            return extracted_files
 
-        # Walk the extracted files looking for .nsi scripts
-        nsi_path = None
+        # Collect all extracted file paths
         for root, _, files in os.walk(output_dir):
             for fname in files:
-                if fname.lower().endswith('.nsi'):
-                    nsi_path = os.path.join(root, fname)
-                    break
-            if nsi_path:
-                break
+                extracted_files.append(os.path.join(root, fname))
 
-        if nsis_flag and nsi_path:
-            try:
-                with open(nsi_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
-                # scan_code_for_links should be defined/imported elsewhere
-                links = scan_code_for_links(content, nsis_flag=True)
-                logging.info(f"Scanned NSIS script {nsi_path}, found {len(links)} links.")
-            except Exception as e:
-                logging.error(f"Failed to scan {nsi_path}: {e}")
+        # If nsis_flag is set, scan all .nsi scripts asynchronously
+        if nsis_flag:
+            def _scan_nsi(path):
+                try:
+                    with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+                    links = scan_code_for_links(content, nsis_flag=True)
+                    logging.info(f"Scanned NSIS script {path}, found {len(links)} links.")
+                except Exception as e:
+                    logging.error(f"Failed to scan NSIS script {path}: {e}")
 
-            return nsi_path
+            for path in extracted_files:
+                if path.lower().endswith('.nsi'):
+                    t = threading.Thread(target=_scan_nsi, args=(path,), daemon=True)
+                    t.start()
 
-        # Default: return the directory path
-        return output_dir
+        return extracted_files
 
     except Exception as ex:
-        logging.error(f"Error extracting with 7z: {ex}")
-        # On error, still return whatever directory was created (if any)
-        return output_dir
+        logging.error(f"Error during 7z extraction: {ex}")
+        return extracted_files
 
 def extract_line(content, prefix):
     """
