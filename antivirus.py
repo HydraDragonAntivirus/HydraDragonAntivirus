@@ -6846,7 +6846,7 @@ def monitor_directory(path):
 
     hDir = win32file.CreateFile(
         path,
-        win32con.FILE_LIST_DIRECTORY,
+        1,
         win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
         None,
         win32con.OPEN_EXISTING,
