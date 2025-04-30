@@ -7127,56 +7127,99 @@ def run_sandboxie_control():
 
 threading.Thread(target=run_sandboxie_control).start()
 
+# ----------------------------------------------------
 # Constants for Windows API calls
+# ----------------------------------------------------
 WM_GETTEXT = 0x000D
 WM_GETTEXTLENGTH = 0x000E
 
-# Function to get window text
+# WinEvent constants (if you still want event hooks alongside enumeration)
+EVENT_OBJECT_SHOW       = 0x8002
+EVENT_OBJECT_HIDE       = 0x8003
+EVENT_OBJECT_NAMECHANGE = 0x800C
+WINEVENT_OUTOFCONTEXT   = 0x0000
+OBJID_WINDOW            = 0x00000000
+
+# Load libraries
+user32 = ctypes.windll.user32
+ole32  = ctypes.windll.ole32
+
+# ----------------------------------------------------
+# Helper functions
+# ----------------------------------------------------
+
 def get_window_text(hwnd):
     """Retrieve the text of a window."""
-    length = ctypes.windll.user32.GetWindowTextLengthW(hwnd) + 1
-    buffer = ctypes.create_unicode_buffer(length)
-    ctypes.windll.user32.GetWindowTextW(hwnd, buffer, length)
-    return buffer.value
+    length = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) + 1
+    buf = ctypes.create_unicode_buffer(length)
+    user32.SendMessageW(hwnd, WM_GETTEXT, length, ctypes.byref(buf))
+    return buf.value
 
-# Function to get control text
 def get_control_text(hwnd):
     """Retrieve the text from a control."""
-    length = ctypes.windll.user32.SendMessageW(hwnd, WM_GETTEXTLENGTH) + 1
-    buffer = ctypes.create_unicode_buffer(length)
-    ctypes.windll.user32.SendMessageW(hwnd, WM_GETTEXT, length, buffer)
-    return buffer.value
+    length = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) + 1
+    buf = ctypes.create_unicode_buffer(length)
+    user32.SendMessageW(hwnd, WM_GETTEXT, length, ctypes.byref(buf))
+    return buf.value
 
-# Function to find child windows of a given window
 def find_child_windows(parent_hwnd):
     """Find all child windows of the given parent window."""
     child_windows = []
 
-    def enum_child_windows_callback(hwnd, lParam):
+    def _enum_proc(hwnd, lParam):
         child_windows.append(hwnd)
         return True
 
-    EnumChildWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
-    ctypes.windll.user32.EnumChildWindows(parent_hwnd, EnumChildWindowsProc(enum_child_windows_callback), None)
-    
+    EnumChildProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+    user32.EnumChildWindows(parent_hwnd, EnumChildProc(_enum_proc), None)
     return child_windows
 
-# Function to find windows containing text
+# ----------------------------------------------------
+# Updated enumeration-based capture
+# ----------------------------------------------------
 def find_windows_with_text():
-    """Find all windows and their child windows."""
-    def enum_windows_callback(hwnd, lParam):
-        if ctypes.windll.user32.IsWindowVisible(hwnd):
-            window_text = get_window_text(hwnd)
-            window_handles.append((hwnd, window_text))
-            for child in find_child_windows(hwnd):
-                control_text = get_control_text(child)
-                window_handles.append((child, control_text))
+    """Find text in every window and its controls (no visibility filter)."""
+    window_handles = []
+
+    def _enum_windows(hwnd, lParam):
+        # Grab the main window text
+        text = get_window_text(hwnd).strip()
+        window_handles.append((hwnd, text))
+        # Grab each child control's text
+        for child in find_child_windows(hwnd):
+            ctrl_text = get_control_text(child).strip()
+            window_handles.append((child, ctrl_text))
         return True
 
-    window_handles = []
     EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-    ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
+    user32.EnumWindows(EnumWindowsProc(_enum_windows), None)
     return window_handles
+
+# ----------------------------------------------------
+# (Optional) WinEvent hook for live events
+# ----------------------------------------------------
+WinEventProcType = ctypes.WINFUNCTYPE(
+    None,
+    wintypes.HANDLE,
+    wintypes.DWORD,
+    wintypes.HWND,
+    wintypes.LONG,
+    wintypes.LONG,
+    wintypes.DWORD,
+    wintypes.DWORD
+)
+
+def handle_event(hWinEventHook, event, hwnd, idObject, idChild, dwThread, dwmsEventTime):
+    if hwnd and idObject == OBJID_WINDOW:
+        text = get_window_text(hwnd).strip()
+        if text:
+            print(f"[Event 0x{event:04X}] HWND={hwnd}, Text={text!r}")
+
+def _pump_messages():
+    msg = wintypes.MSG()
+    while user32.GetMessageW(ctypes.byref(msg), 0, 0, 0) != 0:
+        user32.TranslateMessage(ctypes.byref(msg))
+        user32.DispatchMessageW(ctypes.byref(msg))
 
 class MonitorMessageCommandLine:
     def __init__(self):
