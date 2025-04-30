@@ -7573,6 +7573,15 @@ class MonitorMessageCommandLine:
         # True if path is inside the sandbox directory, or is exactly the main file
         return lower_path.startswith(sandbox_root) or lower_path == main_file
 
+    def get_unique_filename(self, base_name):
+        """Generate a unique filename by appending a number if necessary."""
+        counter = 1
+        unique_name = os.path.join(commandlineandmessage_dir, f"{base_name}.txt")
+        while os.path.exists(unique_name):
+            unique_name = os.path.join(commandlineandmessage_dir, f"{base_name}_{counter}.txt")
+            counter += 1
+        return unique_name
+
     def handle_event(self, hwnd, text, path):
         """
         Write out both original and preprocessed text for any single window/control event.
@@ -7627,15 +7636,6 @@ class MonitorMessageCommandLine:
             logging.info("WinEvent hooks (show, hide, name-change) installed.")
         except Exception as ex:
             logging.error(f"Failed to install WinEvent hooks: {ex}")
-
-    def get_unique_filename(self, base_name):
-        """Generate a unique filename by appending a number if necessary."""
-        counter = 1
-        unique_name = os.path.join(commandlineandmessage_dir, f"{base_name}.txt")
-        while os.path.exists(unique_name):
-            unique_name = os.path.join(commandlineandmessage_dir, f"{base_name}_{counter}.txt")
-            counter += 1
-        return unique_name
 
     def monitoring_command_line_and_messages(self):
         """Continuously enumerate windows/controls and command‐lines, then dispatch."""
