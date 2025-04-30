@@ -7745,6 +7745,7 @@ def run_sandboxie_plugin():
     command = [
         sandboxie_path,
         '/box:DefaultBox',
+        '/elevate',
         'rundll32.exe',
         f"{HydraDragonAV_sandboxie_path},{dll_entry_point}"
     ]
@@ -7758,7 +7759,7 @@ def run_sandboxie_plugin():
 
 def run_sandboxie(file_path):
     try:
-        subprocess.run([sandboxie_path, '/box:DefaultBox', file_path], check=True, encoding="utf-8", errors="ignore")
+        subprocess.run([sandboxie_path, '/box:DefaultBox', '/elevate', file_path], check=True, encoding="utf-8", errors="ignore")
     except subprocess.CalledProcessError as ex:
         logging.error(f"Failed to run Sandboxie on {file_path}: {ex}")
 
@@ -7770,6 +7771,7 @@ def run_de4dot_in_sandbox(file_path):
     cmd = [
         sandboxie_path,
         f"/box:DefaultBox",
+        '/elevate',
         de4dot_cex_x64_path,
         "-ro", de4dot_extracted_dir,
         file_path
@@ -7822,7 +7824,7 @@ def run_and_copy_log(label="orig"):
     force_remove_log()
 
     # Launch the tool
-    cmd = [sandboxie_path, '/box:DefaultBox', HiJackThis_exe]
+    cmd = [sandboxie_path, '/box:DefaultBox', '/elevate', HiJackThis_exe]
     subprocess.run(cmd, cwd=script_dir, check=True, encoding="utf-8", errors="ignore")
     logging.debug("HiJackThis launched.")
 
