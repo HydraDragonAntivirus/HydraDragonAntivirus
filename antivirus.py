@@ -2642,13 +2642,13 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
 
 def scan_html_content(html_content, html_content_file_path, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_deepseek_flag=False):
     """Scan extracted HTML content for any potential threats."""
-    contains_discord_or_telegram_code(html_content, html_content, None,
-                          dotnet_flag nuitka_flag,
+    contains_discord_or_telegram_code(html_content, html_content_file_path, None,
+                          dotnet_flag, nuitka_flag,
                           pyinstaller_flag, nsis_flag, pyinstaller_deepseek_flag)
     urls = set(re.findall(r'https?://[^\s/$.?#]\S*', html_content))
     for url in urls:
-        scan_url_general(url, dotnet_flag, nuitka_flag
-                          pyinstaller_flag, nsis_flag,pyinstaller_deepseek_flag)
+        scan_url_general(url, dotnet_flag, nuitka_flag,
+                          pyinstaller_flag, nsis_flag, pyinstaller_deepseek_flag)
         scan_domain_general(url, dotnet_flag, nuitka_flag,
                             pyinstaller_flag, nsis_flag, pyinstaller_deepseek_flag)
     ipv4_addresses = set(re.findall(
@@ -2979,7 +2979,7 @@ class RealTimeWebProtectionHandler:
                 logging.info(message)
 
             if any(notify_info.values()):
-                notify_user_for_web(**notify_info)g
+                notify_user_for_web(**notify_info)
 
         except Exception as ex:
             logging.error(f"Error in handle_detection: {ex}")
