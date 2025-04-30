@@ -7556,24 +7556,50 @@ class MonitorMessageCommandLine:
 
         return None  # Indicate an error occurred
 
-    def handle_event(self, hWinEventHook, event, hwnd, idObject, idChild, dwThread, dwmsEventTime):
-        """Callback for show/hide/name-change events."""
-        if hwnd and idObject == OBJID_WINDOW:
-            text = get_window_text(hwnd).strip()
-            path = get_process_path(hwnd)
-            if text and path:
-                lower_path = path.lower()
-                # Only proceed with processes in the monitored directories
-                if (self.sandboxie_folder.lower() not in lower_path
-                        and lower_path != self.main_file_path.lower()):
-                    logging.info(f"Skipping {path}: not in monitored directories.")
-                    return
+    def _is_in_sandbox(self, path):
+        """
+        Return True if the given executable or file path lives under the
+        sandbox directory, or exactly matches the main target binary.
+        """
+        # Guard against None or non‐string values
+        if not path or not isinstance(path, str):
+            return False
 
-                logging.info(f"[EVENT 0x{event:04X}] HWND={hwnd}, Text={text!r}, Path={path}")
-                try:
-                    self.detect_malware(path)
-                except Exception as e:
-                    logging.error(f"Error in malware detection for {path}: {e}")
+        lower_path = path.lower()
+        sandbox_root = self.sandboxie_folder.lower()
+        main_file    = self.main_file_path.lower()
+
+        # True if path is inside the sandbox directory, or is exactly the main file
+        return lower_path.startswith(sandbox_root) or lower_path == main_file
+
+    def handle_event(self, hwnd, text, path):
+        """
+        Write out both original and preprocessed text for any single window/control event.
+        """
+        # basic sanity
+        if not (hwnd and text and path):
+            return
+
+        # only process sandbox‐owned paths
+        if not self._is_in_sandbox(path):
+            logging.debug(f"Skipping event for {path}")
+            return
+
+        # write original text
+        orig_fn = self.get_unique_filename(f"original_{hwnd}")
+        with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
+            f.write(text[:1_000_000])
+        logging.info(f"Wrote original -> {orig_fn}")
+        scan_and_warn(orig_fn)
+
+        # write preprocessed text
+        pre = self.preprocess_text(text)
+        if pre:
+            pre_fn = self.get_unique_filename(f"preprocessed_{hwnd}")
+            with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
+                f.write(pre[:1_000_000])
+            logging.info(f"Wrote preprocessed -> {pre_fn}")
+            scan_and_warn(pre_fn)
 
     def start_event_monitoring(self):
         """
@@ -7611,65 +7637,46 @@ class MonitorMessageCommandLine:
         return unique_name
 
     def monitoring_command_line_and_messages(self):
-        try:
-            # Install WinEvent hooks
-            self.start_event_monitoring()
-            while True:
-                # 1) Enumeration snapshot
-                windows = find_windows_with_text()
-                for hwnd, text in windows:
-                    pre = self.preprocess_text(text)
-                    pre_path = self.get_unique_filename(f"preprocessed_{hwnd}")
-                    orig_path = self.get_unique_filename(f"original_{hwnd}")
+        """Continuously enumerate windows/controls and command‐lines, then dispatch."""
+        logging.debug("Entered monitoring loop")
+        self.start_event_monitoring()
 
-                    if pre:
-                        try:
-                            with open(pre_path, 'w', encoding='utf-8', errors='ignore') as f:
-                                f.write(pre[:1_000_000])
-                            if os.path.getsize(pre_path) > 0:
-                                logging.info(f"Wrote preprocessed -> {pre_path}")
-                                scan_and_warn(pre_path)
-                        except Exception as ex:
-                            logging.error(f"Error writing preprocessed: {ex}")
+        while True:
+            # 1) Window and control enumeration
+            windows = find_windows_with_text()  # now returns (hwnd, text, path)
+            logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
+            for hwnd, text, path in windows:
+                logging.debug(f"hwnd={hwnd}, path={path}, text={text!r}")
+                if not self._is_in_sandbox(path):
+                    logging.debug(f"Skipping {path}")
+                    continue
+                # Handle all three pieces (original + preprocessed)
+                self.handle_event(hwnd, text, path)
 
-                    if text:
-                        try:
-                            with open(orig_path, 'w', encoding='utf-8', errors='ignore') as f:
-                                f.write(text[:1_000_000])
-                            if os.path.getsize(orig_path) > 0:
-                                logging.info(f"Wrote original -> {orig_path}")
-                                scan_and_warn(orig_path)
-                        except Exception as ex:
-                            logging.error(f"Error writing original: {ex}")
+            # 2) Command‐line snapshot
+            cmdlines = self.capture_command_lines()  # returns (cmd, exe_path)
+            logging.debug(f"Enumerated {len(cmdlines)} command‐line(s)")
+            for cmd, exe_path in cmdlines:
+                logging.debug(f"cmd={cmd!r}, exe_path={exe_path}")
+                if not self._is_in_sandbox(exe_path):
+                    logging.debug(f"Skipping {exe_path}")
+                    continue
 
-                # 2) Command-line snapshot
-                for cmd, exe in self.capture_command_lines():
-                    pre_cmd = self.preprocess_text(cmd)
-                    orig_cmd = self.get_unique_filename(f"cmd_{exe}")
-                    pre_cmd_file = self.get_unique_filename(f"cmd_pre_{exe}")
+                # write original cmd
+                orig_fn = self.get_unique_filename(f"cmd_{os.path.basename(exe_path)}")
+                with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
+                    f.write(cmd[:1_000_000])
+                logging.info(f"Wrote cmd -> {orig_fn}")
+                scan_and_warn(orig_fn)
 
-                    if cmd:
-                        try:
-                            with open(orig_cmd, 'w', encoding='utf-8', errors='ignore') as f:
-                                f.write(cmd[:1_000_000])
-                            if os.path.getsize(orig_cmd) > 0:
-                                logging.info(f"Wrote cmd -> {orig_cmd}")
-                                scan_and_warn(orig_cmd)
-                        except Exception as ex:
-                            logging.error(f"Error writing cmd: {ex}")
-
-                    if pre_cmd:
-                        try:
-                            with open(pre_cmd_file, 'w', encoding='utf-8', errors='ignore') as f:
-                                f.write(pre_cmd[:1_000_000])
-                            if os.path.getsize(pre_cmd_file) > 0:
-                                logging.info(f"Wrote cmd pre -> {pre_cmd_file}")
-                                scan_and_warn(pre_cmd_file)
-                        except Exception as ex:
-                            logging.error(f"Error writing cmd pre: {ex}")
-
-        except Exception as ex:
-            logging.error(f"Error in monitor loop: {ex}")
+                # write preprocessed cmd
+                pre_cmd = self.preprocess_text(cmd)
+                if pre_cmd:
+                    pre_fn = self.get_unique_filename(f"cmd_pre_{os.path.basename(exe_path)}")
+                    with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
+                        f.write(pre_cmd[:1_000_000])
+                    logging.info(f"Wrote cmd pre -> {pre_fn}")
+                    scan_and_warn(pre_fn)
 
 def monitor_sandboxie_directory():
     """
