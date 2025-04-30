@@ -7063,9 +7063,23 @@ class ScanAndWarnHandler(FileSystemEventHandler):
             self.process_file(event.dest_path)
             logging.info(f"File moved: {event.src_path} to {event.dest_path}")
 
-event_handler = ScanAndWarnHandler()
-observer = Observer()
-observer.schedule(event_handler, path=sandboxie_folder, recursive=False)
+def monitor_directories_with_watchdog(directories):
+    """
+    Use watchdog Observer to monitor multiple directories with the ScanAndWarnHandler.
+    """
+    event_handler = ScanAndWarnHandler()
+    observer = Observer()
+    for path in directories:
+        observer.schedule(event_handler, path=path, recursive=False)
+        logging.info(f"Scheduled watchdog observer for: {path}")
+    observer.start()
+    try:
+        observer.join()
+    except KeyboardInterrupt:
+        observer.stop()
+    observer.join()
+
+monitor_directories_with_watchdog(directories_to_scan)
 
 def run_sandboxie_control():
     try:
