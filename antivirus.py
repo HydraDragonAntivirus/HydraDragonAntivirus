@@ -7592,9 +7592,32 @@ class MonitorMessageCommandLine:
             counter += 1
         return unique_name
 
-    def handle_event(self, hwnd, text, path):
+    def handle_event(self, hWinEventHook, event, hwnd, idObject, idChild, dwEventThread, dwmsEventTime):
         """
-        Write out both original and preprocessed text for any single window/control event.
+        Proper WinEvent callback that receives the correct parameters.
+        """
+        # Skip events that aren't for the window itself
+        if idObject != OBJID_WINDOW:
+            return
+
+        # Skip if window handle is invalid
+        if not hwnd or not user32.IsWindow(hwnd):
+            return
+
+        # Get window text and process path
+        text = get_window_text(hwnd)
+        path = get_process_path(hwnd)
+
+        # Skip empty text
+        if not text:
+            return
+
+        # Process the event with the actual window content
+        self.process_window_text(hwnd, text, path)
+
+    def process_window_text(self, hwnd, text, path):
+        """
+        Process text from a window - this contains the original logic.
         """
         # basic sanity
         if not (hwnd and text and path):
@@ -7622,23 +7645,39 @@ class MonitorMessageCommandLine:
         """
         try:
             ole32.CoInitialize(None)
+            # Make sure to use the correct WinEventProcType signature
             self._win_event_proc = WinEventProcType(self.handle_event)
+
+            # Add message box dialog detection
+            self._win_event_hook_dialog = user32.SetWinEventHook(
+                0x0010,  # EVENT_SYSTEM_DIALOGSTART
+                0x0010,  # EVENT_SYSTEM_DIALOGSTART
+                0, self._win_event_proc, 0, 0, WINEVENT_OUTOFCONTEXT
+            )
+
             self._win_event_hook_show = user32.SetWinEventHook(
                 EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW,
                 0, self._win_event_proc, 0, 0, WINEVENT_OUTOFCONTEXT
             )
+
             self._win_event_hook_hide = user32.SetWinEventHook(
                 EVENT_OBJECT_HIDE, EVENT_OBJECT_HIDE,
                 0, self._win_event_proc, 0, 0, WINEVENT_OUTOFCONTEXT
             )
+
             self._win_event_hook_name = user32.SetWinEventHook(
                 EVENT_OBJECT_NAMECHANGE, EVENT_OBJECT_NAMECHANGE,
                 0, self._win_event_proc, 0, 0, WINEVENT_OUTOFCONTEXT
             )
-            if not (self._win_event_hook_show and self._win_event_hook_hide and self._win_event_hook_name):
+
+            if not (self._win_event_hook_dialog and self._win_event_hook_show and
+                    self._win_event_hook_hide and self._win_event_hook_name):
                 raise ctypes.WinError()
+
+            # Non-daemon thread for message pump
             threading.Thread(target=_pump_messages).start()
-            logging.info("WinEvent hooks (show, hide, name-change) installed.")
+
+            logging.info("WinEvent hooks (dialog, show, hide, name-change) installed.")
         except Exception as ex:
             logging.error(f"Failed to install WinEvent hooks: {ex}")
 
@@ -7655,7 +7694,7 @@ class MonitorMessageCommandLine:
                 for hwnd, text, path in windows:
                     logging.debug(f"hwnd={hwnd}, path={path}, text={text!r}")
                     # Handle window/control event
-                    self.handle_event(hwnd, text, path)
+                    self.process_window_text((hwnd, text, path)
             except Exception as e:
                 logging.error(f"Error during window/control enumeration: {e}", exc_info=True)
 
