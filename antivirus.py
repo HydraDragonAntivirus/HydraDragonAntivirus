@@ -3491,7 +3491,8 @@ def scan_yara(file_path):
 
             # Check matches for yaraxtr_rule (loaded with yara_x)
             if yaraxtr_rule:
-                scanner = yara_x.Scanner()
+                # Instantiate the YARA-X Scanner with your deserialized rule set
+                scanner = yara_x.Scanner(rules=yaraxtr_rule)
                 results = scanner.scan(data=data_content)
                 if results.matching_rules:
                     for rule in results.matching_rules:
