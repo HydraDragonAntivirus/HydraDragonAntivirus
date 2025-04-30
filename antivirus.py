@@ -7104,6 +7104,8 @@ def run_sandboxie_control():
     except Exception as ex:
         logging.error(f"Unexpected error running Sandboxie control: {ex}")
 
+threading.Thread(target=run_sandboxie_control).start()
+
 # Constants for Windows API calls
 WM_GETTEXT = 0x000D
 WM_GETTEXTLENGTH = 0x000E
@@ -7633,7 +7635,6 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=check_uefi_directories).start() # Start monitoring UEFI directories for malicious files in a separate thread
         threading.Thread(target=monitor_message.monitoring_command_line_and_messages).start() # Function to monitor specific windows in a separate thread
         threading.Thread(target=monitor_saved_paths).start()
-        threading.Thread(target=run_sandboxie_control).start()
         threading.Thread(target=run_sandboxie_plugin).start()
         threading.Thread(target=run_sandboxie, args=(file_path,)).start()
 
