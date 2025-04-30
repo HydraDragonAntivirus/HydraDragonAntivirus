@@ -325,7 +325,7 @@ digital_signatures_list_goodsign_path = os.path.join(digital_signatures_list_dir
 digital_signatures_list_microsoft_path = os.path.join(digital_signatures_list_dir, "microsoft.txt")
 machine_learning_dir = os.path.join(script_dir, "machinelearning")
 machine_learning_results_json = os.path.join(machine_learning_dir, "results.json")
-resource_extractor_dir = os.path.join(machine_learning_dir, "resourcesextracted")
+resource_extractor_dir = os.path.join(script_dir, "resourcesextracted")
 ungarbler_dir = os.path.join(script_dir, "ungarbler")
 ungarbler_string_dir = os.path.join(script_dir, "ungarbler_string")
 yara_dir = os.path.join(script_dir, "yara")
@@ -452,7 +452,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [sandboxie_folder, copied_sandbox_files_dir, decompile_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, de4dot_sandboxie_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_deepseek_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
+directories_to_scan = [sandboxie_folder, copied_sandbox_files_dir, decompile_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_deepseek_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
 
 clamdscan_path = "C:\\Program Files\\ClamAV\\clamdscan.exe"
 freshclam_path = "C:\\Program Files\\ClamAV\\freshclam.exe"
@@ -476,6 +476,10 @@ UBLOCK_REGEX = re.compile(
     r'^https:\/\/s[cftz]y?[ace][aemnu][a-z]{1,4}o[mn][a-z]{4,8}[iy][a-z]?\.com\/$'
 )
 
+os.makedirs(ungarbler_dir, exist_ok=True)
+os.makedirs(ungarbler_string_dir, exist_ok=True)
+os.makedirs(resource_extractor_dir, exist_ok=True)
+os.makedirs(pyinstaller_dir, exist_ok=True)
 os.makedirs(inno_setup_extracted_dir, exist_ok=True)
 os.makedirs(python_source_code_dir, exist_ok=True)
 os.makedirs(nuitka_source_code_dir, exist_ok=True)
@@ -1396,7 +1400,6 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
                 for exp in getattr(getattr(pe, 'DIRECTORY_ENTRY_EXPORT', None), 'symbols', [])
             ] if hasattr(pe, 'DIRECTORY_ENTRY_EXPORT') else [],
 
-            # Resources
             # Resources
             'resources': [
                 {
@@ -5042,9 +5045,6 @@ def is_pyinstaller_archive_from_output(die_output):
 
 def extract_pyinstaller_archive(file_path):
     try:
-        # Ensure the extraction directory exists
-        os.makedirs(pyinstaller_dir, exist_ok=True)
-
         archive = PyInstArchive(file_path)
         
         # Open the PyInstaller archive
@@ -7778,9 +7778,6 @@ def run_de4dot_in_sandbox(file_path):
     Runs de4dot inside Sandboxie to avoid contaminating the host.
     Extracts all files into de4dot_extracted_dir via -ro.
     """
-    # make sure the output directory exists (inside the sandbox it will be mirrored)
-    os.makedirs(de4dot_extracted_dir, exist_ok=True)
-
     cmd = [
         sandboxie_path,
         f"/box:DefaultBox",
