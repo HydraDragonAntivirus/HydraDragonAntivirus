@@ -4421,7 +4421,7 @@ def activate_uefi_drive():
         subprocess.run(mount_command, shell=True, check=True, encoding="utf-8", errors="ignore")
         logging.info("UEFI drive activated!")
     except subprocess.CalledProcessError as ex:
-        logging.info(f"Error mounting UEFI drive: {ex}")
+        logging.error(f"Error mounting UEFI drive: {ex}")
 
 threading.Thread(target=run_snort).start()
 restart_clamd_thread()
