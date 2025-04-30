@@ -2459,7 +2459,7 @@ def fetch_html(url, return_file_path=False):
     """Fetch HTML content from the given URL, always save it, and optionally return the file path."""
     try:
         safe_url = ensure_http_prefix(url)
-        response = requests.get(safe_url, timeout=10)
+        response = requests.get(safe_url, timeout=120)
         if response.status_code == 200:
             html = response.text
             # Determine a safe filename from the URL path
@@ -7717,16 +7717,14 @@ def force_remove_log():
         except Exception as e:
             logging.error("Failed to remove previous log: %s", e)
 
-def run_and_copy_log(label="orig", timeout=300):
+def run_and_copy_log(label="orig"):
     """
     Remove any existing log file, launch HiJackThis via Sandboxie,
     then wait until that log file is actually written (modification time changes),
     copy it to a timestamped file, and return its path.
-    
+
     :param label: Prefix for the copied log filename
-    :param timeout: Maximum seconds to wait for the log to appear/modify
     :returns: Path to the copied log file
-    :raises TimeoutError: If the log never appears within `timeout` seconds
     """
     force_remove_log()
 
@@ -7735,18 +7733,12 @@ def run_and_copy_log(label="orig", timeout=300):
     subprocess.run(cmd, cwd=script_dir, check=True, encoding="utf-8", errors="ignore")
     logging.debug("HiJackThis launched.")
 
-    # Record launch time
-    start_ts = time.time()
-    deadline = start_ts + timeout
-
-    # Wait until the log file appears _and_ mtime ≥ start_ts
+    # Wait until the log file appears _and_ has been modified with content
     while True:
         if os.path.exists(HiJackThis_log_path):
             stat = os.stat(HiJackThis_log_path)
-            if stat.st_mtime >= start_ts and stat.st_size > 0:
+            if stat.st_size > 0:
                 break
-        if time.time() > deadline:
-            raise TimeoutError(f"Log file did not appear within {timeout}s.")
 
     # Copy to timestamped destination
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
