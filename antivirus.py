@@ -401,6 +401,53 @@ scanned_domains_general = []
 scanned_ipv4_addresses_general = []
 scanned_ipv6_addresses_general = []
 
+# Regex for Snort alerts
+alert_regex = re.compile(r'\[Priority: (\d+)].*?\{(?:UDP|TCP)} (\d+\.\d+\.\d+\.\d+):\d+ -> (\d+\.\d+\.\d+\.\d+):\d+')
+
+# File paths and configurations
+log_path = "C:\\Snort\\log\\alert.ids"
+log_folder = "C:\\Snort\\log"
+snort_config_path = "C:\\Snort\\etc\\snort.conf"
+sandboxie_path = "C:\\Program Files\\Sandboxie\\Start.exe"
+sandboxie_control_path = "C:\\Program Files\\Sandboxie\\SbieCtrl.exe"
+device_args = [f"-i {i}" for i in range(1, 26)]  # Fixed device arguments
+username = os.getlogin()
+sandboxie_folder = rf'C:\Sandbox\{username}\DefaultBox'
+main_drive_path = rf'{sandboxie_folder}\drive\C'
+drivers_path = rf'{main_drive_path}\\Windows\System32\drivers'
+hosts_path = rf'{drivers_path}\hosts'
+sandboxie_log_folder = rf'{main_drive_path}\\DONTREMOVEHydraDragonAntivirusLogs'
+homepage_change_path = rf'{sandboxie_log_folder}\DONTREMOVEHomePageChange.txt'
+HydraDragonAntivirus_sandboxie_path = rf'{main_drive_path}\Program Files\HydraDragonAntivirus'
+HiJackThis_log_path = rf'{HydraDragonAntivirus_sandboxie_path}\HiJackThis\HiJackThis.log'
+de4dot_sandboxie_dir = rf'{HydraDragonAntivirus_sandboxie_path}\de4dot_extracted_dir'
+
+# Define the list of known rootkit filenames
+known_rootkit_files = [
+    'MoriyaStreamWatchmen.sys',
+    # Add more rootkit filenames here if needed
+]
+
+uefi_100kb_paths = [
+    rf'{sandboxie_folder}\drive\X\EFI\Microsoft\Boot\SecureBootRecovery.efi'
+]
+
+uefi_paths = [
+    rf'{sandboxie_folder}\drive\X\EFI\Microsoft\Boot\bootmgfw.efi',
+    rf'{sandboxie_folder}\drive\X\EFI\Microsoft\Boot\bootmgr.efi',
+    rf'{sandboxie_folder}\drive\X\EFI\Microsoft\Boot\memtest.efi',
+    rf'{sandboxie_folder}\drive\X\EFI\Boot\bootx64.efi'
+]
+snort_command = ["C:\\Snort\\bin\\snort.exe"] + device_args + ["-c", snort_config_path, "-A", "fast"]
+
+# Custom flags for directory changes
+FILE_NOTIFY_CHANGE_LAST_ACCESS = 0x00000020
+FILE_NOTIFY_CHANGE_CREATION = 0x00000040
+FILE_NOTIFY_CHANGE_EA = 0x00000080
+FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
+FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
+FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
+
 directories_to_scan = [sandboxie_folder, copied_sandbox_files_dir, decompile_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, de4dot_sandboxie_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_deepseek_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
 
 clamdscan_path = "C:\\Program Files\\ClamAV\\clamdscan.exe"
@@ -4232,53 +4279,6 @@ def scan_file_real_time(file_path, signature_check, file_name, pe_file=False):
         logging.error(f"An error occurred while scanning file: {file_path}. Error: {ex}")
 
     return False, "Clean", ""  # Default to clean if no malware found
-
-# Regex for Snort alerts
-alert_regex = re.compile(r'\[Priority: (\d+)].*?\{(?:UDP|TCP)} (\d+\.\d+\.\d+\.\d+):\d+ -> (\d+\.\d+\.\d+\.\d+):\d+')
-
-# File paths and configurations
-log_path = "C:\\Snort\\log\\alert.ids"
-log_folder = "C:\\Snort\\log"
-snort_config_path = "C:\\Snort\\etc\\snort.conf"
-sandboxie_path = "C:\\Program Files\\Sandboxie\\Start.exe"
-sandboxie_control_path = "C:\\Program Files\\Sandboxie\\SbieCtrl.exe"
-device_args = [f"-i {i}" for i in range(1, 26)]  # Fixed device arguments
-username = os.getlogin()
-sandboxie_folder = rf'C:\Sandbox\{username}\DefaultBox'
-main_drive_path = rf'{sandboxie_folder}\drive\C'
-drivers_path = rf'{main_drive_path}\\Windows\System32\drivers'
-hosts_path = rf'{drivers_path}\hosts'
-sandboxie_log_folder = rf'{main_drive_path}\\DONTREMOVEHydraDragonAntivirusLogs'
-homepage_change_path = rf'{sandboxie_log_folder}\DONTREMOVEHomePageChange.txt'
-HydraDragonAntivirus_sandboxie_path = rf'{main_drive_path}\Program Files\HydraDragonAntivirus'
-HiJackThis_log_path = rf'{HydraDragonAntivirus_sandboxie_path}\HiJackThis\HiJackThis.log'
-de4dot_sandboxie_dir = rf'{HydraDragonAntivirus_sandboxie_path}\de4dot_extracted_dir'
-
-# Define the list of known rootkit filenames
-known_rootkit_files = [
-    'MoriyaStreamWatchmen.sys',
-    # Add more rootkit filenames here if needed
-]
-
-uefi_100kb_paths = [
-    rf'{sandboxie_folder}\drive\X\EFI\Microsoft\Boot\SecureBootRecovery.efi'
-]
-
-uefi_paths = [
-    rf'{sandboxie_folder}\drive\X\EFI\Microsoft\Boot\bootmgfw.efi',
-    rf'{sandboxie_folder}\drive\X\EFI\Microsoft\Boot\bootmgr.efi',
-    rf'{sandboxie_folder}\drive\X\EFI\Microsoft\Boot\memtest.efi',
-    rf'{sandboxie_folder}\drive\X\EFI\Boot\bootx64.efi'
-]
-snort_command = ["C:\\Snort\\bin\\snort.exe"] + device_args + ["-c", snort_config_path, "-A", "fast"]
-
-# Custom flags for directory changes
-FILE_NOTIFY_CHANGE_LAST_ACCESS = 0x00000020
-FILE_NOTIFY_CHANGE_CREATION = 0x00000040
-FILE_NOTIFY_CHANGE_EA = 0x00000080
-FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
-FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
-FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
 # Read the file and store the names in a list (ignoring empty lines)
 with open(system_file_names_path, "r") as f:
