@@ -7145,6 +7145,20 @@ user32 = ctypes.windll.user32
 ole32  = ctypes.windll.ole32
 
 # ----------------------------------------------------
+# Process helper: get PID and executable path of a window
+# ----------------------------------------------------
+
+def get_process_path(hwnd):
+    """Retrieve the executable path of the process owning the given window handle."""
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    try:
+        proc = psutil.Process(pid.value)
+        return proc.exe()
+    except Exception:
+        return None
+
+# ----------------------------------------------------
 # Helper functions for enumeration
 # ----------------------------------------------------
 
@@ -7186,13 +7200,6 @@ WinEventProcType = ctypes.WINFUNCTYPE(
     wintypes.DWORD
 )
 
-def handle_event(hWinEventHook, event, hwnd, idObject, idChild, dwThread, dwmsEventTime):
-    # Only top-level window name changes, show, or hide events
-    if hwnd and idObject == OBJID_WINDOW:
-        text = get_window_text(hwnd).strip()
-        if text:
-            logging.info(f"[LIVE EVENT 0x{event:04X}] HWND={hwnd}, Text={text!r}")
-
 def _pump_messages():
     msg = wintypes.MSG()
     while user32.GetMessageW(ctypes.byref(msg), 0, 0, 0) != 0:
@@ -7202,15 +7209,18 @@ def _pump_messages():
 # ----------------------------------------------------
 # Enumeration-based capture
 # ----------------------------------------------------
+
 def find_windows_with_text():
     """Find text in every window and its controls (no visibility filter)."""
     window_handles = []
     def _enum_windows(hwnd, lParam):
         text = get_window_text(hwnd).strip()
-        window_handles.append((hwnd, text))
+        path = get_process_path(hwnd)
+        window_handles.append((hwnd, text, path))
         for child in find_child_windows(hwnd):
             ctrl_text = get_control_text(child).strip()
-            window_handles.append((child, ctrl_text))
+            ctrl_path = get_process_path(child)
+            window_handles.append((child, ctrl_text, ctrl_path))
         return True
     EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
     user32.EnumWindows(EnumWindowsProc(_enum_windows), None)
@@ -7218,9 +7228,9 @@ def find_windows_with_text():
 
 class MonitorMessageCommandLine:
     def __init__(self):
-        # Install WinEvent hooks
-        self.start_event_monitoring()
-
+        # Store monitored paths
+        self.main_file_path = os.path.abspath(main_file_path)
+        self.sandboxie_folder = os.path.abspath(sandboxie_folder)
         self.known_malware_messages = {
             "classic": {
                 "message": "this program cannot be run under virtual environment or debugging software",
@@ -7342,35 +7352,6 @@ class MonitorMessageCommandLine:
                 "process_function": self.process_detected_command_antivirus_search
                 }
             }
-
-    def start_event_monitoring(self):
-        """
-        Initialize COM and install WinEvent hooks for show, hide, and name-change.
-        """
-        try:
-            ole32.CoInitialize(None)
-            self._win_event_proc = WinEventProcType(handle_event)
-            # Show hook
-            self._win_event_hook_show = user32.SetWinEventHook(
-                EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW,
-                0, self._win_event_proc, 0, 0, WINEVENT_OUTOFCONTEXT
-            )
-            # Hide hook
-            self._win_event_hook_hide = user32.SetWinEventHook(
-                EVENT_OBJECT_HIDE, EVENT_OBJECT_HIDE,
-                0, self._win_event_proc, 0, 0, WINEVENT_OUTOFCONTEXT
-            )
-            # Name-change hook
-            self._win_event_hook_name = user32.SetWinEventHook(
-                EVENT_OBJECT_NAMECHANGE, EVENT_OBJECT_NAMECHANGE,
-                0, self._win_event_proc, 0, 0, WINEVENT_OUTOFCONTEXT
-            )
-            if not (self._win_event_hook_show and self._win_event_hook_hide and self._win_event_hook_name):
-                raise ctypes.WinError()
-            threading.Thread(target=_pump_messages, daemon=True).start()
-            logging.info("WinEvent hooks (show, hide, name-change) installed.")
-        except Exception as ex:
-            logging.error(f"Failed to install WinEvent hooks: {ex}")
 
     def preprocess_text(self, text):
         return text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "")
@@ -7509,7 +7490,7 @@ class MonitorMessageCommandLine:
         logging.warning(message)
         notify_user_for_detected_command(message)
 
-    def detect_malware(self, file_path=None):
+    def detect_malware(self, file_path):
         if file_path is None:
             logging.error("file_path cannot be None.")
             return
@@ -7571,6 +7552,51 @@ class MonitorMessageCommandLine:
 
         return None  # Indicate an error occurred
 
+    def handle_event(self, hWinEventHook, event, hwnd, idObject, idChild, dwThread, dwmsEventTime):
+        """Callback for show/hide/name-change events."""
+        if hwnd and idObject == OBJID_WINDOW:
+            text = get_window_text(hwnd).strip()
+            path = get_process_path(hwnd)
+            if text and path:
+                lower_path = path.lower()
+                # Only proceed with processes in the monitored directories
+                if (self.sandboxie_folder.lower() not in lower_path
+                        and lower_path != self.main_file_path.lower()):
+                    logging.info(f"Skipping {path}: not in monitored directories.")
+                    return
+
+                logging.info(f"[EVENT 0x{event:04X}] HWND={hwnd}, Text={text!r}, Path={path}")
+                try:
+                    self.detect_malware(path)
+                except Exception as e:
+                    logging.error(f"Error in malware detection for {path}: {e}")
+
+    def start_event_monitoring(self):
+        """
+        Initialize COM and install WinEvent hooks for show, hide, and name-change.
+        """
+        try:
+            ole32.CoInitialize(None)
+            self._win_event_proc = WinEventProcType(self.handle_event)
+            self._win_event_hook_show = user32.SetWinEventHook(
+                EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW,
+                0, self._win_event_proc, 0, 0, WINEVENT_OUTOFCONTEXT
+            )
+            self._win_event_hook_hide = user32.SetWinEventHook(
+                EVENT_OBJECT_HIDE, EVENT_OBJECT_HIDE,
+                0, self._win_event_proc, 0, 0, WINEVENT_OUTOFCONTEXT
+            )
+            self._win_event_hook_name = user32.SetWinEventHook(
+                EVENT_OBJECT_NAMECHANGE, EVENT_OBJECT_NAMECHANGE,
+                0, self._win_event_proc, 0, 0, WINEVENT_OUTOFCONTEXT
+            )
+            if not (self._win_event_hook_show and self._win_event_hook_hide and self._win_event_hook_name):
+                raise ctypes.WinError()
+            threading.Thread(target=_pump_messages, daemon=True).start()
+            logging.info("WinEvent hooks (show, hide, name-change) installed.")
+        except Exception as ex:
+            logging.error(f"Failed to install WinEvent hooks: {ex}")
+
     def get_unique_filename(self, base_name):
         """Generate a unique filename by appending a number if necessary."""
         counter = 1
@@ -7582,6 +7608,8 @@ class MonitorMessageCommandLine:
 
     def monitoring_command_line_and_messages(self):
         try:
+            # Install WinEvent hooks
+            self.start_event_monitoring()
             while True:
                 # 1) Enumeration snapshot
                 windows = find_windows_with_text()
