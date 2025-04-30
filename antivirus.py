@@ -7738,7 +7738,7 @@ def perform_sandbox_analysis(file_path):
     except Exception as ex:
         logging.error(f"An error occurred during sandbox analysis: {ex}")
 
-dll_entry_point = "InjectDllMain"
+dll_entry_point = "InjectDLLMain"
 
 def run_sandboxie_plugin():
     # Construct the command to run rundll32 inside Sandboxie
@@ -7747,7 +7747,8 @@ def run_sandboxie_plugin():
         '/box:DefaultBox',
         '/elevate',
         'rundll32.exe',
-        f"{HydraDragonAV_sandboxie_path},{dll_entry_point}"
+        # Properly quote the DLL path and entry point
+        f"\"{HydraDragonAV_sandboxie_path},{dll_entry_point}\""
     ]
     
     try:
