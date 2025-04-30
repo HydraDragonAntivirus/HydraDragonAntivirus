@@ -7162,27 +7162,33 @@ ole32  = ctypes.windll.ole32
 # ----------------------------------------------------
 
 def get_process_path(hwnd):
-    """Return the full image name of the process owning the given HWND."""
+    """Return the executable path of the process owning the given HWND. Try WinAPI first, fall back to psutil."""
     pid = wintypes.DWORD()
     user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-
     if pid.value == 0:
-        return None
+        return "<unknown_pid>"
 
-    # open the process with just enough rights to query its image name
+    # Try using the Windows API
     hproc = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
-    if not hproc:
-        return None
+    if hproc:
+        try:
+            buff_len = wintypes.DWORD(260)
+            buff = ctypes.create_unicode_buffer(buff_len.value)
+            if kernel32.QueryFullProcessImageNameW(hproc, 0, buff, ctypes.byref(buff_len)):
+                return buff.value
+        finally:
+            kernel32.CloseHandle(hproc)
 
+    # Fallback to psutil
     try:
-        buff_len = wintypes.DWORD(260)
-        buff = ctypes.create_unicode_buffer(buff_len.value)
-        if kernel32.QueryFullProcessImageNameW(hproc, 0, buff, ctypes.byref(buff_len)):
-            return buff.value
-    finally:
-        kernel32.CloseHandle(hproc)
-
-    return None
+        proc = psutil.Process(pid.value)
+        return proc.exe()
+    except psutil.NoSuchProcess:
+        return f"<terminated_pid:{pid.value}>"
+    except psutil.AccessDenied:
+        return f"<access_denied_pid:{pid.value}>"
+    except Exception as e:
+        return f"<error_pid:{pid.value}:{type(e).__name__}>"
 
 # ----------------------------------------------------
 # Helper functions for enumeration
