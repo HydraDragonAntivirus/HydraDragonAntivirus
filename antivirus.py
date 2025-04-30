@@ -6691,8 +6691,6 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                              scan_and_warn(optimized_file_path, flag_debloat=True)
                         else:
                              logging.error(f"Debloating failed for {file_path}, continuing with the original file.")
-                except ImportError as ex:
-                    logging.error(f"Debloat library is not installed. Install it with `pip install debloat`: {ex}")
                 except Exception as ex:
                     logging.error(f"Error during debloating of {file_path}: {ex}")
 
