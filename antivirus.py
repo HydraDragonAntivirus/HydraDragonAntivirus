@@ -481,6 +481,7 @@ os.makedirs(memory_dir, exist_ok=True)
 os.makedirs(dotnet_dir, exist_ok=True)
 os.makedirs(de4dot_extracted_dir, exist_ok=True)
 os.makedirs(obfuscar_dir, exist_ok=True)
+os.makedirs(nuitka_dir, exist_ok=True)
 os.makedirs(pe_extracted_dir, exist_ok=True)
 os.makedirs(zip_extracted_dir, exist_ok=True)
 os.makedirs(tar_extracted_dir, exist_ok=True)
@@ -493,6 +494,7 @@ os.makedirs(detectiteasy_json_dir, exist_ok=True)
 os.makedirs(pycdc_dir, exist_ok=True)
 os.makedirs(pycdas_dir, exist_ok=True)
 os.makedirs(united_python_source_code_dir, exist_ok=True)
+os.makedirs(pycdas_deepseek_dir, exist_ok=True)
 os.makedirs(copied_sandbox_files_dir, exist_ok=True)
 os.makedirs(HiJackThis_logs_dir, exist_ok=True)
 os.makedirs(html_extracted_dir, exist_ok=True)
@@ -4245,11 +4247,12 @@ def scan_file_real_time(file_path, signature_check, file_name, pe_file=False):
         try:
             if tarfile.is_tarfile(file_path):
                 scan_result, virus_name = scan_tar_file(file_path)
-                if scan_result and virus_name not in ("Clean", "F", ""):
+                if scan_result and virus_name not in ("Clean", "F", "", [], None):
+                    virus_str = str(virus_name) if virus_name else "Unknown"
                     if signature_check["is_valid"]:
-                        virus_name = "SIG." + virus_name
-                    logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_name}")
-                    return True, virus_name, "TAR"
+                        virus_name = "SIG." + virus_str
+                    logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_str}")
+                    return True, virus_str, "TAR"
                 logging.info(f"No malware detected in TAR file: {file_path}")
         except PermissionError:
             logging.error(f"Permission error occurred while scanning TAR file: {file_path}")
@@ -5493,8 +5496,6 @@ def scan_file_with_deepseek(file_path, united_python_code_flag=False, decompiled
         # For pycdas decompiled files: save the extracted source code with a .py extension
         if united_python_code_flag:
             pycdas_deepseek_dir = os.path.join(python_source_code_dir, "united_deepseek")
-            if not os.path.exists(pycdas_deepseek_dir):
-                os.makedirs(pycdas_deepseek_dir)
             deepseek_source_filename = os.path.splitext(os.path.basename(file_path))[0] + "_deepseek.py"
             deepseek_source_path = os.path.join(pycdas_deepseek_dir, deepseek_source_filename)
             try:
