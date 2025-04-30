@@ -140,6 +140,10 @@ import ctypes
 logging.info(f"ctypes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+from ctypes import wintypes
+logging.info(f"ctypes.wintypes module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import ipaddress
 logging.info(f"ipaddress module loaded in {time.time() - start_time:.6f} seconds")
 
