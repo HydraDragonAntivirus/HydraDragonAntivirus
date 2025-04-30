@@ -7133,7 +7133,7 @@ threading.Thread(target=run_sandboxie_control).start()
 WM_GETTEXT = 0x000D
 WM_GETTEXTLENGTH = 0x000E
 
-# WinEvent constants (if you still want event hooks alongside enumeration)
+# WinEvent constants to capture live window events
 EVENT_OBJECT_SHOW       = 0x8002
 EVENT_OBJECT_HIDE       = 0x8003
 EVENT_OBJECT_NAMECHANGE = 0x800C
@@ -7145,7 +7145,7 @@ user32 = ctypes.windll.user32
 ole32  = ctypes.windll.ole32
 
 # ----------------------------------------------------
-# Helper functions
+# Helper functions for enumeration
 # ----------------------------------------------------
 
 def get_window_text(hwnd):
@@ -7165,38 +7165,15 @@ def get_control_text(hwnd):
 def find_child_windows(parent_hwnd):
     """Find all child windows of the given parent window."""
     child_windows = []
-
     def _enum_proc(hwnd, lParam):
         child_windows.append(hwnd)
         return True
-
     EnumChildProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
     user32.EnumChildWindows(parent_hwnd, EnumChildProc(_enum_proc), None)
     return child_windows
 
 # ----------------------------------------------------
-# Updated enumeration-based capture
-# ----------------------------------------------------
-def find_windows_with_text():
-    """Find text in every window and its controls (no visibility filter)."""
-    window_handles = []
-
-    def _enum_windows(hwnd, lParam):
-        # Grab the main window text
-        text = get_window_text(hwnd).strip()
-        window_handles.append((hwnd, text))
-        # Grab each child control's text
-        for child in find_child_windows(hwnd):
-            ctrl_text = get_control_text(child).strip()
-            window_handles.append((child, ctrl_text))
-        return True
-
-    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-    user32.EnumWindows(EnumWindowsProc(_enum_windows), None)
-    return window_handles
-
-# ----------------------------------------------------
-# (Optional) WinEvent hook for live events
+# Live WinEvent hook callback & pump
 # ----------------------------------------------------
 WinEventProcType = ctypes.WINFUNCTYPE(
     None,
@@ -7210,10 +7187,11 @@ WinEventProcType = ctypes.WINFUNCTYPE(
 )
 
 def handle_event(hWinEventHook, event, hwnd, idObject, idChild, dwThread, dwmsEventTime):
+    # Only top-level window name changes, show, or hide events
     if hwnd and idObject == OBJID_WINDOW:
         text = get_window_text(hwnd).strip()
         if text:
-            print(f"[Event 0x{event:04X}] HWND={hwnd}, Text={text!r}")
+            logging.info(f"[LIVE EVENT 0x{event:04X}] HWND={hwnd}, Text={text!r}")
 
 def _pump_messages():
     msg = wintypes.MSG()
@@ -7221,8 +7199,28 @@ def _pump_messages():
         user32.TranslateMessage(ctypes.byref(msg))
         user32.DispatchMessageW(ctypes.byref(msg))
 
+# ----------------------------------------------------
+# Enumeration-based capture
+# ----------------------------------------------------
+def find_windows_with_text():
+    """Find text in every window and its controls (no visibility filter)."""
+    window_handles = []
+    def _enum_windows(hwnd, lParam):
+        text = get_window_text(hwnd).strip()
+        window_handles.append((hwnd, text))
+        for child in find_child_windows(hwnd):
+            ctrl_text = get_control_text(child).strip()
+            window_handles.append((child, ctrl_text))
+        return True
+    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    user32.EnumWindows(EnumWindowsProc(_enum_windows), None)
+    return window_handles
+
 class MonitorMessageCommandLine:
     def __init__(self):
+        # Install WinEvent hooks
+        self.start_event_monitoring()
+
         self.known_malware_messages = {
             "classic": {
                 "message": "this program cannot be run under virtual environment or debugging software",
@@ -7344,6 +7342,35 @@ class MonitorMessageCommandLine:
                 "process_function": self.process_detected_command_antivirus_search
                 }
             }
+
+    def start_event_monitoring(self):
+        """
+        Initialize COM and install WinEvent hooks for show, hide, and name-change.
+        """
+        try:
+            ole32.CoInitialize(None)
+            self._win_event_proc = WinEventProcType(handle_event)
+            # Show hook
+            self._win_event_hook_show = user32.SetWinEventHook(
+                EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW,
+                0, self._win_event_proc, 0, 0, WINEVENT_OUTOFCONTEXT
+            )
+            # Hide hook
+            self._win_event_hook_hide = user32.SetWinEventHook(
+                EVENT_OBJECT_HIDE, EVENT_OBJECT_HIDE,
+                0, self._win_event_proc, 0, 0, WINEVENT_OUTOFCONTEXT
+            )
+            # Name-change hook
+            self._win_event_hook_name = user32.SetWinEventHook(
+                EVENT_OBJECT_NAMECHANGE, EVENT_OBJECT_NAMECHANGE,
+                0, self._win_event_proc, 0, 0, WINEVENT_OUTOFCONTEXT
+            )
+            if not (self._win_event_hook_show and self._win_event_hook_hide and self._win_event_hook_name):
+                raise ctypes.WinError()
+            threading.Thread(target=_pump_messages, daemon=True).start()
+            logging.info("WinEvent hooks (show, hide, name-change) installed.")
+        except Exception as ex:
+            logging.error(f"Failed to install WinEvent hooks: {ex}")
 
     def preprocess_text(self, text):
         return text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "")
@@ -7556,78 +7583,61 @@ class MonitorMessageCommandLine:
     def monitoring_command_line_and_messages(self):
         try:
             while True:
-                # Capture windows with text
+                # 1) Enumeration snapshot
                 windows = find_windows_with_text()
                 for hwnd, text in windows:
-                    # Preprocess the text
-                    preprocessed_text = self.preprocess_text(text)
+                    pre = self.preprocess_text(text)
+                    pre_path = self.get_unique_filename(f"preprocessed_{hwnd}")
+                    orig_path = self.get_unique_filename(f"original_{hwnd}")
 
-                    # Generate unique file names for preprocessed and original text
-                    preprocessed_file_path = self.get_unique_filename(f"preprocessed_{hwnd}")
-                    original_file_path = self.get_unique_filename(f"original_{hwnd}")
-
-                    # Write preprocessed text to a file if not empty
-                    if preprocessed_text:
+                    if pre:
                         try:
-                            with open(preprocessed_file_path, 'w', encoding="utf-8", errors="ignore") as pre_proc_file:
-                                pre_proc_file.write(preprocessed_text[:1_000_000])
-                            if os.path.getsize(preprocessed_file_path) == 0:
-                                logging.error(f"Preprocessed file is empty: {preprocessed_file_path}.")
-                            else:
-                                logging.info(f"Wrote preprocessed text to {preprocessed_file_path}.")
-                                scan_and_warn(preprocessed_file_path)
+                            with open(pre_path, 'w', encoding='utf-8', errors='ignore') as f:
+                                f.write(pre[:1_000_000])
+                            if os.path.getsize(pre_path) > 0:
+                                logging.info(f"Wrote preprocessed -> {pre_path}")
+                                scan_and_warn(pre_path)
                         except Exception as ex:
-                            logging.error(f"Error writing preprocessed text to {preprocessed_file_path}: {ex}")
+                            logging.error(f"Error writing preprocessed: {ex}")
 
-                    # Write original text to a file if not empty
                     if text:
                         try:
-                            with open(original_file_path, 'w', encoding="utf-8", errors="ignore") as original_text_file:
-                                original_text_file.write(text[:1_000_000])
-                            if os.path.getsize(original_file_path) == 0:
-                                logging.error(f"Original file is empty: {original_file_path}.")
-                            else:
-                                logging.info(f"Wrote original text to {original_file_path}.")
-                                scan_and_warn(original_file_path)
+                            with open(orig_path, 'w', encoding='utf-8', errors='ignore') as f:
+                                f.write(text[:1_000_000])
+                            if os.path.getsize(orig_path) > 0:
+                                logging.info(f"Wrote original -> {orig_path}")
+                                scan_and_warn(orig_path)
                         except Exception as ex:
-                            logging.error(f"Error writing original text to {original_file_path}: {ex}")
+                            logging.error(f"Error writing original: {ex}")
 
-                # Capture command lines
-                command_lines = self.capture_command_lines()
-                for command_line, executable_path in command_lines:
-                    preprocessed_command_line = self.preprocess_text(command_line)
+                # 2) Command-line snapshot
+                for cmd, exe in self.capture_command_lines():
+                    pre_cmd = self.preprocess_text(cmd)
+                    orig_cmd = self.get_unique_filename(f"cmd_{exe}")
+                    pre_cmd_file = self.get_unique_filename(f"cmd_pre_{exe}")
 
-                    original_command_file_path = self.get_unique_filename(f"command_{executable_path}")
-                    preprocessed_command_file_path = self.get_unique_filename(f"command_preprocessed_{executable_path}")
-
-                    # Write original command line to a file if not empty
-                    if command_line:
+                    if cmd:
                         try:
-                            with open(original_command_file_path, 'w', encoding="utf-8", errors="ignore") as original_file:
-                                original_file.write(command_line[:1_000_000])
-                            if os.path.getsize(original_command_file_path) == 0:
-                                logging.error(f"Original command line file is empty: {original_command_file_path}.")
-                            else:
-                                logging.info(f"Wrote original command line to {original_command_file_path}.")
-                                scan_and_warn(original_command_file_path)
+                            with open(orig_cmd, 'w', encoding='utf-8', errors='ignore') as f:
+                                f.write(cmd[:1_000_000])
+                            if os.path.getsize(orig_cmd) > 0:
+                                logging.info(f"Wrote cmd -> {orig_cmd}")
+                                scan_and_warn(orig_cmd)
                         except Exception as ex:
-                            logging.error(f"Error writing original command line to {original_command_file_path}: {ex}")
+                            logging.error(f"Error writing cmd: {ex}")
 
-                    # Write preprocessed command line to a file if not empty
-                    if preprocessed_command_line:
+                    if pre_cmd:
                         try:
-                            with open(preprocessed_command_file_path, 'w', encoding="utf-8", errors="ignore") as file:
-                                file.write(preprocessed_command_line[:1_000_000])
-                            if os.path.getsize(preprocessed_command_file_path) == 0:
-                                logging.error(f"Preprocessed command line file is empty: {preprocessed_command_file_path}.")
-                            else:
-                                logging.info(f"Wrote preprocessed command line to {preprocessed_command_file_path}.")
-                                scan_and_warn(preprocessed_command_file_path)
+                            with open(pre_cmd_file, 'w', encoding='utf-8', errors='ignore') as f:
+                                f.write(pre_cmd[:1_000_000])
+                            if os.path.getsize(pre_cmd_file) > 0:
+                                logging.info(f"Wrote cmd pre -> {pre_cmd_file}")
+                                scan_and_warn(pre_cmd_file)
                         except Exception as ex:
-                            logging.error(f"Error writing preprocessed command line to {preprocessed_command_file_path}: {ex}")
+                            logging.error(f"Error writing cmd pre: {ex}")
 
         except Exception as ex:
-            logging.error(f"Error in monitor: {ex}")
+            logging.error(f"Error in monitor loop: {ex}")
 
 def monitor_sandboxie_directory():
     """
