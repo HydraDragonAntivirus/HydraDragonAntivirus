@@ -6680,7 +6680,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                 else:
                     logging.warning("Deobfuscation failed or unpacked file not found.")
 
-            elif dotnet_result is True and not flag_de4dot:
+            elif dotnet_result is not None and not flag_de4dot and not "Protector: Obfuscar" in dotnet_result:
                 de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(file_path,))
                 de4dot_thread.start()
             if is_jar_file_from_output(die_output):
