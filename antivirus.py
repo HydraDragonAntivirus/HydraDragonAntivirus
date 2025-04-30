@@ -7592,29 +7592,6 @@ class MonitorMessageCommandLine:
             counter += 1
         return unique_name
 
-    def handle_event(self, hWinEventHook, event, hwnd, idObject, idChild, dwEventThread, dwmsEventTime):
-        """
-        Proper WinEvent callback that receives the correct parameters.
-        """
-        # Skip events that aren't for the window itself
-        if idObject != OBJID_WINDOW:
-            return
-
-        # Skip if window handle is invalid
-        if not hwnd or not user32.IsWindow(hwnd):
-            return
-
-        # Get window text and process path
-        text = get_window_text(hwnd)
-        path = get_process_path(hwnd)
-
-        # Skip empty text
-        if not text:
-            return
-
-        # Process the event with the actual window content
-        self.process_window_text(hwnd, text, path)
-
     def process_window_text(self, hwnd, text, path):
         """
         Process text from a window - this contains the original logic.
@@ -7638,6 +7615,29 @@ class MonitorMessageCommandLine:
                 f.write(pre[:1_000_000])
             logging.info(f"Wrote preprocessed -> {pre_fn}")
             scan_and_warn(pre_fn)
+
+    def handle_event(self, hWinEventHook, event, hwnd, idObject, idChild, dwEventThread, dwmsEventTime):
+        """
+        Proper WinEvent callback that receives the correct parameters.
+        """
+        # Skip events that aren't for the window itself
+        if idObject != OBJID_WINDOW:
+            return
+
+        # Skip if window handle is invalid
+        if not hwnd or not user32.IsWindow(hwnd):
+            return
+
+        # Get window text and process path
+        text = get_window_text(hwnd)
+        path = get_process_path(hwnd)
+
+        # Skip empty text
+        if not text:
+            return
+
+        # Process the event with the actual window content
+        self.process_window_text(hwnd, text, path)
 
     def start_event_monitoring(self):
         """
@@ -7682,7 +7682,7 @@ class MonitorMessageCommandLine:
             logging.error(f"Failed to install WinEvent hooks: {ex}")
 
     def monitoring_command_line_and_messages(self):
-        """Continuously enumerate windows/controls and command‐lines, then dispatch."""
+        """Continuously enumerate windows/controls and commandlines, then dispatch."""
         logging.debug("Entered monitoring loop")
         self.start_event_monitoring()
 
@@ -7694,14 +7694,14 @@ class MonitorMessageCommandLine:
                 for hwnd, text, path in windows:
                     logging.debug(f"hwnd={hwnd}, path={path}, text={text!r}")
                     # Handle window/control event
-                    self.process_window_text((hwnd, text, path)
+                    self.process_window_text((hwnd, text, path))
             except Exception as e:
                 logging.error(f"Error during window/control enumeration: {e}", exc_info=True)
 
             # 2) Command‐line snapshot
             try:
                 cmdlines = self.capture_command_lines()  # returns (cmd, exe_path)
-                logging.debug(f"Enumerated {len(cmdlines)} command‐line(s)")
+                logging.debug(f"Enumerated {len(cmdlines)} commandline(s)")
                 for cmd, exe_path in cmdlines:
                     logging.debug(f"cmd={cmd!r}, exe_path={exe_path}")
 
