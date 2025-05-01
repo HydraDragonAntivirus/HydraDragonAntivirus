@@ -53,9 +53,10 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Make sure that the ClamAV database is installed without problems.
 - We strongly recommend that you take a snapshot and then go back when you have finished your work.
 - Don't forget to take a HiJackThis report with logs (and update the signatures first) before starting the scan to detect malware for the final analysis.
-- The final analysis doesn't clean anything, so don't start a new scan afterward—it's only for detecting post-injection changes using HiJackThis. Please don't terminate the sandbox environment.
+- The final analysis doesn't clean anything, so don't start a new scan afterward it's only for detecting post-injection changes using HiJackThis. Please don't terminate the sandbox environment.
 - The new HiJackThis analysis removes the previous analysis file from the sandbox environment.
 - Make your username hydradragonav (for example).
+- Don't forget to create the 'DefaultBox' folder if it was deleted, by right-clicking on Sandboxie Control and selecting 'Explore Contents'.
 
  ## Discord Community Server
 
