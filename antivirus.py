@@ -2936,7 +2936,6 @@ def scan_file_with_machine_learning_ai(file_path, machine_learning_results_json,
                 malware_rank = rank
                 malware_definition = info['file_name']
                 logging.warning(f"Malicious activity detected in {file_path}. Definition: {malware_definition}, similarity: {similarity}, rank: {rank}")
-                break
 
         # If not malicious, check benign
         if not is_malicious_ml:
