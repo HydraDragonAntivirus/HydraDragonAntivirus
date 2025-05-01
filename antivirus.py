@@ -271,7 +271,7 @@ accelerator = Accelerator()
 inno_extract_dir = os.path.join(script_dir, "innoextract-1.9-windows")
 inno_extract_path = os.path.join(inno_extract_dir, "innoextract.exe")
 inno_setup_extracted_dir = os.path.join(script_dir, "inno_setup_extracted")
-decompile_dir = os.path.join(script_dir, "decompile")
+decompiled_dir = os.path.join(script_dir, "decompiled")
 assets_dir = os.path.join(script_dir, "assets")
 icon_path = os.path.join(assets_dir, "HydraDragonAV.png")
 digital_signatures_list_dir = os.path.join(script_dir, "digitalsignatureslist")
@@ -452,7 +452,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [sandboxie_folder, copied_sandbox_files_dir, decompile_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
+directories_to_scan = [sandboxie_folder, copied_sandbox_files_dir, decompiled_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
 
 clamdscan_path = "C:\\Program Files\\ClamAV\\clamdscan.exe"
 freshclam_path = "C:\\Program Files\\ClamAV\\freshclam.exe"
@@ -3594,13 +3594,13 @@ def check_valid_signature_only(file_path):
 def clean_directories():
     try:
         # Clean decompile directory if it exists, otherwise create it
-        if os.path.isdir(decompile_dir):
-            shutil.rmtree(decompile_dir)
-            logging.info(f"Successfully cleaned the decompile folder at: {decompile_dir}")
+        if os.path.isdir(decompiled_dir):
+            shutil.rmtree(decompiled_dir)
+            logging.info(f"Successfully cleaned the decompile folder at: {decompiled_dir}")
         else:
-            logging.info(f"Decompile folder does not exist at: {decompile_dir}")
-        os.makedirs(decompile_dir)
-        logging.info(f"Created the decompile folder at: {decompile_dir}")
+            logging.info(f"Decompile folder does not exist at: {decompiled_dir}")
+        os.makedirs(decompiled_dir)
+        logging.info(f"Created the decompile folder at: {decompiled_dir}")
         
         # Clean ghidra_projects directory if it exists, otherwise create it
         if os.path.isdir(ghidra_projects_dir):
@@ -5204,7 +5204,7 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: It's a Sandbox environment file.")
         elif file_path.startswith(copied_sandbox_files_dir):
             logging.info(f"{file_path}: It's a restored sandbox environment file.")
-        elif file_path.startswith(decompile_dir):
+        elif file_path.startswith(decompiled_dir):
             logging.info(f"{file_path}: Decompiled.")
         elif file_path.startswith(inno_setup_extracted_dir):
             logging.info(f"{file_path}: Inno Setup extracted.")
@@ -5284,7 +5284,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
         directory_logging_info = [
             (lambda fp: fp.startswith(sandboxie_folder), f"It's a Sandbox environment file."),
             (lambda fp: fp.startswith(copied_sandbox_files_dir), f"It's a restored sandbox environment file."),
-            (lambda fp: fp.startswith(decompile_dir), f"Decompiled."),
+            (lambda fp: fp.startswith(decompiled_dir), f"Decompiled."),
             (lambda fp: fp.startswith(inno_setup_extracted_dir), f"Inno Setup extracted."),
             (lambda fp: fp.startswith(nuitka_dir), f"Nuitka onefile extracted."),
             (lambda fp: fp.startswith(dotnet_dir), f".NET decompiled."),
@@ -6764,9 +6764,9 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         if is_file_unknown(die_output):
             ransomware_alert(file_path)
 
-        # Check if the file is in decompile_dir
-        if file_path.startswith(decompile_dir):
-            logging.info(f"File {file_path} is in decompile_dir.")
+        # Check if the file is in decompiled_dir
+        if file_path.startswith(decompiled_dir):
+            logging.info(f"File {file_path} is in decompiled_dir.")
             is_decompiled = True
 
         # Check if the file is a known rootkit file
