@@ -7811,7 +7811,7 @@ def run_sandboxie_plugin():
         '/elevate',
         'rundll32.exe',
         # Properly quote the DLL path and entry point
-        f"\"{HydraDragonAV_sandboxie_path},{dll_entry_point}\""
+        f"\"{HydraDragonAV_sandboxie_path}\",{dll_entry_point}"
     ]
     
     try:
