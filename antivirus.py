@@ -7716,45 +7716,42 @@ class MonitorMessageCommandLine:
                     self._win_event_hook_hide and self._win_event_hook_name):
                 raise ctypes.WinError()
 
-            # Non-daemon thread for message pump
+            # Thread for message pump
             threading.Thread(target=_pump_messages).start()
 
             logging.info("WinEvent hooks (dialog, show, hide, name-change) installed.")
         except Exception as ex:
             logging.error(f"Failed to install WinEvent hooks: {ex}")
 
-    def monitoring_command_line_and_messages(self):
-        """Continuously enumerate windows/controls and commandlines, then dispatch."""
-        logging.debug("Entered monitoring loop")
+    def monitoring_window_text(self):
+        logging.debug("Started window/control monitoring loop")
         self.start_event_monitoring()
 
         while True:
-            # 1) Window and control enumeration
             try:
-                windows = find_windows_with_text()  # returns (hwnd, text, path)
+                windows = find_windows_with_text()
                 logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
                 for hwnd, text, path in windows:
                     logging.debug(f"hwnd={hwnd}, path={path}, text={text!r}")
-                    # Handle window/control event
                     self.process_window_text(hwnd, text, path)
             except Exception as e:
-                logging.error(f"Error during window/control enumeration: {e}", exc_info=True)
+                logging.exception("Window/control enumeration error:")
 
-            # 2) Command‐line snapshot
+    def monitoring_command_line(self):
+        logging.debug("Started command-line monitoring loop")
+        while True:
             try:
-                cmdlines = self.capture_command_lines()  # returns (cmd, exe_path)
+                cmdlines = self.capture_command_lines()
                 logging.debug(f"Enumerated {len(cmdlines)} commandline(s)")
                 for cmd, exe_path in cmdlines:
                     logging.debug(f"cmd={cmd!r}, exe_path={exe_path}")
 
-                    # write original cmd
                     orig_fn = self.get_unique_filename(f"cmd_{os.path.basename(exe_path)}")
                     with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
                         f.write(cmd[:1_000_000])
                     logging.info(f"Wrote cmd -> {orig_fn}")
                     scan_and_warn(orig_fn)
 
-                    # write preprocessed cmd
                     pre_cmd = self.preprocess_text(cmd)
                     if pre_cmd:
                         pre_fn = self.get_unique_filename(f"cmd_pre_{os.path.basename(exe_path)}")
@@ -7763,7 +7760,11 @@ class MonitorMessageCommandLine:
                         logging.info(f"Wrote cmd pre -> {pre_fn}")
                         scan_and_warn(pre_fn)
             except Exception as e:
-                logging.error(f"Error during command-line snapshot: {e}", exc_info=True)
+                logging.exception("Command-line snapshot error:")
+
+    def start_monitoring_threads(self):
+        threading.Thread(target=self.monitoring_window_text).start()
+        threading.Thread(target=self.monitoring_command_line).start()
 
 def monitor_sandboxie_directory():
     """
@@ -7833,7 +7834,7 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=check_startup_directories).start()
         threading.Thread(target=monitor_hosts_file).start()
         threading.Thread(target=check_uefi_directories).start() # Start monitoring UEFI directories for malicious files in a separate thread
-        threading.Thread(target=monitor_message.monitoring_command_line_and_messages).start() # Function to monitor specific windows in a separate thread
+        threading.Thread(target=monitor_message.start_monitoring_threads).start() # Function to monitor specific windows in a separate thread
         threading.Thread(target=monitor_saved_paths).start()
         threading.Thread(target=run_sandboxie_plugin).start()
         threading.Thread(target=run_sandboxie, args=(file_path,)).start()

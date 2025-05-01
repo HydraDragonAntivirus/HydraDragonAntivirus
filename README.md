@@ -157,6 +157,15 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 
 - Run HiJackThis once outside of the sandbox to avoid being asked to accept the license agreement every time.
 
+**Tip 6:**
+- If Your program requires command-line arguments. Follow these steps:
+
+- 1. Run the program normally. It will exit immediately because no arguments were supplied.
+- 2. Open Sandboxie Control, right-click the DefaultBox, and select Run Any Program.
+- 3. Browse to the application executable.
+- 4. Enter the required arguments in the **Command line** field.
+- 5. Click **OK** to launch the program inside Sandboxie with the correct arguments.
+
 ## Internet Access In Sandboxie
 - HIPS detection shouldn't work if you don't open the internet in Sandboxie (the installation already changes Sandboxie.ini for you). To enable it go to: Sandbox -> DefaultBox -> Sandbox Settings -> Restrictions -> Internet Access -> Click "BLock All Programs" then click "Allow All Programs" then save it and you're done!.  https://sandboxie-plus.com/sandboxie/restrictionssettings/
 
