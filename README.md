@@ -158,6 +158,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Run HiJackThis once outside of the sandbox to avoid being asked to accept the license agreement every time.
 
 **Tip 6:**
+
 - If Your program requires command-line arguments. Follow these steps:
 
 - 1. Run the program normally. It will exit immediately because no arguments were supplied.
