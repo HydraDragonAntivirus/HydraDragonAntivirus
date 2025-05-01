@@ -7194,11 +7194,17 @@ def get_process_path(hwnd):
 # ----------------------------------------------------
 
 def get_window_text(hwnd):
-    """Retrieve the text of a window."""
+    """Retrieve the text of a window; returns None if there's no text."""
+    # figure out how many characters we need (plus terminating null)
     length = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) + 1
     buf = ctypes.create_unicode_buffer(length)
+    # actually pull the text into our buffer
     user32.SendMessageW(hwnd, WM_GETTEXT, length, ctypes.byref(buf))
-    return buf.value
+    text = buf.value
+    # only return it if it's non‐empty
+    if text:
+        return text
+    return None
 
 def get_control_text(hwnd):
     """Retrieve the text from a control."""
