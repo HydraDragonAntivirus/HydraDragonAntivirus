@@ -7692,14 +7692,7 @@ class MonitorMessageCommandLine:
             logging.info(f"Wrote preprocessed -> {pre_fn}")
             scan_and_warn(pre_fn)
 
-    def handle_event(self,
-                     hWinEventHook,
-                     event,
-                     hwnd,
-                     idObject,
-                     idChild,
-                     dwEventThread,
-                     dwmsEventTime):
+    def handle_event(self, hWinEventHook, event, hwnd, idObject, idChild, dwEventThread, dwmsEventTime):
         """
         WinEvent callback that re-scans *all* windows and controls on every event.
         (Brute-force, no CPU savings.)
