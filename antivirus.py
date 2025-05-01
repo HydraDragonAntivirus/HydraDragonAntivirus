@@ -514,9 +514,44 @@ os.makedirs(pycdas_meta_llama_dir, exist_ok=True)
 os.makedirs(copied_sandbox_files_dir, exist_ok=True)
 os.makedirs(HiJackThis_logs_dir, exist_ok=True)
 os.makedirs(html_extracted_dir, exist_ok=True)
+os.makedirs(sandboxie_folder, exist_ok=True)
 
 # Counter for ransomware detection
 ransomware_detection_count = 0 
+
+def is_valid_ip(ip_string: str) -> bool:
+    """
+    Returns True if ip_string is a valid public IPv4 or IPv6 address,
+    False otherwise. Logs details about invalid cases.
+    """
+    logger.info(f"Validating IP: {ip_string!r}")
+    try:
+        ip_obj = ipaddress.ip_address(ip_string)
+        logger.debug(f"Parsed IP object: {ip_obj} (version {ip_obj.version})")
+    except ValueError:
+        logger.warning(f"Invalid IP syntax: {ip_string!r}")
+        return False
+
+    # check exclusion categories
+    if ip_obj.is_private:
+        logger.warning(f"Excluded private IP: {ip_obj}")
+        return False
+    if ip_obj.is_loopback:
+        logger.warning(f"Excluded loopback IP: {ip_obj}")
+        return False
+    if ip_obj.is_link_local:
+        logger.warning(f"Excluded link-local IP: {ip_obj}")
+        return False
+    if ip_obj.is_multicast:
+        logger.warning(f"Excluded multicast IP: {ip_obj}")
+        return False
+    if ip_obj.is_reserved:
+        logger.warning(f"Excluded reserved IP: {ip_obj}")
+        return False
+
+    # if we reach here, it's a valid public IP
+    logger.info(f"Valid public IPv{ip_obj.version} address: {ip_obj}")
+    return True
 
 def sanitize_filename(filename: str) -> str:
     """
@@ -2523,8 +2558,8 @@ def fetch_html(url, return_file_path=False):
 def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_meta_llama_flag=False, homepage_flag=""):
     try:
         # Check if the IP address is local
-        if is_local_ip(ip_address):
-            message = f"Skipping local IP address: {ip_address}"
+        if is_valid_ip(ip_address):
+            message = f"Skipping non valid IP address: {ip_address}"
             logging.info(message)
             return
 
@@ -3231,8 +3266,8 @@ class RealTimeWebProtectionHandler:
         elif kind in ('ipv4', 'ipv6'):
             ip_address = entity_value
             # local check
-            if is_local_ip(ip_address):
-                logging.info(f"Skipping local IP address: {ip_address}")
+            if is_valid_ip(ip_address):
+                logging.info(f"Skipping non valid IP address: {ip_address}")
                 return
 
             # signatures
@@ -6606,22 +6641,6 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                 except Exception as ex:
                     logging.error(f"Error processing homepage change file {file_path}: {ex}")
 
-            # Attempt to extract the file, regardless of its type
-            try:
-                logging.info(f"Attempting to extract file {file_path}...")
-                extracted_files = extract_all_files_with_7z(file_path, nsis_flag)
-
-                if extracted_files:
-                    logging.info(f"Extraction successful for {file_path}. Scanning extracted files...")
-                    # Recursively scan each extracted file
-                    for extracted_file in extracted_files:
-                        logging.info(f"Scanning extracted file: {extracted_file}")
-                        scan_and_warn(extracted_file)
-
-                logging.info(f"File {file_path} is not a valid archive or extraction failed. Proceeding with scanning.")
-            except Exception as extraction_error:
-                logging.error(f"Error during extraction of {file_path}: {extraction_error}")
-
             # Perform ransomware alert check
             if is_file_unknown(die_output):
                 ransomware_alert(file_path)
@@ -6629,6 +6648,22 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                 # Decompile the file in a separate thread
                 decompile_thread = threading.Thread(target=decompile_file, args=(file_path,))
                 decompile_thread.start()
+
+                # Attempt to extract the file
+                try:
+                    logging.info(f"Attempting to extract file {file_path}...")
+                    extracted_files = extract_all_files_with_7z(file_path, nsis_flag)
+
+                    if extracted_files:
+                        logging.info(f"Extraction successful for {file_path}. Scanning extracted files...")
+                        # Recursively scan each extracted file
+                        for extracted_file in extracted_files:
+                            logging.info(f"Scanning extracted file: {extracted_file}")
+                            scan_and_warn(extracted_file)
+
+                    logging.info(f"File {file_path} is not a valid archive or extraction failed. Proceeding with scanning.")
+                except Exception as extraction_error:
+                    logging.error(f"Error during extraction of {file_path}: {extraction_error}")
 
             # Perform signature check only if the file is valid hex data
             signature_check = check_signature(file_path)
