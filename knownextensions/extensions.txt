@@ -270,6 +270,7 @@
 .config
 .contact
 .copy
+.copilot
 .core
 .coverage
 .cpg

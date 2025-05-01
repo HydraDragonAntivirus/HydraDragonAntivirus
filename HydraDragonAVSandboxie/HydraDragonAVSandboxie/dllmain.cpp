@@ -1030,7 +1030,7 @@ DWORD WINAPI MBRMonitorThreadProc(LPVOID lpParameter)
 // Registry Monitoring via RegNotifyChangeKeyValue
 // -----------------------------------------------------------------
 // This version uses a dedicated monitoring thread (RegistryMonitorThreadProc)
-// that checks the key "HKCU\Software\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+// that checks the key "HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System"
 // for any changes to the following registry values (case-insensitive):
 //   DisablePerformanceMonitor
 //   DisableTaskMgr
@@ -1332,7 +1332,7 @@ DWORD WINAPI RegistryMonitorThreadProc(LPVOID lpParameter)
     {
         // Try to open the key with KEY_NOTIFY access.
         LONG lResult = RegOpenKeyExW(
-            HKEY_CURRENT_USER,
+            HKEY_LOCAL_MACHINE,
             L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
             0,
             KEY_READ | KEY_NOTIFY,
@@ -1340,8 +1340,8 @@ DWORD WINAPI RegistryMonitorThreadProc(LPVOID lpParameter)
 
         if (lResult == ERROR_FILE_NOT_FOUND)  // Key deleted
         {
-            SafeWriteSigmaLog(L"RegistryMonitor", L"HEUR:Win32.Susp.Reg.Wiper.gen - Key deleted: HKCU\\Policies\\System");
-            TriggerNotification(L"Virus Detected: HEUR:Win32.Susp.Reg.Wiper.gen", L"Registry key deleted: HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System");
+            SafeWriteSigmaLog(L"RegistryMonitor", L"HEUR:Win32.Susp.Reg.Wiper.gen - Key deleted: HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System");
+            TriggerNotification(L"Virus Detected: HEUR:Win32.Susp.Reg.Wiper.gen", L"Registry key deleted: HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System");
             break;
         }
         else if (lResult != ERROR_SUCCESS)
@@ -2005,7 +2005,7 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
         SafeWriteSigmaLog(L"MBRMonitor", L"Failed to read baseline MBR.");
     }
 
-    // Start Registry monitoring for HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\System.
+    // Start Registry monitoring for HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System.
     g_hRegistryMonitorThread = CreateThread(NULL, 0, RegistryMonitorThreadProc, NULL, 0, NULL);
 
     // Start Registry monitoring for HKLM\SYSTEM\Setup.
