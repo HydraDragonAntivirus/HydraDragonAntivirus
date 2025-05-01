@@ -7694,7 +7694,7 @@ class MonitorMessageCommandLine:
                 for hwnd, text, path in windows:
                     logging.debug(f"hwnd={hwnd}, path={path}, text={text!r}")
                     # Handle window/control event
-                    self.process_window_text((hwnd, text, path))
+                    self.process_window_text(hwnd, text, path)
             except Exception as e:
                 logging.error(f"Error during window/control enumeration: {e}", exc_info=True)
 
