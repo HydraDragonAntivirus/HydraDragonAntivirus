@@ -7192,26 +7192,21 @@ def get_process_path(hwnd):
 # ----------------------------------------------------
 # Helper functions for enumeration
 # ----------------------------------------------------
-
 def get_window_text(hwnd):
-    """Retrieve the text of a window; returns None if there's no text."""
+    """Retrieve the text of a window; always returns a string."""
     # figure out how many characters we need (plus terminating null)
     length = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) + 1
     buf = ctypes.create_unicode_buffer(length)
     # actually pull the text into our buffer
     user32.SendMessageW(hwnd, WM_GETTEXT, length, ctypes.byref(buf))
-    text = buf.value
-    # only return it if it's non‐empty
-    if text:
-        return text
-    return None
+    # buf.value is always a str (possibly empty)
+    return buf.value or ""
 
 def get_control_text(hwnd):
-    """Retrieve the text from a control."""
     length = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) + 1
     buf = ctypes.create_unicode_buffer(length)
     user32.SendMessageW(hwnd, WM_GETTEXT, length, ctypes.byref(buf))
-    return buf.value
+    return buf.value or ""
 
 def find_child_windows(parent_hwnd):
     """Find all child windows of the given parent window."""
@@ -7248,18 +7243,28 @@ def _pump_messages():
 # ----------------------------------------------------
 
 def find_windows_with_text():
-    """Find text in every window and its controls (no visibility filter)."""
+    """Find only non-empty text in every window and its controls."""
     window_handles = []
+
     def _enum_windows(hwnd, lParam):
-        text = get_window_text(hwnd).strip()
-        path = get_process_path(hwnd)
-        window_handles.append((hwnd, text, path))
+        # Top-level window
+        raw = get_window_text(hwnd) or ""
+        text = raw.strip()
+        if text:
+            window_handles.append((hwnd, text, get_process_path(hwnd)))
+
+        # Child controls
         for child in find_child_windows(hwnd):
-            ctrl_text = get_control_text(child).strip()
-            ctrl_path = get_process_path(child)
-            window_handles.append((child, ctrl_text, ctrl_path))
-        return True
-    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+            raw_ctrl = get_control_text(child) or ""
+            ctrl_text = raw_ctrl.strip()
+            if ctrl_text:
+                window_handles.append((child, ctrl_text, get_process_path(child)))
+
+        return True  # keep enumerating
+
+    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool,
+                                         ctypes.c_void_p,
+                                         ctypes.c_void_p)
     user32.EnumWindows(EnumWindowsProc(_enum_windows), None)
     return window_handles
 
@@ -7644,12 +7649,11 @@ class MonitorMessageCommandLine:
             return
 
         # 3) re-enumerate everything
-        all_entries = find_windows_with_text()  # → [(hwnd, text, path), …]
+        all_entries = find_windows_with_text()  # (hwnd, text, path)
 
         # 4) dispatch non-empty texts
         for h, txt, p in all_entries:
-            if txt.strip():
-                self.process_window_text(h, txt, p)
+            self.process_window_text(h, txt, p)
 
     def start_event_monitoring(self):
         """
