@@ -6656,7 +6656,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                 logging.info(f"File {file_path} is identified as a PE file.")
 
                 # PE section extraction and scanning
-                section_files = extract_pe_sections(pe_path)
+                section_files = extract_pe_sections(file_path)
                 if section_files:
                     logging.info(f"Extracted {len(section_files)} PE sections. Scanning...")
                     for fpath in section_files:
