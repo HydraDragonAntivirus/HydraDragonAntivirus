@@ -144,6 +144,14 @@ from ctypes import wintypes
 logging.info(f"ctypes.wintypes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import comtypes
+logging.info(f"comtypes module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from comtypes.client import CreateObject
+logging.info(f"comtypes.client.CreateObject module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import ipaddress
 logging.info(f"ipaddress module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -4172,8 +4180,16 @@ def worm_alert(file_path):
 
 def check_pe_file(file_path, signature_check, file_name):
     try:
+        # Normalize the file path to lowercase for comparison
+        normalized_path = os.path.abspath(file_path).lower()
+        normalized_sandboxie = sandboxie_folder.lower()
+
         logging.info(f"File {file_path} is a valid PE file.")
-        worm_alert(file_path)
+
+        # Check if file is inside the Sandboxie folder
+        if normalized_path.startswith(normalized_sandboxie):
+            worm_alert(file_path)
+            logging.info(f"File {file_path} is inside Sandboxie folder, scanned with worm_alert.")
 
         # Check for fake system files after signature validation
         if file_name in fake_system_files and os.path.abspath(file_path).startswith(main_drive_path):
@@ -7238,34 +7254,72 @@ def _pump_messages():
         user32.TranslateMessage(ctypes.byref(msg))
         user32.DispatchMessageW(ctypes.byref(msg))
 
+# --- UI Automation Setup ---
+try:
+    uia = CreateObject('UIAutomationClient.CUIAutomation')
+except Exception:
+    uia = None
+
+
+def get_uia_text(hwnd):
+    """
+    Retrieve control text via UI Automation if available.
+    """
+    if not uia:
+        return ""
+    try:
+        element = uia.ElementFromHandle(hwnd)
+        name = element.CurrentName
+        return name or ""
+    except Exception:
+        return ""
+
+def find_descendant_windows(root_hwnd):
+    """
+    Recursively enumerate all descendant windows of a given window.
+    """
+    descendants = []
+    stack = [root_hwnd]
+    while stack:
+        parent = stack.pop()
+        children = find_child_windows(parent)
+        for ch in children:
+            descendants.append(ch)
+            stack.append(ch)
+    return descendants
+
 # ----------------------------------------------------
 # Enumeration-based capture
 # ----------------------------------------------------
 
 def find_windows_with_text():
-    """Find only non-empty text in every window and its controls."""
+    """
+    Enhanced: Recursively enumerate all windows and controls,
+    retrieving text via WM_GETTEXT or UI Automation fallback.
+    """
     window_handles = []
 
-    def _enum_windows(hwnd, lParam):
-        # Top-level window
-        raw = get_window_text(hwnd) or ""
-        text = raw.strip()
-        if text:
-            window_handles.append((hwnd, text, get_process_path(hwnd)))
+    def scan_hwnd(hwnd):
+        # 1) Standard window text
+        raw = get_window_text(hwnd).strip()
+        # 2) Control text
+        if not raw:
+            raw = get_control_text(hwnd).strip()
+        # 3) Fallback to UI Automation
+        if not raw:
+            raw = get_uia_text(hwnd).strip()
+        if raw:
+            window_handles.append((hwnd, raw, get_process_path(hwnd)))
 
-        # Child controls
-        for child in find_child_windows(hwnd):
-            raw_ctrl = get_control_text(child) or ""
-            ctrl_text = raw_ctrl.strip()
-            if ctrl_text:
-                window_handles.append((child, ctrl_text, get_process_path(child)))
+    # Enumerate top-level windows and scan recursively
+    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+    def enum_proc(hwnd, lParam):
+        scan_hwnd(hwnd)
+        for desc in find_descendant_windows(hwnd):
+            scan_hwnd(desc)
+        return True
 
-        return True  # keep enumerating
-
-    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool,
-                                         ctypes.c_void_p,
-                                         ctypes.c_void_p)
-    user32.EnumWindows(EnumWindowsProc(_enum_windows), None)
+    user32.EnumWindows(EnumWindowsProc(enum_proc), None)
     return window_handles
 
 class MonitorMessageCommandLine:
@@ -7639,10 +7693,6 @@ class MonitorMessageCommandLine:
         WinEvent callback that re-scans *all* windows and controls on every event.
         (Brute-force, no CPU savings.)
         """
-
-        # 1) only care about window objects
-        if idObject != OBJID_WINDOW:
-            return
 
         # 2) skip invalid handles
         if not hwnd or not user32.IsWindow(hwnd):
