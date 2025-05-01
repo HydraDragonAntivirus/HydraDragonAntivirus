@@ -7622,28 +7622,34 @@ class MonitorMessageCommandLine:
             logging.info(f"Wrote preprocessed -> {pre_fn}")
             scan_and_warn(pre_fn)
 
-    def handle_event(self, hWinEventHook, event, hwnd, idObject, idChild, dwEventThread, dwmsEventTime):
+    def handle_event(self,
+                     hWinEventHook,
+                     event,
+                     hwnd,
+                     idObject,
+                     idChild,
+                     dwEventThread,
+                     dwmsEventTime):
         """
-        Proper WinEvent callback that receives the correct parameters.
+        WinEvent callback that re-scans *all* windows and controls on every event.
+        (Brute-force, no CPU savings.)
         """
-        # Skip events that aren't for the window itself
+
+        # 1) only care about window objects
         if idObject != OBJID_WINDOW:
             return
 
-        # Skip if window handle is invalid
+        # 2) skip invalid handles
         if not hwnd or not user32.IsWindow(hwnd):
             return
 
-        # Get window text and process path
-        text = get_window_text(hwnd)
-        path = get_process_path(hwnd)
+        # 3) re-enumerate everything
+        all_entries = find_windows_with_text()  # → [(hwnd, text, path), …]
 
-        # Skip empty text
-        if not text:
-            return
-
-        # Process the event with the actual window content
-        self.process_window_text(hwnd, text, path)
+        # 4) dispatch non-empty texts
+        for h, txt, p in all_entries:
+            if txt.strip():
+                self.process_window_text(h, txt, p)
 
     def start_event_monitoring(self):
         """
