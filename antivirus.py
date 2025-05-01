@@ -810,7 +810,7 @@ def is_non_plain_text_data(die_output):
     """
     Checks if the DIE output does not indicate plain text, suggesting it is non-plain text data.
     """
-    if die_output and "plain text" not in die_output.lower():
+    if die_output and "Format: plain text" not in die_output.lower():
         logging.info("DIE output does not contain plain text; identified as non-plain text data.")
         return True
     return False
