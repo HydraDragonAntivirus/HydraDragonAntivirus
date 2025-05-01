@@ -6755,7 +6755,6 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             try:
                 scan_thread = threading.Thread(target=scan_file_with_meta_llama, args=(file_path,))
                 scan_thread.start()
-                scan_thread.join()  # Wait for scanning to complete
             except Exception as ex:
                 logging.error(f"Error during scanning with Meta Llama-3.2-1B for file {file_path}: {ex}")
 
@@ -6917,10 +6916,6 @@ def monitor_directories():
         t.start()
         threads.append(t)
         logging.info(f"Started monitoring thread for: {d}")
-
-    # Optionally join threads if you want to block here
-    for t in threads:
-        t.join()
 
 def start_monitoring_sandbox():
     threading.Thread(target=monitor_directories).start()
@@ -7118,11 +7113,6 @@ def monitor_directories_with_watchdog():
         observer.schedule(event_handler, path=path, recursive=False)
         logging.info(f"Scheduled watchdog observer for: {path}")
     observer.start()
-    try:
-        observer.join()
-    except KeyboardInterrupt:
-        observer.stop()
-    observer.join()
 
 def run_sandboxie_control():
     try:
