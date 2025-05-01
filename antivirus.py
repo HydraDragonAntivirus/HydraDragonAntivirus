@@ -321,7 +321,6 @@ detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
 detectiteasy_json_dir = os.path.join(script_dir, "detectiteasy_json")
 memory_dir = os.path.join(script_dir, "memory")
 debloat_dir = os.path.join(script_dir, "debloat")
-HydraDragonAV_sandboxie_dir = os.path.join(script_dir, "HydraDragonAVSandboxie")
 copied_sandbox_files_dir = os.path.join(script_dir, "copiedsandboxfiles")
 detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
@@ -377,7 +376,9 @@ compiled_rule_path = os.path.join(yara_dir, "compiled_rule.yrc")
 yarGen_rule_path = os.path.join(yara_dir, "machinelearning.yrc")
 icewater_rule_path = os.path.join(yara_dir, "icewater.yrc")
 valhalla_rule_path = os.path.join(yara_dir, "valhalla-rules.yrc")
+HydraDragonAV_sandboxie_dir = os.path.join(script_dir, "HydraDragonAVSandboxie")
 HydraDragonAV_sandboxie_path = os.path.join(HydraDragonAV_sandboxie_dir, "HydraDragonAVSandboxie.dll")
+
 antivirus_domains_data = []
 ipv4_addresses_signatures_data = []
 ipv4_addresses_spam_signatures_data = []
