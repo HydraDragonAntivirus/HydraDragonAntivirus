@@ -806,14 +806,14 @@ def is_java_class_from_output(die_output):
     logging.info(f"DIE output does not indicate a Java class file: {die_output}")
     return False
 
-def is_hex_data(data_content):
-    """Check if the given binary data can be valid hex-encoded data."""
-    try:
-        # Convert binary data to hex representation and back to binary
-        binascii.unhexlify(binascii.hexlify(data_content))
+def is_non_plain_text_data(die_output):
+    """
+    Checks if the DIE output does not indicate plain text, suggesting it is non-plain text data.
+    """
+    if die_output and "plain text" not in die_output.lower():
+        logging.info("DIE output does not contain plain text; identified as non-plain text data.")
         return True
-    except (TypeError, binascii.Error):
-        return False
+    return False
 
 def debloat_pe_file(file_path):
     """
@@ -867,10 +867,10 @@ def debloat_pe_file(file_path):
     except Exception as ex:
         logging.error("Error during debloating of %s: %s", file_path, ex)
 
-def remove_magic_bytes(data_content):
+def remove_magic_bytes(data_content, die_output):
     """Remove magic bytes from data, considering it might be hex-encoded."""
     try:
-        if is_hex_data(data_content):
+        if is_non_plain_text_data(die_output):
             # Convert binary data to hex representation for easier pattern removal
             hex_data = binascii.hexlify(data_content).decode("utf-8", errors="ignore")
 
@@ -924,7 +924,7 @@ def decode_base32(data_content):
         logging.error(f"Base32 decoding error: {ex}")
         return None
 
-def process_file_data(file_path):
+def process_file_data(file_path, die_output):
     """Process file data by decoding and removing magic bytes."""
     try:
         with open(file_path, 'rb') as data_file:
@@ -946,7 +946,7 @@ def process_file_data(file_path):
             break
 
         # Remove magic bytes
-        processed_data = remove_magic_bytes(data_content)
+        processed_data = remove_magic_bytes(data_content, die_output)
 
         # Save processed data
         output_file_path = os.path.join(processed_dir, 'processed_' + os.path.basename(file_path))
@@ -1596,15 +1596,6 @@ def notify_user_invalid(file_path, virus_name):
     notification = Notify()
     notification.title = "Invalid signature Alert"
     notification_message = f"Invalid signature file detected: {file_path}\nVirus: {virus_name}"
-    notification.message = notification_message
-    notification.send()
-    
-    logging.warning(notification_message)
-
-def notify_user_ghidra(file_path, virus_name):
-    notification = Notify()
-    notification.title = "Decompiled Malicious File Alert"
-    notification_message = f"Malicious decompiled file detected: {file_path}\nVirus: {virus_name}"
     notification.message = notification_message
     notification.send()
     
@@ -6484,10 +6475,6 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             logging.debug(f"File {file_path} is empty. Skipping scan. That doesn't mean it's not malicious. See here: https://github.com/HydraDragonAntivirus/0KBAttack")
             return False
 
-        # Read the file content.
-        with open(file_path, 'rb') as scan_file:
-            data_content = scan_file.read()
-
         src_root = os.path.dirname(file_path)
 
         # choose destination based on origin
@@ -6594,7 +6581,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         }
 
         # Check if the file content is valid hex data
-        if is_hex_data(data_content):
+        if is_non_plain_text_data(die_output):
             logging.info(f"File {file_path} contains valid hex-encoded data.")
 
             # Check if the file_path equals the homepage change path.
@@ -6636,9 +6623,13 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             except Exception as extraction_error:
                 logging.error(f"Error during extraction of {file_path}: {extraction_error}")
 
-            # Decompile the file in a separate thread
-            decompile_thread = threading.Thread(target=decompile_file, args=(file_path,))
-            decompile_thread.start()
+            # Perform ransomware alert check
+            if is_file_unknown(die_output):
+                ransomware_alert(file_path)
+            else:
+                # Decompile the file in a separate thread
+                decompile_thread = threading.Thread(target=decompile_file, args=(file_path,))
+                decompile_thread.start()
 
             # Perform signature check only if the file is valid hex data
             signature_check = check_signature(file_path)
@@ -6776,10 +6767,6 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         # Log directory type based on file path
         log_directory_type(file_path)
 
-        # Perform ransomware alert check
-        if is_file_unknown(die_output):
-            ransomware_alert(file_path)
-
         # Check if the file is in decompiled_dir
         if file_path.startswith(decompiled_dir):
             logging.info(f"File {file_path} is in decompiled_dir.")
@@ -6793,7 +6780,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
 
         # Process the file data including magic byte removal
         if not os.path.commonpath([file_path, processed_dir]) == processed_dir:
-            process_thread = threading.Thread(target=process_file_data, args=(file_path,))
+            process_thread = threading.Thread(target=process_file_data, args=(file_path, die_output))
             process_thread.start()
 
         # Check if the file is a PyInstaller archive
