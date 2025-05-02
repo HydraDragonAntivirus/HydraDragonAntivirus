@@ -6615,9 +6615,9 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             "signature_status_issues": False
         }
 
-        # Check if the file content is valid hex data
+        # Check if the file content is valid non plain text data
         if is_non_plain_text_data(die_output):
-            logging.info(f"File {file_path} contains valid hex-encoded data.")
+            logging.info(f"File {file_path} contains valid non plain text data.")
 
             # Check if the file_path equals the homepage change path.
             if file_path == homepage_change_path:
@@ -6666,7 +6666,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                 except Exception as extraction_error:
                     logging.error(f"Error during extraction of {file_path}: {extraction_error}")
 
-            # Perform signature check only if the file is valid hex data
+            # Perform signature check only if the file is non plain text data
             signature_check = check_signature(file_path)
             logging.info(f"Signature check result for {file_path}: {signature_check}")
             if not isinstance(signature_check, dict):
@@ -6785,16 +6785,16 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             else:
                 logging.info(f"No Nuitka executable detected in {file_path}")
         else:
-            # If the file content is not valid hex data, perform scanning with Meta Llama-3.2-1B
-            logging.info(f"File {file_path} does not contain valid hex-encoded data. Scanning with Meta Llama-3.2-1B...")
+            # If the file content is plain text, perform scanning with Meta Llama-3.2-1B
+            logging.info(f"File {file_path} does contan plain text data. Scanning with Meta Llama-3.2-1B...")
             try:
                 scan_thread = threading.Thread(target=scan_file_with_meta_llama, args=(file_path,))
                 scan_thread.start()
             except Exception as ex:
                 logging.error(f"Error during scanning with Meta Llama-3.2-1B for file {file_path}: {ex}")
 
-            # Scan for malware in real-time only for non-hex data
-            logging.info(f"Performing real-time malware detection for non-hex data file: {file_path}...")
+            # Scan for malware in real-time only for plain text
+            logging.info(f"Performing real-time malware detection for plain text file: {file_path}...")
             real_time_scan_thread = threading.Thread(target=monitor_message.detect_malware, args=(file_path,))
             real_time_scan_thread.start()
 
