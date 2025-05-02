@@ -7369,7 +7369,8 @@ def find_windows_with_text():
     return window_handles
 
 class MonitorMessageCommandLine:
-    def __init__(self):
+    def __init__(self, max_workers: int = 100):
+        self.max_workers = max_workers
         # Store monitored paths
         self.main_file_path = os.path.abspath(main_file_path)
         self.sandboxie_folder = os.path.abspath(sandboxie_folder)
@@ -7787,18 +7788,34 @@ class MonitorMessageCommandLine:
             logging.error(f"Failed to install WinEvent hooks: {ex}")
 
     def monitoring_window_text(self):
+        """
+        Window/control monitoring loop.
+        Runs event monitoring and processes windows in parallel.
+        """
         logging.debug("Started window/control monitoring loop")
-        self.start_event_monitoring()
 
-        while True:
-            try:
-                windows = find_windows_with_text()
-                logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
-                for hwnd, text, path in windows:
-                    logging.debug(f"hwnd={hwnd}, path={path}, text={text!r}")
-                    self.process_window_text(hwnd, text, path)
-            except Exception as e:
-                logging.exception("Window/control enumeration error:")
+        # Start event monitoring in its own thread (non-daemon)
+        event_thread = threading.Thread(
+            target=self.start_event_monitoring,
+            name="EventMonitor"
+        )
+        event_thread.start()
+
+        # Use a thread pool to process windows concurrently
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            while True:
+                try:
+                    windows = find_windows_with_text()
+                    logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
+                    for hwnd, text, path in windows:
+                        executor.submit(
+                            self.process_window_text,
+                            hwnd,
+                            text,
+                            path
+                        )
+                except Exception:
+                    logging.exception("Window/control enumeration error:")
 
     def monitoring_command_line(self):
         logging.debug("Started command-line monitoring loop")
@@ -7912,6 +7929,9 @@ def perform_sandbox_analysis(file_path):
 dll_entry_point = "InjectDllMain"
 
 def run_sandboxie_plugin():
+    # Create the sandboxie_log_folder by manually
+    os.makedirs(sandboxie_log_folder, exist_ok=True)
+
     # Construct the command to run rundll32 inside Sandboxie
     dll_argument = f'"{HydraDragonAV_sandboxie_path}",{dll_entry_point}'
     command = [
