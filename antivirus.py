@@ -7373,7 +7373,7 @@ def find_windows_with_text():
     return window_handles
 
 class MonitorMessageCommandLine:
-    def __init__(self, max_workers: int = 100):
+    def __init__(self, max_workers: int = 5):
         self.max_workers = max_workers
         # Store monitored paths
         self.main_file_path = os.path.abspath(main_file_path)
