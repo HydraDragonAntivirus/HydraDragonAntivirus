@@ -880,7 +880,7 @@ def debloat_pe_file(file_path):
             pe,
             log_message=logging.info,
             last_ditch_processing=last_ditch_processing,
-            out_path=str(output_dir)   # pass the folder path
+            out_path=str(output_dir),   # pass the folder path
             cert_preservation=True
         )
 
