@@ -81,7 +81,7 @@ logging.info(f"pefile module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import pyzipper
-logging.info(f"pyzippr module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"pyzipper module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import tarfile
@@ -222,7 +222,7 @@ logging.info(f"zstandard module loaded in {time.time() - start_time:.6f} seconds
 
 start_time = time.time()
 from elftools.elf.elffile import ELFFile
-logging.info(f"elftools.elf.effile, ELFFile module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"elftools.elf.elffile, ELFFile module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import macholib.MachO
@@ -1251,7 +1251,7 @@ def analyze_overlay(pe, file_path: str) -> Dict[str, Any]:
                 overlay_info['exists'] = True
                 overlay_info['offset'] = end_of_pe
                 overlay_info['size'] = len(overlay_data)
-                overlay_info['entropy'] = self._calculate_entropy(overlay_data)
+                overlay_info['entropy'] = calculate_entropy(list(overlay_data))
 
         return overlay_info
     except Exception as e:
