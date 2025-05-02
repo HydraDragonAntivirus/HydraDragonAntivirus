@@ -5498,16 +5498,27 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
 
         # Combine the initial message with the truncated file content
         combined_message = initial_message + f"File content:\n{truncated_file_content}\n"
-        inputs = meta_llama_1b_tokenizer(combined_message, return_tensors="pt")
 
-        # Generate the response
+        # === Updated tokenization: include padding, truncation, and attention mask ===
+        inputs = meta_llama_1b_tokenizer(
+            combined_message,
+            return_tensors="pt",
+            padding=True,             # pad to batch max
+            truncation=True,          # cut off anything beyond context window
+            max_length=meta_llama_1b_model.config.max_position_embeddings,
+            return_attention_mask=True
+        )
+
+        # === Updated generate: pass attention_mask and pad_token_id ===
         try:
-            response = accelerator.unwrap_model(meta_llama_1b_model).generate(
-                input_ids=inputs['input_ids'],
+            response_ids = accelerator.unwrap_model(meta_llama_1b_model).generate(
+                input_ids=inputs["input_ids"].to(device),
+                attention_mask=inputs["attention_mask"].to(device),
+                pad_token_id=meta_llama_1b_tokenizer.eos_token_id,
                 max_new_tokens=1000,
                 num_return_sequences=1
             )
-            response = meta_llama_1b_tokenizer.decode(response[0], skip_special_tokens=True).strip()
+            response = meta_llama_1b_tokenizer.decode(response_ids[0], skip_special_tokens=True).strip()
         except Exception as ex:
             logging.error(f"Error generating response: {ex}")
             return
@@ -7649,12 +7660,16 @@ class MonitorMessageCommandLine:
 
         try:
             file_content = []
-            with open(file_path, 'r', encoding="utf-8", errors="ignore") as monitor_file:
-                for line_number, line in enumerate(monitor_file):
-                    if line_number < 1000000:  # Only read the first 1 million lines
+            non_empty_count = 0
+            with open(file_path, 'r', encoding="utf-8", errors="ignore") as monitor_file:  # 12 boşluk
+                for line in monitor_file:
+                    if not line.strip():
+                        continue
+                    if non_empty_count < 100000:
                         file_content.append(line)
+                        non_empty_count += 1
                     else:
-                        logging.warning("Exceeded 1 million lines; stopping read.")
+                        logging.warning("Exceeded 100K non-empty lines; stopping read.")
                         break
 
             file_content = ''.join(file_content)
