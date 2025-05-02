@@ -56,6 +56,10 @@ import threading
 logging.info(f"threading module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+from concurrent.futures import ThreadPoolExecutor
+logging.info(f"concurrent.futures.ThreadPoolExecutor module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import re
 logging.info(f"re module loaded in {time.time() - start_time:.6f} seconds")
 
