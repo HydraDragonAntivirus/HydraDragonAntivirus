@@ -7700,8 +7700,8 @@ class MonitorMessageCommandLine:
         """
         Process text from a window - this contains the original logic.
         """
-        # basic sanity
-        if not (hwnd and text and path):
+        # If there is no text then return
+        if not text:
             return
 
         # write original text
