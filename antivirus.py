@@ -35,9 +35,6 @@ sys.stderr = open(stderr_console_log_file, "w", encoding="utf-8", errors="ignore
 # Logging for application initialization
 logging.info("Application started at %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-# from here on, logging.debug/info/warning/etc. will open the file on first use
-logging.debug("Logging is now delayed until this first write, avoiding file busy errors.")
-
 # Start timing total duration
 total_start_time = time.time()
 
