@@ -2554,6 +2554,11 @@ saved_paths = []
 def fetch_html(url, return_file_path=False):
     """Fetch HTML content from the given URL, always save it, and optionally return the file path."""
     try:
+        # Checking for valid IP
+        if not is_valid_ip(url):
+            logging.warning(f"Invalid or disallowed IP address in URL: {url}")
+            return ("", None) if return_file_path else ""
+
         safe_url = ensure_http_prefix(url)
         response = requests.get(safe_url, timeout=120)
         if response.status_code == 200:
@@ -2585,7 +2590,7 @@ def fetch_html(url, return_file_path=False):
 # Generalized scan for IP addresses
 def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_meta_llama_flag=False, homepage_flag=""):
     try:
-        # Check if the IP address is local
+        # Check if the IP address is valid
         if is_valid_ip(ip_address):
             message = f"Skipping non valid IP address: {ip_address}"
             logging.info(message)
@@ -3293,7 +3298,7 @@ class RealTimeWebProtectionHandler:
 
         elif kind in ('ipv4', 'ipv6'):
             ip_address = entity_value
-            # local check
+            # valid ip check
             if is_valid_ip(ip_address):
                 logging.info(f"Skipping non valid IP address: {ip_address}")
                 return
