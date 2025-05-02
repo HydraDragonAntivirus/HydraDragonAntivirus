@@ -517,6 +517,7 @@ os.makedirs(copied_sandbox_files_dir, exist_ok=True)
 os.makedirs(HiJackThis_logs_dir, exist_ok=True)
 os.makedirs(html_extracted_dir, exist_ok=True)
 os.makedirs(sandboxie_folder, exist_ok=True)
+os.makedirs(sandboxie_log_folder, exist_ok=True)
 
 # Counter for ransomware detection
 ransomware_detection_count = 0 
@@ -7933,9 +7934,6 @@ def perform_sandbox_analysis(file_path):
 dll_entry_point = "InjectDllMain"
 
 def run_sandboxie_plugin():
-    # Create the sandboxie_log_folder by manually
-    os.makedirs(sandboxie_log_folder, exist_ok=True)
-
     # Construct the command to run rundll32 inside Sandboxie
     dll_argument = f'"{HydraDragonAV_sandboxie_path}",{dll_entry_point}'
     command = [
