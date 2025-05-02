@@ -7906,9 +7906,8 @@ def perform_sandbox_analysis(file_path):
 dll_entry_point = "InjectDllMain"
 
 def run_sandboxie_plugin():
-    dll_argument = f'"{HydraDragonAV_sandboxie_path}",{dll_entry_point}'
-
     # Construct the command to run rundll32 inside Sandboxie
+    dll_argument = f'"{HydraDragonAV_sandboxie_path}",{dll_entry_point}'
     command = [
         sandboxie_path,
         '/box:DefaultBox',
@@ -7916,7 +7915,6 @@ def run_sandboxie_plugin():
         'rundll32.exe',
         dll_argument
     ]
-
     try:
         logging.info(f"Running DLL via rundll32 in Sandboxie: {' '.join(command)}")
         subprocess.run(command, check=True, encoding="utf-8", errors="ignore")

@@ -2002,7 +2002,15 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
     }
     else
     {
-        SafeWriteSigmaLog(L"MBRMonitor", L"Failed to read baseline MBR.");
+        DWORD lastError = GetLastError();
+        if (lastError == ERROR_ACCESS_DENIED)
+        {
+            SafeWriteSigmaLog(L"MBRMonitor", L"Access denied – possibly running in a sandbox. Skipping MBR read.");
+        }
+        else
+        {
+            SafeWriteSigmaLog(L"MBRMonitor", L"Failed to read baseline MBR.");
+        }
     }
 
     // Start Registry monitoring for HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System.
