@@ -1561,6 +1561,7 @@ def notify_user_for_malicious_source_code(file_path, virus_name):
     """
     Sends a notification about malicious source code detected.
     """
+    notification = Notify()
     notification_title = f"Malicious Source Code detected: {virus_name}"
     notification_message = f"Suspicious source code detected in: {file_path}\nVirus: {virus_name}"
     notification.message = notification_message
