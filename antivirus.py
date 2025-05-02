@@ -960,32 +960,50 @@ def decode_base32(data_content):
         logging.error(f"Base32 decoding error: {ex}")
         return None
 
+# match only Base‑64 characters plus 0–2 padding “=”
+_BASE64_RE = re.compile(br'^[A-Za-z0-9+/]+={0,2}$')
+
+def is_base64(data: bytes) -> bool:
+    """
+    Return True if `data` consists entirely of Base64 chars
+    and up to two '=' padding bytes at the end.
+    """
+    # strip any whitespace/newlines before testing
+    data = data.strip()
+    return bool(_BASE64_RE.fullmatch(data))
+
 def process_file_data(file_path, die_output):
     """Process file data by decoding and removing magic bytes."""
     try:
         with open(file_path, 'rb') as data_file:
             data_content = data_file.read()
 
+        # keep peeling off layers of encoding…
         while True:
-            if isinstance(data_content, bytes):
-                base64_decoded = decode_base64(data_content)
-                if base64_decoded is not None:
-                    data_content = base64_decoded
+            # only try Base‑64 if it “looks like” Base‑64
+            if isinstance(data_content, (bytes, bytearray)) and is_base64(data_content):
+                decoded = decode_base64(data_content)
+                if decoded is not None:
+                    logging.info("Base64 layer removed.")
+                    data_content = decoded
                     continue
 
-                base32_decoded = decode_base32(data_content)
-                if base32_decoded is not None:
-                    data_content = base32_decoded
-                    continue
+            # otherwise try Base‑32
+            base32_decoded = decode_base32(data_content)
+            if base32_decoded is not None:
+                logging.info("Base32 layer removed.")
+                data_content = base32_decoded
+                continue
 
             logging.warning("No more base64 or base32 encoded data found.")
             break
 
-        # Remove magic bytes
+        # now strip out your magic bytes
         processed_data = remove_magic_bytes(data_content, die_output)
 
-        # Save processed data
-        output_file_path = os.path.join(processed_dir, 'processed_' + os.path.basename(file_path))
+        # write result
+        output_file_path = os.path.join(processed_dir,
+                                        'processed_' + os.path.basename(file_path))
         with open(output_file_path, 'wb') as processed_file:
             processed_file.write(processed_data)
 
