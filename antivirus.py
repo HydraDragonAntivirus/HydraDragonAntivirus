@@ -881,6 +881,7 @@ def debloat_pe_file(file_path):
             log_message=logging.info,
             last_ditch_processing=last_ditch_processing,
             out_path=str(output_dir)   # pass the folder path
+            cert_preservation=True
         )
 
         # Verify that something landed in there
@@ -7883,12 +7884,14 @@ def perform_sandbox_analysis(file_path):
 
         monitor_message = MonitorMessageCommandLine()
 
+        # Run the special Sandboxie plugin
+        threading.Thread(target=run_sandboxie_plugin).start()
+
         # Monitor Snort log for new lines and process alerts
         threading.Thread(target=monitor_snort_log).start()
         threading.Thread(target=web_protection_observer.begin_observing).start()
 
         # Start other sandbox analysis tasks in separate threads
-        threading.Thread(target=run_sandboxie_plugin).start()
         threading.Thread(target=monitor_directories_with_watchdog).start()
         threading.Thread(target=scan_and_warn, args=(file_path,)).start()
         threading.Thread(target=start_monitoring_sandbox).start()
