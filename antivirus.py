@@ -963,6 +963,18 @@ def decode_base32(data_content):
 # match only Base‑64 characters plus 0–2 padding “=”
 _BASE64_RE = re.compile(br'^[A-Za-z0-9+/]+={0,2}$')
 
+# match only Base‑32 chars A–Z2–7 plus up to 6 “=” padding at end
+_BASE32_RE = re.compile(br'^[A-Z2-7]+={0,6}$')
+
+def is_base32(data: bytes) -> bool:
+    """
+    Return True if `data` consists entirely of Base32 chars
+    and up to six '=' padding bytes at the end.
+    """
+    # strip whitespace/newlines before testing
+    data = data.strip().upper()  # Base‑32 is case‑insensitive, normalize to uppercase
+    return bool(_BASE32_RE.fullmatch(data))
+
 def is_base64(data: bytes) -> bool:
     """
     Return True if `data` consists entirely of Base64 chars
@@ -978,9 +990,8 @@ def process_file_data(file_path, die_output):
         with open(file_path, 'rb') as data_file:
             data_content = data_file.read()
 
-        # keep peeling off layers of encoding…
         while True:
-            # only try Base‑64 if it “looks like” Base‑64
+            # Base‑64 first
             if isinstance(data_content, (bytes, bytearray)) and is_base64(data_content):
                 decoded = decode_base64(data_content)
                 if decoded is not None:
@@ -988,17 +999,18 @@ def process_file_data(file_path, die_output):
                     data_content = decoded
                     continue
 
-            # otherwise try Base‑32
-            base32_decoded = decode_base32(data_content)
-            if base32_decoded is not None:
-                logging.info("Base32 layer removed.")
-                data_content = base32_decoded
-                continue
+            # then Base‑32 only if it “looks like” Base‑32
+            if isinstance(data_content, (bytes, bytearray)) and is_base32(data_content):
+                decoded = decode_base32(data_content)
+                if decoded is not None:
+                    logging.info("Base32 layer removed.")
+                    data_content = decoded
+                    continue
 
             logging.warning("No more base64 or base32 encoded data found.")
             break
 
-        # now strip out your magic bytes
+        # strip out your magic bytes
         processed_data = remove_magic_bytes(data_content, die_output)
 
         # write result
