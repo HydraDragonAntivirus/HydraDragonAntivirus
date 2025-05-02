@@ -522,33 +522,33 @@ def is_valid_ip(ip_string: str) -> bool:
     Returns True if ip_string is a valid public IPv4 or IPv6 address,
     False otherwise. Logs details about invalid cases.
     """
-    logger.info(f"Validating IP: {ip_string!r}")
+    logging.info(f"Validating IP: {ip_string!r}")
     try:
         ip_obj = ipaddress.ip_address(ip_string)
-        logger.debug(f"Parsed IP object: {ip_obj} (version {ip_obj.version})")
+        logging.debug(f"Parsed IP object: {ip_obj} (version {ip_obj.version})")
     except ValueError:
-        logger.warning(f"Invalid IP syntax: {ip_string!r}")
+        logging.warning(f"Invalid IP syntax: {ip_string!r}")
         return False
 
     # check exclusion categories
     if ip_obj.is_private:
-        logger.warning(f"Excluded private IP: {ip_obj}")
+        logging.warning(f"Excluded private IP: {ip_obj}")
         return False
     if ip_obj.is_loopback:
-        logger.warning(f"Excluded loopback IP: {ip_obj}")
+        logging.warning(f"Excluded loopback IP: {ip_obj}")
         return False
     if ip_obj.is_link_local:
-        logger.warning(f"Excluded link-local IP: {ip_obj}")
+        logging.warning(f"Excluded link-local IP: {ip_obj}")
         return False
     if ip_obj.is_multicast:
-        logger.warning(f"Excluded multicast IP: {ip_obj}")
+        logging.warning(f"Excluded multicast IP: {ip_obj}")
         return False
     if ip_obj.is_reserved:
-        logger.warning(f"Excluded reserved IP: {ip_obj}")
+        logging.warning(f"Excluded reserved IP: {ip_obj}")
         return False
 
     # if we reach here, it's a valid public IP
-    logger.info(f"Valid public IPv{ip_obj.version} address: {ip_obj}")
+    logging.info(f"Valid public IPv{ip_obj.version} address: {ip_obj}")
     return True
 
 def sanitize_filename(filename: str) -> str:
