@@ -7856,6 +7856,7 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=web_protection_observer.begin_observing).start()
 
         # Start other sandbox analysis tasks in separate threads
+        threading.Thread(target=run_sandboxie_plugin).start()
         threading.Thread(target=monitor_directories_with_watchdog).start()
         threading.Thread(target=scan_and_warn, args=(file_path,)).start()
         threading.Thread(target=start_monitoring_sandbox).start()
@@ -7865,7 +7866,6 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=check_uefi_directories).start() # Start monitoring UEFI directories for malicious files in a separate thread
         threading.Thread(target=monitor_message.start_monitoring_threads).start() # Function to monitor specific windows in a separate thread
         threading.Thread(target=monitor_saved_paths).start()
-        threading.Thread(target=run_sandboxie_plugin).start()
         threading.Thread(target=run_sandboxie, args=(file_path,)).start()
 
         logging.info("Sandbox analysis started. Please check log after you close program. There is no limit to scan time.")
