@@ -861,7 +861,7 @@ def debloat_pe_file(file_path):
     try:
         logging.info(f"Debloating PE file {file_path} for faster scanning.")
 
-        # Flag for last-ditch processing
+        # Flag for last‑ditch processing
         last_ditch_processing = False
 
         # Normalize paths
@@ -880,10 +880,15 @@ def debloat_pe_file(file_path):
         pe_data = file_path.read_bytes()
         pe      = pefile.PE(data=pe_data, fast_load=True)
 
+        # Wrap logging.info so it accepts and ignores an 'end' kwarg
+        def log_message(msg, *args, **kwargs):
+            kwargs.pop('end', None)      # drop any 'end' argument
+            logging.info(msg, *args, **kwargs)
+
         # Debloat into our new directory
         debloat.processor.process_pe(
             pe,
-            log_message=logging.info,
+            log_message=log_message,
             last_ditch_processing=last_ditch_processing,
             out_path=str(output_dir),   # pass the folder path
             cert_preservation=True
@@ -894,15 +899,9 @@ def debloat_pe_file(file_path):
             logging.info(f"Debloated file(s) saved in: {output_dir}")
             return str(output_dir)
         else:
-            logging.warning(
-                f"Debloating failed for {file_path}; {output_dir} is empty."
-            )
+            logging.error(f"Debloating failed for {file_path}; {output_dir} is empty.")
             return None
 
-    except ImportError as ex:
-        logging.error(
-            "Debloat library not installed. Run `pip install debloat`: %s", ex
-        )
     except Exception as ex:
         logging.error("Error during debloating of %s: %s", file_path, ex)
 
