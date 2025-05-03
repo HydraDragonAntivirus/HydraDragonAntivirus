@@ -54,7 +54,7 @@ Source: "C:\Users\victim\Documents\hydratempinstall\jre-8u451-windows-x64.exe"; 
 Source: "C:\Users\victim\Documents\hydratempinstall\jdk-24_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-8.0.15-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\python-3.12.10-amd64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\Sandboxie-Classic-x64-v5.70.11.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydratempinstall\Sandboxie-Classic-x64-v5.70.12.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\setup.bat"; DestDir: "{tmp}"; Flags: deleteafterinstall
 ; Note: Don't use "Flags: ignoreversion" on any shared system files
 
@@ -79,5 +79,5 @@ Filename: "{tmp}\jre-8u451-windows-x64.exe"; Flags: shellexec waituntilterminate
 Filename: "{tmp}\jdk-24_windows-x64_bin.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\windowsdesktop-runtime-8.0.15-win-x64.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\python-3.12.10-amd64.exe"; Flags: shellexec waituntilterminated
-Filename: "{tmp}\Sandboxie-Classic-x64-v5.70.11.exe"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\Sandboxie-Classic-x64-v5.70.12.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\setup.bat"; Flags: shellexec waituntilterminated
