@@ -1852,294 +1852,157 @@ void StartFileTrapMonitor()
     }
 }
 
-// ------------------ InjectDllMain ------------------
-extern "C" __declspec(dllexport) void __stdcall InjectDllMain()
-{
-    // Enter function
-    SafeWriteSigmaLog(L"InjectDllMain", L"Entered InjectDllMain");
-
-    // Save the Sandboxie DLL handle.
-
-    WCHAR buffer[256];
-    _snwprintf_s(buffer, 256, _TRUNCATE, L"InjectDllMain called.");
-    SafeWriteSigmaLog(L"InjectDllMain", buffer);
-
-    // Verify that our own module handle has been initialized.
-    if (!g_hThisModule)
-    {
-        SafeWriteSigmaLog(L"InjectDllMain", L"g_hThisModule is not initialized.");
-        return;
-    }
-
-    // Extract the embedded resource "DONTREMOVEHydraDragonFileTrap.exe" and check for modifications.
-    {
-        std::wstring extractedFilePath = LOG_FOLDER;
-        extractedFilePath += L"\\DONTREMOVEHydraDragonFileTrap.exe";
-        // Extract the resource using our stored module handle.
-        if (ExtractResourceToFile(g_hThisModule, MAKEINTRESOURCE(IDR_HYDRA_DRAGON_FILETRAP), RT_RCDATA, extractedFilePath))
-        {
-            std::wstring baselineFilePath = LOG_FOLDER;
-            baselineFilePath += L"\\baseline_DONTREMOVEHydraDragonFileTrap.exe";
-            if (!FileExists(baselineFilePath))
-            {
-                // No baseline exists: copy the extracted file as the baseline.
-                CopyFile(extractedFilePath.c_str(), baselineFilePath.c_str(), FALSE);
-                SafeWriteSigmaLog(L"Baseline", L"Baseline file created.");
-            }
-            else
-            {
-                std::wstring baselineHash, extractedHash;
-                if (CalculateMD5Hash(baselineFilePath, baselineHash) &&
-                    CalculateMD5Hash(extractedFilePath, extractedHash))
-                {
-                    if (baselineHash != extractedHash)
-                    {
-                        // Hash mismatch detected: load file buffers and generate diff.
-                        std::vector<char> baselineBuffer, extractedBuffer;
-                        if (LoadFileToBuffer(baselineFilePath, baselineBuffer) &&
-                            LoadFileToBuffer(extractedFilePath, extractedBuffer))
-                        {
-                            std::wstring diff = GenerateBinaryDiff(baselineBuffer, extractedBuffer);
-                            SafeWriteSigmaLog(L"FileTrap", L"HEUR:Win32.Trojan.Injector.gen@FileTrap - Hash mismatch detected.");
-                            WriteMaliciousDiffLog(diff);
-                        }
-                    }
-                    else
-                    {
-                        SafeWriteSigmaLog(L"FileTrap", L"No hash mismatch detected.");
-                    }
-                }
-                else
-                {
-                    SafeWriteSigmaLog(L"HashCalculation", L"Failed to compute file hashes.");
-                }
-            }
-        }
-        else
-        {
-            SafeWriteSigmaLog(L"FileTrap", L"Failed to extract resource DONTREMOVEHydraDragonFileTrap.exe");
-        }
-    }
-
-    // Load known extensions and digital signature checking modules.
-    LoadKnownExtensions();
-    SafeWriteSigmaLog(L"InjectDllMain", L"Digital signature and unsigned driver checking modules loaded.");
-
-    // Register the Sandboxie callback.
-
-    // Retrieve and hook Sandboxie's API.
-
-    // Create the notification window.
-    g_hNotificationWnd = CreateNotificationWindow();
-
-    // Start asynchronous logging threads.
-    g_hLogThread = CreateThread(NULL, 0, LoggerThreadProc, NULL, 0, NULL);
-    g_hErrorLogThread = CreateThread(NULL, 0, ErrorLoggerThreadProc, NULL, 0, NULL);
-
-    // Start MBR monitoring.
-    std::vector<char> g_baselineMBR = GetMBR();
-    if (!g_baselineMBR.empty())
-    {
-        g_hMBRMonitorThread = CreateThread(NULL, 0, MBRMonitorThreadProc, NULL, 0, NULL);
-    }
-    else
-    {
-        DWORD lastError = GetLastError();
-        if (lastError == ERROR_ACCESS_DENIED)
-        {
-            SafeWriteSigmaLog(L"MBRMonitor", L"Access denied – possibly running in a sandbox. Skipping MBR read.");
-        }
-        else
-        {
-            SafeWriteSigmaLog(L"MBRMonitor", L"Failed to read baseline MBR.");
-        }
-    }
-
-    // Start Registry monitoring for HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System.
-    g_hRegistryMonitorThread = CreateThread(NULL, 0, RegistryMonitorThreadProc, NULL, 0, NULL);
-
-    // Start Registry monitoring for HKLM\SYSTEM\Setup.
-    g_hRegistrySetupMonitorThread = CreateThread(NULL, 0, RegistrySetupMonitorThreadProc, NULL, 0, NULL);
-    if (!g_hRegistrySetupMonitorThread)
-    {
-        SafeWriteSigmaLog(L"RegistrySetupMonitor", L"Failed to start RegistrySetupMonitor thread.");
-    }
-
-    // Start Winlogon Shell monitoring for HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon.
-    g_hRegistryWinlogonShellMonitorThread = CreateThread(NULL, 0, RegistryWinlogonShellMonitorThreadProc, NULL, 0, NULL);
-    if (!g_hRegistryWinlogonShellMonitorThread)
-    {
-        SafeWriteSigmaLog(L"RegistryWinlogonShellMonitor", L"Failed to start RegistryWinlogonShellMonitor thread.");
-    }
-
-    // Start Registry monitoring for HKLM\SYSTEM\CurrentControlSet\Control\Keyboard Layout.
-    g_hRegistryKeyboardLayoutMonitorThread = CreateThread(NULL, 0, RegistryKeyboardLayoutMonitorThreadProc, NULL, 0, NULL);
-    if (!g_hRegistryKeyboardLayoutMonitorThread)
-    {
-        SafeWriteSigmaLog(L"RegistryKeyboardLayoutMonitor", L"Failed to start RegistryKeyboardLayoutMonitor thread.");
-    }
-
-    // Start the Time Monitor thread for system date checks.
-    g_hTimeMonitorThread = CreateThread(NULL, 0, TimeMonitorThreadProc, NULL, 0, NULL);
-    if (!g_hTimeMonitorThread)
-    {
-        SafeWriteSigmaLog(L"TimeMonitor", L"Failed to start TimeMonitorThread.");
-    }
-
-    OutputDebugString(L"InjectDllMain completed successfully.\n");
-}
-
 // ------------------ DllMain ------------------
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {
     switch (ul_reason_for_call)
     {
     case DLL_PROCESS_ATTACH:
-        HANDLE hChromeThread;
-        HANDLE hEdgeThread;
-        HANDLE hFirefoxThread;
+    {
         // Save our own module handle for resource extraction.
         g_hThisModule = hModule;
         // Disable thread notifications to reduce overhead.
         DisableThreadLibraryCalls(hModule);
 
-        InjectDllMain();
+        // ---- Begin InjectDllMain logic ----
+        SafeWriteSigmaLog(L"InjectDllMain", L"Entered InjectDllMain");
+        WCHAR buffer[256];
+        _snwprintf_s(buffer, 256, _TRUNCATE, L"InjectDllMain called.");
+        SafeWriteSigmaLog(L"InjectDllMain", buffer);
 
-        // Initialize critical sections.
-        InitializeCriticalSection(&g_logLock);
-        InitializeCriticalSection(&g_errorLogLock);
-        InitializeCriticalSection(&g_registryMapLock);
+        if (!g_hThisModule)
+        {
+            SafeWriteSigmaLog(L"InjectDllMain", L"g_hThisModule is not initialized.");
+            break;
+        }
 
-        // Queue the initial log message.
-        QueueLogMessage(L"{\"timestamp\":\"(n/a)\", \"event\":\"DllMain\", \"details\":\"DLL_PROCESS_ATTACH\"}");
+        // Extract embedded resource and compare against baseline
+        {
+            std::wstring extractedFilePath = LOG_FOLDER;
+            extractedFilePath += L"\\DONTREMOVEHydraDragonFileTrap.exe";
+            if (ExtractResourceToFile(g_hThisModule, MAKEINTRESOURCE(IDR_HYDRA_DRAGON_FILETRAP), RT_RCDATA, extractedFilePath))
+            {
+                std::wstring baselineFilePath = LOG_FOLDER;
+                baselineFilePath += L"\\baseline_DONTREMOVEHydraDragonFileTrap.exe";
+                if (!FileExists(baselineFilePath))
+                {
+                    CopyFile(extractedFilePath.c_str(), baselineFilePath.c_str(), FALSE);
+                    SafeWriteSigmaLog(L"Baseline", L"Baseline file created.");
+                }
+                else
+                {
+                    std::wstring baselineHash, extractedHash;
+                    if (CalculateMD5Hash(baselineFilePath, baselineHash) &&
+                        CalculateMD5Hash(extractedFilePath, extractedHash))
+                    {
+                        if (baselineHash != extractedHash)
+                        {
+                            std::vector<char> baselineBuffer, extractedBuffer;
+                            if (LoadFileToBuffer(baselineFilePath, baselineBuffer) &&
+                                LoadFileToBuffer(extractedFilePath, extractedBuffer))
+                            {
+                                std::wstring diff = GenerateBinaryDiff(baselineBuffer, extractedBuffer);
+                                SafeWriteSigmaLog(L"FileTrap", L"HEUR:Win32.Trojan.Injector.gen@FileTrap - Hash mismatch detected.");
+                                WriteMaliciousDiffLog(diff);
+                            }
+                        }
+                        else
+                        {
+                            SafeWriteSigmaLog(L"FileTrap", L"No hash mismatch detected.");
+                        }
+                    }
+                    else
+                    {
+                        SafeWriteSigmaLog(L"HashCalculation", L"Failed to compute file hashes.");
+                    }
+                }
+            }
+            else
+            {
+                SafeWriteSigmaLog(L"FileTrap", L"Failed to extract resource DONTREMOVEHydraDragonFileTrap.exe");
+            }
+        }
 
-        // Create the log directory and start the logging threads.
-        EnsureLogDirectory();
+        // Load extension and signature checks
+        LoadKnownExtensions();
+        SafeWriteSigmaLog(L"InjectDllMain", L"Digital signature and unsigned driver checking modules loaded.");
+
+        // Create notification window
+        g_hNotificationWnd = CreateNotificationWindow();
+
+        // Start async logging threads
         g_bLogThreadRunning = true;
         g_hLogThread = CreateThread(NULL, 0, LoggerThreadProc, NULL, 0, NULL);
         g_bErrorLogThreadRunning = true;
         g_hErrorLogThread = CreateThread(NULL, 0, ErrorLoggerThreadProc, NULL, 0, NULL);
 
-        // Attach hooks using Detours.
-        DetourTransactionBegin();
-        DetourUpdateThread(GetCurrentThread());
-        // Attach registry hooks.
-        DetourAttach(&(PVOID&)TrueRegSetValueExW, HookedRegSetValueExW);
-        DetourAttach(&(PVOID&)TrueRegCreateKeyExW, HookedRegCreateKeyExW);
-        DetourAttach(&(PVOID&)TrueRegOpenKeyExW, HookedRegOpenKeyExW);
-        // Attach file and directory hooks.
-        DetourAttach(&(PVOID&)TrueDeleteFileW, HookedDeleteFileW);
-        DetourAttach(&(PVOID&)TrueCreateFileW, HookedCreateFileW);
-        DetourAttach(&(PVOID&)TrueWriteFile, HookedWriteFile);
-        DetourAttach(&(PVOID&)TrueMoveFileW, HookedMoveFileW);
-        DetourAttach(&(PVOID&)TrueRemoveDirectoryW, HookedRemoveDirectoryW);
-        DetourTransactionCommit();
+        // Start MBR monitoring
+        std::vector<char> g_baselineMBR = GetMBR();
+        if (!g_baselineMBR.empty())
+        {
+            g_bMBRMonitorRunning = true;
+            g_hMBRMonitorThread = CreateThread(NULL, 0, MBRMonitorThreadProc, NULL, 0, NULL);
+        }
+        else
+        {
+            DWORD lastError = GetLastError();
+            if (lastError == ERROR_ACCESS_DENIED)
+            {
+                SafeWriteSigmaLog(L"MBRMonitor", L"Access denied – possibly running in a sandbox. Skipping MBR read.");
+            }
+            else
+            {
+                SafeWriteSigmaLog(L"MBRMonitor", L"Failed to read baseline MBR.");
+            }
+        }
 
-        // Start monitoring threads.
+        // Registry and other monitors
+        g_bRegistryMonitorRunning = true;
         g_hRegistryMonitorThread = CreateThread(NULL, 0, RegistryMonitorThreadProc, NULL, 0, NULL);
-        // Start Registry monitoring for HKLM\ SYSTEM\Setup.
+        g_bRegistrySetupMonitorRunning = true;
         g_hRegistrySetupMonitorThread = CreateThread(NULL, 0, RegistrySetupMonitorThreadProc, NULL, 0, NULL);
-        // Start Winlogon Shell monitoring thread.
+        g_bRegistryWinlogonShellMonitorRunning = true;
         g_hRegistryWinlogonShellMonitorThread = CreateThread(NULL, 0, RegistryWinlogonShellMonitorThreadProc, NULL, 0, NULL);
-        // Start Keyboard Layout monitoring thread.
+        g_bRegistryKeyboardLayoutMonitorRunning = true;
         g_hRegistryKeyboardLayoutMonitorThread = CreateThread(NULL, 0, RegistryKeyboardLayoutMonitorThreadProc, NULL, 0, NULL);
-
-        // Start the time monitor thread.
+        g_bTimeMonitorRunning = true;
         g_hTimeMonitorThread = CreateThread(NULL, 0, TimeMonitorThreadProc, NULL, 0, NULL);
-        if (g_hTimeMonitorThread)
-        {
-            SafeWriteSigmaLog(L"TimeMonitor", L"Time monitor thread started.");
-        }
-        else
-        {
-            SafeWriteSigmaLog(L"TimeMonitor", L"Failed to start time monitor thread.");
-        }
-
-        // Start the file trap monitor thread directly.
+        if (!g_hTimeMonitorThread) SafeWriteSigmaLog(L"TimeMonitor", L"Failed to start TimeMonitorThread.");
+        g_bFileTrapMonitorRunning = true;
         g_hFileTrapMonitorThread = CreateThread(NULL, 0, FileTrapMonitorThreadProc, NULL, 0, NULL);
-        if (g_hFileTrapMonitorThread)
-        {
-            SafeWriteSigmaLog(L"FileTrapMonitor", L"File trap monitoring thread started.");
-        }
-        else
-        {
-            SafeWriteSigmaLog(L"FileTrapMonitor", L"Failed to start file trap monitoring thread.");
-        }
+        if (!g_hFileTrapMonitorThread) SafeWriteSigmaLog(L"FileTrapMonitor", L"Failed to start file trap monitoring thread.");
 
-        hChromeThread = CreateThread(nullptr, 0, ChromeRegistryMonitorThread, nullptr, 0, nullptr);
-        hEdgeThread = CreateThread(nullptr, 0, EdgeRegistryMonitorThread, nullptr, 0, nullptr);
-        hFirefoxThread = CreateThread(nullptr, 0, FirefoxFileMonitorThread, nullptr, 0, nullptr);
+        // Browser-specific monitoring
+        CreateThread(nullptr, 0, ChromeRegistryMonitorThread, nullptr, 0, nullptr);
+        CreateThread(nullptr, 0, EdgeRegistryMonitorThread, nullptr, 0, nullptr);
+        CreateThread(nullptr, 0, FirefoxFileMonitorThread, nullptr, 0, nullptr);
+        // ---- End InjectDllMain logic ----
 
+        // Initialize critical sections
+        InitializeCriticalSection(&g_logLock);
+        InitializeCriticalSection(&g_errorLogLock);
+        InitializeCriticalSection(&g_registryMapLock);
+
+        // Queue initial log message
+        QueueLogMessage(L"{\"timestamp\":\"(n/a)\", \"event\":\"DllMain\", \"details\":\"DLL_PROCESS_ATTACH\"}");
         break;
+    }
 
     case DLL_PROCESS_DETACH:
+        // Queue detach log
         QueueLogMessage(L"{\"timestamp\":\"(n/a)\", \"event\":\"DllMain\", \"details\":\"DLL_PROCESS_DETACH\"}");
+        // Signal threads to stop and clean up
+        g_bLogThreadRunning = false; if (g_hLogThread) { WaitForSingleObject(g_hLogThread, 2000); CloseHandle(g_hLogThread); }
+        g_bErrorLogThreadRunning = false; if (g_hErrorLogThread) { WaitForSingleObject(g_hErrorLogThread, 2000); CloseHandle(g_hErrorLogThread); }
+        g_bMBRMonitorRunning = false; if (g_hMBRMonitorThread) { WaitForSingleObject(g_hMBRMonitorThread, 2000); CloseHandle(g_hMBRMonitorThread); }
+        g_bRegistryMonitorRunning = false; if (g_hRegistryMonitorThread) { WaitForSingleObject(g_hRegistryMonitorThread, 2000); CloseHandle(g_hRegistryMonitorThread); }
+        g_bRegistrySetupMonitorRunning = false; if (g_hRegistrySetupMonitorThread) { WaitForSingleObject(g_hRegistrySetupMonitorThread, 2000); CloseHandle(g_hRegistrySetupMonitorThread); }
+        g_bRegistryWinlogonShellMonitorRunning = false; if (g_hRegistryWinlogonShellMonitorThread) { WaitForSingleObject(g_hRegistryWinlogonShellMonitorThread, 2000); CloseHandle(g_hRegistryWinlogonShellMonitorThread); }
+        g_bRegistryKeyboardLayoutMonitorRunning = false; if (g_hRegistryKeyboardLayoutMonitorThread) { WaitForSingleObject(g_hRegistryKeyboardLayoutMonitorThread, 2000); CloseHandle(g_hRegistryKeyboardLayoutMonitorThread); }
+        g_bTimeMonitorRunning = false; if (g_hTimeMonitorThread) { WaitForSingleObject(g_hTimeMonitorThread, 2000); CloseHandle(g_hTimeMonitorThread); }
+        g_bFileTrapMonitorRunning = false; if (g_hFileTrapMonitorThread) { WaitForSingleObject(g_hFileTrapMonitorThread, 2000); CloseHandle(g_hFileTrapMonitorThread); }
 
-        // Stop logging threads.
-        g_bLogThreadRunning = false;
-        if (g_hLogThread)
-        {
-            WaitForSingleObject(g_hLogThread, 2000);
-            CloseHandle(g_hLogThread);
-        }
-        g_bErrorLogThreadRunning = false;
-        if (g_hErrorLogThread)
-        {
-            WaitForSingleObject(g_hErrorLogThread, 2000);
-            CloseHandle(g_hErrorLogThread);
-        }
-
-        // Stop monitoring threads.
-        g_bMBRMonitorRunning = false;
-        if (g_hMBRMonitorThread)
-        {
-            WaitForSingleObject(g_hMBRMonitorThread, 2000);
-            CloseHandle(g_hMBRMonitorThread);
-        }
-        // Stop HKCU Registry monitoring.
-        g_bRegistryMonitorRunning = false;
-        if (g_hRegistryMonitorThread)
-        {
-            WaitForSingleObject(g_hRegistryMonitorThread, 2000);
-            CloseHandle(g_hRegistryMonitorThread);
-        }
-        // Stop HKLM\ SYSTEM\Setup Registry monitoring.
-        g_bRegistrySetupMonitorRunning = false;
-        if (g_hRegistrySetupMonitorThread)
-        {
-            WaitForSingleObject(g_hRegistrySetupMonitorThread, 2000);
-            CloseHandle(g_hRegistrySetupMonitorThread);
-        }
-        // Stop Winlogon Shell monitoring.
-        g_bRegistryWinlogonShellMonitorRunning = false;
-        if (g_hRegistryWinlogonShellMonitorThread)
-        {
-            WaitForSingleObject(g_hRegistryWinlogonShellMonitorThread, 2000);
-            CloseHandle(g_hRegistryWinlogonShellMonitorThread);
-        }
-        // Stop Keyboard Layout monitoring.
-        g_bRegistryKeyboardLayoutMonitorRunning = false;
-        if (g_hRegistryKeyboardLayoutMonitorThread)
-        {
-            WaitForSingleObject(g_hRegistryKeyboardLayoutMonitorThread, 2000);
-            CloseHandle(g_hRegistryKeyboardLayoutMonitorThread);
-        }
-        // Signal the time monitor thread to stop.
-        g_bTimeMonitorRunning = false;
-        if (g_hTimeMonitorThread)
-        {
-            WaitForSingleObject(g_hTimeMonitorThread, 2000);
-            CloseHandle(g_hTimeMonitorThread);
-        }
-        // Signal the file trap monitor thread to stop.
-        g_bFileTrapMonitorRunning = false;
-        if (g_hFileTrapMonitorThread)
-        {
-            WaitForSingleObject(g_hFileTrapMonitorThread, 2000);
-            CloseHandle(g_hFileTrapMonitorThread);
-        }
-
-        // Detach hooks.
+        // Detach Detours hooks
         DetourTransactionBegin();
         DetourUpdateThread(GetCurrentThread());
         DetourDetach(&(PVOID&)TrueRegSetValueExW, HookedRegSetValueExW);
@@ -2152,7 +2015,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         DetourDetach(&(PVOID&)TrueRemoveDirectoryW, HookedRemoveDirectoryW);
         DetourTransactionCommit();
 
-        // Delete critical sections.
+        // Delete critical sections
         DeleteCriticalSection(&g_logLock);
         DeleteCriticalSection(&g_errorLogLock);
         DeleteCriticalSection(&g_registryMapLock);
