@@ -157,12 +157,14 @@ from comtypes import CoInitialize
 logging.info(f"comtypes.CoInitialize module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from comtypes.gen import oleacc
-logging.info(f"comtypes.oleacc module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 from comtypes.client import CreateObject, GetModule
 logging.info(f"comtypes.client.CreateObject and GetModule modules loaded in {time.time() - start_time:.6f} seconds")
+
+# Generate the oleacc module
+start_time = time.time()
+GetModule('oleacc.dll')
+from comtypes.gen import Accessibility  # Usually oleacc maps to this
+logging.info(f"comtypes.gen.Accessibility module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ipaddress
@@ -7790,13 +7792,13 @@ class MonitorMessageCommandLine:
             return
 
         # 2) Non-window UI object via COM
-        if idObject != oleacc.OBJID_WINDOW:
+        if idObject != Accessibility.OBJID_WINDOW:
             try:
                 CoInitialize()
-                pacc = ctypes.POINTER(oleacc.IAccessible)()
+                pacc = ctypes.POINTER(Accessibility.IAccessible)()
                 varChild = wintypes.VARIANT()
 
-                hr = oleacc.AccessibleObjectFromEvent(
+                hr = Accessibility.AccessibleObjectFromEvent(
                     hwnd, idObject, idChild,
                     ctypes.byref(pacc), ctypes.byref(varChild)
                 )
