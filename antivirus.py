@@ -4618,13 +4618,13 @@ def load_meta_llama_1b_model():
     try:
         # Ensure the model directory exists
         if not os.path.isdir(meta_llama_1b_dir):
-            raise FileNotFoundError(f"Model directory not found: {meta_llama_1b_dir}")
+            logging.error(f"Model directory not found: {meta_llama_1b_dir}")
 
         # Load and verify configuration
         cfg = AutoConfig.from_pretrained(meta_llama_1b_dir, local_files_only=True)
         logging.info(f"Loaded config.model_type={cfg.model_type}")
         if cfg.model_type.lower() != "llama":
-            raise ValueError(f"Expected a Llama model, but config.model_type='{cfg.model_type}'")
+            logging.error(f"Expected a Llama model, but config.model_type='{cfg.model_type}'")
 
         # Load tokenizer
         tokenizer = AutoTokenizer.from_pretrained(meta_llama_1b_dir, local_files_only=True)
@@ -7777,21 +7777,20 @@ class MonitorMessageCommandLine:
 
     def handle_event(self, hWinEventHook, event, hwnd, idObject, idChild, dwEventThread, dwmsEventTime):
         """
-        WinEvent callback that re-scans *all* windows and controls on every event.
-        - Brute-force ENUM of all windows when hwnd is valid.
-        - Fall back to AccessibleObjectFromEvent for non-HWND UI elements.
+        WinEvent callback that re-scans *all* windows and controls on every event,
+        *regardless* of whether hwnd is non-zero.  Then falls back to AccessibleObjectFromEvent.
         """
-        # 1) Real-window brute-force scan
-        if hwnd and user32.IsWindow(hwnd):
-            try:
-                all_entries = find_windows_with_text()
-                for h, txt, p in all_entries:
-                    self.process_window_text(h, txt, p)
-            except Exception:
-                logging.exception("Error during brute-force window enumeration")
-            return
+        logging.debug(f"WinEvent: event=0x{event:04X} hwnd={hwnd} obj={idObject} child={idChild}")
 
-        # 2) Non-window UI object via COM
+        # --- 1) Brute-force scan of *all* top‑level windows & their text, on every event
+        try:
+            all_entries = find_windows_with_text()
+            for h, txt, p in all_entries:
+                self.process_window_text(h, txt, p)
+        except Exception:
+            logging.exception("Error during brute-force window enumeration")
+
+        # --- 2) COM fallback for non-HWND UI elements
         if idObject != Accessibility.OBJID_WINDOW:
             try:
                 CoInitialize()
@@ -7810,6 +7809,7 @@ class MonitorMessageCommandLine:
                 if name:
                     context = f"obj={idObject}, child={idChild}"
                     self.process_window_text(hwnd or 0, name, context)
+
             except Exception:
                 logging.exception(
                     f"Error retrieving AccessibleObject for hwnd={hwnd}, "
@@ -7830,14 +7830,13 @@ class MonitorMessageCommandLine:
         ]
         for ev_min, ev_max in hooks:
             hook = user32.SetWinEventHook(
-                ev_min, ev_max,
+                EVENT_OBJECT_CREATE,
+                EVENT_OBJECT_NAMECHANGE,
                 0,
                 self._win_event_proc,
                 0, 0,
                 WINEVENT_OUTOFCONTEXT
             )
-            if not hook:
-                raise ctypes.WinError()
             self._hooks.append(hook)
 
         # pump messages so callbacks get delivered
