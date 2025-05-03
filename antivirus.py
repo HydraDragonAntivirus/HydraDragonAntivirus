@@ -4607,7 +4607,7 @@ except Exception as ex:
     logging.error(f"Error loading YARA-X rules: {ex}")
 
 # Function to load Meta Llama-3.2-1B model and tokenizer
-def load_llama32_1b_model():
+def load_meta_llama_1b_model():
     try:
         message = "Attempting to load Llama-3.2-1B model and tokenizer..."
         logging.info(message)
