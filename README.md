@@ -184,7 +184,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 **Why does my antivirus detect this as malware?**
 - It's a false positive. It's contains the website, HIPS signatures without obfuscation. It's a fully open source antivirus product.
 
-**Why is it 3GB+?**
+**Why is it 2GB+?**
 - Because of website signatures, Ghidra, ClamAV and Java Development Kit. Website signatures are not very effective but they can detect old and new viruses. I can remove them if you want. Ghidra is for decompiling but takes too much space. Java Development Kit is for Ghidra. That's 1GB+, but Llama3.2-1B make a total of 3GB+. Note that it's a completely local (except update database and cloud checking for known files) and professional open source antivirus.
 
 **Why does the antivirus.exe application take too long to run?**
