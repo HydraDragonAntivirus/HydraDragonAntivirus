@@ -4607,51 +4607,21 @@ except Exception as ex:
     logging.error(f"Error loading YARA-X rules: {ex}")
 
 # Function to load Meta Llama-3.2-1B model and tokenizer
-def load_meta_llama_1b_model():
-    """
-    Load the Meta Llama-3.2-1B Llama causal LM using the global `meta_llama_1b_dir`.
-    Uses NVIDIA GPU (CUDA) if available; falls back to CPU otherwise.
-
-    Returns:
-        tuple: (model, tokenizer) on success, or (None, None) on failure.
-    """
+def load_llama32_1b_model():
     try:
-        # Ensure the model directory exists
-        if not os.path.isdir(meta_llama_1b_dir):
-            logging.error(f"Model directory not found: {meta_llama_1b_dir}")
-
-        # Load and verify configuration
-        cfg = AutoConfig.from_pretrained(meta_llama_1b_dir, local_files_only=True)
-        logging.info(f"Loaded config.model_type={cfg.model_type}")
-        if cfg.model_type.lower() != "llama":
-            logging.error(f"Expected a Llama model, but config.model_type='{cfg.model_type}'")
-
-        # Load tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(meta_llama_1b_dir, local_files_only=True)
-
-        # Determine device (GPU if available)
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        logging.info(f"Using device: {device}")
-
-        # Choose dtype based on device
-        dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
-
-        # Load model with appropriate device mapping
-        model = AutoModelForCausalLM.from_pretrained(
-            meta_llama_1b_dir,
-            config=cfg,
-            local_files_only=True,
-            torch_dtype=dtype,
-            device_map="auto" if device.type == "cuda" else None
-        )
-        model.eval()
-
-        # Move model to the selected device
-        model.to(device)
-        return model, tokenizer
-
-    except Exception as e:
-        logging.error(f"Failed to load Meta Llama-3.2-1B model: {e}", exc_info=True)
+        message = "Attempting to load Llama-3.2-1B model and tokenizer..."
+        logging.info(message)
+        
+        llama32_tokenizer = AutoTokenizer.from_pretrained(meta_llama_1b_dir, local_files_only=True)
+        llama32_model = AutoModelForCausalLM.from_pretrained(meta_llama_1b_dir, local_files_only=True)
+        
+        success_message = "Llama-3.2-1B successfully loaded!"
+        logging.info(success_message)
+        
+        return llama32_model, llama32_tokenizer
+    except Exception as ex:
+        error_message = f"Error loading Llama-3.2-1B model or tokenizer: {ex}"
+        logging.error(error_message)
         sys.exit(1)
 
 # Load the Meta Llama-3.2-1B model
