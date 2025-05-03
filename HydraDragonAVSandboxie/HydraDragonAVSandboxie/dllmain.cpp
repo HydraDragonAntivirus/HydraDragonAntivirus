@@ -1087,7 +1087,7 @@ DWORD WINAPI TimeMonitorThreadProc(LPVOID lpParameter)
     while (g_bTimeMonitorRunning)
     {
         CheckSystemDateAnomaly();
-        Sleep(1000);  // Check every second. Adjust as needed.
+        Sleep(1000);  // Check every second.
     }
     return 0;
 }
@@ -1791,35 +1791,6 @@ BOOL WINAPI HookedMoveFileW(LPCWSTR lpExistingFileName, LPCWSTR lpNewFileName)
     return TrueMoveFileW(lpExistingFileName, lpNewFileName);
 }
 
-// -----------------------------------------------------------------
-// Sandboxie SBIE API Hooking (unchanged)
-// -----------------------------------------------------------------
-typedef void* (__stdcall* P_SbieDll_Hook)(const char*, void*, void*);
-typedef LONG(WINAPI* P_SbieDll_UpdateConf)(WCHAR, const WCHAR*, const WCHAR*, const WCHAR*, const WCHAR*);
-static P_SbieDll_UpdateConf TrueSbieDll_UpdateConf = NULL;
-
-LONG WINAPI HookedSbieDll_UpdateConf(WCHAR operation_code, const WCHAR* password,
-    const WCHAR* section_name, const WCHAR* setting_name, const WCHAR* value)
-{
-    WCHAR buffer[1024];
-    _snwprintf_s(buffer, 1024, _TRUNCATE,
-        L"SbieDll_UpdateConf called: op=%c, section=%s, setting=%s, value=%s",
-        operation_code, section_name ? section_name : L"(null)",
-        setting_name ? setting_name : L"(null)",
-        value ? value : L"(null)");
-    SafeWriteSigmaLog(L"SbieDll_UpdateConf", buffer);
-    return TrueSbieDll_UpdateConf(operation_code, password, section_name, setting_name, value);
-}
-
-typedef BOOLEAN(__stdcall* P_SbieDll_RegisterDllCallback)(void(__stdcall*)(const WCHAR*, HMODULE));
-void __stdcall MyDllCallback(const WCHAR* ImageName, HMODULE ImageBase)
-{
-    WCHAR details[512];
-    _snwprintf_s(details, 512, _TRUNCATE,
-        L"ImageName: %s, ModuleBase: 0x%p", ImageName, ImageBase);
-    SafeWriteSigmaLog(L"DLL_Event", details);
-}
-
 // Global variables for file trap monitoring.
 volatile bool g_bFileTrapMonitorRunning = true;
 HANDLE g_hFileTrapMonitorThread = NULL;
@@ -1834,7 +1805,7 @@ DWORD WINAPI FileTrapMonitorThreadProc(LPVOID lpParameter)
 
     while (g_bFileTrapMonitorRunning)
     {
-        Sleep(5000); // Check every 5 seconds (adjust as necessary)
+        Sleep(1000); // Check every second
 
         // Only perform the check if both files exist.
         if (FileExists(baselineFilePath) && FileExists(extractedFilePath))
@@ -1881,17 +1852,16 @@ void StartFileTrapMonitor()
     }
 }
 
-static HMODULE g_hSbieDll = NULL;
 // ------------------ InjectDllMain ------------------
-extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll, ULONG_PTR UnusedParameter)
+extern "C" __declspec(dllexport) void __stdcall InjectDllMain()
 {
     // Enter function
     SafeWriteSigmaLog(L"InjectDllMain", L"Entered InjectDllMain");
 
     // Save the Sandboxie DLL handle.
-    g_hSbieDll = hSbieDll;
+
     WCHAR buffer[256];
-    _snwprintf_s(buffer, 256, _TRUNCATE, L"InjectDllMain called. SbieDll handle: 0x%p", hSbieDll);
+    _snwprintf_s(buffer, 256, _TRUNCATE, L"InjectDllMain called.");
     SafeWriteSigmaLog(L"InjectDllMain", buffer);
 
     // Verify that our own module handle has been initialized.
@@ -1956,36 +1926,8 @@ extern "C" __declspec(dllexport) void __stdcall InjectDllMain(HINSTANCE hSbieDll
     SafeWriteSigmaLog(L"InjectDllMain", L"Digital signature and unsigned driver checking modules loaded.");
 
     // Register the Sandboxie callback.
-    P_SbieDll_RegisterDllCallback p_RegisterDllCallback =
-        (P_SbieDll_RegisterDllCallback)GetProcAddress(hSbieDll, "SbieDll_RegisterDllCallback");
-    if (p_RegisterDllCallback)
-    {
-        BOOLEAN result = p_RegisterDllCallback(MyDllCallback);
-        if (result)
-            SafeWriteSigmaLog(L"RegisterDllCallback", L"Callback registered successfully.");
-        else
-            SafeWriteSigmaLog(L"RegisterDllCallback", L"Callback registration failed.");
-    }
-    else
-    {
-        SafeWriteSigmaLog(L"RegisterDllCallback", L"Failed to retrieve SbieDll_RegisterDllCallback address.");
-    }
 
     // Retrieve and hook Sandboxie's API.
-    P_SbieDll_Hook p_SbieDll_Hook = (P_SbieDll_Hook)GetProcAddress(hSbieDll, "SbieDll_Hook");
-    if (p_SbieDll_Hook)
-    {
-        TrueSbieDll_UpdateConf = (P_SbieDll_UpdateConf)
-            p_SbieDll_Hook("SbieDll_UpdateConf", GetProcAddress(hSbieDll, "SbieDll_UpdateConf"), HookedSbieDll_UpdateConf);
-        if (TrueSbieDll_UpdateConf)
-            SafeWriteSigmaLog(L"SbieDll_UpdateConf", L"Hooked successfully.");
-        else
-            SafeWriteSigmaLog(L"SbieDll_UpdateConf", L"Failed to hook.");
-    }
-    else
-    {
-        SafeWriteSigmaLog(L"SbieDll_Hook", L"Failed to retrieve SbieDll_Hook address.");
-    }
 
     // Create the notification window.
     g_hNotificationWnd = CreateNotificationWindow();
@@ -2060,6 +2002,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         g_hThisModule = hModule;
         // Disable thread notifications to reduce overhead.
         DisableThreadLibraryCalls(hModule);
+
+        InjectDllMain();
 
         // Initialize critical sections.
         InitializeCriticalSection(&g_logLock);
