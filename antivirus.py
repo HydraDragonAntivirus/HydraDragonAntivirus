@@ -7218,6 +7218,7 @@ WM_GETTEXT = 0x000D
 WM_GETTEXTLENGTH = 0x000E
 
 # WinEvent constants to capture live window events
+EVENT_OBJECT_CREATE = 0x8000
 EVENT_OBJECT_SHOW        = 0x8002
 EVENT_SYSTEM_DIALOGSTART = 0x0010
 EVENT_OBJECT_HIDE        = 0x8003
@@ -7376,7 +7377,7 @@ def find_windows_with_text():
     return window_handles
 
 class MonitorMessageCommandLine:
-    def __init__(self, max_workers: int = 5):
+    def __init__(self, max_workers: int = 20):
         self.max_workers = max_workers
         self._win_event_proc = WinEventProcType(self.handle_event)
         self._hooks = []
