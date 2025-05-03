@@ -526,6 +526,23 @@ def is_valid_ip(ip_string: str) -> bool:
     Returns True if ip_string is a valid public IPv4 or IPv6 address,
     False otherwise. Logs details about invalid cases.
     """
+
+    # --- strip off port if present ---
+    original = ip_string
+    # IPv6 with brackets, e.g. "[2001:db8::1]:443"
+    if ip_string.startswith('[') and ']' in ip_string:
+        ip_core, sep, port = ip_string.partition(']')
+        if sep and port.startswith(':') and port[1:].isdigit():
+            ip_string = ip_core.lstrip('[')
+            logging.debug(f"Stripped port from bracketed IPv6: {original!r} → {ip_string!r}")
+    # IPv4 or unbracketed IPv6: split on last colon only if it looks like a port
+    elif ip_string.count(':') == 1:
+        ip_part, port = ip_string.rsplit(':', 1)
+        if port.isdigit():
+            ip_string = ip_part
+            logging.debug(f"Stripped port from IPv4/unbracketed: {original!r} → {ip_string!r}")
+    # else: leave IPv6 with multiple colons intact
+
     logging.info(f"Validating IP: {ip_string!r}")
     try:
         ip_obj = ipaddress.ip_address(ip_string)
@@ -534,7 +551,7 @@ def is_valid_ip(ip_string: str) -> bool:
         logging.warning(f"Invalid IP syntax: {ip_string!r}")
         return False
 
-    # check exclusion categories
+    # exclusion categories
     if ip_obj.is_private:
         logging.warning(f"Excluded private IP: {ip_obj}")
         return False
@@ -551,7 +568,7 @@ def is_valid_ip(ip_string: str) -> bool:
         logging.warning(f"Excluded reserved IP: {ip_obj}")
         return False
 
-    # if we reach here, it's a valid public IP
+    # valid public IP
     logging.info(f"Valid public IPv{ip_obj.version} address: {ip_obj}")
     return True
 
@@ -1008,7 +1025,7 @@ def process_file_data(file_path, die_output):
                     data_content = decoded
                     continue
 
-            logging.warning("No more base64 or base32 encoded data found.")
+            logging.info("No more base64 or base32 encoded data found.")
             break
 
         # strip out your magic bytes
@@ -7722,6 +7739,7 @@ class MonitorMessageCommandLine:
             counter += 1
         return unique_name
 
+
     def process_window_text(self, hwnd, text, path):
         """
         Process text from a window - this contains the original logic.
@@ -7729,6 +7747,9 @@ class MonitorMessageCommandLine:
         # If there is no text then return
         if not text:
             return
+
+        # Log the incoming parameters and full text
+        logging.info(f"Processing window - hwnd={hwnd}, path={path}, text={text}")
 
         # write original text
         orig_fn = self.get_unique_filename(f"original_{hwnd}")
