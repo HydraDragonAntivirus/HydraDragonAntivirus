@@ -21,6 +21,9 @@
 #include <fstream>
 #include <archive.h>
 #include <archive_entry.h>
+#include <filesystem>
+#include <mutex>
+#include <iostream>
 
 constexpr unsigned long long ONE_GB = 1073741824ULL; 
 constexpr unsigned long long ONE_TB = 1099511627776ULL;
@@ -68,7 +71,6 @@ static int g_ransomware_detection_count = 0;
 // -----------------------------------------------------------------
 __declspec(thread) bool g_bInLogging = false;
 
-
 // -----------------------------------------------------------------
 // Asynchronous Logging for Regular Logs
 // -----------------------------------------------------------------
@@ -76,41 +78,13 @@ CRITICAL_SECTION g_logLock;
 std::vector<std::wstring> g_logQueue;
 HANDLE g_hLogThread = NULL;
 volatile bool g_bLogThreadRunning = true;
-
-void EnsureLogDirectory()
-{
-    CreateDirectory(LOG_FOLDER, NULL);
-}
-
-DWORD WINAPI LoggerThreadProc(LPVOID lpParameter)
-{
-    while (g_bLogThreadRunning)
-    {
-        std::vector<std::wstring> localQueue;
-        EnterCriticalSection(&g_logLock);
-        if (!g_logQueue.empty())
-            localQueue.swap(g_logQueue);
-        LeaveCriticalSection(&g_logLock);
-        if (!localQueue.empty())
-        {
-            EnsureLogDirectory();
-            FILE* f = nullptr;
-            if (_wfopen_s(&f, SIGMA_LOG_FILE, L"a+") == 0 && f)
-            {
-                for (const auto& msg : localQueue)
-                    fwprintf(f, L"%s\n", msg.c_str());
-                fclose(f);
-            }
-        }
-    }
-    return 0;
-}
+void EnsureLogDirectory();
 
 // Helper function: Write a timestamped CSV log entry to DONTREMOVEHomePageChange.txt.
 void WriteLog(const wchar_t* message)
 {
     FILE* f = nullptr;
-    if (_wfopen_s(&f, L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEHomePageChange.txt", L"a+") == 0 && f)
+    if (_wfopen_s(&f, L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusfLogs\\DONTREMOVEHomePageChange.txt", L"a+") == 0 && f)
     {
         // Write only the CSV-formatted message (for example: "Chrome,homepage_value")
         fwprintf(f, L"%s\n", message);
@@ -139,13 +113,53 @@ void WriteSigmaLog(const WCHAR* eventType, const WCHAR* details)
     QueueLogMessage(logEntry);
 }
 
+//------------------------------------------------------------------------------
+// Ensure log directory exists
+//------------------------------------------------------------------------------
+void EnsureLogDirectory()
+{
+    std::error_code ec;
+    std::filesystem::create_directories(LOG_FOLDER, ec);
+    if (ec) {
+        std::cerr << "Error: Failed to create log directory: "
+            << ec.message() << std::endl;
+    }
+}
+
 void SafeWriteSigmaLog(const WCHAR* eventType, const WCHAR* details)
 {
+    EnsureLogDirectory();  // Make sure log folder exists
+
     if (g_bInLogging)
         return;
+
     g_bInLogging = true;
     WriteSigmaLog(eventType, details);
     g_bInLogging = false;
+}
+
+DWORD WINAPI LoggerThreadProc(LPVOID lpParameter)
+{
+    while (g_bLogThreadRunning)
+    {
+        std::vector<std::wstring> localQueue;
+        EnterCriticalSection(&g_logLock);
+        if (!g_logQueue.empty())
+            localQueue.swap(g_logQueue);
+        LeaveCriticalSection(&g_logLock);
+        if (!localQueue.empty())
+        {
+            EnsureLogDirectory();
+            FILE* f = nullptr;
+            if (_wfopen_s(&f, SIGMA_LOG_FILE, L"a+") == 0 && f)
+            {
+                for (const auto& msg : localQueue)
+                    fwprintf(f, L"%s\n", msg.c_str());
+                fclose(f);
+            }
+        }
+    }
+    return 0;
 }
 
 // Chrome homepage monitoring thread
@@ -893,6 +907,42 @@ bool CalculateMD5Hash(const std::wstring& filePath, std::wstring& hashStr)
     return bSuccess;
 }
 
+//------------------------------------------------------------------------------
+// Initialize and Start Logging
+//------------------------------------------------------------------------------
+void InitializeLogging()
+{
+    InitializeCriticalSection(&g_logLock);
+    InitializeCriticalSection(&g_errorLogLock);
+    InitializeCriticalSection(&g_registryMapLock);
+
+    g_bLogThreadRunning = true;
+    g_hLogThread = CreateThread(nullptr, 0, LoggerThreadProc, nullptr, 0, nullptr);
+    if (!g_hLogThread)
+    {
+        OutputDebugStringW(L"Failed to start log thread\n");
+        g_bLogThreadRunning = false;
+    }
+}
+
+//------------------------------------------------------------------------------
+// Stop and Cleanup Logging
+//------------------------------------------------------------------------------
+void CleanupLogging()
+{
+    g_bLogThreadRunning = false;
+    if (g_hLogThread)
+    {
+        WaitForSingleObject(g_hLogThread, INFINITE);
+        CloseHandle(g_hLogThread);
+        g_hLogThread = nullptr;
+    }
+
+    DeleteCriticalSection(&g_logLock);
+    DeleteCriticalSection(&g_errorLogLock);
+    DeleteCriticalSection(&g_registryMapLock);
+}
+
 // -----------------------------------------------------------------
 // Resource Extraction and File Diffing Helper Functions
 // -----------------------------------------------------------------
@@ -1012,16 +1062,46 @@ std::vector<char> GetMBR()
     return mbr;
 }
 
-DWORD WINAPI MBRMonitorThreadProc(LPVOID lpParameter)
+static constexpr int MBR_SIZE = 512;
+static constexpr int DISK_SIG_OFFSET = 440;
+static constexpr int DISK_SIG_LENGTH = 4;
+
+// Read 512‑byte MBR and zero out the disk signature bytes
+std::vector<char> GetStableMBR()
 {
+    std::vector<char> mbr = GetMBR();      // your existing read-from-\\.\PhysicalDrive0
+    if (mbr.size() == MBR_SIZE) {
+        // Zero out the 4‑byte disk signature so it won't trigger a false alarm
+        std::fill_n(mbr.begin() + DISK_SIG_OFFSET, DISK_SIG_LENGTH, 0);
+    }
+    return mbr;
+}
+
+DWORD WINAPI MBRMonitorThreadProc(LPVOID)
+{
+    // 1) Prime the baseline with a “stable” MBR
+    g_baselineMBR = GetStableMBR();
+    if (g_baselineMBR.size() != MBR_SIZE) {
+        // failed to read MBR; bail out or retry later
+        return 1;
+    }
+
+    // 2) Poll, but only detect when the *stable* MBR really differs
     while (g_bMBRMonitorRunning)
     {
-        std::vector<char> currentMBR = GetMBR();
-        if (!currentMBR.empty() && currentMBR != g_baselineMBR)
+        auto current = GetStableMBR();
+        if (current.size() == MBR_SIZE && current != g_baselineMBR)
         {
-            SafeWriteSigmaLog(L"MBRMonitor", L"HEUR:Win32.Possible.Bootkit.MBR.gen alert");
-            TriggerNotification(L"Virus Detected: HEUR:Win32.Possible.Bootkit.MBR.gen", L"MBR has been modified");
+            SafeWriteSigmaLog(L"MBRMonitor", L"HEUR:Win32.Possible.Bootkit.MBR.gen alert (real change)");
+            TriggerNotification(
+                L"Virus Detected: HEUR:Win32.Possible.Bootkit.MBR.gen",
+                L"MBR has been modified"
+            );
+            // update baseline so you don’t spam on the same change
+            g_baselineMBR = std::move(current);
         }
+
+        Sleep(5000);  // you can adjust this interval as needed
     }
     return 0;
 }
@@ -1861,18 +1941,20 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
     {
         // Save our own module handle for resource extraction.
         g_hThisModule = hModule;
+        EnsureLogDirectory();
+        InitializeLogging();
         // Disable thread notifications to reduce overhead.
         DisableThreadLibraryCalls(hModule);
 
-        // ---- Begin InjectDllMain logic ----
-        SafeWriteSigmaLog(L"InjectDllMain", L"Entered InjectDllMain");
+        // ---- Begin DllMain logic ----
+        SafeWriteSigmaLog(L"DllMain", L"Entered DllMain");
         WCHAR buffer[256];
-        _snwprintf_s(buffer, 256, _TRUNCATE, L"InjectDllMain called.");
-        SafeWriteSigmaLog(L"InjectDllMain", buffer);
+        _snwprintf_s(buffer, 256, _TRUNCATE, L"DllMain called.");
+        SafeWriteSigmaLog(L"DllMain", buffer);
 
         if (!g_hThisModule)
         {
-            SafeWriteSigmaLog(L"InjectDllMain", L"g_hThisModule is not initialized.");
+            SafeWriteSigmaLog(L"DllMain", L"g_hThisModule is not initialized.");
             break;
         }
 
@@ -1925,7 +2007,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         // Load extension and signature checks
         LoadKnownExtensions();
-        SafeWriteSigmaLog(L"InjectDllMain", L"Digital signature and unsigned driver checking modules loaded.");
+        SafeWriteSigmaLog(L"DllMain", L"Digital signature and unsigned driver checking modules called.");
 
         // Create notification window
         g_hNotificationWnd = CreateNotificationWindow();
@@ -1976,19 +2058,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         CreateThread(nullptr, 0, ChromeRegistryMonitorThread, nullptr, 0, nullptr);
         CreateThread(nullptr, 0, EdgeRegistryMonitorThread, nullptr, 0, nullptr);
         CreateThread(nullptr, 0, FirefoxFileMonitorThread, nullptr, 0, nullptr);
-        // ---- End InjectDllMain logic ----
-
-        // Initialize critical sections
-        InitializeCriticalSection(&g_logLock);
-        InitializeCriticalSection(&g_errorLogLock);
-        InitializeCriticalSection(&g_registryMapLock);
-
+   
         // Queue initial log message
         QueueLogMessage(L"{\"timestamp\":\"(n/a)\", \"event\":\"DllMain\", \"details\":\"DLL_PROCESS_ATTACH\"}");
         break;
     }
 
     case DLL_PROCESS_DETACH:
+        CleanupLogging();
         // Queue detach log
         QueueLogMessage(L"{\"timestamp\":\"(n/a)\", \"event\":\"DllMain\", \"details\":\"DLL_PROCESS_DETACH\"}");
         // Signal threads to stop and clean up
@@ -2015,10 +2092,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         DetourDetach(&(PVOID&)TrueRemoveDirectoryW, HookedRemoveDirectoryW);
         DetourTransactionCommit();
 
-        // Delete critical sections
-        DeleteCriticalSection(&g_logLock);
-        DeleteCriticalSection(&g_errorLogLock);
-        DeleteCriticalSection(&g_registryMapLock);
         break;
 
     case DLL_THREAD_ATTACH:
