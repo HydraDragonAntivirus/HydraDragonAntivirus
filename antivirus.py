@@ -149,8 +149,20 @@ import comtypes
 logging.info(f"comtypes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from comtypes.client import CreateObject
-logging.info(f"comtypes.client.CreateObject module loaded in {time.time() - start_time:.6f} seconds")
+from comtypes import GUID
+logging.info(f"comtypes.GUID module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from comtypes import CoInitialize
+logging.info(f"comtypes.CoInitialize module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from comtypes.gen import oleacc
+logging.info(f"comtypes.oleacc module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from comtypes.client import CreateObject, GetModule
+logging.info(f"comtypes.client.CreateObject and GetModule modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ipaddress
@@ -7234,11 +7246,11 @@ WM_GETTEXT = 0x000D
 WM_GETTEXTLENGTH = 0x000E
 
 # WinEvent constants to capture live window events
-EVENT_OBJECT_SHOW       = 0x8002
-EVENT_OBJECT_HIDE       = 0x8003
-EVENT_OBJECT_NAMECHANGE = 0x800C
-WINEVENT_OUTOFCONTEXT   = 0x0000
-OBJID_WINDOW            = 0x00000000
+EVENT_OBJECT_SHOW        = 0x8002
+EVENT_SYSTEM_DIALOGSTART = 0x0010
+EVENT_OBJECT_HIDE        = 0x8003
+EVENT_OBJECT_NAMECHANGE  = 0x800C
+WINEVENT_OUTOFCONTEXT    = 0x0000
 
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
@@ -7311,25 +7323,17 @@ def find_child_windows(parent_hwnd):
     user32.EnumChildWindows(parent_hwnd, EnumChildProc(_enum_proc), None)
     return child_windows
 
-# ----------------------------------------------------
-# Live WinEvent hook callback & pump
-# ----------------------------------------------------
+# Signature for the WinEventProc callback
 WinEventProcType = ctypes.WINFUNCTYPE(
     None,
-    wintypes.HANDLE,
-    wintypes.DWORD,
-    wintypes.HWND,
-    wintypes.LONG,
-    wintypes.LONG,
-    wintypes.DWORD,
-    wintypes.DWORD
+    wintypes.HANDLE,  # hWinEventHook
+    wintypes.DWORD,   # event
+    wintypes.HWND,    # hwnd
+    wintypes.LONG,    # idObject
+    wintypes.LONG,    # idChild
+    wintypes.DWORD,   # dwEventThread
+    wintypes.DWORD    # dwmsEventTime
 )
-
-def _pump_messages():
-    msg = wintypes.MSG()
-    while user32.GetMessageW(ctypes.byref(msg), 0, 0, 0) != 0:
-        user32.TranslateMessage(ctypes.byref(msg))
-        user32.DispatchMessageW(ctypes.byref(msg))
 
 # --- UI Automation Setup ---
 try:
@@ -7402,6 +7406,8 @@ def find_windows_with_text():
 class MonitorMessageCommandLine:
     def __init__(self, max_workers: int = 5):
         self.max_workers = max_workers
+        self._win_event_proc = WinEventProcType(self.handle_event)
+        self._hooks = []
         # Store monitored paths
         self.main_file_path = os.path.abspath(main_file_path)
         self.sandboxie_folder = os.path.abspath(sandboxie_folder)
@@ -7770,61 +7776,78 @@ class MonitorMessageCommandLine:
     def handle_event(self, hWinEventHook, event, hwnd, idObject, idChild, dwEventThread, dwmsEventTime):
         """
         WinEvent callback that re-scans *all* windows and controls on every event.
-        (Brute-force, no CPU savings.)
+        - Brute-force ENUM of all windows when hwnd is valid.
+        - Fall back to AccessibleObjectFromEvent for non-HWND UI elements.
         """
-
-        # 2) skip invalid handles
-        if not hwnd or not user32.IsWindow(hwnd):
+        # 1) Real-window brute-force scan
+        if hwnd and user32.IsWindow(hwnd):
+            try:
+                all_entries = find_windows_with_text()
+                for h, txt, p in all_entries:
+                    self.process_window_text(h, txt, p)
+            except Exception:
+                logging.exception("Error during brute-force window enumeration")
             return
 
-        # 3) re-enumerate everything
-        all_entries = find_windows_with_text()  # (hwnd, text, path)
+        # 2) Non-window UI object via COM
+        if idObject != oleacc.OBJID_WINDOW:
+            try:
+                CoInitialize()
+                pacc = ctypes.POINTER(oleacc.IAccessible)()
+                varChild = wintypes.VARIANT()
 
-        # 4) dispatch non-empty texts
-        for h, txt, p in all_entries:
-            self.process_window_text(h, txt, p)
+                hr = oleacc.AccessibleObjectFromEvent(
+                    hwnd, idObject, idChild,
+                    ctypes.byref(pacc), ctypes.byref(varChild)
+                )
+                if hr != 0 or not pacc:
+                    logging.error(f"AccessibleObjectFromEvent failed: HRESULT=0x{hr:08X}")
+                    return
+
+                name = pacc.get_accName(varChild)
+                if name:
+                    context = f"obj={idObject}, child={idChild}"
+                    self.process_window_text(hwnd or 0, name, context)
+            except Exception:
+                logging.exception(
+                    f"Error retrieving AccessibleObject for hwnd={hwnd}, "
+                    f"idObject={idObject}, idChild={idChild}"
+                )
 
     def start_event_monitoring(self):
-        """
-        Initialize COM and install WinEvent hooks for show, hide, and name-change.
-        """
-        try:
-            ole32.CoInitialize(None)
-            # Make sure to use the correct WinEventProcType signature
-            self._win_event_proc = WinEventProcType(self.handle_event)
+        """Install WinEvent hooks and spin up the message pump thread."""
+        # initialize COM for this thread
+        comtypes.CoInitialize()
 
-            # Add message box dialog detection
-            self._win_event_hook_dialog = user32.SetWinEventHook(
-                0x0010,  # EVENT_SYSTEM_DIALOGSTART
-                0x0010,  # EVENT_SYSTEM_DIALOGSTART
-                0, self._win_event_proc, 0, 0, WINEVENT_OUTOFCONTEXT
+        # hook dialog start, show, hide, name-change
+        hooks = [
+            (EVENT_SYSTEM_DIALOGSTART, EVENT_SYSTEM_DIALOGSTART),
+            (EVENT_OBJECT_SHOW,        EVENT_OBJECT_SHOW),
+            (EVENT_OBJECT_HIDE,        EVENT_OBJECT_HIDE),
+            (EVENT_OBJECT_NAMECHANGE,  EVENT_OBJECT_NAMECHANGE),
+        ]
+        for ev_min, ev_max in hooks:
+            hook = user32.SetWinEventHook(
+                ev_min, ev_max,
+                0,
+                self._win_event_proc,
+                0, 0,
+                WINEVENT_OUTOFCONTEXT
             )
-
-            self._win_event_hook_show = user32.SetWinEventHook(
-                EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW,
-                0, self._win_event_proc, 0, 0, WINEVENT_OUTOFCONTEXT
-            )
-
-            self._win_event_hook_hide = user32.SetWinEventHook(
-                EVENT_OBJECT_HIDE, EVENT_OBJECT_HIDE,
-                0, self._win_event_proc, 0, 0, WINEVENT_OUTOFCONTEXT
-            )
-
-            self._win_event_hook_name = user32.SetWinEventHook(
-                EVENT_OBJECT_NAMECHANGE, EVENT_OBJECT_NAMECHANGE,
-                0, self._win_event_proc, 0, 0, WINEVENT_OUTOFCONTEXT
-            )
-
-            if not (self._win_event_hook_dialog and self._win_event_hook_show and
-                    self._win_event_hook_hide and self._win_event_hook_name):
+            if not hook:
                 raise ctypes.WinError()
+            self._hooks.append(hook)
 
-            # Thread for message pump
-            threading.Thread(target=_pump_messages).start()
+        # pump messages so callbacks get delivered
+        threading.Thread(target=self._pump_messages).start()
+        logging.info("UIWatcher: WinEvent hooks installed (brute-force scanning).")
 
-            logging.info("WinEvent hooks (dialog, show, hide, name-change) installed.")
-        except Exception as ex:
-            logging.error(f"Failed to install WinEvent hooks: {ex}")
+    @staticmethod
+    def _pump_messages():
+        msg = wintypes.MSG()
+        while user32.GetMessageW(ctypes.byref(msg), 0, 0, 0) != 0:
+            user32.TranslateMessage(ctypes.byref(msg))
+            user32.DispatchMessageW(ctypes.byref(msg))
 
     def monitoring_window_text(self):
         """
