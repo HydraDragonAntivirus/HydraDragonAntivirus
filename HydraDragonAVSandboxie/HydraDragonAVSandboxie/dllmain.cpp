@@ -28,9 +28,9 @@ constexpr unsigned long long ONE_TB = 1099511627776ULL;
 // -----------------------------------------------------------------
 // Global Paths and Variables
 // -----------------------------------------------------------------
-const WCHAR LOG_FOLDER[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs";
-const WCHAR SIGMA_LOG_FILE[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEsigma_log.txt";
-const WCHAR ERROR_LOG_FILE[] = L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEerror_log.txt";
+const WCHAR LOG_FOLDER[] = L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs";
+const WCHAR SIGMA_LOG_FILE[] = L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEsigma_log.txt";
+const WCHAR ERROR_LOG_FILE[] = L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEerror_log.txt";
 const WCHAR KNOWN_EXTENSIONS_FILE[] = L"C:\\Program Files\\HydraDragonAntivirus\\knownextensions\\extensions.txt";
 // The full location of diec.exe (Detect It Easy Console)
 const std::wstring detectiteasy_console_path = L"C:\\Program Files\\HydraDragonAntivirus\\detectiteasy\\diec.exe";
@@ -110,7 +110,7 @@ DWORD WINAPI LoggerThreadProc(LPVOID lpParameter)
 void WriteLog(const wchar_t* message)
 {
     FILE* f = nullptr;
-    if (_wfopen_s(&f, L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEHomePageChange.txt", L"a+") == 0 && f)
+    if (_wfopen_s(&f, L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEHomePageChange.txt", L"a+") == 0 && f)
     {
         // Write only the CSV-formatted message (for example: "Chrome,homepage_value")
         fwprintf(f, L"%s\n", message);
@@ -624,7 +624,7 @@ bool is_ransomware(const std::wstring& file_path)
         static int detectiteasyRansomCount = 1;
         WCHAR jsonFileName[MAX_PATH];
         _snwprintf_s(jsonFileName, MAX_PATH, _TRUNCATE,
-            L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\detectiteasy_ransom_%d.json", detectiteasyRansomCount);
+            L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs\\detectiteasy_ransom_%d.json", detectiteasyRansomCount);
         detectiteasyRansomCount++;
         FILE* jsonFile = nullptr;
         if (_wfopen_s(&jsonFile, jsonFileName, L"w") == 0 && jsonFile != nullptr)
@@ -780,11 +780,11 @@ bool IsOurLogFile(LPCWSTR filePath)
     NormalizePath(path);
     std::transform(path.begin(), path.end(), path.begin(), towlower);
     // Check for our specific text log files.
-    if (path.find(L"c:\\dontremovehydradragonantiviruslogs\\dontremovesigma_log.txt") != std::wstring::npos ||
-        path.find(L"c:\\dontremovehydradragonantiviruslogs\\dontremoveerror_log.txt") != std::wstring::npos)
+    if (path.find(L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs\\dontremovesigma_log.txt") != std::wstring::npos ||
+        path.find(L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs\\dontremoveerror_log.txt") != std::wstring::npos)
         return true;
     // For any JSON file, if it's in our logs folder, consider it ours.
-    if (path.find(L"c:\\dontremovehydradragonantiviruslogs\\") != std::wstring::npos)
+    if (path.find(L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs\\") != std::wstring::npos)
     {
         if (path.size() >= 5 && path.compare(path.size() - 5, 5, L".json") == 0)
             return true;
@@ -1426,7 +1426,7 @@ BOOL WINAPI HookedRemoveDirectoryW(LPCWSTR lpPathName)
         std::wstring path(lpPathName);
         NormalizePath(path);
         std::transform(path.begin(), path.end(), path.begin(), towlower);
-        if (path.find(L"c:\\dontremovehydradragonantiviruslogs") != std::wstring::npos)
+        if (path.find(L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs") != std::wstring::npos)
         {
             SafeWriteSigmaLog(L"RemoveDirectoryW", L"HEUR:Win32.Trojan.Wiper.Log.gen@FileTrap - Log directory deletion detected");
             TriggerNotification(L"Virus Detected: HEUR:Win32.Trojan.Wiper.Log.gen@FileTrap", L"Warning: Log directory was deleted (Wiper behavior detected)");
@@ -1694,7 +1694,7 @@ void CheckUnsignedDriver(const std::wstring& filePath)
     static int detectiteasyCount = 1;
     WCHAR jsonFileName[MAX_PATH];
     _snwprintf_s(jsonFileName, MAX_PATH, _TRUNCATE,
-        L"C:\\DONTREMOVEHydraDragonAntivirusLogs\\detectiteasy_%d.json", detectiteasyCount);
+        L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs\\detectiteasy_%d.json", detectiteasyCount);
     detectiteasyCount++;
 
     FILE* jsonFile = nullptr;

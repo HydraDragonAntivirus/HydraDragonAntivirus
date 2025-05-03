@@ -430,9 +430,9 @@ sandboxie_folder = rf'C:\Sandbox\{username}\DefaultBox'
 main_drive_path = rf'{sandboxie_folder}\drive\C'
 drivers_path = rf'{main_drive_path}\\Windows\System32\drivers'
 hosts_path = rf'{drivers_path}\hosts'
-sandboxie_log_folder = rf'{main_drive_path}\\DONTREMOVEHydraDragonAntivirusLogs'
-homepage_change_path = rf'{sandboxie_log_folder}\DONTREMOVEHomePageChange.txt'
 HydraDragonAntivirus_sandboxie_path = rf'{main_drive_path}\Program Files\HydraDragonAntivirus'
+sandboxie_log_folder = rf'{HydraDragonAntivirus_sandboxie_path}\\DONTREMOVEHydraDragonAntivirusLogs'
+homepage_change_path = rf'{sandboxie_log_folder}\DONTREMOVEHomePageChange.txt'
 HiJackThis_log_path = rf'{HydraDragonAntivirus_sandboxie_path}\HiJackThis\HiJackThis.log'
 de4dot_sandboxie_dir = rf'{HydraDragonAntivirus_sandboxie_path}\de4dot_extracted_dir'
 
@@ -517,7 +517,6 @@ os.makedirs(copied_sandbox_files_dir, exist_ok=True)
 os.makedirs(HiJackThis_logs_dir, exist_ok=True)
 os.makedirs(html_extracted_dir, exist_ok=True)
 os.makedirs(sandboxie_folder, exist_ok=True)
-os.makedirs(sandboxie_log_folder, exist_ok=True)
 
 # Counter for ransomware detection
 ransomware_detection_count = 0 
