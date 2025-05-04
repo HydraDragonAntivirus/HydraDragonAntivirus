@@ -51,7 +51,7 @@ Source: "C:\Users\victim\Documents\hydratempinstall\clamav-1.4.2.win.x64.msi"; D
 Source: "C:\Users\victim\Documents\hydratempinstall\npcap-1.82.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\Snort_2_9_20_Installer.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\jre-8u451-windows-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\jdk-24_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydratempinstall\jdk-21_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-8.0.15-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\python-3.12.10-amd64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\Sandboxie-Classic-x64-v5.70.12.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
@@ -76,7 +76,7 @@ Filename: "{tmp}\clamav-1.4.2.win.x64.msi"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\npcap-1.82.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\Snort_2_9_20_Installer.x64.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\jre-8u451-windows-x64.exe"; Flags: shellexec waituntilterminated
-Filename: "{tmp}\jdk-24_windows-x64_bin.exe"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\jdk-21_windows-x64_bin.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\windowsdesktop-runtime-8.0.15-win-x64.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\python-3.12.10-amd64.exe"; Flags: shellexec waituntilterminated
 Filename: "{tmp}\Sandboxie-Classic-x64-v5.70.12.exe"; Flags: shellexec waituntilterminated
