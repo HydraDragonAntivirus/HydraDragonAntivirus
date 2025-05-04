@@ -54,7 +54,7 @@ if %errorlevel% equ 0 (
 
 :: Upgrade pip
 echo Upgrading pip...
-py -3.12 -m pip install --upgrade pip
+py.exe -3.12 -m pip install --upgrade pip
 
 if %ERRORLEVEL% EQU 0 (
     echo pip was upgraded successfully.
