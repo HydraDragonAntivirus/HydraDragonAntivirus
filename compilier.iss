@@ -76,15 +76,6 @@ Filename: "{tmp}\7z2409-x64.exe"; Parameters: "/S"; Flags: shellexec waituntilte
 ; Visual C++ Redistributable 2022 (silent, auto-install)
 Filename: "{tmp}\VC_redist.x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated
 
-; ClamAV MSI
-Filename: "{tmp}\clamav-1.4.2.win.x64.msi"; Flags: shellexec waituntilterminated
-
-; Npcap (unchanged)
-Filename: "{tmp}\npcap-1.82.exe"; Flags: shellexec waituntilterminated
-
-; Snort
-Filename: "{tmp}\Snort_2_9_20_Installer.x64.exe"; Flags: shellexec waituntilterminated
-
 ; JRE 8u451 (silent, updates enabled)
 Filename: "{tmp}\jre-8u451-windows-x64.exe"; Parameters: "/s INSTALL_SILENT=Enable AUTO_UPDATE=Enable WEB_JAVA=Disable SPONSORS=Disable"; Flags: shellexec waituntilterminated
 
@@ -96,6 +87,15 @@ Filename: "{tmp}\windowsdesktop-runtime-8.0.15-win-x64.exe"; Parameters: "--quie
 
 ; Python 3.12.10‑amd64 (silent, all users, add to PATH, include pip)
 Filename: "{tmp}\python-3.12.10-amd64.exe"; Parameters: "/quiet InstallAllUsers=1 PrependPath=1 Include_pip=1"; Flags: shellexec waituntilterminated
+
+; ClamAV MSI
+Filename: "{tmp}\clamav-1.4.2.win.x64.msi"; Flags: shellexec waituntilterminated
+
+; Npcap (unchanged)
+Filename: "{tmp}\npcap-1.82.exe"; Flags: shellexec waituntilterminated
+
+; Snort
+Filename: "{tmp}\Snort_2_9_20_Installer.x64.exe"; Flags: shellexec waituntilterminated
 
 ; Sandboxie Classic
 Filename: "{tmp}\Sandboxie-Classic-x64-v5.70.12.exe"; Flags: shellexec waituntilterminated
