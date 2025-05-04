@@ -70,8 +70,11 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-; 7‑Zip (silent)
+; 7-Zip (silent)
 Filename: "{tmp}\7z2409-x64.exe"; Parameters: "/S"; Flags: shellexec waituntilterminated
+
+; .NET Desktop Runtime 8.0.15 (silent, no restart)
+Filename: "{tmp}\windowsdesktop-runtime-8.0.15-win-x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated
 
 ; Visual C++ Redistributable 2022 (silent, auto-install)
 Filename: "{tmp}\VC_redist.x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated
@@ -81,9 +84,6 @@ Filename: "{tmp}\jre-8u451-windows-x64.exe"; Parameters: "/s INSTALL_SILENT=Enab
 
 ; JDK 21 (silent, environment variables)
 Filename: "{tmp}\jdk-21_windows-x64_bin.exe"; Parameters: "/s INSTALLDIR=""{pf64}\Java\jdk-21"" ADDLOCAL=""FeatureEnvironment,FeatureJarFileRunWith"""; Flags: shellexec waituntilterminated
-
-; .NET Desktop Runtime 8.0.15 (silent, no restart)
-Filename: "{tmp}\windowsdesktop-runtime-8.0.15-win-x64.exe"; Parameters: "--quiet --norestart"; Flags: shellexec waituntilterminated
 
 ; Python 3.12.10‑amd64 (silent, all users, add to PATH, include pip)
 Filename: "{tmp}\python-3.12.10-amd64.exe"; Parameters: "/quiet InstallAllUsers=1 PrependPath=1 Include_pip=1"; Flags: shellexec waituntilterminated
