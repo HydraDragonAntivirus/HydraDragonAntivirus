@@ -1,27 +1,4 @@
 @echo off
-:: ────────────────────────────────────────────────────────────────
-:: Refresh PATH from registry (picks up any newly installed entries)
-:: ────────────────────────────────────────────────────────────────
-for /F "tokens=2*" %%A in ('
-  reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v Path
-') do set "SYS_PATH=%%B"
-
-for /F "tokens=2*" %%A in ('
-  reg query "HKCU\Environment" /v Path 2^>nul
-') do set "USER_PATH=%%B"
-
-if defined USER_PATH (
-  set "PATH=%USER_PATH%;%SYS_PATH%"
-) else (
-  set "PATH=%SYS_PATH%"
-)
-
-echo Refreshed PATH from registry:
-echo   %PATH%
-:: ────────────────────────────────────────────────────────────────
-
-:: Now you can safely call py.exe (or any other newly added tools)
-:: without specifying full paths or restarting.
 
 :: Copy files from clamavconfig to C:\Program Files\ClamAV
 if exist "C:\Program Files\HydraDragonAntivirus\clamavconfig" (
