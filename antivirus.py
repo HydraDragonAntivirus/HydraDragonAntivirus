@@ -567,19 +567,19 @@ def is_valid_ip(ip_string: str) -> bool:
 
     # exclusion categories
     if ip_obj.is_private:
-        logging.warning(f"Excluded private IP: {ip_obj}")
+        logging.info(f"Excluded private IP: {ip_obj}")
         return False
     if ip_obj.is_loopback:
-        logging.warning(f"Excluded loopback IP: {ip_obj}")
+        logging.info(f"Excluded loopback IP: {ip_obj}")
         return False
     if ip_obj.is_link_local:
-        logging.warning(f"Excluded link-local IP: {ip_obj}")
+        logging.info(f"Excluded link-local IP: {ip_obj}")
         return False
     if ip_obj.is_multicast:
-        logging.warning(f"Excluded multicast IP: {ip_obj}")
+        logging.info(f"Excluded multicast IP: {ip_obj}")
         return False
     if ip_obj.is_reserved:
-        logging.warning(f"Excluded reserved IP: {ip_obj}")
+        logging.info(f"Excluded reserved IP: {ip_obj}")
         return False
 
     # valid public IP
