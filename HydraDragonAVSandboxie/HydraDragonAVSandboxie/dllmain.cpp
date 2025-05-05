@@ -1932,6 +1932,16 @@ void StartFileTrapMonitor()
     }
 }
 
+extern "C" __declspec(dllexport) void CALLBACK Run(
+    HWND    /*hwnd*/,
+    HINSTANCE /*hinst*/,
+    LPSTR   /*lpszCmdLine*/,
+    int     /*nCmdShow*/
+)
+{
+    printf_s("Run: Exported function called\n");
+}
+
 // ------------------ DllMain ------------------
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {

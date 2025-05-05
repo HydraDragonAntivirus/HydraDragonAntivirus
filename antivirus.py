@@ -7961,13 +7961,14 @@ def perform_sandbox_analysis(file_path):
         logging.error(f"An error occurred during sandbox analysis: {ex}")
 
 def run_sandboxie_plugin():
+    with_entry_point = f"{HydraDragonAV_sandboxie_path},Run"
     # Construct the command to run rundll32 inside Sandboxie
     command = [
         sandboxie_path,
         '/box:DefaultBox',
         '/elevate',
         'rundll32.exe',
-        HydraDragonAV_sandboxie_path
+        with_entry_point
     ]
     try:
         logging.info(f"Running DLL via rundll32 in Sandboxie: {' '.join(command)}")
