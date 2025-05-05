@@ -130,6 +130,8 @@ Sanesecurity.Foxhole.BadPdf_fs3531
 Sanesecurity.Malware.27684.AidExe
 Porcupine.Malware.58887
 Porcupine.Phishing.52077
+Porcupine.Malware.61004
+Porcupine.Junk.45095
 # False positives other 3rd parties signatures
 winnow.trojan.ts.test
 MiscreantPunch.JAR.Jsocket.RAT.11162016.2
@@ -147,6 +149,7 @@ TwinWave.EvilDoc.RelsFileDottedQuadDancingInHeaven.20240216
 TwinWave.EvilDoc.CHMMiscreantLOLBinsDontCry.20210127
 TwinWave.EvilLNK.MixedUpVampire.20231208
 TwinWave.EvilHTML.QakbotTheDuck.20221017
+TwinWave.EvilDoc.DOCXRSTRGOOD.VBEMAGIC.220125B64.6
 ditekSHen.MALWARE.Win.Trojan.NWorm
 ditekSHen.MALWARE.Win.Trojan.IAmTheKingKeylogger
 ditekSHen.MALWARE.Win.Ransomware.Epsilon
@@ -232,3 +235,5 @@ SecuriteInfo.com.JS.Agent-CIS.7004.30549
 SecuriteInfo.com.Spam.23381.1049.21405
 SecuriteInfo.com.W32.Bladabindi.DO.gen.Eldorado.2583.32181
 SecuriteInfo.com.JS.Phishing-FT.6047.23367
+SecuriteInfo.com.Heur.17425.29032
+SecuriteInfo.com.Heur.18645.5161
