@@ -72,7 +72,7 @@ if %errorlevel% equ 0 (
 
 :: Install spaCy English medium model
 echo Installing spaCy 'en_core_web_md' model...
-spacy download en_core_web_md
+py -3.12 -m spacy download en_core_web_md
 if %errorlevel% equ 0 (
     echo spaCy model 'en_core_web_md' installed successfully.
 ) else (
