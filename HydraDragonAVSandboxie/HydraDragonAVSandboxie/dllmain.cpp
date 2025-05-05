@@ -28,15 +28,56 @@
 constexpr unsigned long long ONE_GB = 1073741824ULL; 
 constexpr unsigned long long ONE_TB = 1099511627776ULL;
 
-// -----------------------------------------------------------------
-// Global Paths and Variables
-// -----------------------------------------------------------------
-const WCHAR LOG_FOLDER[] = L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs";
-const WCHAR SIGMA_LOG_FILE[] = L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEsigma_log.txt";
-const WCHAR ERROR_LOG_FILE[] = L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs\\DONTREMOVEerror_log.txt";
-const WCHAR KNOWN_EXTENSIONS_FILE[] = L"C:\\Program Files\\HydraDragonAntivirus\\knownextensions\\extensions.txt";
-// The full location of diec.exe (Detect It Easy Console)
-const std::wstring detectiteasy_console_path = L"C:\\Program Files\\HydraDragonAntivirus\\detectiteasy\\diec.exe";
+//-----------------------------------------------------------------------------
+// Helper: expand an environment variable (e.g. "%ProgramFiles%") into a std::wstring
+static std::wstring ExpandGetEnv(const wchar_t* envVar)
+{
+    // first call returns required length (including terminating NUL)
+    DWORD len = ::ExpandEnvironmentStringsW(envVar, nullptr, 0);
+    if (len == 0) {
+        // failure: return empty or fallback
+        return L"";
+    }
+    // allocate buffer and call again
+    std::wstring buf(len, L'\0');
+    ::ExpandEnvironmentStringsW(envVar, &buf[0], len);
+    // remove the extra null at the end
+    if (!buf.empty() && buf.back() == L'\0')
+        buf.pop_back();
+    return buf;
+}
+
+//-----------------------------------------------------------------------------
+// Compute the base "%ProgramFiles%" once, in static init order:
+static std::wstring PROGRAM_FILES = ExpandGetEnv(L"%ProgramFiles%");
+
+//-----------------------------------------------------------------------------
+// Now build all of your paths — these run immediately after PROGRAM_FILES
+static std::wstring LOG_FOLDER =
+PROGRAM_FILES + L"\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs";
+
+static std::wstring SIGMA_LOG_FILE =
+LOG_FOLDER + L"\\DONTREMOVEsigma_log.txt";
+
+static std::wstring ERROR_LOG_FILE =
+LOG_FOLDER + L"\\DONTREMOVEerror_log.txt";
+
+static std::wstring KNOWN_EXTENSIONS_FILE =
+PROGRAM_FILES + L"\\HydraDragonAntivirus\\knownextensions\\extensions.txt";
+
+static std::wstring DETECTIT_EASY_CONSOLE_PATH =
+PROGRAM_FILES + L"\\HydraDragonAntivirus\\detectiteasy\\diec.exe";
+
+static std::wstring ASSETS_SOUND_PATH =
+PROGRAM_FILES + L"\\HydraDragonAntivirus\\assets\\alert.wav";
+
+//-----------------------------------------------------------------------------
+// I need WCHAR* arrays, I can expose them easily:
+const WCHAR* GetLogFolderCStr() { return LOG_FOLDER.c_str(); }
+const WCHAR* GetSigmaLogFileCStr() { return SIGMA_LOG_FILE.c_str(); }
+const WCHAR* GetErrorLogFileCStr() { return ERROR_LOG_FILE.c_str(); }
+const WCHAR* GetKnownExtensionsFileCStr() { return KNOWN_EXTENSIONS_FILE.c_str(); }
+const WCHAR* GetDiecPathCStr() { return DETECTIT_EASY_CONSOLE_PATH.c_str(); }
 
 std::vector<std::wstring> g_knownExtensions;
 static bool g_bExtensionsLoaded = false;
@@ -83,10 +124,13 @@ void EnsureLogDirectory();
 // Helper function: Write a timestamped CSV log entry to DONTREMOVEHomePageChange.txt.
 void WriteLog(const wchar_t* message)
 {
+    // Build the full path: <ProgramFiles>\HydraDragonAntivirus\DONTREMOVEHydraDragonAntivirusLogs\DONTREMOVEHomePageChange.txt
+    std::wstring logPath = LOG_FOLDER + L"\\DONTREMOVEHomePageChange.txt";
+
     FILE* f = nullptr;
-    if (_wfopen_s(&f, L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusfLogs\\DONTREMOVEHomePageChange.txt", L"a+") == 0 && f)
+    if (_wfopen_s(&f, logPath.c_str(), L"a+") == 0 && f)
     {
-        // Write only the CSV-formatted message (for example: "Chrome,homepage_value")
+        // Append the CSV message (e.g. "Chrome,homepage_value")
         fwprintf(f, L"%s\n", message);
         fclose(f);
     }
@@ -151,7 +195,7 @@ DWORD WINAPI LoggerThreadProc(LPVOID lpParameter)
         {
             EnsureLogDirectory();
             FILE* f = nullptr;
-            if (_wfopen_s(&f, SIGMA_LOG_FILE, L"a+") == 0 && f)
+            if (_wfopen_s(&f, SIGMA_LOG_FILE.c_str(), L"a+") == 0 && f)
             {
                 for (const auto& msg : localQueue)
                     fwprintf(f, L"%s\n", msg.c_str());
@@ -408,36 +452,44 @@ HWND CreateNotificationWindow()
 
 void TriggerNotification(const WCHAR* title, const WCHAR* msg)
 {
+    // pack title/msg for the thread
     auto* pData = new std::pair<std::wstring, std::wstring>(title, msg);
-    HANDLE hThread = CreateThread(NULL, 0,
+
+    HANDLE hThread = CreateThread(
+        nullptr, 0,
         [](LPVOID lpParam) -> DWORD {
-            auto* p = (std::pair<std::wstring, std::wstring>*)lpParam;
-            // Play sound.
-            PlaySound(L"C:\\Program Files\\HydraDragonAntivirus\\assets\\alert.wav",
-                NULL, SND_FILENAME | SND_ASYNC);
-            // Prepare notification.
-            NOTIFYICONDATA nid = { 0 };
+            auto* p = static_cast<std::pair<std::wstring, std::wstring>*>(lpParam);
+
+            // Play from our precomputed ASSETS_SOUND_PATH
+            PlaySoundW(ASSETS_SOUND_PATH.c_str(), nullptr, SND_FILENAME | SND_ASYNC);
+
+            // Show tray icon + balloon
+            NOTIFYICONDATAW nid = {};
             nid.cbSize = sizeof(nid);
             nid.hWnd = g_hNotificationWnd;
             nid.uID = 1001;
             nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
             nid.uCallbackMessage = WM_USER + 1;
-            nid.hIcon = LoadIcon(NULL, IDI_WARNING);
-            wcscpy_s(nid.szTip, p->first.c_str());
-            Shell_NotifyIcon(NIM_ADD, &nid);
+            nid.hIcon = LoadIcon(nullptr, IDI_WARNING);
+
+            wcsncpy_s(nid.szTip, p->first.c_str(), _TRUNCATE);
+            Shell_NotifyIconW(NIM_ADD, &nid);
+
             nid.uFlags = NIF_INFO;
-            wcscpy_s(nid.szInfo, p->second.c_str());
-            wcscpy_s(nid.szInfoTitle, p->first.c_str());
+            wcsncpy_s(nid.szInfoTitle, p->first.c_str(), _TRUNCATE);
+            wcsncpy_s(nid.szInfo, p->second.c_str(), _TRUNCATE);
             nid.dwInfoFlags = NIIF_WARNING;
-            Shell_NotifyIcon(NIM_MODIFY, &nid);
+            Shell_NotifyIconW(NIM_MODIFY, &nid);
+
             Sleep(5000);
-            Shell_NotifyIcon(NIM_DELETE, &nid);
+            Shell_NotifyIconW(NIM_DELETE, &nid);
+
             delete p;
             return 0;
         },
-        pData, 0, NULL);
-    if (hThread)
-        CloseHandle(hThread);
+        pData, 0, nullptr);
+
+    if (hThread) CloseHandle(hThread);
 }
 
 // --------------------- End Notification Infrastructure ---------------------
@@ -556,111 +608,104 @@ bool has_known_extension(const std::wstring& file_path)
 
 // Converts the Python ransomware check to C++.
 // Returns true if the file is suspected to be ransomware.
+// Returns true if the file is suspected to be ransomware.
 bool is_ransomware(const std::wstring& file_path)
 {
+    // 1) split filename into “name.parts.ext1.ext2…”
     std::wstring filename = PathFindFileNameW(file_path.c_str());
     std::vector<std::wstring> parts;
     std::wstringstream wss(filename);
     std::wstring token;
     while (std::getline(wss, token, L'.'))
-    {
         parts.push_back(token);
-    }
 
     if (parts.size() < 3)
     {
-        SafeWriteSigmaLog(L"is_ransomware", L"File does not have multiple extensions, not flagged as ransomware.");
+        SafeWriteSigmaLog(L"is_ransomware",
+            L"File does not have multiple extensions, not flagged as ransomware.");
         return false;
     }
 
-    // Check the second last extension.
-    std::wstring prev_ext = std::wstring(L".") + parts[parts.size() - 2];
+    // 2) check penultimate extension against known list
+    std::wstring prev_ext = L"." + parts[parts.size() - 2];
     std::transform(prev_ext.begin(), prev_ext.end(), prev_ext.begin(), towlower);
     bool prev_known = false;
     for (auto& known : g_knownExtensions)
     {
-        std::wstring knownLower = known;
-        std::transform(knownLower.begin(), knownLower.end(), knownLower.begin(), towlower);
-        if (prev_ext == knownLower)
-        {
-            prev_known = true;
-            break;
-        }
+        std::wstring kl = known;
+        std::transform(kl.begin(), kl.end(), kl.begin(), towlower);
+        if (prev_ext == kl) { prev_known = true; break; }
     }
     if (!prev_known)
     {
-        SafeWriteSigmaLog(L"is_ransomware", L"Previous extension not known, file not flagged as ransomware.");
+        SafeWriteSigmaLog(L"is_ransomware",
+            L"Previous extension not known, file not flagged as ransomware.");
         return false;
     }
 
-    // Check the final extension.
-    std::wstring final_ext = std::wstring(L".") + parts.back();
+    // 3) check final extension—if known, skip
+    std::wstring final_ext = L"." + parts.back();
     std::transform(final_ext.begin(), final_ext.end(), final_ext.begin(), towlower);
-    bool final_known = false;
     for (auto& known : g_knownExtensions)
     {
-        std::wstring knownLower = known;
-        std::transform(knownLower.begin(), knownLower.end(), knownLower.begin(), towlower);
-        if (final_ext == knownLower)
+        std::wstring kl = known;
+        std::transform(kl.begin(), kl.end(), kl.begin(), towlower);
+        if (final_ext == kl)
         {
-            final_known = true;
-            break;
-        }
-    }
-    if (final_known)
-    {
-        SafeWriteSigmaLog(L"is_ransomware", L"Final extension is known, file not flagged as ransomware.");
-        return false;
-    }
-
-    if (has_known_extension(file_path) || is_readable(file_path))
-    {
-        SafeWriteSigmaLog(L"is_ransomware", L"File is readable or has known extension, not flagged as ransomware.");
-        return false;
-    }
-    else
-    {
-        // Use Detect It Easy with the -j argument.
-        std::wstring command = L"\"" + detectiteasy_console_path + L"\" -j \"" + file_path + L"\"";
-        FILE* pipe = _wpopen(command.c_str(), L"r");
-        if (!pipe)
-        {
-            SafeWriteSigmaLog(L"is_ransomware", L"Failed to execute Detect It Easy, flagging as ransomware.");
-            return true;
-        }
-        wchar_t buffer[128];
-        std::wstring result;
-        while (fgetws(buffer, 128, pipe))
-            result += buffer;
-        _pclose(pipe);
-
-        // Save JSON output to a uniquely named file using _wfopen_s.
-        static int detectiteasyRansomCount = 1;
-        WCHAR jsonFileName[MAX_PATH];
-        _snwprintf_s(jsonFileName, MAX_PATH, _TRUNCATE,
-            L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs\\detectiteasy_ransom_%d.json", detectiteasyRansomCount);
-        detectiteasyRansomCount++;
-        FILE* jsonFile = nullptr;
-        if (_wfopen_s(&jsonFile, jsonFileName, L"w") == 0 && jsonFile != nullptr)
-        {
-            fwprintf(jsonFile, L"%s", result.c_str());
-            fclose(jsonFile);
-        }
-
-        // New check: if the output contains "Binary" and "Unknown: Unknown",
-        // then flag the file as a ransomware encrypted file (skip PE32/PE64 checks).
-        if (result.find(L"Binary") != std::wstring::npos &&
-            result.find(L"Unknown: Unknown") != std::wstring::npos)
-        {
-            SafeWriteSigmaLog(L"is_ransomware", L"Detect It Easy output indicates a possible ransomware encrypted file.");
-            return true;
-        }
-        else
-        {
-            SafeWriteSigmaLog(L"is_ransomware", L"Detect It Easy output did not confirm suspicious status.");
+            SafeWriteSigmaLog(L"is_ransomware",
+                L"Final extension is known, file not flagged as ransomware.");
             return false;
         }
     }
+
+    // 4) if file is readable or has any known extension, skip
+    if (has_known_extension(file_path) || is_readable(file_path))
+    {
+        SafeWriteSigmaLog(L"is_ransomware",
+            L"File is readable or has known extension, not flagged as ransomware.");
+        return false;
+    }
+
+    // 5) run Detect It Easy for JSON analysis
+    std::wstring cmd = L"\"" + DETECTIT_EASY_CONSOLE_PATH + L"\" -j \"" + file_path + L"\"";
+    FILE* pipe = _wpopen(cmd.c_str(), L"r");                    // .c_str() → const wchar_t* :contentReference[oaicite:0]{index=0}:contentReference[oaicite:1]{index=1}
+    if (!pipe)
+    {
+        SafeWriteSigmaLog(L"is_ransomware",
+            L"Failed to execute Detect It Easy, flagging as ransomware.");
+        return true;
+    }
+    std::wstring result;
+    wchar_t buf[128];
+    while (fgetws(buf, _countof(buf), pipe))
+        result += buf;
+    _pclose(pipe);
+
+    // 6) save JSON into LOG_FOLDER (no hard‑coded path)
+    static int cnt = 1;
+    std::error_code ec;
+    std::filesystem::create_directories(LOG_FOLDER, ec);        // error_code must be lvalue :contentReference[oaicite:2]{index=2}
+    std::wstring jsonFile = LOG_FOLDER
+        + L"\\detectiteasy_ransom_" + std::to_wstring(cnt++) + L".json";
+    FILE* jf = nullptr;
+    if (_wfopen_s(&jf, jsonFile.c_str(), L"w") == 0 && jf)
+    {
+        fwprintf(jf, L"%s", result.c_str());
+        fclose(jf);
+    }
+
+    // 7) if JSON contains “Binary” & “Unknown: Unknown”, flag as ransomware
+    if (result.find(L"Binary") != std::wstring::npos &&
+        result.find(L"Unknown: Unknown") != std::wstring::npos)
+    {
+        SafeWriteSigmaLog(L"is_ransomware",
+            L"Detect It Easy output indicates a possible ransomware encrypted file.");
+        return true;
+    }
+
+    SafeWriteSigmaLog(L"is_ransomware",
+        L"Detect It Easy output did not confirm suspicious status.");
+    return false;
 }
 
 // Implements the ransomware alert logic.
@@ -740,7 +785,7 @@ DWORD WINAPI ErrorLoggerThreadProc(LPVOID lpParameter)
         {
             EnsureLogDirectory();
             FILE* f = nullptr;
-            if (_wfopen_s(&f, ERROR_LOG_FILE, L"a+") == 0 && f)
+            if (_wfopen_s(&f, ERROR_LOG_FILE.c_str(), L"a+") == 0 && f)
             {
                 for (const auto& msg : localQueue)
                     fwprintf(f, L"%s\n", msg.c_str());
@@ -790,19 +835,42 @@ bool IsOurLogFile(LPCWSTR filePath)
 {
     if (!filePath)
         return false;
+
+    // 1) Normalize and lowercase the incoming path
     std::wstring path(filePath);
     NormalizePath(path);
     std::transform(path.begin(), path.end(), path.begin(), towlower);
-    // Check for our specific text log files.
-    if (path.find(L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs\\dontremovesigma_log.txt") != std::wstring::npos ||
-        path.find(L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs\\dontremoveerror_log.txt") != std::wstring::npos)
-        return true;
-    // For any JSON file, if it's in our logs folder, consider it ours.
-    if (path.find(L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs\\") != std::wstring::npos)
+
+    // 2) Build a lowercase version of LOG_FOLDER at runtime
+    std::wstring folder = LOG_FOLDER;                // LOG_FOLDER was built from %ProgramFiles% + "\\…Logs" :contentReference[oaicite:0]{index=0}:contentReference[oaicite:1]{index=1}
+    NormalizePath(folder);                           // strip any \\?\ prefix if present
+    std::transform(folder.begin(), folder.end(), folder.begin(), towlower);
+
+    // 3) If the path is not under our log‑folder, it’s not “ours”
+    const std::wstring prefix = folder + L"\\";
+    if (path.rfind(prefix, 0) != 0)                  // rfind(...,0)==0 means “starts with”  
+        return false;
+
+    // 4) Extract just the filename portion
+    size_t pos = path.find_last_of(L"\\/");
+    std::wstring name = (pos == std::wstring::npos)
+        ? path
+        : path.substr(pos + 1);
+
+    // 5) Compare the basename against our two text‑log names…
+    if (name == L"dontremovesigma_log.txt" ||
+        name == L"dontremoveerror_log.txt")
     {
-        if (path.size() >= 5 && path.compare(path.size() - 5, 5, L".json") == 0)
-            return true;
+        return true;
     }
+
+    // 6) …or, if it ends in “.json”, treat any JSON in that folder as ours
+    if (name.size() >= 5 &&
+        name.compare(name.size() - 5, 5, L".json") == 0)
+    {
+        return true;
+    }
+
     return false;
 }
 
@@ -838,7 +906,7 @@ void LoadKnownExtensions()
 
     g_knownExtensions.clear();
     FILE* f = nullptr;
-    if (_wfopen_s(&f, KNOWN_EXTENSIONS_FILE, L"r") == 0 && f)
+    if (_wfopen_s(&f, KNOWN_EXTENSIONS_FILE.c_str(), L"r") == 0 && f)
     {
         wchar_t line[256];
         while (fgetws(line, 256, f))
@@ -1503,15 +1571,31 @@ BOOL WINAPI HookedRemoveDirectoryW(LPCWSTR lpPathName)
 {
     if (lpPathName)
     {
+        // turn the incoming path into a lowercase std::wstring
         std::wstring path(lpPathName);
         NormalizePath(path);
         std::transform(path.begin(), path.end(), path.begin(), towlower);
-        if (path.find(L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs") != std::wstring::npos)
+
+        // build the lowercase log‑folder prefix dynamically
+        std::wstring logFolder = LOG_FOLDER;
+        std::transform(logFolder.begin(), logFolder.end(), logFolder.begin(), towlower);
+
+        // if the path being removed sits under our log folder…
+        if (path.rfind(logFolder, 0) == 0  // rfind(...,0)==0 means “path starts with logFolder”
+            || path.find(logFolder + L"\\") != std::wstring::npos)
         {
-            SafeWriteSigmaLog(L"RemoveDirectoryW", L"HEUR:Win32.Trojan.Wiper.Log.gen@FileTrap - Log directory deletion detected");
-            TriggerNotification(L"Virus Detected: HEUR:Win32.Trojan.Wiper.Log.gen@FileTrap", L"Warning: Log directory was deleted (Wiper behavior detected)");
+            SafeWriteSigmaLog(
+                L"RemoveDirectoryW",
+                L"HEUR:Win32.Trojan.Wiper.Log.gen@FileTrap - Log directory deletion detected"
+            );
+            TriggerNotification(
+                L"Virus Detected: HEUR:Win32.Trojan.Wiper.Log.gen@FileTrap",
+                L"Warning: Log directory was deleted (Wiper behavior detected)"
+            );
         }
     }
+
+    // call through to the real RemoveDirectoryW
     return TrueRemoveDirectoryW(lpPathName);
 }
 
@@ -1722,81 +1806,114 @@ void CheckUnsignedDriver(const std::wstring& filePath)
     if (!endsWithSys(filePath))
         return;
 
-    // Check if test signing mode is enabled.
+    // 1) Test‑signing: only flag on the *second* hit in test mode
     static bool testModeFlagged = false;
     if (IsTestSigningEnabled())
     {
         if (!testModeFlagged)
         {
             testModeFlagged = true;
-            return; // First time in test mode; do not flag.
+            return;
         }
     }
 
-    // Use PowerShell to check the file's digital signature.
+    // 2) PowerShell signature check
     std::wstring signatureStatus;
-    bool isSignatureValid = CheckSignature(filePath, signatureStatus);
-    if (isSignatureValid)
+    if (CheckSignature(filePath, signatureStatus))
     {
-        SafeWriteSigmaLog(L"CheckUnsignedDriver", L"File signature is valid, no unsigned driver detected.");
+        SafeWriteSigmaLog(
+            L"CheckUnsignedDriver",
+            L"File signature is valid, no unsigned driver detected."
+        );
         return;
     }
-    else
-    {
-        std::wstring logMsg = L"File signature check failed: " + signatureStatus;
-        SafeWriteSigmaLog(L"CheckUnsignedDriver", logMsg.c_str());
-    }
+    SafeWriteSigmaLog(
+        L"CheckUnsignedDriver",
+        (L"File signature check failed: " + signatureStatus).c_str()
+    );
 
-    // Use certutil to check if the signature verification is manipulated.
+    // 3) certutil manipulation check
     std::wstring certOutput;
     if (IsSignatureCheckManipulated(filePath, certOutput))
     {
-        SafeWriteSigmaLog(L"CheckUnsignedDriver", L"Signature check manipulated detected: HEUR:Win32.Trojan.Bypass.Signing.gen");
-        TriggerNotification(L"Unsigned Driver Detected", L"HEUR:Win32.Trojan.Bypass.Signing.gen");
+        SafeWriteSigmaLog(
+            L"CheckUnsignedDriver",
+            L"Signature check manipulated detected: HEUR:Win32.Trojan.Bypass.Signing.gen"
+        );
+        TriggerNotification(
+            L"Unsigned Driver Detected",
+            L"HEUR:Win32.Trojan.Bypass.Signing.gen"
+        );
         return;
     }
 
-    // Run Detect It Easy (diec.exe) with the -j argument to obtain JSON output.
-    std::wstring command = L"\"" + detectiteasy_console_path + L"\" -j \"" + filePath + L"\"";
+    // 4) Run Detect It Easy (diec.exe -j …)
+    std::wstring diec = DETECTIT_EASY_CONSOLE_PATH;               // use configured path
+    std::wstring command = L"\"" + diec + L"\" -j \"" + filePath + L"\"";
     FILE* pipe = _wpopen(command.c_str(), L"r");
     if (!pipe)
     {
-        SafeWriteSigmaLog(L"CheckUnsignedDriver", L"Failed to execute detectiteasy command");
+        SafeWriteSigmaLog(
+            L"CheckUnsignedDriver",
+            L"Failed to execute detectiteasy command"
+        );
         return;
     }
-    wchar_t buffer[256];
     std::wstring jsonResult;
+    wchar_t buffer[256];
     while (fgetws(buffer, 256, pipe))
         jsonResult += buffer;
     _pclose(pipe);
 
-    // Save the JSON output to a uniquely named file using _wfopen_s.
-    static int detectiteasyCount = 1;
-    WCHAR jsonFileName[MAX_PATH];
-    _snwprintf_s(jsonFileName, MAX_PATH, _TRUNCATE,
-        L"C:\\Program Files\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs\\detectiteasy_%d.json", detectiteasyCount);
-    detectiteasyCount++;
+    // 5) Save JSON into your LOG_FOLDER (no hard‑coded path)
+    static int diecCount = 1;
+    std::wstring folder = LOG_FOLDER;
+    std::error_code ec;
+    std::filesystem::create_directories(folder, ec);             // error_code must be an lvalue :contentReference[oaicite:0]{index=0}
+    if (ec)
+    {
+        SafeWriteSigmaLog(
+            L"CheckUnsignedDriver",
+            (L"Failed to create log folder: " + std::wstring(ec.message().begin(), ec.message().end())).c_str()
+        );
+        // but continue—maybe folder already existed
+    }
+
+    std::wstring jsonPath = folder
+        + L"\\detectiteasy_" + std::to_wstring(diecCount++) + L".json";
 
     FILE* jsonFile = nullptr;
-    if (_wfopen_s(&jsonFile, jsonFileName, L"w") == 0 && jsonFile != nullptr)
+    if (_wfopen_s(&jsonFile, jsonPath.c_str(), L"w") == 0 && jsonFile)
     {
         fwprintf(jsonFile, L"%s", jsonResult.c_str());
         fclose(jsonFile);
     }
 
-    // Check JSON output for PE markers.
+    // 6) Inspect JSON for PE markers
     bool isPE32 = (jsonResult.find(L"PE32") != std::wstring::npos);
     bool isPE64 = (jsonResult.find(L"PE64") != std::wstring::npos);
 
     if (isPE32)
     {
-        SafeWriteSigmaLog(L"UnsignedDriverCheck", L"HEUR:Win32.Possible.Rootkit.gen detected");
-        TriggerNotification(L"Unsigned Driver Detected", L"HEUR:Win32.Possible.Rootkit.gen");
+        SafeWriteSigmaLog(
+            L"UnsignedDriverCheck",
+            L"HEUR:Win32.Possible.Rootkit.gen detected"
+        );
+        TriggerNotification(
+            L"Unsigned Driver Detected",
+            L"HEUR:Win32.Possible.Rootkit.gen"
+        );
     }
     else if (isPE64)
     {
-        SafeWriteSigmaLog(L"UnsignedDriverCheck", L"HEUR:Win64.Possible.Rootkit.gen detected");
-        TriggerNotification(L"Unsigned Driver Detected", L"HEUR:Win64.Possible.Rootkit.gen");
+        SafeWriteSigmaLog(
+            L"UnsignedDriverCheck",
+            L"HEUR:Win64.Possible.Rootkit.gen detected"
+        );
+        TriggerNotification(
+            L"Unsigned Driver Detected",
+            L"HEUR:Win64.Possible.Rootkit.gen"
+        );
     }
 }
 

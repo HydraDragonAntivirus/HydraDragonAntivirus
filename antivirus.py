@@ -392,7 +392,7 @@ yarGen_rule_path = os.path.join(yara_dir, "machinelearning.yrc")
 icewater_rule_path = os.path.join(yara_dir, "icewater.yrc")
 valhalla_rule_path = os.path.join(yara_dir, "valhalla-rules.yrc")
 HydraDragonAV_sandboxie_dir = os.path.join(script_dir, "HydraDragonAVSandboxie")
-HydraDragonAV_sandboxie_path = os.path.join(HydraDragonAV_sandboxie_dir, "HydraDragonAVSandboxie.dll")
+HydraDragonAV_sandboxie_DLL_path = os.path.join(HydraDragonAV_sandboxie_dir, "HydraDragonAVSandboxie.dll")
 
 antivirus_domains_data = []
 ipv4_addresses_signatures_data = []
@@ -432,23 +432,44 @@ scanned_ipv6_addresses_general = []
 # Regex for Snort alerts
 alert_regex = re.compile(r'\[Priority: (\d+)].*?\{(?:UDP|TCP)} (\d+\.\d+\.\d+\.\d+):\d+ -> (\d+\.\d+\.\d+\.\d+):\d+')
 
+# Resolve system drive path
+system_drive = os.getenv("SystemDrive", "C:")
+# Resolve Program Files directory via environment (fallback to standard path)
+program_files = os.getenv("ProgramFiles", os.path.join(system_drive, "Program Files"))
+# Get SystemRoot (usually C:\Windows)
+system_root = os.getenv("SystemRoot", os.path.join(system_drive, "Windows"))
+# Fallback to %SystemRoot%\System32 if %System32% is not set
+system32_path = os.getenv("System32", os.path.join(system_root, "System32"))
+
+# Snort base folder path
+snort_folder = os.path.join(system_drive, "Snort")
+
+# Extract path after the drive (e.g., "\Program Files" or "\Windows")
+program_files_subpath = program_files[len(os.path.splitdrive(program_files)[0]):].lstrip("\\/")
+system_root_subpath = system_root[len(os.path.splitdrive(system_root)[0]):].lstrip("\\/")
+
 # File paths and configurations
-log_path = "C:\\Snort\\log\\alert.ids"
-log_folder = "C:\\Snort\\log"
-snort_config_path = "C:\\Snort\\etc\\snort.conf"
-sandboxie_path = "C:\\Program Files\\Sandboxie\\Start.exe"
-sandboxie_control_path = "C:\\Program Files\\Sandboxie\\SbieCtrl.exe"
+log_path = os.path.join(snort_folder, "log", "alert.ids")
+log_folder = os.path.join(snort_folder, "log")
+snort_config_path = os.path.join(snort_folder, "etc", "snort.conf")
+snort_exe_path = os.path.join(snort_folder, "bin", "snort.exe")
+sandboxie_dir = os.path.join(program_files, "Sandboxie")
+sandboxie_path = os.path.join(sandboxie_dir, "Start.exe")
+sandboxie_control_path = os.path.join(sandboxie_dir, "SbieCtrl.exe")
 device_args = [f"-i {i}" for i in range(1, 26)]  # Fixed device arguments
 username = os.getlogin()
-sandboxie_folder = rf'C:\Sandbox\{username}\DefaultBox'
-main_drive_path = rf'{sandboxie_folder}\drive\C'
-drivers_path = rf'{main_drive_path}\\Windows\System32\drivers'
-hosts_path = rf'{drivers_path}\hosts'
-HydraDragonAntivirus_sandboxie_path = rf'{main_drive_path}\Program Files\HydraDragonAntivirus'
-sandboxie_log_folder = rf'{HydraDragonAntivirus_sandboxie_path}\\DONTREMOVEHydraDragonAntivirusLogs'
-homepage_change_path = rf'{sandboxie_log_folder}\DONTREMOVEHomePageChange.txt'
-HiJackThis_log_path = rf'{HydraDragonAntivirus_sandboxie_path}\HiJackThis\HiJackThis.log'
-de4dot_sandboxie_dir = rf'{HydraDragonAntivirus_sandboxie_path}\de4dot_extracted_dir'
+sandboxie_folder = os.path.join(system_drive, "Sandbox", username, "DefaultBox")
+main_drive_path = os.path.join(sandboxie_folder, "drive", system_drive.strip(":"))
+# Rebuild sandboxed paths properly under sandbox's drive C
+sandbox_program_files = os.path.join(sandboxie_folder, "drive", system_drive.strip(":"), *program_files_subpath.split("\\"))
+sandbox_critical_directory = os.path.join(sandboxie_folder, "drive", system_drive.strip(":"), *system_root_subpath.split("\\"))
+drivers_path = os.path.join(system32_path, "drivers")
+hosts_path = f'{drivers_path}\\hosts'
+HydraDragonAntivirus_sandboxie_path = f'{sandbox_program_files}\\HydraDragonAntivirus'
+sandboxie_log_folder = f'{HydraDragonAntivirus_sandboxie_path}\\DONTREMOVEHydraDragonAntivirusLogs'
+homepage_change_path = f'{sandboxie_log_folder}\\DONTREMOVEHomePageChange.txt'
+HiJackThis_log_path = f'{HydraDragonAntivirus_sandboxie_path}\\HiJackThis\\HiJackThis.log'
+de4dot_sandboxie_dir = f'{HydraDragonAntivirus_sandboxie_path}\\de4dot_extracted_dir'
 
 # Define the list of known rootkit filenames
 known_rootkit_files = [
@@ -466,7 +487,7 @@ uefi_paths = [
     rf'{sandboxie_folder}\drive\X\EFI\Microsoft\Boot\memtest.efi',
     rf'{sandboxie_folder}\drive\X\EFI\Boot\bootx64.efi'
 ]
-snort_command = ["C:\\Snort\\bin\\snort.exe"] + device_args + ["-c", snort_config_path, "-A", "fast"]
+snort_command = [snort_exe_path] + device_args + ["-c", snort_config_path, "-A", "fast"]
 
 # Custom flags for directory changes
 FILE_NOTIFY_CHANGE_LAST_ACCESS = 0x00000020
@@ -478,11 +499,24 @@ FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
 directories_to_scan = [sandboxie_folder, copied_sandbox_files_dir, decompiled_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
 
-clamdscan_path = "C:\\Program Files\\ClamAV\\clamdscan.exe"
-freshclam_path = "C:\\Program Files\\ClamAV\\freshclam.exe"
-clamav_file_paths = ["C:\\Program Files\\ClamAV\\database\\daily.cvd", "C:\\Program Files\\ClamAV\\database\\daily.cld"]
-clamav_database_directory_path = "C:\\Program Files\\ClamAV\\database"
-seven_zip_path = "C:\\Program Files\\7-Zip\\7z.exe"  # Path to 7z.exe
+# ClamAV base folder path
+clamav_folder = os.path.join(program_files, "ClamAV")
+
+# 7-Zip base folder path
+seven_zip_folder = os.path.join(program_files, "7-Zip")
+
+# ClamAV file paths and configurations
+clamdscan_path = os.path.join(clamav_folder, "clamdscan.exe")
+freshclam_path = os.path.join(clamav_folder, "freshclam.exe")
+clamav_file_paths = [
+    os.path.join(clamav_folder, "database", "daily.cvd"),
+    os.path.join(clamav_folder, "database", "daily.cld")
+]
+clamav_database_directory_path = os.path.join(clamav_folder, "database")
+
+# 7-Zip executable path
+seven_zip_path = os.path.join(seven_zip_folder, "7z.exe")
+
 HiJackThis_directory = os.path.join(script_dir, "HiJackThis")
 HiJackThis_exe = os.path.join(HiJackThis_directory, "HiJackThis.exe")
 HiJackThis_logs_dir = os.path.join(script_dir, "HiJackThis_logs")
@@ -531,9 +565,13 @@ os.makedirs(copied_sandbox_files_dir, exist_ok=True)
 os.makedirs(HiJackThis_logs_dir, exist_ok=True)
 os.makedirs(html_extracted_dir, exist_ok=True)
 os.makedirs(sandboxie_folder, exist_ok=True)
+os.makedirs(sandbox_program_files, exist_ok=True)
+os.makedirs(sandbox_critical_directory, exist_ok=True)
 
 # Counter for ransomware detection
 ransomware_detection_count = 0 
+
+main_file_path = None
 
 def is_valid_ip(ip_string: str) -> bool:
     """
@@ -4211,17 +4249,13 @@ def worm_alert(file_path):
     try:
         logging.info(f"Running worm detection for file '{file_path}'")
 
-        # Define directory paths
-        critical_directory = os.path.join('C:', 'Windows')
-        sandbox_critical_directory = os.path.join(sandboxie_folder, 'drive', 'C', 'Windows')
-
         # Extract features
         features_current = extract_numeric_worm_features(file_path)
-        is_critical = file_path.startswith(main_drive_path) or file_path.startswith(critical_directory) or file_path.startswith(sandbox_critical_directory)
+        is_critical = file_path.startswith(main_drive_path) or file_path.startswith(system_root) or file_path.startswith(sandbox_system_root)
 
         if is_critical:
-            original_file_path = os.path.join(critical_directory, os.path.basename(file_path))
-            sandbox_file_path = os.path.join(sandbox_critical_directory, os.path.basename(file_path))
+            original_file_path = os.path.join(system_root, os.path.basename(file_path))
+            sandbox_file_path = os.path.join(sandbox_system_root, os.path.basename(file_path))
 
             if os.path.exists(original_file_path) and os.path.exists(sandbox_file_path):
                 original_file_size = os.path.getsize(original_file_path)
@@ -7961,7 +7995,7 @@ def perform_sandbox_analysis(file_path):
         logging.error(f"An error occurred during sandbox analysis: {ex}")
 
 def run_sandboxie_plugin():
-    with_entry_point = f"{HydraDragonAV_sandboxie_path},Run"
+    with_entry_point = f'"{HydraDragonAV_sandboxie_DLL_path}",Run'
     # Construct the command to run rundll32 inside Sandboxie
     command = [
         sandboxie_path,
