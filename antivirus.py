@@ -6715,27 +6715,27 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                 except Exception as extraction_error:
                     logging.error(f"Error during extraction of {file_path}: {extraction_error}")
 
-            # Perform signature check only if the file is non plain text data
-            signature_check = check_signature(file_path)
-            logging.info(f"Signature check result for {file_path}: {signature_check}")
-            if not isinstance(signature_check, dict):
-                logging.error(f"check_signature did not return a dictionary for file: {file_path}, received: {signature_check}")
+                # Perform signature check only if the file is non plain text data
+                signature_check = check_signature(file_path)
+                logging.info(f"Signature check result for {file_path}: {signature_check}")
+                if not isinstance(signature_check, dict):
+                    logging.error(f"check_signature did not return a dictionary for file: {file_path}, received: {signature_check}")
 
-            # Handle signature results
-            if signature_check["has_microsoft_signature"]:
-                logging.info(f"Valid Microsoft signature detected for file: {file_path}")
-                return False
+                # Handle signature results
+                if signature_check["has_microsoft_signature"]:
+                    logging.info(f"Valid Microsoft signature detected for file: {file_path}")
+                    return False
 
-            # Check for good digital signatures (valid_goodsign_signatures) and return false if they exist and are valid
-            if signature_check.get("valid_goodsign_signatures"):
-                logging.info(f"Valid good signature(s) detected for file: {file_path}: {signature_check['valid_goodsign_signatures']}")
-                return False
+                # Check for good digital signatures (valid_goodsign_signatures) and return false if they exist and are valid
+                if signature_check.get("valid_goodsign_signatures"):
+                    logging.info(f"Valid good signature(s) detected for file: {file_path}: {signature_check['valid_goodsign_signatures']}")
+                    return False
 
-            if signature_check["is_valid"]:
-                logging.info(f"File '{file_path}' has a valid signature. Skipping worm detection.")
-            elif signature_check["signature_status_issues"]:
-                logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
-                notify_user_invalid(file_path, "Win32.Susp.InvalidSignature")
+                if signature_check["is_valid"]:
+                    logging.info(f"File '{file_path}' has a valid signature. Skipping worm detection.")
+                elif signature_check["signature_status_issues"]:
+                    logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
+                    notify_user_invalid(file_path, "Win32.Susp.InvalidSignature")
 
             # Additional checks for PE files
             if is_pe_file_from_output(die_output):
