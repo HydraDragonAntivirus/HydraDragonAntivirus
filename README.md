@@ -57,6 +57,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - The new HiJackThis analysis removes the previous analysis file from the sandbox environment.
 - Make your username hydradragonav (for example).
 - Don't forget to create the 'DefaultBox' folder if it was deleted, by right-clicking on Sandboxie Control and selecting 'Explore Contents'.
+- The installer also includes daily.cvd, main.cvd, bytecode.cvd due to download issues with the ClamAV database.
 
  ## Discord Community Server
 
