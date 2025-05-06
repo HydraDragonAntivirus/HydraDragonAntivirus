@@ -3744,7 +3744,7 @@ def clean_directories():
             logging.info(f"Successfully cleaned the decompile folder at: {decompiled_dir}")
         else:
             logging.info(f"Decompile folder does not exist at: {decompiled_dir}")
-        os.makedirs(decompiled_dir)
+        os.makedirs(decompiled_dir, exist_ok=True)
         logging.info(f"Created the decompile folder at: {decompiled_dir}")
         
         # Clean ghidra_projects directory if it exists, otherwise create it
@@ -3753,12 +3753,12 @@ def clean_directories():
             logging.info(f"Successfully cleaned the ghidra_projects folder at: {ghidra_projects_dir}")
         else:
             logging.info(f"Ghidra projects folder does not exist at: {ghidra_projects_dir}")
-        os.makedirs(ghidra_projects_dir)
+        os.makedirs(ghidra_projects_dir, exist_ok=True)
         logging.info(f"Created the ghidra_projects folder at: {ghidra_projects_dir}")
 
         # Check if ghidra_logs directory exists, create if not
         if not os.path.isdir(ghidra_logs_dir):
-            os.makedirs(ghidra_logs_dir)
+            os.makedirs(ghidra_logs_dir, exist_ok=True)
             logging.info(f"Created the ghidra_logs folder at: {ghidra_logs_dir}")
         else:
             logging.info(f"Ghidra logs folder exists at: {ghidra_logs_dir}")
@@ -6979,6 +6979,16 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         return False
 
 def monitor_memory_changes(change_threshold_bytes=0):
+    """
+    Continuously monitor all processes for RSS memory changes.
+
+    When a change greater than change_threshold_bytes is detected, attempt to
+    dump and analyze the process memory. Only scans dumps located within
+    the sandboxie_folder or matching the main_file_path.
+
+    :param change_threshold_bytes: Minimum number of bytes RSS must change
+                                   before triggering analysis.
+    """
     last_rss = {}
 
     while True:
@@ -6989,36 +6999,40 @@ def monitor_memory_changes(change_threshold_bytes=0):
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
 
-            prev = last_rss.get(pid)
-            if prev is None or abs(rss - prev) > change_threshold_bytes:
+            prev_rss = last_rss.get(pid)
+            if prev_rss is None or abs(rss - prev_rss) > change_threshold_bytes:
                 last_rss[pid] = rss
                 logging.info(f"Memory change detected: PID={pid}, RSS={rss}")
 
                 try:
                     saved_file = analyze_process_memory(pid)
-                    if not saved_file:
-                        continue
-
-                    # Only proceed if dump is under Sandboxie OR exactly the main file path
-                    sfp = saved_file.lower()
-                    if (sandboxie_folder.lower() not in sfp
-                        and sfp != main_file_path.lower()):
-                        logging.info(
-                            f"File {saved_file!r} is outside monitored dirs. Skipping."
-                        )
-                        continue
-
-                    # OK—this dump is in the sandbox or is the main file: scan it
-                    try:
-                        scan_and_warn(saved_file)
-                    except Exception as scan_err:
-                        logging.error(
-                            f"scan_and_warn failed for {saved_file!r}: {scan_err}"
-                        )
-
                 except Exception as e:
                     logging.error(
                         f"analyze_process_memory failed for PID={pid}: {e}"
+                    )
+                    continue
+
+                if not saved_file:
+                    continue
+
+                # Normalize paths for comparison
+                sfp = str(saved_file).lower()
+                sandbox_path = sandboxie_folder.lower()
+                main_path = main_file_path.lower()
+
+                # Only proceed if dump is under Sandboxie or exactly the main file path
+                if sandbox_path not in sfp and sfp != main_path:
+                    logging.info(
+                        f"File {saved_file!r} is outside monitored dirs. Skipping."
+                    )
+                    continue
+
+                # OK—this dump is in the sandbox or is the main file: scan it
+                try:
+                    scan_and_warn(saved_file)
+                except Exception as scan_err:
+                    logging.error(
+                        f"scan_and_warn failed for {saved_file!r}: {scan_err}"
                     )
 
 def monitor_saved_paths():
@@ -7535,7 +7549,7 @@ class MonitorMessageCommandLine:
                     r'*iex ((new-object net.webclient).downloadstring(*',
                     r'*http*.replace(*iex*'
                 ],
-                "virus_name": "HEUR:Win32.PowerShell.IEX.Download.gen",
+                "virus_name": "HEUR:Win32.PowerShell.IEX.Downloader.gen",
                 "process_function": self.process_detected_powershell_iex_download
             },
             "xmrig": {
