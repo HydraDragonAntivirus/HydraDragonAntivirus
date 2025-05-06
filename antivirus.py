@@ -6647,7 +6647,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         else:
             _copy_to_dest(file_path, src_root, copied_sandbox_files_dir)
 
-       # Extract the file name
+        # Extract the file name
         file_name = os.path.basename(file_path)
 
         normalized_file_path = os.path.abspath(file_path).lower()
