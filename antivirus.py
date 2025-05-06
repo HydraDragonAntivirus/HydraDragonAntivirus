@@ -6799,14 +6799,6 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                 else:
                     logging.error("PE section extraction failed or no sections found.")
 
-                saved_file_path = analyze_process_memory(file_path)
-
-                if saved_file_path:
-                    try:
-                        scan_and_warn(saved_file_path)
-                    except Exception as e:
-                        logging.error(f"Error processing file {saved_file_path}: {e}")
- 
                 # Extract resources
                 extracted = extract_resources(file_path, resource_extractor_dir)
                 if extracted:
@@ -6965,6 +6957,49 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
     except Exception as ex:
         logging.error(f"Error scanning file {file_path}: {ex}")
         return False
+
+def monitor_memory_changes(change_threshold_bytes=0):
+    last_rss = {}
+
+    while True:
+        for proc in psutil.process_iter(['pid', 'memory_info']):
+            pid = proc.info['pid']
+            try:
+                rss = proc.info['memory_info'].rss
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+
+            prev = last_rss.get(pid)
+            if prev is None or abs(rss - prev) > change_threshold_bytes:
+                last_rss[pid] = rss
+                logging.info(f"Memory change detected: PID={pid}, RSS={rss}")
+
+                try:
+                    saved_file = analyze_process_memory(pid)
+                    if not saved_file:
+                        continue
+
+                    # Only proceed if dump is under Sandboxie OR exactly the main file path
+                    sfp = saved_file.lower()
+                    if (sandboxie_folder.lower() not in sfp
+                        and sfp != main_file_path.lower()):
+                        logging.info(
+                            f"File {saved_file!r} is outside monitored dirs. Skipping."
+                        )
+                        continue
+
+                    # OK—this dump is in the sandbox or is the main file: scan it
+                    try:
+                        scan_and_warn(saved_file)
+                    except Exception as scan_err:
+                        logging.error(
+                            f"scan_and_warn failed for {saved_file!r}: {scan_err}"
+                        )
+
+                except Exception as e:
+                    logging.error(
+                        f"analyze_process_memory failed for PID={pid}: {e}"
+                    )
 
 def monitor_saved_paths():
     """Continuously monitor the saved_paths list and call scan_and_warn on new items."""
@@ -7976,6 +8011,8 @@ def perform_sandbox_analysis(file_path):
         main_file_path = file_path
 
         monitor_message = MonitorMessageCommandLine()
+
+        threading.Thread(target=monitor_memory_changes, name="MemoryWatcher").start()
 
         # Run the special Sandboxie plugin
         threading.Thread(target=run_sandboxie_plugin).start()
