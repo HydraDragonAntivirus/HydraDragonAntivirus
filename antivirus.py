@@ -6757,6 +6757,15 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                 except Exception as extraction_error:
                     logging.error(f"Error during extraction of {file_path}: {extraction_error}")
 
+            # Additional checks for PE files
+            if is_pe_file_from_output(die_output):
+                logging.info(f"File {file_path} is a valid PE file.")
+                pe_file = True
+
+            # Call analyze_process_memory if the file is a PE file
+            if pe_file:
+                logging.info(f"File {file_path} is identified as a PE file.")
+
                 # Perform signature check only if the file is non plain text data
                 signature_check = check_signature(file_path)
                 logging.info(f"Signature check result for {file_path}: {signature_check}")
@@ -6778,15 +6787,6 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                 elif signature_check["signature_status_issues"]:
                     logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
                     notify_user_invalid(file_path, "Win32.Susp.InvalidSignature")
-
-            # Additional checks for PE files
-            if is_pe_file_from_output(die_output):
-                logging.info(f"File {file_path} is a valid PE file.")
-                pe_file = True
-
-            # Call analyze_process_memory if the file is a PE file
-            if pe_file:
-                logging.info(f"File {file_path} is identified as a PE file.")
 
                 # PE section extraction and scanning
                 section_files = extract_pe_sections(file_path)
