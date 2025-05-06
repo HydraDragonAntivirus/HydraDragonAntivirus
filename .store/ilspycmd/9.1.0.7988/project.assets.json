@@ -1,8 +1,8 @@
 {
   "version": 3,
   "targets": {
-    "net8.0/win-x64": {
-      "ilspycmd/9.0.0.7889": {
+    "net9.0/win-x64": {
+      "ilspycmd/9.1.0.7988": {
         "type": "package",
         "tools": {
           "tools/net8.0/any/DotnetToolSettings.xml": {},

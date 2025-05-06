@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd">
   <metadata>
     <id>ilspycmd</id>
-    <version>9.0.0.7889</version>
+    <version>9.1.0.7988</version>
     <authors>ILSpy Team</authors>
     <license type="expression">MIT</license>
     <licenseUrl>https://licenses.nuget.org/MIT</licenseUrl>
@@ -14,6 +14,6 @@
     <packageTypes>
       <packageType name="DotnetTool" />
     </packageTypes>
-    <repository type="git" url="https://github.com/icsharpcode/ILSpy/" commit="e94eb917395e50c74ea363a79df3514538989daa" />
+    <repository type="git" url="https://github.com/icsharpcode/ILSpy/" commit="03b7444943e720b3134d296c0c8dd3876f8ea4ce" />
   </metadata>
 </package>
