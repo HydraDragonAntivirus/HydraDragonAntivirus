@@ -605,7 +605,7 @@ def is_valid_ip(ip_string: str) -> bool:
         ip_obj = ipaddress.ip_address(ip_string)
         logging.debug(f"Parsed IP object: {ip_obj} (version {ip_obj.version})")
     except ValueError:
-        logging.warning(f"Invalid IP syntax: {ip_string!r}")
+        logging.error(f"Invalid IP syntax: {ip_string!r}")
         return False
 
     # exclusion categories
