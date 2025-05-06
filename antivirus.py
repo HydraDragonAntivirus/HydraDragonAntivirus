@@ -6743,10 +6743,6 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
             if is_file_unknown(die_output):
                 ransomware_alert(file_path)
             else:
-                # Decompile the file in a separate thread
-                decompile_thread = threading.Thread(target=decompile_file, args=(file_path,))
-                decompile_thread.start()
-
                 # Attempt to extract the file
                 try:
                     logging.info(f"Attempting to extract file {file_path}...")
@@ -6793,6 +6789,10 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                 elif signature_check["signature_status_issues"]:
                     logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
                     notify_user_invalid(file_path, "Win32.Susp.InvalidSignature")
+
+                # Decompile the file in a separate thread
+                decompile_thread = threading.Thread(target=decompile_file, args=(file_path,))
+                decompile_thread.start()
 
                 # PE section extraction and scanning
                 section_files = extract_pe_sections(file_path)
