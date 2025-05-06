@@ -6611,7 +6611,14 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
        # Extract the file name
         file_name = os.path.basename(file_path)
 
-        die_output = analyze_file_with_die(file_path)
+       normalized_file_path = os.path.abspath(file_path).lower()
+       commandlineandmessage_base_dir = os.path.abspath(commandlineandmessage_dir).lower()
+
+       if normalized_file_path.startswith(commandlineandmessage_base_dir):
+            die_output = "Binary\n    Format: plain text"
+        else:
+            die_output = analyze_file_with_die(file_path)
+
         # Wrap file_path in a Path once, up front
         wrap_file_path = Path(file_path)
 
