@@ -569,6 +569,15 @@ ransomware_detection_count = 0
 
 main_file_path = None
 
+def is_hex_data(data_content):
+    """Check if the given binary data can be valid hex-encoded data."""
+    try:
+        # Convert binary data to hex representation and back to binary
+        binascii.unhexlify(binascii.hexlify(data_content))
+        return True
+    except (TypeError, binascii.Error):
+        return False
+
 def is_valid_ip(ip_string: str) -> bool:
     """
     Returns True if ip_string is a valid public IPv4 or IPv6 address,
@@ -6614,7 +6623,11 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         normalized_file_path = os.path.abspath(file_path).lower()
         commandlineandmessage_base_dir = os.path.abspath(commandlineandmessage_dir).lower()
 
-        if normalized_file_path.startswith(commandlineandmessage_base_dir):
+        # Read the file content.
+        with open(file_path, 'rb') as scan_file:
+            data_content = scan_file.read()
+
+        if is_hex_data(data_content):
              die_output = "Binary\n    Format: plain text"
         else:
              die_output = analyze_file_with_die(file_path)
