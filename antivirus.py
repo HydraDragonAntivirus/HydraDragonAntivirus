@@ -441,16 +441,16 @@ system_root = os.getenv("SystemRoot", os.path.join(system_drive, "Windows"))
 # Fallback to %SystemRoot%\System32 if %System32% is not set
 system32_path = os.getenv("System32", os.path.join(system_root, "System32"))
 
-# Snort base folder path
-snort_folder = os.path.join(system_drive, "Snort")
-
 # Extract path after the drive (e.g., "\Program Files" or "\Windows")
 program_files_subpath = program_files[len(os.path.splitdrive(program_files)[0]):].lstrip("\\/")
 system_root_subpath = system_root[len(os.path.splitdrive(system_root)[0]):].lstrip("\\/")
 
+# Snort base folder path
+snort_folder = os.path.join(system_drive, "Snort")
+
 # File paths and configurations
-log_path = os.path.join(snort_folder, "log", "alert.ids")
 log_folder = os.path.join(snort_folder, "log")
+log_path = os.path.join(log_folder, "alert.ids")
 snort_config_path = os.path.join(snort_folder, "etc", "snort.conf")
 snort_exe_path = os.path.join(snort_folder, "bin", "snort.exe")
 sandboxie_dir = os.path.join(program_files, "Sandboxie")
@@ -4539,15 +4539,27 @@ def process_alert(line):
         logging.error(f"Error matching alert regex: {ex}")
 
 def clean_directory():
+    """
+    Remove all files, symlinks, and subdirectories under the given log_folder.
+    If the folder does not exist, logs a warning and does nothing.
+    """
+    # Only proceed if the directory exists
+    if not os.path.exists(log_folder):
+        logging.info(f"Directory '{log_folder}' does not exist. Skipping cleanup.")
+        return
+
+    # Iterate through all entries in the directory
     for filename in os.listdir(log_folder):
         file_path = os.path.join(log_folder, filename)
         try:
+            # Remove files or symlinks
             if os.path.isfile(file_path) or os.path.islink(file_path):
                 os.unlink(file_path)
+            # Remove directories
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
         except Exception as ex:
-            logging.error(f'Failed to delete {file_path}. Reason: {ex}')
+            logging.error(f"Failed to delete '{file_path}'. Reason: {ex}")
 
 def run_snort():    
     try:
