@@ -4344,7 +4344,7 @@ def is_zip_file(file_path):
         print(f"[-] Unexpected error while checking ZIP file: {e}")
         return False
 
-def scan_file_real_time(file_path, signature_check, file_name, pe_file=False):
+def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_file=False):
     """Scan file in real-time using multiple engines."""
     logging.info(f"Started scanning file: {file_path}")
 
@@ -4433,7 +4433,6 @@ def scan_file_real_time(file_path, signature_check, file_name, pe_file=False):
 
         # Scan 7z files
         try:
-            die_output = analyze_file_with_die(file_path)
             if is_7z_file_from_output(die_output):
                 scan_result, virus_name = scan_7z_file(file_path)
                 if scan_result and virus_name not in ("Clean", ""):
@@ -6936,7 +6935,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                     notify_user_fake_size_thread.start()
 
         # Perform real-time scan
-        is_malicious, virus_names, engine_detected = scan_file_real_time(file_path, signature_check, file_name, pe_file=pe_file)
+        is_malicious, virus_names, engine_detected = scan_file_real_time(file_path, signature_check, file_name, die_output, pe_file=pe_file)
 
         # Inside the scan check logic
         if is_malicious:
