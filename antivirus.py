@@ -433,17 +433,13 @@ scanned_ipv6_addresses_general = []
 alert_regex = re.compile(r'\[Priority: (\d+)].*?\{(?:UDP|TCP)} (\d+\.\d+\.\d+\.\d+):\d+ -> (\d+\.\d+\.\d+\.\d+):\d+')
 
 # Resolve system drive path
-system_drive = os.getenv("SystemDrive", "C:")
+system_drive = os.getenv("SystemDrive", "C:") + os.sep
 # Resolve Program Files directory via environment (fallback to standard path)
 program_files = os.getenv("ProgramFiles", os.path.join(system_drive, "Program Files"))
 # Get SystemRoot (usually C:\Windows)
 system_root = os.getenv("SystemRoot", os.path.join(system_drive, "Windows"))
 # Fallback to %SystemRoot%\System32 if %System32% is not set
 system32_path = os.getenv("System32", os.path.join(system_root, "System32"))
-
-# Extract path after the drive (e.g., "\Program Files" or "\Windows")
-program_files_subpath = program_files[len(os.path.splitdrive(program_files)[0]):].lstrip("\\/")
-system_root_subpath = system_root[len(os.path.splitdrive(system_root)[0]):].lstrip("\\/")
 
 # Snort base folder path
 snort_folder = os.path.join(system_drive, "Snort")
@@ -461,8 +457,8 @@ username = os.getlogin()
 sandboxie_folder = os.path.join(system_drive, "Sandbox", username, "DefaultBox")
 main_drive_path = os.path.join(sandboxie_folder, "drive", system_drive.strip(":"))
 # Rebuild sandboxed paths properly under sandbox's drive C
-sandbox_program_files = os.path.join(sandboxie_folder, "drive", system_drive.strip(":"), *program_files_subpath.split("\\"))
-sandbox_critical_directory = os.path.join(sandboxie_folder, "drive", system_drive.strip(":"), *system_root_subpath.split("\\"))
+sandbox_program_files      = os.path.join(sandboxie_folder, "drive", os.path.splitdrive(program_files)[0].strip(":"), *os.path.splitdrive(program_files)[1].lstrip(os.sep).split(os.sep))
+sandbox_critical_directory = os.path.join(sandboxie_folder, "drive", os.path.splitdrive(system_root)[0].strip(":"), *os.path.splitdrive(system_root)[1].lstrip(os.sep).split(os.sep))
 drivers_path = os.path.join(system32_path, "drivers")
 hosts_path = f'{drivers_path}\\hosts'
 HydraDragonAntivirus_sandboxie_path = f'{sandbox_program_files}\\HydraDragonAntivirus'
