@@ -118,23 +118,19 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 
 **Note 10:**
 
-- Your Windows folder must be in C:\ because some codes are hard coded.
-
-**Note 11:**
-
 - If you are testing a rootkit, please do not enable "bcdedit testsigning on" to run the rootkit on your machine for analysis. We will take care of that.
 
-**Note 12:**
+**Note 11:**
 - HiJackThis version: 3.4.0.17 Beta
 - HiJackThis source code: https://github.com/dragokas/hijackthis
 
-**Note 13:**
+**Note 12:**
 - HydraDragonAntivirusSandboxie vcpkg install commandds:
 - vcpkg install detours
 - vcpkg install libarchive
 - vcpkg integrate install
 
-**Note 14:**
+**Note 13:**
 - Inno Setup version 6.4.2
 
 ## Tips
