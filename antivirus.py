@@ -569,13 +569,43 @@ ransomware_detection_count = 0
 
 main_file_path = None
 
-def is_hex_data(data_content):
-    """Check if the given binary data can be valid hex-encoded data."""
-    try:
-        # Convert binary data to hex representation and back to binary
-        binascii.unhexlify(binascii.hexlify(data_content))
+def is_plain_text(data: bytes, 
+                  null_byte_threshold: float = 0.01, 
+                  printable_threshold: float = 0.95) -> bool:
+    """
+    Heuristic: data is plain text if
+      1. It contains very few null bytes,
+      2. A high fraction of bytes are printable or common whitespace,
+      3. And it decodes cleanly in some text encoding (e.g. UTF-8, Latin-1).
+
+    :param data:       raw file bytes
+    :param null_byte_threshold:
+                       max fraction of bytes that can be zero (0x00)
+    :param printable_threshold:
+                       min fraction of bytes in printable + whitespace set
+    """
+    if not data:
         return True
-    except (TypeError, binascii.Error):
+
+    # 1) Null‐byte check
+    nulls = data.count(0)
+    if nulls / len(data) > null_byte_threshold:
+        return False
+
+    # 2) Printable‐char check
+    printable = set(bytes(string.printable, 'ascii'))
+    count_printable = sum(b in printable for b in data)
+    if count_printable / len(data) < printable_threshold:
+        return False
+
+    # 3) Try a text decoding
+    #    Use chardet to guess encoding
+    guess = chardet.detect(data)
+    enc = guess.get('encoding') or 'utf-8'
+    try:
+        data.decode(enc)
+        return True
+    except (UnicodeDecodeError, LookupError):
         return False
 
 def is_valid_ip(ip_string: str) -> bool:
@@ -6627,7 +6657,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
         with open(file_path, 'rb') as scan_file:
             data_content = scan_file.read()
 
-        if is_hex_data(data_content):
+        if is_plain_text(data_content):
              die_output = "Binary\n    Format: plain text"
         else:
              die_output = analyze_file_with_die(file_path)
