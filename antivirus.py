@@ -8332,7 +8332,7 @@ class AntivirusApp(QWidget):
 
         # Buttons
         self.capture_button = QPushButton("Capture Analysis Logs", self)
-        self.diff_button = QPushButton("Capture Analysis Logs", self)
+        self.diff_button = QPushButton("Compare Analysis Logs", self)
         self.update_defs_button = QPushButton("Update Definitions", self)
         self.analyze_file_button = QPushButton("Analyze File", self)
 
