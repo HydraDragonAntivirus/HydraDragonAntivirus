@@ -3298,7 +3298,7 @@ class RealTimeWebProtectionHandler:
     def scan(self, entity_type, entity_value, detection_type=None):
         """
         Unified scan entry-point.  
-        Dedupe, detect, fetch, extract, and recurse—all via this one method.
+        Dedupe, detect, fetch, extract, and recurse all via this one method.
         """
         # 1) classify into our four buckets
         if entity_type in ('subdomain', 'domain'):
@@ -3345,7 +3345,7 @@ class RealTimeWebProtectionHandler:
             parts = domain.split(".")
             main_domain = domain if len(parts) < 3 else ".".join(parts[-2:])
 
-            # — all your spam/mining/abuse/phishing/malware/whitelist checks exactly as before —
+            # Check against spam subdomains
             if main_domain in spam_sub_domains_data:
                 self.handle_detection('subdomain', main_domain, 'SPAM SUBDOMAIN')
                 return
@@ -3539,13 +3539,14 @@ class RealTimeWebProtectionHandler:
 
             logging.info(f"No match found for URL: {url}")
 
-    # thin wrappers so nothing outside changes
     def scan_domain(self, domain):
         self.scan('domain', domain)
 
-    def scan_ip_address(self, ip_address):
-        kind = 'ipv6_address' if ':' in ip_address else 'ipv4_address'
-        self.scan(kind, ip_address)
+    def scan_ipv4_address(self, ip_address):
+        self.scan('ipv4_address', ip_address)
+
+    def scan_ipv6_address(self, ip_address):
+        self.scan('ipv6_address', ip_address)
 
     def scan_url(self, url):
         self.scan('url', url)
@@ -3564,8 +3565,8 @@ class RealTimeWebProtectionHandler:
                         self.scan_domain(an)
                         logging.info(f"DNS Answer (IPv4): {an}")
 
-                self.scan_ip_address(packet[IP].src)
-                self.scan_ip_address(packet[IP].dst)
+                self.scan_ipv4_address(packet[IP].src)
+                self.scan_ipv4_address(packet[IP].dst)
         except Exception as ex:
             logging.error(f"Error handling IPv4 packet: {ex}")
 
@@ -3583,8 +3584,8 @@ class RealTimeWebProtectionHandler:
                         self.scan_domain(an)
                         logging.info(f"DNS Answer (IPv6): {an}")
 
-                self.scan_ip_address(packet[IPv6].src)
-                self.scan_ip_address(packet[IPv6].dst)
+                self.scan_ipv6_address(packet[IPv6].src)
+                self.scan_ipv6_address(packet[IPv6].dst)
             else:
                 logging.debug("IPv6 layer or DNS layer not found in the packet.")
         except Exception as ex:
@@ -3613,9 +3614,11 @@ class RealTimeWebProtectionHandler:
                         self.scan_domain(an)
                         logging.info(f"DNS Answer: {an}")
                 if IP in packet:
-                    self.scan_ip_address(packet[IP].src)
-                    self.scan_ip_address(packet[IP].dst)
-
+                    self.scan_ipv4_address(packet[IP].src)
+                    self.scan_ipv4_address(packet[IP].dst)
+                if IPv6 in packet:
+                    self.scan_ipv6_address(packet[IPv6].src)
+                    self.scan_ipv6_address(packet[IPv6].dst)
         except Exception as ex:
             logging.error(f"Error processing packet: {ex}")
 
