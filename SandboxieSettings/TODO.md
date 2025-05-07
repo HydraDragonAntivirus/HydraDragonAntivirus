@@ -1,1 +1,0 @@
-- Check default Sandboxie settings after setup completed.
