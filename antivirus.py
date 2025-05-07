@@ -5506,15 +5506,22 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
             (lambda fp: fp.startswith(nuitka_source_code_dir), f"Nuitka reversed-engineered Python source code directory.")
         ]
     
-        # Iterate over the logging info list and log the first matching message.
+        # 1) Find and log the first matching directory message, also save it for the prompt
+        dir_note = None
         for condition, message in directory_logging_info:
             if condition(file_path):
                 logging.info(f"{file_path}: {message}")
+                dir_note = message
                 break
+        if dir_note is None:
+            dir_note = "No special directory context."
 
-        # Build the initial message. If HiJackThis_flag is True, tailor the prompt.
+        # 2) Build a prefix that includes the directory note
+        prefix = f"[Context] {dir_note}\n\n"
+
+        # 3) Build the initial message. Prepend prefix to every branch.
         if HiJackThis_flag:
-            initial_message = (
+            initial_message = prefix + (
                 "Meta Llama-3.2-1B Report for HiJackThis log analysis:\n"
                 "The following report is produced based on HiJackThis log differences. "
                 "Analyze the file content and determine if there are suspicious changes that may indicate malware. "
@@ -5526,9 +5533,8 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
                 f"File name: {os.path.basename(file_path)}\n"
                 f"File path: {file_path}\n"
             )
-        # Build the initial message based on flags
         elif united_python_code_flag:
-            initial_message = (
+            initial_message = prefix + (
                 "This file was decompiled using pycdas.exe and further analyzed with Meta Llama-3.2-1B.\n"
                 "Based on the source code extracted via pycdas, please follow these instructions:\n"
                 "- If the file is obfuscated, deobfuscate it by detecting and removing any gibberish output and decoding any encoded strings.\n"
@@ -5538,7 +5544,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
                 "Decode any encoded strings, such as base64 or base32, as needed.\n"
             )
         elif decompiled_flag:
-            initial_message = (
+            initial_message = prefix + (
                 "The result should always include four lines. Here are the lines that you must include all of them:\n"
                 "- Malware: [Yes/No/Maybe]\n"
                 "- Virus Name:\n"
@@ -5557,7 +5563,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
                 "Decode any encoded strings, such as base64 or base32, as needed.\n"
             )
         else:
-            initial_message = (
+            initial_message = prefix + (
                 "The result should always include four lines. Here are the lines that you must include all of them:\n"
                 "- Malware: [Yes/No/Maybe]\n"
                 "- Virus Name:\n"
