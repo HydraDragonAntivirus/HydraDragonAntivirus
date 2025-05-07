@@ -299,8 +299,9 @@ logging.info(f"Total time for all imports: {total_duration:.6f} seconds")
 nlp_spacy_lang = spacy.load("en_core_web_md")
 logging.info("spaCy model 'en_core_web_md' loaded successfully")
 
-# Initialize the accelerator
+# Initialize the accelerator and device
 accelerator = Accelerator()
+device = accelerator.device
 
 # Define the paths to the ghidra related directories
 inno_extract_dir = os.path.join(script_dir, "innoextract-1.9-windows")
