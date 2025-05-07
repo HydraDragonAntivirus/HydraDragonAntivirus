@@ -8315,7 +8315,7 @@ class AntivirusApp(QWidget):
             "2. Then run the HiJackThis Report (first analysis, capture analysis logs).\n"
             "3. After that, perform the main analysis.\n"
             "4. Once done, do not close the application. Run HiJackThis again (final analysis, capture analysis logs).\n"
-            "5. Wait about 5 minutes after clicking the Capture Analysis Logs button, then return to a clean snapshot for a new analysis."
+            "5. Wait about 5 minutes after clicking the Compare Analysis Logs button, then view the logs and return to a clean snapshot for a new analysis."
         )
         self.warning_label = QLabel(warning_text, self)
         self.warning_label.setWordWrap(True)
