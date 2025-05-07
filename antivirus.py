@@ -195,6 +195,10 @@ import chardet
 logging.info(f"chardet module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import difflib
+logging.info(f"difflib module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import zlib
 logging.info(f"zlib module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -8173,10 +8177,10 @@ def run_analysis(file_path: str):
         logging.error(error_message)
 
 # ----- Global Variables to hold captured data -----
-orig_log_path = None
-sbx_log_path = None
-original_entries = {}
-sandbox_entries = {}
+pre_analysis_log_path = None
+post_analysis_log_path = None
+pre_analysis_entries = {}
+post_analysis_entries = {}
 
 # ----- Utility Functions -----
 def force_remove_log():
@@ -8260,15 +8264,15 @@ class AntivirusApp(QWidget):
             }
         """)
 
-    def capture_logs(self):
-        worker = Worker("capture_logs")
+    def capture_analysis_logs(self):
+        worker = Worker("capture_analysis_logs")
         worker.output_signal.connect(self.append_output)
         worker.finished.connect(lambda: self.workers.remove(worker))  # Clean up finished threads
         self.workers.append(worker)  # Keep a reference
         worker.start()
 
-    def compute_diff(self):
-        worker = Worker("compute_diff")
+    def compare_analysis_logs(self):
+        worker = Worker("compare_analysis_logs")
         worker.output_signal.connect(self.append_output)
         worker.finished.connect(lambda: self.workers.remove(worker))
         self.workers.append(worker)
@@ -8308,10 +8312,10 @@ class AntivirusApp(QWidget):
         warning_text = (
             "IMPORTANT: Only run this application from a Virtual Machine.\n"
             "1. First, update virus definitions.\n"
-            "2. Then run the HiJackThis Report (first analysis, capture logs).\n"
+            "2. Then run the HiJackThis Report (first analysis, capture analysis logs).\n"
             "3. After that, perform the main analysis.\n"
-            "4. Once done, do not close the application. Run HiJackThis again (final analysis, capture logs).\n"
-            "5. Wait about 5 minutes after clicking the Compute Diff button, then return to a clean snapshot for a new analysis."
+            "4. Once done, do not close the application. Run HiJackThis again (final analysis, capture analysis logs).\n"
+            "5. Wait about 5 minutes after clicking the Capture Analysis Logs button, then return to a clean snapshot for a new analysis."
         )
         self.warning_label = QLabel(warning_text, self)
         self.warning_label.setWordWrap(True)
@@ -8327,8 +8331,8 @@ class AntivirusApp(QWidget):
         """)
 
         # Buttons
-        self.capture_button = QPushButton("Capture Logs", self)
-        self.diff_button = QPushButton("Compute Diff", self)
+        self.capture_button = QPushButton("Capture Analysis Logs", self)
+        self.diff_button = QPushButton("Capture Analysis Logs", self)
         self.update_defs_button = QPushButton("Update Definitions", self)
         self.analyze_file_button = QPushButton("Analyze File", self)
 
@@ -8356,8 +8360,8 @@ class AntivirusApp(QWidget):
             """)
 
         # Connect buttons
-        self.capture_button.clicked.connect(self.capture_logs)
-        self.diff_button.clicked.connect(self.compute_diff)
+        self.capture_button.clicked.connect(self.capture_analysis_logs)
+        self.diff_button.clicked.connect(self.compare_analysis_logs)
         self.update_defs_button.clicked.connect(self.update_definitions)
         self.analyze_file_button.clicked.connect(self.analyze_file)
 
@@ -8378,31 +8382,31 @@ class AntivirusApp(QWidget):
 class Worker(QThread):
     output_signal = Signal(str)
 
-    def capture_logs(self):
-        global orig_log_path, sbx_log_path, original_entries, sandbox_entries
-        if orig_log_path is None:
-            path = run_and_copy_log(label="orig")
-            orig_log_path = path
-            original_entries = parse_report(path)
-            self.output_signal.emit(f"[+] Original log captured: {os.path.basename(path)}")
-        elif sbx_log_path is None:
-            path = run_and_copy_log(label="sbx")
-            sbx_log_path = path
-            sandbox_entries = parse_report(path)
-            self.output_signal.emit(f"[+] Sandbox log captured: {os.path.basename(path)}")
+    def capture_analysis_logs(self):
+        global pre_analysis_log_path, post_analysis_log_path, pre_analysis_entries, post_analysis_entries
+        if pre_analysis_log_path is None:
+            path = run_and_copy_log(label="pre")
+            pre_analysis_log_path = path
+            pre_analysis_entries = parse_report(path)
+            self.output_signal.emit(f"[+] Pre-analysis log captured: {os.path.basename(path)}")
+        elif post_analysis_log_path is None:
+            path = run_and_copy_log(label="post")
+            post_analysis_log_path = path
+            post_analysis_entries = parse_report(path)
+            self.output_signal.emit(f"[+] Post-analysis captured: {os.path.basename(path)}")
         else:
-            self.output_signal.emit("[!] Both original and sandbox captures have already been completed.")
+            self.output_signal.emit("[!] Both pre-analysis and post-analysis captures have already been completed.")
 
-    def compute_diff(self):
-        if not orig_log_path or not sbx_log_path:
-            self.output_signal.emit("[!] Please capture both original and sandbox logs first!")
+    def compare_analysis_logs(self):
+        if not pre_analysis_log_path or not post_analysis_log_path:
+            self.output_signal.emit("[!] Please capture both pre-analysis and post-analysis first!")
             return
         try:
-            with open(orig_log_path, encoding='utf-8', errors='ignore') as f:
-                orig_lines = f.readlines()
-            with open(sbx_log_path, encoding='utf-8', errors='ignore') as f:
-                sbx_lines = f.readlines()
-            diff = difflib.unified_diff(orig_lines, sbx_lines, fromfile='Original', tofile='Sandbox', lineterm='')
+            with open(pre_analysis_log_path, encoding='utf-8', errors='ignore') as f:
+                pre_analysis_lines = f.readlines()
+            with open(post_analysis_log_path, encoding='utf-8', errors='ignore') as f:
+                post_analysis_lines = f.readlines()
+            diff = difflib.unified_diff(pre_analysis_lines, post_analysis_lines, fromfile='PreAnalysis', tofile='PostAnalysis', lineterm='')
             diff_output = list(diff)
             self.output_signal.emit("[*] Diff computation completed:")
             self.output_signal.emit("\n".join(diff_output))
@@ -8438,10 +8442,10 @@ class Worker(QThread):
 
     def run(self):
         try:
-            if self.task_type == "capture_logs":
-                self.capture_logs()
-            elif self.task_type == "compute_diff":
-                self.compute_diff()
+            if self.task_type == "capture_analysis_logs":
+                self.capture_analysis_logs()
+            elif self.task_type == "compare_analysis_logs":
+                self.compare_analysis_logs()
             elif self.task_type == "update_defs":
                 self.update_definitions()
             elif self.task_type == "analyze_file":
