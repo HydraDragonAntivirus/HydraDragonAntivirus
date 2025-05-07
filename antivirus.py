@@ -5611,18 +5611,8 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
         # Combine the initial message with the truncated file content
         combined_message = initial_message + f"File content:\n{truncated_file_content}\n"
 
-        # Padding token
-        meta_llama_1b_tokenizer.pad_token = meta_llama_1b_tokenizer.eos_token
-
         # === Updated tokenization: include padding, truncation, and attention mask ===
-        inputs = meta_llama_1b_tokenizer(
-            combined_message,
-            return_tensors="pt",
-            padding=True,             # pad to batch max
-            truncation=True,          # cut off anything beyond context window
-            max_length=meta_llama_1b_model.config.max_position_embeddings,
-            return_attention_mask=True
-        )
+        inputs = meta_llama_1b_tokenizer(combined_message, return_tensors="pt")
 
         # === Updated generate: pass attention_mask and pad_token_id ===
         try:
