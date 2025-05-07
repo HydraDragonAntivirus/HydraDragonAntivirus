@@ -5592,7 +5592,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
         combined_message = initial_message + f"File content:\n{truncated_file_content}\n"
 
         # Padding token
-        meta_llama_1b_tokenizer.pad_token = tokenizer.eos_token
+        meta_llama_1b_tokenizer.pad_token = meta_llama_1b_tokenizer.eos_token
 
         # === Updated tokenization: include padding, truncation, and attention mask ===
         inputs = meta_llama_1b_tokenizer(
