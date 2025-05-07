@@ -7038,11 +7038,24 @@ def monitor_memory_changes(change_threshold_bytes=0):
                 last_rss[pid] = rss
                 logging.info(f"Memory change detected: PID={pid}, RSS={rss}")
 
+                # Only analyze processes where we can retrieve the executable path
                 try:
-                    saved_file = analyze_process_memory(pid)
+                    exe_path = proc.exe()
+                    logging.info(f"Executable path for PID {pid}: {exe_path}")
+                except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+                    logging.warning(
+                        f"Skipping PID {pid}: cannot retrieve executable path ({e})"
+                    )
+                    continue
+
+                # At this point exe_path is guaranteed non-None
+                logging.info(f"Analyzing process executable: {exe_path}")
+
+                try:
+                    saved_file = analyze_process_memory(exe_path)
                 except Exception as e:
                     logging.error(
-                        f"analyze_process_memory failed for PID={pid}: {e}"
+                        f"analyze_process_memory failed for {exe_path}: {e}"
                     )
                     continue
 
