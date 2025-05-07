@@ -7047,9 +7047,7 @@ def monitor_memory_changes(change_threshold_bytes=0):
                     exe_path = proc.exe()
                     logging.info(f"Executable path for PID {pid}: {exe_path}")
                 except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-                    logging.warning(
-                        f"Skipping PID {pid}: cannot retrieve executable path ({e})"
-                    )
+                    logging.info(f"Skipping PID {pid}: cannot retrieve executable path ({e})")
                     continue
 
                 # At this point exe_path is guaranteed non-None
