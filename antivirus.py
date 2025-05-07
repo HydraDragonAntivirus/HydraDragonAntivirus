@@ -2665,7 +2665,7 @@ def fetch_html(url, return_file_path=False):
     try:
         # Checking for valid IP
         if not is_valid_ip(url):
-            logging.warning(f"Invalid or disallowed IP address in URL: {url}")
+            logging.info(f"Invalid or disallowed IP address in URL: {url}")
             return ("", None) if return_file_path else ""
 
         safe_url = ensure_http_prefix(url)
