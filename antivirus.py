@@ -191,6 +191,10 @@ import string
 logging.info(f"string module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import chardet
+logging.info(f"chardet module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import zlib
 logging.info(f"zlib module loaded in {time.time() - start_time:.6f} seconds")
 
