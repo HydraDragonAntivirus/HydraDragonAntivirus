@@ -5687,7 +5687,6 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
 
         # For pycdas decompiled files: save the extracted source code with a .py extension
         if united_python_code_flag:
-            pycdas_meta_llama_dir = os.path.join(python_source_code_dir, "united_meta_llama")
             meta_llama_source_filename = os.path.splitext(os.path.basename(file_path))[0] + "_meta_llama.py"
             meta_llama_source_path = os.path.join(pycdas_meta_llama_dir, meta_llama_source_filename)
             try:
