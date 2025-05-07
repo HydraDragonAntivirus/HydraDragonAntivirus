@@ -3219,6 +3219,15 @@ class RealTimeWebProtectionHandler:
         return self.domain_ip_to_file_map.get(entity)
 
     def handle_detection(self, entity_type, entity_value, detection_type=None):
+        """
+        Handle a detection event for a given entity (domain, IP, URL).
+        Only notify if there is a non-empty entity value and it maps to a file or critical path.
+        """
+        # Early exit if entity_value is empty or None
+        if not entity_value:
+            logging.info(f"handle_detection called with empty entity_value for type '{entity_type}'. Skipping.")
+            return
+
         file_path = self.map_domain_ip_to_file(entity_value)
         notify_info = {
             'domain': None,
@@ -3230,20 +3239,27 @@ class RealTimeWebProtectionHandler:
         }
 
         try:
+            # Determine message and notification fields
             if file_path and is_related_to_critical_paths(file_path):
+                # Critical path detection
                 message = f"{entity_type.capitalize()} {entity_value} is related to a critical path: {file_path}"
                 if detection_type:
                     message = f"{detection_type} {message}"
                 logging.warning(message)
                 logging.info(message)
+
                 notify_info[entity_type] = entity_value
                 notify_info['file_path'] = file_path
+
             else:
+                # Non-critical or no file mapping
                 if file_path:
                     message = (
                         f"{entity_type.capitalize()} {entity_value} is not related to critical paths "
                         f"but associated with file path: {file_path}"
                     )
+                    notify_info[entity_type] = entity_value
+                    notify_info['file_path'] = file_path
                 else:
                     message = (
                         f"{entity_type.capitalize()} {entity_value} is not related to critical paths "
@@ -3253,7 +3269,11 @@ class RealTimeWebProtectionHandler:
                     message = f"{detection_type} {message}"
                 logging.info(message)
 
-            if any(notify_info.values()):
+            # Only notify if there's meaningful data (ignore detection_type alone)
+            has_data = any(
+                notify_info[field] for field in ['domain', 'ipv4_address', 'ipv6_address', 'url', 'file_path']
+            )
+            if has_data:
                 notify_user_for_web(**notify_info)
 
         except Exception as ex:
