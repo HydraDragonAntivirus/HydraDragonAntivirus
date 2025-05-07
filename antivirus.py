@@ -6811,7 +6811,7 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                 logging.info(f"File {file_path} is a valid PE file.")
                 pe_file = True
 
-            # Call analyze_process_memory if the file is a PE file
+            # Operation of the PE file
             if pe_file:
                 logging.info(f"File {file_path} is identified as a PE file.")
 
