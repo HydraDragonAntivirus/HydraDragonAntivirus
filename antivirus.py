@@ -5679,7 +5679,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
         if malware.lower() in ["maybe", "yes"]:
             try:
                 if HiJackThis_flag:
-                    notify_user_for_meta_llama(file_path, virus_name, malware, HiJackThis_flag=true)
+                    notify_user_for_meta_llama(main_file_path, virus_name, malware, HiJackThis_flag=true)
                 else:
                     notify_user_for_meta_llama(file_path, virus_name, malware)
             except Exception as ex:
@@ -5699,8 +5699,16 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
             except Exception as ex:
                 logging.error(f"Error writing Meta Llama-3.2-1B extracted source code to {meta_llama_source_path}: {ex}")
 
+        # Return only if HiJackThis_flag is set
+        if HiJackThis_flag:
+            return final_response
+        # Otherwise, log and do not return (implicit None)
+        logging.info("Meta Llama analysis completed, but HiJackThis_flag not set; no return to caller.")
+
     except Exception as ex:
         logging.error(f"An unexpected error occurred in scan_file_with_meta_llama: {ex}")
+        if HiJackThis_flag:
+            return f"[!] Llama analysis failed: {ex}"
 
 def extract_and_return_pyinstaller(file_path):
     """
@@ -8408,10 +8416,22 @@ class Worker(QThread):
                 post_analysis_lines = f.readlines()
             diff = difflib.unified_diff(pre_analysis_lines, post_analysis_lines, fromfile='PreAnalysis', tofile='PostAnalysis', lineterm='')
             diff_output = list(diff)
-            self.output_signal.emit("[*] Diff computation completed:")
-            self.output_signal.emit("\n".join(diff_output))
+
+            # Write diff to a file for Llama processing
+            diff_file = os.path.join(log_directory, 'HiJackThis_diff.log')
+            with open(diff_file, 'w', encoding='utf-8') as df:
+                df.writelines(line + '\n' for line in diff_output)
+
+            # Invoke Llama analysis with HiJackThis_flag
+            llama_response = scan_file_with_meta_llama(diff_file, HiJackThis_flag=True)
+
+            # Emit results
+            self.output_signal.emit("[*] Diff computation completed. Llama analysis:")
+            for line in llama_response.splitlines():
+                self.output_signal.emit(line)
+
         except Exception as e:
-            self.output_signal.emit(f"[!] Error computing diff: {str(e)}")
+            self.output_signal.emit(f"[!] Error computing diff or Llama analysis: {str(e)}")
 
     def update_definitions(self):
         try:
