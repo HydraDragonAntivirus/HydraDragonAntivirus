@@ -8465,22 +8465,23 @@ class Worker(QThread):
             return
         try:
             with open(pre_analysis_log_path, encoding='utf-8', errors='ignore') as f:
-                pre_analysis_lines = f.readlines()
+                pre_lines = f.readlines()
             with open(post_analysis_log_path, encoding='utf-8', errors='ignore') as f:
-                post_analysis_lines = f.readlines()
-            diff = difflib.unified_diff(pre_analysis_lines, post_analysis_lines, fromfile='PreAnalysis', tofile='PostAnalysis', lineterm='')
-            diff_output = list(diff)
+                post_lines = f.readlines()
 
-            # Write diff to a file for Llama processing
+            # Use ndiff for better line-by-line granularity
+            diff = difflib.ndiff(pre_lines, post_lines)
+
+            # Only include lines that are different
+            filtered_diff = [line for line in diff if line.startswith(('+', '-'))]
+
             diff_file = os.path.join(log_directory, 'HiJackThis_diff.log')
             with open(diff_file, 'w', encoding='utf-8') as df:
-                df.writelines(line + '\n' for line in diff_output)
+                df.writelines(filtered_diff)
 
-            # Invoke Llama analysis with HiJackThis_flag
             llama_response = scan_file_with_meta_llama(diff_file, HiJackThis_flag=True)
 
-            # Emit results
-            self.output_signal.emit("[*] Diff computation completed. Llama analysis:")
+            self.output_signal.emit("[*] Filtered diff analysis completed. Llama response:")
             for line in llama_response.splitlines():
                 self.output_signal.emit(line)
 
