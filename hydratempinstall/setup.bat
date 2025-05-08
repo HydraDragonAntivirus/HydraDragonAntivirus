@@ -96,29 +96,28 @@ if not exist "%DestIni%" (
 > "%TmpDest%" (
   for /f "usebackq delims=" %%L in ("%DestIni%") do (
     set "line=%%L"
+    set "skip_line="
 
     rem — Force BlockNetworkFiles=n and inject the DLL line
     if /i "!line:~0,18!"=="BlockNetworkFiles=" (
       echo BlockNetworkFiles=n
       echo %InjectLine%
-      goto :skip
+      set "skip_line=1"
     )
 
     rem — Remove ClosedFilePath lines
     if /i "!line:~0,15!"=="ClosedFilePath=" (
-      goto :skip
+      set "skip_line=1"
     )
 
     rem — Otherwise, copy unchanged
-    echo !line!
-
-    :skip
+    if not defined skip_line echo !line!
   )
 )
 
 move /Y "%TmpDest%" "%DestIni%" >nul && (
   echo Sandboxie.ini patched successfully.
-) || (
+) else (
   echo ERROR: Failed to patch Sandboxie.ini.
 )
 
