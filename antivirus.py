@@ -6705,7 +6705,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
         # choose destination based on origin
         if file_path.startswith(de4dot_sandboxie_dir):
             _copy_to_dest(file_path, de4dot_sandboxie_dir, de4dot_extracted_dir)
-        else:
+        elif file_path.startswith(sandboxie_folder):
             _copy_to_dest(file_path, src_root, copied_sandbox_files_dir)
 
         # Extract the file name
