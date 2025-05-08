@@ -600,12 +600,12 @@ def is_plain_text(data: bytes,
     if not data:
         return True
 
-    # 1) Null‐byte check
+    # 1) Null byte check
     nulls = data.count(0)
     if nulls / len(data) > null_byte_threshold:
         return False
 
-    # 2) Printable‐char check
+    # 2) Printable char check
     printable = set(bytes(string.printable, 'ascii'))
     count_printable = sum(b in printable for b in data)
     if count_printable / len(data) < printable_threshold:
@@ -6723,28 +6723,28 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
         else:
              die_output = analyze_file_with_die(file_path)
 
-            # Perform ransomware alert check
-            if is_file_unknown(die_output):
-                ransomware_alert(file_path)
-                if mega_optimization_with_anti_false_positive:
-                    logging.info(f"We stopped the analysis because the file contains unknown data and is not executable, but that doesn't mean it doesn't contain malicious data: {file_path}")
-                    return False
-            else:
-                # Attempt to extract the file
-                try:
-                    logging.info(f"Attempting to extract file {file_path}...")
-                    extracted_files = extract_all_files_with_7z(file_path, nsis_flag)
+        # Perform ransomware alert check
+        if is_file_unknown(die_output):
+            ransomware_alert(file_path)
+            if mega_optimization_with_anti_false_positive:
+                logging.info(f"We stopped the analysis because the file contains unknown data and is not executable, but that doesn't mean it doesn't contain malicious data: {file_path}")
+                return False
+        else:
+            # Attempt to extract the file
+            try:
+                logging.info(f"Attempting to extract file {file_path}...")
+                extracted_files = extract_all_files_with_7z(file_path, nsis_flag)
 
-                    if extracted_files:
-                        logging.info(f"Extraction successful for {file_path}. Scanning extracted files...")
-                        # Recursively scan each extracted file
-                        for extracted_file in extracted_files:
-                            logging.info(f"Scanning extracted file: {extracted_file}")
-                            scan_and_warn(extracted_file)
+                if extracted_files:
+                    logging.info(f"Extraction successful for {file_path}. Scanning extracted files...")
+                    # Recursively scan each extracted file
+                    for extracted_file in extracted_files:
+                        logging.info(f"Scanning extracted file: {extracted_file}")
+                        scan_and_warn(extracted_file)
 
-                    logging.info(f"File {file_path} is not a valid archive or extraction failed. Proceeding with scanning.")
-                except Exception as extraction_error:
-                    logging.error(f"Error during extraction of {file_path}: {extraction_error}")
+                logging.info(f"File {file_path} is not a valid archive or extraction failed. Proceeding with scanning.")
+            except Exception as extraction_error:
+                logging.error(f"Error during extraction of {file_path}: {extraction_error}")
 
         # Wrap file_path in a Path once, up front
         wrap_file_path = Path(file_path)
