@@ -124,6 +124,10 @@ import win32con
 logging.info(f"win32con module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import win32com.client
+logging.info(f"win32com.client module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import numpy as np
 logging.info(f"numpy module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -6663,25 +6667,70 @@ def extract_pe_sections(file_path: str):
         logging.error(f"An error occurred: {e}")
         return []  # Return an empty list in case of error
 
+def create_shadow_copy(drive_letter):
+    """
+    Create a Volume Shadow Copy (VSS) for a given drive (e.g., 'C:').
+    Returns the shadow copy root path on success, or None on failure.
+    """
+    try:
+        vss = win32com.client.Dispatch("VssCoordinator")
+        vss.Initialize()
+        shadow = vss.CreateShadowCopy(drive_letter)
+        # On some Windows versions you might need shadow.GetShadowCopyDeviceObject()
+        shadow_path = shadow.GetShadowCopyID()  
+        logging.info(f"Shadow copy created: {shadow_path}")
+        return shadow_path
+    except Exception as e:
+        logging.error(f"Error creating shadow copy for {drive_letter}: {e}")
+        return None
+
+def copy_from_shadow(shadow_root, rel_path, dest_path):
+    """
+    Copy a file from the shadow copy. Returns True on success, False on failure.
+    """
+    shadow_file = os.path.join(shadow_root, rel_path)
+    if not os.path.exists(shadow_file):
+        logging.error(f"Not found in shadow: {shadow_file}")
+        return False
+    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    try:
+        shutil.copy2(shadow_file, dest_path)
+        return True
+    except Exception as e:
+        logging.error(f"Failed to copy from shadow: {e}")
+        return False
+
 def _copy_to_dest(file_path, src_root, dest_root):
     """
     Copy file_path (under src_root) into dest_root, preserving subpath.
-    If an error occurs during copy, force the copy.
+    Returns the copied-destination path on success, or None on failure.
+    Uses a Volume Shadow Copy on Windows to handle locked files.
     """
+    if not os.path.exists(file_path):
+        logging.error(f"Source does not exist: {file_path}")
+        return None
+
     rel_path = os.path.relpath(file_path, src_root)
     dest_path = os.path.join(dest_root, rel_path)
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
 
+    # Try normal copy first
     try:
         shutil.copy2(file_path, dest_path)
-        logging.info(f"Copied '{file_path}' to '{dest_path}'")
+        logging.info(f"Copied '{file_path}' → '{dest_path}'")
+        return dest_path
     except Exception as e:
-        logging.error(f"Copy failed: {e}. Forcing copy...")
-        try:
-            shutil.copyfile(file_path, dest_path)  # fallback without metadata
-            logging.info(f"Forced copy '{file_path}' to '{dest_path}'")
-        except Exception as e2:
-            logging.error(f"Force copy also failed: {e2}")
+        logging.warning(f"Normal copy failed ({e}), attempting shadow copy…")
+
+    # Fallback: shadow copy
+    drive = os.path.splitdrive(file_path)[0]  # e.g. "C:"
+    shadow_root = create_shadow_copy(drive)
+    if shadow_root and copy_from_shadow(shadow_root, rel_path, dest_path):
+        logging.info(f"Copied from shadow '{file_path}' → '{dest_path}'")
+        return dest_path
+
+    logging.error(f"All copy methods failed for: {file_path}")
+    return None
 
 # --- Main Scanning Function ---
 def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, flag=False, flag_debloat=False, flag_obfuscar=False, flag_de4dot=False, flag_fernflower=False, nsis_flag=False):
@@ -6714,9 +6763,11 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
 
         # choose destination based on origin
         if file_path.startswith(de4dot_sandboxie_dir):
-            _copy_to_dest(file_path, de4dot_sandboxie_dir, de4dot_extracted_dir)
+            dest = _copy_to_dest(file_path, de4dot_sandboxie_dir, de4dot_extracted_dir)
+            scan_and_warn(dest)
         elif file_path.startswith(sandboxie_folder):
-            _copy_to_dest(file_path, src_root, copied_sandbox_files_dir)
+            dest = _copy_to_dest(file_path, src_root, copied_sandbox_files_dir)
+            scan_and_warn(dest)
 
         # Extract the file name
         file_name = os.path.basename(file_path)
@@ -8160,6 +8211,12 @@ def perform_sandbox_analysis(file_path):
         main_file_path = file_path
 
         monitor_message = MonitorMessageCommandLine()
+
+        src_root = os.path.dirname(file_path)
+
+        main_dest = _copy_to_dest(file_path, src_root, copied_sandbox_files_dir)
+
+        threading.Thread(target=scan_and_warn, args=(main_dest,)).start()
 
         threading.Thread(target=monitor_memory_changes, name="MemoryWatcher").start()
 
