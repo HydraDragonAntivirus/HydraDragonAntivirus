@@ -638,13 +638,13 @@ def is_valid_ip(ip_string: str) -> bool:
         ip_core, sep, port = ip_string.partition(']')
         if sep and port.startswith(':') and port[1:].isdigit():
             ip_string = ip_core.lstrip('[')
-            logging.debug(f"Stripped port from bracketed IPv6: {original!r} → {ip_string!r}")
+            logging.debug(f"Stripped port from bracketed IPv6: {original!r} {ip_string!r}")
     # IPv4 or unbracketed IPv6: split on last colon only if it looks like a port
     elif ip_string.count(':') == 1:
         ip_part, port = ip_string.rsplit(':', 1)
         if port.isdigit():
             ip_string = ip_part
-            logging.debug(f"Stripped port from IPv4/unbracketed: {original!r} → {ip_string!r}")
+            logging.debug(f"Stripped port from IPv4/unbracketed: {original!r} {ip_string!r}")
     # else: leave IPv6 with multiple colons intact
 
     logging.info(f"Validating IP: {ip_string!r}")
@@ -1403,7 +1403,7 @@ def analyze_bound_imports(pe) -> List[Dict[str, Any]]:
                         }
                         bound_import['references'].append(reference)
                 else:
-                    logging.warning(f"Bound import {bound_import['name']} has no references.")
+                    logging.info(f"Bound import {bound_import['name']} has no references.")
 
                 bound_imports.append(bound_import)
 
@@ -6717,16 +6717,16 @@ def _copy_to_dest(file_path, src_root, dest_root):
     # Try normal copy first
     try:
         shutil.copy2(file_path, dest_path)
-        logging.info(f"Copied '{file_path}' → '{dest_path}'")
+        logging.info(f"Copied '{file_path}' '{dest_path}'")
         return dest_path
     except Exception as e:
-        logging.warning(f"Normal copy failed ({e}), attempting shadow copy…")
+        logging.error(f"Normal copy failed ({e}), attempting shadow copy")
 
     # Fallback: shadow copy
     drive = os.path.splitdrive(file_path)[0]  # e.g. "C:"
     shadow_root = create_shadow_copy(drive)
     if shadow_root and copy_from_shadow(shadow_root, rel_path, dest_path):
-        logging.info(f"Copied from shadow '{file_path}' → '{dest_path}'")
+        logging.info(f"Copied from shadow '{file_path}' '{dest_path}'")
         return dest_path
 
     logging.error(f"All copy methods failed for: {file_path}")
