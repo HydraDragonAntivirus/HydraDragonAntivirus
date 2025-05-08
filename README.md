@@ -9,10 +9,16 @@
 
 Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my machine learning AI, Behaviour analysis, NLP-Based detection, website signatures, Ghidra and Snort etc.
 
+## MEGA IMPORTANT
+- You have to set (manually of course) this part mega_optimisation_with_anti_false_positive=True if you don't care about false positives and optimisation. This setting is true because every antivirus on virustotal avoids false positives this way.
+- Pe header removed: https://www.virustotal.com/gui/file/9b7e921e971fe7523ba83a4599b4006ad214854eb043372129e4f5a68c5a427f
+- Original: https://www.virustotal.com/gui/file/1ef6c1a4dfdc39b63bfe650ca81ab89510de6c0d3d7c608ac5be80033e559326
+- What is the difference and why does YARA still flag it as malware? Because your YARA rule doesn't check for unknown file types and I only removed the pe header and went to detections 0. So this god mode rule will save this antivirus right now!
+
 ## IMPORTANT QUESTION TO MYSELF
 **Why don't you use NictaSoft and GridinSoft cloud for free and unlimited?**
 
-- That's a very important question, and it could significantly boost my antivirus — potentially making it one of the top antiviruses ever. However, there are some problems. These services are not open source unless you pay. We're not only focused on detection, but also committed to maintaining open-source principles.
+- That's a very important question, and it could significantly boost my antivirus, potentially making it one of the top antiviruses ever. However, there are some problems. These services are not open source unless you pay. We're not only focused on detection, but also committed to maintaining open-source principles.
 
 ## Download Machine Learning Malware And Benign Database
 - **Malware Database:** [Download Link](https://drive.google.com/file/d/1QwdxdwX_nH-oF-5hVTkbTuFkrwUfR0-h)
@@ -176,7 +182,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Just run the shortcut from the desktop, then run advanced dynamic and static analysis on a file.
 
 **How good is it?**
-- It's very good at static analysis, better than Dr.Web and Comodo, but Norton and Kaspersky are better than my product at static analysis. In dynamic analysis, it is excellent at detecting unknown malware and clearly better than ClamAV in static analysis. ClamAV doesn't have dynamic analysis. It's the best Turkish and open source malware analysis product but it's very aggressive.
+- It's very good at static analysis, better than Dr.Web and Comodo, but Norton and Kaspersky are on par with my product at static analysis. In dynamic analysis, it is excellent at detecting unknown malware and clearly better than ClamAV in static analysis. ClamAV doesn't have dynamic analysis. It's the best Turkish and open source malware analysis product but it's very aggressive.
 
 **Why does my antivirus detect this as malware?**
 - It's a false positive. It's contains the website, HIPS signatures without obfuscation. It's a fully open source antivirus product.

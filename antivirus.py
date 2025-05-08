@@ -6674,7 +6674,7 @@ def _copy_to_dest(file_path, src_root, dest_root):
     logging.info(f"Copied '{file_path}' '{dest_path}'")
 
 # --- Main Scanning Function ---
-def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False, flag_de4dot=False, flag_fernflower=False, nsis_flag=False):
+def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, flag=False, flag_debloat=False, flag_obfuscar=False, flag_de4dot=False, flag_fernflower=False, nsis_flag=False):
     """
     Scans a file for potential issues.
 
@@ -6722,6 +6722,29 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
              die_output = "Binary\n    Format: plain text"
         else:
              die_output = analyze_file_with_die(file_path)
+
+            # Perform ransomware alert check
+            if is_file_unknown(die_output):
+                ransomware_alert(file_path)
+                if mega_optimization_with_anti_false_positive:
+                    logging.info(f"We stopped the analysis because the file contains unknown data and is not executable, but that doesn't mean it doesn't contain malicious data: {file_path}")
+                    return False
+            else:
+                # Attempt to extract the file
+                try:
+                    logging.info(f"Attempting to extract file {file_path}...")
+                    extracted_files = extract_all_files_with_7z(file_path, nsis_flag)
+
+                    if extracted_files:
+                        logging.info(f"Extraction successful for {file_path}. Scanning extracted files...")
+                        # Recursively scan each extracted file
+                        for extracted_file in extracted_files:
+                            logging.info(f"Scanning extracted file: {extracted_file}")
+                            scan_and_warn(extracted_file)
+
+                    logging.info(f"File {file_path} is not a valid archive or extraction failed. Proceeding with scanning.")
+                except Exception as extraction_error:
+                    logging.error(f"Error during extraction of {file_path}: {extraction_error}")
 
         # Wrap file_path in a Path once, up front
         wrap_file_path = Path(file_path)
@@ -6842,26 +6865,6 @@ def scan_and_warn(file_path, flag=False, flag_debloat=False, flag_obfuscar=False
                                 logging.error(f"Invalid format in homepage change file: {line}")
                 except Exception as ex:
                     logging.error(f"Error processing homepage change file {file_path}: {ex}")
-
-            # Perform ransomware alert check
-            if is_file_unknown(die_output):
-                ransomware_alert(file_path)
-            else:
-                # Attempt to extract the file
-                try:
-                    logging.info(f"Attempting to extract file {file_path}...")
-                    extracted_files = extract_all_files_with_7z(file_path, nsis_flag)
-
-                    if extracted_files:
-                        logging.info(f"Extraction successful for {file_path}. Scanning extracted files...")
-                        # Recursively scan each extracted file
-                        for extracted_file in extracted_files:
-                            logging.info(f"Scanning extracted file: {extracted_file}")
-                            scan_and_warn(extracted_file)
-
-                    logging.info(f"File {file_path} is not a valid archive or extraction failed. Proceeding with scanning.")
-                except Exception as extraction_error:
-                    logging.error(f"Error during extraction of {file_path}: {extraction_error}")
 
             # Additional checks for PE files
             if is_pe_file_from_output(die_output):
