@@ -1,8 +1,8 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: ───────────────────────────────────────────────────────────────────────────
-:: 1. Copy files from clamavconfig to C:\Program Files\ClamAV
+rem ───────────────────────────────────────────────────────────────────────────
+rem 1. Copy files from clamavconfig to C:\Program Files\ClamAV
 if exist "C:\Program Files\HydraDragonAntivirus\clamavconfig" (
     xcopy /Y "C:\Program Files\HydraDragonAntivirus\clamavconfig\*.*" "C:\Program Files\ClamAV\" 
     rmdir /s /q "C:\Program Files\HydraDragonAntivirus\clamavconfig"
@@ -10,7 +10,7 @@ if exist "C:\Program Files\HydraDragonAntivirus\clamavconfig" (
     echo clamavconfig directory not found.
 )
 
-:: 2. Copy files from hipsconfig to C:\Snort\etc
+rem 2. Copy files from hipsconfig to C:\Snort\etc
 if exist "C:\Program Files\HydraDragonAntivirus\hipsconfig" (
     xcopy /Y "C:\Program Files\HydraDragonAntivirus\hipsconfig\*.*" "C:\Snort\etc\" 
     rmdir /s /q "C:\Program Files\HydraDragonAntivirus\hipsconfig"
@@ -18,7 +18,7 @@ if exist "C:\Program Files\HydraDragonAntivirus\hipsconfig" (
     echo hipsconfig directory not found.
 )
 
-:: 3. Copy specific files from hips to C:\Snort\rules
+rem 3. Copy specific files from hips to C:\Snort\rules
 if exist "C:\Program Files\HydraDragonAntivirus\hips" (
     xcopy /Y "C:\Program Files\HydraDragonAntivirus\hips\snort2.9.rules" "C:\Snort\rules\" 
     xcopy /Y "C:\Program Files\HydraDragonAntivirus\hips\snort2.rules"   "C:\Snort\rules\" 2>nul
@@ -28,7 +28,7 @@ if exist "C:\Program Files\HydraDragonAntivirus\hips" (
     echo hips directory not found.
 )
 
-:: 4. Copy database files to C:\Program Files\ClamAV\database
+rem 4. Copy database files to C:\Program Files\ClamAV\database
 if exist "C:\Program Files\HydraDragonAntivirus\database" (
     xcopy /Y "C:\Program Files\HydraDragonAntivirus\database\*.*" "C:\Program Files\ClamAV\database\" 
     rmdir /s /q "C:\Program Files\HydraDragonAntivirus\database"
@@ -36,7 +36,7 @@ if exist "C:\Program Files\HydraDragonAntivirus\database" (
     echo database directory not found.
 )
 
-:: 5. Update ClamAV virus definitions
+rem 5. Update ClamAV virus definitions
 echo Updating ClamAV virus definitions...
 "C:\Program Files\ClamAV\freshclam.exe"
 if %errorlevel% equ 0 (
@@ -45,7 +45,7 @@ if %errorlevel% equ 0 (
     echo Failed to update ClamAV virus definitions.
 )
 
-:: 6. Install clamd service
+rem 6. Install clamd service
 echo Installing clamd service...
 "C:\Program Files\ClamAV\clamd.exe" --install
 if %errorlevel% equ 0 (
@@ -54,7 +54,7 @@ if %errorlevel% equ 0 (
     echo Failed to install clamd service.
 )
 
-:: 7. Upgrade pip
+rem 7. Upgrade pip
 echo Upgrading pip...
 py.exe -3.12 -m pip install --upgrade pip
 if %errorlevel% equ 0 (
@@ -63,7 +63,7 @@ if %errorlevel% equ 0 (
     echo Failed to upgrade pip.
 )
 
-:: 8. Install Python requirements
+rem 8. Install Python requirements
 echo Installing Python requirements...
 py.exe -3.12 -m pip install -r "C:\Program Files\HydraDragonAntivirus\requirements.txt"
 if %errorlevel% equ 0 (
@@ -72,7 +72,7 @@ if %errorlevel% equ 0 (
     echo Failed to install Python requirements.
 )
 
-:: 9. Install spaCy English medium model
+rem 9. Install spaCy English medium model
 echo Installing spaCy 'en_core_web_md' model...
 py.exe -3.12 -m spacy download en_core_web_md
 if %errorlevel% equ 0 (
