@@ -6666,12 +6666,22 @@ def extract_pe_sections(file_path: str):
 def _copy_to_dest(file_path, src_root, dest_root):
     """
     Copy file_path (under src_root) into dest_root, preserving subpath.
+    If an error occurs during copy, force the copy.
     """
     rel_path = os.path.relpath(file_path, src_root)
     dest_path = os.path.join(dest_root, rel_path)
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-    shutil.copy2(file_path, dest_path)
-    logging.info(f"Copied '{file_path}' '{dest_path}'")
+
+    try:
+        shutil.copy2(file_path, dest_path)
+        logging.info(f"Copied '{file_path}' to '{dest_path}'")
+    except Exception as e:
+        logging.error(f"Copy failed: {e}. Forcing copy...")
+        try:
+            shutil.copyfile(file_path, dest_path)  # fallback without metadata
+            logging.info(f"Forced copy '{file_path}' to '{dest_path}'")
+        except Exception as e2:
+            logging.error(f"Force copy also failed: {e2}")
 
 # --- Main Scanning Function ---
 def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, flag=False, flag_debloat=False, flag_obfuscar=False, flag_de4dot=False, flag_fernflower=False, nsis_flag=False):
