@@ -81,52 +81,30 @@ if %errorlevel% equ 0 (
     echo Failed to install spaCy model 'en_core_web_md'.
 )
 
-:: ───────────────────────────────────────────────────────────────────────────
-echo --- Patching C:\Windows\Sandboxie.ini ---
+rem Path to SbieIni.exe
+set "SbieIniPath=C:\Program Files\Sandboxie\SbieIni.exe"
+set "SandboxName=DefaultBox"  rem We're modifying the DefaultBox sandbox.
+set "InjectLine=C:\Program Files\HydraDragonAntivirus\sandboxie_plugins\SbieHide\SbieHide.x64.dll"
 
-set "DestIni=C:\Windows\Sandboxie.ini"
-set "TmpDest=%DestIni%.tmp"
-set "InjectLine=InjectDll64=C:\Program Files\HydraDragonAntivirus\sandboxie_plugins\SbieHide\SbieHide.x64.dll"
-
-if not exist "%DestIni%" (
-    echo ERROR: Sandboxie.ini not found.
-    goto End
+rem Check if SbieIni.exe exists
+if not exist "%SbieIniPath%" (
+    echo ERROR: %SbieIniPath% not found.
+    goto :end
 )
 
-> "%TmpDest%" (
-  for /f "usebackq delims=" %%L in ("%DestIni%") do (
-    set "line=%%L"
-    set "skip_line="
+rem Modify BlockNetworkFiles for DefaultBox
+echo Modifying BlockNetworkFiles to 'n' for %SandboxName%...
+"%SbieIniPath%" set %SandboxName% BlockNetworkFiles n
 
-    rem — Force BlockNetworkFiles=n and inject the DLL line
-    if /i "!line:~0,18!"=="BlockNetworkFiles=" (
-      echo BlockNetworkFiles=n
-      echo %InjectLine%
-      set "skip_line=1"
-    )
+rem Add InjectDll64 for DefaultBox
+echo Adding InjectDll64 for %SandboxName%...
+"%SbieIniPath%" set %SandboxName% InjectDll64 "%InjectLine%"
 
-    rem — Remove ClosedFilePath lines
-    if /i "!line:~0,15!"=="ClosedFilePath=" (
-      set "skip_line=1"
-    )
+rem Remove ClosedFilePath for DefaultBox
+echo Removing ClosedFilePath for %SandboxName%...
+"%SbieIniPath%" set %SandboxName% ClosedFilePath "" 
 
-    rem — Otherwise, copy unchanged
-    if not defined skip_line echo !line!
-  )
-)
-
-move /Y "%TmpDest%" "%DestIni%" >nul && (
-  echo Sandboxie.ini patched successfully.
-) else (
-  echo ERROR: Failed to patch Sandboxie.ini.
-)
-
-:: Restart Sandboxie service
-echo Restarting Sandboxie service…
-net stop SbieSvc
-net start SbieSvc
-
-:End
-echo --- All tasks complete. Press any key to exit. ---
+echo Done.
+:end
 pause >nul
 endlocal
