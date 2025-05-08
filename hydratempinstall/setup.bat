@@ -45,7 +45,7 @@ if %errorlevel% equ 0 (
     echo Failed to update ClamAV virus definitions.
 )
 
-:: 6. Install or reinstall clamd service
+:: 6. Install clamd service
 echo Installing clamd service...
 "C:\Program Files\ClamAV\clamd.exe" --install
 if %errorlevel% equ 0 (
@@ -82,86 +82,71 @@ if %errorlevel% equ 0 (
 )
 
 :: ───────────────────────────────────────────────────────────────────────────
-echo --- Starting Sandboxie Configuration Update ---
+echo --- Patching C:\Windows\Sandboxie.ini ---
 
-set "SourceIni=C:\Program Files\HydraDragonAntivirus\SandboxieSettings\Sandboxie.ini"
 set "DestIni=C:\Windows\Sandboxie.ini"
 set "TmpDest=%DestIni%.tmp"
-set "SectionFile=%~dp0DefaultBox.section"
+set "InjectLine=InjectDll64=C:\Program Files\HydraDragonAntivirus\sandboxie_plugins\SbieHide\SbieHide.x64.dll"
 
-if not exist "%SourceIni%" (
-    echo ERROR: Source INI not found: "%SourceIni%"
-    goto SkipSandboxie
-)
 if not exist "%DestIni%" (
     echo ERROR: Destination INI not found: "%DestIni%"
-    goto SkipSandboxie
+    goto End
 )
 
-:: 10. Extract [DefaultBox] section from source
-> "%SectionFile%" (
+(
   set "inSection="
-  for /f "usebackq delims=" %%L in ("%SourceIni%") do (
-    set "line=%%L"
-    if /i "!line!"=="[DefaultBox]" (
-      set "inSection=1"
-    )
-    if defined inSection (
-      echo !line!
-      echo !line! | findstr /b "[" | findstr /i /v "[DefaultBox]" >nul && set "inSection="
-    )
-  )
-)
-
-:: 11. Rewrite destination INI, swapping in new section
-> "%TmpDest%" (
-  set "skipping="
   for /f "usebackq delims=" %%L in ("%DestIni%") do (
     set "line=%%L"
 
-    if /i "!line!"=="[DefaultBox]" (
-      set "skipping=1"
-      type "%SectionFile%"
-      goto :continue
-    )
-
-    if defined skipping (
-      echo !line! | findstr /b "[" >nul && (
-        set "skipping="
+    if not defined inSection (
+      rem Look for start of [DefaultBox]
+      if /i "!line!"=="[DefaultBox]" (
+        set "inSection=1"
+        echo !line!
+      ) else (
         echo !line!
       )
-      goto :continue
+    ) else (
+      rem We’re inside [DefaultBox]
+      rem If we hit a new section header, close out
+      echo !line! | findstr /b "[" >nul && (
+        set "inSection="
+        echo !line!
+        goto :continueLoop
+      )
+
+      rem Replace or enforce BlockNetworkFiles=n plus inject our DLL
+      echo !line! | findstr /i /b "BlockNetworkFiles=" >nul && (
+        echo BlockNetworkFiles=n
+        echo %InjectLine%
+        goto :continueLoop
+      )
+
+      rem Skip any ClosedFilePath line
+      echo !line! | findstr /i /b "ClosedFilePath=" >nul && (
+        goto :continueLoop
+      )
+
+      rem Otherwise, echo the original line
+      echo !line!
     )
 
-    echo !line!
-
-    :continue
+    :continueLoop
   )
-)
+) > "%TmpDest%"
 
 move /Y "%TmpDest%" "%DestIni%" >nul && (
-  echo [DefaultBox] section replaced successfully.
+  echo Sandboxie.ini patched successfully.
 ) || (
-  echo ERROR: Failed to update "%DestIni%".
+  echo ERROR: Failed to patch Sandboxie.ini.
 )
 
-:: Clean up extracted section file
-if exist "%SectionFile%" del /q "%SectionFile%"
-
-:SkipSandboxie
-:: 12. Remove the source settings folder
-if exist "C:\Program Files\HydraDragonAntivirus\SandboxieSettings" (
-    rmdir /s /q "C:\Program Files\HydraDragonAntivirus\SandboxieSettings"
-    echo SandboxieSettings folder deleted.
-) else (
-    echo SandboxieSettings folder not found.
-)
-
-:: 13. Restart Sandboxie service
+:: 10. Restart Sandboxie service
 echo Restarting Sandboxie service...
 net stop SbieSvc
 net start SbieSvc
 
+:End
 echo --- All tasks complete. Press any key to exit. ---
 pause >nul
 endlocal
