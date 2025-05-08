@@ -89,51 +89,32 @@ set "TmpDest=%DestIni%.tmp"
 set "InjectLine=InjectDll64=C:\Program Files\HydraDragonAntivirus\sandboxie_plugins\SbieHide\SbieHide.x64.dll"
 
 if not exist "%DestIni%" (
-    echo ERROR: Destination INI not found: "%DestIni%"
+    echo ERROR: Sandboxie.ini not found.
     goto End
 )
 
-(
-  set "inSection="
+> "%TmpDest%" (
   for /f "usebackq delims=" %%L in ("%DestIni%") do (
     set "line=%%L"
 
-    if not defined inSection (
-      rem Look for start of [DefaultBox]
-      if /i "!line!"=="[DefaultBox]" (
-        set "inSection=1"
-        echo !line!
-      ) else (
-        echo !line!
-      )
-    ) else (
-      rem We’re inside [DefaultBox]
-      rem If we hit a new section header, close out
-      echo !line! | findstr /b "[" >nul && (
-        set "inSection="
-        echo !line!
-        goto :continueLoop
-      )
-
-      rem Replace or enforce BlockNetworkFiles=n plus inject our DLL
-      echo !line! | findstr /i /b "BlockNetworkFiles=" >nul && (
-        echo BlockNetworkFiles=n
-        echo %InjectLine%
-        goto :continueLoop
-      )
-
-      rem Skip any ClosedFilePath line
-      echo !line! | findstr /i /b "ClosedFilePath=" >nul && (
-        goto :continueLoop
-      )
-
-      rem Otherwise, echo the original line
-      echo !line!
+    rem — Force BlockNetworkFiles=n and inject the DLL line
+    if /i "!line:~0,18!"=="BlockNetworkFiles=" (
+      echo BlockNetworkFiles=n
+      echo %InjectLine%
+      goto :skip
     )
 
-    :continueLoop
+    rem — Remove ClosedFilePath lines
+    if /i "!line:~0,15!"=="ClosedFilePath=" (
+      goto :skip
+    )
+
+    rem — Otherwise, copy unchanged
+    echo !line!
+
+    :skip
   )
-) > "%TmpDest%"
+)
 
 move /Y "%TmpDest%" "%DestIni%" >nul && (
   echo Sandboxie.ini patched successfully.
@@ -141,8 +122,8 @@ move /Y "%TmpDest%" "%DestIni%" >nul && (
   echo ERROR: Failed to patch Sandboxie.ini.
 )
 
-:: 10. Restart Sandboxie service
-echo Restarting Sandboxie service...
+:: Restart Sandboxie service
+echo Restarting Sandboxie service…
 net stop SbieSvc
 net start SbieSvc
 
