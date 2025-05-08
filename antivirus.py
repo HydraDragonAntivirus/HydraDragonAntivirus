@@ -128,6 +128,10 @@ import win32com.client
 logging.info(f"win32com.client module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import wmi
+logging.info(f"wmi module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import numpy as np
 logging.info(f"numpy module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -6669,19 +6673,22 @@ def extract_pe_sections(file_path: str):
 
 def create_shadow_copy(drive_letter):
     """
-    Create a Volume Shadow Copy (VSS) for a given drive (e.g., 'C:').
-    Returns the shadow copy root path on success, or None on failure.
+    Uses WMI to create a Volume Shadow Copy (VSS) for the given drive (e.g. 'C:').
+    Returns the shadow ID on success, or None on failure.
     """
     try:
-        vss = win32com.client.Dispatch("VssCoordinator")
-        vss.Initialize()
-        shadow = vss.CreateShadowCopy(drive_letter)
-        # On some Windows versions you might need shadow.GetShadowCopyDeviceObject()
-        shadow_path = shadow.GetShadowCopyID()  
-        logging.info(f"Shadow copy created: {shadow_path}")
-        return shadow_path
-    except Exception as e:
-        logging.error(f"Error creating shadow copy for {drive_letter}: {e}")
+        c = wmi.WMI(namespace='root\\cimv2')
+        # Note: Format of the Create method is (Volume, Context)
+        # Context "ClientAccessible" means the copy is exposed under a drive letter.
+        result, shadow_id = c.Win32_ShadowCopy.Create(Volume=drive_letter + "\\", Context="ClientAccessible")
+        if result == 0:
+            logging.info(f"Shadow copy created, ID = {shadow_id}")
+            return shadow_id
+        else:
+            logging.error(f"Failed to create shadow (WMI code {result})")
+            return None
+    except Exception:
+        logging.exception("Error creating shadow copy via WMI")
         return None
 
 def copy_from_shadow(shadow_root, rel_path, dest_path):
