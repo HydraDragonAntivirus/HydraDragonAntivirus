@@ -314,7 +314,7 @@ device = accelerator.device
 # Define the paths to the ghidra related directories
 inno_extract_dir = os.path.join(script_dir, "innoextract-1.9-windows")
 upx_dir = os.path.join(script_dir, "upx-5.0.1-win64")
-upx_path = os.path.join(script_dir, "upx.exe")
+upx_path = os.path.join(upx_dir, "upx.exe")
 upx_extracted_dir = os.path.join(script_dir, "upx_extracted_dir")
 inno_extract_path = os.path.join(inno_extract_dir, "innoextract.exe")
 inno_setup_extracted_dir = os.path.join(script_dir, "inno_setup_extracted")
