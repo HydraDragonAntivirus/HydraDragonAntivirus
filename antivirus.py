@@ -313,6 +313,9 @@ device = accelerator.device
 
 # Define the paths to the ghidra related directories
 inno_extract_dir = os.path.join(script_dir, "innoextract-1.9-windows")
+upx_dir = os.path.join(script_dir, "upx-5.0.1-win64")
+upx_path = os.path.join(script_dir, "upx.exe")
+upx_extracted_dir = os.path.join(script_dir, "upx_extracted_dir")
 inno_extract_path = os.path.join(inno_extract_dir, "innoextract.exe")
 inno_setup_extracted_dir = os.path.join(script_dir, "inno_setup_extracted")
 decompiled_dir = os.path.join(script_dir, "decompiled")
@@ -551,6 +554,7 @@ UBLOCK_REGEX = re.compile(
     r'^https:\/\/s[cftz]y?[ace][aemnu][a-z]{1,4}o[mn][a-z]{4,8}[iy][a-z]?\.com\/$'
 )
 
+os.makedirs(upx_extracted_dir, exist_ok=True)
 os.makedirs(ungarbler_dir, exist_ok=True)
 os.makedirs(ungarbler_string_dir, exist_ok=True)
 os.makedirs(resource_extractor_dir, exist_ok=True)
@@ -947,6 +951,18 @@ def is_file_unknown(die_output):
         logging.info("DIE output indicates an unknown file.")
         return True
     logging.info(f"DIE output does not indicate an unknown file: {die_output}")
+    return False
+
+def is_packer_upx_output(die_output):
+    """
+    Checks if DIE output indicates that the file is packed with UPX.
+    Looks for the marker 'Packer: UPX' (optionally with version/modifier).
+    """
+    if die_output and re.search(r"Packer:\s*UPX\b", die_output):
+        logging.info("DIE output indicates UPX packer.")
+        return True
+
+    logging.info(f"DIE output does not indicate UPX packer: {die_output}")
     return False
 
 def is_jar_file_from_output(die_output):
@@ -5410,6 +5426,8 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: It's a restored sandbox environment file.")
         elif file_path.startswith(decompiled_dir):
             logging.info(f"{file_path}: Decompiled.")
+        elif file_path.startswith(upx_extracted_dir):
+            logging.info(f"{file_path}: UPX extracted.")
         elif file_path.startswith(inno_setup_extracted_dir):
             logging.info(f"{file_path}: Inno Setup extracted.")
         elif file_path.startswith(nuitka_dir):
@@ -5489,6 +5507,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
             (lambda fp: fp.startswith(sandboxie_folder), f"It's a Sandbox environment file."),
             (lambda fp: fp.startswith(copied_sandbox_files_dir), f"It's a restored sandbox environment file."),
             (lambda fp: fp.startswith(decompiled_dir), f"Decompiled."),
+            (lambda fp: fp.startswith(upx_extracted_dir), f"UPX extracted."),
             (lambda fp: fp.startswith(inno_setup_extracted_dir), f"Inno Setup extracted."),
             (lambda fp: fp.startswith(nuitka_dir), f"Nuitka onefile extracted."),
             (lambda fp: fp.startswith(dotnet_dir), f".NET decompiled."),
@@ -6484,15 +6503,14 @@ def run_fernflower_decompiler(file_path, flag_fenflower=True):
         # Build the path to fernflower.jar.
         FernFlower_path = os.path.join(jar_decompiler_dir, "fernflower.jar")
         base_name = os.path.splitext(os.path.basename(file_path))[0]
-        FernFlower_base_dir = os.path.join(script_dir, "FernFlower_decompiled")
 
         # Find the next available numbered subfolder
         folder_number = 1
-        while os.path.exists(os.path.join(FernFlower_base_dir, f"{base_name}_{folder_number}")):
+        while os.path.exists(os.path.join(FernFlower_decompiled_dir, f"{base_name}_{folder_number}")):
             folder_number += 1
 
         # Final output dir: FernFlower_decompiled/<jarname>_N
-        FernFlower_output_dir = os.path.join(FernFlower_base_dir, f"{base_name}_{folder_number}")
+        FernFlower_output_dir = os.path.join(FernFlower_decompiled_dir, f"{base_name}_{folder_number}")
         Path(FernFlower_output_dir).mkdir(parents=True, exist_ok=True)
 
         command = ["java", "-jar", FernFlower_path, file_path, FernFlower_output_dir]
@@ -6587,11 +6605,10 @@ def extract_inno_setup(file_path):
         logging.info(f"Detected Inno Setup installer: {file_path}")
 
         # Create a unique output directory
-        base_dir = os.path.join(script_dir, "inno_setup_extracted")
         folder_number = 1
-        while os.path.exists(f"{base_dir}_{folder_number}"):
+        while os.path.exists(f"{inno_setup_extracted_dir}_{folder_number}"):
             folder_number += 1
-        output_dir = f"{base_dir}_{folder_number}"
+        output_dir = f"{inno_setup_extracted_dir}_{folder_number}"
         os.makedirs(output_dir, exist_ok=True)
 
         # Run innoextract to extract files
@@ -6635,6 +6652,54 @@ def is_inno_setup_archive_from_output(die_output):
 
     logging.info(f"DIE output does not indicate an Inno Setup installer: {die_output!r}")
     return False
+
+def extract_upx(file_path):
+    """
+    Unpacks a UPX-compressed executable using UPX.
+    Returns the path to the unpacked file, or None on failure.
+
+    :param file_path: Path to the UPX-packed executable (.exe, .dll, etc.)
+    :return: Path to the unpacked file, or None if unpacking failed.
+    """
+    try:
+        logging.info(f"Detected UPX-packed file: {file_path}")
+
+        # Create a unique output filename inside that directory
+        base_name = os.path.basename(file_path)
+        name, ext = os.path.splitext(base_name)
+        folder_number = 1
+        while True:
+            out_filename = f"{name}_unpacked{'' if folder_number == 1 else f'_{folder_number}'}{ext}"
+            output_path = os.path.join(upx_extracted_dir, out_filename)
+            if not os.path.exists(output_path):
+                break
+            folder_number += 1
+
+        # Run UPX to decompress
+        cmd = [
+            upx_path,
+            "-d",                 # decompress mode
+            file_path,
+            "-o", output_path     # output file
+        ]
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="ignore"
+        )
+        if result.returncode != 0:
+            logging.error(f"UPX unpack failed: {result.stderr.strip()}")
+            return None
+
+        logging.info(f"UPX unpacked file written to: {output_path}")
+        return output_path
+
+    except Exception as ex:
+        logging.error(f"Error unpacking UPX file {file_path}: {ex}")
+        return None
 
 def extract_pe_sections(file_path: str):
     try:
@@ -6833,9 +6898,18 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
             logging.info(
                 f"Flag set to True because '{file_path}' is inside the de4dot directory '{match}'"
         )
-       
+
+        if is_packer_upx_output(die_output):
+           upx_unpacked = extract_upx(file_path)
+           if upx_unpacked:
+              scan_and_warn(upx_unpacked)
+            else:
+                logging.error(f"Failed to unpack {file_path}")
+        else:
+            logging.info(f"Skipping non-UPX file: {file_path}")
+
         if is_nsis_from_output(die_output):
-           nsis_flag= False
+           nsis_flag= True
 
         # Detect Inno Setup installer
         if is_inno_setup_archive_from_output(die_output):
