@@ -5803,11 +5803,11 @@ def decompile_dotnet_file(file_path):
     try:
         logging.info(f"Detected .NET assembly: {file_path}")
 
-        # Create a unique directory for decompiled output
+        # Create a unique numbered subdirectory under dotnet_dir
         folder_number = 1
-        while os.path.exists(f"{dotnet_dir}_{folder_number}"):
+        while os.path.exists(os.path.join(dotnet_dir, str(folder_number))):
             folder_number += 1
-        dotnet_output_dir = f"{dotnet_dir}_{folder_number}"
+        dotnet_output_dir = os.path.join(dotnet_dir, str(folder_number))
         os.makedirs(dotnet_output_dir, exist_ok=True)
 
         # Run ILSpy decompilation command
