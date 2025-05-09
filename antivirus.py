@@ -6902,9 +6902,9 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
         if is_packer_upx_output(die_output):
             upx_unpacked = extract_upx(file_path)
             if upx_unpacked:
-              scan_and_warn(upx_unpacked)
+               scan_and_warn(upx_unpacked)
             else:
-              logging.error(f"Failed to unpack {file_path}")
+               logging.error(f"Failed to unpack {file_path}")
         else:
             logging.info(f"Skipping non-UPX file: {file_path}")
 
