@@ -5811,8 +5811,12 @@ def decompile_dotnet_file(file_path):
         os.makedirs(dotnet_output_dir, exist_ok=True)
 
         # Run ILSpy decompilation command
-        ilspy_command = f"{ilspycmd_path} -o {dotnet_output_dir} {file_path}"
-        os.system(ilspy_command)
+        ilspy_command = [
+            ilspycmd_path,
+            "-o", dotnet_output_dir,
+            file_path
+        ]
+        subprocess.run(ilspy_command, check=True)
         logging.info(f".NET content decompiled to {dotnet_output_dir}")
 
         # Scan all .cs files in the output directory
