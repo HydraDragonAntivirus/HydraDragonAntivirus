@@ -822,11 +822,10 @@ def analyze_file_with_die(file_path):
 def is_go_garble_from_output(die_output):
     """
     Check if the DIE output indicates a Go garbled file.
-    A file is considered garble if the output contains both:
+    A file is considered garble if the output contains:
       - "Compiler: Go(unknown)"
-      - "Language: Go"
     """
-    if die_output and ("Compiler: Go(unknown)" in die_output and "Language: Go" in die_output):
+    if die_output and ("Compiler: Go(unknown)" in die_output):
         logging.info("DIE output indicates a garbled Go file.")
         return True
     logging.info(f"DIE output does not indicate a garbled Go file: {die_output}")
@@ -988,9 +987,9 @@ def is_jar_file_from_output(die_output):
 def is_java_class_from_output(die_output):
     """
     Checks if the DIE output indicates a Java class file.
-    It does this by looking for 'Language: Java' and 'Format: Java Class File' in the output.
+    It does this by looking for 'Format: Java Class File' in the output.
     """
-    if die_output and "Language: Java" in die_output and "Format: Java Class " in die_output:
+    if die_output and "Format: Java Class " in die_output:
         logging.info("DIE output indicates a Java class file.")
         return True
     logging.info(f"DIE output does not indicate a Java class file: {die_output}")
@@ -5269,11 +5268,10 @@ class PyInstArchive:
 def is_pyinstaller_archive_from_output(die_output):
     """
     Check if the DIE output indicates a PyInstaller archive.
-    A file is considered a PyInstaller archive if the output contains both:
+    A file is considered a PyInstaller archive if the output contains:
       - "Packer: PyInstaller"
-      - "Language: Python"
     """
-    if die_output and ("Packer: PyInstaller" in die_output and "Language: Python" in die_output):
+    if die_output and ("Packer: PyInstaller" in die_output):
         logging.info("DIE output indicates a PyInstaller archive.")
         return True
 
