@@ -941,17 +941,29 @@ def is_dotnet_file_from_output(die_output):
     logging.info(f"DIE output does not indicate a .NET executable or known protector: {die_output!r}")
     return None
 
-def is_file_unknown(die_output):
+def is_file_fully_unknown(die_output: str) -> bool:
     """
-    Checks if DIE output indicates that the file is unknown.
-    This function looks for markers within the output to determine
-    if the file's type could not be recognized.
+    Determines whether DIE output indicates an unrecognized binary file.
+
+    Returns True only if the output consists exclusively of the markers:
+        Binary
+        Unknown: Unknown
+    Ignores leading/trailing whitespace or indentation differences.
     """
-    if die_output and "Binary" in die_output and "Unknown: Unknown" in die_output:
+    if not die_output:
+        logging.info("No DIE output provided.")
+        return False
+
+    # Normalize lines: strip whitespace and remove empty lines
+    lines = [line.strip() for line in die_output.splitlines() if line.strip()]
+    expected = ["Binary", "Unknown: Unknown"]
+
+    if lines == expected:
         logging.info("DIE output indicates an unknown file.")
         return True
-    logging.info(f"DIE output does not indicate an unknown file: {die_output}")
-    return False
+    else:
+        logging.info(f"DIE output does not indicate an unknown file: {die_output!r}")
+        return False
 
 def is_packer_upx_output(die_output):
     """
@@ -6861,10 +6873,22 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
              die_output = analyze_file_with_die(file_path)
 
         # Perform ransomware alert check
-        if is_file_unknown(die_output):
-            ransomware_alert(file_path)
+        if is_file_fully_unknown(die_output):
+            # Normalize paths for comparison
+            normalized_path     = os.path.abspath(file_path).lower()
+            normalized_sandbox  = os.path.abspath(sandboxie_folder).lower()
+
+            # Only send to ransomware_alert if file path starts with sandboxie_folder
+            if normalized_path.startswith(normalized_sandbox):
+                ransomware_alert(file_path)
+
+            # If mega optimization is on, always log & stop—sandbox or not
             if mega_optimization_with_anti_false_positive:
-                logging.info(f"We stopped the analysis because the file contains unknown data and is not executable, but that doesn't mean it doesn't contain malicious data: {file_path}")
+                logging.info(
+                    f"We stopped the analysis because the file contains unknown data "
+                    f"and is not executable, but that doesn't mean it doesn't contain "
+                    f"malicious data: {file_path}"
+                )
                 return False
         else:
             # Attempt to extract the file
