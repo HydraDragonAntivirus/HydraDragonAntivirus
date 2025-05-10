@@ -7791,7 +7791,7 @@ class MonitorMessageCommandLine:
                     "this trojan has", "by this trojan", "this is a malware", "considered malware", "destroy your computer",
                     "destroy this computer", "execute this malware", "run a malware", "this malware contains", "and makes it unusable",
                     "contains flashing lights", "run malware", "executed is a malware", "resulting in an unusable machine", "this malware will harm your computer",
-                    "this trojan and", "using this malware", "this malware can", "gdi malware", "win32 trojan specifically", "malware will run"
+                    "this trojan and", "using this malware", "this malware can", "gdi malware", "win32 trojan specifically", "malware will run", "this malware is no joke", 
                 ],
                 "virus_name": "HEUR:Win32.GDI.Fanmade.gen",
                 "process_function": self.process_detected_text_fanmade
