@@ -68,7 +68,7 @@ import json
 logging.info(f"json module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QTextEdit, QLabel, QFileDialog, QMessageBox
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QTextEdit, QLabel, QFileDialog
 logging.info(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -219,12 +219,8 @@ import binascii
 logging.info(f"binascii module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from transformers import AutoConfig, AutoTokenizer, AutoModelForCausalLM
-logging.info(f"transformers.AutoConfig, AutoTokenizer and AutoModelForCausalLM modules loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import torch
-logging.info(f"torch module loaded in {time.time() - start_time:.6f} seconds")
+from transformers import AutoTokenizer, AutoModelForCausalLM
+logging.info(f"transformers.AutoTokenizer and AutoModelForCausalLM modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from accelerate import Accelerator
@@ -281,10 +277,6 @@ logging.info(f"pathlib.Path module loaded in {time.time() - start_time:.6f} seco
 start_time = time.time()
 import requests
 logging.info(f"requests module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from functools import lru_cache
-logging.info(f"functools.lru_cache module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from GoStringUngarbler.gostringungarbler_lib import process_file_go
@@ -2944,7 +2936,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
     except Exception as ex:
         logging.error(f"Error scanning IP address {ip_address}: {ex}")
 
-def scan_html_content(html_content, html_content_file_path, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, pyinstaller_meta_llama_flag=False):
+def scan_html_content(html_content, html_content_file_path, dotnet_flag=False, nuitka_flag=False, pyinstaller_flag=False, nsis_flag=False, pyinstaller_meta_llama_flag=False):
     """Scan extracted HTML content for any potential threats."""
     contains_discord_or_telegram_code(html_content, html_content_file_path, None,
                           dotnet_flag, nuitka_flag,
@@ -3003,7 +2995,7 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
                             pyinstaller_flag, nsis_flag, pyinstaller_meta_llama_flag,
                             homepage_flag)
         scan_html_content(html_content, html_content_file_path, dotnet_flag, nuitka_flag,
-                          pyinstaller_flag, nsis_flag ,pyinstaller_meta_llama_flag)
+                          pyinstaller_flag, nsis_flag, pyinstaller_meta_llama_flag)
 
     ipv4_addresses = set(re.findall(
         r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'
@@ -3012,7 +3004,7 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
     ))
     for ip in ipv4_addresses:
         scan_ip_address_general(ip, dotnet_flag, nuitka_flag,
-                                pyinstaller_flag, nsis_flag ,pyinstaller_meta_llama_flag,
+                                pyinstaller_flag, nsis_flag, pyinstaller_meta_llama_flag,
                                 homepage_flag)
 
     ipv6_addresses = set(re.findall(
