@@ -157,8 +157,8 @@ import comtypes
 logging.info(f"comtypes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from comtypes import VARIANT
-logging.info(f"comtypes.VARIANT module loaded in {time.time() - start_time:.6f} seconds")
+from comtypes.automation import VARIANT
+logging.info(f"comtypes.automation.VARIANT module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from comtypes import CoInitialize
