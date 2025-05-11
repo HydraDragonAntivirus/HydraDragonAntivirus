@@ -124,10 +124,6 @@ import win32con
 logging.info(f"win32con module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import win32com.client
-logging.info(f"win32com.client module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import wmi
 logging.info(f"wmi module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -155,10 +151,6 @@ logging.info(f"ctypes.wintypes module loaded in {time.time() - start_time:.6f} s
 start_time = time.time()
 import comtypes
 logging.info(f"comtypes module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from comtypes import GUID
-logging.info(f"comtypes.GUID module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from comtypes import CoInitialize
