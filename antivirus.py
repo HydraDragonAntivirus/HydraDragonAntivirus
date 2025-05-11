@@ -149,6 +149,10 @@ from ctypes import wintypes
 logging.info(f"ctypes.wintypes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+from ctypes import byref
+logging.info(f"ctypes.byref module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import comtypes
 logging.info(f"comtypes module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -3020,34 +3024,68 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
                                 pyinstaller_flag, nsis_flag ,pyinstaller_meta_llama_flag,
                                 homepage_flag)
 
-def enum_process_modules(handle):
-    """Enumerate and retrieve loaded modules in a process."""
-    hmodules = (ctypes.c_void_p * 1024)
-    needed = ctypes.c_ulong()
-    if not pymem.ressources.psapi.EnumProcessModulesEx(
-        handle,
-        ctypes.byref(hmodules),
-        ctypes.sizeof(hmodules),
-        ctypes.byref(needed),
-        pymem.ressources.structure.EnumProcessModuleEX.LIST_MODULES_ALL
-    ):
-        logging.error("Failed to enumerate process modules")
-    return [module for module in hmodules if module]
+# Load Psapi.dll and define the filter flag
+_psapi = ctypes.WinDLL('Psapi.dll')
+LIST_MODULES_ALL = 0x03
 
-def get_module_info(handle, base_addr):
-    """Retrieve module information."""
-    module_info = pymem.ressources.structure.MODULEINFO()
-    pymem.ressources.psapi.GetModuleInformation(
-        handle,
+def enum_process_modules(process_handle):
+    """Enumerate and retrieve loaded modules in a process."""
+    # Prepare an array for up to 1024 HMODULEs
+    hmodules = (ctypes.c_void_p * 1024)()
+    needed = ctypes.c_ulong()
+    cb = ctypes.sizeof(hmodules)
+
+    # BOOL EnumProcessModulesEx(
+    #   HANDLE hProcess,
+    #   HMODULE *lphModule,
+    #   DWORD cb,
+    #   LPDWORD lpcbNeeded,
+    #   DWORD dwFilterFlag
+    # );
+    success = _psapi.EnumProcessModulesEx(
+        process_handle,
+        ctypes.byref(hmodules),
+        cb,
+        ctypes.byref(needed),
+        LIST_MODULES_ALL
+    )
+    if not success:
+        logging.error("Failed to enumerate process modules")
+        return []
+
+    # Calculate how many module handles were actually returned
+    count = needed.value // ctypes.sizeof(ctypes.c_void_p)
+    return list(hmodules)[:count]
+
+# Define the MODULEINFO struct
+class MODULEINFO(ctypes.Structure):
+    _fields_ = [
+        ("lpBaseOfDll", ctypes.c_void_p),
+        ("SizeOfImage", ctypes.c_uint32),
+        ("EntryPoint", ctypes.c_void_p),
+    ]
+
+def get_module_info(process_handle, base_addr):
+    """Retrieve module information via Psapi.GetModuleInformation."""
+    module_info = MODULEINFO()
+    success = _psapi.GetModuleInformation(
+        process_handle,
         ctypes.c_void_p(base_addr),
-        ctypes.byref(module_info),
+        byref(module_info),
         ctypes.sizeof(module_info)
     )
+    if not success:
+        logging.error("GetModuleInformation failed")
+        return None
     return module_info
 
 def read_memory_data(pm, base_addr, size):
-    """Read memory data from a specific module."""
-    return pm.read_bytes(base_addr, size)
+    """Read memory data from a specific module using pymem.Pymem."""
+    try:
+        return pm.read_bytes(base_addr, size)
+    except Exception as e:
+        logging.error(f"read_bytes failed: {e}")
+        return None
 
 def extract_ascii_strings(data):
     """Extract readable ASCII strings from binary data."""
