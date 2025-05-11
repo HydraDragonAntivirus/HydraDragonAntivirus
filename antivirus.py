@@ -5032,6 +5032,19 @@ def scan_directory_for_executables(directory):
 
     return found_executables
 
+def is_pyinstaller_archive_from_output(die_output):
+    """
+    Check if the DIE output indicates a PyInstaller archive.
+    A file is considered a PyInstaller archive if the output contains:
+      - "Packer: PyInstaller"
+    """
+    if die_output and ("Packer: PyInstaller" in die_output):
+        logging.info("DIE output indicates a PyInstaller archive.")
+        return True
+
+    logging.info(f"DIE output does not indicate a PyInstaller archive: {die_output}")
+    return False
+
 class CTOCEntry:
     def __init__(self, position, cmprsddatasize, uncmprsddatasize, cmprsflag, typecmprsdata, name):
         self.position = position
@@ -5214,8 +5227,10 @@ class PyInstArchive:
 
     def extractfiles(self):
         folder_number = 1
-        base_extraction_dir = os.path.join(script_dir, os.path.basename(self.py_filepath) + '_extracted')
+        base_name = os.path.basename(self.py_filepath)
+        base_extraction_dir = os.path.join(pyinstaller_dir, base_name + '_extracted')
 
+        # Find next available numbered subfolder
         while os.path.exists(f"{base_extraction_dir}_{folder_number}"):
             folder_number += 1
 
@@ -5263,20 +5278,7 @@ class PyInstArchive:
         # Fix bare pyc files if necessary
         self._fixbarepycs()
 
-        return True
-
-def is_pyinstaller_archive_from_output(die_output):
-    """
-    Check if the DIE output indicates a PyInstaller archive.
-    A file is considered a PyInstaller archive if the output contains:
-      - "Packer: PyInstaller"
-    """
-    if die_output and ("Packer: PyInstaller" in die_output):
-        logging.info("DIE output indicates a PyInstaller archive.")
-        return True
-
-    logging.info(f"DIE output does not indicate a PyInstaller archive: {die_output}")
-    return False
+        return extractiondir
 
 def extract_pyinstaller_archive(file_path):
     try:
@@ -5303,12 +5305,14 @@ def extract_pyinstaller_archive(file_path):
             return None
 
         # Extract files to the specified pyinstaller_dir
-        extraction_success = archive.extractfiles()
+        extractiondir = archive.extractfiles()
         
         # Close the archive
         archive.close()
 
-        return pyinstaller_dir if extraction_success else None
+        logging.info(f"[+] Extraction completed successfully: {extraction_dir}")
+
+        return extractiondir
 
     except Exception as ex:
         logging.error(f"An error occurred while extracting PyInstaller archive {file_path}: {ex}")
