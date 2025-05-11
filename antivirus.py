@@ -153,6 +153,10 @@ import comtypes
 logging.info(f"comtypes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+from comtypes import VARIANT
+logging.info(f"comtypes.VARIANT module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 from comtypes import CoInitialize
 logging.info(f"comtypes.CoInitialize module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -8137,7 +8141,7 @@ class MonitorMessageCommandLine:
             try:
                 CoInitialize()
                 pacc = ctypes.POINTER(Accessibility.IAccessible)()
-                varChild = wintypes.VARIANT()
+                varChild = VARIANT()
 
                 hr = Accessibility.AccessibleObjectFromEvent(
                     hwnd, idObject, idChild,
