@@ -133,7 +133,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - vcpkg integrate install
 
 **Note 13:**
-- Inno Setup version 6.4.2
+- Inno Setup version 6.4.3
 
 ## Tips
 
