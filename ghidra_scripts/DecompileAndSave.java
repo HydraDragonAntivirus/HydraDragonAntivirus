@@ -34,7 +34,7 @@ public class DecompileAndSave extends GhidraScript {
 
         // Convert the current directory path to a proper Path object
         Path currentDirPath = Paths.get(System.getProperty("user.dir"));
-        Path outputDir = currentDirPath.resolve("decompile");
+        Path outputDir = currentDirPath.resolve("decompiled");
 
 
         // Ensure the directory exists
