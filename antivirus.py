@@ -549,12 +549,6 @@ discord_canary_webhook_pattern = (
     r'|/skoohbew/ipa/moc\.drocsid\.yranac//:sptth'
 )
 
-discord_invite_pattern = (
-    r'https://discord\.gg/[A-Za-z0-9]+'
-    r'|aHR0cHM6Ly9kaXNjb3JkLmdnLw=='
-    r'|/gg\.drocsid//:sptth'
-)
-
 cdn_attachment_pattern = re.compile(
     r'https://(?:cdn\.discordapp\.com|media\.discordapp\.net)/attachments/\d+/\d+/[A-Za-z0-9_\-\.%]+(?:\?size=\d+)?'
     r'|aHR0cHM6Ly9jZG4uZGlzY29yZGFwcC5jb20vYXR0YWNobWVudHMv'
@@ -571,6 +565,26 @@ telegram_keyword_pattern = (
     r'\b(?:telegram|token)\b'
     r'|dGVsZWdyYW0=|dG9rZW4='
     r'|margel et|nekot'[::-1]
+)
+
+# Discord webhook (standard)
+discord_webhook_pattern_standard = r'https://discord\.com/api/webhooks/\d+/[A-Za-z0-9_-]+'
+
+# Discord Canary webhook (standard)
+discord_canary_webhook_pattern_standard = r'https://canary\.discord\.com/api/webhooks/\d+/[A-Za-z0-9_-]+'
+
+# Discord invite link (standard)
+discord_invite_pattern_standard = r'https://discord\.gg/[A-Za-z0-9]+'
+
+# Discord CDN attachments (standard)
+cdn_attachment_pattern_standard = re.compile(
+    r'https://(?:cdn\.discordapp\.com|media\.discordapp\.net)/attachments/\d+/\d+/[A-Za-z0-9_\-\.%]+(?:\?size=\d+)?'
+)
+
+# Telegram bot (standard)
+telegram_pattern_standard = (
+    r'https?://api\.telegram\.org/bot\d{9,10}:[A-Za-z0-9_-]{35}'   # Normal token URL (Telegram Bot API)
+    r'|\b\d{9,10}:[A-Za-z0-9_-]{35}\b'                               # Standard Telegram Bot token format
 )
 
 UBLOCK_REGEX = re.compile(
@@ -2314,30 +2328,6 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
             logging.warning(f"Discord Canary webhook URL detected in decompiled code: {discord_canary_webhook_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook')
 
-    if discord_invite_matches:
-        if dotnet_flag:
-            if cs_file_path:
-                logging.warning(f"Discord invite link detected in .NET source code file: {cs_file_path} - Matches: {discord_invite_matches}")
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Susp.Src.Discord.Invite.DotNET')
-            else:
-                logging.warning(f"Discord invite link detected in .NET source code file: [cs_file_path not provided] - Matches: {discord_invite_matches}")
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Susp.Discord.Invite.DotNET')
-        elif nuitka_flag:
-            logging.warning(f"Discord invite link detected in Nuitka compiled file: {file_path} - Matches: {discord_invite_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Susp.Discord.Invite.Nuitka')
-        elif nsis_flag:
-            logging.warning(f"Discord invite link detected in NSIS script compiled file (.nsi): {file_path} - Matches: {discord_invite_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Susp.Discord.Invite.NSIS')
-        elif pyinstaller_flag or pyinstaller_meta_llama_flag:
-            logging.warning(f"Discord invite link detected in PyInstaller compiled file: {file_path} - Matches: {discord_invite_matches} NOTICE: There still a chance the file is not related with PyInstaller")
-            if pyinstaller_meta_llama_flag:
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Susp.Discord.Invite.PyInstaller.MetaLlama')
-            else:
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Susp.Discord.Invite.PyInstaller')
-        else:
-            logging.info(f"Discord invite link detected in decompiled code: {discord_invite_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Susp.Discord.Invite')
-
     if cdn_attachment_matches:
         if dotnet_flag:
             if cs_file_path:
@@ -3655,6 +3645,20 @@ class RealTimeWebProtectionHandler:
                     self.scan('domain', dom)
                 for u in self.extract_urls(html_content):
                     self.scan('url', u)
+
+            # --- Heuristic Checks for Discord & Telegram ---
+            if discord_webhook_pattern_standard.search(url):
+                self.handle_detection('url', url, 'HEUR:Discord.Webhook')
+                return
+            if discord_canary_webhook_pattern_standard.search(url):
+                self.handle_detection('url', url, 'HEUR:Discord.CanaryWebhook')
+                return
+            if cdn_attachment_pattern_standard.search(url):
+                self.handle_detection('url', url, 'HEUR:Discord.CDNAttachment')
+                return
+            if telegram_pattern_standard.search(url):
+                self.handle_detection('url', url, 'HEUR:Telegram.Token')
+                return
 
             # URLhaus signatures
             for entry in urlhaus_data:
