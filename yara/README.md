@@ -3,6 +3,6 @@
 - Example 2: yarac64.exe machinelearning.yar machinelearning.yrc
 - Example 3: yarac64 valhalla-rules.yar valhalla-rules.yrc
 - Example 4: yarac64 icewater.yar icewater.yrc
-- python compileryarax.py
+- py -3.12 compileryarax.py
 
 - Our strongest tool for removing duplicates is YARA_Util.py: https://github.com/RandomRhythm/YARA_Rules_Util
