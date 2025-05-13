@@ -42,6 +42,12 @@ website/MalwareSubDomains.txt
 website/cleaned
 # Big Yara Rule files
 yara/compiled_rule.yar
+yara/veryoldcompiled_rule.yar
+yara/nocomments.yar
+# Yara Rule Executables
+yara/yara64.exe
+yara/yarac64.exe
+
 # Detect-It-Easy
 /detectiteasy
 # Code checker
