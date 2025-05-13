@@ -1161,11 +1161,12 @@ def is_base64(data: bytes) -> bool:
     return bool(_BASE64_RE.fullmatch(data))
 
 def process_file_data(file_path, die_output):
-    """Process file data by decoding and removing magic bytes."""
+    """Process file data by decoding, removing magic bytes, and emitting a reversed‑lines version."""
     try:
         with open(file_path, 'rb') as data_file:
             data_content = data_file.read()
 
+        # Peel off Base64/Base32 layers
         while True:
             # Base‑64 first
             if isinstance(data_content, (bytes, bytearray)) and is_base64(data_content):
@@ -1175,7 +1176,7 @@ def process_file_data(file_path, die_output):
                     data_content = decoded
                     continue
 
-            # then Base‑32 only if it “looks like” Base‑32
+            # then Base‑32
             if isinstance(data_content, (bytes, bytearray)) and is_base32(data_content):
                 decoded = decode_base32(data_content)
                 if decoded is not None:
@@ -1189,13 +1190,28 @@ def process_file_data(file_path, die_output):
         # strip out your magic bytes
         processed_data = remove_magic_bytes(data_content, die_output)
 
-        # write result
-        output_file_path = os.path.join(processed_dir,
-                                        'processed_' + os.path.basename(file_path))
+        # write the normal processed output
+        output_file_path = os.path.join(
+            processed_dir,
+            'processed_' + os.path.basename(file_path)
+        )
         with open(output_file_path, 'wb') as processed_file:
             processed_file.write(processed_data)
 
         logging.info(f"Processed data from {file_path} saved to {output_file_path}")
+
+        # now create a reversed‑lines variant
+        # split into lines (keeping line endings), reverse the order, and rejoin
+        lines = processed_data.splitlines(keepends=True)
+        reversed_lines_data = b''.join(lines[::-1])
+
+        reversed_output_path = os.path.join(
+            processed_dir,
+            'processed_reversed_lines_' + os.path.basename(file_path)
+        )
+        with open(reversed_output_path, 'wb') as rev_file:
+            rev_file.write(reversed_lines_data)
+        logging.info(f"Reversed lines data from {file_path} saved to {reversed_output_path}")
 
     except Exception as ex:
         logging.error(f"Error processing file {file_path}: {ex}")
