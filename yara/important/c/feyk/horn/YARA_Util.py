@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 #This script can identify and remove duplicate rules (based on rule name) from YARA files contained within a directory.
 #Duplicate rules are logged to duplicate.log in the current directory.
 #Rule names are echoed to standard out.
@@ -103,7 +105,7 @@ def ProcessRule(lstRuleFile, strYARApath, strOutPath):
   logToFile(strCurrentDirectory + "/duplicate.log",strLogOut, False, "a")
   
 def logToFile(strfilePathOut, strDataToLog, boolDeleteFile, strWriteMode):
-    with open(strfilePathOut, strWriteMode) as target:
+    with open(strfilePathOut, strWriteMode, encoding='utf-8', errors='ignore') as target:
       if boolDeleteFile == True:
         target.truncate()
       target.write(strDataToLog)
