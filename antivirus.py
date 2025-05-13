@@ -537,11 +537,41 @@ HiJackThis_logs_dir = os.path.join(script_dir, "HiJackThis_logs")
 IPv4_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b' # Simple IPv4 regex
 IPv6_pattern = r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b' # Simple IPv6 regex
 # Regular expressions for Discord links
-discord_webhook_pattern = r'https://discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
-discord_canary_webhook_pattern = r'https://canary\.discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
-discord_invite_pattern = r'https://discord\.gg/[A-Za-z0-9]+'
-telegram_token_pattern = r'\d{9,10}:[A-Za-z0-9_-]{35}'
-telegram_keyword_pattern = r'\b(?:telegram|token)\b'
+discord_webhook_pattern = (
+    r'https://discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
+    r'|aHR0cHM6Ly9kaXNjb3JkLmNvbS9hcGkvd2ViaG9va3Mv'
+    r'|/skoohbew/ipa/moc\.drocsid//:sptth'
+)
+
+discord_canary_webhook_pattern = (
+    r'https://canary\.discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
+    r'|aHR0cHM6Ly9jYW5hcnkuZGlzY29yZC5jb20vYXBpL3dlYmhvb2tzLw=='
+    r'|/skoohbew/ipa/moc\.drocsid\.yranac//:sptth'
+)
+
+discord_invite_pattern = (
+    r'https://discord\.gg/[A-Za-z0-9]+'
+    r'|aHR0cHM6Ly9kaXNjb3JkLmdnLw=='
+    r'|/gg\.drocsid//:sptth'
+)
+
+cdn_attachment_pattern = re.compile(
+    r'https://(?:cdn\.discordapp\.com|media\.discordapp\.net)/attachments/\d+/\d+/[A-Za-z0-9_\-\.%]+(?:\?size=\d+)?'
+    r'|aHR0cHM6Ly9jZG4uZGlzY29yZGFwcC5jb20vYXR0YWNobWVudHMv'
+    r'|/stnemhcatta/moc\.ppadrocsid\.ndc//:sptth'
+)
+
+telegram_token_pattern = (
+    r'\d{9,10}:[A-Za-z0-9_-]{35}'
+    r'|[A-Za-z0-9_-]{35}:[0-9]{9,10}'[::-1]  # reversed
+    r'|X{9,12}Om[A-Za-z0-9_-]{35}'          # loose base64 match
+)
+
+telegram_keyword_pattern = (
+    r'\b(?:telegram|token)\b'
+    r'|dGVsZWdyYW0=|dG9rZW4='
+    r'|margel et|nekot'[::-1]
+)
 
 UBLOCK_REGEX = re.compile(
     r'^https:\/\/s[cftz]y?[ace][aemnu][a-z]{1,4}o[mn][a-z]{4,8}[iy][a-z]?\.com\/$'
@@ -2212,6 +2242,7 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
     discord_webhook_matches = re.findall(discord_webhook_pattern.lower(), code_lower)
     discord_canary_webhook_matches = re.findall(discord_canary_webhook_pattern.lower(), code_lower)
     discord_invite_matches = re.findall(discord_invite_pattern.lower(), code_lower)
+    cdn_attachment_matches = re.findall(cdn_attachment_pattern.lower(), code_lower)
 
     # Telegram token (case-sensitive): run on original code
     telegram_token_matches = re.findall(telegram_token_pattern, decompiled_code)
@@ -2223,9 +2254,10 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
         if dotnet_flag:
             if cs_file_path:
                 logging.warning(f"Discord webhook URL detected in .NET source code file: {cs_file_path} - Matches: {discord_webhook_matches}")
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Src.Discord.Webhook.DotNET')
             else:
                 logging.warning(f"Discord webhook URL detected in .NET source code file: [cs_file_path not provided] - Matches: {discord_webhook_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.DotNET')
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.DotNET')
         elif nuitka_flag:
             logging.warning(f"Discord webhook URL detected in Nuitka compiled file: {file_path} - Matches: {discord_webhook_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.Nuitka')
@@ -2249,7 +2281,7 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
                 logging.warning(f"Discord Canary webhook URL detected in .NET source code file: {cs_file_path} - Matches: {discord_canary_webhook_matches}")
             else:
                 logging.warning(f"Discord Canary webhook URL detected in .NET source code file: [cs_file_path not provided] - Matches: {discord_canary_webhook_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.DotNET')
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.DotNET')
         elif nuitka_flag:
             logging.warning(f"Discord Canary webhook URL detected in Nuitka compiled file: {file_path} - Matches: {discord_canary_webhook_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.Nuitka')
@@ -2270,9 +2302,10 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
         if dotnet_flag:
             if cs_file_path:
                 logging.warning(f"Discord invite link detected in .NET source code file: {cs_file_path} - Matches: {discord_invite_matches}")
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Susp.Src.Discord.Invite.DotNET')
             else:
                 logging.warning(f"Discord invite link detected in .NET source code file: [cs_file_path not provided] - Matches: {discord_invite_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Susp.Discord.Invite.DotNET')
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Susp.Discord.Invite.DotNET')
         elif nuitka_flag:
             logging.warning(f"Discord invite link detected in Nuitka compiled file: {file_path} - Matches: {discord_invite_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Susp.Discord.Invite.Nuitka')
@@ -2289,13 +2322,46 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
             logging.info(f"Discord invite link detected in decompiled code: {discord_invite_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Susp.Discord.Invite')
 
+    if cdn_attachment_matches:
+        if dotnet_flag:
+            if cs_file_path:
+                logging.warning(
+                    f"Discord CDN attachment URL detected in .NET source code file: {cs_file_path} - Matches: {cdn_attachment_matches}")
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Src.Discord.CDNAttachment.DotNET')
+            else:
+                logging.warning(
+                    f"Discord CDN attachment URL detected in .NET source code file: [cs_file_path not provided] - Matches: {cdn_attachment_matches}")
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.CDNAttachment.DotNET')
+        elif nuitka_flag:
+            logging.warning(
+                f"Discord CDN attachment URL detected in Nuitka compiled file: {file_path} - Matches: {cdn_attachment_matches}")
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.CDNAttachment.Nuitka')
+        elif nsis_flag:
+            logging.warning(
+                f"Discord CDN attachment URL detected in NSIS script compiled file (.nsi): {file_path} - Matches: {cdn_attachment_matches}")
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.CDNAttachment.NSIS')
+        elif pyinstaller_flag or pyinstaller_meta_llama_flag:
+            logging.warning(
+                f"Discord CDN attachment URL detected in PyInstaller compiled file: {file_path} - Matches: {cdn_attachment_matches} "
+                "NOTICE: There still a chance the file is not related with PyInstaller"
+            )
+            if pyinstaller_meta_llama_flag:
+                notify_user_for_malicious_source_code(file_path,
+                                                      'HEUR:Win32.Discord.CDNAttachment.PyInstaller.MetaLlama')
+            else:
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.CDNAttachment.PyInstaller')
+        else:
+            logging.warning(f"Discord CDN attachment URL detected in decompiled code: {cdn_attachment_matches}")
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.CDNAttachment')
+
     if telegram_token_matches and telegram_keyword_matches:
         if dotnet_flag:
             if cs_file_path:
                 logging.warning(f"Telegram bot detected in .NET source code file: {cs_file_path} - Matches: {telegram_token_matches}")
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Src.Telegram.Bot.DotNET')
             else:
                 logging.warning(f"Telegram bot detected in .NET source code file: [cs_file_path not provided] - Matches: {telegram_token_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.DotNET')
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.DotNET')
         elif nuitka_flag:
             logging.warning(f"Telegram bot detected in Nuitka compiled file: {file_path} - Matches: {telegram_token_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.Nuitka')
