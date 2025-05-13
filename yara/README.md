@@ -4,3 +4,5 @@
 - Example 3: yarac64 valhalla-rules.yar valhalla-rules.yrc
 - Example 4: yarac64 icewater.yar icewater.yrc
 - python compileryarax.py
+
+- Our strongest tool for removing duplicates is YARA_Util.py: https://github.com/RandomRhythm/YARA_Rules_Util
