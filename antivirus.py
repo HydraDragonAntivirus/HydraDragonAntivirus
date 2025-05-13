@@ -884,7 +884,7 @@ def is_dotnet_file_from_output(die_output):
 
     Returns:
       - True
-        if it's a .NET file detected via ".NET" or "CLR".
+        if it's a .NET file detected.
       - "Protector: Obfuscar" or "Protector: Obfuscar(<version>)"
         if it's a .NET assembly protected with Obfuscar.
       - "<Label>: <Name>" or "<Label>: <Name>(<version>)"
@@ -899,7 +899,7 @@ def is_dotnet_file_from_output(die_output):
         return None
 
     # 1) .NET runtime indication
-    if ".NET" in die_output or "CLR" in die_output:
+    if ".NET" in die_output:
         logging.info("DIE output indicates a .NET executable.")
         return True
 
