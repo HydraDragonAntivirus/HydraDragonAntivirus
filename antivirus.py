@@ -1161,7 +1161,7 @@ def is_base64(data: bytes) -> bool:
     return bool(_BASE64_RE.fullmatch(data))
 
 def process_file_data(file_path, die_output):
-    """Process file data by decoding, removing magic bytes, and emitting a reversed‑lines version."""
+    """Process file data by decoding, removing magic bytes, and emitting a reversed lines version."""
     try:
         with open(file_path, 'rb') as data_file:
             data_content = data_file.read()
