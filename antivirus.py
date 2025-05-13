@@ -562,9 +562,9 @@ cdn_attachment_pattern = re.compile(
 )
 
 telegram_token_pattern = (
-    r'\d{9,10}:[A-Za-z0-9_-]{35}'
-    r'|[A-Za-z0-9_-]{35}:[0-9]{9,10}'[::-1]  # reversed
-    r'|X{9,12}Om[A-Za-z0-9_-]{35}'          # loose base64 match
+    r'\d{9,10}:[A-Za-z0-9_-]{35}'                          # Normal token
+    r'|[A-Za-z0-9_-]{35}:\d{9,10}'                         # Reversed structure (still forward matching)
+    r'|[A-Za-z0-9+/]{35}OmX{9,12}'                         # Loose base64 + marker pattern
 )
 
 telegram_keyword_pattern = (
@@ -3801,69 +3801,78 @@ def scan_yara(file_path):
         with open(file_path, 'rb') as yara_file:
             data_content = yara_file.read()
 
-            # Check matches for compiled_rule
-            if compiled_rule:
-                matches = compiled_rule.match(data=data_content)
-                if matches:
-                    for match in matches:
+            # compiled_rule
+            try:
+                if compiled_rule:
+                    matches = compiled_rule.match(data=data_content)
+                    for match in matches or []:
                         if match.rule not in excluded_rules:
                             matched_rules.append(match.rule)
                         else:
                             logging.info(f"Rule {match.rule} is excluded from compiled_rule.")
-            else:
-                logging.warning("compiled_rule is not defined.")
+                else:
+                    logging.warning("compiled_rule is not defined.")
+            except Exception as e:
+                logging.error(f"Error scanning with compiled_rule: {e}")
 
-            # Check matches for yarGen_rule
-            if yarGen_rule:
-                matches = yarGen_rule.match(data=data_content)
-                if matches:
-                    for match in matches:
+            # yarGen_rule
+            try:
+                if yarGen_rule:
+                    matches = yarGen_rule.match(data=data_content)
+                    for match in matches or []:
                         if match.rule not in excluded_rules:
                             matched_rules.append(match.rule)
                         else:
                             logging.info(f"Rule {match.rule} is excluded from yarGen_rule.")
-            else:
-                logging.warning("yarGen_rule is not defined.")
+                else:
+                    logging.warning("yarGen_rule is not defined.")
+            except Exception as e:
+                logging.error(f"Error scanning with yarGen_rule: {e}")
 
-            # Check matches for icewater_rule
-            if icewater_rule:
-                matches = icewater_rule.match(data=data_content)
-                if matches:
-                    for match in matches:
+            # icewater_rule
+            try:
+                if icewater_rule:
+                    matches = icewater_rule.match(data=data_content)
+                    for match in matches or []:
                         if match.rule not in excluded_rules:
                             matched_rules.append(match.rule)
                         else:
                             logging.info(f"Rule {match.rule} is excluded from icewater_rule.")
-            else:
-                logging.warning("icewater_rule is not defined.")
+                else:
+                    logging.warning("icewater_rule is not defined.")
+            except Exception as e:
+                logging.error(f"Error scanning with icewater_rule: {e}")
 
-            # Check matches for valhalla_rule
-            if valhalla_rule:
-                matches = valhalla_rule.match(data=data_content)
-                if matches:
-                    for match in matches:
+            # valhalla_rule
+            try:
+                if valhalla_rule:
+                    matches = valhalla_rule.match(data=data_content)
+                    for match in matches or []:
                         if match.rule not in excluded_rules:
                             matched_rules.append(match.rule)
                         else:
                             logging.info(f"Rule {match.rule} is excluded from valhalla_rule.")
-            else:
-                logging.warning("valhalla_rule is not defined.")
+                else:
+                    logging.warning("valhalla_rule is not defined.")
+            except Exception as e:
+                logging.error(f"Error scanning with valhalla_rule: {e}")
 
-            # Check matches for yaraxtr_rule (loaded with yara_x)
-            if yaraxtr_rule:
-                # Instantiate the YARA-X Scanner with your deserialized rule set
-                scanner = yara_x.Scanner(rules=yaraxtr_rule)
-                results = scanner.scan(data=data_content)
-                if results.matching_rules:
-                    for rule in results.matching_rules:
-                        if hasattr(rule, 'identifier') and rule.identifier not in excluded_rules:
-                            matched_rules.append(rule.identifier)
+            # yaraxtr_rule (YARA‑X)
+            try:
+                if yaraxtr_rule:
+                    scanner = yara_x.Scanner(rules=yaraxtr_rule)
+                    results = scanner.scan(data=data_content)
+                    for rule in getattr(results, 'matching_rules', []) or []:
+                        identifier = getattr(rule, 'identifier', None)
+                        if identifier and identifier not in excluded_rules:
+                            matched_rules.append(identifier)
                         else:
-                            logging.info(f"Rule {rule.identifier} is excluded from yaraxtr_rule.")
-            else:
-                logging.warning("yaraxtr_rule is not defined.")
+                            logging.info(f"Rule {identifier} is excluded from yaraxtr_rule.")
+                else:
+                    logging.warning("yaraxtr_rule is not defined.")
+            except Exception as e:
+                logging.error(f"Error scanning with yaraxtr_rule: {e}")
 
-        # Return matched rules as the yara_result if not empty, otherwise return None
         return matched_rules if matched_rules else None
 
     except Exception as ex:
