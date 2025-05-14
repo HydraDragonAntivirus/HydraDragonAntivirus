@@ -1,1 +1,1 @@
-flake8 antivirus.py
+- flake8 antivirus.py
