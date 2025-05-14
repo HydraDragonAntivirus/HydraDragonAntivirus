@@ -3130,6 +3130,7 @@ def enum_process_modules(process_handle):
     count = needed.value // ctypes.sizeof(ctypes.c_void_p)
     return list(hmodules)[:count]
 
+
 # Define the MODULEINFO struct
 class MODULEINFO(ctypes.Structure):
     _fields_ = [
@@ -3244,7 +3245,6 @@ def scan_file_with_machine_learning_ai(file_path, machine_learning_results_json,
         file_numeric_features = extract_numeric_features(file_path)
 
         is_malicious_ml = False
-        malware_rank = None
         nearest_malicious_similarity = 0
         nearest_benign_similarity = 0
 
@@ -3257,7 +3257,6 @@ def scan_file_with_machine_learning_ai(file_path, machine_learning_results_json,
             nearest_malicious_similarity = max(nearest_malicious_similarity, similarity)
             if similarity >= threshold:
                 is_malicious_ml = True
-                malware_rank = rank
                 malware_definition = info['file_name']
                 logging.warning(f"Malicious activity detected in {file_path}. Definition: {malware_definition}, similarity: {similarity}, rank: {rank}")
 
@@ -3340,6 +3339,7 @@ def scan_file_with_clamd(file_path):
 
 def is_related_to_critical_paths(file_path):
     return file_path.startswith(sandboxie_folder) or file_path == main_file_path
+
 
 # --- The RealTimeWebProtectionHandler Class ---
 class RealTimeWebProtectionHandler:
@@ -3771,6 +3771,7 @@ class RealTimeWebProtectionHandler:
         except Exception as ex:
             logging.error(f"Error processing packet: {ex}")
 
+
 class RealTimeWebProtectionObserver:
     def __init__(self):
         self.handler = RealTimeWebProtectionHandler()
@@ -3997,16 +3998,19 @@ def contains_rlo_after_dot(filename):
     """Check if the filename contains an RLO character after a dot."""
     return ".\u202E" in filename
 
+
 class FileType:
     UNKNOWN = -1
     ELF = 0
     PE = 1
     MACHO = 2
 
+
 class CompressionFlag:
     UNKNOWN = -1
     NON_COMPRESSED = 0
     COMPRESSED = 1
+
 
 class NuitkaPayload:
     MAGIC_KA = b'KA'
@@ -4048,6 +4052,7 @@ class NuitkaPayload:
             except zstandard.ZstdError as ex:
                 logging.error(f"Failed to initialize decompression: {str(ex)}")
         return stream
+
 
 class NuitkaExtractor:
     def __init__(self, filepath: str, output_dir: str):
@@ -5167,6 +5172,7 @@ def is_pyinstaller_archive_from_output(die_output):
     logging.info(f"DIE output does not indicate a PyInstaller archive: {die_output}")
     return False
 
+
 class CTOCEntry:
     def __init__(self, position, cmprsddatasize, uncmprsddatasize, cmprsflag, typecmprsdata, name):
         self.position = position
@@ -5175,6 +5181,7 @@ class CTOCEntry:
         self.cmprsflag = cmprsflag
         self.typecmprsdata = typecmprsdata
         self.name = name
+
 
 class PyInstArchive:
     MAGIC = b'MEI\014\013\012\013\016'
@@ -7621,6 +7628,7 @@ def check_uefi_directories():
                     scan_and_warn(file_path)
                     alerted_uefi_files.append(file_path)
 
+
 class ScanAndWarnHandler(FileSystemEventHandler):
 
     def process_file(self, file_path):
@@ -7856,6 +7864,7 @@ def find_windows_with_text():
 
     user32.EnumWindows(EnumWindowsProc(enum_proc), None)
     return window_handles
+
 
 class MonitorMessageCommandLine:
     def __init__(self, max_workers: int = 20):
@@ -8579,6 +8588,7 @@ def parse_report(path):
 
     return entries
 
+
 class AntivirusApp(QWidget):
     def _set_window_background(self):
         self.setStyleSheet("""
@@ -8702,6 +8712,7 @@ class AntivirusApp(QWidget):
         super().__init__()
         self.setup_ui()
         self.workers = []
+
 
 class Worker(QThread):
     output_signal = Signal(str)
