@@ -16,9 +16,15 @@ if not os.path.exists(log_directory):
     os.makedirs(log_directory)
 
 # Separate log files for different purposes
-stdout_console_log_file = os.path.join(log_directory, "antivirusconsolestdout.log")
-stderr_console_log_file = os.path.join(log_directory, "antivirusconsolestderr.log")
-application_log_file = os.path.join(log_directory, "antivirus.log")
+stdout_console_log_file = os.path.join(
+    log_directory, "antivirusconsolestdout.log"
+)
+stderr_console_log_file = os.path.join(
+    log_directory, "antivirusconsolestderr.log"
+)
+application_log_file = os.path.join(
+    log_directory, "antivirus.log"
+)
 
 # Configure logging for application log
 logging.basicConfig(
@@ -28,13 +34,20 @@ logging.basicConfig(
 )
 
 # Redirect stdout to stdout console log
-sys.stdout = open(stdout_console_log_file, "w", encoding="utf-8", errors="ignore")
+sys.stdout = open(
+    stdout_console_log_file, "w", encoding="utf-8", errors="ignore"
+)
 
 # Redirect stderr to stderr console log
-sys.stderr = open(stderr_console_log_file, "w", encoding="utf-8", errors="ignore")
+sys.stderr = open(
+    stderr_console_log_file, "w", encoding="utf-8", errors="ignore"
+)
 
 # Logging for application initialization
-logging.info("Application started at %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+logging.info(
+    "Application started at %s",
+    datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+)
 
 # Start timing total duration
 total_start_time = time.time()
@@ -734,7 +747,7 @@ def ublock_detect(url):
     The rule matches:
       - URLs that fit the regex pattern.
       - Only applies to main document requests.
-    
+
     The exception: if the URL includes 'steamcommunity.com', then the rule is not applied.
     """
     # First, check if the URL matches the regex pattern.
@@ -827,21 +840,21 @@ def analyze_file_with_die(file_path):
         logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
         output_dir = Path(detectiteasy_json_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Define the base name for the output JSON file
         base_name = Path(file_path).with_suffix(".json")
         json_output_path = get_unique_output_path(output_dir, base_name)
-    
+
         # Run the DIE command once with the -j flag for JSON output
         result = subprocess.run(
             [detectiteasy_console_path, "-j", file_path],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore"
         )
-    
+
         # Save the JSON output
         with open(json_output_path, "w") as json_file:
             json_file.write(result.stdout)
-            
+
         logging.info(f"Analysis result saved to {json_output_path}")
         return result.stdout
 
@@ -1253,7 +1266,7 @@ def calculate_entropy(data: list) -> float:
             entropy -= p_x * np.log2(p_x)
 
     return entropy
- 
+
 def get_callback_addresses(pe: pefile.PE, address_of_callbacks: int) -> List[int]:
     """Retrieve callback addresses from the TLS directory."""
     try:
@@ -1753,7 +1766,7 @@ def notify_user(file_path, virus_name, engine_detected):
     notification_message = f"Malicious file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
     notification.message = notification_message
     notification.send()
-    
+
     logging.warning(notification_message)
 
 def notify_user_pua(file_path, virus_name, engine_detected):
@@ -1762,7 +1775,7 @@ def notify_user_pua(file_path, virus_name, engine_detected):
     notification_message = f"PUA file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
     notification.message = notification_message
     notification.send()
-    
+
     logging.warning(notification_message)
 
 def notify_user_for_malicious_source_code(file_path, virus_name):
@@ -1774,7 +1787,7 @@ def notify_user_for_malicious_source_code(file_path, virus_name):
     notification_message = f"Suspicious source code detected in: {file_path}\nVirus: {virus_name}"
     notification.message = notification_message
     notification.send()
-    
+
     logging.warning(notification_message)
 
 def notify_user_for_detected_command(message, file_path):
@@ -1804,7 +1817,7 @@ def notify_user_for_meta_llama(file_path, virus_name, malware_status, HiJackThis
 
     notification.message = notification_message
     notification.send()
-    
+
     logging.warning(notification_message)
 
 def notify_size_warning(file_path, archive_type, virus_name):
@@ -1815,7 +1828,7 @@ def notify_size_warning(file_path, archive_type, virus_name):
                             f"which might be suspicious. Virus Name: {virus_name}")
     notification.message = notification_message
     notification.send()
-    
+
     logging.warning(notification_message)
 
 def notify_rlo_warning(file_path, archive_type, virus_name):
@@ -1826,7 +1839,7 @@ def notify_rlo_warning(file_path, archive_type, virus_name):
                             f"This could indicate suspicious activity. Virus Name: {virus_name}")
     notification.message = notification_message
     notification.send()
-    
+
     logging.warning(notification_message)
 
 def notify_user_rlo(file_path, virus_name):
@@ -1849,7 +1862,7 @@ def notify_user_for_detected_fake_system_file(file_path, file_name, virus_name):
     )
     notification.message = notification_message
     notification.send()
-    
+
     logging.warning(notification_message)
 
 def notify_user_for_detected_rootkit(file_path, virus_name):
@@ -1862,7 +1875,7 @@ def notify_user_for_detected_rootkit(file_path, virus_name):
     )
     notification.message = notification_message
     notification.send()
-    
+
     logging.warning(notification_message)
 
 def notify_user_invalid(file_path, virus_name):
@@ -1871,7 +1884,7 @@ def notify_user_invalid(file_path, virus_name):
     notification_message = f"Invalid signature file detected: {file_path}\nVirus: {virus_name}"
     notification.message = notification_message
     notification.send()
-    
+
     logging.warning(notification_message)
 
 def notify_user_fake_size(file_path, virus_name):
@@ -1880,7 +1893,7 @@ def notify_user_fake_size(file_path, virus_name):
     notification_message = f"Fake size file detected: {file_path}\nVirus: {virus_name}"
     notification.message = notification_message
     notification.send()
-    
+
     logging.warning(notification_message)
 
 def notify_user_startup(file_path, message):
@@ -1892,7 +1905,7 @@ def notify_user_startup(file_path, message):
     notification_message = f"File: {file_path}\n{message}"
     notification.message = notification_message
     notification.send()
-    
+
     logging.warning(notification_message)
 
 def notify_user_uefi(file_path, virus_name):
@@ -1901,7 +1914,7 @@ def notify_user_uefi(file_path, virus_name):
     notification_message = f"Suspicious UEFI file detected: {file_path}\nVirus: {virus_name}"
     notification.message = notification_message
     notification.send()
-    
+
     logging.warning(notification_message)
 
 def notify_user_ransomware(file_path, virus_name):
@@ -1910,7 +1923,7 @@ def notify_user_ransomware(file_path, virus_name):
     notification_message = f"Potential ransomware detected: {file_path}\nVirus: {virus_name}"
     notification.message = notification_message
     notification.send()
-    
+
     logging.warning(notification_message)
 
 def notify_user_exela_stealer_v2(file_path, virus_name):
@@ -1919,7 +1932,7 @@ def notify_user_exela_stealer_v2(file_path, virus_name):
     notification_message = f"Potential Exela Stealer version 2 detected: {file_path}\nVirus: {virus_name}"
     notification.message = notification_message
     notification.send()
-    
+
     logging.warning(notification_message)
 
 def notify_user_hosts(file_path, virus_name):
@@ -1928,7 +1941,7 @@ def notify_user_hosts(file_path, virus_name):
     notification_message = f"Potential host hijacker detected: {file_path}\nVirus: {virus_name}"
     notification.message = notification_message
     notification.send()
-    
+
     logging.warning(notification_message)
 
 def notify_user_worm(file_path, virus_name):
@@ -1937,7 +1950,7 @@ def notify_user_worm(file_path, virus_name):
     notification_message = f"Potential worm detected: {file_path}\nVirus: {virus_name}"
     notification.message = notification_message
     notification.send()
-    
+
     logging.warning(notification_message)
 
 def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=None, file_path=None, detection_type=None):
@@ -1966,13 +1979,13 @@ def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=N
 
     notification.message = notification_message
     notification.send()
-    
+
     logging.warning(notification_message)
 
 def notify_user_for_hips(ip_address=None, dst_ip_address=None):
     notification = Notify()
     notification.title = "Malicious Activity Detected"
-    
+
     if ip_address and dst_ip_address:
         notification_message = f"Malicious activity detected:\nSource: {ip_address}\nDestination: {dst_ip_address}"
     elif ip_address:
@@ -1981,10 +1994,10 @@ def notify_user_for_hips(ip_address=None, dst_ip_address=None):
         notification_message = f"Malicious activity detected:\nDestination IP Address: {dst_ip_address}"
     else:
         notification_message = "Malicious activity detected"
-    
+
     notification.message = notification_message
     notification.send()
-    
+
     logging.warning(notification_message)
 
 def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
@@ -2018,7 +2031,7 @@ def load_digital_signatures(file_path, description="Digital signatures"):
     except Exception as ex:
         logging.error(f"Error loading {description}: {ex}")
         return []
-    
+
 def load_website_data():
     global ipv4_addresses_signatures_data, ipv4_whitelist_data, ipv4_addresses_bruteforce_signatures_data, ipv4_addresses_phishing_active_signatures_data, ipv4_addresses_phishing_inactive_signatures_data, ipv6_addresses_signatures_data, ipv6_addresses_ddos_signatures_data, ipv4_addresses_ddos_signatures_data, ipv6_whitelist_data, urlhaus_data, malware_domains_data, malware_domains_mail_data, phishing_domains_data, abuse_domains_data, mining_domains_data, spam_domains_data, whitelist_domains_data, whitelist_domains_mail_data, malware_sub_domains_data, malware_mail_sub_domains_data, phishing_sub_domains_data, abuse_sub_domains_data, mining_sub_domains_data, spam_sub_domains_data, whitelist_sub_domains_data, whitelist_mail_sub_domains_data
 
@@ -2069,7 +2082,7 @@ def load_website_data():
         logging.info("Inactive phishing IPv4 Addresses loaded successfully!")
     except Exception as ex:
         logging.error(f"Error loading inactive phishing IPv4 Addresses: {ex}")
-    
+
     try:
         # Load IPv4 whitelist
         with open(ipv4_whitelist_path, 'r') as whitelist_file:
@@ -2829,7 +2842,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
             scanned_ipv6_addresses_general.append(ip_address)
             message = f"Scanning IPv6 address: {ip_address}"
             logging.info(message)
-            
+
             if ip_address in ipv6_whitelist_data:
                 logging.info(f"IPv6 address {ip_address} is whitelisted.")
                 return
@@ -3299,7 +3312,7 @@ def restart_clamd():
         stop_result = subprocess.run(["net", "stop", 'clamd'], capture_output=True, text=True, encoding="utf-8", errors="ignore")
         if stop_result.returncode != 0:
                 logging.error("Failed to stop ClamAV.")
-            
+
         logging.info("Starting ClamAV...")
         start_result = subprocess.run(["net", "start", 'clamd'], capture_output=True, text=True, encoding="utf-8", errors="ignore")
         if start_result.returncode == 0:
@@ -3902,7 +3915,7 @@ def check_signature(file_path):
         signature_data = ""
         has_microsoft_signature = False
         has_valid_goodsign_signature = False
-        
+
         if not signature_status_issues:
             ms_command = f"Get-AuthenticodeSignature '{file_path}' | Format-List"
             ms_result = subprocess.run(
@@ -3947,10 +3960,10 @@ def check_valid_signature_only(file_path):
         # Command to verify the executable signature status
         verify_command = f"(Get-AuthenticodeSignature '{file_path}').Status"
         process = subprocess.run(['powershell.exe', '-Command', verify_command], capture_output=True, text=True, encoding="utf-8", errors="ignore")
-        
+
         status = process.stdout.strip()
         is_valid = "Valid" in status
-        
+
         return {
             "is_valid": is_valid
         }
@@ -3970,7 +3983,7 @@ def clean_directories():
             logging.info(f"Decompile folder does not exist at: {decompiled_dir}")
         os.makedirs(decompiled_dir, exist_ok=True)
         logging.info(f"Created the decompile folder at: {decompiled_dir}")
-        
+
         # Clean ghidra_projects directory if it exists, otherwise create it
         if os.path.isdir(ghidra_projects_dir):
             shutil.rmtree(ghidra_projects_dir)
@@ -4016,12 +4029,12 @@ class NuitkaPayload:
     MAGIC_KA = b'KA'
     MAGIC_UNCOMPRESSED = ord('X')
     MAGIC_COMPRESSED = ord('Y')
-    
+
     def _validate(self):
         """Validate payload magic and set compression flag"""
         if not self.data.startswith(self.MAGIC_KA):
             logging.error("Invalid Nuitka payload magic")
-        
+
         magic_type = self.data[2]
         if magic_type == self.MAGIC_UNCOMPRESSED:
             self.compression = CompressionFlag.NON_COMPRESSED
@@ -4036,14 +4049,14 @@ class NuitkaPayload:
         self.size = size
         self.compression = CompressionFlag.UNKNOWN
         self._validate()
-    
-  
+
+
     def get_stream(self) -> BinaryIO:
         """Get a file-like object for reading the payload"""
         # Skip the 3-byte magic header
         payload_data = self.data[3:]
         stream = io.BytesIO(payload_data)
-        
+
         if self.compression == CompressionFlag.COMPRESSED:
             try:
                 dctx = zstandard.ZstdDecompressor()
@@ -4060,7 +4073,7 @@ class NuitkaExtractor:
         self.output_dir = output_dir
         self.file_type = FileType.UNKNOWN
         self.payload: Optional[NuitkaPayload] = None
-    
+
     def _detect_file_type(self) -> int:
         """Detect the executable file type using Detect It Easy methods"""
         die_output = analyze_file_with_die(file_path)
@@ -4094,22 +4107,22 @@ class NuitkaExtractor:
         """Extract payload from PE file"""
         try:
             pe = pefile.PE(self.filepath, fast_load=False)
-            
+
             # Find RT_RCDATA resource with ID 27
             if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
                 logging.error("No resource directory found")
-            
+
             offset, size = self._find_pe_resource(pe)
             if offset is None or size is None:
                 logging.error("No Nuitka payload found in PE resources")
-            
+
             # Read the payload data
             with open(self.filepath, 'rb') as f:
                 f.seek(offset)
                 payload_data = f.read(size)
-                
+
             return NuitkaPayload(payload_data, offset, size)
-            
+
         except Exception as ex:
             logging.error(f"PE payload extraction failed: {str(ex)}")
 
@@ -4118,22 +4131,22 @@ class NuitkaExtractor:
         try:
             with open(self.filepath, 'rb') as f:
                 elf = ELFFile(f)
-                
+
                 # Find last section to locate appended data
                 last_section = max(elf.iter_sections(), 
                                  key=lambda s: s.header.sh_offset + s.header.sh_size)
-                
+
                 # Read trailer for payload size
                 f.seek(-8, io.SEEK_END)
                 payload_size = struct.unpack('<Q', f.read(8))[0]
-                
+
                 # Read payload
                 payload_offset = last_section.header.sh_offset + last_section.sh_size
                 f.seek(payload_offset)
                 payload_data = f.read(payload_size)
-                
+
                 return NuitkaPayload(payload_data, payload_offset, payload_size)
-                
+
         except Exception as ex:
             logging.error(f"ELF payload extraction failed: {str(ex)}")
 
@@ -4141,7 +4154,7 @@ class NuitkaExtractor:
         """Extract payload from Mach-O file"""
         try:
             macho = macholib.MachO.MachO(self.filepath)
-            
+
             for header in macho.headers:
                 for cmd in header.commands:
                     if cmd[0].cmd in (macholib.mach_o.LC_SEGMENT, macholib.mach_o.LC_SEGMENT_64):
@@ -4149,14 +4162,14 @@ class NuitkaExtractor:
                             if section[0].decode('utf-8') == 'payload':
                                 offset = section[2]
                                 size = section[3]
-                                
+
                                 with open(self.filepath, 'rb') as f:
                                     f.seek(offset)
                                     payload_data = f.read(size)
                                     return NuitkaPayload(payload_data, offset, size)
-                                    
+
             logging.error("No payload section found in Mach-O file")
-            
+
         except Exception as ex:
             logging.error(f"Mach-O payload extraction failed: {str(ex)}")
 
@@ -4168,10 +4181,10 @@ class NuitkaExtractor:
             if not char or char == b'\0' * len(char):
                 break
             result.extend(char)
-        
+
         if not result:
             return None
-            
+
         try:
             return result.decode('utf-16-le' if is_wide else 'utf-8')
         except UnicodeDecodeError:
@@ -4197,7 +4210,7 @@ class NuitkaExtractor:
                 size_data = stream.read(8)
                 if not size_data or len(size_data) != 8:
                     break
-                    
+
                 file_size = struct.unpack('<Q', size_data)[0]
 
                 # Sanitize output path
@@ -4235,7 +4248,7 @@ class NuitkaExtractor:
             self.file_type = self._detect_file_type()
             if self.file_type == FileType.UNKNOWN:
                 logging.error("Unsupported file type")
-            
+
             logging.info(f"[+] Processing: {self.filepath}")
             logging.info(f"[+] Detected file type: {['ELF', 'PE', 'MACHO'][self.file_type]}")
 
@@ -4246,19 +4259,19 @@ class NuitkaExtractor:
                 self.payload = self._extract_elf_payload()
             else:  # MACHO
                 self.payload = self._extract_macho_payload()
-            
+
             if not self.payload:
                 logging.error("Failed to extract payload")
-            
+
             logging.info(f"[+] Payload size: {self.payload.size} bytes")
             logging.info(f"[+] Compression: {'Yes' if self.payload.compression == CompressionFlag.COMPRESSED else 'No'}")
-            
+
             # Extract files from payload
             stream = self.payload.get_stream()
             total_files = self._extract_files(stream)
-            
+
             logging.info(f"[+] Successfully extracted {total_files} files to {self.output_dir}")
-            
+
         except PayloadError as ex:
             logging.error(f"[!] {str(ex)}")
         except Exception as ex:
@@ -4518,7 +4531,7 @@ def worm_alert(file_path):
                 logging.warning(f"Worm '{file_path}' detected in critical directory. Alerting user.")
                 notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Critical.gen.Malware")
                 worm_alerted_files.append(file_path)
-        
+
         else:
             # Check for generic worm detection
             worm_detected = check_worm_similarity(file_path, features_current)
@@ -4798,7 +4811,7 @@ def run_snort():
         clean_directory()
         # Run snort without capturing output
         subprocess.run(snort_command, check=True, encoding="utf-8", errors="ignore")
-        
+
         logging.info("Snort completed analysis.")
 
     except subprocess.CalledProcessError as ex:
@@ -4889,13 +4902,13 @@ def load_meta_llama_1b_model():
     try:
         message = "Attempting to load Llama-3.2-1B model and tokenizer..."
         logging.info(message)
-        
+
         llama32_tokenizer = AutoTokenizer.from_pretrained(meta_llama_1b_dir, local_files_only=True)
         llama32_model = AutoModelForCausalLM.from_pretrained(meta_llama_1b_dir, local_files_only=True)
-        
+
         success_message = "Llama-3.2-1B successfully loaded!"
         logging.info(success_message)
-        
+
         return llama32_model, llama32_tokenizer
     except Exception as ex:
         error_message = f"Error loading Llama-3.2-1B model or tokenizer: {ex}"
@@ -5030,7 +5043,7 @@ def scan_rsrc_files(file_paths):
     Once found, it extracts the source code portion starting after 'upython.exe',
     cleans it, saves it to a uniquely named file, and scans the code for domains, 
     URLs, IP addresses, and Discord webhooks.
-    
+
     :param file_paths: List of file paths to be scanned.
     """
     if isinstance(file_paths, str):
@@ -5412,7 +5425,7 @@ class PyInstArchive:
 def extract_pyinstaller_archive(file_path):
     try:
         archive = PyInstArchive(file_path)
-        
+
         # Open the PyInstaller archive
         if not archive.open_file():
             logging.error(f"Failed to open PyInstaller archive: {file_path}")
@@ -5435,7 +5448,7 @@ def extract_pyinstaller_archive(file_path):
 
         # Extract files to the specified pyinstaller_dir
         extractiondir = archive.extractfiles()
-        
+
         # Close the archive
         archive.close()
 
@@ -5493,7 +5506,7 @@ def is_ransomware(file_path):
         final_extension = '.' + parts[-1].lower()
         if final_extension not in fileTypes:
             logging.warning(f"File '{file_path}' has unrecognized final extension '{final_extension}', checking if it might be ransomware sign")
-            
+
             # Check if the file has a known extension or is readable
             if has_known_extension(file_path) or is_readable(file_path):
                 logging.info(f"File '{file_path}' is not ransomware")
@@ -5504,7 +5517,7 @@ def is_ransomware(file_path):
 
         logging.info(f"File '{file_path}' does not meet ransomware conditions")
         return False
-    
+
     except Exception as ex:
         logging.error(f"Error checking ransomware for file {file_path}: {ex}")
         return False
@@ -5528,7 +5541,7 @@ def ransomware_alert(file_path):
 
     try:
         logging.info(f"Running ransomware alert check for file '{file_path}'")
-        
+
         # Check the ransomware flag once.
         if is_ransomware(file_path):
             # If file is from the Sandboxie log folder, trigger Sandboxie-specific alert.
@@ -5537,11 +5550,11 @@ def ransomware_alert(file_path):
                 logging.warning(f"File '{file_path}' (Sandboxie log) flagged as potential ransomware. Count: {ransomware_detection_count}")
                 notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.Log.gen")
                 logging.warning(f"User has been notified about potential ransomware in {main_file_path} (Sandboxie log alert)")
-            
+
             # Normal processing for all flagged files.
             ransomware_detection_count += 1
             logging.warning(f"File '{file_path}' might be a ransomware sign. Count: {ransomware_detection_count}")
-            
+
             # When exactly two alerts occur, search for files with the same extension.
             if ransomware_detection_count == 2:
                 _, ext = os.path.splitext(file_path)
@@ -5557,7 +5570,7 @@ def ransomware_alert(file_path):
             if ransomware_detection_count >= 10:
                 notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.gen")
                 logging.warning(f"User has been notified about potential ransomware in {main_file_path}")
-                
+
     except Exception as ex:
         logging.error(f"Error in ransomware_alert: {ex}")
 
@@ -5637,7 +5650,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
     the summary will consist solely of the full source code.
     If decompiled_flag is True (and united_python_code_flag is False), a normal summary is generated with 
     an additional note indicating that the file was decompiled by our tool and is Python source code.
-    
+
     Args:
         file_path (str): The path to the file to be scanned.
         united_python_code_flag (bool): If True, indicates that the file was produced by the pycdas decompiler.
@@ -5676,7 +5689,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
             (lambda fp: fp.startswith(python_source_code_dir), f"PyInstaller, .pyc reversed-engineered source code directory with uncompyle6."),
             (lambda fp: fp.startswith(nuitka_source_code_dir), f"Nuitka reversed-engineered Python source code directory.")
         ]
-    
+
         # 1) Find and log the first matching directory message, also save it for the prompt
         dir_note = None
         for condition, message in directory_logging_info:
@@ -5915,7 +5928,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
 def extract_and_return_pyinstaller(file_path):
     """
     Extracts a PyInstaller archive and returns the paths of the extracted files.
-    
+
     :param file_path: Path to the PyInstaller archive.
     :return: A list of extracted file paths.
     """
@@ -5923,10 +5936,10 @@ def extract_and_return_pyinstaller(file_path):
 
     # Extract PyInstaller archive
     pyinstaller_archive = extract_pyinstaller_archive(file_path)
-    
+
     if pyinstaller_archive:
         logging.info(f"PyInstaller archive extracted to {pyinstaller_archive}")
-        
+
         # Traverse the extracted files
         for root, dirs, files in os.walk(pyinstaller_archive):
             for pyinstaller_file in files:
@@ -6174,10 +6187,10 @@ def process_decompiled_code(output_file):
 def run_pycdc_decompiler(file_path):
     """
     Runs the pycdc decompiler to decompile a .pyc file and saves it to a specified output directory.
-    
+
     Args:
         file_path: Path to the .pyc file to be decompiled
-    
+
     Returns:
         The decompiled file path, or None if the process fails
     """
@@ -6205,10 +6218,10 @@ def run_pycdc_decompiler(file_path):
 def run_pycdas_decompiler(file_path):
     """
     Runs the pycdas decompiler to decompile a .pyc file and saves it to a specified output directory.
-    
+
     Args:
         file_path: Path to the .pyc file to be decompiled.
-    
+
     Returns:
         The decompiled file path, or None if the process fails.
     """
@@ -6448,7 +6461,7 @@ def extract_rcdata_resource(pe_path):
                 # Construct the filename: "<type>_<id>_<lang>.bin"
                 file_name = f"{type_name}_{res_id}_{lang_id}.bin"
                 output_path = os.path.join(output_dir, file_name)
-                
+
                 # Save the extracted resource to disk
                 with open(output_path, "wb") as f:
                     f.write(data)
@@ -6662,7 +6675,7 @@ def run_jar_extractor(file_path, flag_fenflower):
     Extracts a JAR file to an "extracted_files" folder in script_dir.
     Then conditionally calls the FernFlower decompiler unless decompilation was already performed.
     The flag_java_class indicates if the DIE output also detected a Java class file.
-    
+
     Returns:
       list[str] | None: List of file paths extracted or decompiled, or None on error.
     """
@@ -7207,7 +7220,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
 
             # Analyze the DIE output for .NET file information
             dotnet_result = is_dotnet_file_from_output(die_output)
-    
+
             if dotnet_result is True:
                 dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(file_path,))
                 dotnet_thread.start()
