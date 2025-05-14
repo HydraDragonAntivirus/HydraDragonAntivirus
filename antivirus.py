@@ -6973,9 +6973,6 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
         # Extract the file name
         file_name = os.path.basename(file_path)
 
-        normalized_file_path = os.path.abspath(file_path).lower()
-        commandlineandmessage_base_dir = os.path.abspath(commandlineandmessage_dir).lower()
-
         # Read the file content.
         with open(file_path, 'rb') as scan_file:
             data_content = scan_file.read()
@@ -7055,7 +7052,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
         # Detect Inno Setup installer
         if is_inno_setup_archive_from_output(die_output):
             # Extract Inno Setup installer files
-            extracted = extract_inno_setup(installer_path)
+            extracted = extract_inno_setup(file_path)
             if extracted is not None:
                 logging.info(f"Extracted {len(extracted)} files. Scanning...")
                 for file_path in extracted:
@@ -7069,13 +7066,21 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
 
         # Deobfuscate binaries obfuscated by Go Garble.
         if is_go_garble_from_output(die_output):
+            # Generate output paths based on the file name and the specified directories
             output_path = os.path.join(ungarbler_dir, os.path.basename(file_path))
             string_output_path = os.path.join(ungarbler_string_dir, os.path.basename(file_path) + "_strings.txt")
 
+            # Process the file and get the results
             results = process_file_go(file_path, output_path, string_output_path)
-            # Send files for scanning
-            scan_file_and_warn(output_path)
-            scan_file_and_warn(string_output_path)
+
+            # Send the output files for scanning if they are created
+            if results.get("patched_data"):
+                # Scan the patched binary file
+                scan_and_warn(output_path)
+
+            if results.get("decrypt_func_list"):
+                # Scan the extracted strings file
+                scan_and_warn(string_output_path)
 
         # Check if it's a .pyc file and decompile if needed
         if is_pyc_file_from_output(die_output):
@@ -8374,8 +8379,8 @@ class MonitorMessageCommandLine:
                             f.write(pre_cmd[:1_000_000])
                         logging.info(f"Wrote cmd pre -> {pre_fn}")
                         scan_and_warn(pre_fn)
-            except Exception as e:
-                logging.exception("Command-line snapshot error:")
+            except Exception as ex:
+                logging.exception(f"Command-line snapshot error:{ex}")
 
     def start_monitoring_threads(self):
         threading.Thread(target=self.monitoring_window_text).start()
