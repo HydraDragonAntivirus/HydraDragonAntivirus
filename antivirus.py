@@ -8499,12 +8499,14 @@ def run_de4dot_in_sandbox(file_path):
     """
     Runs de4dot inside Sandboxie to avoid contaminating the host.
     Extracts all files into de4dot_extracted_dir via -ro.
+    Uses -r for recursive processing.
     """
     cmd = [
         sandboxie_path,
         "/box:DefaultBox",
-        '/elevate',
+        "/elevate",
         de4dot_cex_x64_path,
+        "-r",                # Enable recursive processing
         "-ro", de4dot_extracted_dir,
         file_path
     ]
