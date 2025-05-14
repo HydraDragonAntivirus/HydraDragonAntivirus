@@ -6617,7 +6617,7 @@ def extract_resources(pe_path, output_dir):
 
     return extracted_files
 
-def run_fernflower_decompiler(file_path, flag_fenflower=True):
+def run_fernflower_decompiler(file_path, flag_fernflower=True):
     """
     Uses FernFlower to decompile the given JAR file.
     The FernFlower JAR is expected to be located in jar_decompiler_dir.
@@ -6667,7 +6667,7 @@ def run_fernflower_decompiler(file_path, flag_fenflower=True):
         logging.error(f"Error in run_fernflower_decompiler: {ex}")
         return None
 
-def run_jar_extractor(file_path, flag_fenflower):
+def run_jar_extractor(file_path, flag_fernflower):
     """
     Extracts a JAR file to an "extracted_files" folder in script_dir.
     Then conditionally calls the FernFlower decompiler unless decompilation was already performed.
@@ -6707,7 +6707,7 @@ def run_jar_extractor(file_path, flag_fenflower):
                 extracted_file_paths.append(os.path.join(root, name))
 
         # Decompile via FernFlower if not already done
-        if not flag_fenflower:
+        if not flag_fernflower:
             fernflower_decompiler_results = run_fernflower_decompiler(file_path)
             if fernflower_decompiler_results:
                 extracted_file_paths.extend(fernflower_decompiler_results)
@@ -7238,14 +7238,14 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                 de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(file_path,))
                 de4dot_thread.start()
             if is_jar_file_from_output(die_output):
-                jar_extractor_paths = run_jar_extractor(file_path, flag_fenflower)
+                jar_extractor_paths = run_jar_extractor(file_path, flag_fernflower)
                 if jar_extractor_paths:
                     for jar_extractor_path in jar_extractor_paths:
-                        scan_and_warn(jar_extractor_path, flag_fenflower)
+                        scan_and_warn(jar_extractor_path, flag_fernflower)
                 else:
                     logging.warning("Java Archive Extraction or decompilation failed. Skipping scan.")
             if is_java_class_from_output(die_output):
-                run_fernflower_decompiler(sfile_path)
+                run_fernflower_decompiler(file_path)
 
             # Check if the file contains Nuitka executable
             nuitka_type = is_nuitka_file_from_output(die_output)
@@ -7544,7 +7544,8 @@ def check_startup_directories():
                     for file in os.listdir(directory):
                         file_path = os.path.join(directory, file)
                         if os.path.isfile(file_path) and file_path not in alerted_files:
-                            if file_path.endswith('.wll') and is_pe_file(file_path):
+                            die_output = analyze_file_with_die(file_path)
+                            if file_path.endswith('.wll') and is_pe_file_from_output(die_output):
                                 malware_type = "HEUR:Win32.Startup.DLLwithWLL.gen.Malware"
                                 message = f"Confirmed DLL malware detected: {file_path}\nVirus: {malware_type}"
                             elif file_path.endswith(('.vbs', '.vbe', '.js', '.jse', '.bat', '.url', '.cmd', '.hta', '.ps1', '.psm1', '.wsf', '.wsb', '.sct')):
@@ -8501,7 +8502,7 @@ def run_de4dot_in_sandbox(file_path):
     """
     cmd = [
         sandboxie_path,
-        f"/box:DefaultBox",
+        "/box:DefaultBox",
         '/elevate',
         de4dot_cex_x64_path,
         "-ro", de4dot_extracted_dir,
