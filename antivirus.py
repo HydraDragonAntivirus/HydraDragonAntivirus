@@ -5675,7 +5675,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
             (lambda fp: fp.startswith(pe_extracted_dir), "PE file extracted."),
             (lambda fp: fp.startswith(zip_extracted_dir), "ZIP extracted."),
             (lambda fp: fp.startswith(seven_zip_extracted_dir), "7zip extracted."),
-            (lambda fp: fp.startswith(general_extracted_dir), f"All extractable files go here."),
+            (lambda fp: fp.startswith(general_extracted_dir), "All extractable files go here."),
             (lambda fp: fp.startswith(tar_extracted_dir), "TAR extracted."),
             (lambda fp: fp.startswith(processed_dir), "Processed - File is base64/base32, signature/magic bytes removed."),
             (lambda fp: fp == main_file_path, "This is the main file."),
@@ -6171,11 +6171,11 @@ def process_decompiled_code(output_file):
         source_code_path = save_to_file(source_code_file, final_decrypted_data)
 
         # Process final stage and extract webhook URLs
-        webhooks = extract_webhooks(final_decrypted_data)
+        webhooks = re.findall(discord_webhook_pattern, final_decrypted_data)
         if webhooks:
             logging.warning(f"[+] Webhook URLs found: {webhooks}")
             if source_code_path:
-                notify_user_for_exelav2(source_code_path, 'HEUR:Win32.Discord.Pyinstaller.Exela.Stealer.v2.gen')
+                notify_user_exela_stealer_v2(source_code_path, 'HEUR:Win32.Discord.Pyinstaller.Exela.Stealer.v2.gen')
             else:
                 logging.error("Failed to save the final decrypted source code.")
         else:
@@ -6519,7 +6519,7 @@ def extract_nuitka_file(file_path, nuitka_type):
             extractor.extract()
 
             # Scan the extracted directory for additional Nuitka executables
-            logging.info(f"Scanning extracted directory for additional Nuitka executables...")
+            logging.info("Scanning extracted directory for additional Nuitka executables...")
             found_executables = scan_directory_for_executables(nuitka_output_dir)
 
             # Process any found normal Nuitka executables
