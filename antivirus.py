@@ -4274,8 +4274,6 @@ class NuitkaExtractor:
 
             logging.info(f"[+] Successfully extracted {total_files} files to {self.output_dir}")
 
-        except PayloadError as ex:
-            logging.error(f"[!] {str(ex)}")
         except Exception as ex:
             logging.error(f"[!] Unexpected error: {str(ex)}")
 
@@ -5133,12 +5131,17 @@ def scan_directory_for_executables(directory):
     """
     found_executables = []
 
+    # Helper to analyze + test one file
+    def check_file(path):
+        die_output = analyze_file_with_die(path)
+        return is_nuitka_file_from_output(die_output)
+
     # Look for .exe files first
     for root, _, files in os.walk(directory):
         for file in files:
             if file.lower().endswith('.exe'):
                 file_path = os.path.join(root, file)
-                nuitka_type = is_nuitka_file_from_output(die_output)
+                nuitka_type = check_file(file_path)
                 if nuitka_type:
                     found_executables.append((file_path, nuitka_type))
                     return found_executables  # Stop scanning further as .exe is found
@@ -5148,7 +5151,7 @@ def scan_directory_for_executables(directory):
         for file in files:
             if file.lower().endswith('.dll'):
                 file_path = os.path.join(root, file)
-                nuitka_type = is_nuitka_file_from_output(die_output)
+                nuitka_type = check_file(file_path)
                 if nuitka_type:
                     found_executables.append((file_path, nuitka_type))
                     return found_executables  # Stop scanning further as .dll is found
@@ -5158,7 +5161,7 @@ def scan_directory_for_executables(directory):
         for file in files:
             if file.lower().endswith('.kext'):
                 file_path = os.path.join(root, file)
-                nuitka_type = is_nuitka_file_from_output(die_output)
+                nuitka_type = check_file(file_path)
                 if nuitka_type:
                     found_executables.append((file_path, nuitka_type))
                     return found_executables  # Stop scanning further as .kext is found
@@ -5168,7 +5171,7 @@ def scan_directory_for_executables(directory):
         for file in files:
             if not file.lower().endswith(('.exe', '.dll', '.kext')):
                 file_path = os.path.join(root, file)
-                nuitka_type = is_nuitka_file_from_output(die_output)
+                nuitka_type = check_file(file_path)
                 if nuitka_type:
                     found_executables.append((file_path, nuitka_type))
                     return found_executables  # Stop scanning further as a Nuitka file is found
@@ -5456,7 +5459,7 @@ def extract_pyinstaller_archive(file_path):
         # Close the archive
         archive.close()
 
-        logging.info(f"[+] Extraction completed successfully: {extraction_dir}")
+        logging.info(f"[+] Extraction completed successfully: {extractiondir}")
 
         return extractiondir
 
@@ -6561,9 +6564,6 @@ def extract_nuitka_file(file_path, nuitka_type):
             logging.info(f"No Nuitka content found in {file_path}")
             return None
 
-    except PayloadError as ex:
-        logging.error(f"Payload error while extracting Nuitka file: {ex}")
-        return None
     except Exception as ex:
         logging.error(f"Unexpected error while extracting Nuitka file: {ex}")
         return None
