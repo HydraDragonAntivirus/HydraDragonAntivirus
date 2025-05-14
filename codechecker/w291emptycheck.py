@@ -1,22 +1,31 @@
-def find_trailing_whitespace_lines(file_path):
-    trailing_ws_lines = []
+
+def fix_trailing_whitespace(file_path):
+    fixed_lines = []
+    changes_made = False
 
     try:
         with open(file_path, 'r', encoding='utf-8') as file:
-            for i, line in enumerate(file, start=1):
-                if line.rstrip('\n') != line.rstrip():
-                    trailing_ws_lines.append(i)
+            lines = file.readlines()
+
+        for i, line in enumerate(lines, start=1):
+            stripped = line.rstrip('\n')
+            if stripped != stripped.rstrip():
+                print(f"Fixing trailing whitespace at line {i}")
+                changes_made = True
+                stripped = stripped.rstrip()
+            fixed_lines.append(stripped + '\n')
+
+        if changes_made:
+            with open(file_path, 'w', encoding='utf-8') as file:
+                file.writelines(fixed_lines)
+            print(f"Trailing whitespace fixed in: {file_path}")
+        else:
+            print("No trailing whitespace found. File is clean.")
 
     except Exception as e:
-        print(f"Error reading file: {e}")
-        return
-
-    if trailing_ws_lines:
-        print(f"W291 Warning - Trailing whitespace found on lines: {trailing_ws_lines}")
-    else:
-        print("No trailing whitespace found (W291 check passed).")
+        print(f"Error processing file: {e}")
 
 # Example usage
 if __name__ == "__main__":
-    file_path = "antivirus.py"  # Change if needed
-    find_trailing_whitespace_lines(file_path)
+    file_path = "antivirus.py"  # You can change this to any Python file path
+    fix_trailing_whitespace(file_path)

@@ -644,8 +644,8 @@ ransomware_detection_count = 0
 
 main_file_path = None
 
-def is_plain_text(data: bytes, 
-                  null_byte_threshold: float = 0.01, 
+def is_plain_text(data: bytes,
+                  null_byte_threshold: float = 0.01,
                   printable_threshold: float = 0.95) -> bool:
     """
     Heuristic: data is plain text if
@@ -1760,7 +1760,7 @@ def calculate_similarity(features1, features2):
     similarity = matching_keys / max(len(features1), len(features2))
     return similarity
 
-def notify_user(file_path, virus_name, engine_detected): 
+def notify_user(file_path, virus_name, engine_detected):
     notification = Notify()
     notification.title = "Malware Alert"
     notification_message = f"Malicious file detected: {file_path}\nVirus: {virus_name}\nDetected by: {engine_detected}"
@@ -2274,7 +2274,7 @@ def load_website_data():
 
 # --------------------------------------------------------------------------
 # Check for Discord webhook URLs and invite links (including Canary)
-def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=None, nsis_flag=False, 
+def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=None, nsis_flag=False,
                             nuitka_flag=False, pyinstaller_flag=False, pyinstaller_meta_llama_flag=False, dotnet_flag=False):
     """
     Scan the decompiled code for Discord webhook URLs, Discord Canary webhook URLs, Discord invite links or Telegram bot links.
@@ -2912,7 +2912,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
             # Check if the IPv4 address is whitelisted
             if ip_address in ipv4_whitelist_data:
                 logging.info(f"IPv4 address {ip_address} is whitelisted.")
-                return 
+                return
             # Detailed Active phishing threat signature check for IPv4
             elif ip_address in ipv4_addresses_phishing_active_signatures_data:
                 logging.warning(f"IPv4 address {ip_address} detected as an active phishing threat.")
@@ -3446,7 +3446,7 @@ class RealTimeWebProtectionHandler:
 
     def scan(self, entity_type, entity_value, detection_type=None):
         """
-        Unified scan entry-point.  
+        Unified scan entry-point.
         Dedupe, detect, fetch, extract, and recurse all via this one method.
         """
         # 1) classify into our four buckets
@@ -4135,7 +4135,7 @@ class NuitkaExtractor:
                 elf = ELFFile(f)
 
                 # Find last section to locate appended data
-                last_section = max(elf.iter_sections(), 
+                last_section = max(elf.iter_sections(),
                                  key=lambda s: s.header.sh_offset + s.header.sh_size)
 
                 # Read trailer for payload size
@@ -4809,7 +4809,7 @@ def clean_directory():
         except Exception as ex:
             logging.error(f"Failed to delete '{file_path}'. Reason: {ex}")
 
-def run_snort():    
+def run_snort():
     try:
         clean_directory()
         # Run snort without capturing output
@@ -5041,10 +5041,10 @@ def clean_text(input_text):
 
 def scan_rsrc_files(file_paths):
     """
-    Given a list of file paths for rsrcdata resources, this function scans each file 
+    Given a list of file paths for rsrcdata resources, this function scans each file
     and processes only the first file that contains the string 'upython.exe'.
     Once found, it extracts the source code portion starting after 'upython.exe',
-    cleans it, saves it to a uniquely named file, and scans the code for domains, 
+    cleans it, saves it to a uniquely named file, and scans the code for domains,
     URLs, IP addresses, and Discord webhooks.
 
     :param file_paths: List of file paths to be scanned.
@@ -5650,9 +5650,9 @@ def log_directory_type(file_path):
 def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompiled_flag=False, HiJackThis_flag=False):
     """
     Processes a file and analyzes it using Meta Llama-3.2-1B.
-    If united_python_code_flag is True (i.e. the file comes from pycdas, pycdc, uncompyle6 decompilation), 
+    If united_python_code_flag is True (i.e. the file comes from pycdas, pycdc, uncompyle6 decompilation),
     the summary will consist solely of the full source code.
-    If decompiled_flag is True (and united_python_code_flag is False), a normal summary is generated with 
+    If decompiled_flag is True (and united_python_code_flag is False), a normal summary is generated with
     an additional note indicating that the file was decompiled by our tool and is Python source code.
 
     Args:
@@ -5955,7 +5955,7 @@ def extract_and_return_pyinstaller(file_path):
 
 def decompile_dotnet_file(file_path):
     """
-    Decompiles a .NET assembly using ILSpy and scans all decompiled .cs files 
+    Decompiles a .NET assembly using ILSpy and scans all decompiled .cs files
     for URLs, IP addresses, domains, and Discord webhooks.
 
     :param file_path: Path to the .NET assembly file.
@@ -6655,7 +6655,7 @@ def run_fernflower_decompiler(file_path, flag_fenflower=True):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            encoding="utf-8", 
+            encoding="utf-8",
             errors="ignore"
         )
 
@@ -6699,7 +6699,7 @@ def run_jar_extractor(file_path, flag_fenflower):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            encoding="utf-8", 
+            encoding="utf-8",
             errors="ignore"
         )
 
@@ -7264,7 +7264,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                                 scan_and_warn(extracted_file)
                             except Exception as e:
                                 logging.error(f"Failed to analyze extracted file {extracted_file}: {e}")
-                    else: 
+                    else:
                         logging.warning("No Nuitka files were extracted for scanning.")
                 except Exception as ex:
                     logging.error(f"Error checking or extracting Nuitka content from {file_path}: {ex}")
@@ -7914,7 +7914,7 @@ class MonitorMessageCommandLine:
                     "this trojan has", "by this trojan", "this is a malware", "considered malware", "destroy your computer",
                     "destroy this computer", "execute this malware", "run a malware", "this malware contains", "and makes it unusable",
                     "contains flashing lights", "run malware", "executed is a malware", "resulting in an unusable machine", "this malware will harm your computer",
-                    "this trojan and", "using this malware", "this malware can", "gdi malware", "win32 trojan specifically", "malware will run", "this malware is no joke", 
+                    "this trojan and", "using this malware", "this malware can", "gdi malware", "win32 trojan specifically", "malware will run", "this malware is no joke",
                 ],
                 "virus_name": "HEUR:Win32.GDI.Fanmade.gen",
                 "process_function": self.process_detected_text_fanmade
