@@ -392,8 +392,8 @@ ipv4_addresses_bruteforce_path = os.path.join(website_rules_dir, "IPv4BruteForce
 ipv4_addresses_phishing_active_path = os.path.join(website_rules_dir, "IPv4PhishingActive.txt")
 ipv4_addresses_phishing_inactive_path = os.path.join(website_rules_dir, "IPv4PhishingInActive.txt")
 ipv4_whitelist_path = os.path.join(website_rules_dir, "IPv4Whitelist.txt")
-ipv6_addresses_path = os.path.join(website_rules_dir, "IPv6Spam.txt")
-ipv6_addresses_spam_path = os.path.join(website_rules_dir, "IPv6Malware.txt")
+ipv6_addresses_path = os.path.join(website_rules_dir, "IPv6Malware.txt")
+ipv6_addresses_spam_path = os.path.join(website_rules_dir, "IPv6Spam.txt")
 ipv4_addresses_ddos_path = os.path.join(website_rules_dir, "IPv4DDoS.txt")
 ipv6_addresses_ddos_path = os.path.join(website_rules_dir, "IPv6DDoS.txt")
 ipv6_whitelist_path = os.path.join(website_rules_dir, "IPv6Whitelist.txt")
@@ -488,7 +488,7 @@ sandboxie_folder = os.path.join(system_drive, "Sandbox", username, "DefaultBox")
 main_drive_path = os.path.join(sandboxie_folder, "drive", system_drive.strip(":"))
 # Rebuild sandboxed paths properly under sandbox's drive C
 sandbox_program_files      = os.path.join(sandboxie_folder, "drive", os.path.splitdrive(program_files)[0].strip(":"), *os.path.splitdrive(program_files)[1].lstrip(os.sep).split(os.sep))
-sandbox_critical_directory = os.path.join(sandboxie_folder, "drive", os.path.splitdrive(system_root)[0].strip(":"), *os.path.splitdrive(system_root)[1].lstrip(os.sep).split(os.sep))
+sandbox_system_root_directory = os.path.join(sandboxie_folder, "drive", os.path.splitdrive(system_root)[0].strip(":"), *os.path.splitdrive(system_root)[1].lstrip(os.sep).split(os.sep))
 drivers_path = os.path.join(system32_path, "drivers")
 hosts_path = f'{drivers_path}\\hosts'
 HydraDragonAntivirus_sandboxie_path = f'{sandbox_program_files}\\HydraDragonAntivirus'
@@ -586,9 +586,6 @@ discord_webhook_pattern_standard = r'https://discord\.com/api/webhooks/\d+/[A-Za
 # Discord Canary webhook (standard)
 discord_canary_webhook_pattern_standard = r'https://canary\.discord\.com/api/webhooks/\d+/[A-Za-z0-9_-]+'
 
-# Discord invite link (standard)
-discord_invite_pattern_standard = r'https://discord\.gg/[A-Za-z0-9]+'
-
 # Discord CDN attachments (standard)
 cdn_attachment_pattern_standard = re.compile(
     r'https://(?:cdn\.discordapp\.com|media\.discordapp\.net)/attachments/\d+/\d+/[A-Za-z0-9_\-\.%]+(?:\?size=\d+)?'
@@ -637,7 +634,7 @@ os.makedirs(HiJackThis_logs_dir, exist_ok=True)
 os.makedirs(html_extracted_dir, exist_ok=True)
 os.makedirs(sandboxie_folder, exist_ok=True)
 os.makedirs(sandbox_program_files, exist_ok=True)
-os.makedirs(sandbox_critical_directory, exist_ok=True)
+os.makedirs(sandbox_system_root_directory, exist_ok=True)
 
 # Counter for ransomware detection
 ransomware_detection_count = 0
@@ -1973,7 +1970,7 @@ def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=N
         message_parts.append(f"File Path: {file_path}")
 
     if message_parts:
-        notification_message = f"Phishing or Malicious activity detected:\n" + "\n".join(message_parts)
+        notification_message = "Phishing or Malicious activity detected:\n" + "\n".join(message_parts)
     else:
         notification_message = "Phishing or Malicious activity detected"
 
@@ -2033,7 +2030,7 @@ def load_digital_signatures(file_path, description="Digital signatures"):
         return []
 
 def load_website_data():
-    global ipv4_addresses_signatures_data, ipv4_whitelist_data, ipv4_addresses_bruteforce_signatures_data, ipv4_addresses_phishing_active_signatures_data, ipv4_addresses_phishing_inactive_signatures_data, ipv6_addresses_signatures_data, ipv6_addresses_ddos_signatures_data, ipv4_addresses_ddos_signatures_data, ipv6_whitelist_data, urlhaus_data, malware_domains_data, malware_domains_mail_data, phishing_domains_data, abuse_domains_data, mining_domains_data, spam_domains_data, whitelist_domains_data, whitelist_domains_mail_data, malware_sub_domains_data, malware_mail_sub_domains_data, phishing_sub_domains_data, abuse_sub_domains_data, mining_sub_domains_data, spam_sub_domains_data, whitelist_sub_domains_data, whitelist_mail_sub_domains_data
+    global ipv4_addresses_signatures_data, ipv4_addresses_spam_signatures_data, ipv4_whitelist_data, ipv4_addresses_bruteforce_signatures_data, ipv4_addresses_phishing_active_signatures_data, ipv4_addresses_phishing_inactive_signatures_data, ipv6_addresses_signatures_data, ipv6_addresses_spam_signatures_data, ipv6_addresses_ddos_signatures_data, ipv4_addresses_ddos_signatures_data, ipv6_whitelist_data, urlhaus_data, malware_domains_data, malware_domains_mail_data, phishing_domains_data, abuse_domains_data, mining_domains_data, spam_domains_data, whitelist_domains_data, whitelist_domains_mail_data, malware_sub_domains_data, malware_mail_sub_domains_data, phishing_sub_domains_data, abuse_sub_domains_data, mining_sub_domains_data, spam_sub_domains_data, whitelist_sub_domains_data, whitelist_mail_sub_domains_data
 
     try:
         # Load IPv4 Malicious addresses
@@ -2199,6 +2196,15 @@ def load_website_data():
         whitelist_domains_data = []
 
     try:
+        # Load whitelist mail domains
+        with open(whitelist_domains_mail_path, 'r') as domains_file:
+            whitelist_domains_mail_data = domains_file.read().splitlines()
+        logging.info("Whitelist mail domains loaded successfully!")
+    except Exception as ex:
+        logging.error(f"Error loading Whitelist mail domains: {ex}")
+        whitelist_domains_mail_data = []
+
+    try:
         # Load Malware subdomains
         with open(malware_sub_domains_path, 'r') as file:
             malware_sub_domains_data = file.read().splitlines()
@@ -2273,24 +2279,23 @@ def load_website_data():
     logging.info("All domain and ip address files loaded successfully!")
 
 # --------------------------------------------------------------------------
-# Check for Discord webhook URLs and invite links (including Canary)
+# Check for Discord webhook URLs (including Canary)
 def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=None, nsis_flag=False,
                             nuitka_flag=False, pyinstaller_flag=False, pyinstaller_meta_llama_flag=False, dotnet_flag=False):
     """
-    Scan the decompiled code for Discord webhook URLs, Discord Canary webhook URLs, Discord invite links or Telegram bot links.
+    Scan the decompiled code for Discord webhook URLs, Discord Canary webhook URLs or Telegram bot links.
     For every detection, log a warning and immediately notify the user with an explicit unique heuristic
     signature that depends on the flags provided.
     """
-    # Perform matches
-    discord_webhook_matches = re.findall(discord_webhook_pattern.lower(), code_lower)
-    discord_canary_webhook_matches = re.findall(discord_canary_webhook_pattern.lower(), code_lower)
-    discord_invite_matches = re.findall(discord_invite_pattern.lower(), code_lower)
-    cdn_attachment_matches = re.findall(cdn_attachment_pattern.lower(), code_lower)
+    # Perform matches (case-insensitive)
+    discord_webhook_matches        = re.findall(discord_webhook_pattern, decompiled_code, flags=re.IGNORECASE)
+    discord_canary_webhook_matches = re.findall(discord_canary_webhook_pattern, decompiled_code, flags=re.IGNORECASE)
+    cdn_attachment_matches         = re.findall(cdn_attachment_pattern, decompiled_code, flags=re.IGNORECASE)
 
     # Telegram token (case-sensitive): run on original code
     telegram_token_matches = re.findall(telegram_token_pattern, decompiled_code)
 
-    # Telegram keyword (case-insensitive): run with re.IGNORECASE
+    # Telegram keyword (case-insensitive)
     telegram_keyword_matches = re.findall(telegram_keyword_pattern, decompiled_code, flags=re.IGNORECASE)
 
     if discord_webhook_matches:
@@ -4078,7 +4083,7 @@ class NuitkaExtractor:
 
     def _detect_file_type(self) -> int:
         """Detect the executable file type using Detect It Easy methods"""
-        die_output = analyze_file_with_die(file_path)
+        die_output = analyze_file_with_die(self.filepath)
 
         if is_pe_file_from_output(die_output):
             return FileType.PE
@@ -4307,7 +4312,7 @@ def scan_zip_file(file_path):
 
         return True, extracted_paths
 
-    except (pyzipper.BadZipFile, zipfile.BadZipFile):
+    except pyzipper.zipfile.BadZipFile:
         logging.error(f"Not a valid ZIP archive: {file_path}")
         return False, []
 
@@ -4485,9 +4490,6 @@ def check_worm_similarity(file_path, features_current):
     return worm_detected
 
 def worm_alert(file_path):
-    global worm_alerted_files
-    global worm_detected_count
-    global worm_file_paths
 
     if file_path in worm_alerted_files:
         logging.info(f"Worm alert already triggered for {file_path}, skipping...")
@@ -4498,11 +4500,11 @@ def worm_alert(file_path):
 
         # Extract features
         features_current = extract_numeric_worm_features(file_path)
-        is_critical = file_path.startswith(main_drive_path) or file_path.startswith(system_root) or file_path.startswith(sandbox_system_root)
+        is_critical = file_path.startswith(main_drive_path) or file_path.startswith(system_root) or file_path.startswith(sandbox_system_root_directory)
 
         if is_critical:
             original_file_path = os.path.join(system_root, os.path.basename(file_path))
-            sandbox_file_path = os.path.join(sandbox_system_root, os.path.basename(file_path))
+            sandbox_file_path = os.path.join(sandbox_system_root_directory, os.path.basename(file_path))
 
             if os.path.exists(original_file_path) and os.path.exists(sandbox_file_path):
                 original_file_size = os.path.getsize(original_file_path)
@@ -4576,20 +4578,11 @@ def check_pe_file(file_path, signature_check, file_name):
         logging.error(f"Error checking PE file {file_path}: {ex}")
 
 def is_zip_file(file_path):
-    """Checks if the file is a ZIP archive."""
     try:
-        # Attempt to open the file as an AES Zip file
-        with pyzipper.AESZipFile(file_path) as zip_file:
-            # If it opens without error, return True indicating it's a ZIP file
-            return True
-    except (pyzipper.zipfile.BadZipFile, RuntimeError):
-        # If the file is not a valid ZIP archive, return False
-        return False
-    except PermissionError:
-        print(f"[-] Permission denied: {file_path}. Unable to access the file.")
-        return False
-    except FileNotFoundError:
-        print(f"[-] File not found: {file_path}. Ensure the file path is correct.")
+        pyzipper.AESZipFile(file_path).close()
+        return True
+    except (pyzipper.zipfile.BadZipFile, RuntimeError, PermissionError, FileNotFoundError) as e:
+        print(f"[-] {type(e).__name__}: {e}")
         return False
     except Exception as e:
         print(f"[-] Unexpected error while checking ZIP file: {e}")
@@ -5667,34 +5660,34 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
         # List of directory conditions and their corresponding logging messages.
         # Note: For conditions that need an exact match (like the main file), a lambda is used accordingly.
         directory_logging_info = [
-            (lambda fp: fp.startswith(sandboxie_folder), f"It's a Sandbox environment file."),
-            (lambda fp: fp.startswith(copied_sandbox_files_dir), f"It's a restored sandbox environment file."),
-            (lambda fp: fp.startswith(decompiled_dir), f"Decompiled."),
-            (lambda fp: fp.startswith(upx_extracted_dir), f"UPX extracted."),
-            (lambda fp: fp.startswith(inno_setup_extracted_dir), f"Inno Setup extracted."),
-            (lambda fp: fp.startswith(nuitka_dir), f"Nuitka onefile extracted."),
-            (lambda fp: fp.startswith(dotnet_dir), f".NET decompiled."),
-            (lambda fp: fp.startswith(obfuscar_dir), f".NET file obfuscated with Obfuscar."),
-            (lambda fp: fp.startswith(de4dot_extracted_dir), f".NET file deobfuscated with de4dot."),
-            (lambda fp: fp.startswith(de4dot_sandboxie_dir), f"It's a Sandbox environment file, also a .NET file deobfuscated with de4dot"),
-            (lambda fp: fp.startswith(pyinstaller_dir), f"PyInstaller onefile extracted."),
-            (lambda fp: fp.startswith(commandlineandmessage_dir), f"Command line message extracted."),
-            (lambda fp: fp.startswith(pe_extracted_dir), f"PE file extracted."),
-            (lambda fp: fp.startswith(zip_extracted_dir), f"ZIP extracted."),
-            (lambda fp: fp.startswith(seven_zip_extracted_dir), f"7zip extracted."),
+            (lambda fp: fp.startswith(sandboxie_folder), "It's a Sandbox environment file."),
+            (lambda fp: fp.startswith(copied_sandbox_files_dir), "It's a restored sandbox environment file."),
+            (lambda fp: fp.startswith(decompiled_dir), "Decompiled."),
+            (lambda fp: fp.startswith(upx_extracted_dir), "UPX extracted."),
+            (lambda fp: fp.startswith(inno_setup_extracted_dir), "Inno Setup extracted."),
+            (lambda fp: fp.startswith(nuitka_dir), "Nuitka onefile extracted."),
+            (lambda fp: fp.startswith(dotnet_dir), ".NET decompiled."),
+            (lambda fp: fp.startswith(obfuscar_dir), ".NET file obfuscated with Obfuscar."),
+            (lambda fp: fp.startswith(de4dot_extracted_dir), ".NET file deobfuscated with de4dot."),
+            (lambda fp: fp.startswith(de4dot_sandboxie_dir), "It's a Sandbox environment file, also a .NET file deobfuscated with de4dot"),
+            (lambda fp: fp.startswith(pyinstaller_dir), "PyInstaller onefile extracted."),
+            (lambda fp: fp.startswith(commandlineandmessage_dir), "Command line message extracted."),
+            (lambda fp: fp.startswith(pe_extracted_dir), "PE file extracted."),
+            (lambda fp: fp.startswith(zip_extracted_dir), "ZIP extracted."),
+            (lambda fp: fp.startswith(seven_zip_extracted_dir), "7zip extracted."),
             (lambda fp: fp.startswith(general_extracted_dir), f"All extractable files go here."),
-            (lambda fp: fp.startswith(tar_extracted_dir), f"TAR extracted."),
-            (lambda fp: fp.startswith(processed_dir), f"Processed - File is base64/base32, signature/magic bytes removed."),
-            (lambda fp: fp == main_file_path, f"This is the main file."),
-            (lambda fp: fp.startswith(memory_dir), f"It's a dynamic analysis memory dump file."),
-            (lambda fp: fp.startswith(debloat_dir), f"It's a debloated file dir."),
-            (lambda fp: fp.startswith(jar_extracted_dir), f"Directory containing extracted files from a JAR (Java Archive) file."),
-            (lambda fp: fp.startswith(FernFlower_decompiled_dir), f"This directory contains source files decompiled from a JAR (Java Archive) using the Fernflower decompiler.."),
-            (lambda fp: fp.startswith(pycdc_dir), f"PyInstaller, .pyc reversed-engineered source code directory with pycdc.exe."),
-            (lambda fp: fp.startswith(pycdas_dir), f"PyInstaller, .pyc reversed-engineered source code directory with pycdas.exe."),
-            (lambda fp: fp.startswith(pycdas_meta_llama_dir), f"PyInstaller .pyc reverse-engineered source code directory, decompiled with pycdas.exe and converted to non-bytecode Python code using Meta Llama-3.2-1B."),
-            (lambda fp: fp.startswith(python_source_code_dir), f"PyInstaller, .pyc reversed-engineered source code directory with uncompyle6."),
-            (lambda fp: fp.startswith(nuitka_source_code_dir), f"Nuitka reversed-engineered Python source code directory.")
+            (lambda fp: fp.startswith(tar_extracted_dir), "TAR extracted."),
+            (lambda fp: fp.startswith(processed_dir), "Processed - File is base64/base32, signature/magic bytes removed."),
+            (lambda fp: fp == main_file_path, "This is the main file."),
+            (lambda fp: fp.startswith(memory_dir), "It's a dynamic analysis memory dump file."),
+            (lambda fp: fp.startswith(debloat_dir), "It's a debloated file dir."),
+            (lambda fp: fp.startswith(jar_extracted_dir), "Directory containing extracted files from a JAR (Java Archive) file."),
+            (lambda fp: fp.startswith(FernFlower_decompiled_dir), "This directory contains source files decompiled from a JAR (Java Archive) using the Fernflower decompiler.."),
+            (lambda fp: fp.startswith(pycdc_dir), "PyInstaller, .pyc reversed-engineered source code directory with pycdc.exe."),
+            (lambda fp: fp.startswith(pycdas_dir), "PyInstaller, .pyc reversed-engineered source code directory with pycdas.exe."),
+            (lambda fp: fp.startswith(pycdas_meta_llama_dir), "PyInstaller .pyc reverse-engineered source code directory, decompiled with pycdas.exe and converted to non-bytecode Python code using Meta Llama-3.2-1B."),
+            (lambda fp: fp.startswith(python_source_code_dir), "PyInstaller, .pyc reversed-engineered source code directory with uncompyle6."),
+            (lambda fp: fp.startswith(nuitka_source_code_dir), "Nuitka reversed-engineered Python source code directory.")
         ]
 
         # 1) Find and log the first matching directory message, also save it for the prompt
@@ -5902,7 +5895,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
         if malware.lower() in ["maybe", "yes"]:
             try:
                 if HiJackThis_flag:
-                    notify_user_for_meta_llama(main_file_path, virus_name, malware, HiJackThis_flag=true)
+                    notify_user_for_meta_llama(main_file_path, virus_name, malware, HiJackThis_flag=True)
                 else:
                     notify_user_for_meta_llama(file_path, virus_name, malware)
             except Exception as ex:
