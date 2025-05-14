@@ -640,7 +640,7 @@ os.makedirs(sandbox_program_files, exist_ok=True)
 os.makedirs(sandbox_critical_directory, exist_ok=True)
 
 # Counter for ransomware detection
-ransomware_detection_count = 0 
+ransomware_detection_count = 0
 
 main_file_path = None
 
@@ -3152,6 +3152,7 @@ class MODULEINFO(ctypes.Structure):
         ("EntryPoint", ctypes.c_void_p),
     ]
 
+
 def get_module_info(process_handle, base_addr):
     """Retrieve module information via Psapi.GetModuleInformation."""
     module_info = MODULEINFO()
@@ -3806,6 +3807,7 @@ class RealTimeWebProtectionObserver:
         except Exception as ex:
             logging.error(f"An error occurred while sniffing packets: {ex}")
 
+
 web_protection_observer = RealTimeWebProtectionObserver()
 
 def scan_yara(file_path):
@@ -4276,6 +4278,7 @@ class NuitkaExtractor:
             logging.error(f"[!] {str(ex)}")
         except Exception as ex:
             logging.error(f"[!] Unexpected error: {str(ex)}")
+
 
 def scan_zip_file(file_path):
     """Scan files within a zip archive."""
@@ -5421,6 +5424,7 @@ class PyInstArchive:
         self._fixbarepycs()
 
         return extractiondir
+
 
 def extract_pyinstaller_archive(file_path):
     try:
@@ -7689,6 +7693,7 @@ class ScanAndWarnHandler(FileSystemEventHandler):
             self.process_file(event.dest_path)
             logging.info(f"File moved: {event.src_path} to {event.dest_path}")
 
+
 def monitor_directories_with_watchdog():
     """
     Use watchdog Observer to monitor multiple directories with the ScanAndWarnHandler.
@@ -8420,6 +8425,7 @@ def monitor_sandboxie_directory():
     except Exception as ex:
         logging.error(f"Error in monitor_sandboxie_directory: {ex}")
 
+
 def perform_sandbox_analysis(file_path):
     global main_file_path
     global monitor_message
@@ -8818,6 +8824,7 @@ class Worker(QThread):
         super().__init__()
         self.task_type = task_type
         self.args = args
+
 
 if __name__ == "__main__":
     app = QApplication([])
