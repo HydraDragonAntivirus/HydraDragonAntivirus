@@ -3654,16 +3654,16 @@ class RealTimeWebProtectionHandler:
                     self.scan('url', u)
 
             # --- Heuristic Checks for Discord & Telegram ---
-            if discord_webhook_pattern_standard.search(url):
+            if re.compile(discord_webhook_pattern_standard).search(url):
                 self.handle_detection('url', url, 'HEUR:Discord.Webhook')
                 return
-            if discord_canary_webhook_pattern_standard.search(url):
+            if re.compile(discord_canary_webhook_pattern_standard).search(url):
                 self.handle_detection('url', url, 'HEUR:Discord.CanaryWebhook')
                 return
-            if cdn_attachment_pattern_standard.search(url):
+            if re.compile(cdn_attachment_pattern_standard).search(url):
                 self.handle_detection('url', url, 'HEUR:Discord.CDNAttachment')
                 return
-            if telegram_pattern_standard.search(url):
+            if re.compile(telegram_pattern_standard).search(url):
                 self.handle_detection('url', url, 'HEUR:Telegram.Token')
                 return
 
