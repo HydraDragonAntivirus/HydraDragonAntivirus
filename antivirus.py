@@ -8501,13 +8501,22 @@ def run_de4dot_in_sandbox(file_path):
     Extracts all files into de4dot_extracted_dir via -ro.
     Uses -r for recursive processing.
     """
+    # Ensure output directory exists on host (no error if it already does)
+    try:
+        os.makedirs(de4dot_sandboxie_dir, exist_ok=True)
+        logging.info(f"Ensured output directory exists: {de4dot_extracted_dir}")
+    except Exception as e:
+        logging.error(f"Failed to create or verify output directory {de4dot_extracted_dir}: {e}")
+        return
+
     cmd = [
         sandboxie_path,
         "/box:DefaultBox",
         "/elevate",
         de4dot_cex_x64_path,
         "-r",                # Enable recursive processing
-        "-ro", de4dot_extracted_dir,
+        "-ro", 
+        de4dot_extracted_dir,
         file_path
     ]
 
