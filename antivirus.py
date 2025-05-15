@@ -3234,7 +3234,7 @@ def analyze_process_memory(file_path):
         logging.error(f"An error occurred: {ex}")
         return None
 
-def scan_file_with_machine_learning_ai(file_path, machine_learning_results_json, threshold=0.86):
+def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     """Scan a file for malicious activity using machine learning definitions loaded from JSON."""
 
     # Default assignment of malware_definition before starting the process
