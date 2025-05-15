@@ -940,10 +940,9 @@ def is_dotnet_file_from_output(die_output):
       - True
         if it's a .NET file detected.
       - "Protector: Obfuscar" or "Protector: Obfuscar(<version>)"
-        if it's a .NET assembly protected with Obfuscar.
-      - "<Label>: <Name>" or "<Label>: <Name>(<version>)"
-        for any other Protector:/Protection:/Obfuscation: marker.
-        (Use this to trigger de4dot.)
+        if it's protected with Obfuscar.
+      - "Protector: <Name>" or "Protector: <Name>(<version>)"
+        for any other Protector: marker (full line captured).
       - None
         if none of these markers are found.
     """
@@ -965,25 +964,14 @@ def is_dotnet_file_from_output(die_output):
         logging.info(f"DIE output indicates a .NET assembly protected with {result}.")
         return result
 
-    # 3) Generic Protector/Protection/Obfuscation markers
-    generic_pattern = re.compile(
-        r'\b(?P<label>Protector|Protection|Obfuscation):\s*'
-        r'(?P<name>[\w\.]+)'
-        r'(?:\((?P<version>[^)]+)\))?'
-    )
-    generic_match = generic_pattern.search(die_output)
-    if generic_match:
-        label   = generic_match.group('label')
-        name    = generic_match.group('name')
-        version = generic_match.group('version')
-        if version:
-            marker = f"{label}: {name}({version})"
-        else:
-            marker = f"{label}: {name}"
+    # 3) Generic Protector marker – capture the full line
+    line_match = re.search(r'^Protector:.*$', die_output, re.MULTILINE)
+    if line_match:
+        marker = line_match.group(0).strip()
         logging.info(f"DIE output indicates .NET assembly requires de4dot: {marker}.")
         return marker
 
-    # 4) Nothing .NET / protector-related found
+    # 4) Nothing .NET/protector-related found
     logging.info(f"DIE output does not indicate a .NET executable or known protector: {die_output!r}")
     return None
 
@@ -8501,23 +8489,25 @@ def run_de4dot_in_sandbox(file_path):
     Extracts all files into de4dot_extracted_dir via -ro.
     Uses -r for recursive processing.
     """
-    # Ensure output directory exists on host (no error if it already does)
+
+    # Ensure output directory exists
     try:
-        os.makedirs(de4dot_sandboxie_dir, exist_ok=True)
+        os.makedirs(de4dot_extracted_dir, exist_ok=True)  # This must match the -ro path
         logging.info(f"Ensured output directory exists: {de4dot_extracted_dir}")
     except Exception as e:
         logging.error(f"Failed to create or verify output directory {de4dot_extracted_dir}: {e}")
         return
 
+    # de4dot-x64.exe -r <input_dir> -ro <output_dir>
     cmd = [
         sandboxie_path,
         "/box:DefaultBox",
         "/elevate",
         de4dot_cex_x64_path,
-        "-r",                # Enable recursive processing
+        "-r", 
+        file_path,
         "-ro", 
-        de4dot_extracted_dir,
-        file_path
+        de4dot_extracted_dir
     ]
 
     try:
