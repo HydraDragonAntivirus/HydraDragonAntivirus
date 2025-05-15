@@ -6965,8 +6965,11 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
         with open(file_path, 'rb') as scan_file:
             data_content = scan_file.read()
 
+        is_plain_text_file=False
+
         if is_plain_text(data_content):
              die_output = "Binary\n    Format: plain text"
+             is_plain_text_file=True
         else:
              die_output = analyze_file_with_die(file_path)
 
@@ -6988,7 +6991,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                     f"malicious data: {file_path}"
                 )
                 return False
-        else:
+        elif not is_plain_text_file:
             # Attempt to extract the file
             try:
                 logging.info(f"Attempting to extract file {file_path}...")
