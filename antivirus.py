@@ -5286,29 +5286,38 @@ class PyInstArchive:
         self.tocList = []
         parsedlen = 0
 
+        # This is only the 5 fields after the 4-byte size!
+        entry_header_size = struct.calcsize('!IIIBc')  # 4+4+4+1+1 = 14
+
         try:
             while parsedlen < self.tableOfContentsSize:
-                entrysize = struct.unpack('!i', self.fPtr.read(4))[0]
+                # Read the 4-byte length
+                raw = self.fPtr.read(4)
+                if len(raw) < 4:
+                    return False
+                entrysize = struct.unpack('!i', raw)[0]
 
-                if entrysize <= 0 or entrysize > self.fileSize - self.tableOfContentsPos:
+                # Now read exactly (entrysize - 4) bytes
+                body = self.fPtr.read(entrysize - 4)
+                if len(body) != entrysize - 4:
                     return False
 
-                namelen = struct.calcsize('!iIIIBc')
+                # Unpack: IIIBc + "name" of length (entrysize-4 - header_size)
+                name_len = entrysize - 4 - entry_header_size
+                fmt = f'!IIIBc{ name_len }s'
+                entry = struct.unpack(fmt, body)
 
-                try:
-                    entry = struct.unpack(f'!IIIBc{entrysize - namelen}s', self.fPtr.read(entrysize - 4))
-                except struct.error as ex:
-                    logging.error(f"Error unpacking TOC entry: {ex}")
-                    return False
+                # Decode the name
+                name = entry[5].decode('utf-8', errors='ignore').rstrip('\0')
 
-                name = entry[5].decode("utf-8", errors="ignore").rstrip('\0')
+                # Append the CTOCEntry
                 self.tocList.append(CTOCEntry(
-                    self.overlayPos + entry[0],
-                    entry[1],
-                    entry[2],
-                    entry[3],
-                    entry[4],
-                    name
+                    position     = self.overlayPos + entry[0],
+                    cmprsddatasize  = entry[1],
+                    uncmprsddatasize = entry[2],
+                    cmprsflag    = entry[3],
+                    typecmprsdata = entry[4],
+                    name         = name
                 ))
 
                 parsedlen += entrysize
