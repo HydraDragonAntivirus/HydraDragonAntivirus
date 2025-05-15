@@ -4582,10 +4582,10 @@ def is_zip_file(file_path):
         pyzipper.AESZipFile(file_path).close()
         return True
     except (pyzipper.zipfile.BadZipFile, RuntimeError, PermissionError, FileNotFoundError) as e:
-        print(f"[-] {type(e).__name__}: {e}")
+        logging.error(f"[-] {type(e).__name__}: {e}")
         return False
     except Exception as e:
-        print(f"[-] Unexpected error while checking ZIP file: {e}")
+        logging.error(f"[-] Unexpected error while checking ZIP file: {e}")
         return False
 
 def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_file=False):
