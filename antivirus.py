@@ -7751,8 +7751,6 @@ WINEVENT_OUTOFCONTEXT    = 0x0000
 
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
-PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-
 # Load libraries
 kernel32 = ctypes.windll.kernel32
 user32 = ctypes.windll.user32
