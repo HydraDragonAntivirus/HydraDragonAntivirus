@@ -4272,85 +4272,104 @@ class NuitkaExtractor:
 
 
 def scan_zip_file(file_path):
-    """Scan files within a zip archive."""
+    """
+    Scan a ZIP archive for:
+      - RLO in filename warnings (encrypted vs non-encrypted)
+      - Size bomb warnings (even if AES encrypted)
+      - Single entry text files containing “Password:” (HEUR:Win32.Susp.Encrypted.Zip.SingleEntry)
+
+    Returns:
+      (success: bool, entries: List[(filename, uncompressed_size, encrypted_flag)])
+    """
     try:
         zip_size = os.path.getsize(file_path)
-        extracted_paths = []
+        entries = []
 
         with pyzipper.ZipFile(file_path, 'r') as zf:
             for info in zf.infolist():
+                encrypted = bool(info.flag_bits & 0x1)
+
                 # RLO check
                 if contains_rlo_after_dot(info.filename):
-                    notify_rlo_warning(file_path, "ZIP", "HEUR:RLO.Susp.Name.Encrypted.ZIP.gen")
+                    virus = "HEUR:RLO.Susp.Name.Encrypted.ZIP.gen" if encrypted else "HEUR:RLO.Susp.Name.ZIP.gen"
+                    notify_rlo_warning(file_path, "ZIP", virus)
 
-                # encryption check via flag bit
-                if info.flag_bits & 0x1:
-                    logging.info(f"Skipping encrypted file: {info.filename}")
-                    continue
+                # Record metadata
+                entries.append((info.filename, info.file_size, encrypted))
 
-                # extract and record
-                out_path = os.path.join(zip_extracted_dir, info.filename)
-                zf.extract(info, zip_extracted_dir)
-                extracted_paths.append(out_path)
+                # Size‑bomb check
+                if zip_size < 20 * 1024 * 1024 and info.file_size > 650 * 1024 * 1024:
+                    virus = "HEUR:Win32.Susp.Size.Encrypted.ZIP" if encrypted else "HEUR:Win32.Susp.Size.ZIP"
+                    notify_size_warning(file_path, "ZIP", virus)
 
-                # size-bomb check
-                size = os.path.getsize(out_path)
-                if zip_size < 20*1024*1024 and size > 650*1024*1024:
-                    notify_size_warning(file_path, "ZIP", "HEUR:Win32.Susp.Size.Encrypted.ZIP")
+        # Single‑entry password logic
+        if len(entries) == 1:
+            fname, _, encrypted = entries[0]
+            if not encrypted:
+                with pyzipper.ZipFile(file_path, 'r') as zf:
+                    snippet = zf.open(fname).read(4096)
+                if is_plain_text(snippet) and 'Password:' in snippet.decode('utf-8', errors='ignore'):
+                    notify_size_warning(file_path, "ZIP", "HEUR:Win32.Susp.Encrypted.Zip.SingleEntry")
 
-        return True, extracted_paths
+        return True, entries
 
     except pyzipper.zipfile.BadZipFile:
         logging.error(f"Not a valid ZIP archive: {file_path}")
         return False, []
-
     except Exception as ex:
         logging.error(f"Error scanning zip file: {file_path} {ex}")
         return False, []
 
+
 def scan_7z_file(file_path):
-    """Scan files within a 7z archive."""
+    """
+    Scan a 7z archive for:
+      - RLO in filename warnings (encrypted vs non-encrypted)
+      - Size bomb warnings (even if encrypted)
+      - Single entry text files containing “Password:” (HEUR:Win32.Susp.Encrypted.7z.SingleEntry)
+
+    Returns:
+      (success: bool, entries: List[(filename, uncompressed_size, encrypted_flag)])
+    """
     try:
-        # Get the size of the 7z file
         archive_size = os.path.getsize(file_path)
+        entries = []
 
         with py7zr.SevenZipFile(file_path, mode='r') as archive:
             for entry in archive.list():
                 filename = entry.filename
+                encrypted = entry.is_encrypted
 
                 # RLO check
                 if contains_rlo_after_dot(filename):
-                    virus_name = "HEUR:RLO.Susp.Name.Encrypted.7z.gen"
-                    logging.warning(
-                        f"Filename {filename} in {file_path} contains RLO character after a dot - "
-                        f"flagged as {virus_name}"
-                    )
-                    notify_rlo_warning(file_path, "7z", virus_name)
+                    virus = "HEUR:RLO.Susp.Name.Encrypted.7z.gen" if encrypted else "HEUR:RLO.Susp.Name.7z.gen"
+                    notify_rlo_warning(file_path, "7z", virus)
 
-                if archive.is_encrypted(entry):
-                    logging.info(f"Skipping encrypted file: {filename}")
-                    continue
+                # Record metadata
+                entries.append((filename, entry.uncompressed, encrypted))
 
-                # Extract the file
-                extracted_file_path = os.path.join(seven_zip_extracted_dir, filename)
-                # Corrected extraction method
-                archive.extract(path=seven_zip_extracted_dir)
+                # Size‑bomb check
+                if archive_size < 20 * 1024 * 1024 and entry.uncompressed > 650 * 1024 * 1024:
+                    virus = "HEUR:Win32.Susp.Size.Encrypted.7z" if encrypted else "HEUR:Win32.Susp.Size.7z"
+                    notify_size_warning(file_path, "7z", virus)
 
-                # Check for suspicious conditions: large files in small 7z archives
-                extracted_file_size = os.path.getsize(extracted_file_path)
-                if archive_size < 20 * 1024 * 1024 and extracted_file_size > 650 * 1024 * 1024:
-                    virus_name = "HEUR:Win32.Susp.Size.Encrypted.7z"
-                    logging.warning(
-                        f"7z file {file_path} is smaller than 20MB but contains a large file: {filename} "
-                        f"({extracted_file_size / (1024 * 1024)} MB) - flagged as {virus_name}. "
-                        "Potential 7z bomb or Fake Size detected to avoid VirusTotal detections."
-                    )
-                    notify_size_warning(file_path, "7z", virus_name)
+        # Single‑entry password logic
+        if len(entries) == 1:
+            fname, _, encrypted = entries[0]
+            if not encrypted:
+                data_map = archive.read([fname])
+                snippet = data_map.get(fname, b'')[:4096]
+                if is_plain_text(snippet) and 'Password:' in snippet.decode('utf-8', errors='ignore'):
+                    notify_size_warning(file_path, "7z", "HEUR:Win32.Susp.Encrypted.7z.SingleEntry")
 
-        return True, []
+        return True, entries
+
+    except py7zr.exceptions.Bad7zFile:
+        logging.error(f"Not a valid 7z archive: {file_path}")
+        return False, []
     except Exception as ex:
-        logging.error(f"Error scanning 7z file: {file_path} - {ex}")
-        return False, ""
+        logging.error(f"Error scanning 7z file: {file_path} {ex}")
+        return False, []
 
 def is_7z_file_from_output(die_output: str) -> bool:
     """
@@ -4566,14 +4585,22 @@ def check_pe_file(file_path, signature_check, file_name):
         logging.error(f"Error checking PE file {file_path}: {ex}")
 
 def is_zip_file(file_path):
+    """
+    Return True if file_path is a valid ZIP (AES or standard), False otherwise.
+    """
     try:
-        pyzipper.AESZipFile(file_path).close()
-        return True
-    except (pyzipper.zipfile.BadZipFile, RuntimeError, PermissionError, FileNotFoundError) as e:
-        logging.error(f"[-] {type(e).__name__}: {e}")
-        return False
+        # Try standard ZIP
+        with pyzipper.ZipFile(file_path, 'r'):
+            return True
+    except pyzipper.zipfile.BadZipFile:
+        # Try AES ZIP
+        try:
+            with pyzipper.AESZipFile(file_path, 'r'):
+                return True
+        except Exception:
+            return False
     except Exception as e:
-        logging.error(f"[-] Unexpected error while checking ZIP file: {e}")
+        logging.error(f"Unexpected error checking ZIP: {e}")
         return False
 
 def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_file=False):
