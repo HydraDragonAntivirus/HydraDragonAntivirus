@@ -8268,7 +8268,7 @@ class MonitorMessageCommandLine:
         try:
             file_content = []
             non_empty_count = 0
-            with open(file_path, 'r', encoding="utf-8", errors="ignore") as monitor_file:  # 12 boşluk
+            with open(file_path, 'r', encoding="utf-8", errors="ignore") as monitor_file:
                 for line in monitor_file:
                     if not line.strip():
                         continue
@@ -8276,7 +8276,7 @@ class MonitorMessageCommandLine:
                         file_content.append(line)
                         non_empty_count += 1
                     else:
-                        logging.warning("Exceeded 100K non-empty lines; stopping read.")
+                        logging.info("Exceeded 100K non-empty lines; stopping read.")
                         break
 
             file_content = ''.join(file_content)
