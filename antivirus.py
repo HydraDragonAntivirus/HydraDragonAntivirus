@@ -6244,53 +6244,47 @@ class ExecToPrintTransformer(ast.NodeTransformer):
         self.stub_names = set()
 
     def visit_Module(self, node):
-        # First pass: collect only functions whose body contains an exec() call
+        # Collect functions whose body contains exec(), mark for removal
         for n in node.body:
             if isinstance(n, ast.FunctionDef):
-                # walk the function body to see if any exec() call exists
                 if any(
                     isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == 'exec'
                     for call in ast.walk(n)
                 ):
                     self.stub_names.add(n.name)
-        # Process body to remove definitions and calls
+        # Process and rebuild module body
         new_body = []
         for stmt in node.body:
-            new_node = self.visit(stmt)
-            if new_node is None:
+            transformed = self.visit(stmt)
+            if transformed is None:
                 continue
-            if isinstance(new_node, list):
-                new_body.extend(new_node)
+            if isinstance(transformed, list):
+                new_body.extend(transformed)
             else:
-                new_body.append(new_node)
+                new_body.append(transformed)
         node.body = new_body
         return node
 
     def visit_FunctionDef(self, node):
-        # Remove only stub functions that wrap exec()
+        # Remove stub definitions
         if node.name in self.stub_names:
             return None
-        # keep other function definitions
         return node
 
     def visit_Expr(self, node):
-        # Remove standalone print calls
-        if isinstance(node.value, ast.Call):
-            # drop calls to stub functions
-            if isinstance(node.value.func, ast.Name) and node.value.func.id in self.stub_names:
-                return None
-            # drop original print expressions
-            if isinstance(node.value.func, ast.Name) and node.value.func.id == 'print':
+        # Remove standalone print or stub calls
+        if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name):
+            if node.value.func.id in self.stub_names or node.value.func.id == 'print':
                 return None
         return self.generic_visit(node)
 
     def visit_Call(self, node):
-        # Replace exec() calls with print()
-        if isinstance(node.func, ast.Name) and node.func.id == 'exec':
-            node.func.id = 'print'
-        # drop calls of stub functions within expressions
-        if isinstance(node.func, ast.Name) and node.func.id in self.stub_names:
-            return None
+        # Change exec() to print(), drop stub calls
+        if isinstance(node.func, ast.Name):
+            if node.func.id == 'exec':
+                node.func.id = 'print'
+            elif node.func.id in self.stub_names:
+                return None
         return self.generic_visit(node)
 
 
@@ -6298,7 +6292,8 @@ def deobfuscate_file(path):
     with open(path, 'r', encoding='utf-8') as f:
         src = f.read()
     tree = ast.parse(src, filename=path)
-    tree = ExecToPrintTransformer().visit(tree)
+    transformer = ExecToPrintTransformer()
+    tree = transformer.visit(tree)
     ast.fix_missing_locations(tree)
     return ast.unparse(tree)
 
