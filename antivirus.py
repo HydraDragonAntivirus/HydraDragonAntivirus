@@ -924,6 +924,18 @@ def is_elf_file_from_output(die_output):
     logging.info(f"DIE output does not indicate an ELF file: {die_output}")
     return False
 
+def is_enigma_protector(die_output):
+    """
+    Checks if DIE output indicates the Enigma protector.
+    Returns True if 'Protector: Enigma' is found, else False.
+    """
+    if die_output and "Protector: Enigma" in die_output:
+        logging.info("DIE output indicates Protector: Enigma.")
+        return True
+
+    logging.info(f"DIE output does not indicate Protector: Enigma: {die_output}")
+    return False
+
 def is_macho_file_from_output(die_output):
     """Checks if DIE output indicates a Mach-O file."""
     if die_output and "Mach-O" in die_output:
@@ -7001,13 +7013,15 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
         with open(file_path, 'rb') as scan_file:
             data_content = scan_file.read()
 
-        is_plain_text_file=False
+        plain_text_flag=False
 
         if is_plain_text(data_content):
              die_output = "Binary\n    Format: plain text"
-             is_plain_text_file=True
+             plain_text_flag=True
         else:
-             die_output = analyze_file_with_die(file_path)
+            die_output = analyze_file_with_die(file_path)
+            if is_non_plain_text_data(die_output):
+                plain_text_flag=True
 
         # Perform ransomware alert check
         if is_file_fully_unknown(die_output):
@@ -7027,23 +7041,6 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                     f"malicious data: {file_path}"
                 )
                 return False
-        elif not is_plain_text_file:
-            # Attempt to extract the file
-            try:
-                logging.info(f"Attempting to extract file {file_path}...")
-                extracted_files = extract_all_files_with_7z(file_path, nsis_flag)
-
-                if extracted_files:
-                    logging.info(f"Extraction successful for {file_path}. Scanning extracted files...")
-                    # Recursively scan each extracted file
-                    for extracted_file in extracted_files:
-                        logging.info(f"Scanning extracted file: {extracted_file}")
-                        scan_and_warn(extracted_file)
-
-                logging.info(f"File {file_path} is not a valid archive or extraction failed. Proceeding with scanning.")
-            except Exception as extraction_error:
-                logging.error(f"Error during extraction of {file_path}: {extraction_error}")
-
         # Wrap file_path in a Path once, up front
         wrap_file_path = Path(file_path)
 
@@ -7064,86 +7061,99 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                 f"Flag set to True because '{file_path}' is inside the de4dot directory '{match}'"
         )
 
-        if is_packer_upx_output(die_output):
-            upx_unpacked = extract_upx(file_path)
-            if upx_unpacked:
-               scan_and_warn(upx_unpacked)
+        if not plain_text_flag:
+            logging.info(f"File {file_path} does not contain plain text data.")
+            # Attempt to extract the file
+            try:
+                logging.info(f"Attempting to extract file {file_path}...")
+                extracted_files = extract_all_files_with_7z(file_path, nsis_flag)
+
+                if extracted_files:
+                    logging.info(f"Extraction successful for {file_path}. Scanning extracted files...")
+                    # Recursively scan each extracted file
+                    for extracted_file in extracted_files:
+                        logging.info(f"Scanning extracted file: {extracted_file}")
+                        scan_and_warn(extracted_file)
+
+                logging.info(f"File {file_path} is not a valid archive or extraction failed. Proceeding with scanning.")
+            except Exception as extraction_error:
+                logging.error(f"Error during extraction of {file_path}: {extraction_error}")
+            if is_packer_upx_output(die_output):
+                upx_unpacked = extract_upx(file_path)
+                if upx_unpacked:
+                    scan_and_warn(upx_unpacked)
+                else:
+                    logging.error(f"Failed to unpack {file_path}")
             else:
-               logging.error(f"Failed to unpack {file_path}")
-        else:
-            logging.info(f"Skipping non-UPX file: {file_path}")
+                logging.info(f"Skipping non-UPX file: {file_path}")
+            if is_nsis_from_output(die_output):
+                nsis_flag= True
+            # Detect Inno Setup installer
+            if is_inno_setup_archive_from_output(die_output):
+                # Extract Inno Setup installer files
+                extracted = extract_inno_setup(file_path)
+                if extracted is not None:
+                    logging.info(f"Extracted {len(extracted)} files. Scanning...")
+                    for file_path in extracted:
+                        try:
+                            # send to scan_and_warn for analysis
+                            scan_and_warn(file_path)
+                        except Exception as e:
+                            logging.error(f"Error scanning {file_path}: {e}")
+                else:
+                    logging.error("Extraction failed; nothing to scan.")
+            # Deobfuscate binaries obfuscated by Go Garble.
+            if is_go_garble_from_output(die_output):
+                # Generate output paths based on the file name and the specified directories
+                output_path = os.path.join(ungarbler_dir, os.path.basename(file_path))
+                string_output_path = os.path.join(ungarbler_string_dir, os.path.basename(file_path) + "_strings.txt")
 
-        if is_nsis_from_output(die_output):
-           nsis_flag= True
+                # Process the file and get the results
+                results = process_file_go(file_path, output_path, string_output_path)
 
-        # Detect Inno Setup installer
-        if is_inno_setup_archive_from_output(die_output):
-            # Extract Inno Setup installer files
-            extracted = extract_inno_setup(file_path)
-            if extracted is not None:
-                logging.info(f"Extracted {len(extracted)} files. Scanning...")
-                for file_path in extracted:
-                    try:
-                        # send to scan_and_warn for analysis
-                        scan_and_warn(file_path)
-                    except Exception as e:
-                        logging.error(f"Error scanning {file_path}: {e}")
-            else:
-                logging.error("Extraction failed; nothing to scan.")
+                # Send the output files for scanning if they are created
+                if results.get("patched_data"):
+                    # Scan the patched binary file
+                    scan_and_warn(output_path)
 
-        # Deobfuscate binaries obfuscated by Go Garble.
-        if is_go_garble_from_output(die_output):
-            # Generate output paths based on the file name and the specified directories
-            output_path = os.path.join(ungarbler_dir, os.path.basename(file_path))
-            string_output_path = os.path.join(ungarbler_string_dir, os.path.basename(file_path) + "_strings.txt")
+                if results.get("decrypt_func_list"):
+                    # Scan the extracted strings file
+                    scan_and_warn(string_output_path)
+            # Check if it's a .pyc file and decompile
+            if is_pyc_file_from_output(die_output):
+                logging.info(f"File {file_path} is a .pyc (Python Compiled Module) file. Attempting to decompile...")
 
-            # Process the file and get the results
-            results = process_file_go(file_path, output_path, string_output_path)
+                # Call the show_code_with_uncompyle6_pycdc_pycdas function to decompile the .pyc file
+                uncompyle6_file_path, pycdc_file_path, pycdas_file_path, united_output_path = show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name)
 
-            # Send the output files for scanning if they are created
-            if results.get("patched_data"):
-                # Scan the patched binary file
-                scan_and_warn(output_path)
+                # Scan and warn for the uncompyle6 decompiled file, if available
+                if uncompyle6_file_path:
+                    logging.info(f"Scanning decompiled file from uncompyle6: {uncompyle6_file_path}")
+                    scan_and_warn(uncompyle6_file_path)
+                else:
+                    logging.error(f"Uncompyle6 decompilation failed for file {file_path}.")
 
-            if results.get("decrypt_func_list"):
-                # Scan the extracted strings file
-                scan_and_warn(string_output_path)
+                # Scan and warn for the pycdc decompiled file, if available
+                if pycdc_file_path:
+                    logging.info(f"Scanning decompiled file from pycdc: {pycdc_file_path}")
+                    scan_and_warn(pycdc_file_path)
+                else:
+                    logging.error(f"pycdc decompilation failed for file {file_path}.")
 
-        # Check if it's a .pyc file and decompile if needed
-        if is_pyc_file_from_output(die_output):
-            logging.info(f"File {file_path} is a .pyc (Python Compiled Module) file. Attempting to decompile...")
+                # Scan and warn for the pycdas decompiled file, if available
+                if pycdas_file_path:
+                    logging.info(f"Scanning decompiled file from pycdas: {pycdas_file_path}")
+                    scan_and_warn(pycdas_file_path)
+                else:
+                    logging.error(f"pycdas decompilation failed for file {file_path}.")
 
-            # Call the show_code_with_uncompyle6_pycdc_pycdas function to decompile the .pyc file
-            uncompyle6_file_path, pycdc_file_path, pycdas_file_path, united_output_path = show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name)
-
-            # Scan and warn for the uncompyle6 decompiled file, if available
-            if uncompyle6_file_path:
-                logging.info(f"Scanning decompiled file from uncompyle6: {uncompyle6_file_path}")
-                scan_and_warn(uncompyle6_file_path)
-            else:
-                logging.error(f"Uncompyle6 decompilation failed for file {file_path}.")
-
-            # Scan and warn for the pycdc decompiled file, if available
-            if pycdc_file_path:
-                logging.info(f"Scanning decompiled file from pycdc: {pycdc_file_path}")
-                scan_and_warn(pycdc_file_path)
-            else:
-                logging.error(f"pycdc decompilation failed for file {file_path}.")
-
-            # Scan and warn for the pycdas decompiled file, if available
-            if pycdas_file_path:
-                logging.info(f"Scanning decompiled file from pycdas: {pycdas_file_path}")
-                scan_and_warn(pycdas_file_path)
-            else:
-                logging.error(f"pycdas decompilation failed for file {file_path}.")
-
-            # Scan and warn for the united decompiled file, if available
-            if united_output_path:
-                logging.info(f"Scanning united decompiled file: {united_output_path}")
-                scan_and_warn(united_output_path)
-                scan_file_with_meta_llama(united_output_path, united_python_code_flag=True)
-            else:
-                logging.error(f"United decompilation failed for file {file_path}.")
+                # Scan and warn for the united decompiled file, if available
+                if united_output_path:
+                    logging.info(f"Scanning united decompiled file: {united_output_path}")
+                    scan_and_warn(united_output_path)
+                    scan_file_with_meta_llama(united_output_path, united_python_code_flag=True)
+                else:
+                    logging.error(f"United decompilation failed for file {file_path}.")
 
         # Initialize variables
         is_decompiled = False
@@ -7155,31 +7165,8 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
         }
 
         # Check if the file content is valid non plain text data
-        if is_non_plain_text_data(die_output):
+        if not plain_text_flag(die_output):
             logging.info(f"File {file_path} contains valid non plain text data.")
-
-            # Check if the file_path equals the homepage change path.
-            if file_path == homepage_change_path:
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        lines = f.readlines()
-
-                    for line in lines:
-                        line = line.strip()
-                        if line:
-                            # Expecting a format like "Firefox,google.com"
-                            parts = line.split(',')
-                            if len(parts) == 2:
-                                browser_tag, homepage_value = parts[0].strip(), parts[1].strip()
-                                logging.info(
-                                    f"Processing homepage change entry: Browser={browser_tag}, Homepage={homepage_value}")
-                                # Call scan_code_for_links, using the homepage value as the code to scan.
-                                # Pass the browser tag as the homepage_flag.
-                                scan_code_for_links(homepage_value, file_path, homepage_flag=browser_tag)
-                            else:
-                                logging.error(f"Invalid format in homepage change file: {line}")
-                except Exception as ex:
-                    logging.error(f"Error processing homepage change file {file_path}: {ex}")
 
             # Additional checks for PE files
             if is_pe_file_from_output(die_output):
@@ -7297,7 +7284,29 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                 logging.info(f"No Nuitka executable detected in {file_path}")
         else:
             # If the file content is plain text, perform scanning with Meta Llama-3.2-1B
-            logging.info(f"File {file_path} does contan plain text data. Scanning with Meta Llama-3.2-1B...")
+            logging.info(f"File {file_path} does contain plain text data.")
+            # Check if the file_path equals the homepage change path.
+            if file_path == homepage_change_path:
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        lines = f.readlines()
+
+                    for line in lines:
+                        line = line.strip()
+                        if line:
+                            # Expecting a format like "Firefox,google.com"
+                            parts = line.split(',')
+                            if len(parts) == 2:
+                                browser_tag, homepage_value = parts[0].strip(), parts[1].strip()
+                                logging.info(
+                                    f"Processing homepage change entry: Browser={browser_tag}, Homepage={homepage_value}")
+                                # Call scan_code_for_links, using the homepage value as the code to scan.
+                                # Pass the browser tag as the homepage_flag.
+                                scan_code_for_links(homepage_value, file_path, homepage_flag=browser_tag)
+                            else:
+                                logging.error(f"Invalid format in homepage change file: {line}")
+                except Exception as ex:
+                    logging.error(f"Error processing homepage change file {file_path}: {ex}")
             try:
                 scan_thread = threading.Thread(target=scan_file_with_meta_llama, args=(file_path,))
                 scan_thread.start()
