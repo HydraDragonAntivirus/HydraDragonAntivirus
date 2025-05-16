@@ -6238,14 +6238,59 @@ def save_to_file(file_path, content):
 
 # --- AST-based deobfuscator ---
 class ExecToPrintTransformer(ast.NodeTransformer):
-    def visit_Expr(self, node):
-        if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name) and node.value.func.id == 'print':
+    def __init__(self):
+        super().__init__()
+        # track stub function names for removal (only those wrapping exec)
+        self.stub_names = set()
+
+    def visit_Module(self, node):
+        # First pass: collect only functions whose body contains an exec() call
+        for n in node.body:
+            if isinstance(n, ast.FunctionDef):
+                # walk the function body to see if any exec() call exists
+                if any(
+                    isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == 'exec'
+                    for call in ast.walk(n)
+                ):
+                    self.stub_names.add(n.name)
+        # Process body to remove definitions and calls
+        new_body = []
+        for stmt in node.body:
+            new_node = self.visit(stmt)
+            if new_node is None:
+                continue
+            if isinstance(new_node, list):
+                new_body.extend(new_node)
+            else:
+                new_body.append(new_node)
+        node.body = new_body
+        return node
+
+    def visit_FunctionDef(self, node):
+        # Remove only stub functions that wrap exec()
+        if node.name in self.stub_names:
             return None
+        # keep other function definitions
+        return node
+
+    def visit_Expr(self, node):
+        # Remove standalone print calls
+        if isinstance(node.value, ast.Call):
+            # drop calls to stub functions
+            if isinstance(node.value.func, ast.Name) and node.value.func.id in self.stub_names:
+                return None
+            # drop original print expressions
+            if isinstance(node.value.func, ast.Name) and node.value.func.id == 'print':
+                return None
         return self.generic_visit(node)
 
     def visit_Call(self, node):
+        # Replace exec() calls with print()
         if isinstance(node.func, ast.Name) and node.func.id == 'exec':
             node.func.id = 'print'
+        # drop calls of stub functions within expressions
+        if isinstance(node.func, ast.Name) and node.func.id in self.stub_names:
+            return None
         return self.generic_visit(node)
 
 
@@ -6258,7 +6303,7 @@ def deobfuscate_file(path):
     return ast.unparse(tree)
 
 def run_deobfuscated_code(code_str):
-    with tempfile.NamedTemporaryFile('w', suffix='.py', delete=False, dir=python_deobfuscated_dir) as tmp:
+    with tempfile.NamedTemporaryFile('w', suffix='.py', delete=False) as tmp:
         tmp.write(code_str)
         tmp_path = tmp.name
     res = subprocess.run([sys.executable, tmp_path], capture_output=True, text=True)
@@ -7250,10 +7295,10 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
             if is_enigma_protector(die_output): 
                 extracted_path = try_unpack_enigma(file_path)
                 if extracted_path:
-                    print(f"Unpack succeeded. Files are in: {extracted_path}")
+                    logging.info(f"Unpack succeeded. Files are in: {extracted_path}")
                     scan_and_warn(extracted_path)
                 else:
-                    print("Unpack failed for all known Enigma protected versions.")
+                    logging.info("Unpack failed for all known Enigma protected versions.")
 
             if is_packer_upx_output(die_output):
                 upx_unpacked = extract_upx(file_path)
