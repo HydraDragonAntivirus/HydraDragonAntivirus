@@ -7146,7 +7146,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
             except Exception as extraction_error:
                 logging.error(f"Error during extraction of {file_path}: {extraction_error}")
            
-            if die_output and is_enigma_protector(die_output): 
+            if is_enigma_protector(die_output): 
                 extracted_path = try_unpack_enigma(protected_exe)
                 if extracted_path:
                     print(f"Unpack succeeded. Files are in: {extracted_path}")
@@ -7154,7 +7154,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                 else:
                     print("Unpack failed for all known Enigma protected versions.")
 
-            if die_output and is_packer_upx_output(die_output):
+            if is_packer_upx_output(die_output):
                 upx_unpacked = extract_upx(file_path)
                 if upx_unpacked:
                     scan_and_warn(upx_unpacked)
@@ -7163,11 +7163,11 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
             else:
                 logging.info(f"Skipping non-UPX file: {file_path}")
 
-            if die_output and is_nsis_from_output(die_output):
+            if is_nsis_from_output(die_output):
                 nsis_flag= True
 
             # Detect Inno Setup installer
-            if die_output and is_inno_setup_archive_from_output(die_output):
+            if is_inno_setup_archive_from_output(die_output):
                 # Extract Inno Setup installer files
                 extracted = extract_inno_setup(file_path)
                 if extracted is not None:
@@ -7182,7 +7182,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                     logging.error("Extraction failed; nothing to scan.")
 
             # Deobfuscate binaries obfuscated by Go Garble.
-            if die_output and is_go_garble_from_output(die_output):
+            if is_go_garble_from_output(die_output):
                 # Generate output paths based on the file name and the specified directories
                 output_path = os.path.join(ungarbler_dir, os.path.basename(file_path))
                 string_output_path = os.path.join(ungarbler_string_dir, os.path.basename(file_path) + "_strings.txt")
@@ -7200,7 +7200,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                     scan_and_warn(string_output_path)
 
             # Check if it's a .pyc file and decompile
-            if die_output and is_pyc_file_from_output(die_output):
+            if is_pyc_file_from_output(die_output):
                 logging.info(f"File {file_path} is a .pyc (Python Compiled Module) file. Attempting to decompile...")
 
                 # Call the show_code_with_uncompyle6_pycdc_pycdas function to decompile the .pyc file
@@ -7236,7 +7236,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                     logging.error(f"United decompilation failed for file {file_path}.")
 
             # Additional checks for PE files
-            if die_output and is_pe_file_from_output(die_output):
+            if is_pe_file_from_output(die_output):
                 logging.info(f"File {file_path} is a valid PE file.")
                 pe_file = True
 
@@ -7303,9 +7303,8 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
 
             dotnet_result = False
 
-            if die_output:
-                # Analyze the DIE output for .NET file information
-                dotnet_result = is_dotnet_file_from_output(die_output)
+            # Analyze the DIE output for .NET file information
+            dotnet_result = is_dotnet_file_from_output(die_output)
 
             if dotnet_result is True:
                 dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(file_path,))
@@ -7322,7 +7321,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                 de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(file_path,))
                 de4dot_thread.start()
 
-            if die_output and is_jar_file_from_output(die_output):
+            if is_jar_file_from_output(die_output):
                 jar_extractor_paths = run_jar_extractor(file_path, flag_fernflower)
                 if jar_extractor_paths:
                     for jar_extractor_path in jar_extractor_paths:
@@ -7330,12 +7329,11 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                 else:
                     logging.warning("Java Archive Extraction or decompilation failed. Skipping scan.")
 
-            if die_output and is_java_class_from_output(die_output):
+            if is_java_class_from_output(die_output):
                 run_fernflower_decompiler(file_path)
 
             # Check if the file contains Nuitka executable
-            if die_output:
-                nuitka_type = is_nuitka_file_from_output(die_output)
+            nuitka_type = is_nuitka_file_from_output(die_output)
 
             # Only proceed with extraction if Nuitka is detected
             if nuitka_type:
@@ -7411,7 +7409,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
             process_thread.start()
 
         # Check if the file is a PyInstaller archive
-        if die_output and is_pyinstaller_archive_from_output(die_output):
+        if is_pyinstaller_archive_from_output(die_output):
             logging.info(f"File {file_path} is a PyInstaller archive. Extracting...")
 
             # Extract the PyInstaller files and get their paths
