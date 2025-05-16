@@ -7128,7 +7128,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
         }
 
         # Check if the file content is valid non plain text data
-        if not plain_text_flag(die_output):
+        if not plain_text_flag:
             logging.info(f"File {file_path} contains valid non plain text data.")
             # Attempt to extract the file
             try:
