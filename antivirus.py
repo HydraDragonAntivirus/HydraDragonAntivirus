@@ -5666,9 +5666,9 @@ def ransomware_alert(file_path):
 
 def log_directory_type(file_path):
     try:
-        elif file_path.startswith(enigma_extracted_dir):
+        if file_path.startswith(enigma_extracted_dir):
             logging.info(f"{file_path}: Enigma extracted.")
-        if file_path.startswith(sandboxie_folder):
+        elif file_path.startswith(sandboxie_folder):
             logging.info(f"{file_path}: It's a Sandbox environment file.")
         elif file_path.startswith(copied_sandbox_files_dir):
             logging.info(f"{file_path}: It's a restored sandbox environment file.")
