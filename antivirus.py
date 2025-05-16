@@ -7147,7 +7147,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                 logging.error(f"Error during extraction of {file_path}: {extraction_error}")
            
             if is_enigma_protector(die_output): 
-                extracted_path = try_unpack_enigma(protected_exe)
+                extracted_path = try_unpack_enigma(file_path)
                 if extracted_path:
                     print(f"Unpack succeeded. Files are in: {extracted_path}")
                     scan_and_warn(extracted_path)
@@ -8475,44 +8475,44 @@ class MonitorMessageCommandLine:
                 except Exception:
                     logging.error("Window/control enumeration error:")
 
-	def monitoring_command_line(self):
-		logging.debug("Started command-line monitoring loop")
-		while True:
-			try:
-				cmdlines = self.capture_command_lines()
-				logging.debug(f"Enumerated {len(cmdlines)} commandline(s)")
-				for cmd, exe_path in cmdlines:
-					# normalize to absolute paths and lowercase for comparison
-					exe_path = os.path.abspath(exe_path).lower()
-					main_path = os.path.abspath(self.main_file_path).lower()
-					csrss_exe = r"c:\windows\system32\csrss.exe"
+    def monitoring_command_line(self):
+        logging.debug("Started command-line monitoring loop")
+        while True:
+            try:
+                cmdlines = self.capture_command_lines()
+                logging.debug(f"Enumerated {len(cmdlines)} commandline(s)")
+                for cmd, exe_path in cmdlines:
+                    # normalize to absolute paths and lowercase for comparison
+                    exe_path = os.path.abspath(exe_path).lower()
+                    main_path = os.path.abspath(self.main_file_path).lower()
+                    csrss_exe = r"c:\windows\system32\csrss.exe"
 
-					# skip if not from main executable or in the Sandboxie folder
-					if exe_path != main_path or exe_path.startswith(self.sandboxie_folder_path.lower()):
-						logging.debug(f"Skipping command from invalid path: {exe_path}")
-						continue
+                    # skip if not from main executable or in the Sandboxie folder
+                    if exe_path != main_path or exe_path.startswith(self.sandboxie_folder_path.lower()):
+                        logging.debug(f"Skipping command from invalid path: {exe_path}")
+                        continue
 
-					# additionally skip csrss.exe only for PowerShell iex downloader commands
-					if exe_path == csrss_exe and 'iex' in cmd.lower():
-						logging.debug(f"Skipping iex downloader from csrss.exe: {cmd}")
-						continue
+                    # additionally skip csrss.exe only for PowerShell iex downloader commands
+                    if exe_path == csrss_exe and 'iex' in cmd.lower():
+                        logging.debug(f"Skipping iex downloader from csrss.exe: {cmd}")
+                        continue
 
-					# now exe_path is the main executable and not excluded, so log and scan
-					orig_fn = self.get_unique_filename(f"cmd_{os.path.basename(exe_path)}")
-					with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
-						f.write(cmd[:1_000_000])
-					logging.info(f"Wrote cmd -> {orig_fn}")
-					scan_and_warn(orig_fn)
+                    # now exe_path is the main executable and not excluded, so log and scan
+                    orig_fn = self.get_unique_filename(f"cmd_{os.path.basename(exe_path)}")
+                    with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
+                        f.write(cmd[:1_000_000])
+                    logging.info(f"Wrote cmd -> {orig_fn}")
+                    scan_and_warn(orig_fn)
 
-					pre_cmd = self.preprocess_text(cmd)
-					if pre_cmd:
-						pre_fn = self.get_unique_filename(f"cmd_pre_{os.path.basename(exe_path)}")
-						with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
-							f.write(pre_cmd[:1_000_000])
-						logging.info(f"Wrote cmd pre -> {pre_fn}")
-						scan_and_warn(pre_fn)
-			except Exception as ex:
-				logging.exception(f"Command-line snapshot error:{ex}")
+                    pre_cmd = self.preprocess_text(cmd)
+                    if pre_cmd:
+                        pre_fn = self.get_unique_filename(f"cmd_pre_{os.path.basename(exe_path)}")
+                        with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
+                            f.write(pre_cmd[:1_000_000])
+                        logging.info(f"Wrote cmd pre -> {pre_fn}")
+                        scan_and_warn(pre_fn)
+            except Exception as ex:
+                logging.exception(f"Command-line snapshot error:{ex}")
 
     def start_monitoring_threads(self):
         threading.Thread(target=self.monitoring_window_text).start()
