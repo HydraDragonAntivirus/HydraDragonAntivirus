@@ -6320,103 +6320,116 @@ def is_exela_v2_payload(content):
     keys = ["key = ", "tag = ", "nonce = ", "encrypted_data"]
     return all(k in content for k in keys)
 
-# --- Combined processing function: Exela v2 + Generic ---
+def process_generic_payload(file_path):
+    """
+    Processes a generic decompiled payload:
+    - Runs the payload in a sandboxed environment.
+    - Deobfuscates and analyzes the result.
+    - Extracts potential webhook URLs.
+    """
+    try:
+        sandboxie_run_script_general(file_path)
+
+        sandboxed_path = os.path.join(python_deobfuscated_sandboxie_dir, os.path.basename(file_path))
+        if not os.path.exists(sandboxed_path):
+            logging.error(f"[!] Sandboxed file not found: {sandboxed_path}")
+            return
+
+        moved_path = os.path.join(script_dir, os.path.basename(sandboxed_path))
+        shutil.move(sandboxed_path, moved_path)
+        logging.info(f"[+] Moved sandboxed file to: {moved_path}")
+
+        transformed = deobfuscate_file(moved_path)
+        stdout, stderr = run_deobfuscated_code(transformed)
+
+        if stdout:
+            logging.warning(f"[+] Output from generic payload:\n{stdout}")
+        if stderr:
+            logging.error(f"[!] Errors from generic payload:\n{stderr}")
+
+        webhooks = re.findall(discord_webhook_pattern, transformed)
+        if webhooks:
+            logging.warning(f"[+] Webhook URLs found in generic payload: {webhooks}")
+        else:
+            logging.info("[-] No webhook URLs found in generic payload.")
+
+    except Exception as ex:
+        logging.error(f"Error during generic payload processing: {ex}")
+
+def process_exela_v2_payload(output_file):
+    """
+    Processes a decompiled Exela v2 payload:
+    - Performs two-stage AES decryption.
+    - Extracts and saves the final stage.
+    - Searches for webhook URLs and triggers alert.
+    """
+    try:
+        with open(output_file, 'r', encoding='utf-8') as file:
+            content = file.read()
+
+        # First layer decryption
+        key_line = extract_line(content, "key = ")
+        tag_line = extract_line(content, "tag = ")
+        nonce_line = extract_line(content, "nonce = ")
+        encrypted_data_line = extract_line(content, "encrypted_data")
+
+        key = decode_base64_from_line(key_line)
+        tag = decode_base64_from_line(tag_line)
+        nonce = decode_base64_from_line(nonce_line)
+        encrypted_data = decode_base64_from_line(encrypted_data_line)
+
+        intermediate_data = DecryptString(key, tag, nonce, encrypted_data)
+        temp_file = 'intermediate_data.py'
+        saved_temp_file = save_to_file(temp_file, intermediate_data)
+
+        if not saved_temp_file:
+            logging.error("Failed to save intermediate data.")
+            return
+
+        with open(saved_temp_file, 'r', encoding='utf-8') as temp:
+            intermediate_content = temp.read()
+
+        # Second layer decryption
+        key_2 = decode_base64_from_line(extract_line(intermediate_content, "key = "))
+        tag_2 = decode_base64_from_line(extract_line(intermediate_content, "tag = "))
+        nonce_2 = decode_base64_from_line(extract_line(intermediate_content, "nonce = "))
+        encrypted_data_2 = decode_base64_from_line(extract_line(intermediate_content, "encrypted_data"))
+
+        final_decrypted_data = DecryptString(key_2, tag_2, nonce_2, encrypted_data_2)
+        source_code_file = 'exela_stealer_last_stage.py'
+        source_code_path = save_to_file(source_code_file, final_decrypted_data)
+
+        webhooks = re.findall(discord_webhook_pattern, final_decrypted_data)
+        if webhooks:
+            logging.warning(f"[+] Webhook URLs found: {webhooks}")
+            if source_code_path:
+                notify_user_exela_stealer_v2(source_code_path, 'HEUR:Win32.Discord.Pyinstaller.Exela.Stealer.v2.gen')
+            else:
+                logging.error("Failed to save the final decrypted source code.")
+        else:
+            logging.info("[!] No webhook URLs found in Exela v2 payload.")
+
+    except Exception as ex:
+        logging.error(f"Error during Exela v2 payload processing: {ex}")
 
 def process_decompiled_code(output_file):
+    """
+    Dispatches payload processing based on type.
+    Detects whether the payload is Exela v2 or generic.
+    """
     try:
         with open(output_file, 'r', encoding='utf-8') as file:
             content = file.read()
 
         if is_exela_v2_payload(content):
-            # ==== Exela v2 Decryption and processing ====
-            key_line = extract_line(content, "key = ")
-            tag_line = extract_line(content, "tag = ")
-            nonce_line = extract_line(content, "nonce = ")
-            encrypted_data_line = extract_line(content, "encrypted_data")
-
-            key = decode_base64_from_line(key_line)
-            tag = decode_base64_from_line(tag_line)
-            nonce = decode_base64_from_line(nonce_line)
-            encrypted_data = decode_base64_from_line(encrypted_data_line)
-
-            intermediate_data = DecryptString(key, tag, nonce, encrypted_data)
-            temp_file = 'intermediate_data.py'
-            saved_temp_file = save_to_file(temp_file, intermediate_data)
-
-            if not saved_temp_file:
-                logging.error("Failed to save intermediate data.")
-                return
-
-            with open(saved_temp_file, 'r', encoding='utf-8') as temp:
-                intermediate_content = temp.read()
-
-            key_2 = decode_base64_from_line(extract_line(intermediate_content, "key = "))
-            tag_2 = decode_base64_from_line(extract_line(intermediate_content, "tag = "))
-            nonce_2 = decode_base64_from_line(extract_line(intermediate_content, "nonce = "))
-            encrypted_data_2 = decode_base64_from_line(extract_line(intermediate_content, "encrypted_data"))
-
-            final_decrypted_data = DecryptString(key_2, tag_2, nonce_2, encrypted_data_2)
-            source_code_file = 'exela_stealer_last_stage.py'
-            source_code_path = save_to_file(source_code_file, final_decrypted_data)
-
-            if source_code_path:
-                sandboxie_run_script_general(source_code_path)
-
-                sandboxed_path = os.path.join(python_deobfuscated_sandboxie_dir, os.path.basename(source_code_path))
-                if os.path.exists(sandboxed_path):
-                    real_path = os.path.join(script_dir, os.path.basename(sandboxed_path))
-                    shutil.move(sandboxed_path, real_path)
-                    logging.info(f"Moved sandboxed Exela v2 file to: {real_path}")
-
-                    transformed = deobfuscate_file(real_path)
-                    out, err = run_deobfuscated_code(transformed)
-
-                    if out:
-                        logging.warning(f"[+] Output from Exela v2 final code:\n{out}")
-                    if err:
-                        logging.error(f"[!] Errors from Exela v2 final code:\n{err}")
-
-                    webhooks = re.findall(discord_webhook_pattern, transformed)
-                    if webhooks:
-                        logging.warning(f"[+] Webhook URLs found in Exela v2 final code: {webhooks}")
-                        notify_user_exela_stealer_v2(real_path, 'HEUR:Win32.Discord.Pyinstaller.Exela.Stealer.v2.gen')
-                    else:
-                        logging.info("[!] No webhook URLs found in Exela v2 final code.")
-                else:
-                    logging.error("[!] Failed to locate sandboxed Exela v2 file.")
-            else:
-                logging.error("[!] Failed to save final decrypted Exela v2 source code.")
-
+            logging.info("[*] Detected Exela Stealer v2 payload.")
+            process_exela_v2_payload(output_file)
         else:
-            # ==== Generic payload processing ====
-            logging.info("[*] Detected non-Exela payload, running generic payload processing...")
-            sandboxie_run_script_general(output_file)
-
-            sandboxed_path_generic = os.path.join(python_deobfuscated_sandboxie_dir, os.path.basename(output_file))
-            if not os.path.exists(sandboxed_path_generic):
-                logging.error(f"[!] Sandboxed output for generic processing not found: {sandboxed_path_generic}")
-                return
-
-            real_generic_path = os.path.join(script_dir, os.path.basename(sandboxed_path_generic))
-            shutil.move(sandboxed_path_generic, real_generic_path)
-            logging.info(f"Moved sandboxed generic file to: {real_generic_path}")
-
-            transformed_generic = deobfuscate_file(real_generic_path)
-            out_gen, err_gen = run_deobfuscated_code(transformed_generic)
-
-            if out_gen:
-                logging.warning(f"[+] Output from generic processed code:\n{out_gen}")
-            if err_gen:
-                logging.error(f"[!] Errors from generic processed code:\n{err_gen}")
-
-            hooks_generic = re.findall(discord_webhook_pattern, transformed_generic)
-            if hooks_generic:
-                logging.warning(f"[+] Webhooks found in generic processed code: {hooks_generic}")
-            else:
-                logging.info("[-] No webhooks detected in generic processed code.")
+            logging.info("[*] Detected non-Exela payload. Using generic processing.")
+            process_generic_payload(output_file)
 
     except Exception as ex:
-        logging.error(f"Error during payload extraction and processing: {ex}")
+        logging.error(f"[!] Error during payload dispatch: {ex}")
 
 def run_pycdc_decompiler(file_path):
     """
