@@ -54,6 +54,10 @@ total_start_time = time.time()
 
 # Measure and logging.info time taken for each import
 start_time = time.time()
+import tempfile
+logging.info(f"tempfile module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import io
 logging.info(f"io module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -153,6 +157,10 @@ from scapy.layers.dns import DNS, DNSQR, DNSRR
 from scapy.sendrecv import sniff
 
 logging.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import ast
+logging.info(f"ast module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ctypes
@@ -348,6 +356,7 @@ magic_bytes_path = os.path.join(extensions_dir, "magicbytes.txt")
 meta_llama_dir = os.path.join(script_dir, "meta_llama")
 meta_llama_1b_dir = os.path.join(meta_llama_dir, "Llama-3.2-1B")
 python_source_code_dir = os.path.join(script_dir, "pythonsourcecode")
+python_deobfuscated_dir = os.path.join(script_dir, "pythondeobfuscated")
 pycdc_dir = os.path.join(python_source_code_dir, "pycdc")
 pycdas_dir = os.path.join(python_source_code_dir, "pycdas")
 united_python_source_code_dir = os.path.join(python_source_code_dir, "united")
@@ -497,6 +506,7 @@ sandboxie_log_folder = f'{HydraDragonAntivirus_sandboxie_path}\\DONTREMOVEHydraD
 homepage_change_path = f'{sandboxie_log_folder}\\DONTREMOVEHomePageChange.txt'
 HiJackThis_log_path = f'{HydraDragonAntivirus_sandboxie_path}\\HiJackThis\\HiJackThis.log'
 de4dot_sandboxie_dir = f'{HydraDragonAntivirus_sandboxie_path}\\de4dot_extracted_dir'
+python_deobfuscated_sandboxie_dir = f'{HydraDragonAntivirus_sandboxie_path}\\python_deobfuscated'
 
 # Known Enigma versions → working evbunpack flags
 PACKER_FLAGS = {
@@ -532,7 +542,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [enigma_extracted_dir, sandboxie_folder, copied_sandbox_files_dir, decompiled_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
+directories_to_scan = [enigma_extracted_dir, sandboxie_folder, copied_sandbox_files_dir, decompiled_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, python_deobfuscated_dir,  pycdas_dir, pycdas_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
@@ -635,6 +645,7 @@ os.makedirs(debloat_dir, exist_ok=True)
 os.makedirs(jar_extracted_dir, exist_ok=True)
 os.makedirs(FernFlower_decompiled_dir, exist_ok=True)
 os.makedirs(detectiteasy_json_dir, exist_ok=True)
+os.makedirs(python_deobfuscated_dir, exist_ok=True)
 os.makedirs(pycdc_dir, exist_ok=True)
 os.makedirs(pycdas_dir, exist_ok=True)
 os.makedirs(united_python_source_code_dir, exist_ok=True)
@@ -5722,6 +5733,10 @@ def log_directory_type(file_path):
            logging.info(f"{file_path}: It's a directory containing decompiled files from a JAR (Java Archive) file, decompiled using Fernflower decompiler.")
         elif file_path.startswith(pycdc_dir):
             logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code directory with pycdc.exe.")
+        elif file_path.startswith(python_deobfuscated_dir):
+            logging.info(f"{file_path}: It's an unobfuscated Python directory.")
+        elif file_path.startswith(python_deobfuscated_sandboxie_dir):
+            logging.info(f"{file_path}: It's an unobfuscated Python directory within Sandboxie.")
         elif file_path.startswith(pycdas_dir):
             logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code directory with pycdas.exe.")
         elif file_path.startswith(python_source_code_dir):
@@ -5777,6 +5792,8 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
             (lambda fp: fp.startswith(jar_extracted_dir), "Directory containing extracted files from a JAR (Java Archive) file."),
             (lambda fp: fp.startswith(FernFlower_decompiled_dir), "This directory contains source files decompiled from a JAR (Java Archive) using the Fernflower decompiler.."),
             (lambda fp: fp.startswith(pycdc_dir), "PyInstaller, .pyc reversed-engineered source code directory with pycdc.exe."),
+            (lambda fp: fp.startswith(python_deobfuscated_dir), "It's an unobfuscated Python directory."),
+            (lambda fp: fp.startswith(python_deobfuscated_sandboxie_dir), "It's an unobfuscated Python directory within Sandboxie."),
             (lambda fp: fp.startswith(pycdas_dir), "PyInstaller, .pyc reversed-engineered source code directory with pycdas.exe."),
             (lambda fp: fp.startswith(pycdas_meta_llama_dir), "PyInstaller .pyc reverse-engineered source code directory, decompiled with pycdas.exe and converted to non-bytecode Python code using Meta Llama-3.2-1B."),
             (lambda fp: fp.startswith(python_source_code_dir), "PyInstaller, .pyc reversed-engineered source code directory with uncompyle6."),
@@ -6218,64 +6235,148 @@ def save_to_file(file_path, content):
         logging.error(f"Error saving file {file_path}: {ex}")
         return None
 
-def process_decompiled_code(output_file):
-    """
-    Processes the decompiled code to extract and decrypt payloads.
 
-    Args:
-        output_file: Path to the decompiled code file.
-    """
+# --- AST-based deobfuscator ---
+class ExecToPrintTransformer(ast.NodeTransformer):
+    def visit_Expr(self, node):
+        if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name) and node.value.func.id == 'print':
+            return None
+        return self.generic_visit(node)
+
+    def visit_Call(self, node):
+        if isinstance(node.func, ast.Name) and node.func.id == 'exec':
+            node.func.id = 'print'
+        return self.generic_visit(node)
+
+
+def deobfuscate_file(path):
+    with open(path, 'r', encoding='utf-8') as f:
+        src = f.read()
+    tree = ast.parse(src, filename=path)
+    tree = ExecToPrintTransformer().visit(tree)
+    ast.fix_missing_locations(tree)
+    return ast.unparse(tree)
+
+def run_deobfuscated_code(code_str):
+    with tempfile.NamedTemporaryFile('w', suffix='.py', delete=False, dir=python_deobfuscated_dir) as tmp:
+        tmp.write(code_str)
+        tmp_path = tmp.name
+    res = subprocess.run([sys.executable, tmp_path], capture_output=True, text=True)
+    return res.stdout, res.stderr
+
+def sandboxie_run_script_general(file_path):
+    try:
+        subprocess.run([
+            sandboxie_path,
+            '/box:DefaultBox',
+            '/elevate',
+            file_path
+        ], check=True, encoding='utf-8', errors='ignore')
+    except subprocess.CalledProcessError as ex:
+        logging.error(f"Failed to run Sandboxie on {file_path}: {ex}")
+
+def is_exela_v2_payload(content):
+    # Simple heuristic: check if keys/tag/nonce/encrypted_data appear in content
+    keys = ["key = ", "tag = ", "nonce = ", "encrypted_data"]
+    return all(k in content for k in keys)
+
+# --- Combined processing function: Exela v2 + Generic ---
+
+def process_decompiled_code(output_file):
     try:
         with open(output_file, 'r', encoding='utf-8') as file:
             content = file.read()
 
-        # Extract key, tag, nonce, and encrypted data
-        key_line = extract_line(content, "key = ")
-        tag_line = extract_line(content, "tag = ")
-        nonce_line = extract_line(content, "nonce = ")
-        encrypted_data_line = extract_line(content, "encrypted_data")
+        if is_exela_v2_payload(content):
+            # ==== Exela v2 Decryption and processing ====
+            key_line = extract_line(content, "key = ")
+            tag_line = extract_line(content, "tag = ")
+            nonce_line = extract_line(content, "nonce = ")
+            encrypted_data_line = extract_line(content, "encrypted_data")
 
-        key = decode_base64_from_line(key_line)
-        tag = decode_base64_from_line(tag_line)
-        nonce = decode_base64_from_line(nonce_line)
-        encrypted_data = decode_base64_from_line(encrypted_data_line)
+            key = decode_base64_from_line(key_line)
+            tag = decode_base64_from_line(tag_line)
+            nonce = decode_base64_from_line(nonce_line)
+            encrypted_data = decode_base64_from_line(encrypted_data_line)
 
-        # First decryption
-        intermediate_data = DecryptString(key, tag, nonce, encrypted_data)
-        temp_file = 'intermediate_data.py'
-        saved_temp_file = save_to_file(temp_file, intermediate_data)
+            intermediate_data = DecryptString(key, tag, nonce, encrypted_data)
+            temp_file = 'intermediate_data.py'
+            saved_temp_file = save_to_file(temp_file, intermediate_data)
 
-        # Process intermediate data
-        if saved_temp_file:
+            if not saved_temp_file:
+                logging.error("Failed to save intermediate data.")
+                return
+
             with open(saved_temp_file, 'r', encoding='utf-8') as temp:
                 intermediate_content = temp.read()
-        else:
-            logging.error("Failed to save intermediate data.")
-            return
 
-        key_2 = decode_base64_from_line(extract_line(intermediate_content, "key = "))
-        tag_2 = decode_base64_from_line(extract_line(intermediate_content, "tag = "))
-        nonce_2 = decode_base64_from_line(extract_line(intermediate_content, "nonce = "))
-        encrypted_data_2 = decode_base64_from_line(extract_line(intermediate_content, "encrypted_data"))
+            key_2 = decode_base64_from_line(extract_line(intermediate_content, "key = "))
+            tag_2 = decode_base64_from_line(extract_line(intermediate_content, "tag = "))
+            nonce_2 = decode_base64_from_line(extract_line(intermediate_content, "nonce = "))
+            encrypted_data_2 = decode_base64_from_line(extract_line(intermediate_content, "encrypted_data"))
 
-        # Second decryption
-        final_decrypted_data = DecryptString(key_2, tag_2, nonce_2, encrypted_data_2)
-        source_code_file = 'exela_stealer_last_stage.py'
-        source_code_path = save_to_file(source_code_file, final_decrypted_data)
+            final_decrypted_data = DecryptString(key_2, tag_2, nonce_2, encrypted_data_2)
+            source_code_file = 'exela_stealer_last_stage.py'
+            source_code_path = save_to_file(source_code_file, final_decrypted_data)
 
-        # Process final stage and extract webhook URLs
-        webhooks = re.findall(discord_webhook_pattern, final_decrypted_data)
-        if webhooks:
-            logging.warning(f"[+] Webhook URLs found: {webhooks}")
             if source_code_path:
-                notify_user_exela_stealer_v2(source_code_path, 'HEUR:Win32.Discord.Pyinstaller.Exela.Stealer.v2.gen')
+                sandboxie_run_script_general(source_code_path)
+
+                sandboxed_path = os.path.join(python_deobfuscated_sandboxie_dir, os.path.basename(source_code_path))
+                if os.path.exists(sandboxed_path):
+                    real_path = os.path.join(script_dir, os.path.basename(sandboxed_path))
+                    shutil.move(sandboxed_path, real_path)
+                    logging.info(f"Moved sandboxed Exela v2 file to: {real_path}")
+
+                    transformed = deobfuscate_file(real_path)
+                    out, err = run_deobfuscated_code(transformed)
+
+                    if out:
+                        logging.warning(f"[+] Output from Exela v2 final code:\n{out}")
+                    if err:
+                        logging.error(f"[!] Errors from Exela v2 final code:\n{err}")
+
+                    webhooks = re.findall(discord_webhook_pattern, transformed)
+                    if webhooks:
+                        logging.warning(f"[+] Webhook URLs found in Exela v2 final code: {webhooks}")
+                        notify_user_exela_stealer_v2(real_path, 'HEUR:Win32.Discord.Pyinstaller.Exela.Stealer.v2.gen')
+                    else:
+                        logging.info("[!] No webhook URLs found in Exela v2 final code.")
+                else:
+                    logging.error("[!] Failed to locate sandboxed Exela v2 file.")
             else:
-                logging.error("Failed to save the final decrypted source code.")
+                logging.error("[!] Failed to save final decrypted Exela v2 source code.")
+
         else:
-            logging.error("[!] No webhook URLs found.")
+            # ==== Generic payload processing ====
+            logging.info("[*] Detected non-Exela payload, running generic payload processing...")
+            sandboxie_run_script_general(output_file)
+
+            sandboxed_path_generic = os.path.join(python_deobfuscated_sandboxie_dir, os.path.basename(output_file))
+            if not os.path.exists(sandboxed_path_generic):
+                logging.error(f"[!] Sandboxed output for generic processing not found: {sandboxed_path_generic}")
+                return
+
+            real_generic_path = os.path.join(script_dir, os.path.basename(sandboxed_path_generic))
+            shutil.move(sandboxed_path_generic, real_generic_path)
+            logging.info(f"Moved sandboxed generic file to: {real_generic_path}")
+
+            transformed_generic = deobfuscate_file(real_generic_path)
+            out_gen, err_gen = run_deobfuscated_code(transformed_generic)
+
+            if out_gen:
+                logging.warning(f"[+] Output from generic processed code:\n{out_gen}")
+            if err_gen:
+                logging.error(f"[!] Errors from generic processed code:\n{err_gen}")
+
+            hooks_generic = re.findall(discord_webhook_pattern, transformed_generic)
+            if hooks_generic:
+                logging.warning(f"[+] Webhooks found in generic processed code: {hooks_generic}")
+            else:
+                logging.info("[-] No webhooks detected in generic processed code.")
 
     except Exception as ex:
-        logging.error(f"Error during payload extraction: {ex}")
+        logging.error(f"Error during payload extraction and processing: {ex}")
 
 def run_pycdc_decompiler(file_path):
     """
@@ -8632,14 +8733,6 @@ def run_de4dot_in_sandbox(file_path):
     Extracts all files into de4dot_extracted_dir via -ro.
     Uses -r for recursive processing.
     """
-
-    # Ensure output directory exists
-    try:
-        os.makedirs(de4dot_extracted_dir, exist_ok=True)  # This must match the -ro path
-        logging.info(f"Ensured output directory exists: {de4dot_extracted_dir}")
-    except Exception as e:
-        logging.error(f"Failed to create or verify output directory {de4dot_extracted_dir}: {e}")
-        return
 
     # de4dot-x64.exe -r <input_dir> -ro <output_dir>
     cmd = [
