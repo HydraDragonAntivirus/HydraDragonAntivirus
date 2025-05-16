@@ -6975,7 +6975,7 @@ def create_shadow_copy(drive_letter):
             logging.error(f"Failed to create shadow (WMI code {result})")
             return None
     except Exception:
-        logging.exception("Error creating shadow copy via WMI")
+        logging.error("Error creating shadow copy via WMI")
         return None
 
 def copy_from_shadow(shadow_root, rel_path, dest_path):
@@ -8383,7 +8383,7 @@ class MonitorMessageCommandLine:
             for h, txt, p in all_entries:
                 self.process_window_text(h, txt, p)
         except Exception:
-            logging.exception("Error during brute-force window enumeration")
+            logging.error("Error during brute-force window enumeration")
 
         # --- 2) COM fallback for non-HWND UI elements
         if idObject != Accessibility.OBJID_WINDOW:
@@ -8406,7 +8406,7 @@ class MonitorMessageCommandLine:
                     self.process_window_text(hwnd or 0, name, context)
 
             except Exception:
-                logging.exception(
+                logging.error(
                     f"Error retrieving AccessibleObject for hwnd={hwnd}, "
                     f"idObject={idObject}, idChild={idChild}"
                 )
@@ -8473,7 +8473,7 @@ class MonitorMessageCommandLine:
                             path
                         )
                 except Exception:
-                    logging.exception("Window/control enumeration error:")
+                    logging.error("Window/control enumeration error:")
 
 	def monitoring_command_line(self):
 		logging.debug("Started command-line monitoring loop")
@@ -8486,10 +8486,12 @@ class MonitorMessageCommandLine:
 					exe_path = os.path.abspath(exe_path).lower()
 					main_path = os.path.abspath(self.main_file_path).lower()
 					csrss_exe = r"c:\windows\system32\csrss.exe"
+
 					# skip if not from main executable or in the Sandboxie folder
 					if exe_path != main_path or exe_path.startswith(self.sandboxie_folder_path.lower()):
 						logging.debug(f"Skipping command from invalid path: {exe_path}")
 						continue
+
 					# additionally skip csrss.exe only for PowerShell iex downloader commands
 					if exe_path == csrss_exe and 'iex' in cmd.lower():
 						logging.debug(f"Skipping iex downloader from csrss.exe: {cmd}")
@@ -8509,8 +8511,8 @@ class MonitorMessageCommandLine:
 							f.write(pre_cmd[:1_000_000])
 						logging.info(f"Wrote cmd pre -> {pre_fn}")
 						scan_and_warn(pre_fn)
-				except Exception as ex:
-					logging.exception(f"Command-line snapshot error:{ex}")
+			except Exception as ex:
+				logging.exception(f"Command-line snapshot error:{ex}")
 
     def start_monitoring_threads(self):
         threading.Thread(target=self.monitoring_window_text).start()
