@@ -5764,7 +5764,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
             (lambda fp: fp.startswith(de4dot_extracted_dir), ".NET file deobfuscated with de4dot."),
             (lambda fp: fp.startswith(de4dot_sandboxie_dir), "It's a Sandbox environment file, also a .NET file deobfuscated with de4dot"),
             (lambda fp: fp.startswith(pyinstaller_dir), "PyInstaller onefile extracted."),
-            (lambda fp: fp.startswith(commandlineandmessage_dir), "Command line message extracted."),
+            #(lambda fp: fp.startswith(commandlineandmessage_dir), "Command line message extracted."), Due to the excessive output generated, we have disabled it.
             (lambda fp: fp.startswith(pe_extracted_dir), "PE file extracted."),
             (lambda fp: fp.startswith(zip_extracted_dir), "ZIP extracted."),
             (lambda fp: fp.startswith(seven_zip_extracted_dir), "7zip extracted."),
@@ -7394,10 +7394,24 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                 except Exception as ex:
                     logging.error(f"Error processing homepage change file {file_path}: {ex}")
             try:
-                scan_thread = threading.Thread(target=scan_file_with_meta_llama, args=(file_path,))
-                scan_thread.start()
+                skip_dir = Path(commandlineandmessage_dir).resolve()
+
+                file_path_resolved = Path(file_path).resolve()
+
+                if skip_dir in file_path_resolved.parents or file_path_resolved == skip_dir:
+                    logging.info(f"Skipping Meta LLaMA scan for {file_path}, it's in the excluded directory.")
+                    continue
+
+                try:
+                    scan_thread = threading.Thread(
+                        target=scan_file_with_meta_llama,
+                        args=(file_path,)
+                    )
+                    scan_thread.start()
             except Exception as ex:
-                logging.error(f"Error during scanning with Meta Llama-3.2-1B for file {file_path}: {ex}")
+                logging.error(
+                    f"Error during scanning with Meta LLaMA-3.2-1B for file {file_path}: {ex}"
+                )
 
             # Scan for malware in real-time only for plain text
             logging.info(f"Performing real-time malware detection for plain text file: {file_path}...")
