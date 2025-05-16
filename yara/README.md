@@ -1,4 +1,4 @@
-- Please compile using the official VirusTotal YARA (maybe YARA-X) releases instead of yara-python to see warnings and avoid errors: https://github.com/VirusTotal/yara/releases
+- Please compile using the official VirusTotal YARA (maybe YARA-X) releases instead of yara-python to see all warnings and errors: https://github.com/VirusTotal/yara/releases
 - Example: yarac64.exe compiled_rule.yar compiled_rule.yrc
 - Example 2: yarac64.exe machinelearning.yar machinelearning.yrc
 - Example 3: yarac64 valhalla-rules.yar valhalla-rules.yrc
