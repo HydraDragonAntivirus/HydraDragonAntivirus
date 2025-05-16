@@ -7353,6 +7353,21 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                     logging.error(f"Error checking or extracting Nuitka content from {file_path}: {ex}")
             else:
                 logging.info(f"No Nuitka executable detected in {file_path}")
+
+            # Check if the file is a PyInstaller archive
+            if is_pyinstaller_archive_from_output(die_output):
+                logging.info(f"File {file_path} is a PyInstaller archive. Extracting...")
+
+                # Extract the PyInstaller files and get their paths
+                extracted_files_pyinstaller = extract_and_return_pyinstaller(file_path)
+
+                if extracted_files_pyinstaller:
+                    # Scan each extracted file
+                    for extracted_file in extracted_files_pyinstaller:
+                        logging.info(f"Scanning extracted file: {extracted_file}")
+                        scan_and_warn(extracted_file)
+                else:
+                    logging.error(f"No files extracted from PyInstaller archive: {file_path}")
         else:
             # If the file content is plain text, perform scanning with Meta Llama-3.2-1B
             logging.info(f"File {file_path} does contain plain text data.")
@@ -7407,21 +7422,6 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
         if not os.path.commonpath([file_path, processed_dir]) == processed_dir:
             process_thread = threading.Thread(target=process_file_data, args=(file_path, die_output))
             process_thread.start()
-
-        # Check if the file is a PyInstaller archive
-        if is_pyinstaller_archive_from_output(die_output):
-            logging.info(f"File {file_path} is a PyInstaller archive. Extracting...")
-
-            # Extract the PyInstaller files and get their paths
-            extracted_files_pyinstaller = extract_and_return_pyinstaller(file_path)
-
-            if extracted_files_pyinstaller:
-                # Scan each extracted file
-                for extracted_file in extracted_files_pyinstaller:
-                    logging.info(f"Scanning extracted file: {extracted_file}")
-                    scan_and_warn(extracted_file)
-            else:
-                logging.error(f"No files extracted from PyInstaller archive: {file_path}")
 
         # Check for fake file size
         if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
