@@ -7393,21 +7393,20 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                                 logging.error(f"Invalid format in homepage change file: {line}")
                 except Exception as ex:
                     logging.error(f"Error processing homepage change file {file_path}: {ex}")
+            skip_dir = Path(commandlineandmessage_dir).resolve()
+
+            file_path_resolved = Path(file_path).resolve()
+
+            if skip_dir in file_path_resolved.parents or file_path_resolved == skip_dir:
+                logging.info(f"Skipping Meta Llama scan for {file_path}, it's in the excluded directory.")
+                continue
+
             try:
-                skip_dir = Path(commandlineandmessage_dir).resolve()
-
-                file_path_resolved = Path(file_path).resolve()
-
-                if skip_dir in file_path_resolved.parents or file_path_resolved == skip_dir:
-                    logging.info(f"Skipping Meta LLaMA scan for {file_path}, it's in the excluded directory.")
-                    continue
-
-                try:
-                    scan_thread = threading.Thread(
-                        target=scan_file_with_meta_llama,
-                        args=(file_path,)
-                    )
-                    scan_thread.start()
+                scan_thread = threading.Thread(
+                    target=scan_file_with_meta_llama,
+                    args=(file_path,)
+                )
+                scan_thread.start()
             except Exception as ex:
                 logging.error(
                     f"Error during scanning with Meta LLaMA-3.2-1B for file {file_path}: {ex}"
