@@ -1096,11 +1096,11 @@ def is_java_class_from_output(die_output):
     logging.info(f"DIE output does not indicate a Java class file: {die_output}")
     return False
 
-def is_non_plain_text_data(die_output):
+def is_plain_text_data(die_output):
     """
-    Checks if the DIE output does not indicate plain text, suggesting it is non-plain text data.
+    Checks if the DIE output does indicate plain text, suggesting it is plain text data.
     """
-    if die_output and "Format: plain text" not in die_output.lower():
+    if die_output and "Format: plain text" in die_output.lower():
         logging.info("DIE output does not contain plain text; identified as non-plain text data.")
         return True
     return False
@@ -1160,7 +1160,7 @@ def debloat_pe_file(file_path):
 def remove_magic_bytes(data_content, die_output):
     """Remove magic bytes from data, considering it might be hex-encoded."""
     try:
-        if is_non_plain_text_data(die_output):
+        if is_plain_text_data(die_output):
             # Convert binary data to hex representation for easier pattern removal
             hex_data = binascii.hexlify(data_content).decode("utf-8", errors="ignore")
 
@@ -7077,7 +7077,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
              plain_text_flag=True
         else:
             die_output = analyze_file_with_die(file_path)
-            if is_non_plain_text_data(die_output):
+            if is_plain_text_data(die_output):
                 plain_text_flag=True
 
         # Perform ransomware alert check
