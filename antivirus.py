@@ -318,6 +318,7 @@ accelerator = Accelerator()
 device = accelerator.device
 
 # Define the paths to the ghidra related directories
+enigma_extracted_dir = os.path.join(script_dir, "enigma_extracted")
 inno_extract_dir = os.path.join(script_dir, "innoextract-1.9-windows")
 upx_dir = os.path.join(script_dir, "upx-5.0.1-win64")
 upx_path = os.path.join(upx_dir, "upx.exe")
@@ -497,6 +498,14 @@ homepage_change_path = f'{sandboxie_log_folder}\\DONTREMOVEHomePageChange.txt'
 HiJackThis_log_path = f'{HydraDragonAntivirus_sandboxie_path}\\HiJackThis\\HiJackThis.log'
 de4dot_sandboxie_dir = f'{HydraDragonAntivirus_sandboxie_path}\\de4dot_extracted_dir'
 
+# Known Enigma versions → working evbunpack flags
+PACKER_FLAGS = {
+    "11.00": ["-pe", "10_70"],
+    "10.70": ["-pe", "10_70"],
+    "9.70":  ["-pe", "9_70"],
+    "7.80":  ["-pe", "7_80", "--legacy-fs"],
+}
+
 # Define the list of known rootkit filenames
 known_rootkit_files = [
     'MoriyaStreamWatchmen.sys',
@@ -523,7 +532,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [sandboxie_folder, copied_sandbox_files_dir, decompiled_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
+directories_to_scan = [enigma_extracted_dir, sandboxie_folder, copied_sandbox_files_dir, decompiled_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, pycdas_dir, pycdas_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
@@ -601,6 +610,7 @@ UBLOCK_REGEX = re.compile(
     r'^https:\/\/s[cftz]y?[ace][aemnu][a-z]{1,4}o[mn][a-z]{4,8}[iy][a-z]?\.com\/$'
 )
 
+os.makedirs(enigma_extracted_dir, exist_ok=True)
 os.makedirs(upx_extracted_dir, exist_ok=True)
 os.makedirs(ungarbler_dir, exist_ok=True)
 os.makedirs(ungarbler_string_dir, exist_ok=True)
@@ -640,6 +650,50 @@ os.makedirs(sandbox_system_root_directory, exist_ok=True)
 ransomware_detection_count = 0
 
 main_file_path = None
+
+# Base extraction output directory
+enigma_extracted_base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "enigma_extracted")
+
+def try_unpack_enigma(input_exe: str) -> str | None:
+    """
+    Attempts to unpack an Enigma protected EXE by trying each known
+    version+flag combo until one succeeds.
+
+    :param input_exe: Path to the Enigma protected executable.
+    :return: Path to the directory where files were extracted, or
+             None if all attempts failed.
+    """
+    # Ensure base extraction directory exists
+    os.makedirs(enigma_extracted_base, exist_ok=True)
+
+    exe_name = Path(input_exe).stem
+
+    for version, flags in PACKER_FLAGS.items():
+        # Create a subdir for this version attempt: <exe_name>_v<version>
+        version_dir = os.path.join(enigma_extracted_base, f"{exe_name}_v{version}")
+        os.makedirs(version_dir, exist_ok=True)
+
+        cmd = ["evbunpack"] + flags + [input_exe, version_dir]
+        logging.info(f"Trying Enigma protected v{version} flags: {flags}")
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+
+        if proc.returncode == 0:
+            logging.info(f"Successfully unpacked with version {version} into {version_dir}")
+            return version_dir
+
+        logging.warning(
+            f"Attempt v{version} failed (exit {proc.returncode}). Output:\n{proc.stdout}"
+        )
+
+    logging.error(
+        f"All unpack attempts failed for {input_exe}. Tried versions: {', '.join(PACKER_FLAGS)}"
+    )
+    return None
 
 def is_plain_text(data: bytes,
                   null_byte_threshold: float = 0.01,
@@ -5612,6 +5666,8 @@ def ransomware_alert(file_path):
 
 def log_directory_type(file_path):
     try:
+        elif file_path.startswith(enigma_extracted_dir):
+            logging.info(f"{file_path}: Enigma extracted.")
         if file_path.startswith(sandboxie_folder):
             logging.info(f"{file_path}: It's a Sandbox environment file.")
         elif file_path.startswith(copied_sandbox_files_dir):
@@ -5696,6 +5752,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
         # List of directory conditions and their corresponding logging messages.
         # Note: For conditions that need an exact match (like the main file), a lambda is used accordingly.
         directory_logging_info = [
+            (lambda fp: fp.startswith(enigma_extracted_dir), "Enigma extracted."),
             (lambda fp: fp.startswith(sandboxie_folder), "It's a Sandbox environment file."),
             (lambda fp: fp.startswith(copied_sandbox_files_dir), "It's a restored sandbox environment file."),
             (lambda fp: fp.startswith(decompiled_dir), "Decompiled."),
@@ -7061,8 +7118,18 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                 f"Flag set to True because '{file_path}' is inside the de4dot directory '{match}'"
         )
 
-        if not plain_text_flag:
-            logging.info(f"File {file_path} does not contain plain text data.")
+        # Initialize variables
+        is_decompiled = False
+        pe_file = False
+        signature_check = {
+            "has_microsoft_signature": False,
+            "is_valid": False,
+            "signature_status_issues": False
+        }
+
+        # Check if the file content is valid non plain text data
+        if not plain_text_flag(die_output):
+            logging.info(f"File {file_path} contains valid non plain text data.")
             # Attempt to extract the file
             try:
                 logging.info(f"Attempting to extract file {file_path}...")
@@ -7078,7 +7145,16 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                 logging.info(f"File {file_path} is not a valid archive or extraction failed. Proceeding with scanning.")
             except Exception as extraction_error:
                 logging.error(f"Error during extraction of {file_path}: {extraction_error}")
-            if is_packer_upx_output(die_output):
+           
+            if die_output and is_enigma_protector(die_output): 
+                extracted_path = try_unpack_enigma(protected_exe)
+                if extracted_path:
+                    print(f"Unpack succeeded. Files are in: {extracted_path}")
+                    scan_and_warn(extracted_path)
+                else:
+                    print("Unpack failed for all known Enigma protected versions.")
+
+            if die_output and is_packer_upx_output(die_output):
                 upx_unpacked = extract_upx(file_path)
                 if upx_unpacked:
                     scan_and_warn(upx_unpacked)
@@ -7086,10 +7162,12 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                     logging.error(f"Failed to unpack {file_path}")
             else:
                 logging.info(f"Skipping non-UPX file: {file_path}")
-            if is_nsis_from_output(die_output):
+
+            if die_output and is_nsis_from_output(die_output):
                 nsis_flag= True
+
             # Detect Inno Setup installer
-            if is_inno_setup_archive_from_output(die_output):
+            if die_output and is_inno_setup_archive_from_output(die_output):
                 # Extract Inno Setup installer files
                 extracted = extract_inno_setup(file_path)
                 if extracted is not None:
@@ -7102,8 +7180,9 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                             logging.error(f"Error scanning {file_path}: {e}")
                 else:
                     logging.error("Extraction failed; nothing to scan.")
+
             # Deobfuscate binaries obfuscated by Go Garble.
-            if is_go_garble_from_output(die_output):
+            if die_output and is_go_garble_from_output(die_output):
                 # Generate output paths based on the file name and the specified directories
                 output_path = os.path.join(ungarbler_dir, os.path.basename(file_path))
                 string_output_path = os.path.join(ungarbler_string_dir, os.path.basename(file_path) + "_strings.txt")
@@ -7119,8 +7198,9 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                 if results.get("decrypt_func_list"):
                     # Scan the extracted strings file
                     scan_and_warn(string_output_path)
+
             # Check if it's a .pyc file and decompile
-            if is_pyc_file_from_output(die_output):
+            if die_output and is_pyc_file_from_output(die_output):
                 logging.info(f"File {file_path} is a .pyc (Python Compiled Module) file. Attempting to decompile...")
 
                 # Call the show_code_with_uncompyle6_pycdc_pycdas function to decompile the .pyc file
@@ -7155,21 +7235,8 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                 else:
                     logging.error(f"United decompilation failed for file {file_path}.")
 
-        # Initialize variables
-        is_decompiled = False
-        pe_file = False
-        signature_check = {
-            "has_microsoft_signature": False,
-            "is_valid": False,
-            "signature_status_issues": False
-        }
-
-        # Check if the file content is valid non plain text data
-        if not plain_text_flag(die_output):
-            logging.info(f"File {file_path} contains valid non plain text data.")
-
             # Additional checks for PE files
-            if is_pe_file_from_output(die_output):
+            if die_output and is_pe_file_from_output(die_output):
                 logging.info(f"File {file_path} is a valid PE file.")
                 pe_file = True
 
@@ -7234,8 +7301,11 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                 except Exception as ex:
                     logging.error(f"Error during debloating of {file_path}: {ex}")
 
-            # Analyze the DIE output for .NET file information
-            dotnet_result = is_dotnet_file_from_output(die_output)
+            dotnet_result = False
+
+            if die_output:
+                # Analyze the DIE output for .NET file information
+                dotnet_result = is_dotnet_file_from_output(die_output)
 
             if dotnet_result is True:
                 dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(file_path,))
@@ -7251,18 +7321,21 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
             elif dotnet_result is not None and not flag_de4dot and not "Protector: Obfuscar" in dotnet_result:
                 de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(file_path,))
                 de4dot_thread.start()
-            if is_jar_file_from_output(die_output):
+
+            if die_output and is_jar_file_from_output(die_output):
                 jar_extractor_paths = run_jar_extractor(file_path, flag_fernflower)
                 if jar_extractor_paths:
                     for jar_extractor_path in jar_extractor_paths:
                         scan_and_warn(jar_extractor_path, flag_fernflower)
                 else:
                     logging.warning("Java Archive Extraction or decompilation failed. Skipping scan.")
-            if is_java_class_from_output(die_output):
+
+            if die_output and is_java_class_from_output(die_output):
                 run_fernflower_decompiler(file_path)
 
             # Check if the file contains Nuitka executable
-            nuitka_type = is_nuitka_file_from_output(die_output)
+            if die_output:
+                nuitka_type = is_nuitka_file_from_output(die_output)
 
             # Only proceed with extraction if Nuitka is detected
             if nuitka_type:
@@ -7338,7 +7411,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
             process_thread.start()
 
         # Check if the file is a PyInstaller archive
-        if is_pyinstaller_archive_from_output(die_output):
+        if die_output and is_pyinstaller_archive_from_output(die_output):
             logging.info(f"File {file_path} is a PyInstaller archive. Extracting...")
 
             # Extract the PyInstaller files and get their paths
