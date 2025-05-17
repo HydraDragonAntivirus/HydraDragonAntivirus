@@ -8348,6 +8348,13 @@ class MonitorMessageCommandLine:
         return False
 
     def calculate_similarity_text(self, text1, text2):
+        # If the inputs came in as a list of lines, glue them back together.
+        if isinstance(text1, list):
+            text1 = "".join(text1)
+        if isinstance(text2, list):
+            text2 = "".join(text2)
+
+        # Now both are plain strings, safe to feed into spaCy
         doc1 = nlp_spacy_lang(text1)
         doc2 = nlp_spacy_lang(text2)
         return doc1.similarity(doc2)
