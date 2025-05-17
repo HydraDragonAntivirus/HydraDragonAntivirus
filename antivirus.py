@@ -5425,54 +5425,61 @@ class PyInstArchive:
         logging.info(f"[+] {len(self.tocList)} TOC entries parsed")
         return True
 
-    def _writeRaw(self, fn, data):
-        safe = fn.replace('..', '__').lstrip('/\\')
-        d = os.path.dirname(safe)
-        if d and not os.path.exists(d): os.makedirs(d)
-        with open(safe, 'wb') as f: f.write(data)
-
-    def _writePyc(self, fn, data):
-        safe = fn.replace('..', '__').lstrip('/\\')
-        with open(safe, 'wb') as f:
-            f.write(self.pycMagic)
-            if self.pymaj >= 3 and self.pymin >= 7:
-                f.write(b'\0'*4)
-                f.write(b'\0'*8)
-            else:
-                f.write(b'\0'*4)
-                if self.pymaj >= 3 and self.pymin >= 3: f.write(b'\0'*4)
+    def _writeRaw(self, target_path, data):
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        with open(target_path, 'wb') as f:
             f.write(data)
 
-    def _fixBarePycs(self):
-        for p in self.barePycList:
-            with open(p, 'r+b') as f: f.write(self.pycMagic)
+    def _writePyc(self, target_path, data):
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        with open(target_path, 'wb') as f:
+            f.write(self.pycMagic)
+            if self.pymaj >= 3 and self.pymin >= 7:
+                f.write(b'\0' * 4)
+                f.write(b'\0' * 8)
+            else:
+                f.write(b'\0' * 4)
+                if self.pymaj >= 3 and self.pymin >= 3:
+                    f.write(b'\0' * 4)
+            f.write(data)
 
-    def _extractPyz(self, fn):
-        out = f"{fn}_extracted"
+    def _fixBarePycs(self, outdir=None):
+        for p in self.barePycList:
+            path = p if outdir is None else os.path.join(outdir, p)
+            with open(path, 'r+b') as f:
+                f.write(self.pycMagic)
+
+    def _extractPyz(self, fn, outdir=None):
+        base_out = outdir or os.getcwd()
+        out = os.path.join(base_out, f"{fn}_extracted")
         os.makedirs(out, exist_ok=True)
         with open(fn, 'rb') as f:
             assert f.read(4) == b'PYZ\0'
             pyzMagic = f.read(4)
-            if self.pycMagic == b'\0'*4: self.pycMagic = pyzMagic
+            if self.pycMagic == b'\0' * 4:
+                self.pycMagic = pyzMagic
             ver = struct.unpack('!I', f.read(4))[0]
-            if (ver//100, ver%100) != (self.pymaj, self.pymin):
+            if (ver // 100, ver % 100) != (self.pymaj, self.pymin):
                 logging.warning('PYZ version mismatch')
                 return
             tocpos = struct.unpack('!I', f.read(4))[0]
             f.seek(tocpos)
             toc = marshal.load(f)
-            if isinstance(toc, list): toc = dict(toc)
-            for key,(pkg,pos,len_) in toc.items():
-                f.seek(pos); raw = f.read(len_)
-                try: data = zlib.decompress(raw)
+            if isinstance(toc, list):
+                toc = dict(toc)
+            for key, (pkg, pos, len_) in toc.items():
+                f.seek(pos)
+                raw = f.read(len_)
+                try:
+                    data = zlib.decompress(raw)
                 except zlib.error:
-                    open(os.path.join(out, key+'.encrypted'),'wb').write(raw)
+                    open(os.path.join(out, f"{key}.encrypted"), 'wb').write(raw)
                     continue
-                name = key.decode() if isinstance(key,bytes) else key
-                tgt = os.path.join(out, name+(os.sep+'__init__.pyc' if pkg else '.pyc'))
-                os.makedirs(os.path.dirname(tgt),exist_ok=True)
+                name = key.decode() if isinstance(key, bytes) else key
+                tgt = os.path.join(out, name + (os.sep + '__init__.pyc' if pkg else '.pyc'))
+                os.makedirs(os.path.dirname(tgt), exist_ok=True)
                 self._writePyc(tgt, data)
- 
+
     def detect_entry_point(self):
         """
         Heuristically detect the entry-point script name from the TOC.
@@ -5527,13 +5534,13 @@ class PyInstArchive:
                 # Handle .pyc entries and raw data
                 if ent.typecmprsdata == b's':
                     self.barePycList.append(ent.name + '.pyc')
-                    self._writePyc(os.path.join(outdir, ent.name + '.pyc'), data)
+                    self._writePyc(os.path.join(outdir, f"{ent.name}.pyc"), data)
                 elif ent.typecmprsdata in (b'm', b'M'):
                     if data[2:4] == b'\r\n':
-                        self._writeRaw(os.path.join(outdir, ent.name + '.pyc'), data)
+                        self._writeRaw(os.path.join(outdir, f"{ent.name}.pyc"), data)
                     else:
                         self.barePycList.append(ent.name + '.pyc')
-                        self._writePyc(os.path.join(outdir, ent.name + '.pyc'), data)
+                        self._writePyc(os.path.join(outdir, f"{ent.name}.pyc"), data)
                 else:
                     self._writeRaw(target_path, data)
                     if ent.name.lower().endswith('.pyz'):
@@ -5556,6 +5563,7 @@ class PyInstArchive:
         except Exception as ex:
             logging.error(f"An error occurred during extraction to {outdir}: {ex}")
             return None
+
 
 def extract_pyinstaller_archive(file_path):
     try:

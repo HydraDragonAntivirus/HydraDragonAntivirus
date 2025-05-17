@@ -59,6 +59,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Make your username hydradragonav (for example).
 - Don't forget to create the 'DefaultBox' folder if it was deleted, by right-clicking on Sandboxie Control and selecting 'Explore Contents'.
 - The installer also includes daily.cvd, main.cvd, bytecode.cvd due to download issues with the ClamAV database.
+- Please allow a minimum of two hours (your local time) for the antivirus to fully decompile the file and complete its analysis.
 
  ## Discord Community Server
 
