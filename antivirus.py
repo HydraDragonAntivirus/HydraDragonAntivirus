@@ -7270,7 +7270,7 @@ def _copy_to_dest(file_path, src_root, dest_root):
     return None
 
 # --- Main Scanning Function ---
-def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, command_flag=True, flag=False, flag_debloat=False, flag_obfuscar=False, flag_de4dot=False, flag_fernflower=False, nsis_flag=False):
+def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, command_flag=False, flag=False, flag_debloat=False, flag_obfuscar=False, flag_de4dot=False, flag_fernflower=False, nsis_flag=False):
     """
     Scans a file for potential issues.
 
