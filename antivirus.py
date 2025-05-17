@@ -355,8 +355,8 @@ antivirus_process_list_path = os.path.join(extensions_dir, "antivirusprocesslist
 magic_bytes_path = os.path.join(extensions_dir, "magicbytes.txt")
 meta_llama_dir = os.path.join(script_dir, "meta_llama")
 meta_llama_1b_dir = os.path.join(meta_llama_dir, "Llama-3.2-1B")
-python_source_code_dir = os.path.join(script_dir, "pythonsourcecode")
-python_deobfuscated_dir = os.path.join(script_dir, "pythondeobfuscated")
+python_source_code_dir = os.path.join(script_dir, "python_sourcecode")
+python_deobfuscated_dir = os.path.join(script_dir, "python_deobfuscated")
 pycdc_dir = os.path.join(python_source_code_dir, "pycdc")
 pycdas_dir = os.path.join(python_source_code_dir, "pycdas")
 united_python_source_code_dir = os.path.join(python_source_code_dir, "united")
@@ -6236,137 +6236,158 @@ def save_to_file(file_path, content):
         return None
 
 
+# 1) Transform exec(...) -> builtins.print(...)
 class ExecToPrintTransformer(ast.NodeTransformer):
-    def __init__(self):
-        super().__init__()
-        self.stub_names = set()
-        self.used_names = set()
-
     def visit_Module(self, node):
-        for n in node.body:
-            if isinstance(n, ast.FunctionDef) and self._contains_exec(n):
-                self.stub_names.add(n.name)
-        new_body = []
-        for stmt in node.body:
-            self._collect_used_names(stmt)
-            transformed = self.visit(stmt)
-            if transformed is None:
-                continue
-            if isinstance(transformed, list):
-                new_body.extend(transformed)
-            else:
-                new_body.append(transformed)
-        node.body = [stmt for stmt in new_body if not self._is_unused_import(stmt)]
+        if not any(
+            isinstance(n, ast.Import) and any(a.name == 'builtins' for a in n.names)
+            for n in node.body
+        ):
+            node.body.insert(0, ast.Import(names=[ast.alias(name='builtins', asname=None)]))
+        self.generic_visit(node)
         return node
 
-    def _contains_exec(self, node):
-        return any(
-            isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == 'exec'
-            for call in ast.walk(node)
-        )
-
-    def _collect_used_names(self, node):
-        for n in ast.walk(node):
-            if isinstance(n, ast.Name):
-                self.used_names.add(n.id)
-
-    def _is_unused_import(self, node):
-        if isinstance(node, ast.Import):
-            return all(alias.name.split('.')[0] not in self.used_names for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            return node.module and all(alias.name not in self.used_names for alias in node.names)
-        return False
-
-    def visit_FunctionDef(self, node):
-        if node.name in self.stub_names:
-            return None
-        return self.generic_visit(node)
-
-    def visit_Expr(self, node):
-        if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name):
-            if node.value.func.id in self.stub_names or node.value.func.id == 'print':
-                return None
-        return self.generic_visit(node)
-
     def visit_Call(self, node):
-        if isinstance(node.func, ast.Name):
-            if node.func.id == 'exec':
-                node.func.id = 'print'
-            elif node.func.id in self.stub_names:
-                return None
-        return self.generic_visit(node)
-
-
-def sandbox_deobfuscate_file(target_path, sandboxie_path=default_sandboxie_path):
-    os.makedirs(python_deobfuscated_sandboxie_dir, exist_ok=True)
-    base = os.path.basename(target_path)
-    name, _ = os.path.splitext(base)
-    sandbox_output = f"{name}_deobfuscated.py"
-    sandboxed_target = os.path.join(python_deobfuscated_sandboxie_dir, sandbox_output)
-    try:
-        with open(sandboxed_target, 'w', encoding='utf-8') as output_file:
-            subprocess.run(
-                [
-                    sandboxie_path,
-                    '/box:DefaultBox',
-                    '/elevate',
-                    'cmd.exe',
-                    '/c',
-                    f'"{sys.executable}" "{target_path}" > "{sandboxed_target}"'
-                ],
-                check=True
+        self.generic_visit(node)
+        if isinstance(node.func, ast.Name) and node.func.id == 'exec':
+            return ast.copy_location(
+                ast.Call(
+                    func=ast.Attribute(
+                        value=ast.Name(id='builtins', ctx=ast.Load()),
+                        attr='print', ctx=ast.Load()
+                    ),
+                    args=node.args,
+                    keywords=node.keywords
+                ), node
             )
-        return sandboxed_target
-    except subprocess.CalledProcessError as ex:
-        logging.error(f"Sandboxie execution failed: {ex}")
+        return node
+
+
+# 2) Remove unused imports based on usage in code
+class ImportCleaner(ast.NodeTransformer):
+    def __init__(self): self.used_names = set()
+    def visit_Name(self, node): self.used_names.add(node.id); return node
+    def remove_unused_imports(self, tree):
+        self.visit(tree)
+        tree.body = [n for n in tree.body if not (
+            isinstance(n, (ast.Import, ast.ImportFrom)) and
+            not any((alias.asname or alias.name.split('.')[0]) in self.used_names for alias in n.names)
+        )]
+        return tree
+
+
+# 3) Generic normalization using literal_eval
+def normalize_code_text(raw_text: str) -> str:
+    try:
+        val = ast.literal_eval(raw_text)
+    except Exception:
+        return raw_text
+    if isinstance(val, (bytes, bytearray)):
+        return val.decode('utf-8', errors='ignore')
+    if isinstance(val, str):
+        return val
+    return raw_text
+
+# 4) Robust exec-call detection
+def contains_exec_calls(code: str) -> bool:
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and (
+            (isinstance(node.func, ast.Name) and node.func.id == 'exec') or
+            (isinstance(node.func, ast.Attribute) and node.func.attr == 'exec') or
+            (isinstance(node.func, ast.Call)
+             and isinstance(node.func.func, ast.Name)
+             and node.func.func.id == 'getattr'
+             and len(node.func.args) >= 2
+             and isinstance(node.func.args[1], ast.Constant)
+             and node.func.args[1].value == 'exec')
+        ):
+            return True
+    return False
+
+# 5) Sandbox execution writes raw .py via DefaultBox
+def sandbox_deobfuscate_file(transformed_path: Path, box_name: str = "DefaultBox") -> Path | None:
+    name = transformed_path.stem
+    output_filename = f"{name}_deobf.py"
+    sandbox_inner = Path(sandbox_program_files) / output_filename
+    sandbox_inner_dir = sandbox_inner.parent
+    cmd = (
+        f'"{sandboxie_path}" /box:DefaultBox /elevate cmd.exe /c '
+        f'"mkdir \"{sandbox_inner_dir}\" & "{sys.executable}" "{transformed_path}" > "{sandbox_inner}""'
+    )
+    try:
+        subprocess.run(cmd, shell=True, check=True, timeout=120)
+    except Exception:
         return None
+    matches = list(Path(sandboxie_folder).glob(f"**/{output_filename}"))
+    if not matches:
+        return None
+    sandboxed_full = matches[0]
+    for _ in range(50):
+        if sandboxed_full.exists() and sandboxed_full.stat().st_size > 0:
+            return sandboxed_full
+        time.sleep(0.2)
+    return None
 
-def deobfuscate_until_clean(path, max_iterations=10):
-    os.makedirs(python_deobfuscated_dir, exist_ok=True)
-    src_path = path
-    final_src = ''
-    for i in range(max_iterations):
-        with open(src_path, 'r', encoding='utf-8') as f:
-            raw = f.read()
+# Main loop: apply exec->print and remove unused imports, with stuck-detection
+def deobfuscate_until_clean(source_path: Path, max_iterations: int = 10) -> Path | None:
+    current = source_path; prev_code = None
+    for iteration in range(1, max_iterations + 1):
+        try:
+            raw = current.read_text(encoding='utf-8')
+            tree = ast.parse(raw)
+        except Exception as e:
+            logging.error(f"Iter {iteration}: AST parse failed: {e}")
+            return None
 
-        # AST transform exec->print and remove stubs
-        tree = ast.parse(raw)
-        transformer = ExecToPrintTransformer()
-        tree = transformer.visit(tree)
+        tree = ExecToPrintTransformer().visit(tree)
+        tree = ImportCleaner().remove_unused_imports(tree)
         ast.fix_missing_locations(tree)
 
-        # Write transformed code to temporary file
-        base_name = os.path.splitext(os.path.basename(src_path))[0]
-        transformed_path = os.path.join(python_deobfuscated_dir, f"{base_name}_transformed.py")
-        with open(transformed_path, 'w', encoding='utf-8') as tf:
-            tf.write(ast.unparse(tree))
-
-        # Run the transformed code using Sandboxie and capture output
-        sandboxed_output = sandbox_deobfuscate_file(transformed_path)
-        if not sandboxed_output:
-            logging.error("Sandboxed deobfuscation failed.")
+        try:
+            code = ast.unparse(tree)
+        except Exception as e:
+            logging.error(f"Iter {iteration}: AST unparse failed: {e}")
             return None
 
-        with open(sandboxed_output, 'r', encoding='utf-8') as f:
-            new_src = f.read()
+        if prev_code is not None and code == prev_code:
+            stuck = os.path.join(python_deobfuscated_dir, f"{source_path.stem}_stuck_iter{iteration}.py")
+            with open(stuck, 'w', encoding='utf-8') as f:
+                f.write(code)
+            logging.warning(f"Iter {iteration}: no further change, wrote stuck file: {stuck}")
+            return Path(stuck)
+        prev_code = code
 
-        if 'exec(' not in new_src:
-            final_src = new_src
-            break
+        transformed_path = os.path.join(python_deobfuscated_dir, f"{current.stem}_iter{iteration}.py")
+        with open(transformed_path, 'w', encoding='utf-8') as f:
+            f.write(code)
+        logging.info(f"Iter {iteration}: wrote transformed ({len(code)} bytes)")
 
-        src_path = sandboxed_output
-    else:
-        logging.warning("Max iterations reached; exec() may remain.")
-        final_src = new_src
+        sandboxed = sandbox_deobfuscate_file(Path(transformed_path))
+        if not sandboxed:
+            logging.error(f"Iter {iteration}: sandbox failed")
+            return None
+        raw_out = sandboxed.read_text(encoding='utf-8')
+        logging.info(f"Iter {iteration}: sandbox output size {len(raw_out)} bytes")
 
-    host_deobf_path = os.path.join(python_deobfuscated_dir, f"{os.path.splitext(os.path.basename(path))[0]}_final_deobf.py")
-    with open(host_deobf_path, 'w', encoding='utf-8') as f:
-        f.write(final_src)
-    logging.info(f"Deobfuscated file written to {host_deobf_path}")
+        cleaned = normalize_code_text(raw_out)
+        if not contains_exec_calls(cleaned):
+            final = os.path.join(python_deobfuscated_dir, f"{source_path.stem}_final_deobf.py")
+            with open(final, 'w', encoding='utf-8') as f:
+                f.write(cleaned)
+            logging.info(f"Complete after {iteration} iterations: {final}")
+            return Path(final)
 
-    process_decompiled_code(host_deobf_path)
-
-    return host_deobf_path
+        next_path = os.path.join(python_deobfuscated_dir, f"{source_path.stem}_iter{iteration+1}.py")
+        with open(next_path, 'w', encoding='utf-8') as f:
+            f.write(cleaned)
+        current = Path(next_path)
+    
+    logging.error("Maximum iterations reached without fully deobfuscating.")
+    return None
 
 def is_exela_v2_payload(content):
     # Simple heuristic: check if keys/tag/nonce/encrypted_data appear in content
@@ -6441,11 +6462,21 @@ def process_decompiled_code(output_file):
         if is_exela_v2_payload(content):
             logging.info("[*] Detected Exela Stealer v2 payload.")
             process_exela_v2_payload(output_file)
+
         elif 'exec(' not in content:
             logging.info(f"[+] No exec() found in {output_file}, probably not obfuscated.")
+
         else:
             logging.info("[*] Detected non-Exela payload. Using generic processing.")
-            deobfuscate_until_clean(output_file)
+            deobfuscated = deobfuscate_until_clean(output_file)
+            if deobfuscated:
+                scan_and_warn(deobfuscated)
+                notify_user_for_malicious_source_code(
+                    deobfuscated,
+                    "HEUR:Win32.Susp.Src.Pyinstaller.Obfuscated.exec.gen"
+                )
+            else:
+                logging.error("[!] Generic deobfuscation failed; skipping scan and notification.")
 
     except Exception as ex:
         logging.error(f"[!] Error during payload dispatch: {ex}")
