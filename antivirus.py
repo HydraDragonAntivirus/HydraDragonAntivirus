@@ -6315,11 +6315,6 @@ def sandboxie_run_script_general(file_path):
     except subprocess.CalledProcessError as ex:
         logging.error(f"Failed to run Sandboxie on {file_path}: {ex}")
 
-def is_exela_v2_payload(content):
-    # Simple heuristic: check if keys/tag/nonce/encrypted_data appear in content
-    keys = ["key = ", "tag = ", "nonce = ", "encrypted_data"]
-    return all(k in content for k in keys)
-
 def process_generic_payload(file_path):
     """
     Processes a generic decompiled payload:
@@ -6355,6 +6350,11 @@ def process_generic_payload(file_path):
 
     except Exception as ex:
         logging.error(f"Error during generic payload processing: {ex}")
+
+def is_exela_v2_payload(content):
+    # Simple heuristic: check if keys/tag/nonce/encrypted_data appear in content
+    keys = ["key = ", "tag = ", "nonce = ", "encrypted_data"]
+    return all(k in content for k in keys)
 
 def process_exela_v2_payload(output_file):
     """
