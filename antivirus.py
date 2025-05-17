@@ -5513,29 +5513,29 @@ def extract_pyinstaller_archive(file_path):
             return None
 
         # Check if the file is a valid PyInstaller archive
-        if not archive.checkfile():
+        if not archive.checkFile():
             logging.error(f"File {file_path} is not a valid PyInstaller archive.")
             return None
 
         # Retrieve CArchive info from the archive
-        if not archive.getcarchiveinfo():
+        if not archive.getCArchiveInfo():
             logging.error(f"Failed to get CArchive info from {file_path}.")
             return None
 
         # Parse the Table of Contents (TOC) from the archive
-        if not archive.parsetoc():
+        if not archive.parseTOC():
             logging.error(f"Failed to parse TOC from {file_path}.")
             return None
 
         # Extract files to the specified pyinstaller_dir
-        extractiondir = archive.extractfiles()
+        extraction_dir = archive.extractFiles()
 
         # Close the archive
         archive.close()
 
-        logging.info(f"[+] Extraction completed successfully: {extractiondir}")
+        logging.info(f"[+] Extraction completed successfully: {extraction_dir}")
 
-        return extractiondir
+        return extraction_dir
 
     except Exception as ex:
         logging.error(f"An error occurred while extracting PyInstaller archive {file_path}: {ex}")
