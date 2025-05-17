@@ -8528,7 +8528,7 @@ class MonitorMessageCommandLine:
         logging.warning(message)
         notify_user_for_detected_command(message, file_path)
 
-    def detect_malware(self, file_path):
+    def detect_malware(self, file_path: str):
         if file_path is None:
             logging.error("file_path cannot be None.")
             return
@@ -8539,45 +8539,49 @@ class MonitorMessageCommandLine:
             return
 
         try:
-            file_content = []
+            lines = []
             non_empty_count = 0
             with open(file_path, 'r', encoding="utf-8", errors="ignore") as monitor_file:
                 for line in monitor_file:
                     if not line.strip():
                         continue
                     if non_empty_count < 100000:
-                        file_content.append(line)
+                        lines.append(line)
                         non_empty_count += 1
                     else:
                         logging.info("Exceeded 100K non-empty lines; stopping read.")
                         break
 
-            file_content = ''.join(file_content)
-
+            file_content = ''.join(lines)
             if not isinstance(file_content, str):
                 logging.error("File content is not a valid string.")
                 return
 
+            basename = os.path.basename(file_path)
+
             # Process known malware messages
             for category, details in self.known_malware_messages.items():
-                if "patterns" in details:
-                    for pattern in details["patterns"]:
-                        similarity = self.calculate_similarity_text(file_content, pattern)
-                        if similarity > 0.8:
-                            details["process_function"](file_content, file_path)
-                            logging.warning("Detected malware pattern in {file_path}.")
-                if "message" in details:
-                    similarity = self.calculate_similarity_text(file_content, details["message"])
-                    if similarity > 0.8:
+                # Check text patterns
+                for pattern in details.get("patterns", []):
+                    if self.calculate_similarity_text(file_content, pattern) > 0.8:
                         details["process_function"](file_content, file_path)
-                        logging.warning(f"Detected malware message in {file_path}.")
-                if "command" in details:
-                    similarity = self.calculate_similarity_text(file_content, details["command"])
-                    if similarity > 0.8:
-                        details["process_function"](file_content, file_path)
-                        logging.warning(f"Detected malware command in {file_path}.")
+                        logging.warning(f"Detected malware pattern for '{category}' in {file_path}.")
 
-            # Adding ransomware check
+                # Check fixed message
+                if "message" in details and self.calculate_similarity_text(file_content, details["message"]) > 0.8:
+                    details["process_function"](file_content, file_path)
+                    logging.warning(f"Detected malware message for '{category}' in {file_path}.")
+
+                # Check command patterns only for files named cmd_*.txt
+                if "command" in details:
+                    if basename.startswith("cmd_") and basename.endswith(".txt"):
+                        if self.calculate_similarity_text(file_content, details["command"]) > 0.8:
+                            details["process_function"](file_content, file_path)
+                            logging.warning(f"Detected malware command for '{category}' in {file_path}.")
+                    else:
+                        logging.info(f"Skipping command checks for {file_path}: filename does not match cmd_*.txt")
+
+            # Ransomware keyword distance check
             if self.contains_keywords_within_max_distance(file_content, max_distance=10):
                 self.process_detected_text_ransom(file_content, file_path)
                 logging.warning(f"Detected ransomware keywords in {file_path}.")
