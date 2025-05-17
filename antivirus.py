@@ -6240,19 +6240,12 @@ def save_to_file(file_path, content):
 class ExecToPrintTransformer(ast.NodeTransformer):
     def __init__(self):
         super().__init__()
-        # track stub function names for removal (only those wrapping exec)
         self.stub_names = set()
 
     def visit_Module(self, node):
-        # Collect functions whose body contains exec(), mark for removal
         for n in node.body:
-            if isinstance(n, ast.FunctionDef):
-                if any(
-                    isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == 'exec'
-                    for call in ast.walk(n)
-                ):
-                    self.stub_names.add(n.name)
-        # Process and rebuild module body
+            if isinstance(n, ast.FunctionDef) and self._contains_exec(n):
+                self.stub_names.add(n.name)
         new_body = []
         for stmt in node.body:
             transformed = self.visit(stmt)
@@ -6265,21 +6258,24 @@ class ExecToPrintTransformer(ast.NodeTransformer):
         node.body = new_body
         return node
 
+    def _contains_exec(self, node):
+        return any(
+            isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == 'exec'
+            for call in ast.walk(node)
+        )
+
     def visit_FunctionDef(self, node):
-        # Remove stub definitions
         if node.name in self.stub_names:
             return None
-        return node
+        return self.generic_visit(node)
 
     def visit_Expr(self, node):
-        # Remove standalone print or stub calls
         if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name):
             if node.value.func.id in self.stub_names or node.value.func.id == 'print':
                 return None
         return self.generic_visit(node)
 
     def visit_Call(self, node):
-        # Change exec() to print(), drop stub calls
         if isinstance(node.func, ast.Name):
             if node.func.id == 'exec':
                 node.func.id = 'print'
@@ -6288,68 +6284,76 @@ class ExecToPrintTransformer(ast.NodeTransformer):
         return self.generic_visit(node)
 
 
-def deobfuscate_file(path):
-    with open(path, 'r', encoding='utf-8') as f:
-        src = f.read()
-    tree = ast.parse(src, filename=path)
-    transformer = ExecToPrintTransformer()
-    tree = transformer.visit(tree)
-    ast.fix_missing_locations(tree)
-    return ast.unparse(tree)
-
-def run_deobfuscated_code(code_str):
-    with tempfile.NamedTemporaryFile('w', suffix='.py', delete=False) as tmp:
-        tmp.write(code_str)
-        tmp_path = tmp.name
-    res = subprocess.run([sys.executable, tmp_path], capture_output=True, text=True)
-    return res.stdout, res.stderr
-
-def sandboxie_run_script_general(file_path):
+def sandbox_deobfuscate_file(target_path, sandboxie_path=default_sandboxie_path):
+    os.makedirs(python_deobfuscated_sandboxie_dir, exist_ok=True)
+    base = os.path.basename(target_path)
+    name, _ = os.path.splitext(base)
+    sandbox_output = f"{name}_deobfuscated.py"
+    sandboxed_target = os.path.join(python_deobfuscated_sandboxie_dir, sandbox_output)
     try:
-        subprocess.run([
-            sandboxie_path,
-            '/box:DefaultBox',
-            '/elevate',
-            file_path
-        ], check=True, encoding='utf-8', errors='ignore')
+        with open(sandboxed_target, 'w', encoding='utf-8') as output_file:
+            subprocess.run(
+                [
+                    sandboxie_path,
+                    '/box:DefaultBox',
+                    '/elevate',
+                    'cmd.exe',
+                    '/c',
+                    f'"{sys.executable}" "{target_path}" > "{sandboxed_target}"'
+                ],
+                check=True
+            )
+        return sandboxed_target
     except subprocess.CalledProcessError as ex:
-        logging.error(f"Failed to run Sandboxie on {file_path}: {ex}")
+        logging.error(f"Sandboxie execution failed: {ex}")
+        return None
 
-def process_generic_payload(file_path):
-    """
-    Processes a generic decompiled payload:
-    - Runs the payload in a sandboxed environment.
-    - Deobfuscates and analyzes the result.
-    - Extracts potential webhook URLs.
-    """
-    try:
-        sandboxie_run_script_general(file_path)
+def deobfuscate_until_clean(path, max_iterations=10):
+    os.makedirs(python_deobfuscated_dir, exist_ok=True)
+    src_path = path
+    final_src = ''
+    for i in range(max_iterations):
+        with open(src_path, 'r', encoding='utf-8') as f:
+            raw = f.read()
 
-        sandboxed_path = os.path.join(python_deobfuscated_sandboxie_dir, os.path.basename(file_path))
-        if not os.path.exists(sandboxed_path):
-            logging.error(f"[!] Sandboxed file not found: {sandboxed_path}")
-            return
+        # AST transform exec->print and remove stubs
+        tree = ast.parse(raw)
+        transformer = ExecToPrintTransformer()
+        tree = transformer.visit(tree)
+        ast.fix_missing_locations(tree)
 
-        moved_path = os.path.join(script_dir, os.path.basename(sandboxed_path))
-        shutil.move(sandboxed_path, moved_path)
-        logging.info(f"[+] Moved sandboxed file to: {moved_path}")
+        # Write transformed code to temporary file
+        base_name = os.path.splitext(os.path.basename(src_path))[0]
+        transformed_path = os.path.join(python_deobfuscated_dir, f"{base_name}_transformed.py")
+        with open(transformed_path, 'w', encoding='utf-8') as tf:
+            tf.write(ast.unparse(tree))
 
-        transformed = deobfuscate_file(moved_path)
-        stdout, stderr = run_deobfuscated_code(transformed)
+        # Run the transformed code using Sandboxie and capture output
+        sandboxed_output = sandbox_deobfuscate_file(transformed_path)
+        if not sandboxed_output:
+            logging.error("Sandboxed deobfuscation failed.")
+            return None
 
-        if stdout:
-            logging.warning(f"[+] Output from generic payload:\n{stdout}")
-        if stderr:
-            logging.error(f"[!] Errors from generic payload:\n{stderr}")
+        with open(sandboxed_output, 'r', encoding='utf-8') as f:
+            new_src = f.read()
 
-        webhooks = re.findall(discord_webhook_pattern, transformed)
-        if webhooks:
-            logging.warning(f"[+] Webhook URLs found in generic payload: {webhooks}")
-        else:
-            logging.info("[-] No webhook URLs found in generic payload.")
+        if 'exec(' not in new_src:
+            final_src = new_src
+            break
 
-    except Exception as ex:
-        logging.error(f"Error during generic payload processing: {ex}")
+        src_path = sandboxed_output
+    else:
+        logging.warning("Max iterations reached; exec() may remain.")
+        final_src = new_src
+
+    host_deobf_path = os.path.join(python_deobfuscated_dir, f"{os.path.splitext(os.path.basename(path))[0]}_final_deobf.py")
+    with open(host_deobf_path, 'w', encoding='utf-8') as f:
+        f.write(final_src)
+    logging.info(f"Deobfuscated file written to {host_deobf_path}")
+
+    process_decompiled_code(host_deobf_path)
+
+    return host_deobf_path
 
 def is_exela_v2_payload(content):
     # Simple heuristic: check if keys/tag/nonce/encrypted_data appear in content
@@ -6424,6 +6428,8 @@ def process_decompiled_code(output_file):
         if is_exela_v2_payload(content):
             logging.info("[*] Detected Exela Stealer v2 payload.")
             process_exela_v2_payload(output_file)
+        elif 'exec(' not in content:
+            logging.info(f"[+] No exec() found in {output_file}, probably not obfuscated.")
         else:
             logging.info("[*] Detected non-Exela payload. Using generic processing.")
             process_generic_payload(output_file)
