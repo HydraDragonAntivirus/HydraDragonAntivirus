@@ -7272,7 +7272,7 @@ def _copy_to_dest(file_path, src_root, dest_root):
     return None
 
 # --- Main Scanning Function ---
-def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, flag=False, flag_debloat=False, flag_obfuscar=False, flag_de4dot=False, flag_fernflower=False, nsis_flag=False):
+def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, command_flag=True, flag=False, flag_debloat=False, flag_obfuscar=False, flag_de4dot=False, flag_fernflower=False, nsis_flag=False):
     """
     Scans a file for potential issues.
 
@@ -7651,15 +7651,16 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, fl
                     scan_thread.start()
                 except Exception as ex:
                     logging.error(
-                        f"Error during scanning with Meta LLaMA-3.2-1B for file {file_path}: {ex}"
+                        f"Error during scanning with Meta Llama-3.2-1B for file {file_path}: {ex}"
                     )
             else:
-                logging.info(f"Skipping Meta LLaMA scan for {file_path}, it's in the excluded directory.")
+                logging.info(f"Skipping Meta Llama scan for {file_path}, it's in the excluded directory.")
 
-            # Scan for malware in real-time only for plain text
-            logging.info(f"Performing real-time malware detection for plain text file: {file_path}...")
-            real_time_scan_thread = threading.Thread(target=monitor_message.detect_malware, args=(file_path,))
-            real_time_scan_thread.start()
+            # Scan for malware in real-time only for plain text and command flag
+            if command_flag:
+                logging.info(f"Performing real-time malware detection for plain text file: {file_path}...")
+                real_time_scan_thread = threading.Thread(target=monitor_message.detect_malware, args=(file_path,))
+                real_time_scan_thread.start()
 
         # Log directory type based on file path
         log_directory_type(file_path)
@@ -8378,7 +8379,7 @@ class MonitorMessageCommandLine:
                 "process_function": self.process_detected_command_fodhelper
                 },
             "antivirus": {
-                "patterns": antivirus_process_list,
+                "patterns": ["findstr"] + antivirus_process_list,
                 "virus_name": "HEUR:Antivirus.Process.Search.Command",
                 "process_function": self.process_detected_command_antivirus_search
                 }
@@ -8607,7 +8608,6 @@ class MonitorMessageCommandLine:
             counter += 1
         return unique_name
 
-
     def process_window_text(self, hwnd, text, path):
         """
         Process text from a window - this contains the original logic.
@@ -8624,7 +8624,7 @@ class MonitorMessageCommandLine:
         with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
             f.write(text[:1_000_000])
         logging.info(f"Wrote original -> {orig_fn}")
-        scan_and_warn(orig_fn)
+        scan_and_warn(orig_fn, command_flag=True)
 
         # write preprocessed text
         pre = self.preprocess_text(text)
@@ -8633,7 +8633,7 @@ class MonitorMessageCommandLine:
             with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
                 f.write(pre[:1_000_000])
             logging.info(f"Wrote preprocessed -> {pre_fn}")
-            scan_and_warn(pre_fn)
+            scan_and_warn(pre_fn, command_flag=True)
 
     def handle_event(self, hWinEventHook, event, hwnd, idObject, idChild, dwEventThread, dwmsEventTime):
         """
@@ -8767,7 +8767,7 @@ class MonitorMessageCommandLine:
                     with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
                         f.write(cmd[:1_000_000])
                     logging.info(f"Wrote cmd -> {orig_fn}")
-                    scan_and_warn(orig_fn)
+                    scan_and_warn(orig_fn, command_flag=True)
 
                     pre_cmd = self.preprocess_text(cmd)
                     if pre_cmd:
@@ -8775,7 +8775,7 @@ class MonitorMessageCommandLine:
                         with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
                             f.write(pre_cmd[:1_000_000])
                         logging.info(f"Wrote cmd pre -> {pre_fn}")
-                        scan_and_warn(pre_fn)
+                        scan_and_warn(pre_fn, command_flag=True)
             except Exception as ex:
                 logging.exception(f"Command-line snapshot error:{ex}")
 
