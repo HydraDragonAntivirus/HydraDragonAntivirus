@@ -5495,7 +5495,7 @@ class PyInstArchive:
             return f"{name}.pyc"
         return name
 
-    def extractFiles(self, pyinstaller_dir, scan_and_warn=None):
+    def extractFiles(self):
         """
         Extracts files into a subdirectory of the specified pyinstaller_dir and optionally scans the entry point.
         """
