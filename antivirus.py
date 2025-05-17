@@ -6334,7 +6334,10 @@ def sandbox_deobfuscate_file(transformed_path: Path, box_name: str = "DefaultBox
 
 # Main loop: apply exec->print and remove unused imports, with stuck-detection
 def deobfuscate_until_clean(source_path: Path, max_iterations: int = 10) -> Path | None:
-    current = source_path; prev_code = None
+    base_name = source_path.stem
+    current = source_path
+    prev_code = None
+
     for iteration in range(1, max_iterations + 1):
         try:
             raw = current.read_text(encoding='utf-8')
@@ -6354,14 +6357,16 @@ def deobfuscate_until_clean(source_path: Path, max_iterations: int = 10) -> Path
             return None
 
         if prev_code is not None and code == prev_code:
-            stuck = os.path.join(python_deobfuscated_dir, f"{source_path.stem}_stuck_iter{iteration}.py")
-            with open(stuck, 'w', encoding='utf-8') as f:
+            stuck_name = f"{base_name}_{iteration}_stuck.py"
+            stuck_path = os.path.join(python_deobfuscated_dir, stuck_name)
+            with open(stuck_path, 'w', encoding='utf-8') as f:
                 f.write(code)
-            logging.warning(f"Iter {iteration}: no further change, wrote stuck file: {stuck}")
-            return Path(stuck)
-        prev_code = code
+            logging.warning(f"Iter {iteration}: no further change, wrote stuck file: {stuck_path}")
+            return Path(stuck_path)
 
-        transformed_path = os.path.join(python_deobfuscated_dir, f"{current.stem}_iter{iteration}.py")
+        prev_code = code
+        transformed_name = f"{base_name}_{iteration}.py"
+        transformed_path = os.path.join(python_deobfuscated_dir, transformed_name)
         with open(transformed_path, 'w', encoding='utf-8') as f:
             f.write(code)
         logging.info(f"Iter {iteration}: wrote transformed ({len(code)} bytes)")
@@ -6370,22 +6375,25 @@ def deobfuscate_until_clean(source_path: Path, max_iterations: int = 10) -> Path
         if not sandboxed:
             logging.error(f"Iter {iteration}: sandbox failed")
             return None
+
         raw_out = sandboxed.read_text(encoding='utf-8')
         logging.info(f"Iter {iteration}: sandbox output size {len(raw_out)} bytes")
 
         cleaned = normalize_code_text(raw_out)
         if not contains_exec_calls(cleaned):
-            final = os.path.join(python_deobfuscated_dir, f"{source_path.stem}_final_deobf.py")
-            with open(final, 'w', encoding='utf-8') as f:
+            final_name = f"{base_name}_final.py"
+            final_path = os.path.join(python_deobfuscated_dir, final_name)
+            with open(final_path, 'w', encoding='utf-8') as f:
                 f.write(cleaned)
-            logging.info(f"Complete after {iteration} iterations: {final}")
-            return Path(final)
+            logging.info(f"Complete after {iteration} iterations: {final_path}")
+            return Path(final_path)
 
-        next_path = os.path.join(python_deobfuscated_dir, f"{source_path.stem}_iter{iteration+1}.py")
+        next_name = f"{base_name}_{iteration+1}.py"
+        next_path = os.path.join(python_deobfuscated_dir, next_name)
         with open(next_path, 'w', encoding='utf-8') as f:
             f.write(cleaned)
         current = Path(next_path)
-    
+
     logging.error("Maximum iterations reached without fully deobfuscating.")
     return None
 
@@ -6470,7 +6478,7 @@ def process_decompiled_code(output_file):
             logging.info("[*] Detected non-Exela payload. Using generic processing.")
             deobfuscated = deobfuscate_until_clean(output_file)
             if deobfuscated:
-                scan_and_warn(deobfuscated)
+                deobfuscated_saved_paths.append(deobfuscated)  # Add to global list
                 notify_user_for_malicious_source_code(
                     deobfuscated,
                     "HEUR:Win32.Susp.Src.Pyinstaller.Obfuscated.exec.gen"
@@ -7760,6 +7768,15 @@ def monitor_saved_paths():
                 seen.add(path)
                 scan_and_warn(path)
 
+def monitor_deobfuscated_saved_paths():
+    """Continuously monitor the deobfuscated_saved_paths list and call scan_and_warn on new items."""
+    seen = set()
+    while True:
+        for path in deobfuscated_saved_paths:
+            if path not in seen:
+                seen.add(path)
+                scan_and_warn(path)
+
 # Constants for all notification filters
 NOTIFY_FILTER = (
     win32con.FILE_NOTIFY_CHANGE_FILE_NAME |
@@ -8804,6 +8821,7 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=check_uefi_directories).start() # Start monitoring UEFI directories for malicious files in a separate thread
         threading.Thread(target=monitor_message.start_monitoring_threads).start() # Function to monitor specific windows in a separate thread
         threading.Thread(target=monitor_saved_paths).start()
+        threading.Thread(target=monitor_deobfuscated_saved_paths).start()
         threading.Thread(target=run_sandboxie, args=(file_path,)).start()
 
         logging.info("Sandbox analysis started. Please check log after you close program. There is no limit to scan time.")
