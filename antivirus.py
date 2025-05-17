@@ -5495,73 +5495,65 @@ class PyInstArchive:
             return f"{name}.pyc"
         return name
 
-    def extractFiles(self, pyinstaller_dir=None):
+    def extractFiles(self, pyinstaller_dir, scan_and_warn=None):
         """
-        Extracts files and optionally scans the entry point.
-        If scan_and_warn is provided, it will be called on the detected entry-point path.
+        Extracts files into a subdirectory of the specified pyinstaller_dir and optionally scans the entry point.
         """
-        # Determine output directory
-        if pyinstaller_dir is None:
-            base = os.path.splitext(os.path.basename(self.filePath))[0]
-            idx = 1
-            while os.path.exists(f"{base}_extracted_{idx}"):
-                idx += 1
-            outdir = f"{base}_extracted_{idx}"
-        else:
-            outdir = pyinstaller_dir
-
+        # Ensure base extraction directory
+        base_out = os.path.abspath(pyinstaller_dir)
         try:
-            # Create the output directory
-            os.makedirs(outdir, exist_ok=True)
-            outdir = os.path.abspath(outdir)
+            # Create a unique subdirectory for this archive
+            base_name = os.path.splitext(os.path.basename(self.filePath))[0]
+            idx = 1
+            subdir = f"{base_name}_extract_{idx}"
+            full_out = os.path.join(base_out, subdir)
+            while os.path.exists(full_out):
+                idx += 1
+                subdir = f"{base_name}_extract_{idx}"
+                full_out = os.path.join(base_out, subdir)
+            os.makedirs(full_out)
 
-            # Iterate over Table of Contents entries
+            # Extract into full_out
             for ent in self.tocList:
                 self.fPtr.seek(ent.position)
                 data = self.fPtr.read(ent.cmprsddatasize)
-
-                # Decompress if needed
                 if ent.cmprsflag == 1:
                     try:
                         data = zlib.decompress(data)
                     except zlib.error:
                         continue
-
-                # Determine the target path for extraction
-                target_path = os.path.join(outdir, ent.name)
+                target_path = os.path.join(full_out, ent.name)
                 os.makedirs(os.path.dirname(target_path), exist_ok=True)
-
-                # Handle .pyc entries and raw data
                 if ent.typecmprsdata == b's':
                     self.barePycList.append(ent.name + '.pyc')
-                    self._writePyc(os.path.join(outdir, f"{ent.name}.pyc"), data)
+                    self._writePyc(os.path.join(full_out, f"{ent.name}.pyc"), data)
                 elif ent.typecmprsdata in (b'm', b'M'):
-                    if data[2:4] == b'\r\n':
-                        self._writeRaw(os.path.join(outdir, f"{ent.name}.pyc"), data)
+                    if data[2:4] == b'
+':
+                        self._writeRaw(os.path.join(full_out, f"{ent.name}.pyc"), data)
                     else:
                         self.barePycList.append(ent.name + '.pyc')
-                        self._writePyc(os.path.join(outdir, f"{ent.name}.pyc"), data)
+                        self._writePyc(os.path.join(full_out, f"{ent.name}.pyc"), data)
                 else:
                     self._writeRaw(target_path, data)
                     if ent.name.lower().endswith('.pyz'):
-                        self._extractPyz(target_path, outdir)
+                        self._extractPyz(target_path, full_out)
 
-            # Post-process bare .pyc files
-            self._fixBarePycs(outdir)
+            self._fixBarePycs(full_out)
+            logging.info(f"[+] Extraction complete @ {full_out}")
 
-            logging.info(f"[+] Extraction complete @ {outdir}")
+            # Optionally scan entry point
+            if scan_and_warn:
+                entry_file = self.detect_entry_point()
+                if entry_file:
+                    entry_path = os.path.join(full_out, entry_file)
+                    if os.path.exists(entry_path):
+                        scan_and_warn(entry_path)
 
-            # Detect and scan entry point
-            entry_file = self.detect_entry_point()
-            if entry_file:
-                entry_path = os.path.join(outdir, entry_file)
-                if os.path.exists(entry_path):
-                    scan_and_warn(entry_path)
-
-            return outdir
+            return full_out
 
         except Exception as ex:
-            logging.error(f"An error occurred during extraction to {outdir}: {ex}")
+            logging.error(f"An error occurred during extraction under {base_out}: {ex}")
             return None
 
 
