@@ -5528,8 +5528,7 @@ class PyInstArchive:
                     self.barePycList.append(ent.name + '.pyc')
                     self._writePyc(os.path.join(full_out, f"{ent.name}.pyc"), data)
                 elif ent.typecmprsdata in (b'm', b'M'):
-                    if data[2:4] == b'
-':
+                    if data[2:4] == b'':
                         self._writeRaw(os.path.join(full_out, f"{ent.name}.pyc"), data)
                     else:
                         self.barePycList.append(ent.name + '.pyc')
