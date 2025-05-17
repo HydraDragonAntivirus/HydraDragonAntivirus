@@ -5541,13 +5541,11 @@ class PyInstArchive:
             self._fixBarePycs(full_out)
             logging.info(f"[+] Extraction complete @ {full_out}")
 
-            # Optionally scan entry point
-            if scan_and_warn:
-                entry_file = self.detect_entry_point()
-                if entry_file:
-                    entry_path = os.path.join(full_out, entry_file)
-                    if os.path.exists(entry_path):
-                        scan_and_warn(entry_path)
+            entry_file = self.detect_entry_point()
+            if entry_file:
+                entry_path = os.path.join(full_out, entry_file)
+                if os.path.exists(entry_path):
+                    scan_and_warn(entry_path)
 
             return full_out
 
