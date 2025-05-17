@@ -3972,57 +3972,72 @@ def scan_yara(file_path):
 # Function to check the signature of a file
 def check_signature(file_path):
     try:
-        # Command to verify the executable signature status
-        cmd = f'"{file_path}"'
-        verify_command = "(Get-AuthenticodeSignature " + cmd + ").Status"
-        process = subprocess.run(
-            ['powershell.exe', '-Command', verify_command],
-            stdout=subprocess.PIPE, text=True, encoding='utf-8', errors='replace'
+        # 1. Query just the Status
+        verify_cmd = f"(Get-AuthenticodeSignature '{file_path}').Status"
+        proc = subprocess.run(
+            ['powershell.exe', '-Command', verify_cmd],
+            stdout=subprocess.PIPE, text=True, errors='replace'
         )
-        status = process.stdout.strip() if process.stdout else ""
-        is_valid = "Valid" in status
-        signature_status_issues = "HashMismatch" in status or "NotTrusted" in status
+        status = proc.stdout.strip() if proc.stdout else ""
 
-        # Initialize signature_data for further checks
-        signature_data = ""
+        # 2. Only HashMismatch is considered an “issue”; ignore NotTrusted
+        signature_status_issues = ("HashMismatch" in status)
+
+        # 3. is_valid is True only when status == "Valid"
+        is_valid = (status == "Valid")
+
+        # Default flags
         has_microsoft_signature = False
         has_valid_goodsign_signature = False
+        matches_antivirus_signature = False
 
-        if not signature_status_issues:
-            ms_command = f"Get-AuthenticodeSignature '{file_path}' | Format-List"
-            ms_result = subprocess.run(
-                ["powershell.exe", "-Command", ms_command],
-                capture_output=True, text=True, encoding='utf-8', errors='replace'
+        if is_valid:
+            # Fetch full signer certificate info as JSON
+            json_cmd = (
+                f"Get-AuthenticodeSignature '{file_path}' "
+                "| Select-Object SignerCertificate | ConvertTo-Json -Depth 4"
             )
-            signature_data = ms_result.stdout if ms_result.stdout else ""
+            result = subprocess.run(
+                ["powershell.exe", "-Command", json_cmd],
+                capture_output=True, text=True, errors='replace'
+            )
+            sig = json.loads(result.stdout or "{}")
+            cert = sig.get("SignerCertificate", {})
 
-            # Check if the signature is from Microsoft
-            has_microsoft_signature = any(sig in signature_data for sig in microsoft_signatures)
+            subject = cert.get("Subject", "")
+            issuer  = cert.get("Issuer", "")
 
-            # Check if any valid good signature exists
-            valid_goodsign_signatures = [sig.upper() for sig in goodsign_signatures]
-            has_valid_goodsign_signature = any(sig in signature_data.upper() for sig in valid_goodsign_signatures)
+            # Microsoft or known good signers?
+            has_microsoft_signature = "Microsoft" in subject or "Microsoft" in issuer
+            valid_goods = [s.upper() for s in goodsign_signatures]
+            has_valid_goodsign_signature = any(s in (subject + issuer).upper() for s in valid_goods)
 
-            # Check if the file matches an antivirus signature
-            matches_antivirus_signature = any(f" {sig} " in f" {signature_data.upper()} " for sig in antivirus_signatures)
+            # Antivirus-signature match in the cert data
+            data_blob = json.dumps(cert).upper()
+            matches_antivirus_signature = any(sig in data_blob for sig in antivirus_signatures)
+
             if matches_antivirus_signature:
-                logging.warning(f"The file '{file_path}' matches an antivirus signature. It might be a vulnerable driver, vulnerable DLL file or a false positive!")
+                logging.warning(
+                    f"The file '{file_path}' matches an antivirus signature "
+                    "(possible vulnerable driver/DLL or false positive)."
+                )
 
         # Return structured signature validation results
         return {
             "is_valid": is_valid,
-            "has_microsoft_signature": has_microsoft_signature,
             "signature_status_issues": signature_status_issues,
+            "has_microsoft_signature": has_microsoft_signature,
             "has_valid_goodsign_signature": has_valid_goodsign_signature,
             "matches_antivirus_signature": matches_antivirus_signature
         }
 
     except Exception as ex:
         logging.error(f"An error occurred while checking signature: {ex}")
+        # On any error, mark as invalid (is_valid=False)
         return {
             "is_valid": False,
-            "has_microsoft_signature": False,
             "signature_status_issues": False,
+            "has_microsoft_signature": False,
             "has_valid_goodsign_signature": False,
             "matches_antivirus_signature": False
         }
