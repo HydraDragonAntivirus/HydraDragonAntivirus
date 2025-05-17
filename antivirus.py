@@ -6236,11 +6236,11 @@ def save_to_file(file_path, content):
         return None
 
 
-# --- AST-based deobfuscator ---
 class ExecToPrintTransformer(ast.NodeTransformer):
     def __init__(self):
         super().__init__()
         self.stub_names = set()
+        self.used_names = set()
 
     def visit_Module(self, node):
         for n in node.body:
@@ -6248,6 +6248,7 @@ class ExecToPrintTransformer(ast.NodeTransformer):
                 self.stub_names.add(n.name)
         new_body = []
         for stmt in node.body:
+            self._collect_used_names(stmt)
             transformed = self.visit(stmt)
             if transformed is None:
                 continue
@@ -6255,7 +6256,7 @@ class ExecToPrintTransformer(ast.NodeTransformer):
                 new_body.extend(transformed)
             else:
                 new_body.append(transformed)
-        node.body = new_body
+        node.body = [stmt for stmt in new_body if not self._is_unused_import(stmt)]
         return node
 
     def _contains_exec(self, node):
@@ -6263,6 +6264,18 @@ class ExecToPrintTransformer(ast.NodeTransformer):
             isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == 'exec'
             for call in ast.walk(node)
         )
+
+    def _collect_used_names(self, node):
+        for n in ast.walk(node):
+            if isinstance(n, ast.Name):
+                self.used_names.add(n.id)
+
+    def _is_unused_import(self, node):
+        if isinstance(node, ast.Import):
+            return all(alias.name.split('.')[0] not in self.used_names for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            return node.module and all(alias.name not in self.used_names for alias in node.names)
+        return False
 
     def visit_FunctionDef(self, node):
         if node.name in self.stub_names:
@@ -6432,7 +6445,7 @@ def process_decompiled_code(output_file):
             logging.info(f"[+] No exec() found in {output_file}, probably not obfuscated.")
         else:
             logging.info("[*] Detected non-Exela payload. Using generic processing.")
-            process_generic_payload(output_file)
+            deobfuscate_until_clean(output_file)
 
     except Exception as ex:
         logging.error(f"[!] Error during payload dispatch: {ex}")
