@@ -5300,7 +5300,7 @@ class PyInstArchive:
         self.pycMagic = b'\0' * 4
         self.barePycList = []  # pyc files missing header
 
-    def open(self):
+    def open_file(self):
         try:
             self.fPtr = open(self.filePath, 'rb')
             self.fileSize = os.stat(self.filePath).st_size
