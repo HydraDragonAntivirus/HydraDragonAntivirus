@@ -8402,7 +8402,7 @@ class MonitorMessageCommandLine:
                 "process_function": self.process_detected_command_fodhelper
                 },
             "antivirus": {
-                "patterns": ["findstr"] + antivirus_process_list,
+                "patterns": [rf"findstr.*\b({ '|'.join(re.escape(p) for p in antivirus_process_list) })\b"],
                 "virus_name": "HEUR:Antivirus.Process.Search.Command",
                 "process_function": self.process_detected_command_antivirus_search
                 }
