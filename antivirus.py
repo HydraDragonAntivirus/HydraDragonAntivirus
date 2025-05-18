@@ -7637,36 +7637,48 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
                 except Exception as ex:
                     logging.error(f"Error processing homepage change file {file_path}: {ex}")
 
-            skip_dir = Path(commandlineandmessage_dir).resolve()
+            # Log directory type based on file path
+            log_directory_type(file_path)
+
+            # Check if the file is in decompiled_dir
+            if file_path.startswith(decompiled_dir):
+                logging.info(f"File {file_path} is in decompiled_dir.")
+                is_decompiled = True
+
+            # make sure all of your “source” dirs are Path objects, resolved once
+            source_dirs = [
+                Path(decompiled_dir).resolve(),
+                Path(FernFlower_decompiled_dir).resolve(),
+                Path(dotnet_dir).resolve(),
+                Path(nuitka_source_code_dir).resolve(),
+            ]
+
+            # resolve the incoming file path
             file_path_resolved = Path(file_path).resolve()
 
-            if not (skip_dir in file_path_resolved.parents or file_path_resolved == skip_dir):
+            for src in source_dirs:
+                # this will succeed without exception if file_path_resolved is inside src
                 try:
-                    scan_thread = threading.Thread(
-                        target=scan_file_with_meta_llama,
-                        args=(file_path,)
-                    )
-                    scan_thread.start()
-                except Exception as ex:
-                    logging.error(
-                        f"Error during scanning with Meta Llama-3.2-1B for file {file_path}: {ex}"
-                    )
-            else:
-                logging.info(f"Skipping Meta Llama scan for {file_path}, it's in the excluded directory.")
+                    file_path_resolved.relative_to(src)
+                except ValueError:
+                    continue
+                else:
+                    try:
+                        threading.Thread(
+                            target=scan_file_with_meta_llama,
+                            args=(file_path,),
+                        ).start()
+                    except Exception as ex:
+                        logging.error(
+                            f"Error during scanning with Meta Llama-3.2-1B for file {file_path}: {ex}"
+                        )
+                    break
 
             # Scan for malware in real-time only for plain text and command flag
             if command_flag:
                 logging.info(f"Performing real-time malware detection for plain text file: {file_path}...")
                 real_time_scan_thread = threading.Thread(target=monitor_message.detect_malware, args=(file_path,))
                 real_time_scan_thread.start()
-
-        # Log directory type based on file path
-        log_directory_type(file_path)
-
-        # Check if the file is in decompiled_dir
-        if file_path.startswith(decompiled_dir):
-            logging.info(f"File {file_path} is in decompiled_dir.")
-            is_decompiled = True
 
         # Check if the file is a known rootkit file
         if file_name in known_rootkit_files:
