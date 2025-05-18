@@ -7536,10 +7536,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
         elif file_path.startswith(sandboxie_folder):
             dest = _copy_to_dest(file_path, src_root, copied_sandbox_files_dir)
             scan_and_warn(dest)
-        
-        if is_new_path_flag:
-            return False
-
+ 
         # Wrap file_path in a Path once, up front
         wrap_file_path = Path(file_path)
 
