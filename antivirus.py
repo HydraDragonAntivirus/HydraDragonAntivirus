@@ -7435,7 +7435,6 @@ def _copy_to_dest(file_path, dest_root):
 def scan_and_warn(file_path,
                   mega_optimization_with_anti_false_positive=True,
                   command_flag=False,
-                  flag=False,
                   flag_debloat=False,
                   flag_obfuscar=False,
                   flag_de4dot=False,
@@ -7566,9 +7565,6 @@ def scan_and_warn(file_path,
         if not flag and initial_md5_in_cache == md5:
             logging.info(f"Skipping scan for unchanged file: {norm_path}")
             return False
-
-        # File changed or forced: update MD5 and deep scan
-        file_md5_cache[norm_path] = md5
 
         logging.info(f"Deep scanning file: {norm_path}")
 
@@ -7954,10 +7950,8 @@ def scan_and_warn(file_path,
             original_norm_path_thread = threading.Thread(target=extract_original_norm_path_from_decompiled, args=(norm_path,))
             original_norm_path_thread.start()
 
-        # Continue processing even if flag is True, to handle files already processed
-        if flag:
-            logging.info(f"Reprocessing file {norm_path} with all checks enabled...")
-
+        # File changed or forced: update MD5 and deep scan
+        file_md5_cache[norm_path] = md5
         return False
 
     except Exception as ex:
