@@ -7447,6 +7447,7 @@ def scan_and_warn(file_path,
     """
     try:
         # Initialize variables
+        perform_special_scan = False
         is_decompiled = False
         pe_file = False
         signature_check = {
@@ -7535,12 +7536,12 @@ def scan_and_warn(file_path,
             if is_plain_text_data(die_output):
                 plain_text_flag = True
 
-        # Only scan files in sandboxie_folder
+        # Only perform special scans for sandboxie_folder
         if not normalized_path.startswith(normalized_sandbox):
-            return False
+            perform_special_scan = True
 
         # Perform ransomware alert check
-        if is_file_fully_unknown(die_output):
+        if is_file_fully_unknown(die_output) and perform_special_scan:
             ransomware_alert(norm_path)
             if mega_optimization_with_anti_false_positive:
                 logging.info(
@@ -7548,7 +7549,7 @@ def scan_and_warn(file_path,
                 )
                 return False
 
-        if is_first_pass:
+        if is_first_pass and perform_special_scan:
             # Record MD5 so future calls know it’s no longer first-pass
             file_md5_cache[norm_path] = md5
 
