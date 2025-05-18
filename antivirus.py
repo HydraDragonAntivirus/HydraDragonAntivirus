@@ -5465,7 +5465,7 @@ class PyInstArchive:
                 self.pycMagic = pyzMagic
             ver = struct.unpack('!I', f.read(4))[0]
             if (ver // 100, ver % 100) != (self.pymaj, self.pymin):
-                logging.warning('PYZ version mismatch')
+                logging.info('PYZ version mismatch')
                 return
             tocpos = struct.unpack('!I', f.read(4))[0]
             f.seek(tocpos)
