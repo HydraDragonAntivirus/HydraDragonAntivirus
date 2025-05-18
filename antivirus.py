@@ -6637,7 +6637,7 @@ def show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name):
             process_decompiled_code(uncompyle6_output_path)
         else:
             uncompyle6_output_path = None
-            logging.warning("[-] uncompyle6 produced no output.")
+            logging.info("[-] uncompyle6 produced no output.")
 
         # --- PyCDC decompilation branch ---
         pycdc_output_path = None
