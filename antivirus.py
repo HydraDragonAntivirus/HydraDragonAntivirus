@@ -58,6 +58,10 @@ from functools import wraps
 logging.info(f"functools.wraps module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import hashlib
+logging.info(f"hashlib module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import io
 logging.info(f"io module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -7430,27 +7434,18 @@ def _copy_to_dest(file_path, src_root, dest_root):
 def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, command_flag=False, flag=False, flag_debloat=False, flag_obfuscar=False, flag_de4dot=False, flag_fernflower=False, nsis_flag=False):
     """
     Scans a file for potential issues.
-
-    :param file_path: Path to the file or archive to scan.
-    :param flag: Indicates if the file should be reprocessed even if already scanned.
-    :return: True if the scan was successful (or the file was flagged), False otherwise.
+    Only does ransomware_alert and worm_alert once per unique file path.
     """
     try:
-        # MD5 cache check
-        # Read file and compute MD5
-        with open(file_path, 'rb') as f:
-            data = f.read()
-        md5 = hashlib.md5(data).hexdigest()
+        # Initialize variables
+        is_decompiled = False
+        pe_file = False
+        signature_check = {
+            "has_microsoft_signature": False,
+            "is_valid": False,
+            "signature_status_issues": False
+        }
 
-        # If same file and same MD5, and not forced, skip scanning
-        if not flag and file_path in file_md5_cache and file_md5_cache[file_path] == md5:
-            logging.info(f"Skipping scan for unchanged file: {file_path}")
-            return False
-
-        # Update cache
-        file_md5_cache[file_path] = md5
-
-        logging.info(f"Scanning file: {file_path}, Type: {type(file_path).__name__}")  # :contentReference[oaicite:0]{index=0}:contentReference[oaicite:1]{index=1}
         # Ensure the file_path is a string.
         if not isinstance(file_path, str):
             logging.error(f"Invalid file_path type: {type(file_path).__name__}")
@@ -7465,6 +7460,23 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
         if os.path.getsize(file_path) == 0:
             logging.debug(f"File {file_path} is empty. Skipping scan. That doesn't mean it's not malicious. See here: https://github.com/HydraDragonAntivirus/0KBAttack")
             return False
+
+        # 1) Is this the first time we've seen this path?
+        is_new_path = file_path not in file_md5_cache
+
+        # 2) Compute MD5 & skip if unchanged (unless forced)
+        with open(file_path, 'rb') as f:
+            data = f.read()
+        md5 = hashlib.md5(data).hexdigest()
+
+        if not flag and not is_new_path and file_md5_cache[file_path] == md5:
+            logging.info(f"Skipping scan for unchanged file: {file_path}")
+            return False
+
+        # Update cache
+        file_md5_cache[file_path] = md5
+
+        logging.info(f"Scanning file: {file_path}, Type: {type(file_path).__name__}")
 
         src_root = os.path.dirname(file_path)
 
@@ -7492,6 +7504,25 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
             die_output = analyze_file_with_die(file_path)
             if is_plain_text_data(die_output):
                 plain_text_flag=True
+
+        # 3) Only fire these alerts on the first pass for this path
+        if is_new_path:
+            ransomware_alert(file_path)
+            if pe_file:
+                # Normalize the file path to lowercase for comparison
+                normalized_path = os.path.abspath(file_path).lower()
+                normalized_sandboxie = sandboxie_folder.lower()
+
+                logging.info(f"File {file_path} is a valid PE file.")
+
+                # Check if file is inside the Sandboxie folder
+                if normalized_path.startswith(normalized_sandboxie):
+                    # Additional checks for PE files
+                    if is_pe_file_from_output(die_output):
+                        logging.info(f"File {file_path} is a valid PE file.")
+                        pe_file = True
+                    worm_alert(file_path)
+            return True
 
         # Perform ransomware alert check
         if is_file_fully_unknown(die_output):
@@ -7530,15 +7561,6 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
             logging.info(
                 f"Flag set to True because '{file_path}' is inside the de4dot directory '{match}'"
         )
-
-        # Initialize variables
-        is_decompiled = False
-        pe_file = False
-        signature_check = {
-            "has_microsoft_signature": False,
-            "is_valid": False,
-            "signature_status_issues": False
-        }
 
         # Check if the file content is valid non plain text data
         if not plain_text_flag:
