@@ -6594,49 +6594,38 @@ def run_pycdas_decompiler(file_path):
 
 def show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name):
     """
-    Decompiles a .pyc file using uncompyle6, pycdc, and pycdas, and saves the results to the appropriate directories.
-    Combines the outputs into one united file (saved in a subdirectory "united" of python_source_code_dir) and then
-    scans the combined code for malicious content such as Discord webhooks, IP addresses, domains, and URLs.
+    Decompiles a .pyc file using uncompyle6, pycdc, and pycdas, and saves the results.
+    Combines outputs into a united file only if both pycdc and pycdas succeed.
 
     Args:
-        file_path: Path to the .pyc file to decompile.
-        file_name: The name of the .pyc file to be decompiled.
+        file_path: Path to the .pyc file.
+        file_name: Name of the .pyc file.
 
     Returns:
-        A tuple of paths: (uncompyle6_output_path, pycdc_output_path, pycdas_output_path, united_output_path),
-        or (None, None, None, None) if processing fails.
+        Tuple: (uncompyle6_output_path, pycdc_output_path, pycdas_output_path, united_output_path)
     """
     try:
         logging.info(f"Processing python file: {file_path}")
-
-        # Ensure the main output directory exists
-
         # Derive a base name from the file name (without extension)
         base_name = os.path.splitext(file_name)[0]
 
-        # Check if it's source code using PyInstaller's method
+        # Detect if PyInstaller source archive
         is_source = False
-        with open(file_path, "rb") as pyc_file:
-            # Skip the pyc header (assumes 16 bytes header)
-            pyc_file.seek(16)
-            # Read the TOC entry structure
-            entry_data = pyc_file.read(struct.calcsize('!IIIBc'))
-            if len(entry_data) >= struct.calcsize('!IIIBc'):
-                try:
-                    # Unpack the structure and check the type field
+        try:
+            with open(file_path, "rb") as pyc_file:
+                pyc_file.seek(16)
+                entry_data = pyc_file.read(struct.calcsize('!IIIBc'))
+                if len(entry_data) >= struct.calcsize('!IIIBc'):
                     _, _, _, _, type_cmprs_data = struct.unpack('!IIIBc', entry_data)
                     is_source = (type_cmprs_data == b's')
-                except struct.error:
-                    pass
+        except Exception:
+            pass
 
-        # Determine an output filename for uncompyle6 (versioned if needed)
+        # Generate unique output path for uncompyle6
         version = 1
         while True:
             suffix = "_source_code.py" if is_source else "_decompile.py"
-            uncompyle6_output_path = os.path.join(
-                python_source_code_dir,
-                f"{base_name}_{version}{suffix}"
-            )
+            uncompyle6_output_path = os.path.join(python_source_code_dir, f"{base_name}_{version}{suffix}")
             if not os.path.exists(uncompyle6_output_path):
                 break
             version += 1
@@ -6654,12 +6643,13 @@ def show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name):
 
         # Save the uncompyle6 output if decompilation succeeded
         if decompiled_code:
-            with open(uncompyle6_output_path, "w", encoding="utf-8") as output_file:
-                output_file.write(decompiled_code)
+            with open(uncompyle6_output_path, "w", encoding="utf-8") as f:
+                f.write(decompiled_code)
             logging.info(f"[+] uncompyle6 output saved to {uncompyle6_output_path}")
             process_decompiled_code(uncompyle6_output_path)
         else:
-            logging.error("[-] uncompyle6 decompilation produced no output.")
+            uncompyle6_output_path = None
+            logging.warning("[-] uncompyle6 produced no output.")
 
         # --- PyCDC decompilation branch ---
         pycdc_output_path = None
@@ -6679,32 +6669,39 @@ def show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name):
         else:
             logging.error("[-] pycdas executable not found")
 
-        # --- United output: combine all decompiled code ---
-        united_dir = os.path.join(python_source_code_dir, "united")
-        os.makedirs(united_dir, exist_ok=True)
+        # --- united output (only if BOTH pycdc and pycdas succeeded) ---
+        united_output_path = None
+        if (pycdc_output_path and os.path.exists(pycdc_output_path)) and \
+           (pycdas_output_path and os.path.exists(pycdas_output_path)):
 
-        combined_code = ""
-        if decompiled_code:
-            combined_code += "# uncompyle6 output\n" + decompiled_code + "\n\n"
-        if pycdc_output_path and os.path.exists(pycdc_output_path):
+            united_dir = os.path.join(python_source_code_dir, "united")
+            os.makedirs(united_dir, exist_ok=True)
+
+            combined_code = ""
+
+            if uncompyle6_output_path and os.path.exists(uncompyle6_output_path):
+                with open(uncompyle6_output_path, "r", encoding="utf-8") as f:
+                    combined_code += "# uncompyle6 output\n" + f.read() + "\n\n"
+
             with open(pycdc_output_path, "r", encoding="utf-8") as f:
                 combined_code += "# pycdc output\n" + f.read() + "\n\n"
-        if pycdas_output_path and os.path.exists(pycdas_output_path):
+
             with open(pycdas_output_path, "r", encoding="utf-8") as f:
                 combined_code += "# pycdas output\n" + f.read() + "\n\n"
 
-        # Scan only the united combined code for links/malicious content
-        scan_code_for_links(combined_code, pyinstaller_flag=True)
+            united_output_path = os.path.join(united_dir, f"{base_name}_united.py")
+            with open(united_output_path, "w", encoding="utf-8") as f:
+                f.write(combined_code)
 
-        united_output_path = os.path.join(united_dir, f"{base_name}_united.py")
-        with open(united_output_path, "w", encoding="utf-8") as united_file:
-            united_file.write(combined_code)
-        logging.info(f"[+] United output saved to {united_output_path}")
+            logging.info(f"[+] United output saved to {united_output_path}")
+            scan_code_for_links(combined_code, pyinstaller_flag=True)
 
-        try:
-            scan_file_with_meta_llama(united_output_path, united_python_code=True)
-        except Exception as e:
-            logging.error(f"Error during meta-llama scan: {e}")
+            try:
+                scan_file_with_meta_llama(united_output_path, united_python_code=True)
+            except Exception as e:
+                logging.error(f"Error during meta-llama scan: {e}")
+        else:
+            logging.info("[-] Skipping united output: pycdc and pycdas must both succeed.")
 
         return uncompyle6_output_path, pycdc_output_path, pycdas_output_path, united_output_path
 
