@@ -54,10 +54,6 @@ total_start_time = time.time()
 
 # Measure and logging.info time taken for each import
 start_time = time.time()
-import tempfile
-logging.info(f"tempfile module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import io
 logging.info(f"io module loaded in {time.time() - start_time:.6f} seconds")
 
