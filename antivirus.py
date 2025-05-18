@@ -7487,7 +7487,6 @@ def scan_and_warn(file_path,
             return scan_and_warn(dest,
                                  mega_optimization_with_anti_false_positive,
                                  command_flag,
-                                 flag,
                                  flag_debloat,
                                  flag_obfuscar,
                                  flag_de4dot,
@@ -7499,7 +7498,6 @@ def scan_and_warn(file_path,
             return scan_and_warn(dest,
                                  mega_optimization_with_anti_false_positive,
                                  command_flag,
-                                 flag,
                                  flag_debloat,
                                  flag_obfuscar,
                                  flag_de4dot,
@@ -7562,7 +7560,7 @@ def scan_and_warn(file_path,
             return True
 
         # On subsequent passes: skip if unchanged (unless forced)
-        if not flag and initial_md5_in_cache == md5:
+        if initial_md5_in_cache == md5:
             logging.info(f"Skipping scan for unchanged file: {norm_path}")
             return False
 
