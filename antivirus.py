@@ -360,7 +360,7 @@ python_deobfuscated_dir = os.path.join(script_dir, "python_deobfuscated")
 pycdc_dir = os.path.join(python_source_code_dir, "pycdc")
 pycdas_dir = os.path.join(python_source_code_dir, "pycdas")
 united_python_source_code_dir = os.path.join(python_source_code_dir, "united")
-pycdas_meta_llama_dir = os.path.join(python_source_code_dir, "pycdas_meta_llama")
+pycdas_united_meta_llama_dir = os.path.join(python_source_code_dir, "pycdas_united_meta_llama")
 de4dot_cex_dir = os.path.join(script_dir, "de4dot-cex")
 de4dot_cex_x64_path = os.path.join(de4dot_cex_dir, "de4dot-x64.exe")
 de4dot_extracted_dir = os.path.join(script_dir, "de4dot_extracted")
@@ -547,7 +547,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [enigma_extracted_dir, sandboxie_folder, copied_sandbox_files_dir, decompiled_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, python_deobfuscated_dir,  pycdas_dir, pycdas_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
+directories_to_scan = [enigma_extracted_dir, sandboxie_folder, copied_sandbox_files_dir, decompiled_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, python_deobfuscated_dir,  pycdas_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
@@ -654,7 +654,7 @@ os.makedirs(python_deobfuscated_dir, exist_ok=True)
 os.makedirs(pycdc_dir, exist_ok=True)
 os.makedirs(pycdas_dir, exist_ok=True)
 os.makedirs(united_python_source_code_dir, exist_ok=True)
-os.makedirs(pycdas_meta_llama_dir, exist_ok=True)
+os.makedirs(pycdas_united_meta_llama_dir, exist_ok=True)
 os.makedirs(copied_sandbox_files_dir, exist_ok=True)
 os.makedirs(HiJackThis_logs_dir, exist_ok=True)
 os.makedirs(html_extracted_dir, exist_ok=True)
@@ -5824,7 +5824,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
             (lambda fp: fp.startswith(python_deobfuscated_dir), "It's an unobfuscated Python directory."),
             (lambda fp: fp.startswith(python_deobfuscated_sandboxie_dir), "It's an unobfuscated Python directory within Sandboxie."),
             (lambda fp: fp.startswith(pycdas_dir), "PyInstaller, .pyc reversed-engineered source code directory with pycdas.exe."),
-            (lambda fp: fp.startswith(pycdas_meta_llama_dir), "PyInstaller .pyc reverse-engineered source code directory, decompiled with pycdas.exe and converted to non-bytecode Python code using Meta Llama-3.2-1B."),
+            (lambda fp: fp.startswith(pycdas_united_meta_llama_dir), "PyInstaller .pyc reverse-engineered source code directory, decompiled with pycdas.exe and converted to non-bytecode Python code using Meta Llama-3.2-1B."),
             (lambda fp: fp.startswith(python_source_code_dir), "PyInstaller, .pyc reversed-engineered source code directory with uncompyle6."),
             (lambda fp: fp.startswith(nuitka_source_code_dir), "Nuitka reversed-engineered Python source code directory.")
         ]
@@ -6043,7 +6043,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
         # For pycdas decompiled files: save the extracted source code with a .py extension
         if united_python_code_flag:
             meta_llama_source_filename = os.path.splitext(os.path.basename(file_path))[0] + "_meta_llama.py"
-            meta_llama_source_path = os.path.join(pycdas_meta_llama_dir, meta_llama_source_filename)
+            meta_llama_source_path = os.path.join(pycdas_united_meta_llama_dir, meta_llama_source_filename)
             try:
                 with open(meta_llama_source_path, "w", encoding="utf-8") as meta_llama_source_file:
                     meta_llama_source_file.write(readable_file_content)
