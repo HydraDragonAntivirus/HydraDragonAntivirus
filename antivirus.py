@@ -7439,7 +7439,6 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
     try:
         # Initialize variables
         is_decompiled = False
-        is_new_path_flag = False
         pe_file = False
         signature_check = {
             "has_microsoft_signature": False,
@@ -7447,7 +7446,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
             "signature_status_issues": False
         }
 
-        # Ensure the file_path is a string.
+        # Ensure path is a string, exists, and is non-empty
         if not isinstance(file_path, str):
             logging.error(f"Invalid file_path type: {type(file_path).__name__}")
             return False
@@ -7459,27 +7458,42 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
 
         # Check if the file is empty.
         if os.path.getsize(file_path) == 0:
-            logging.debug(f"File {file_path} is empty. Skipping scan. That doesn't mean it's not malicious. See here: https://github.com/HydraDragonAntivirus/0KBAttack")
+            logging.debug(f"File {file_path} is empty. Skipping scan.")
             return False
+
         # Normalize the path to a consistent absolute form
         norm_path = os.path.abspath(file_path)
 
         # 1) Is this the first time we've seen this path?
-        is_new_path = norm_path not in file_md5_cache
+        is_first_pass = norm_path not in file_md5_cache
 
-        # 2) Compute MD5 & skip if unchanged (unless forced)
-        with open(norm_path, 'rb') as f:
+        # 2) Compute MD5 (you may chunk for large files if you like)
+        with open(norm_path, "rb") as f:
             data = f.read()
         md5 = hashlib.md5(data).hexdigest()
 
-        if not flag and not is_new_path and file_md5_cache.get(norm_path) == md5:
+        if is_first_pass:
+            # Record MD5 so future calls know it’s no longer first-pass
+            file_md5_cache[norm_path] = md5
+
+            # Fire first-pass alerts, then exit early
+            ransomware_alert(norm_path)
+
+            die_output = analyze_file_with_die(norm_path)
+            if is_pe_file_from_output(die_output):
+                worm_alert(norm_path)
+
+            return True
+
+        # On subsequent passes: skip if unchanged (unless forced)
+        if not flag and file_md5_cache.get(norm_path) == md5:
             logging.info(f"Skipping scan for unchanged file: {norm_path}")
             return False
 
-        # Update cache
+        # File changed (or forced): update MD5 and continue
         file_md5_cache[norm_path] = md5
 
-        logging.info(f"Scanning file: {norm_path}, Type: {type(norm_path).__name__}")
+        logging.info(f"Deep scanning file: {norm_path}")
 
         src_root = os.path.dirname(file_path)
 
