@@ -7439,6 +7439,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
     try:
         # Initialize variables
         is_decompiled = False
+        is_new_path_flag = False
         pe_file = False
         signature_check = {
             "has_microsoft_signature": False,
@@ -7509,7 +7510,6 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
 
         # 3) Only fire these alerts on the first pass for this path
         if is_new_path:
-            ransomware_alert(file_path)
             if pe_file:
                 # Normalize the file path to lowercase for comparison
                 normalized_path = os.path.abspath(file_path).lower()
@@ -7524,7 +7524,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
                         logging.info(f"File {file_path} is a valid PE file.")
                         pe_file = True
                     worm_alert(file_path)
-            return True
+            is_new_path_flag = True
 
         # Perform ransomware alert check
         if is_file_fully_unknown(die_output):
@@ -7544,6 +7544,10 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
                     f"malicious data: {file_path}"
                 )
                 return False
+        
+        if is_new_path_flag:
+            return False
+
         # Wrap file_path in a Path once, up front
         wrap_file_path = Path(file_path)
 
