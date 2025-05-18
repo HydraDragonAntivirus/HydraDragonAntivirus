@@ -7469,48 +7469,81 @@ def scan_and_warn(file_path,
             logging.debug(f"File {file_path} is empty. Skipping scan.")
             return False
 
-        # Normalize the path to a consistent absolute form
+        # Normalize the original path
         norm_path = os.path.abspath(file_path)
+        normalized_path = norm_path.lower()
+        normalized_sandbox = os.path.abspath(sandboxie_folder).lower()
+        normalized_de4dot = os.path.abspath(de4dot_sandboxie_dir).lower()
+
+        # --- Route files based on origin folder ---
+        if normalized_path.startswith(normalized_de4dot):
+            # Copy from de4dot sandbox to extracted directory and rescan
+            dest = _copy_to_dest(norm_path, de4dot_sandboxie_dir, de4dot_extracted_dir)
+            return scan_and_warn(dest,
+                                 mega_optimization_with_anti_false_positive,
+                                 command_flag,
+                                 flag,
+                                 flag_debloat,
+                                 flag_obfuscar,
+                                 flag_de4dot,
+                                 flag_fernflower,
+                                 nsis_flag)
+        elif normalized_path.startswith(normalized_sandbox):
+            # Copy from general sandbox to staging directory and rescan
+            dest = _copy_to_dest(norm_path, sandboxie_folder, copied_sandbox_files_dir)
+            return scan_and_warn(dest,
+                                 mega_optimization_with_anti_false_positive,
+                                 command_flag,
+                                 flag,
+                                 flag_debloat,
+                                 flag_obfuscar,
+                                 flag_de4dot,
+                                 flag_fernflower,
+                                 nsis_flag)
+
+        # --- Delay scanning sandbox files until ready ---
+        if normalized_path.startswith(normalized_sandbox):
+            if not copied_sandbox_files_dir or not os.path.exists(copied_sandbox_files_dir):
+                logging.info(
+                    f"Waiting for sandbox files to be copied; skipping scan for {norm_path}"
+                )
+                return False
 
         # 1) Is this the first time we've seen this path?
         is_first_pass = norm_path not in file_md5_cache
 
-        # 2) Compute MD5 (you may chunk for large files if you like)
+        # 2) Compute MD5 (chunk if file is large)
+        hash_md5 = hashlib.md5()
         with open(norm_path, "rb") as f:
-            data_content = f.read()
-        md5 = hashlib.md5(data_content).hexdigest()
+            for chunk in iter(lambda: f.read(8192), b""):
+                hash_md5.update(chunk)
+        md5 = hash_md5.hexdigest()
 
         # Extract the file name
         file_name = os.path.basename(norm_path)
 
-        plain_text_flag=False
-
+        # Determine if content is plain text
+        with open(norm_path, "rb") as f:
+            data_content = f.read(8192)
+        plain_text_flag = False
         if is_plain_text(data_content):
-             die_output = "Binary\n    Format: plain text"
-             plain_text_flag=True
+            die_output = "Binary\n    Format: plain text"
+            plain_text_flag = True
         else:
             die_output = analyze_file_with_die(norm_path)
             if is_plain_text_data(die_output):
-                plain_text_flag=True
+                plain_text_flag = True
 
-        # Normalize paths for comparison
-        normalized_path     = os.path.abspath(norm_path).lower()
-        normalized_sandbox  = os.path.abspath(sandboxie_folder).lower()
-
-        # Only send to ransomware_alert if file path starts with sandboxie_folder
+        # Only scan files in sandboxie_folder
         if not normalized_path.startswith(normalized_sandbox):
-           return False
+            return False
 
         # Perform ransomware alert check
         if is_file_fully_unknown(die_output):
             ransomware_alert(norm_path)
-
-            # If mega optimization is on, always log & stop—sandbox or not
             if mega_optimization_with_anti_false_positive:
                 logging.info(
-                    f"We stopped the analysis because the file contains unknown data "
-                    f"and is not executable, but that doesn't mean it doesn't contain "
-                    f"malicious data: {norm_path}"
+                    f"Stopped analysis; unknown data detected in {norm_path}"
                 )
                 return False
 
@@ -7528,21 +7561,11 @@ def scan_and_warn(file_path,
             logging.info(f"Skipping scan for unchanged file: {norm_path}")
             return False
 
-        # File changed (or forced): update MD5 and continue
+        # File changed or forced: update MD5 and deep scan
         file_md5_cache[norm_path] = md5
 
         logging.info(f"Deep scanning file: {norm_path}")
 
-        src_root = os.path.dirname(norm_path)
-
-        # choose destination based on origin
-        if norm_path.startswith(de4dot_sandboxie_dir):
-            dest = _copy_to_dest(norm_path, de4dot_sandboxie_dir, de4dot_extracted_dir)
-            scan_and_warn(dest)
-        elif norm_path.startswith(sandboxie_folder):
-            dest = _copy_to_dest(norm_path, src_root, copied_sandbox_files_dir)
-            scan_and_warn(dest)
- 
         # Wrap norm_path in a Path once, up front
         wrap_norm_path = Path(norm_path)
 
