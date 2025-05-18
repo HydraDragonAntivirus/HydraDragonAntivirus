@@ -5488,7 +5488,7 @@ class PyInstArchive:
     def extractFiles(self):
         """
         Extracts files into a subdirectory of the specified pyinstaller_dir.
-        Flags the first .pyc with typecmprsdata == b's' as entry point and sends it to scan_and_warn().
+        Flags *every* .pyc with typecmprsdata == b's' as a potential entry point and sends each to scan_and_warn().
         """
         # Ensure base extraction directory
         base_out = os.path.abspath(pyinstaller_dir)
@@ -5504,7 +5504,7 @@ class PyInstArchive:
                 full_out = os.path.join(base_out, subdir)
             os.makedirs(full_out)
 
-            entry_point_pyc = None
+            entry_point_pycs = []  # will hold all detected “s‐flagged” pyc paths
 
             for ent in self.tocList:
                 self.fPtr.seek(ent.position)
@@ -5515,35 +5515,43 @@ class PyInstArchive:
                     except zlib.error:
                         continue
 
+                # Where the file will be written
                 target_path = os.path.join(full_out, ent.name)
                 os.makedirs(os.path.dirname(target_path), exist_ok=True)
 
+                # Case: “typecmprsdata == b's'” signals a possible entry‐point .pyc
                 if ent.typecmprsdata == b's':
                     pyc_path = os.path.join(full_out, f"{ent.name}.pyc")
                     self._writePyc(pyc_path, data)
                     self.barePycList.append(ent.name + '.pyc')
-                    if not entry_point_pyc:
-                        entry_point_pyc = pyc_path
+                    entry_point_pycs.append(pyc_path)
 
+                # Case: other “.pyc‐like” entries (compressed with 'm' or 'M')
                 elif ent.typecmprsdata in (b'm', b'M'):
+                    # Some ‘m/M’ entries might already be full .pyc (unpacked). Check by magic bytes.
                     if data[2:4] == b'':
+                        # If there’s no real .pyc header, write as raw
                         self._writeRaw(os.path.join(full_out, f"{ent.name}.pyc"), data)
                     else:
                         pyc_path = os.path.join(full_out, f"{ent.name}.pyc")
                         self._writePyc(pyc_path, data)
                         self.barePycList.append(ent.name + '.pyc')
 
+                # Everything else: write raw. Also, if it’s a .pyz, extract its contents.
                 else:
                     self._writeRaw(target_path, data)
                     if ent.name.lower().endswith('.pyz'):
                         self._extractPyz(target_path, full_out)
 
+            # After writing all bare .pycs (any entry candidates), fix their imports/etc.
             self._fixBarePycs(full_out)
             logging.info(f"[+] Extraction complete @ {full_out}")
 
-            if entry_point_pyc:
-                logging.info(f"[+] Potential entry point detected: {entry_point_pyc}")
-                scan_and_warn(entry_point_pyc)
+            # Now process *all* entry-point pycs, not just the first
+            if entry_point_pycs:
+                for ep in entry_point_pycs:
+                    logging.info(f"[+] Potential entry point detected: {ep}")
+                    scan_and_warn(ep)
 
             return full_out
 
