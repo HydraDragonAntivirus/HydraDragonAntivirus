@@ -5593,9 +5593,9 @@ class PyInstArchive:
     def extractFiles(self):
         """
         Extract all files in the PyInstaller TOC to a uniquely named subdirectory.
-        For each entry flagged as typeCmprsData == b's' (pure Python) or 'M'/'m' (modules/packages),
-        write out the .pyc, immediately call scan_and_warn() on it, and also record it for post-processing.
-        After extraction, fix any “bare” pyc headers.
+        For each entry flagged as typeCmprsData == b's' (pure Python), or 'M'/'m' (modules/packages),
+        write out the .pyc and record it for post-processing.
+        After extraction, fix any “bare” pyc headers and then call scan_and_warn() on each .pyc.
         """
         logging.info("Beginning extraction")
         base_out = os.path.abspath(pyinstaller_dir)
@@ -5611,7 +5611,7 @@ class PyInstArchive:
                 full_out = os.path.join(base_out, subdir)
             os.makedirs(full_out)
 
-            # Keep track of (original_name, full_pyc_path) for any needed post-processing
+            # Track (original_name, full_pyc_path) for every .pyc candidate
             entry_point_pycs = []
 
             for entry in self.tocList:
@@ -5619,7 +5619,7 @@ class PyInstArchive:
                 if not entry.name:
                     continue
 
-                # Read compressed data
+                # Read compressed data from the archive
                 self.fPtr.seek(entry.position, os.SEEK_SET)
                 data = self.fPtr.read(entry.cmprsdDataSize)
 
@@ -5629,7 +5629,7 @@ class PyInstArchive:
                     except zlib.error:
                         logging.warning(f"Failed to decompress {entry.name}")
                         continue
-                    # Sanity check; remove if malware tampers with size
+                    # Sanity check (remove if malware tampers with size)
                     assert len(data) == entry.uncmprsdDataSize
 
                 # Skip runtime-only entries flagged 'd' or 'o'
@@ -5642,21 +5642,17 @@ class PyInstArchive:
                 if basePath and not os.path.exists(basePath):
                     os.makedirs(basePath, exist_ok=True)
 
-                # Case: pure Python source (flag 's') -> write bare .pyc, scan immediately
+                # Case: pure Python source (flag 's') -> write bare .pyc
                 if entry.typeCmprsData == b's':
-                    pyc_full = os.path.join(full_out, entry.name + '.pyc')
-
-                    logging.info(f"Detected entry-point (s): {entry.name}.pyc  original: {entry.name}")
+                    logging.info(f"Detected potential entry point: {entry.name}.pyc  original: {entry.name}")
                     if self.pycMagic == b'\0' * 4:
                         self.barePycList.append(entry.name + '.pyc')
 
+                    pyc_full = os.path.join(full_out, entry.name + '.pyc')
                     self._writePyc(pyc_full, data)
-                    logging.info(f"Scanning for malware: {pyc_full}  original: {entry.name}")
-                    scan_and_warn(pyc_full)
-
                     entry_point_pycs.append((entry.name, pyc_full))
 
-                # Case: modules/packages (flags 'M' or 'm') -> write .pyc, scan immediately
+                # Case: modules/packages (flags 'M' or 'm')
                 elif entry.typeCmprsData in (b'M', b'm'):
                     pyc_full = os.path.join(full_out, entry.name + '.pyc')
                     # Pre-PyInstaller 5.3: header intact if data[2:4] == b'\r\n'
@@ -5670,10 +5666,7 @@ class PyInstArchive:
                             self.barePycList.append(entry.name + '.pyc')
                         self._writePyc(pyc_full, data)
 
-                    logging.info(f"Detected entry-point (M/m): {entry.name}.pyc  original: {entry.name}")
-                    logging.info(f"Scanning for malware: {pyc_full}  original: {entry.name}")
-                    scan_and_warn(pyc_full)
-
+                    logging.info(f"Detected potential entry point: {entry.name}.pyc  original: {entry.name}")
                     entry_point_pycs.append((entry.name, pyc_full))
 
                 # Everything else: write raw data; if flag 'z'/'Z', extract as .pyz
@@ -5683,8 +5676,13 @@ class PyInstArchive:
                     if entry.typeCmprsData in (b'z', b'Z'):
                         self._extractPyz(raw_full, outdir=full_out)
 
-            # After writing all .pyc files, fix any “bare” pyc headers
+            # Fix any “bare” pyc files now that we know the magic
             self._fixBarePycs(full_out)
+
+            # Scan all collected .pyc files using scan_and_warn()
+            for orig_name, pyc_path in entry_point_pycs:
+                logging.info(f"Scanning for malware: {pyc_path}  original: {orig_name}")
+                scan_and_warn(pyc_path)
 
             return full_out
 
