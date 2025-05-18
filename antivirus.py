@@ -7506,11 +7506,10 @@ def scan_and_warn(file_path,
 
         # --- Delay scanning sandbox files until ready ---
         if normalized_path.startswith(normalized_sandbox):
-            if not copied_sandbox_files_dir or not os.path.exists(copied_sandbox_files_dir):
-                logging.info(
-                    f"Sandbox files are copied; Rescan for {norm_path}"
-                )
-                return False
+            logging.info(
+                f"Sandbox files are copied; Rescan for {norm_path}"
+            )
+            return False
 
         # 1) Is this the first time we've seen this path?
         is_first_pass = norm_path not in file_md5_cache
