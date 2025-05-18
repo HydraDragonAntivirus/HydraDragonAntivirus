@@ -7472,14 +7472,46 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
             data = f.read()
         md5 = hashlib.md5(data).hexdigest()
 
+        # Extract the file name
+        file_name = os.path.basename(file_path)
+
+        # Read the file content.
+        with open(file_path, 'rb') as scan_file:
+            data_content = scan_file.read()
+
+        plain_text_flag=False
+
+        if is_plain_text(data_content):
+             die_output = "Binary\n    Format: plain text"
+             plain_text_flag=True
+        else:
+            die_output = analyze_file_with_die(file_path)
+            if is_plain_text_data(die_output):
+                plain_text_flag=True
+
+        # Perform ransomware alert check
+        if is_file_fully_unknown(die_output):
+            # Normalize paths for comparison
+            normalized_path     = os.path.abspath(file_path).lower()
+            normalized_sandbox  = os.path.abspath(sandboxie_folder).lower()
+
+            # Only send to ransomware_alert if file path starts with sandboxie_folder
+            if normalized_path.startswith(normalized_sandbox):
+                ransomware_alert(file_path)
+
+            # If mega optimization is on, always log & stop—sandbox or not
+            if mega_optimization_with_anti_false_positive:
+                logging.info(
+                    f"We stopped the analysis because the file contains unknown data "
+                    f"and is not executable, but that doesn't mean it doesn't contain "
+                    f"malicious data: {file_path}"
+                )
+                return False
+
         if is_first_pass:
             # Record MD5 so future calls know it’s no longer first-pass
             file_md5_cache[norm_path] = md5
 
-            # Fire first-pass alerts, then exit early
-            ransomware_alert(norm_path)
-
-            die_output = analyze_file_with_die(norm_path)
             if is_pe_file_from_output(die_output):
                 worm_alert(norm_path)
 
@@ -7504,60 +7536,6 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
         elif file_path.startswith(sandboxie_folder):
             dest = _copy_to_dest(file_path, src_root, copied_sandbox_files_dir)
             scan_and_warn(dest)
-
-        # Extract the file name
-        file_name = os.path.basename(file_path)
-
-        # Read the file content.
-        with open(file_path, 'rb') as scan_file:
-            data_content = scan_file.read()
-
-        plain_text_flag=False
-
-        if is_plain_text(data_content):
-             die_output = "Binary\n    Format: plain text"
-             plain_text_flag=True
-        else:
-            die_output = analyze_file_with_die(file_path)
-            if is_plain_text_data(die_output):
-                plain_text_flag=True
-
-        # 3) Only fire these alerts on the first pass for this path
-        if is_new_path:
-            if pe_file:
-                # Normalize the file path to lowercase for comparison
-                normalized_path = os.path.abspath(file_path).lower()
-                normalized_sandboxie = sandboxie_folder.lower()
-
-                logging.info(f"File {file_path} is a valid PE file.")
-
-                # Check if file is inside the Sandboxie folder
-                if normalized_path.startswith(normalized_sandboxie):
-                    # Additional checks for PE files
-                    if is_pe_file_from_output(die_output):
-                        logging.info(f"File {file_path} is a valid PE file.")
-                        pe_file = True
-                    worm_alert(file_path)
-            is_new_path_flag = True
-
-        # Perform ransomware alert check
-        if is_file_fully_unknown(die_output):
-            # Normalize paths for comparison
-            normalized_path     = os.path.abspath(file_path).lower()
-            normalized_sandbox  = os.path.abspath(sandboxie_folder).lower()
-
-            # Only send to ransomware_alert if file path starts with sandboxie_folder
-            if normalized_path.startswith(normalized_sandbox):
-                ransomware_alert(file_path)
-
-            # If mega optimization is on, always log & stop—sandbox or not
-            if mega_optimization_with_anti_false_positive:
-                logging.info(
-                    f"We stopped the analysis because the file contains unknown data "
-                    f"and is not executable, but that doesn't mean it doesn't contain "
-                    f"malicious data: {file_path}"
-                )
-                return False
         
         if is_new_path_flag:
             return False
