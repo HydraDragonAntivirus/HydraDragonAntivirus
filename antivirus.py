@@ -674,6 +674,9 @@ main_file_path = None
 # Base extraction output directory
 enigma_extracted_base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "enigma_extracted")
 
+# Cache of { file_path: last_md5 }  
+file_md5_cache: dict[str, str] = {}
+
 def run_in_thread(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
@@ -1242,10 +1245,10 @@ def decode_base32(data_content):
         logging.error(f"Base32 decoding error: {ex}")
         return None
 
-# match only Base‑64 characters plus 0–2 padding “=”
+# match only Base64 characters plus 0_2 padding"="
 _BASE64_RE = re.compile(br'^[A-Za-z0-9+/]+={0,2}$')
 
-# match only Base‑32 chars A–Z2–7 plus up to 6 “=” padding at end
+# match only Base32 chars A_Z2_7 plus up to 6"=" padding at end
 _BASE32_RE = re.compile(br'^[A-Z2-7]+={0,6}$')
 
 def is_base32(data: bytes) -> bool:
@@ -1254,7 +1257,7 @@ def is_base32(data: bytes) -> bool:
     and up to six '=' padding bytes at the end.
     """
     # strip whitespace/newlines before testing
-    data = data.strip().upper()  # Base‑32 is case‑insensitive, normalize to uppercase
+    data = data.strip().upper()  # Base32 is case insensitive, normalize to uppercase
     return bool(_BASE32_RE.fullmatch(data))
 
 def is_base64(data: bytes) -> bool:
@@ -4000,7 +4003,7 @@ def check_signature(file_path):
         )
         status = proc.stdout.strip() if proc.stdout else ""
 
-        # 2. Only HashMismatch is considered an “issue”; ignore NotTrusted
+        # 2. Only HashMismatch is considered an"issue"; ignore NotTrusted
         signature_status_issues = ("HashMismatch" in status)
 
         # 3. is_valid is True only when status == "Valid"
@@ -4388,7 +4391,7 @@ def scan_zip_file(file_path):
     Scan a ZIP archive for:
       - RLO in filename warnings (encrypted vs non-encrypted)
       - Size bomb warnings (even if AES encrypted)
-      - Single entry text files containing “Password:” (HEUR:Win32.Susp.Encrypted.Zip.SingleEntry)
+      - Single entry text files containing"Password:" (HEUR:Win32.Susp.Encrypted.Zip.SingleEntry)
 
     Returns:
       (success: bool, entries: List[(filename, uncompressed_size, encrypted_flag)])
@@ -4438,7 +4441,7 @@ def scan_7z_file(file_path):
     Scan a 7z archive for:
       - RLO in filename warnings (encrypted vs non-encrypted)
       - Size bomb warnings (even if encrypted)
-      - Single entry text files containing “Password:” (HEUR:Win32.Susp.Encrypted.7z.SingleEntry)
+      - Single entry text files containing"Password:" (HEUR:Win32.Susp.Encrypted.7z.SingleEntry)
 
     Returns:
       (success: bool, entries: List[(filename, uncompressed_size, encrypted_flag)])
@@ -5609,7 +5612,7 @@ class PyInstArchive:
         Extract all files in the PyInstaller TOC to a uniquely named subdirectory.
         For each entry flagged as typeCmprsData == b's' (pure Python), or 'M'/'m' (modules/packages),
         write out the .pyc and record it for post-processing.
-        After extraction, fix any “bare” pyc headers and then call scan_and_warn() on each .pyc.
+        After extraction, fix any"bare" pyc headers and then call scan_and_warn() on each .pyc.
         """
         logging.info("Beginning extraction")
         base_out = os.path.abspath(pyinstaller_dir)
@@ -5690,7 +5693,7 @@ class PyInstArchive:
                     if entry.typeCmprsData in (b'z', b'Z'):
                         self._extractPyz(raw_full, outdir=full_out)
 
-            # Fix any “bare” pyc files now that we know the magic
+            # Fix any"bare" pyc files now that we know the magic
             self._fixBarePycs(full_out)
 
             # Collect all .pyc files for scanning
@@ -7433,8 +7436,21 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
     :return: True if the scan was successful (or the file was flagged), False otherwise.
     """
     try:
-        logging.info(f"Scanning file: {file_path}, Type: {type(file_path).__name__}")
+        # MD5 cache check
+        # Read file and compute MD5
+        with open(file_path, 'rb') as f:
+            data = f.read()
+        md5 = hashlib.md5(data).hexdigest()
 
+        # If same file and same MD5, and not forced, skip scanning
+        if not flag and file_path in file_md5_cache and file_md5_cache[file_path] == md5:
+            logging.info(f"Skipping scan for unchanged file: {file_path}")
+            return False
+
+        # Update cache
+        file_md5_cache[file_path] = md5
+
+        logging.info(f"Scanning file: {file_path}, Type: {type(file_path).__name__}")  # :contentReference[oaicite:0]{index=0}:contentReference[oaicite:1]{index=1}
         # Ensure the file_path is a string.
         if not isinstance(file_path, str):
             logging.error(f"Invalid file_path type: {type(file_path).__name__}")
@@ -9160,7 +9176,7 @@ def parse_report(path):
                     # in either case, stop scanning further parts
                     break
 
-            # store a 1-tuple as the spec’d “tuple containing (file path)”
+            # store a 1-tuple as the spec’d"tuple containing (file path)"
             entries[line] = (file_path,)
 
     return entries
