@@ -7506,7 +7506,7 @@ def scan_and_warn(file_path,
         if normalized_path.startswith(normalized_sandbox):
             if not copied_sandbox_files_dir or not os.path.exists(copied_sandbox_files_dir):
                 logging.info(
-                    f"Waiting for sandbox files to be copied; skipping scan for {norm_path}"
+                    f"Sandbox files are copied; Rescan for {norm_path}"
                 )
                 return False
 
