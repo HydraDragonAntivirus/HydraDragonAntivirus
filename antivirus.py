@@ -7460,23 +7460,25 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
         if os.path.getsize(file_path) == 0:
             logging.debug(f"File {file_path} is empty. Skipping scan. That doesn't mean it's not malicious. See here: https://github.com/HydraDragonAntivirus/0KBAttack")
             return False
+        # Normalize the path to a consistent absolute form
+        norm_path = os.path.abspath(file_path)
 
         # 1) Is this the first time we've seen this path?
-        is_new_path = file_path not in file_md5_cache
+        is_new_path = norm_path not in file_md5_cache
 
         # 2) Compute MD5 & skip if unchanged (unless forced)
-        with open(file_path, 'rb') as f:
+        with open(norm_path, 'rb') as f:
             data = f.read()
         md5 = hashlib.md5(data).hexdigest()
 
-        if not flag and not is_new_path and file_md5_cache[file_path] == md5:
-            logging.info(f"Skipping scan for unchanged file: {file_path}")
+        if not flag and not is_new_path and file_md5_cache.get(norm_path) == md5:
+            logging.info(f"Skipping scan for unchanged file: {norm_path}")
             return False
 
         # Update cache
-        file_md5_cache[file_path] = md5
+        file_md5_cache[norm_path] = md5
 
-        logging.info(f"Scanning file: {file_path}, Type: {type(file_path).__name__}")
+        logging.info(f"Scanning file: {norm_path}, Type: {type(norm_path).__name__}")
 
         src_root = os.path.dirname(file_path)
 
