@@ -7473,6 +7473,10 @@ def scan_and_warn(file_path,
 
         # Normalize the original path
         norm_path = os.path.abspath(file_path)
+
+        # SNAPSHOT the cache entry _once_ up front:
+        initial_md5_in_cache = file_md5_cache.get(norm_path)
+
         normalized_path = norm_path.lower()
         normalized_sandbox = os.path.abspath(sandboxie_folder).lower()
         normalized_de4dot = os.path.abspath(de4dot_sandboxie_dir).lower()
@@ -7559,7 +7563,7 @@ def scan_and_warn(file_path,
             return True
 
         # On subsequent passes: skip if unchanged (unless forced)
-        if not flag and file_md5_cache.get(norm_path) == md5:
+        if not flag and initial_md5_in_cache == md5:
             logging.info(f"Skipping scan for unchanged file: {norm_path}")
             return False
 
