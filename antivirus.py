@@ -6669,6 +6669,7 @@ def show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name):
 
             if uncompyle6_output_path and os.path.exists(uncompyle6_output_path):
                 with open(uncompyle6_output_path, "r", encoding="utf-8") as f:
+                    combined_code += "# uncompyle6 output\n" + f.read() + "\n\n"
 
             with open(pycdc_output_path, "r", encoding="utf-8") as f:
                 combined_code += "# pycdc output\n" + f.read() + "\n\n"
