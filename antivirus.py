@@ -54,6 +54,10 @@ total_start_time = time.time()
 
 # Measure and logging.info time taken for each import
 start_time = time.time()
+from functools import wraps
+logging.info(f"functools.wraps module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import io
 logging.info(f"io module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -669,6 +673,14 @@ main_file_path = None
 
 # Base extraction output directory
 enigma_extracted_base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "enigma_extracted")
+
+def run_in_thread(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        t = threading.Thread(target=fn, args=args, kwargs=kwargs)
+        t.start()
+        return t  # Return the thread object if you want to join later
+    return wrapper
 
 def try_unpack_enigma(input_exe: str) -> str | None:
     """
@@ -7411,6 +7423,7 @@ def _copy_to_dest(file_path, src_root, dest_root):
     return None
 
 # --- Main Scanning Function ---
+@run_in_thread
 def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, command_flag=False, flag=False, flag_debloat=False, flag_obfuscar=False, flag_de4dot=False, flag_fernflower=False, nsis_flag=False):
     """
     Scans a file for potential issues.
