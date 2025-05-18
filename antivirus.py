@@ -5488,12 +5488,13 @@ class PyInstArchive:
     def extractFiles(self):
         """
         Extracts files into a subdirectory of the specified pyinstaller_dir.
-        Flags *every* .pyc with typecmprsdata == b's' as a potential entry point and sends each to scan_and_warn().
+        Flags *every* .pyc with typeCmprsData == b's' (or valid m/M) as a potential entry point
+        and sends each to scan_and_warn().
         """
-        # Ensure base extraction directory
+
+        # (1) Create the extraction directory exactly as your existing code does...
         base_out = os.path.abspath(pyinstaller_dir)
         try:
-            # Create a unique subdirectory for this archive
             base_name = os.path.splitext(os.path.basename(self.filePath))[0]
             idx = 1
             subdir = f"{base_name}_extract_{idx}"
@@ -5503,60 +5504,89 @@ class PyInstArchive:
                 subdir = f"{base_name}_extract_{idx}"
                 full_out = os.path.join(base_out, subdir)
             os.makedirs(full_out)
+            os.chdir(full_out)  # so that all writes go under the new subdirectory
 
-            entry_point_pycs = []  # will hold all detected “s‐flagged” pyc paths
+            # Keep track of every .pyc we want to scan later:
+            entry_point_pycs = []
 
-            for ent in self.tocList:
-                self.fPtr.seek(ent.position)
-                data = self.fPtr.read(ent.cmprsddatasize)
-                if ent.cmprsflag == 1:
+            # (2) Loop through the TOC exactly like your working example:
+            for entry in self.tocList:
+                self.fPtr.seek(entry.position, os.SEEK_SET)
+                data = self.fPtr.read(entry.cmprsdDataSize)
+
+                if entry.cmprsFlag == 1:
                     try:
                         data = zlib.decompress(data)
                     except zlib.error:
+                        print(f"[!] Error: Failed to decompress {entry.name}")
                         continue
+                    # Malware may tamper with the uncompressed size; this assertion can be commented out if needed.
+                    assert len(data) == entry.uncmprsdDataSize
 
-                # Where the file will be written
-                target_path = os.path.join(full_out, ent.name)
-                os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                    # Skip runtime‐only items (flags 'd' or 'o')
+                if entry.typeCmprsData in (b'd', b'o'):
+                    continue
 
-                # Case: “typecmprsdata == b's'” signals a possible entry‐point .pyc
-                if ent.typecmprsdata == b's':
-                    pyc_path = os.path.join(full_out, f"{ent.name}.pyc")
-                    self._writePyc(pyc_path, data)
-                    self.barePycList.append(ent.name + '.pyc')
-                    entry_point_pycs.append(pyc_path)
+                # Ensure any subdirectories exist:
+                basePath = os.path.dirname(entry.name)
+                if basePath != '' and not os.path.exists(basePath):
+                    os.makedirs(basePath)
 
-                # Case: other “.pyc‐like” entries (compressed with 'm' or 'M')
-                elif ent.typecmprsdata in (b'm', b'M'):
-                    # Some ‘m/M’ entries might already be full .pyc (unpacked). Check by magic bytes.
-                    if data[2:4] == b'':
-                        # If there’s no real .pyc header, write as raw
-                        self._writeRaw(os.path.join(full_out, f"{ent.name}.pyc"), data)
+                # (2a) If it’s flagged 's', it’s a “pure .py” entry → write as .pyc without header
+                if entry.typeCmprsData == b's':
+                    # s -> ARCHIVE_ITEM_PYSOURCE
+                    print(f"[+] Possible entry point: {entry.name}.pyc")
+
+                    if self.pycMagic == b'\0' * 4:
+                        # We haven’t seen a valid .pyc header yet. Fix in _fixBarePycs().
+                        self.barePycList.append(entry.name + '.pyc')
+
+                    # Write out the raw data as a “bare” .pyc
+                    self._writePyc(entry.name + '.pyc', data)
+
+                    # Record for later scan_and_warn
+                    entry_point_pycs.append(os.path.join(full_out, entry.name + '.pyc'))
+
+                # (2b) If it’s flagged 'M' or 'm', it’s a “.pyc with header possibly intact”
+                elif entry.typeCmprsData in (b'M', b'm'):
+                    # M -> ARCHIVE_ITEM_PYPACKAGE, m -> ARCHIVE_ITEM_PYMODULE
+
+                    # Pre‐PyInstaller 5.3: magic bytes at data[0:4], delimiter CRLF at data[2:4]
+                    if data[2:4] == b'\r\n':
+                        # < PyInstaller 5.3  => header is intact
+                        if self.pycMagic == b'\0' * 4:
+                            # First time seeing a real magic header—record it for later _fixBarePycs
+                            self.pycMagic = data[0:4]
+
+                        self._writeRawData(entry.name + '.pyc', data)
+                        entry_point_pycs.append(os.path.join(full_out, entry.name + '.pyc'))
+
                     else:
-                        pyc_path = os.path.join(full_out, f"{ent.name}.pyc")
-                        self._writePyc(pyc_path, data)
-                        self.barePycList.append(ent.name + '.pyc')
+                        # ≥ PyInstaller 5.3 => header not stored. We'll fix it in a later pass.
+                        if self.pycMagic == b'\0' * 4:
+                            self.barePycList.append(entry.name + '.pyc')
 
-                # Everything else: write raw. Also, if it’s a .pyz, extract its contents.
+                        self._writePyc(entry.name + '.pyc', data)
+                        entry_point_pycs.append(os.path.join(full_out, entry.name + '.pyc'))
+
+                # (2c) Everything else: write raw. If it’s a .pyz, extract it too.
                 else:
-                    self._writeRaw(target_path, data)
-                    if ent.name.lower().endswith('.pyz'):
-                        self._extractPyz(target_path, full_out)
+                    self._writeRawData(entry.name, data)
+                    if entry.typeCmprsData in (b'z', b'Z'):
+                        self._extractPyz(entry.name)
 
-            # After writing all bare .pycs (any entry candidates), fix their imports/etc.
-            self._fixBarePycs(full_out)
-            logging.info(f"[+] Extraction complete @ {full_out}")
+            # (3) After looping through all entries, fix any “bare” .pyc files.
+            self._fixBarePycs()
 
-            # Now process *all* entry-point pycs, not just the first
-            if entry_point_pycs:
-                for ep in entry_point_pycs:
-                    logging.info(f"[+] Potential entry point detected: {ep}")
-                    scan_and_warn(ep)
+            # (4) Now scan every candidate we recorded (instead of just one):
+            for pyc_path in entry_point_pycs:
+                print(f"[+] Scanning for malware: {pyc_path}")
+                scan_and_warn(pyc_path)
 
             return full_out
 
         except Exception as ex:
-            logging.error(f"An error occurred during extraction under {base_out}: {ex}")
+            print(f"[!] An error occurred during extraction under {base_out}: {ex}")
             return None
 
 
