@@ -5592,25 +5592,26 @@ class PyInstArchive:
 
     def extractFiles(self):
         """
-        Extract all files listed in the PyInstaller Table of Contents (TOC) to a uniquely named subdirectory.
-
-        For entries marked as:
-        - typeCmprsData == b's': interpreted as pure Python source (.pyc will be reconstructed),
-        - typeCmprsData in (b'M', b'm'): modules or packages (.pyc may need header repair),
-
-        The function reconstructs each .pyc file, tracks potential entry points, and stores paths for post-extraction scanning.
-
-        After extraction:
-        - Any “bare” pyc headers (e.g., missing magic number) are fixed using a known valid magic,
-        - Each extracted .pyc is passed to scan_and_warn() for static analysis or threat detection.
-
-        Returns the full output path of the extracted directory or None on failure.
+        Extract all files in the PyInstaller TOC to a uniquely named subdirectory.
+        For each entry flagged as typeCmprsData == b's' (pure Python), or 'M'/'m' (modules/packages),
+        write out the .pyc and record it for post-processing.
+        After extraction, fix any “bare” pyc headers and then call scan_and_warn() on each .pyc.
         """
-
         logging.info("Beginning extraction")
         base_out = os.path.abspath(pyinstaller_dir)
         try:
-            …
+            # Create a unique extraction subdirectory
+            base_name = os.path.splitext(os.path.basename(self.filePath))[0]
+            idx = 1
+            subdir = f"{base_name}_extract_{idx}"
+            full_out = os.path.join(base_out, subdir)
+            while os.path.exists(full_out):
+                idx += 1
+                subdir = f"{base_name}_extract_{idx}"
+                full_out = os.path.join(base_out, subdir)
+            os.makedirs(full_out)
+
+            # Track (original_name, full_pyc_path) for every .pyc candidate
             entry_point_pycs = []
 
             for entry in self.tocList:
@@ -5621,8 +5622,14 @@ class PyInstArchive:
                 # Read compressed data from the archive
                 self.fPtr.seek(entry.position, os.SEEK_SET)
                 data = self.fPtr.read(entry.cmprsdDataSize)
+
                 if entry.cmprsFlag == 1:
-                    data = zlib.decompress(data)
+                    try:
+                        data = zlib.decompress(data)
+                    except zlib.error:
+                        logging.warning(f"Failed to decompress {entry.name}")
+                        continue
+                    # Sanity check (remove if malware tampers with size)
                     assert len(data) == entry.uncmprsdDataSize
 
                 # Skip runtime-only entries flagged 'd' or 'o'
@@ -5669,56 +5676,13 @@ class PyInstArchive:
                     if entry.typeCmprsData in (b'z', b'Z'):
                         self._extractPyz(raw_full, outdir=full_out)
 
-            # Step A: Fix bare .pyc headers
+            # Fix any “bare” pyc files now that we know the magic
             self._fixBarePycs(full_out)
 
-            # Step B: Look for __main__ in bytecode
-            def contains_main_guard(pyc_path):
-                try:
-                    with open(pyc_path, "rb") as f:
-                        f.read(16)
-                        code_obj = marshal.load(f)
-                except Exception:
-                    return False
-                if "__main__" in code_obj.co_consts:
-                    return True
-                return False
-
-            actual_entry = None
+            # Scan all collected .pyc files using scan_and_warn()
             for orig_name, pyc_path in entry_point_pycs:
-                logging.info(f" Checking for main guard in {pyc_path}…")
-                if contains_main_guard(pyc_path):
-                    logging.info(f"   -> Found __main__ check in {orig_name}.pyc!")
-                    actual_entry = (orig_name, pyc_path)
-                    break
-
-            # Step C (fallback): Try running each candidate if none had a literal __main__
-            if actual_entry is None:
-                for orig_name, pyc_path in entry_point_pycs:
-                    logging.info(f" Trying to execute {pyc_path} as a subprocess…")
-                    try:
-                        proc = subprocess.run(
-                            [sys.executable, pyc_path],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                            timeout=2
-                        )
-                        if proc.returncode == 0:
-                            logging.info(f"   -> {orig_name}.pyc ran cleanly; selecting as entry.")
-                            actual_entry = (orig_name, pyc_path)
-                            break
-                    except subprocess.TimeoutExpired:
-                        continue
-
-            # Step D: Scan the “winner” or scan everyone if no winner found
-            if actual_entry:
-                logging.info(f"Final entry point: {actual_entry[1]}")
-                scan_and_warn(actual_entry[1])
-            else:
-                # If we truly can’t decide, scan all candidates (as you were doing):
-                for orig_name, pyc_path in entry_point_pycs:
-                    logging.info(f"Scanning for malware (fallback): {pyc_path}  original: {orig_name}")
-                    scan_and_warn(pyc_path)
+                logging.info(f"Scanning for malware: {pyc_path}  original: {orig_name}")
+                scan_and_warn(pyc_path)
 
             return full_out
 
