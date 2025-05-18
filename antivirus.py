@@ -7972,7 +7972,7 @@ def monitor_saved_paths():
             for path in path_list:
                 if path not in seen:
                     seen.add(path)
-                    threading.Thread(target=scan_and_warn, args=(path,), daemon=True).start()
+                    threading.Thread(target=scan_and_warn, args=(path,)).start()
 
 # Constants for all notification filters
 NOTIFY_FILTER = (
@@ -8881,7 +8881,7 @@ class MonitorMessageCommandLine:
         """
         logging.debug("Started window/control monitoring loop")
 
-        # Start event monitoring in its own thread (non-daemon)
+        # Start event monitoring in its own thread
         event_thread = threading.Thread(
             target=self.start_event_monitoring,
             name="EventMonitor"
