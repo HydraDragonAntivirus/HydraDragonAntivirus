@@ -8773,16 +8773,10 @@ class MonitorMessageCommandLine:
                     # normalize to absolute paths and lowercase for comparison
                     exe_path = os.path.abspath(exe_path).lower()
                     main_path = os.path.abspath(self.main_file_path).lower()
-                    csrss_exe = r"c:\windows\system32\csrss.exe"
 
                     # skip if not from main executable or in the Sandboxie folder
                     if exe_path != main_path or exe_path.startswith(self.sandboxie_folder_path.lower()):
                         logging.debug(f"Skipping command from excluded path: {exe_path}")
-                        continue
-
-                    # additionally skip csrss.exe only for PowerShell iex downloader commands
-                    if exe_path == csrss_exe and 'iex' in cmd.lower():
-                        logging.debug(f"Skipping iex downloader from csrss.exe: {cmd}")
                         continue
 
                     # now exe_path is the main executable and not excluded, so log and scan
