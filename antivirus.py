@@ -5616,7 +5616,7 @@ class PyInstArchive:
         Extract all files in the PyInstaller TOC to a uniquely named subdirectory.
         For each entry flagged as typeCmprsData == b's' (pure Python), or 'M'/'m' (modules/packages),
         write out the .pyc and record it for post-processing.
-        After extraction, fix any"bare" pyc headers and then call scan_and_warn() on each .pyc.
+        After extraction, fix any"bare" pyc headers and then call saved_pyc_paths.append on each .pyc.
         """
         logging.info("Beginning extraction")
         base_out = os.path.abspath(pyinstaller_dir)
