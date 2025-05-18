@@ -7397,9 +7397,9 @@ def copy_from_shadow(shadow_root, rel_path, dest_path):
         logging.error(f"Failed to copy from shadow: {e}")
         return False
 
-def _copy_to_dest(file_path, src_root, dest_root):
+def _copy_to_dest(file_path, dest_root):
     """
-    Copy file_path (under src_root) into dest_root, preserving subpath.
+    Copy file_path into dest_root, preserving subpath.
     Returns the copied-destination path on success, or None on failure.
     Uses a Volume Shadow Copy on Windows to handle locked files.
     """
@@ -7407,6 +7407,7 @@ def _copy_to_dest(file_path, src_root, dest_root):
         logging.error(f"Source does not exist: {file_path}")
         return None
 
+    src_root = os.path.dirname(file_path)
     rel_path = os.path.relpath(file_path, src_root)
     dest_path = os.path.join(dest_root, rel_path)
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
@@ -7478,7 +7479,7 @@ def scan_and_warn(file_path,
         # --- Route files based on origin folder ---
         if normalized_path.startswith(normalized_de4dot):
             # Copy from de4dot sandbox to extracted directory and rescan
-            dest = _copy_to_dest(norm_path, de4dot_sandboxie_dir, de4dot_extracted_dir)
+            dest = _copy_to_dest(norm_path, de4dot_extracted_dir)
             return scan_and_warn(dest,
                                  mega_optimization_with_anti_false_positive,
                                  command_flag,
@@ -7490,7 +7491,7 @@ def scan_and_warn(file_path,
                                  nsis_flag)
         elif normalized_path.startswith(normalized_sandbox):
             # Copy from general sandbox to staging directory and rescan
-            dest = _copy_to_dest(norm_path, sandboxie_folder, copied_sandbox_files_dir)
+            dest = _copy_to_dest(norm_path, copied_sandbox_files_dir)
             return scan_and_warn(dest,
                                  mega_optimization_with_anti_false_positive,
                                  command_flag,
@@ -9060,9 +9061,7 @@ def perform_sandbox_analysis(file_path):
 
         monitor_message = MonitorMessageCommandLine()
 
-        src_root = os.path.dirname(file_path)
-
-        main_dest = _copy_to_dest(file_path, src_root, copied_sandbox_files_dir)
+        main_dest = _copy_to_dest(file_path, copied_sandbox_files_dir)
 
         threading.Thread(target=scan_and_warn, args=(main_dest,)).start()
 
