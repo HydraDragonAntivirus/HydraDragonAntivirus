@@ -5481,10 +5481,19 @@ class PyInstArchive:
                 os.makedirs(os.path.dirname(tgt), exist_ok=True)
                 self._writePyc(tgt, data)
 
+    def _writeRawData(self, filepath, data):
+        nm = filepath.replace('\\', os.path.sep).replace('/', os.path.sep).replace('..', '__')
+        nmDir = os.path.dirname(nm)
+        if nmDir != '' and not os.path.exists(nmDir): # Check if path exists, create if not
+            os.makedirs(nmDir)
+
+        with open(nm, 'wb') as f:
+            f.write(data)
+
     def extractFiles(self):
         """
         Extracts files into a subdirectory of the specified pyinstaller_dir.
-        Flags every .pyc (typeCmprsData == b's' or valid b'M'/b'm') as a potential entry point,
+        Flags every .pyc (typeCmprsData == b's') as a potential entry point,
         logs the original entry name and its .pyc path, and sends each to scan_and_warn().
         """
         base_out = os.path.abspath(pyinstaller_dir)
@@ -5499,12 +5508,15 @@ class PyInstArchive:
                 subdir = f"{base_name}_extract_{idx}"
                 full_out = os.path.join(base_out, subdir)
             os.makedirs(full_out)
-            os.chdir(full_out)
 
             # Keep track of tuples (original_name, full_pyc_path) for all candidates
             entry_point_pycs = []
 
             for entry in self.tocList:
+                # Skip any entries with an empty name
+                if not entry.name:
+                    continue
+
                 # Read compressed data
                 self.fPtr.seek(entry.position, os.SEEK_SET)
                 data = self.fPtr.read(entry.cmprsddatasize)
@@ -5523,48 +5535,53 @@ class PyInstArchive:
                     continue
 
                 # Ensure any subdirectory structure exists before writing
-                basePath = os.path.dirname(entry.name)
+                dest_path = os.path.join(full_out, entry.name)
+                basePath = os.path.dirname(dest_path)
                 if basePath and not os.path.exists(basePath):
                     os.makedirs(basePath)
 
                 # Case: pure Python source (.pyc without header) -> flag 's'
                 if entry.typecmprsdata == b's':
-                    logging.info(f"Detected potential entry point: {entry.name}.pyc original: {entry.name}")
+                    logging.info(f"Detected potential entry point: {entry.name}.pyc  original: {entry.name}")
                     if self.pycMagic == b'\0' * 4:
                         self.barePycList.append(entry.name + '.pyc')
 
-                    self._writePyc(entry.name + '.pyc', data)
-                    full_pyc_path = os.path.join(full_out, entry.name + '.pyc')
-                    entry_point_pycs.append((entry.name, full_pyc_path))
+                    # Write the bare .pyc to its full path
+                    pyc_full = os.path.join(full_out, entry.name + '.pyc')
+                    self._writePyc(pyc_full, data)
+                    entry_point_pycs.append((entry.name, pyc_full))
 
                 # Case: .pyc with header possibly intact -> flags 'M' or 'm'
                 elif entry.typecmprsdata in (b'M', b'm'):
                     # Pre-PyInstaller 5.3: check for CRLF at data[2:4]
+                    pyc_full = os.path.join(full_out, entry.name + '.pyc')
                     if data[2:4] == b'\r\n':
+                        # Header intact
                         if self.pycMagic == b'\0' * 4:
                             self.pycMagic = data[0:4]
-                        self._writeRawData(entry.name + '.pyc', data)
+                        self._writeRawData(pyc_full, data)
                     else:
+                        # Header missing (>= PyInstaller 5.3)
                         if self.pycMagic == b'\0' * 4:
                             self.barePycList.append(entry.name + '.pyc')
-                        self._writePyc(entry.name + '.pyc', data)
+                        self._writePyc(pyc_full, data)
 
-                    logging.info(f"Detected potential entry point: {entry.name}.pyc original: {entry.name}")
-                    full_pyc_path = os.path.join(full_out, entry.name + '.pyc')
-                    entry_point_pycs.append((entry.name, full_pyc_path))
+                    logging.info(f"Detected potential entry point: {entry.name}.pyc  original: {entry.name}")
+                    entry_point_pycs.append((entry.name, pyc_full))
 
                 # Everything else: write raw. If it is a .pyz, extract it
                 else:
-                    self._writeRawData(entry.name, data)
+                    raw_full = os.path.join(full_out, entry.name)
+                    self._writeRawData(raw_full, data)
                     if entry.typecmprsdata in (b'z', b'Z'):
-                        self._extractPyz(entry.name)
+                        self._extractPyz(raw_full)
 
             # Fix any bare .pyc files now that all headers are known
-            self._fixBarePycs()
+            self._fixBarePycs(full_out)  # pass the output directory
 
             # Scan every candidate, logging original name and .pyc path
             for orig_name, pyc_path in entry_point_pycs:
-                logging.info(f"Scanning for malware: {pyc_path} original: {orig_name}")
+                logging.info(f"Scanning for malware: {pyc_path}  original: {orig_name}")
                 scan_and_warn(pyc_path)
 
             return full_out
