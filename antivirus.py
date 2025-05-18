@@ -5488,17 +5488,22 @@ class PyInstArchive:
     def detect_entry_point(self):
         """
         Heuristically detect the entry-point script name from the TOC.
-        Typically the first TOC entry is the main script.
-        Returns the filename (with extension) or None.
+        Returns the filename (with .pyc if type is 's') or None.
         """
         if not getattr(self, 'tocList', None):
             return None
+
         entry = self.tocList[0]
         name = entry.name
-        # Append .pyc if it's a bytecode entry
-        if entry.typecmprsdata in (b's', b'm', b'M'):
-            return f"{name}.pyc"
-        return name
+
+        # Only treat type 's' as bytecode, append .pyc
+        if entry.typecmprsdata == b's':
+            entry_point = f"{name}.pyc"
+        else:
+            entry_point = name
+
+        logging.info(f"Detected entry point: {entry_point}")
+        return entry_point
 
     def extractFiles(self):
         """
