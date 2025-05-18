@@ -7489,14 +7489,16 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
             if is_plain_text_data(die_output):
                 plain_text_flag=True
 
+        # Normalize paths for comparison
+        normalized_path     = os.path.abspath(file_path).lower()
+        normalized_sandbox  = os.path.abspath(sandboxie_folder).lower()
+
+        # Only send to ransomware_alert if file path starts with sandboxie_folder
+        if not normalized_path.startswith(normalized_sandbox):
+           return False
+
         # Perform ransomware alert check
         if is_file_fully_unknown(die_output):
-            # Normalize paths for comparison
-            normalized_path     = os.path.abspath(file_path).lower()
-            normalized_sandbox  = os.path.abspath(sandboxie_folder).lower()
-
-            # Only send to ransomware_alert if file path starts with sandboxie_folder
-            if normalized_path.startswith(normalized_sandbox):
                 ransomware_alert(file_path)
 
             # If mega optimization is on, always log & stop—sandbox or not
