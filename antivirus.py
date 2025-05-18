@@ -7550,10 +7550,7 @@ def scan_and_warn(file_path,
                 )
                 return False
 
-        if is_first_pass and perform_special_scan:
-            # Record MD5 so future calls know it’s no longer first-pass
-            file_md5_cache[norm_path] = md5
-
+        if not is_first_pass and perform_special_scan:
             if is_pe_file_from_output(die_output):
                 worm_alert(norm_path)
 
