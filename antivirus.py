@@ -508,6 +508,11 @@ HiJackThis_log_path = f'{HydraDragonAntivirus_sandboxie_path}\\HiJackThis\\HiJac
 de4dot_sandboxie_dir = f'{HydraDragonAntivirus_sandboxie_path}\\de4dot_extracted_dir'
 python_deobfuscated_sandboxie_dir = f'{HydraDragonAntivirus_sandboxie_path}\\python_deobfuscated'
 
+script_exts = {
+    '.vbs', '.vbe', '.js', '.jse', '.bat', '.url',
+    '.cmd', '.hta', '.ps1', '.psm1', '.wsf', '.wsb', '.sct'
+}
+
 # Known Enigma versions → working evbunpack flags
 PACKER_FLAGS = {
     "11.00": ["-pe", "10_70"],
@@ -7645,7 +7650,6 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
                 logging.info(f"File {file_path} is in decompiled_dir.")
                 is_decompiled = True
 
-            # make sure all of your “source” dirs are Path objects, resolved once
             source_dirs = [
                 Path(decompiled_dir).resolve(),
                 Path(FernFlower_decompiled_dir).resolve(),
@@ -7653,26 +7657,34 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
                 Path(nuitka_source_code_dir).resolve(),
             ]
 
-            # resolve the incoming file path
             file_path_resolved = Path(file_path).resolve()
+            ext = file_path_resolved.suffix.lower()
 
-            for src in source_dirs:
-                # this will succeed without exception if file_path_resolved is inside src
+            if ext in script_exts:
                 try:
-                    file_path_resolved.relative_to(src)
-                except ValueError:
-                    continue
-                else:
+                    threading.Thread(
+                        target=scan_file_with_meta_llama,
+                        args=(file_path,),
+                    ).start()
+                except Exception as ex:
+                    logging.error(f"Error during scanning with Meta Llama-3.2-1B for file {file_path}: {ex}")
+            else:
+                for src in source_dirs:
                     try:
-                        threading.Thread(
-                            target=scan_file_with_meta_llama,
-                            args=(file_path,),
-                        ).start()
-                    except Exception as ex:
-                        logging.error(
-                            f"Error during scanning with Meta Llama-3.2-1B for file {file_path}: {ex}"
-                        )
-                    break
+                        file_path_resolved.relative_to(src)
+                    except ValueError:
+                        continue
+                    else:
+                        try:
+                            threading.Thread(
+                                target=scan_file_with_meta_llama,
+                                args=(file_path,),
+                            ).start()
+                        except Exception as ex:
+                            logging.error(
+                                f"Error during scanning with Meta Llama-3.2-1B for file {file_path}: {ex}"
+                            )
+                        break
 
             # Scan for malware in real-time only for plain text and command flag
             if command_flag:
@@ -7932,7 +7944,8 @@ def check_startup_directories():
                             if file_path.endswith('.wll') and is_pe_file_from_output(die_output):
                                 malware_type = "HEUR:Win32.Startup.DLLwithWLL.gen.Malware"
                                 message = f"Confirmed DLL malware detected: {file_path}\nVirus: {malware_type}"
-                            elif file_path.endswith(('.vbs', '.vbe', '.js', '.jse', '.bat', '.url', '.cmd', '.hta', '.ps1', '.psm1', '.wsf', '.wsb', '.sct')):
+                            ext = Path(file_path).suffix.lower()
+                            if ext in script_exts:
                                 malware_type = "HEUR:Win32.Startup.Script.gen.Malware"
                                 message = f"Confirmed script malware detected: {file_path}\nVirus: {malware_type}"
                             elif file_path.endswith(('.dll', '.jar', '.msi', '.scr', '.hta',)):
