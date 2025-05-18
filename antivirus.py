@@ -5111,7 +5111,7 @@ def decompile_file(file_path):
     except Exception as ex:
         logging.error(f"An error occurred during decompilation: {ex}")
 
-def extract_original_file_path_from_decompiled(file_path):
+def extract_original_norm_path_from_decompiled(file_path):
     try:
         with open(file_path, 'r') as original_file:
             for line in original_file:
@@ -7469,15 +7469,11 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
 
         # 2) Compute MD5 (you may chunk for large files if you like)
         with open(norm_path, "rb") as f:
-            data = f.read()
-        md5 = hashlib.md5(data).hexdigest()
+            data_content = f.read()
+        md5 = hashlib.md5(data_content).hexdigest()
 
         # Extract the file name
-        file_name = os.path.basename(file_path)
-
-        # Read the file content.
-        with open(file_path, 'rb') as scan_file:
-            data_content = scan_file.read()
+        file_name = os.path.basename(norm_path)
 
         plain_text_flag=False
 
@@ -7485,12 +7481,12 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
              die_output = "Binary\n    Format: plain text"
              plain_text_flag=True
         else:
-            die_output = analyze_file_with_die(file_path)
+            die_output = analyze_file_with_die(norm_path)
             if is_plain_text_data(die_output):
                 plain_text_flag=True
 
         # Normalize paths for comparison
-        normalized_path     = os.path.abspath(file_path).lower()
+        normalized_path     = os.path.abspath(norm_path).lower()
         normalized_sandbox  = os.path.abspath(sandboxie_folder).lower()
 
         # Only send to ransomware_alert if file path starts with sandboxie_folder
@@ -7499,14 +7495,14 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
 
         # Perform ransomware alert check
         if is_file_fully_unknown(die_output):
-                ransomware_alert(file_path)
+            ransomware_alert(norm_path)
 
             # If mega optimization is on, always log & stop—sandbox or not
             if mega_optimization_with_anti_false_positive:
                 logging.info(
                     f"We stopped the analysis because the file contains unknown data "
                     f"and is not executable, but that doesn't mean it doesn't contain "
-                    f"malicious data: {file_path}"
+                    f"malicious data: {norm_path}"
                 )
                 return False
 
@@ -7529,57 +7525,57 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
 
         logging.info(f"Deep scanning file: {norm_path}")
 
-        src_root = os.path.dirname(file_path)
+        src_root = os.path.dirname(norm_path)
 
         # choose destination based on origin
-        if file_path.startswith(de4dot_sandboxie_dir):
-            dest = _copy_to_dest(file_path, de4dot_sandboxie_dir, de4dot_extracted_dir)
+        if norm_path.startswith(de4dot_sandboxie_dir):
+            dest = _copy_to_dest(norm_path, de4dot_sandboxie_dir, de4dot_extracted_dir)
             scan_and_warn(dest)
-        elif file_path.startswith(sandboxie_folder):
-            dest = _copy_to_dest(file_path, src_root, copied_sandbox_files_dir)
+        elif norm_path.startswith(sandboxie_folder):
+            dest = _copy_to_dest(norm_path, src_root, copied_sandbox_files_dir)
             scan_and_warn(dest)
  
-        # Wrap file_path in a Path once, up front
-        wrap_file_path = Path(file_path)
+        # Wrap norm_path in a Path once, up front
+        wrap_norm_path = Path(norm_path)
 
         # 1) Obfuscar-dir check
-        if Path(obfuscar_dir) in wrap_file_path.parents and not flag_obfuscar:
+        if Path(obfuscar_dir) in wrap_norm_path.parents and not flag_obfuscar:
             flag_obfuscar = True
-            logging.info(f"Flag set to True because '{file_path}' is inside the Obfuscar directory '{obfuscar_dir}'.")
+            logging.info(f"Flag set to True because '{norm_path}' is inside the Obfuscar directory '{obfuscar_dir}'.")
 
         # 2) de4dot directories check
         match = next(
             (Path(p) for p in (de4dot_extracted_dir, de4dot_sandboxie_dir)
-            if Path(p) in wrap_file_path.parents),
+            if Path(p) in wrap_norm_path.parents),
             None
         )
         if match and not flag_de4dot:
             flag_de4dot = True
             logging.info(
-                f"Flag set to True because '{file_path}' is inside the de4dot directory '{match}'"
+                f"Flag set to True because '{norm_path}' is inside the de4dot directory '{match}'"
         )
 
         # Check if the file content is valid non plain text data
         if not plain_text_flag:
-            logging.info(f"File {file_path} contains valid non plain text data.")
+            logging.info(f"File {norm_path} contains valid non plain text data.")
             # Attempt to extract the file
             try:
-                logging.info(f"Attempting to extract file {file_path}...")
-                extracted_files = extract_all_files_with_7z(file_path, nsis_flag)
+                logging.info(f"Attempting to extract file {norm_path}...")
+                extracted_files = extract_all_files_with_7z(norm_path, nsis_flag)
 
                 if extracted_files:
-                    logging.info(f"Extraction successful for {file_path}. Scanning extracted files...")
+                    logging.info(f"Extraction successful for {norm_path}. Scanning extracted files...")
                     # Recursively scan each extracted file
                     for extracted_file in extracted_files:
                         logging.info(f"Scanning extracted file: {extracted_file}")
                         scan_and_warn(extracted_file)
 
-                logging.info(f"File {file_path} is not a valid archive or extraction failed. Proceeding with scanning.")
+                logging.info(f"File {norm_path} is not a valid archive or extraction failed. Proceeding with scanning.")
             except Exception as extraction_error:
-                logging.error(f"Error during extraction of {file_path}: {extraction_error}")
+                logging.error(f"Error during extraction of {norm_path}: {extraction_error}")
            
             if is_enigma_protector(die_output): 
-                extracted_path = try_unpack_enigma(file_path)
+                extracted_path = try_unpack_enigma(norm_path)
                 if extracted_path:
                     logging.info(f"Unpack succeeded. Files are in: {extracted_path}")
                     scan_and_warn(extracted_path)
@@ -7587,13 +7583,13 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
                     logging.info("Unpack failed for all known Enigma protected versions.")
 
             if is_packer_upx_output(die_output):
-                upx_unpacked = extract_upx(file_path)
+                upx_unpacked = extract_upx(norm_path)
                 if upx_unpacked:
                     scan_and_warn(upx_unpacked)
                 else:
-                    logging.error(f"Failed to unpack {file_path}")
+                    logging.error(f"Failed to unpack {norm_path}")
             else:
-                logging.info(f"Skipping non-UPX file: {file_path}")
+                logging.info(f"Skipping non-UPX file: {norm_path}")
 
             if is_nsis_from_output(die_output):
                 nsis_flag= True
@@ -7601,26 +7597,26 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
             # Detect Inno Setup installer
             if is_inno_setup_archive_from_output(die_output):
                 # Extract Inno Setup installer files
-                extracted = extract_inno_setup(file_path)
+                extracted = extract_inno_setup(norm_path)
                 if extracted is not None:
                     logging.info(f"Extracted {len(extracted)} files. Scanning...")
-                    for file_path in extracted:
+                    for norm_path in extracted:
                         try:
                             # send to scan_and_warn for analysis
-                            scan_and_warn(file_path)
+                            scan_and_warn(norm_path)
                         except Exception as e:
-                            logging.error(f"Error scanning {file_path}: {e}")
+                            logging.error(f"Error scanning {norm_path}: {e}")
                 else:
                     logging.error("Extraction failed; nothing to scan.")
 
             # Deobfuscate binaries obfuscated by Go Garble.
             if is_go_garble_from_output(die_output):
                 # Generate output paths based on the file name and the specified directories
-                output_path = os.path.join(ungarbler_dir, os.path.basename(file_path))
-                string_output_path = os.path.join(ungarbler_string_dir, os.path.basename(file_path) + "_strings.txt")
+                output_path = os.path.join(ungarbler_dir, os.path.basename(norm_path))
+                string_output_path = os.path.join(ungarbler_string_dir, os.path.basename(norm_path) + "_strings.txt")
 
                 # Process the file and get the results
-                results = process_file_go(file_path, output_path, string_output_path)
+                results = process_file_go(norm_path, output_path, string_output_path)
 
                 # Send the output files for scanning if they are created
                 if results.get("patched_data"):
@@ -7633,31 +7629,31 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
 
             # Check if it's a .pyc file and decompile
             if is_pyc_file_from_output(die_output):
-                logging.info(f"File {file_path} is a .pyc (Python Compiled Module) file. Attempting to decompile...")
+                logging.info(f"File {norm_path} is a .pyc (Python Compiled Module) file. Attempting to decompile...")
 
                 # Call the show_code_with_uncompyle6_pycdc_pycdas function to decompile the .pyc file
-                uncompyle6_file_path, pycdc_file_path, pycdas_file_path, united_output_path = show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name)
+                uncompyle6_norm_path, pycdc_norm_path, pycdas_norm_path, united_output_path = show_code_with_uncompyle6_pycdc_pycdas(norm_path, file_name)
 
                 # Scan and warn for the uncompyle6 decompiled file, if available
-                if uncompyle6_file_path:
-                    logging.info(f"Scanning decompiled file from uncompyle6: {uncompyle6_file_path}")
-                    scan_and_warn(uncompyle6_file_path)
+                if uncompyle6_norm_path:
+                    logging.info(f"Scanning decompiled file from uncompyle6: {uncompyle6_norm_path}")
+                    scan_and_warn(uncompyle6_norm_path)
                 else:
-                    logging.error(f"Uncompyle6 decompilation failed for file {file_path}.")
+                    logging.error(f"Uncompyle6 decompilation failed for file {norm_path}.")
 
                 # Scan and warn for the pycdc decompiled file, if available
-                if pycdc_file_path:
-                    logging.info(f"Scanning decompiled file from pycdc: {pycdc_file_path}")
-                    scan_and_warn(pycdc_file_path)
+                if pycdc_norm_path:
+                    logging.info(f"Scanning decompiled file from pycdc: {pycdc_norm_path}")
+                    scan_and_warn(pycdc_norm_path)
                 else:
-                    logging.error(f"pycdc decompilation failed for file {file_path}.")
+                    logging.error(f"pycdc decompilation failed for file {norm_path}.")
 
                 # Scan and warn for the pycdas decompiled file, if available
-                if pycdas_file_path:
-                    logging.info(f"Scanning decompiled file from pycdas: {pycdas_file_path}")
-                    scan_and_warn(pycdas_file_path)
+                if pycdas_norm_path:
+                    logging.info(f"Scanning decompiled file from pycdas: {pycdas_norm_path}")
+                    scan_and_warn(pycdas_norm_path)
                 else:
-                    logging.error(f"pycdas decompilation failed for file {file_path}.")
+                    logging.error(f"pycdas decompilation failed for file {norm_path}.")
 
                 # Scan and warn for the united decompiled file, if available
                 if united_output_path:
@@ -7665,45 +7661,45 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
                     scan_and_warn(united_output_path)
                     scan_file_with_meta_llama(united_output_path, united_python_code_flag=True)
                 else:
-                    logging.error(f"United decompilation failed for file {file_path}.")
+                    logging.error(f"United decompilation failed for file {norm_path}.")
 
             # Additional checks for PE files
             if is_pe_file_from_output(die_output):
-                logging.info(f"File {file_path} is a valid PE file.")
+                logging.info(f"File {norm_path} is a valid PE file.")
                 pe_file = True
 
             # Operation of the PE file
             if pe_file:
-                logging.info(f"File {file_path} is identified as a PE file.")
+                logging.info(f"File {norm_path} is identified as a PE file.")
 
                 # Perform signature check only if the file is non plain text data
-                signature_check = check_signature(file_path)
-                logging.info(f"Signature check result for {file_path}: {signature_check}")
+                signature_check = check_signature(norm_path)
+                logging.info(f"Signature check result for {norm_path}: {signature_check}")
                 if not isinstance(signature_check, dict):
-                    logging.error(f"check_signature did not return a dictionary for file: {file_path}, received: {signature_check}")
+                    logging.error(f"check_signature did not return a dictionary for file: {norm_path}, received: {signature_check}")
 
                 # Handle signature results
                 if signature_check["has_microsoft_signature"]:
-                    logging.info(f"Valid Microsoft signature detected for file: {file_path}")
+                    logging.info(f"Valid Microsoft signature detected for file: {norm_path}")
                     return False
 
                 # Check for good digital signatures (valid_goodsign_signatures) and return false if they exist and are valid
                 if signature_check.get("valid_goodsign_signatures"):
-                    logging.info(f"Valid good signature(s) detected for file: {file_path}: {signature_check['valid_goodsign_signatures']}")
+                    logging.info(f"Valid good signature(s) detected for file: {norm_path}: {signature_check['valid_goodsign_signatures']}")
                     return False
 
                 if signature_check["is_valid"]:
-                    logging.info(f"File '{file_path}' has a valid signature. Skipping worm detection.")
+                    logging.info(f"File '{norm_path}' has a valid signature. Skipping worm detection.")
                 elif signature_check["signature_status_issues"]:
-                    logging.warning(f"File '{file_path}' has signature issues. Proceeding with further checks.")
-                    notify_user_invalid(file_path, "Win32.Susp.InvalidSignature")
+                    logging.warning(f"File '{norm_path}' has signature issues. Proceeding with further checks.")
+                    notify_user_invalid(norm_path, "Win32.Susp.InvalidSignature")
 
                 # Decompile the file in a separate thread
-                decompile_thread = threading.Thread(target=decompile_file, args=(file_path,))
+                decompile_thread = threading.Thread(target=decompile_file, args=(norm_path,))
                 decompile_thread.start()
 
                 # PE section extraction and scanning
-                section_files = extract_pe_sections(file_path)
+                section_files = extract_pe_sections(norm_path)
                 if section_files:
                     logging.info(f"Extracted {len(section_files)} PE sections. Scanning...")
                     for fpath in section_files:
@@ -7715,7 +7711,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
                     logging.error("PE section extraction failed or no sections found.")
 
                 # Extract resources
-                extracted = extract_resources(file_path, resource_extractor_dir)
+                extracted = extract_resources(norm_path, resource_extractor_dir)
                 if extracted:
                     for file in extracted:
                         scan_and_warn(file)
@@ -7723,15 +7719,15 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
                 # Use the `debloat` library to optimize PE file for scanning
                 try:
                     if not flag_debloat:
-                        logging.info(f"Debloating PE file {file_path} for faster scanning.")
-                        optimized_file_path = debloat_pe_file(file_path)
-                        if optimized_file_path:
-                             logging.info(f"Debloated file saved at: {optimized_file_path}")
-                             scan_and_warn(optimized_file_path, flag_debloat=True)
+                        logging.info(f"Debloating PE file {norm_path} for faster scanning.")
+                        optimized_norm_path = debloat_pe_file(norm_path)
+                        if optimized_norm_path:
+                             logging.info(f"Debloated file saved at: {optimized_norm_path}")
+                             scan_and_warn(optimized_norm_path, flag_debloat=True)
                         else:
-                             logging.error(f"Debloating failed for {file_path}, continuing with the original file.")
+                             logging.error(f"Debloating failed for {norm_path}, continuing with the original file.")
                 except Exception as ex:
-                    logging.error(f"Error during debloating of {file_path}: {ex}")
+                    logging.error(f"Error during debloating of {norm_path}: {ex}")
 
             dotnet_result = False
 
@@ -7739,22 +7735,22 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
             dotnet_result = is_dotnet_file_from_output(die_output)
 
             if dotnet_result is True:
-                dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(file_path,))
+                dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(norm_path,))
                 dotnet_thread.start()
             elif isinstance(dotnet_result, str) and "Protector: Obfuscar" in dotnet_result and not flag_obfuscar:
                 logging.info(f"The file is a .NET assembly protected with Obfuscar: {dotnet_result}")
-                deobfuscated_path = deobfuscate_with_obfuscar(file_path, file_name)
+                deobfuscated_path = deobfuscate_with_obfuscar(norm_path, file_name)
                 if deobfuscated_path:
                     scan_and_warn(deobfuscated_path, flag_obfuscar=True)
                 else:
                     logging.warning("Deobfuscation failed or unpacked file not found.")
 
             elif dotnet_result is not None and not flag_de4dot and not "Protector: Obfuscar" in dotnet_result:
-                de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(file_path,))
+                de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(norm_path,))
                 de4dot_thread.start()
 
             if is_jar_file_from_output(die_output):
-                jar_extractor_paths = run_jar_extractor(file_path, flag_fernflower)
+                jar_extractor_paths = run_jar_extractor(norm_path, flag_fernflower)
                 if jar_extractor_paths:
                     for jar_extractor_path in jar_extractor_paths:
                         scan_and_warn(jar_extractor_path, flag_fernflower)
@@ -7762,7 +7758,7 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
                     logging.warning("Java Archive Extraction or decompilation failed. Skipping scan.")
 
             if is_java_class_from_output(die_output):
-                run_fernflower_decompiler(file_path)
+                run_fernflower_decompiler(norm_path)
 
             # Check if the file contains Nuitka executable
             nuitka_type = is_nuitka_file_from_output(die_output)
@@ -7770,9 +7766,9 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
             # Only proceed with extraction if Nuitka is detected
             if nuitka_type:
                 try:
-                    logging.info(f"Checking if the file {file_path} contains Nuitka executable of type: {nuitka_type}")
+                    logging.info(f"Checking if the file {norm_path} contains Nuitka executable of type: {nuitka_type}")
                     # Pass both the file path and Nuitka type to the check_and_extract_nuitka function
-                    nuitka_files = extract_nuitka_file(file_path, nuitka_type)
+                    nuitka_files = extract_nuitka_file(norm_path, nuitka_type)
                     if nuitka_files:
                         for extracted_file in nuitka_files:
                             try:
@@ -7782,16 +7778,16 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
                     else:
                         logging.warning("No Nuitka files were extracted for scanning.")
                 except Exception as ex:
-                    logging.error(f"Error checking or extracting Nuitka content from {file_path}: {ex}")
+                    logging.error(f"Error checking or extracting Nuitka content from {norm_path}: {ex}")
             else:
-                logging.info(f"No Nuitka executable detected in {file_path}")
+                logging.info(f"No Nuitka executable detected in {norm_path}")
 
             # Check if the file is a PyInstaller archive
             if is_pyinstaller_archive_from_output(die_output):
-                logging.info(f"File {file_path} is a PyInstaller archive. Extracting...")
+                logging.info(f"File {norm_path} is a PyInstaller archive. Extracting...")
 
                 # Extract the PyInstaller files and get their paths
-                extracted_files_pyinstaller = extract_and_return_pyinstaller(file_path)
+                extracted_files_pyinstaller = extract_and_return_pyinstaller(norm_path)
 
                 if extracted_files_pyinstaller:
                     # Scan each extracted file
@@ -7799,14 +7795,14 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
                         logging.info(f"Scanning extracted file: {extracted_file}")
                         scan_and_warn(extracted_file)
                 else:
-                    logging.error(f"No files extracted from PyInstaller archive: {file_path}")
+                    logging.error(f"No files extracted from PyInstaller archive: {norm_path}")
         else:
             # If the file content is plain text, perform scanning with Meta Llama-3.2-1B
-            logging.info(f"File {file_path} does contain plain text data.")
-            # Check if the file_path equals the homepage change path.
-            if file_path == homepage_change_path:
+            logging.info(f"File {norm_path} does contain plain text data.")
+            # Check if the norm_path equals the homepage change path.
+            if norm_path == homepage_change_path:
                 try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
+                    with open(norm_path, 'r', encoding='utf-8') as f:
                         lines = f.readlines()
 
                     for line in lines:
@@ -7820,18 +7816,18 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
                                     f"Processing homepage change entry: Browser={browser_tag}, Homepage={homepage_value}")
                                 # Call scan_code_for_links, using the homepage value as the code to scan.
                                 # Pass the browser tag as the homepage_flag.
-                                scan_code_for_links(homepage_value, file_path, homepage_flag=browser_tag)
+                                scan_code_for_links(homepage_value, norm_path, homepage_flag=browser_tag)
                             else:
                                 logging.error(f"Invalid format in homepage change file: {line}")
                 except Exception as ex:
-                    logging.error(f"Error processing homepage change file {file_path}: {ex}")
+                    logging.error(f"Error processing homepage change file {norm_path}: {ex}")
 
             # Log directory type based on file path
-            log_directory_type(file_path)
+            log_directory_type(norm_path)
 
             # Check if the file is in decompiled_dir
-            if file_path.startswith(decompiled_dir):
-                logging.info(f"File {file_path} is in decompiled_dir.")
+            if norm_path.startswith(decompiled_dir):
+                logging.info(f"File {norm_path} is in decompiled_dir.")
                 is_decompiled = True
 
             source_dirs = [
@@ -7841,94 +7837,94 @@ def scan_and_warn(file_path, mega_optimization_with_anti_false_positive=True, co
                 Path(nuitka_source_code_dir).resolve(),
             ]
 
-            file_path_resolved = Path(file_path).resolve()
-            ext = file_path_resolved.suffix.lower()
+            norm_path_resolved = Path(norm_path).resolve()
+            ext = norm_path_resolved.suffix.lower()
 
             if ext in script_exts:
                 try:
                     threading.Thread(
                         target=scan_file_with_meta_llama,
-                        args=(file_path,),
+                        args=(norm_path,),
                     ).start()
                 except Exception as ex:
-                    logging.error(f"Error during scanning with Meta Llama-3.2-1B for file {file_path}: {ex}")
+                    logging.error(f"Error during scanning with Meta Llama-3.2-1B for file {norm_path}: {ex}")
             else:
                 for src in source_dirs:
                     try:
-                        file_path_resolved.relative_to(src)
+                        norm_path_resolved.relative_to(src)
                     except ValueError:
                         continue
                     else:
                         try:
                             threading.Thread(
                                 target=scan_file_with_meta_llama,
-                                args=(file_path,),
+                                args=(norm_path,),
                             ).start()
                         except Exception as ex:
                             logging.error(
-                                f"Error during scanning with Meta Llama-3.2-1B for file {file_path}: {ex}"
+                                f"Error during scanning with Meta Llama-3.2-1B for file {norm_path}: {ex}"
                             )
                         break
 
             # Scan for malware in real-time only for plain text and command flag
             if command_flag:
-                logging.info(f"Performing real-time malware detection for plain text file: {file_path}...")
-                real_time_scan_thread = threading.Thread(target=monitor_message.detect_malware, args=(file_path,))
+                logging.info(f"Performing real-time malware detection for plain text file: {norm_path}...")
+                real_time_scan_thread = threading.Thread(target=monitor_message.detect_malware, args=(norm_path,))
                 real_time_scan_thread.start()
 
         # Check if the file is a known rootkit file
         if file_name in known_rootkit_files:
-            logging.warning(f"Detected potential rootkit file: {file_path}")
-            rootkit_thread = threading.Thread(target=notify_user_for_detected_rootkit, args=(file_path, f"HEUR:Rootkit.{file_name}"))
+            logging.warning(f"Detected potential rootkit file: {norm_path}")
+            rootkit_thread = threading.Thread(target=notify_user_for_detected_rootkit, args=(norm_path, f"HEUR:Rootkit.{file_name}"))
             rootkit_thread.start()
 
         # Process the file data including magic byte removal
-        if not os.path.commonpath([file_path, processed_dir]) == processed_dir:
-            process_thread = threading.Thread(target=process_file_data, args=(file_path, die_output))
+        if not os.path.commonpath([norm_path, processed_dir]) == processed_dir:
+            process_thread = threading.Thread(target=process_file_data, args=(norm_path, die_output))
             process_thread.start()
 
         # Check for fake file size
-        if os.path.getsize(file_path) > 100 * 1024 * 1024:  # File size > 100MB
-            with open(file_path, 'rb') as fake_file:
+        if os.path.getsize(norm_path) > 100 * 1024 * 1024:  # File size > 100MB
+            with open(norm_path, 'rb') as fake_file:
                 file_content_read = fake_file.read(100 * 1024 * 1024)
                 if file_content_read == b'\x00' * 100 * 1024 * 1024:  # 100MB of continuous `0x00` bytes
-                    logging.warning(f"File {file_path} is flagged as HEUR:FakeSize.gen")
+                    logging.warning(f"File {norm_path} is flagged as HEUR:FakeSize.gen")
                     fake_size = "HEUR:FakeSize.gen"
                     if signature_check and signature_check["is_valid"]:
                         fake_size = "HEUR:SIG.Win32.FakeSize.gen"
-                    notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(file_path, fake_size))
+                    notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(norm_path, fake_size))
                     notify_user_fake_size_thread.start()
 
         # Perform real-time scan
-        is_malicious, virus_names, engine_detected = scan_file_real_time(file_path, signature_check, file_name, die_output, pe_file=pe_file)
+        is_malicious, virus_names, engine_detected = scan_file_real_time(norm_path, signature_check, file_name, die_output, pe_file=pe_file)
 
         # Inside the scan check logic
         if is_malicious:
             # Concatenate multiple virus names into a single string without delimiters
             virus_name = ''.join(virus_names)
-            logging.warning(f"File {file_path} is malicious. Virus: {virus_name}")
+            logging.warning(f"File {norm_path} is malicious. Virus: {virus_name}")
 
             if virus_name.startswith("PUA."):
-                notify_user_pua_thread = threading.Thread(target=notify_user_pua, args=(file_path, virus_name, engine_detected))
+                notify_user_pua_thread = threading.Thread(target=notify_user_pua, args=(norm_path, virus_name, engine_detected))
                 notify_user_pua_thread.start()
             else:
-                notify_user_thread = threading.Thread(target=notify_user, args=(file_path, virus_name, engine_detected))
+                notify_user_thread = threading.Thread(target=notify_user, args=(norm_path, virus_name, engine_detected))
                 notify_user_thread.start()
 
         # Additional post-decompilation actions based on extracted file path
         if is_decompiled:
-            logging.info(f"Checking original file path from decompiled data for: {file_path}")
-            original_file_path_thread = threading.Thread(target=extract_original_file_path_from_decompiled, args=(file_path,))
-            original_file_path_thread.start()
+            logging.info(f"Checking original file path from decompiled data for: {norm_path}")
+            original_norm_path_thread = threading.Thread(target=extract_original_norm_path_from_decompiled, args=(norm_path,))
+            original_norm_path_thread.start()
 
         # Continue processing even if flag is True, to handle files already processed
         if flag:
-            logging.info(f"Reprocessing file {file_path} with all checks enabled...")
+            logging.info(f"Reprocessing file {norm_path} with all checks enabled...")
 
         return False
 
     except Exception as ex:
-        logging.error(f"Error scanning file {file_path}: {ex}")
+        logging.error(f"Error scanning file {norm_path}: {ex}")
         return False
 
 def monitor_memory_changes(change_threshold_bytes=0):
