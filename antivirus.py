@@ -5542,7 +5542,7 @@ class PyInstArchive:
             logging.info(f"[+] Extraction complete @ {full_out}")
 
             if entry_point_pyc:
-                logging.info(f"[+] Entry point detected: {entry_point_pyc}")
+                logging.info(f"[+] Potential entry point detected: {entry_point_pyc}")
                 scan_and_warn(entry_point_pyc)
 
             return full_out
@@ -6637,7 +6637,7 @@ def show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name):
             process_decompiled_code(uncompyle6_output_path)
         else:
             uncompyle6_output_path = None
-            logging.info("[-] uncompyle6 produced no output.")
+            logging.error("[-] uncompyle6 produced no output.")
 
         # --- PyCDC decompilation branch ---
         pycdc_output_path = None
