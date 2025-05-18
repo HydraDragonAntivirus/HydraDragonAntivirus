@@ -2860,7 +2860,9 @@ def ensure_http_prefix(url):
 
 # a global (or outer-scope) list to collect every saved path
 saved_paths = []
+saved_pyc_paths = []
 deobfuscated_saved_paths = []
+path_lists = [saved_paths, deobfuscated_saved_paths, saved_pyc_paths]
 
 def fetch_html(url, return_file_path=False):
     """Fetch HTML content from the given URL, always save it, and optionally return the file path."""
@@ -5679,10 +5681,10 @@ class PyInstArchive:
             # Fix any “bare” pyc files now that we know the magic
             self._fixBarePycs(full_out)
 
-            # Scan all collected .pyc files using scan_and_warn()
+            # Collect all .pyc files for scanning
             for orig_name, pyc_path in entry_point_pycs:
-                logging.info(f"Scanning for malware: {pyc_path}  original: {orig_name}")
-                scan_and_warn(pyc_path)
+                    logging.info(f"Queuing for scan: {pyc_path}  original: {orig_name}")
+                    saved_pyc_paths.append(pyc_path)
 
             return full_out
 
@@ -6483,21 +6485,26 @@ def sandbox_deobfuscate_file(transformed_path: Path, box_name: str = "DefaultBox
     sandbox_inner = Path(sandbox_program_files) / output_filename
     sandbox_inner_dir = sandbox_inner.parent
     cmd = (
-        f'"{sandboxie_path}" /box:DefaultBox /elevate cmd.exe /c '
+        f'"{sandboxie_path}" /box:{box_name} /elevate cmd.exe /c '
         f'"mkdir \"{sandbox_inner_dir}\" & "{sys.executable}" "{transformed_path}" > "{sandbox_inner}""'
     )
     try:
         subprocess.run(cmd, shell=True, check=True, timeout=120)
     except Exception:
         return None
+
     matches = list(Path(sandboxie_folder).glob(f"**/{output_filename}"))
     if not matches:
         return None
     sandboxed_full = matches[0]
-    for _ in range(50):
+
+    start = time.monotonic()
+    timeout = 10  # seconds, adjust as needed
+    while True:
         if sandboxed_full.exists() and sandboxed_full.stat().st_size > 0:
             return sandboxed_full
-        time.sleep(0.2)
+        if time.monotonic() - start > timeout:
+            break
     return None
 
 # Main loop: apply exec->print and remove unused imports, with stuck-detection
@@ -7945,22 +7952,14 @@ def monitor_memory_changes(change_threshold_bytes=0):
                     )
 
 def monitor_saved_paths():
-    """Continuously monitor the saved_paths list and call scan_and_warn on new items."""
+    """Continuously monitor all path lists in global path_lists and scan new items in threads."""
     seen = set()
     while True:
-        for path in saved_paths:
-            if path not in seen:
-                seen.add(path)
-                scan_and_warn(path)
-
-def monitor_deobfuscated_saved_paths():
-    """Continuously monitor the deobfuscated_saved_paths list and call scan_and_warn on new items."""
-    seen = set()
-    while True:
-        for path in deobfuscated_saved_paths:
-            if path not in seen:
-                seen.add(path)
-                scan_and_warn(path)
+        for path_list in path_lists:
+            for path in path_list:
+                if path not in seen:
+                    seen.add(path)
+                    threading.Thread(target=scan_and_warn, args=(path,), daemon=True).start()
 
 # Constants for all notification filters
 NOTIFY_FILTER = (
@@ -9011,7 +9010,6 @@ def perform_sandbox_analysis(file_path):
         threading.Thread(target=check_uefi_directories).start() # Start monitoring UEFI directories for malicious files in a separate thread
         threading.Thread(target=monitor_message.start_monitoring_threads).start() # Function to monitor specific windows in a separate thread
         threading.Thread(target=monitor_saved_paths).start()
-        threading.Thread(target=monitor_deobfuscated_saved_paths).start()
         threading.Thread(target=run_sandboxie, args=(file_path,)).start()
 
         logging.info("Sandbox analysis started. Please check log after you close program. There is no limit to scan time.")
