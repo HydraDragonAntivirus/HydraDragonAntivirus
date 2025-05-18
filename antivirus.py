@@ -953,7 +953,7 @@ def is_pyc_file_from_output(die_output):
     Check if the DIE output indicates a Python compiled module (.pyc file).
     It looks for markers that suggest it's a Python compiled module.
     """
-    if die_output and ("Python" in die_output and "Compiled Module" in die_output and "Magic tag" in die_output):
+    if die_output and "Python Compiled Module" in die_output:
         logging.info("DIE output indicates a Python compiled module.")
         return True
     logging.info(f"DIE output does not indicate a Python compiled module: {die_output}")
