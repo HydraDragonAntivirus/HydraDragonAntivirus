@@ -5219,16 +5219,14 @@ def scan_rsrc_files(file_paths):
     and processes only the first file that contains the string 'upython.exe'.
     Once found, it extracts the source code portion starting after 'upython.exe',
     cleans it, saves it to a uniquely named file, and scans the code for domains,
-    URLs, IP addresses, and Discord webhooks.
-
-    :param file_paths: List of file paths to be scanned.
+    URLs, IP addresses, and Discord webhooks—passing both the code and the file path.
     """
     if isinstance(file_paths, str):
         file_paths = [file_paths]
 
     executable_file = None
 
-    # First, iterate over the file paths to find the one containing 'upython.exe'
+    # First, find the file containing 'upython.exe'
     for file_path in file_paths:
         if os.path.isfile(file_path):
             try:
@@ -5236,7 +5234,7 @@ def scan_rsrc_files(file_paths):
                     if "upython.exe" in f.read():
                         executable_file = file_path
                         logging.info(f"Found executable in: {file_path}")
-                        break  # Stop at the first match
+                        break
             except Exception as ex:
                 logging.error(f"Error reading file {file_path}: {ex}")
         else:
@@ -5246,31 +5244,26 @@ def scan_rsrc_files(file_paths):
         logging.info("No file containing 'upython.exe' was found.")
         return
 
-    # Process the file that contains 'upython.exe'
+    # Process the matched file
     try:
         logging.info(f"Processing file: {executable_file}")
         with open(executable_file, "r", encoding="utf-8", errors="ignore") as f:
             lines = f.readlines()
 
         if lines:
-            source_index = None
-            for i, line in enumerate(lines):
-                if "upython.exe" in line:
-                    source_index = i
-                    break
+            # Locate the marker line
+            source_index = next((i for i, line in enumerate(lines) if "upython.exe" in line), None)
 
             if source_index is not None:
                 line_with_marker = lines[source_index]
                 marker_index = line_with_marker.find("upython.exe")
                 remainder = line_with_marker[marker_index + len("upython.exe"):].lstrip()
 
-                source_code_lines = []
-                if remainder:
-                    source_code_lines.append(remainder)
-                source_code_lines.extend(lines[source_index + 1:])
-
+                # Build the source code lines
+                source_code_lines = ([remainder] if remainder else []) + lines[source_index + 1:]
                 cleaned_source_code = [clean_text(line.rstrip()) for line in source_code_lines]
 
+                # Determine unique save path
                 base_name = os.path.splitext(os.path.basename(executable_file))[0]
                 save_filename = f"{base_name}_source_code.txt"
                 save_path = os.path.join(nuitka_source_code_dir, save_filename)
@@ -5285,13 +5278,16 @@ def scan_rsrc_files(file_paths):
                 # Make absolutely sure the parent directory exists
                 os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
+                # Write out the cleaned source
                 with open(save_path, "w", encoding="utf-8") as save_file:
                     for line in cleaned_source_code:
                         save_file.write(line + "\n")
                 logging.info(f"Saved extracted source code from {executable_file} to {save_path}")
 
+                # Now pass both the code *and* the original file path
                 extracted_source_code = ''.join(source_code_lines)
-                scan_code_for_links(extracted_source_code)
+                scan_code_for_links(extracted_source_code, executable_file)
+
             else:
                 logging.info(f"No line containing 'upython.exe' found in {executable_file}.")
         else:
@@ -7586,10 +7582,11 @@ def scan_and_warn(file_path,
                 )
                 return False
 
+        if is_pe_file_from_output(die_output):
+            logging.info(f"File {norm_path} is a valid PE file.")
+            pe_file = True
+
         if not is_first_pass and perform_special_scan:
-            if is_pe_file_from_output(die_output):
-                logging.info(f"File {norm_path} is a valid PE file.")
-                pe_file = True
                 worm_alert(norm_path)
 
             return True
