@@ -5311,7 +5311,7 @@ def is_pyinstaller_archive_from_output(die_output):
     A file is considered a PyInstaller archive if the output contains:
       - "Packer: PyInstaller"
     """
-    if die_output and ("Packer: PyInstaller" in die_output):
+    if die_output and "Packer: PyInstaller" in die_output:
         logging.info("DIE output indicates a PyInstaller archive.")
         return True
 
