@@ -7556,6 +7556,9 @@ def scan_and_warn(file_path,
         if initial_md5_in_cache == md5:
             logging.info(f"Skipping scan for unchanged file: {norm_path}")
             return False
+        else:
+            # File changed or forced: update MD5 and deep scan
+            file_md5_cache[norm_path] = md5
 
         logging.info(f"Deep scanning file: {norm_path}")
 
@@ -7935,10 +7938,6 @@ def scan_and_warn(file_path,
             logging.info(f"Checking original file path from decompiled data for: {norm_path}")
             original_norm_path_thread = threading.Thread(target=extract_original_norm_path_from_decompiled, args=(norm_path,))
             original_norm_path_thread.start()
-
-        # File changed or forced: update MD5 and deep scan
-        file_md5_cache[norm_path] = md5
-        return False
 
     except Exception as ex:
         logging.error(f"Error scanning file {norm_path}: {ex}")
