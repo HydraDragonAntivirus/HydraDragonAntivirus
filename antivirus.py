@@ -54,10 +54,6 @@ total_start_time = time.time()
 
 # Measure and logging.info time taken for each import
 start_time = time.time()
-from functools import wraps
-logging.info(f"functools.wraps module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import hashlib
 logging.info(f"hashlib module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -693,14 +689,6 @@ def compute_md5(path: str) -> str:
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
     return h.hexdigest()
-
-def run_in_thread(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        t = threading.Thread(target=fn, args=args, kwargs=kwargs)
-        t.start()
-        return t  # Return the thread object if you want to join later
-    return wrapper
 
 def try_unpack_enigma(input_exe: str) -> str | None:
     """
@@ -7476,7 +7464,6 @@ def _copy_to_dest(file_path, dest_root):
     return None
 
 # --- Main Scanning Function ---
-@run_in_thread
 def scan_and_warn(file_path,
                   mega_optimization_with_anti_false_positive=True,
                   command_flag=False,
