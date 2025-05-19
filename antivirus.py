@@ -681,6 +681,19 @@ enigma_extracted_base = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 # Cache of { file_path: last_md5 }  
 file_md5_cache: dict[str, str] = {}
 
+# Global cache: md5 -> (die_output, plain_text_flag)
+die_cache: Dict[str, Tuple[str, bool]] = {}
+
+# Separate cache for "binary‑only" DIE results
+binary_die_cache: Dict[str, str] = {}
+
+def compute_md5(path: str) -> str:
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
 def run_in_thread(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
@@ -954,6 +967,42 @@ def analyze_file_with_die(file_path):
             f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}"
         )
         return None
+
+def get_die_output(path: str) -> Tuple[str, bool]:
+    """
+    Returns (die_output, plain_text_flag), caching results by content MD5.
+    """
+    file_md5 = compute_md5(path)
+    if file_md5 in die_cache:
+        return die_cache[file_md5]
+
+    # first time for this content:
+    with open(path, "rb") as f:
+        peek = f.read(8192)
+    if is_plain_text(peek):
+        die_output = "Binary\n    Format: plain text"
+        plain_text_flag = True
+    else:
+        die_output = analyze_file_with_die(path)
+        plain_text_flag = is_plain_text_data(die_output)
+
+    die_cache[file_md5] = (die_output, plain_text_flag)
+    return die_output, plain_text_flag
+
+def get_die_output_binary(path: str) -> str:
+    """
+    Returns die_output for a non plain text file, caching by content MD5.
+    (Assumes the file isn't plain text, so always calls analyze_file_with_die()
+     on cache miss.)
+    """
+    file_md5 = compute_md5(path)
+    if file_md5 in binary_die_cache:
+        return binary_die_cache[file_md5]
+
+    # First time for this content: run DIE and cache
+    die_output = analyze_file_with_die(path)
+    binary_die_cache[file_md5] = die_output
+    return die_output
 
 def is_go_garble_from_output(die_output):
     """
@@ -4190,7 +4239,7 @@ class NuitkaExtractor:
 
     def _detect_file_type(self) -> int:
         """Detect the executable file type using Detect It Easy methods"""
-        die_output = analyze_file_with_die(self.filepath)
+        die_output = get_die_output_binary(self.filepath)
 
         if is_pe_file_from_output(die_output):
             return FileType.PE
@@ -5260,7 +5309,7 @@ def scan_directory_for_executables(directory):
 
     # Helper to analyze + test one file
     def check_file(path):
-        die_output = analyze_file_with_die(path)
+        die_output = get_die_output_binary(path)
         return is_nuitka_file_from_output(die_output)
 
     # Look for .exe files first
@@ -7509,27 +7558,20 @@ def scan_and_warn(file_path,
         # 1) Is this the first time we've seen this path?
         is_first_pass = norm_path not in file_md5_cache
 
-        # 2) Compute MD5 (chunk if file is large)
-        hash_md5 = hashlib.md5()
-        with open(norm_path, "rb") as f:
-            for chunk in iter(lambda: f.read(8192), b""):
-                hash_md5.update(chunk)
-        md5 = hash_md5.hexdigest()
+        # 2) Compute MD5
+        md5 = compute_md5(path)
 
         # Extract the file name
         file_name = os.path.basename(norm_path)
 
-        # Determine if content is plain text
-        with open(norm_path, "rb") as f:
-            data_content = f.read(8192)
-        plain_text_flag = False
-        if is_plain_text(data_content):
-            die_output = "Binary\n    Format: plain text"
-            plain_text_flag = True
-        else:
-            die_output = analyze_file_with_die(norm_path)
-            if is_plain_text_data(die_output):
-                plain_text_flag = True
+    # Try cache first
+    if md5 in die_cache:
+        die_output, plain_text_flag = die_cache[md5]
+    else:
+        die_output, plain_text_flag = get_die_output(norm_path)
+
+        # Store for next time
+        die_cache[md5] = (die_output, plain_text_flag)
 
         # Only perform special scans for sandboxie_folder
         if not normalized_path.startswith(normalized_sandbox):
@@ -8128,7 +8170,7 @@ def check_startup_directories():
                     for file in os.listdir(directory):
                         file_path = os.path.join(directory, file)
                         if os.path.isfile(file_path) and file_path not in alerted_files:
-                            die_output = analyze_file_with_die(file_path)
+                            die_output = get_die_output_binary(file_path)
                             if file_path.endswith('.wll') and is_pe_file_from_output(die_output):
                                 malware_type = "HEUR:Win32.Startup.DLLwithWLL.gen.Malware"
                                 message = f"Confirmed DLL malware detected: {file_path}\nVirus: {malware_type}"
