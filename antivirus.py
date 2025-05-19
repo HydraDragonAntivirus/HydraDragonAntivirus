@@ -7484,32 +7484,27 @@ def scan_and_warn(file_path,
         if normalized_path.startswith(normalized_de4dot):
             # Copy from de4dot sandbox to extracted directory and rescan
             dest = _copy_to_dest(norm_path, de4dot_extracted_dir)
-            return scan_and_warn(dest,
-                                 mega_optimization_with_anti_false_positive,
-                                 command_flag,
-                                 flag_debloat,
-                                 flag_obfuscar,
-                                 flag_de4dot,
-                                 flag_fernflower,
-                                 nsis_flag)
+            if dest is not None:
+                return scan_and_warn(dest,
+                                    mega_optimization_with_anti_false_positive,
+                                    command_flag,
+                                    flag_debloat,
+                                    flag_obfuscar,
+                                    flag_de4dot,
+                                    flag_fernflower,
+                                    nsis_flag)
         elif normalized_path.startswith(normalized_sandbox):
             # Copy from general sandbox to staging directory and rescan
             dest = _copy_to_dest(norm_path, copied_sandbox_files_dir)
-            return scan_and_warn(dest,
-                                 mega_optimization_with_anti_false_positive,
-                                 command_flag,
-                                 flag_debloat,
-                                 flag_obfuscar,
-                                 flag_de4dot,
-                                 flag_fernflower,
-                                 nsis_flag)
-
-        # --- Delay scanning sandbox files until ready ---
-        if normalized_path.startswith(normalized_sandbox):
-            logging.info(
-                f"Sandbox files are copied; Rescan for {norm_path}"
-            )
-            return False
+            if dest is not None:
+                return scan_and_warn(dest,
+                                    mega_optimization_with_anti_false_positive,
+                                    command_flag,
+                                    flag_debloat,
+                                    flag_obfuscar,
+                                    flag_de4dot,
+                                    flag_fernflower,
+                                    nsis_flag)
 
         # 1) Is this the first time we've seen this path?
         is_first_pass = norm_path not in file_md5_cache
