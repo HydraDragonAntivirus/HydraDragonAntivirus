@@ -7586,10 +7586,9 @@ def scan_and_warn(file_path,
             logging.info(f"File {norm_path} is a valid PE file.")
             pe_file = True
 
-        if not is_first_pass and perform_special_scan:
+        if not is_first_pass and perform_special_scan and pe_file:
                 worm_alert(norm_path)
-
-            return True
+                return True
 
         # On subsequent passes: skip if unchanged (unless forced)
         if initial_md5_in_cache == md5:
