@@ -7546,6 +7546,8 @@ def scan_and_warn(file_path,
 
         if not is_first_pass and perform_special_scan:
             if is_pe_file_from_output(die_output):
+                logging.info(f"File {norm_path} is a valid PE file.")
+                pe_file = True
                 worm_alert(norm_path)
 
             return True
@@ -7684,11 +7686,6 @@ def scan_and_warn(file_path,
                     scan_file_with_meta_llama(united_output_path, united_python_code_flag=True)
                 else:
                     logging.error(f"United decompilation failed for file {norm_path}.")
-
-            # Additional checks for PE files
-            if is_pe_file_from_output(die_output):
-                logging.info(f"File {norm_path} is a valid PE file.")
-                pe_file = True
 
             # Operation of the PE file
             if pe_file:
