@@ -7559,16 +7559,16 @@ def scan_and_warn(file_path,
         is_first_pass = norm_path not in file_md5_cache
 
         # 2) Compute MD5
-        md5 = compute_md5(path)
+        md5 = compute_md5(norm_path)
 
         # Extract the file name
         file_name = os.path.basename(norm_path)
 
-    # Try cache first
-    if md5 in die_cache:
-        die_output, plain_text_flag = die_cache[md5]
-    else:
-        die_output, plain_text_flag = get_die_output(norm_path)
+        # Try cache first
+        if md5 in die_cache:
+            die_output, plain_text_flag = die_cache[md5]
+        else:
+            die_output, plain_text_flag = get_die_output(norm_path)
 
         # Store for next time
         die_cache[md5] = (die_output, plain_text_flag)
