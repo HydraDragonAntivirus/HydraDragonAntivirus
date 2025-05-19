@@ -7620,7 +7620,7 @@ def scan_and_warn(file_path,
                     # Recursively scan each extracted file
                     for extracted_file in extracted_files:
                         logging.info(f"Scanning extracted file: {extracted_file}")
-                        scan_and_warn(extracted_file)
+                        threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
 
                 logging.info(f"File {norm_path} is not a valid archive or extraction failed. Proceeding with scanning.")
             except Exception as extraction_error:
@@ -7630,14 +7630,14 @@ def scan_and_warn(file_path,
                 extracted_path = try_unpack_enigma(norm_path)
                 if extracted_path:
                     logging.info(f"Unpack succeeded. Files are in: {extracted_path}")
-                    scan_and_warn(extracted_path)
+                    threading.Thread(target=scan_and_warn, args=(extracted_path,)).start()
                 else:
                     logging.info("Unpack failed for all known Enigma protected versions.")
 
             if is_packer_upx_output(die_output):
                 upx_unpacked = extract_upx(norm_path)
                 if upx_unpacked:
-                    scan_and_warn(upx_unpacked)
+                    threading.Thread(target=scan_and_warn, args=(upx_unpacked,)).start()
                 else:
                     logging.error(f"Failed to unpack {norm_path}")
             else:
@@ -7652,12 +7652,12 @@ def scan_and_warn(file_path,
                 extracted = extract_inno_setup(norm_path)
                 if extracted is not None:
                     logging.info(f"Extracted {len(extracted)} files. Scanning...")
-                    for norm_path in extracted:
+                    for inno_norm_path in extracted:
                         try:
                             # send to scan_and_warn for analysis
-                            scan_and_warn(norm_path)
+                            threading.Thread(target=scan_and_warn, args=(inno_norm_path,)).start()
                         except Exception as e:
-                            logging.error(f"Error scanning {norm_path}: {e}")
+                            logging.error(f"Error scanning {inno_norm_path}: {e}")
                 else:
                     logging.error("Extraction failed; nothing to scan.")
 
@@ -7673,11 +7673,11 @@ def scan_and_warn(file_path,
                 # Send the output files for scanning if they are created
                 if results.get("patched_data"):
                     # Scan the patched binary file
-                    scan_and_warn(output_path)
+                    threading.Thread(target=scan_and_warn, args=(output_path,)).start()
 
                 if results.get("decrypt_func_list"):
                     # Scan the extracted strings file
-                    scan_and_warn(string_output_path)
+                    threading.Thread(target=scan_and_warn, args=(string_output_path)).start()
 
             # Check if it's a .pyc file and decompile
             if is_pyc_file_from_output(die_output):
@@ -7689,29 +7689,33 @@ def scan_and_warn(file_path,
                 # Scan and warn for the uncompyle6 decompiled file, if available
                 if uncompyle6_norm_path:
                     logging.info(f"Scanning decompiled file from uncompyle6: {uncompyle6_norm_path}")
-                    scan_and_warn(uncompyle6_norm_path)
+                    threading.Thread(target=scan_and_warn, args=(uncompyle6_norm_path,)).start()
                 else:
-                    logging.error(f"Uncompyle6 decompilation failed for file {norm_path}.")
+                    logging.error(f"Uncompyle6 decompilation failed for file {uncompyle6_norm_path}.")
 
                 # Scan and warn for the pycdc decompiled file, if available
                 if pycdc_norm_path:
                     logging.info(f"Scanning decompiled file from pycdc: {pycdc_norm_path}")
-                    scan_and_warn(pycdc_norm_path)
+                    threading.Thread(target=scan_and_warn, args=(pycdc_norm_path,)).start()
                 else:
-                    logging.error(f"pycdc decompilation failed for file {norm_path}.")
+                    logging.error(f"pycdc decompilation failed for file {pycdc_norm_path}.")
 
                 # Scan and warn for the pycdas decompiled file, if available
                 if pycdas_norm_path:
                     logging.info(f"Scanning decompiled file from pycdas: {pycdas_norm_path}")
-                    scan_and_warn(pycdas_norm_path)
+                    threading.Thread(target=scan_and_warn, args=(pycdas_norm_path,)).start()
                 else:
-                    logging.error(f"pycdas decompilation failed for file {norm_path}.")
+                    logging.error(f"pycdas decompilation failed for file {pycdas_norm_path}.")
 
                 # Scan and warn for the united decompiled file, if available
                 if united_output_path:
                     logging.info(f"Scanning united decompiled file: {united_output_path}")
-                    scan_and_warn(united_output_path)
-                    scan_file_with_meta_llama(united_output_path, united_python_code_flag=True)
+                    threading.Thread(target=scan_and_warn, args=(united_output_path,)).start()
+                    threading.Thread(
+                        target=scan_file_with_meta_llama,
+                        args=(united_output_path,),
+                        kwargs={'united_python_code_flag': True}
+                    ).start()
                 else:
                     logging.error(f"United decompilation failed for file {norm_path}.")
 
@@ -7742,7 +7746,7 @@ def scan_and_warn(file_path,
                     notify_user_invalid(norm_path, "Win32.Susp.InvalidSignature")
 
                 # Decompile the file in a separate thread
-                decompile_thread = threading.Thread(target=decompile_file, args=(norm_path,))
+                decompile_thread = threading.Thread(target=decompile_file, args=(norm_path,)).start()
                 decompile_thread.start()
 
                 # PE section extraction and scanning
@@ -7751,7 +7755,7 @@ def scan_and_warn(file_path,
                     logging.info(f"Extracted {len(section_files)} PE sections. Scanning...")
                     for fpath in section_files:
                         try:
-                            scan_and_warn(fpath)
+                            threading.Thread(target=scan_and_warn, args=(fpath,)).start()
                         except Exception as e:
                             logging.error(f"Error scanning PE section {fpath}: {e}")
                 else:
@@ -7761,7 +7765,7 @@ def scan_and_warn(file_path,
                 extracted = extract_resources(norm_path, resource_extractor_dir)
                 if extracted:
                     for file in extracted:
-                        scan_and_warn(file)
+                        threading.Thread(target=scan_and_warn, args=(file,)).start()
 
                 # Use the `debloat` library to optimize PE file for scanning
                 try:
@@ -7769,8 +7773,12 @@ def scan_and_warn(file_path,
                         logging.info(f"Debloating PE file {norm_path} for faster scanning.")
                         optimized_norm_path = debloat_pe_file(norm_path)
                         if optimized_norm_path:
-                             logging.info(f"Debloated file saved at: {optimized_norm_path}")
-                             scan_and_warn(optimized_norm_path, flag_debloat=True)
+                            logging.info(f"Debloated file saved at: {optimized_norm_path}")
+                            threading.Thread(
+                                target=scan_and_warn,
+                                args=(pycdas_norm_path,),
+                                kwargs={'flag_debloat': True}
+                            ).start()
                         else:
                              logging.error(f"Debloating failed for {norm_path}, continuing with the original file.")
                 except Exception as ex:
@@ -7782,30 +7790,38 @@ def scan_and_warn(file_path,
             dotnet_result = is_dotnet_file_from_output(die_output)
 
             if dotnet_result is True:
-                dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(norm_path,))
+                dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(norm_path,)).start()
                 dotnet_thread.start()
             elif isinstance(dotnet_result, str) and "Protector: Obfuscar" in dotnet_result and not flag_obfuscar:
                 logging.info(f"The file is a .NET assembly protected with Obfuscar: {dotnet_result}")
                 deobfuscated_path = deobfuscate_with_obfuscar(norm_path, file_name)
                 if deobfuscated_path:
-                    scan_and_warn(deobfuscated_path, flag_obfuscar=True)
+                    threading.Thread(
+                        target=scan_and_warn,
+                        args=(deobfuscated_path,),
+                        kwargs={'flag_obfuscar': True}
+                    ).start()
                 else:
                     logging.warning("Deobfuscation failed or unpacked file not found.")
 
             elif dotnet_result is not None and not flag_de4dot and not "Protector: Obfuscar" in dotnet_result:
-                de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(norm_path,))
+                de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(norm_path,)).start()
                 de4dot_thread.start()
 
             if is_jar_file_from_output(die_output):
                 jar_extractor_paths = run_jar_extractor(norm_path, flag_fernflower)
                 if jar_extractor_paths:
                     for jar_extractor_path in jar_extractor_paths:
-                        scan_and_warn(jar_extractor_path, flag_fernflower)
+                        threading.Thread(
+                            target=scan_and_warn,
+                            args=(jar_extractor_path,),
+                            kwargs={'flag_fernflower': True}
+                        ).start()
                 else:
                     logging.warning("Java Archive Extraction or decompilation failed. Skipping scan.")
 
             if is_java_class_from_output(die_output):
-                run_fernflower_decompiler(norm_path)
+                threading.Thread(target=run_fernflower_decompiler, args=(norm_path,)).start()
 
             # Check if the file contains Nuitka executable
             nuitka_type = is_nuitka_file_from_output(die_output)
@@ -7819,7 +7835,7 @@ def scan_and_warn(file_path,
                     if nuitka_files:
                         for extracted_file in nuitka_files:
                             try:
-                                scan_and_warn(extracted_file)
+                                threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
                             except Exception as e:
                                 logging.error(f"Failed to analyze extracted file {extracted_file}: {e}")
                     else:
@@ -7840,7 +7856,7 @@ def scan_and_warn(file_path,
                     # Scan each extracted file
                     for extracted_file in extracted_files_pyinstaller:
                         logging.info(f"Scanning extracted file: {extracted_file}")
-                        scan_and_warn(extracted_file)
+                        threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
                 else:
                     logging.error(f"No files extracted from PyInstaller archive: {norm_path}")
         else:
@@ -7916,7 +7932,7 @@ def scan_and_warn(file_path,
             # Scan for malware in real-time only for plain text and command flag
             if command_flag:
                 logging.info(f"Performing real-time malware detection for plain text file: {norm_path}...")
-                real_time_scan_thread = threading.Thread(target=monitor_message.detect_malware, args=(norm_path,))
+                real_time_scan_thread = threading.Thread(target=monitor_message.detect_malware, args=(norm_path,)).start()
                 real_time_scan_thread.start()
 
         # Check if the file is a known rootkit file
@@ -8030,7 +8046,7 @@ def monitor_memory_changes(change_threshold_bytes=0):
 
                 # OK—this dump is in the sandbox or is the main file: scan it
                 try:
-                    scan_and_warn(saved_file)
+                    threading.Thread(target=scan_and_warn, args=(saved_file,)).start()
                 except Exception as scan_err:
                     logging.error(
                         f"scan_and_warn failed for {saved_file!r}: {scan_err}"
@@ -8094,7 +8110,7 @@ def monitor_directory(path):
                 full_path = os.path.join(path, filename)
                 if os.path.exists(full_path):
                     logging.info(f"Detected change in: {full_path}")
-                    scan_and_warn(full_path)
+                    threading.Thread(target=scan_and_warn, args=(full_path)).start()
                 else:
                     logging.error(f"File or folder not found: {full_path}")
     except Exception as e:
@@ -8170,7 +8186,7 @@ def check_startup_directories():
 
                             logging.warning(f"Suspicious or malicious startup file detected in {directory}: {file}")
                             notify_user_startup(file_path, message)
-                            scan_and_warn(file_path)
+                            threading.Thread(target=scan_and_warn, args=(file_path)).start()
                             alerted_files.append(file_path)
         except Exception as ex:
             logging.error(f"An error occurred while checking startup directories: {ex}")
@@ -8235,12 +8251,12 @@ def check_uefi_directories():
                     if uefi_path in uefi_100kb_paths and is_malicious_file(uefi_path, 100):
                         logging.warning(f"Malicious file detected: {uefi_path}")
                         notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.SecureBootRecovery.gen.Malware")
-                        scan_and_warn(uefi_path)
+                        threading.Thread(target=scan_and_warn, args=(uefi_path)).start()
                         alerted_uefi_files.append(uefi_path)
                     elif uefi_path in uefi_paths and is_malicious_file(uefi_path, 1024):
                         logging.warning(f"Malicious file detected: {uefi_path}")
                         notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.ScreenLocker.Ransomware.gen.Malware")
-                        scan_and_warn(uefi_path)
+                        threading.Thread(target=scan_and_warn, args=(uefi_path)).start()
                         alerted_uefi_files.append(uefi_path)
 
         # Check for any new files in the EFI directory
@@ -8251,7 +8267,7 @@ def check_uefi_directories():
                 if file_path.endswith(".efi") and file_path not in known_uefi_files and file_path not in alerted_uefi_files:
                     logging.warning(f"Unknown file detected: {file_path}")
                     notify_user_uefi(file_path, "HEUR:Win32.Rootkit.Startup.UEFI.gen.Malware")
-                    scan_and_warn(file_path)
+                    threading.Thread(target=scan_and_warn, args=(file_path)).start()
                     alerted_uefi_files.append(file_path)
 
 
@@ -8259,7 +8275,7 @@ class ScanAndWarnHandler(FileSystemEventHandler):
 
     def process_file(self, file_path):
         try:
-            scan_and_warn(file_path)
+            threading.Thread(target=scan_and_warn, args=(file_path)).start()
             logging.info(f"Processed file: {file_path}")
         except Exception as ex:
             logging.error(f"Error processing file (scan_and_warn) {file_path}: {ex}")
@@ -8860,7 +8876,11 @@ class MonitorMessageCommandLine:
         with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
             f.write(text[:1_000_000])
         logging.info(f"Wrote original -> {orig_fn}")
-        scan_and_warn(orig_fn, command_flag=True)
+        threading.Thread(
+            target=scan_and_warn,
+            args=(orig_fn,),
+            kwargs={'command_flag': True}
+        ).start()
 
         # write preprocessed text
         pre = self.preprocess_text(text)
@@ -8869,7 +8889,11 @@ class MonitorMessageCommandLine:
             with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
                 f.write(pre[:1_000_000])
             logging.info(f"Wrote preprocessed -> {pre_fn}")
-            scan_and_warn(pre_fn, command_flag=True)
+            threading.Thread(
+                target=scan_and_warn, 
+                args=(pre_fn,), 
+                kwargs={'command_flag': True}
+            ).start()
 
     def handle_event(self, hWinEventHook, event, hwnd, idObject, idChild, dwEventThread, dwmsEventTime):
         """
@@ -8997,7 +9021,11 @@ class MonitorMessageCommandLine:
                     with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
                         f.write(cmd[:1_000_000])
                     logging.info(f"Wrote cmd -> {orig_fn}")
-                    scan_and_warn(orig_fn, command_flag=True)
+                    threading.Thread(
+                        target=scan_and_warn, 
+                        args=(orig_fn,), 
+                        kwargs={'command_flag': True}
+                    ).start()
 
                     pre_cmd = self.preprocess_text(cmd)
                     if pre_cmd:
@@ -9005,7 +9033,12 @@ class MonitorMessageCommandLine:
                         with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
                             f.write(pre_cmd[:1_000_000])
                         logging.info(f"Wrote cmd pre -> {pre_fn}")
-                        scan_and_warn(pre_fn, command_flag=True)
+                        threading.Thread(
+                            target=scan_and_warn, 
+                            args=(pre_fn,),
+                            kwargs={'command_flag':True}
+                        ).start()
+
             except Exception as ex:
                 logging.exception(f"Command-line snapshot error:{ex}")
 
@@ -9036,15 +9069,16 @@ def monitor_sandboxie_directory():
                         if file_path not in alerted_files:
                             logging.info(f"New file detected in {root}: {filename}")
                             alerted_files.add(file_path)
-                            scan_and_warn(file_path)
+                            threading.Thread(target=scan_and_warn, args=(file_path)).start()
 
                         # on modification: rescan + recopy
                         if file_path not in scanned_files:
                             scanned_files.add(file_path)
                             file_mod_times[file_path] = last_mod_time
+                            threading.Thread(target=scan_and_warn, args=(file_path,)).start()  # Scan immediately
                         elif file_mod_times[file_path] != last_mod_time:
                             logging.info(f"File modified in {root}: {filename}")
-                            scan_and_warn(file_path)
+                            threading.Thread(target=scan_and_warn, args=(file_path)).start()
                             file_mod_times[file_path] = last_mod_time
 
     except Exception as ex:
