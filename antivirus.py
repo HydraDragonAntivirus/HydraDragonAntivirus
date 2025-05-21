@@ -313,6 +313,10 @@ import requests
 logging.info(f"requests module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+from functools import wraps
+logging.info("functoools.wraps module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 from GoStringUngarbler.gostringungarbler_lib import process_file_go
 logging.info(f"GoStringUngarbler.gostringungarbler_lib.process_file_go module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -7462,7 +7466,16 @@ def _copy_to_dest(file_path, dest_root):
     logging.error(f"All copy methods failed for: {file_path}")
     return None
 
+ecutor = ThreadPoolExecutor(max_workers=1000)
+
+def run_in_thread(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        return executor.submit(fn, *args, **kwargs)
+    return wrapper
+
 # --- Main Scanning Function ---
+@run_in_thread
 def scan_and_warn(file_path,
                   mega_optimization_with_anti_false_positive=True,
                   command_flag=False,
@@ -8507,7 +8520,7 @@ def find_windows_with_text():
 
 
 class MonitorMessageCommandLine:
-    def __init__(self, max_workers: int = 20):
+    def __init__(self, max_workers: int = 100):
         self.max_workers = max_workers
         self._win_event_proc = WinEventProcType(self.handle_event)
         self._hooks = []
