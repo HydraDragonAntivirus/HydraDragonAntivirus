@@ -8186,7 +8186,7 @@ def check_startup_directories():
 
                             logging.warning(f"Suspicious or malicious startup file detected in {directory}: {file}")
                             notify_user_startup(file_path, message)
-                            threading.Thread(target=scan_and_warn, args=(file_path)).start()
+                            threading.Thread(target=scan_and_warn, args=(file_path,)).start()
                             alerted_files.append(file_path)
         except Exception as ex:
             logging.error(f"An error occurred while checking startup directories: {ex}")
@@ -8267,7 +8267,7 @@ def check_uefi_directories():
                 if file_path.endswith(".efi") and file_path not in known_uefi_files and file_path not in alerted_uefi_files:
                     logging.warning(f"Unknown file detected: {file_path}")
                     notify_user_uefi(file_path, "HEUR:Win32.Rootkit.Startup.UEFI.gen.Malware")
-                    threading.Thread(target=scan_and_warn, args=(file_path)).start()
+                    threading.Thread(target=scan_and_warn, args=(file_path,)).start()
                     alerted_uefi_files.append(file_path)
 
 
@@ -8275,7 +8275,7 @@ class ScanAndWarnHandler(FileSystemEventHandler):
 
     def process_file(self, file_path):
         try:
-            threading.Thread(target=scan_and_warn, args=(file_path)).start()
+            threading.Thread(target=scan_and_warn, args=(file_path,)).start()
             logging.info(f"Processed file: {file_path}")
         except Exception as ex:
             logging.error(f"Error processing file (scan_and_warn) {file_path}: {ex}")
@@ -9069,7 +9069,7 @@ def monitor_sandboxie_directory():
                         if file_path not in alerted_files:
                             logging.info(f"New file detected in {root}: {filename}")
                             alerted_files.add(file_path)
-                            threading.Thread(target=scan_and_warn, args=(file_path)).start()
+                            threading.Thread(target=scan_and_warn, args=(file_path,)).start()
 
                         # on modification: rescan + recopy
                         if file_path not in scanned_files:
@@ -9078,7 +9078,7 @@ def monitor_sandboxie_directory():
                             threading.Thread(target=scan_and_warn, args=(file_path,)).start()  # Scan immediately
                         elif file_mod_times[file_path] != last_mod_time:
                             logging.info(f"File modified in {root}: {filename}")
-                            threading.Thread(target=scan_and_warn, args=(file_path)).start()
+                            threading.Thread(target=scan_and_warn, args=(file_path,)).start()
                             file_mod_times[file_path] = last_mod_time
 
     except Exception as ex:
