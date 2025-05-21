@@ -384,7 +384,7 @@ detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
 detectiteasy_json_dir = os.path.join(script_dir, "detectiteasy_json")
 memory_dir = os.path.join(script_dir, "memory")
 debloat_dir = os.path.join(script_dir, "debloat")
-copied_sandbox_files_dir = os.path.join(script_dir, "copied_sandbox_files")
+copied_sandbox_and_main_files_dir = os.path.join(script_dir, "copied_sandbox_and_main_files")
 detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
 pycdc_path = os.path.join(script_dir, "pycdc.exe")
@@ -555,7 +555,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [enigma_extracted_dir, sandboxie_folder, copied_sandbox_files_dir, decompiled_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, python_deobfuscated_dir,  pycdas_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
+directories_to_scan = [enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, python_deobfuscated_dir,  pycdas_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
@@ -663,7 +663,7 @@ os.makedirs(pycdc_dir, exist_ok=True)
 os.makedirs(pycdas_dir, exist_ok=True)
 os.makedirs(united_python_source_code_dir, exist_ok=True)
 os.makedirs(pycdas_united_meta_llama_dir, exist_ok=True)
-os.makedirs(copied_sandbox_files_dir, exist_ok=True)
+os.makedirs(copied_sandbox_and_main_files_dir, exist_ok=True)
 os.makedirs(HiJackThis_logs_dir, exist_ok=True)
 os.makedirs(html_extracted_dir, exist_ok=True)
 os.makedirs(sandboxie_folder, exist_ok=True)
@@ -5906,7 +5906,7 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: Enigma extracted.")
         elif file_path.startswith(sandboxie_folder):
             logging.info(f"{file_path}: It's a Sandbox environment file.")
-        elif file_path.startswith(copied_sandbox_files_dir):
+        elif file_path.startswith(copied_sandbox_and_main_files_dir):
             logging.info(f"{file_path}: It's a restored sandbox environment file.")
         elif file_path.startswith(decompiled_dir):
             logging.info(f"{file_path}: Decompiled.")
@@ -5994,7 +5994,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
         directory_logging_info = [
             (lambda fp: fp.startswith(enigma_extracted_dir), "Enigma extracted."),
             (lambda fp: fp.startswith(sandboxie_folder), "It's a Sandbox environment file."),
-            (lambda fp: fp.startswith(copied_sandbox_files_dir), "It's a restored sandbox environment file."),
+            (lambda fp: fp.startswith(copied_sandbox_and_main_files_dir), "It's a restored sandbox environment file."),
             (lambda fp: fp.startswith(decompiled_dir), "Decompiled."),
             (lambda fp: fp.startswith(upx_extracted_dir), "UPX extracted."),
             (lambda fp: fp.startswith(inno_setup_extracted_dir), "Inno Setup extracted."),
@@ -7539,7 +7539,7 @@ def scan_and_warn(file_path,
                                     nsis_flag)
         elif normalized_path.startswith(normalized_sandbox):
             # Copy from general sandbox to staging directory and rescan
-            dest = _copy_to_dest(norm_path, copied_sandbox_files_dir)
+            dest = _copy_to_dest(norm_path, copied_sandbox_and_main_files_dir)
             if dest is not None:
                 return scan_and_warn(dest,
                                     mega_optimization_with_anti_false_positive,
@@ -9116,7 +9116,7 @@ def perform_sandbox_analysis(file_path):
 
         monitor_message = MonitorMessageCommandLine()
 
-        main_dest = _copy_to_dest(file_path, copied_sandbox_files_dir)
+        main_dest = _copy_to_dest(file_path, copied_sandbox_and_main_files_dir)
 
         threading.Thread(target=scan_and_warn, args=(main_dest,)).start()
 
@@ -9131,7 +9131,6 @@ def perform_sandbox_analysis(file_path):
 
         # Start other sandbox analysis tasks in separate threads
         threading.Thread(target=monitor_directories_with_watchdog).start()
-        threading.Thread(target=scan_and_warn, args=(file_path,)).start()
         threading.Thread(target=start_monitoring_sandbox).start()
         threading.Thread(target=monitor_sandboxie_directory).start()
         threading.Thread(target=check_startup_directories).start()
