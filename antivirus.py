@@ -7526,29 +7526,31 @@ def scan_and_warn(file_path,
 
         # --- Route files based on origin folder ---
         if normalized_path.startswith(normalized_de4dot):
+            perform_special_scan = True
             # Copy from de4dot sandbox to extracted directory and rescan
             dest = _copy_to_dest(norm_path, de4dot_extracted_dir)
             if dest is not None:
-                return scan_and_warn(dest,
-                                    mega_optimization_with_anti_false_positive,
-                                    command_flag,
-                                    flag_debloat,
-                                    flag_obfuscar,
-                                    flag_de4dot,
-                                    flag_fernflower,
-                                    nsis_flag)
+                scan_and_warn(dest,
+                                mega_optimization_with_anti_false_positive,
+                                command_flag,
+                                flag_debloat,
+                                flag_obfuscar,
+                                flag_de4dot,
+                                flag_fernflower,
+                                nsis_flag)
         elif normalized_path.startswith(normalized_sandbox):
+            perform_special_scan = True
             # Copy from general sandbox to staging directory and rescan
             dest = _copy_to_dest(norm_path, copied_sandbox_and_main_files_dir)
             if dest is not None:
-                return scan_and_warn(dest,
-                                    mega_optimization_with_anti_false_positive,
-                                    command_flag,
-                                    flag_debloat,
-                                    flag_obfuscar,
-                                    flag_de4dot,
-                                    flag_fernflower,
-                                    nsis_flag)
+                scan_and_warn(dest,
+                                mega_optimization_with_anti_false_positive,
+                                command_flag,
+                                flag_debloat,
+                                flag_obfuscar,
+                                flag_de4dot,
+                                flag_fernflower,
+                                nsis_flag)
 
         # 1) Is this the first time we've seen this path?
         is_first_pass = norm_path not in file_md5_cache
@@ -7568,18 +7570,15 @@ def scan_and_warn(file_path,
         # Store for next time
         die_cache[md5] = (die_output, plain_text_flag)
 
-        # Only perform special scans for sandboxie_folder
-        if not normalized_path.startswith(normalized_sandbox):
-            perform_special_scan = True
-
         # Perform ransomware alert check
-        if is_file_fully_unknown(die_output) and perform_special_scan:
-            ransomware_alert(norm_path)
+        if is_file_fully_unknown(die_output):
             if mega_optimization_with_anti_false_positive:
                 logging.info(
                     f"Stopped analysis; unknown data detected in {norm_path}"
                 )
                 return False
+            if perform_special_scan:
+                ransomware_alert(norm_path)
 
         if is_pe_file_from_output(die_output):
             logging.info(f"File {norm_path} is a valid PE file.")
