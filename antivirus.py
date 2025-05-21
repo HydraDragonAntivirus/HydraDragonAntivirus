@@ -9024,7 +9024,7 @@ class MonitorMessageCommandLine:
                     main_path = os.path.abspath(self.main_file_path).lower()
 
                     # skip if not from main executable or in the Sandboxie folder
-                    if exe_path != main_path or exe_path.startswith(self.sandboxie_folder_path.lower()):
+                    if exe_path != main_path or exe_path.startswith(self.sandboxie_folder.lower()):
                         logging.debug(f"Skipping command from excluded path: {exe_path}")
                         continue
 
