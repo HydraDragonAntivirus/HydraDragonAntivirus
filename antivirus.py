@@ -7745,7 +7745,7 @@ def scan_and_warn(file_path,
                     notify_user_invalid(norm_path, "Win32.Susp.InvalidSignature")
 
                 # Decompile the file in a separate thread
-                decompile_thread = threading.Thread(target=decompile_file, args=(norm_path,)).start()
+                decompile_thread = threading.Thread(target=decompile_file, args=(norm_path,))
                 decompile_thread.start()
 
                 # PE section extraction and scanning
