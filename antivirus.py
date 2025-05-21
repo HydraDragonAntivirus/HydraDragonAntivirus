@@ -1311,7 +1311,7 @@ def is_base64(data: bytes) -> bool:
     return bool(_BASE64_RE.fullmatch(data))
 
 def process_file_data(file_path, die_output):
-    """Process file data by decoding, removing magic bytes, and emitting a reversed lines version."""
+    """Process file data by decoding, removing magic bytes, and emitting a reversed lines version, saving outputs with .txt extension."""
     try:
         with open(file_path, 'rb') as data_file:
             data_content = data_file.read()
@@ -1340,24 +1340,23 @@ def process_file_data(file_path, die_output):
         # strip out your magic bytes
         processed_data = remove_magic_bytes(data_content, die_output)
 
-        # write the normal processed output
+        # write the normal processed output with .txt extension
+        base_name = os.path.basename(file_path)
         output_file_path = os.path.join(
             processed_dir,
-            'processed_' + os.path.basename(file_path)
+            f'processed_{base_name}.txt'
         )
         with open(output_file_path, 'wb') as processed_file:
             processed_file.write(processed_data)
-
         logging.info(f"Processed data from {file_path} saved to {output_file_path}")
 
-        # now create a reversed‑lines variant
-        # split into lines (keeping line endings), reverse the order, and rejoin
+        # now create a reversed lines variant with .txt extension
         lines = processed_data.splitlines(keepends=True)
         reversed_lines_data = b''.join(lines[::-1])
 
         reversed_output_path = os.path.join(
             processed_dir,
-            'processed_reversed_lines_' + os.path.basename(file_path)
+            f'processed_reversed_lines_{base_name}.txt'
         )
         with open(reversed_output_path, 'wb') as rev_file:
             rev_file.write(reversed_lines_data)
