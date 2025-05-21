@@ -7677,7 +7677,7 @@ def scan_and_warn(file_path,
 
                 if results.get("decrypt_func_list"):
                     # Scan the extracted strings file
-                    threading.Thread(target=scan_and_warn, args=(string_output_path)).start()
+                    threading.Thread(target=scan_and_warn, args=(string_output_path,)).start()
 
             # Check if it's a .pyc file and decompile
             if is_pyc_file_from_output(die_output):
@@ -8110,7 +8110,7 @@ def monitor_directory(path):
                 full_path = os.path.join(path, filename)
                 if os.path.exists(full_path):
                     logging.info(f"Detected change in: {full_path}")
-                    threading.Thread(target=scan_and_warn, args=(full_path)).start()
+                    threading.Thread(target=scan_and_warn, args=(full_path,)).start()
                 else:
                     logging.error(f"File or folder not found: {full_path}")
     except Exception as e:
@@ -8251,12 +8251,12 @@ def check_uefi_directories():
                     if uefi_path in uefi_100kb_paths and is_malicious_file(uefi_path, 100):
                         logging.warning(f"Malicious file detected: {uefi_path}")
                         notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.SecureBootRecovery.gen.Malware")
-                        threading.Thread(target=scan_and_warn, args=(uefi_path)).start()
+                        threading.Thread(target=scan_and_warn, args=(uefi_path,)).start()
                         alerted_uefi_files.append(uefi_path)
                     elif uefi_path in uefi_paths and is_malicious_file(uefi_path, 1024):
                         logging.warning(f"Malicious file detected: {uefi_path}")
                         notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.ScreenLocker.Ransomware.gen.Malware")
-                        threading.Thread(target=scan_and_warn, args=(uefi_path)).start()
+                        threading.Thread(target=scan_and_warn, args=(uefi_path,)).start()
                         alerted_uefi_files.append(uefi_path)
 
         # Check for any new files in the EFI directory
