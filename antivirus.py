@@ -7466,7 +7466,7 @@ def _copy_to_dest(file_path, dest_root):
     logging.error(f"All copy methods failed for: {file_path}")
     return None
 
-ecutor = ThreadPoolExecutor(max_workers=1000)
+executor = ThreadPoolExecutor(max_workers=1000)
 
 def run_in_thread(fn):
     @wraps(fn)
