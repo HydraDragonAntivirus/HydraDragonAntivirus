@@ -7789,7 +7789,7 @@ def scan_and_warn(file_path,
             dotnet_result = is_dotnet_file_from_output(die_output)
 
             if dotnet_result is True:
-                dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(norm_path,)).start()
+                dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(norm_path,))
                 dotnet_thread.start()
             elif isinstance(dotnet_result, str) and "Protector: Obfuscar" in dotnet_result and not flag_obfuscar:
                 logging.info(f"The file is a .NET assembly protected with Obfuscar: {dotnet_result}")
@@ -7804,7 +7804,7 @@ def scan_and_warn(file_path,
                     logging.warning("Deobfuscation failed or unpacked file not found.")
 
             elif dotnet_result is not None and not flag_de4dot and not "Protector: Obfuscar" in dotnet_result:
-                de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(norm_path,)).start()
+                de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(norm_path,))
                 de4dot_thread.start()
 
             if is_jar_file_from_output(die_output):
@@ -7931,7 +7931,7 @@ def scan_and_warn(file_path,
             # Scan for malware in real-time only for plain text and command flag
             if command_flag:
                 logging.info(f"Performing real-time malware detection for plain text file: {norm_path}...")
-                real_time_scan_thread = threading.Thread(target=monitor_message.detect_malware, args=(norm_path,)).start()
+                real_time_scan_thread = threading.Thread(target=monitor_message.detect_malware, args=(norm_path,))
                 real_time_scan_thread.start()
 
         # Check if the file is a known rootkit file
