@@ -6554,32 +6554,46 @@ def contains_exec_calls(code: str) -> bool:
     return False
 
 # 5) Sandbox execution writes raw .py via DefaultBox
-def sandbox_deobfuscate_file(transformed_path: Path, box_name: str = "DefaultBox") -> Path | None:
+def sandbox_deobfuscate_file(transformed_path: Path) -> Path | None:
+    """
+    Runs the Python deobfuscator inside Sandboxie (always using DefaultBox),
+    capturing its stdout directly into a file.
+    """
     name = transformed_path.stem
     output_filename = f"{name}_deobf.py"
     sandbox_inner = Path(sandbox_program_files) / output_filename
-    sandbox_inner_dir = sandbox_inner.parent
-    cmd = (
-        f'"{sandboxie_path}" /box:{box_name} /elevate cmd.exe /c '
-        f'"mkdir \"{sandbox_inner_dir}\" & "{sys.executable}" "{transformed_path}" > "{sandbox_inner}""'
-    )
+
+    # ensure the sandbox output directory exists
+    sandbox_inner.parent.mkdir(parents=True, exist_ok=True)
+
+    # build the command, always using DefaultBox
+    cmd = [
+        str(sandboxie_path),
+        "/box:DefaultBox",
+        "/elevate",
+        sys.executable,
+        str(transformed_path),
+    ]
+
     try:
-        subprocess.run(cmd, shell=True, check=True, timeout=120)
-    except Exception:
+        # open the file for writing and hand it to subprocess
+        with sandbox_inner.open("w", encoding="utf-8") as out_f:
+            subprocess.run(
+                cmd,
+                stdout=out_f,
+                stderr=subprocess.STDOUT,
+                check=True,
+                timeout=120,
+            )
+    except Exception as e:
+        logging.error(f"Sandbox run failed: {e}")
         return None
 
-    matches = list(Path(sandboxie_folder).glob(f"**/{output_filename}"))
-    if not matches:
-        return None
-    sandboxed_full = matches[0]
+    # subprocess.run has completed and file has been flushed
+    if sandbox_inner.exists() and sandbox_inner.stat().st_size > 0:
+        return sandbox_inner
 
-    start = time.monotonic()
-    timeout = 10  # seconds, adjust as needed
-    while True:
-        if sandboxed_full.exists() and sandboxed_full.stat().st_size > 0:
-            return sandboxed_full
-        if time.monotonic() - start > timeout:
-            break
+    logging.error("Sandbox run completed but output file is missing or empty.")
     return None
 
 # Main loop: apply exec->print and remove unused imports, with stuck-detection
