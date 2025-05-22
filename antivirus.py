@@ -8833,19 +8833,19 @@ class MonitorMessageCommandLine:
             for category, details in self.known_malware_messages.items():
                 # Check text patterns
                 for pattern in details.get("patterns", []):
-                    if self.calculate_similarity_text(file_content, pattern) > 0.8:
+                    if self.calculate_similarity_text(file_content, pattern) > 0.92:
                         details["process_function"](file_content, file_path)
                         logging.warning(f"Detected malware pattern for '{category}' in {file_path}.")
 
                 # Check fixed message
-                if "message" in details and self.calculate_similarity_text(file_content, details["message"]) > 0.8:
+                if "message" in details and self.calculate_similarity_text(file_content, details["message"]) > 0.92:
                     details["process_function"](file_content, file_path)
                     logging.warning(f"Detected malware message for '{category}' in {file_path}.")
 
                 # Check command patterns only for files named cmd_*.txt
                 if "command" in details:
                     if basename.startswith("cmd_") and basename.endswith(".txt"):
-                        if self.calculate_similarity_text(file_content, details["command"]) > 0.8:
+                        if self.calculate_similarity_text(file_content, details["command"]) > 0.92:
                             details["process_function"](file_content, file_path)
                             logging.warning(f"Detected malware command for '{category}' in {file_path}.")
                     else:
