@@ -265,10 +265,6 @@ import py7zr
 logging.info(f"py7zr module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import uncompyle6
-logging.info(f"uncompyle6 module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import pymem
 logging.info(f"pymem module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -5989,7 +5985,7 @@ def log_directory_type(file_path):
         elif file_path.startswith(pycdas_dir):
             logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code directory with pycdas.exe.")
         elif file_path.startswith(python_source_code_dir):
-            logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code directory with uncompyle6.")
+            logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code base directory.")
         elif file_path.startswith(nuitka_source_code_dir):
             logging.info(f"{file_path}: It's a Nuitka reversed-engineered Python source code directory.")
         elif file_path.startswith(html_extracted_dir):
@@ -6002,7 +5998,7 @@ def log_directory_type(file_path):
 def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompiled_flag=False, HiJackThis_flag=False):
     """
     Processes a file and analyzes it using Meta Llama-3.2-1B.
-    If united_python_code_flag is True (i.e. the file comes from pycdas, pycdc, uncompyle6 decompilation),
+    If united_python_code_flag is True (i.e. the file comes from pycdas, pycdc decompilation),
     the summary will consist solely of the full source code.
     If decompiled_flag is True (and united_python_code_flag is False), a normal summary is generated with
     an additional note indicating that the file was decompiled by our tool and is Python source code.
@@ -6045,7 +6041,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
             (lambda fp: fp.startswith(python_deobfuscated_sandboxie_dir), "It's an unobfuscated Python directory within Sandboxie."),
             (lambda fp: fp.startswith(pycdas_dir), "PyInstaller, .pyc reversed-engineered source code directory with pycdas.exe."),
             (lambda fp: fp.startswith(pycdas_united_meta_llama_dir), "PyInstaller .pyc reverse-engineered source code directory, decompiled with pycdas.exe and converted to non-bytecode Python code using Meta Llama-3.2-1B."),
-            (lambda fp: fp.startswith(python_source_code_dir), "PyInstaller, .pyc reversed-engineered source code directory with uncompyle6."),
+            (lambda fp: fp.startswith(python_source_code_dir), "PyInstaller, .pyc reversed-engineered source code base directory."),
             (lambda fp: fp.startswith(nuitka_source_code_dir), "Nuitka reversed-engineered Python source code directory.")
         ]
 
@@ -6805,9 +6801,9 @@ def run_pycdas_decompiler(file_path):
         logging.error(f"Error running pycdas: {e}")
         return None
 
-def show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name):
+def show_code_with_pycdc_pycdas(file_path, file_name):
     """
-    Decompiles a .pyc file using uncompyle6, pycdc, and pycdas, and saves the results.
+    Decompiles a .pyc file using pycdc and pycdas, and saves the results.
     Combines outputs into a united file only if both pycdc and pycdas succeed.
 
     Args:
@@ -6815,11 +6811,10 @@ def show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name):
         file_name: Name of the .pyc file.
 
     Returns:
-        Tuple: (uncompyle6_output_path, pycdc_output_path, pycdas_output_path, united_output_path)
+        Tuple: (pycdc_output_path, pycdas_output_path, united_output_path)
     """
     try:
         logging.info(f"Processing python file: {file_path}")
-        # Derive a base name from the file name (without extension)
         base_name = os.path.splitext(file_name)[0]
 
         # Detect if PyInstaller source archive
@@ -6833,36 +6828,6 @@ def show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name):
                     is_source = (type_cmprs_data == b's')
         except Exception:
             pass
-
-        # Generate unique output path for uncompyle6
-        version = 1
-        while True:
-            suffix = "_source_code.py" if is_source else "_decompile.py"
-            uncompyle6_output_path = os.path.join(python_source_code_dir, f"{base_name}_{version}{suffix}")
-            if not os.path.exists(uncompyle6_output_path):
-                break
-            version += 1
-
-        # --- uncompyle6 decompilation ---
-        decompiled_code = None
-        try:
-            with open(file_path, "rb") as dec_f:
-                buffer = io.StringIO()
-                # use the Python version you're running, e.g., 3.12
-                uncompyle6.main.decompile(3.12, dec_f, buffer)
-                decompiled_code = buffer.getvalue()
-        except Exception as e:
-            logging.error(f"uncompyle6 failed: {e}")
-
-        # Save the uncompyle6 output if decompilation succeeded
-        if decompiled_code:
-            with open(uncompyle6_output_path, "w", encoding="utf-8") as f:
-                f.write(decompiled_code)
-            logging.info(f"[+] uncompyle6 output saved to {uncompyle6_output_path}")
-            process_decompiled_code(uncompyle6_output_path)
-        else:
-            uncompyle6_output_path = None
-            logging.error("[-] uncompyle6 produced no output.")
 
         # --- PyCDC decompilation branch ---
         pycdc_output_path = None
@@ -6891,16 +6856,13 @@ def show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name):
             os.makedirs(united_dir, exist_ok=True)
 
             combined_code = ""
-
-            if uncompyle6_output_path and os.path.exists(uncompyle6_output_path):
-                with open(uncompyle6_output_path, "r", encoding="utf-8") as f:
-                    combined_code += "# uncompyle6 output\n" + f.read() + "\n\n"
-
+            combined_code += "# pycdc output\n"
             with open(pycdc_output_path, "r", encoding="utf-8") as f:
-                combined_code += "# pycdc output\n" + f.read() + "\n\n"
+                combined_code += f.read() + "\n\n"
 
+            combined_code += "# pycdas output\n"
             with open(pycdas_output_path, "r", encoding="utf-8") as f:
-                combined_code += "# pycdas output\n" + f.read() + "\n\n"
+                combined_code += f.read() + "\n\n"
 
             united_output_path = os.path.join(united_dir, f"{base_name}_united.py")
             with open(united_output_path, "w", encoding="utf-8") as f:
@@ -6916,11 +6878,11 @@ def show_code_with_uncompyle6_pycdc_pycdas(file_path, file_name):
         else:
             logging.info("[-] Skipping united output: pycdc and pycdas must both succeed.")
 
-        return uncompyle6_output_path, pycdc_output_path, pycdas_output_path, united_output_path
+        return pycdc_output_path, pycdas_output_path, united_output_path
 
     except Exception as ex:
         logging.error(f"Error processing python file {file_path}: {ex}")
-        return None, None, None, None
+        return None, None, None
 
 def deobfuscate_with_obfuscar(file_path, file_basename):
     """
@@ -7718,15 +7680,8 @@ def scan_and_warn(file_path,
             if is_pyc_file_from_output(die_output):
                 logging.info(f"File {norm_path} is a .pyc (Python Compiled Module) file. Attempting to decompile...")
 
-                # Call the show_code_with_uncompyle6_pycdc_pycdas function to decompile the .pyc file
-                uncompyle6_norm_path, pycdc_norm_path, pycdas_norm_path, united_output_path = show_code_with_uncompyle6_pycdc_pycdas(norm_path, file_name)
-
-                # Scan and warn for the uncompyle6 decompiled file, if available
-                if uncompyle6_norm_path:
-                    logging.info(f"Scanning decompiled file from uncompyle6: {uncompyle6_norm_path}")
-                    threading.Thread(target=scan_and_warn, args=(uncompyle6_norm_path,)).start()
-                else:
-                    logging.error(f"Uncompyle6 decompilation failed for file {uncompyle6_norm_path}.")
+                # Call the show_code_with_pycdc_pycdas function to decompile the .pyc file
+                pycdc_norm_path, pycdas_norm_path, united_output_path = show_code_with_pycdc_pycdas(norm_path, file_name)
 
                 # Scan and warn for the pycdc decompiled file, if available
                 if pycdc_norm_path:

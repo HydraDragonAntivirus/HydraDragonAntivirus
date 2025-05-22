@@ -12,7 +12,6 @@ torch
 accelerate
 py7zr
 chardet
-uncompyle6
 pymem
 pyelftools 
 zstandard
