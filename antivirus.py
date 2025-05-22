@@ -6131,7 +6131,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
         # Read the file content
         readable_file_content = ""
         line_count = 0
-        max_lines = 100000  # Maximum number of lines to read
+        max_lines = 10000  # Maximum number of lines to read
 
         try:
             with open(file_path, 'r', encoding="utf-8", errors="ignore") as meta_llama_file:
