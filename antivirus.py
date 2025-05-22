@@ -1115,50 +1115,59 @@ def is_dotnet_file_from_output(die_output):
 
 def is_file_fully_unknown(die_output: str) -> bool:
     """
-    Determines whether DIE output indicates an unrecognized binary file.
-
-    Returns True only if:
-      - It contains a JSON block with one `detects` entry:
-          filetype == "Binary"
-          values[0].string == "Unknown: Unknown"
-      - OR it is exactly the two plain-text lines:
-          Binary
-          Unknown: Unknown
+    Returns True if DIE's output unequivocally indicates
+    "Binary: Unknown" (fully unrecognized), either via JSON
+    or plain text. Otherwise False.
     """
     if not die_output or not die_output.strip():
         logging.info("No DIE output provided.")
         return False
 
-    # 1) Try JSON path: extract first {...} block
-    match = re.search(r'\{.*\}', die_output, flags=re.DOTALL)
+    # DEBUG: show exactly what DIE printed
+    logging.debug(f"DIE raw output:\n{repr(die_output)}")
+
+    # 1) Try to find a JSON block containing "detects"
+    match = re.search(r'\{.*?\}', die_output, flags=re.DOTALL)
     if match:
+        raw_json = match.group(0)
         try:
-            data = json.loads(match.group(0))
+            data = json.loads(raw_json)
             detects = data.get("detects")
-            if (
-                isinstance(detects, list)
-                and len(detects) == 1
-                and detects[0].get("filetype") == "Binary"
-            ):
-                vals = detects[0].get("values")
-                if (
-                    isinstance(vals, list)
-                    and len(vals) == 1
-                    and vals[0].get("string") == "Unknown: Unknown"
-                ):
-                    label = f"{detects[0]['filetype']}: {vals[0]['string']}"
-                    logging.info(f"DIE output label: {label!r}")
-                    return label == "Binary: Unknown: Unknown"
-        except json.JSONDecodeError as e:
-            logging.info(f"JSON parse error: {e}")
+            if isinstance(detects, list) and len(detects) == 1:
+                entry = detects[0]
+                ft = entry.get("filetype", "")
+                if isinstance(ft, str) and ft.lower().strip() == "binary":
+                    vals = entry.get("values", [])
+                    if isinstance(vals, list) and len(vals) == 1:
+                        s = vals[0].get("string", "")
+                        if isinstance(s, str):
+                            normalized = s.lower().replace(" ", "")
+                            if normalized == "unknown:unknown":
+                                logging.info("DIE JSON indicates Binary: Unknown.")
+                                return True
+                            else:
+                                logging.debug(f"JSON 'string' field was {s!r}, not 'Unknown: Unknown'.")
+                        else:
+                            logging.debug("JSON 'string' field is not a string type.")
+                    else:
+                        logging.debug(f"JSON 'values' is not a single-element list: {vals!r}")
+                else:
+                    logging.debug(f"JSON 'filetype' is not 'Binary': {ft!r}")
+        except json.JSONDecodeError as jde:
+            logging.debug(f"Failed to parse JSON from DIE output: {jde}")
 
-    # 2) Plain-text fallback
+    # 2) Plain-text fallback: look for two lines "Binary" / "Unknown: Unknown"
     lines = [ln.strip() for ln in die_output.splitlines() if ln.strip()]
-    if lines == ["Binary", "Unknown: Unknown"]:
-        logging.info("DIE output text indicates an unknown file.")
-        return True
+    if len(lines) >= 2:
+        first = lines[0].lower()
+        second = lines[1].lower().replace(" ", "")
+        if first == "binary" and second == "unknown:unknown":
+            logging.info("DIE plain text indicates fully Unknown (Binary / Unknown: Unknown).")
+            return True
+        else:
+            logging.debug(f"Plain-text lines were: {lines[:2]!r}, not 'Binary' & 'Unknown: Unknown'")
 
-    logging.info(f"DIE output does not indicate an unknown file: {die_output!r}")
+    logging.info("DIE output does not indicate a fully unknown binary.")
     return False
 
 def is_packer_upx_output(die_output):
