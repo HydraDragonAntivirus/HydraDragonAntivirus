@@ -6269,16 +6269,13 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
             except Exception as ex:
                 logging.error(f"Error writing Meta Llama-3.2-1B extracted source code to {meta_llama_source_path}: {ex}")
 
-        # Return only if HiJackThis_flag is set
-        if HiJackThis_flag:
-            return final_response
         # Otherwise, log and do not return (implicit None)
-        logging.info("Meta Llama analysis completed, but HiJackThis_flag not set; no return to caller.")
+        logging.info("Meta Llama analysis comple.")
+        return final_response
 
     except Exception as ex:
         logging.error(f"An unexpected error occurred in scan_file_with_meta_llama: {ex}")
-        if HiJackThis_flag:
-            return f"[!] Llama analysis failed: {ex}"
+        return f"[!] Llama analysis failed: {ex}"
 
 def extract_and_return_pyinstaller(file_path):
     """
