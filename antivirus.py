@@ -7517,6 +7517,22 @@ def scan_and_warn(file_path,
         # Normalize the original path
         norm_path = os.path.abspath(file_path)
 
+        # Compute a quick MD5 
+        md5 = compute_md5(norm_path) 
+  
+        # Initialize our seen‐set once, on the function object 
+        if not hasattr(scan_and_warn, "_seen"): 
+            scan_and_warn._seen = set() 
+  
+        # If we've already scanned this exact (path, hash), skip immediately 
+        key = (norm_path.lower(), md5) 
+        if key in scan_and_warn._seen: 
+            logging.debug(f"Skipping duplicate scan for {norm_path} (hash={md5})") 
+            return False 
+
+         # Mark it seen and proceed 
+        scan_and_warn._seen.add(key) 
+
         # SNAPSHOT the cache entry _once_ up front:
         initial_md5_in_cache = file_md5_cache.get(norm_path)
 
@@ -7554,9 +7570,6 @@ def scan_and_warn(file_path,
 
         # 1) Is this the first time we've seen this path?
         is_first_pass = norm_path not in file_md5_cache
-
-        # 2) Compute MD5
-        md5 = compute_md5(norm_path)
 
         # Extract the file name
         file_name = os.path.basename(norm_path)
