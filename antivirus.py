@@ -341,7 +341,7 @@ decompiled_dir = os.path.join(script_dir, "decompiled")
 assets_dir = os.path.join(script_dir, "assets")
 icon_path = os.path.join(assets_dir, "HydraDragonAV.png")
 digital_signatures_list_dir = os.path.join(script_dir, "digitalsignatureslist")
-pyinstaller_dir = os.path.join(script_dir, "pyinstaller")
+pyinstaller_extracted_dir = os.path.join(script_dir, "pyinstaller_extracted")
 ghidra_projects_dir = os.path.join(script_dir, "ghidra_projects")
 ghidra_logs_dir = os.path.join(script_dir, "ghidra_logs")
 ghidra_scripts_dir = os.path.join(script_dir, "ghidra_scripts")
@@ -551,7 +551,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, python_deobfuscated_dir,  pycdas_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
+directories_to_scan = [enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, python_deobfuscated_dir,  pycdas_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
@@ -634,7 +634,7 @@ os.makedirs(upx_extracted_dir, exist_ok=True)
 os.makedirs(ungarbler_dir, exist_ok=True)
 os.makedirs(ungarbler_string_dir, exist_ok=True)
 os.makedirs(resource_extractor_dir, exist_ok=True)
-os.makedirs(pyinstaller_dir, exist_ok=True)
+os.makedirs(pyinstaller_extracted_dir, exist_ok=True)
 os.makedirs(inno_setup_extracted_dir, exist_ok=True)
 os.makedirs(python_source_code_dir, exist_ok=True)
 os.makedirs(nuitka_source_code_dir, exist_ok=True)
@@ -5675,7 +5675,7 @@ class PyInstArchive:
         After extraction, fix any"bare" pyc headers and then call saved_pyc_paths.append on each .pyc.
         """
         logging.info("Beginning extraction")
-        base_out = os.path.abspath(pyinstaller_dir)
+        base_out = os.path.abspath(pyinstaller_extracted_dir)
         try:
             # Create a unique extraction subdirectory
             base_name = os.path.splitext(os.path.basename(self.filePath))[0]
@@ -5792,7 +5792,7 @@ def extract_pyinstaller_archive(file_path):
             logging.error(f"Failed to parse TOC from {file_path}.")
             return None
 
-        # Extract files to the specified pyinstaller_dir
+        # Extract files to the specified pyinstaller_extracted_dir
         extraction_dir = archive.extractFiles()
 
         # Close the archive
@@ -5944,7 +5944,7 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: It's a Sandbox environment file, also a .NET file deobfuscated with de4dot.")
         elif file_path.startswith(de4dot_extracted_dir):
             logging.info(f"{file_path}: .NET file deobfuscated with de4dot.")
-        elif file_path.startswith(pyinstaller_dir):
+        elif file_path.startswith(pyinstaller_extracted_dir):
             logging.info(f"{file_path}: PyInstaller onefile extracted.")
         elif file_path.startswith(commandlineandmessage_dir):
             logging.info(f"{file_path}: Command line message extracted.")
@@ -6023,7 +6023,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
             (lambda fp: fp.startswith(obfuscar_dir), ".NET file obfuscated with Obfuscar."),
             (lambda fp: fp.startswith(de4dot_extracted_dir), ".NET file deobfuscated with de4dot."),
             (lambda fp: fp.startswith(de4dot_sandboxie_dir), "It's a Sandbox environment file, also a .NET file deobfuscated with de4dot"),
-            (lambda fp: fp.startswith(pyinstaller_dir), "PyInstaller onefile extracted."),
+            (lambda fp: fp.startswith(pyinstaller_extracted_dir), "PyInstaller onefile extracted."),
             #(lambda fp: fp.startswith(commandlineandmessage_dir), "Command line message extracted."), Due to the excessive output generated, we have disabled it.
             (lambda fp: fp.startswith(pe_extracted_dir), "PE file extracted."),
             (lambda fp: fp.startswith(zip_extracted_dir), "ZIP extracted."),
