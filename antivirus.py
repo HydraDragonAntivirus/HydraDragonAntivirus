@@ -1119,27 +1119,42 @@ def is_dotnet_file_from_output(die_output):
 
 def is_file_fully_unknown(die_output: str) -> bool:
     """
-    Determines whether DIE output indicates an unrecognized binary file.
+    Determines whether DIE output (in JSON form) indicates an unrecognized binary file.
 
-    Returns True only if the output consists exclusively of the markers:
-        Binary
-        Unknown: Unknown
-    Ignores leading/trailing whitespace or indentation differences.
+    Returns True only if:
+      - die_output is valid JSON, and
+      - it has exactly one `detects` entry with `"filetype": "Binary"`, and
+      - that entry's `values` list has exactly one object with
+          `"name": "Unknown"` and `"string": "Unknown: Unknown"`.
     """
-    if not die_output:
+    if not die_output or not die_output.strip():
         logging.info("No DIE output provided.")
         return False
 
-    # Normalize lines: strip whitespace and remove empty lines
-    lines = [line.strip() for line in die_output.splitlines() if line.strip()]
-    expected = ["Binary", "Unknown: Unknown"]
-
-    if lines == expected:
-        logging.info("DIE output indicates an unknown file.")
-        return True
-    else:
-        logging.info(f"DIE output does not indicate an unknown file: {die_output!r}")
+    try:
+        data = json.loads(die_output)
+    except json.JSONDecodeError:
+        logging.info("DIE output is not valid JSON.")
         return False
+
+    detects = data.get("detects")
+    if (
+        isinstance(detects, list)
+        and len(detects) == 1
+        and detects[0].get("filetype") == "Binary"
+    ):
+        values = detects[0].get("values")
+        if (
+            isinstance(values, list)
+            and len(values) == 1
+            and values[0].get("name") == "Unknown"
+            and values[0].get("string") == "Unknown: Unknown"
+        ):
+            logging.info("DIE output JSON indicates an unknown file.")
+            return True
+
+    logging.info(f"DIE output does not indicate an unknown file: {die_output!r}")
+    return False
 
 def is_packer_upx_output(die_output):
     """
@@ -7572,13 +7587,13 @@ def scan_and_warn(file_path,
 
         # Perform ransomware alert check
         if is_file_fully_unknown(die_output):
+            if perform_special_scan:
+                ransomware_alert(norm_path)
             if mega_optimization_with_anti_false_positive:
                 logging.info(
                     f"Stopped analysis; unknown data detected in {norm_path}"
                 )
                 return False
-            if perform_special_scan:
-                ransomware_alert(norm_path)
 
         if is_pe_file_from_output(die_output):
             logging.info(f"File {norm_path} is a valid PE file.")
