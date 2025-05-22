@@ -6846,6 +6846,7 @@ def show_code_with_pycdc_pycdas(file_path, file_name):
             pycdc_output_path = run_pycdc_decompiler(file_path)
             if pycdc_output_path:
                 process_decompiled_code(pycdc_output_path)
+                scan_and_warn(pycdc_output_path)
         else:
             logging.error("[-] pycdc executable not found")
 
@@ -6854,7 +6855,7 @@ def show_code_with_pycdc_pycdas(file_path, file_name):
         if os.path.exists(pycdas_path):
             pycdas_output_path = run_pycdas_decompiler(file_path)
             if pycdas_output_path:
-                process_decompiled_code(pycdas_output_path)
+                scan_and_warn(pycdas_output_path)
         else:
             logging.error("[-] pycdas executable not found")
 
