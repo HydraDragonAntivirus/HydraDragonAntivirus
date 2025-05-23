@@ -2472,9 +2472,9 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.NSIS')
         elif pyinstaller_flag or pyinstaller_meta_llama_flag:
             # In both cases, add the notice.
-            logging.warning(f"Discord webhook URL detected in PyInstaller compiled file: {file_path} - Matches: {discord_webhook_matches} NOTICE: There still a chance the file is not related with PyInstaller")
+            logging.warning(f"Discord webhook URL detected in Python Compilled Module file: {file_path} - Matches: {discord_webhook_matches}")
             if pyinstaller_meta_llama_flag:
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.PyInstaller.MetaLlama')
+                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.PYC.MetaLlama')
             else:
                 notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.PyInstaller')
         else:
@@ -2495,7 +2495,7 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
             logging.warning(f"Discord Canary webhook URL detected in NSIS script compiled file (.nsi): {file_path} - Matches: {discord_canary_webhook_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.NSIS')
         elif pyinstaller_flag or pyinstaller_meta_llama_flag:
-            logging.warning(f"Discord Canary webhook URL detected in PyInstaller compiled file: {file_path} - Matches: {discord_canary_webhook_matches} NOTICE: There still a chance the file is not related with PyInstaller")
+            logging.warning(f"Discord Canary webhook URL detected in Python Compilled Module file:{file_path} - Matches: {discord_canary_webhook_matches}")
             if pyinstaller_meta_llama_flag:
                 notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.PyInstaller.MetaLlama')
             else:
@@ -2524,9 +2524,7 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.CDNAttachment.NSIS')
         elif pyinstaller_flag or pyinstaller_meta_llama_flag:
             logging.warning(
-                f"Discord CDN attachment URL detected in PyInstaller compiled file: {file_path} - Matches: {cdn_attachment_matches} "
-                "NOTICE: There still a chance the file is not related with PyInstaller"
-            )
+                f"Discord CDN attachment URL detected in Python Compilled Module file: {file_path} - Matches: {cdn_attachment_matches}")
             if pyinstaller_meta_llama_flag:
                 notify_user_for_malicious_source_code(file_path,
                                                       'HEUR:Win32.Discord.CDNAttachment.PyInstaller.MetaLlama')
@@ -2551,7 +2549,7 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
             logging.warning(f"Telegram bot detected in NSIS script compiled file (.nsi): {file_path} - Matches: {telegram_token_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.NSIS')
         elif pyinstaller_flag or pyinstaller_meta_llama_flag:
-            logging.warning(f"Telegram bot detected in PyInstaller compiled file: {file_path} - Matches: {telegram_token_matches} NOTICE: There still a chance the file is not related with PyInstaller")
+            logging.warning(f"Telegram bot detected in Python Compilled Module file: {file_path} - Matches: {telegram_token_matches}")
             if pyinstaller_meta_llama_flag:
                 notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.PyInstaller.MetaLlama')
             else:
@@ -6836,18 +6834,6 @@ def show_code_with_pycdc_pycdas(file_path, file_name):
     try:
         logging.info(f"Processing python file: {file_path}")
         base_name = os.path.splitext(file_name)[0]
-
-        # Detect if PyInstaller source archive
-        is_source = False
-        try:
-            with open(file_path, "rb") as pyc_file:
-                pyc_file.seek(16)
-                entry_data = pyc_file.read(struct.calcsize('!IIIBc'))
-                if len(entry_data) >= struct.calcsize('!IIIBc'):
-                    _, _, _, _, type_cmprs_data = struct.unpack('!IIIBc', entry_data)
-                    is_source = (type_cmprs_data == b's')
-        except Exception:
-            pass
 
         # --- PyCDC decompilation branch ---
         pycdc_output_path = None
