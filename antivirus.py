@@ -377,7 +377,7 @@ seven_zip_extracted_dir = os.path.join(script_dir, "seven_zip_extracted")
 general_extracted_dir = os.path.join(script_dir, "general_extracted")
 processed_dir = os.path.join(script_dir, "processed")
 detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
-detectiteasy_json_dir = os.path.join(script_dir, "detectiteasy_json")
+deteciteasy_plain_text_dir = os.path.join(script_dir, "deteciteasy_plain_text")
 memory_dir = os.path.join(script_dir, "memory")
 debloat_dir = os.path.join(script_dir, "debloat")
 copied_sandbox_and_main_files_dir = os.path.join(script_dir, "copied_sandbox_and_main_files")
@@ -653,7 +653,7 @@ os.makedirs(general_extracted_dir, exist_ok=True)
 os.makedirs(debloat_dir, exist_ok=True)
 os.makedirs(jar_extracted_dir, exist_ok=True)
 os.makedirs(FernFlower_decompiled_dir, exist_ok=True)
-os.makedirs(detectiteasy_json_dir, exist_ok=True)
+os.makedirs(deteciteasy_plain_text_dir, exist_ok=True)
 os.makedirs(python_deobfuscated_dir, exist_ok=True)
 os.makedirs(pycdc_dir, exist_ok=True)
 os.makedirs(pycdas_dir, exist_ok=True)
@@ -925,16 +925,16 @@ def analyze_file_with_die(file_path):
     """
     try:
         logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
-        output_dir = Path(detectiteasy_json_dir)
+        output_dir = Path(deteciteasy_plain_text_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Define the base name for the output JSON file
-        base_name = Path(file_path).with_suffix(".json")
+        base_name = Path(file_path).with_suffix(".txt")
         json_output_path = get_unique_output_path(output_dir, base_name)
 
-        # Run the DIE command once with the -j flag for JSON output
+        # Run the DIE command once with the -p flag for JSON output
         result = subprocess.run(
-            [detectiteasy_console_path, "-j", file_path],
+            [detectiteasy_console_path, "-p", file_path],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore"
         )
 
@@ -1115,60 +1115,27 @@ def is_dotnet_file_from_output(die_output):
 
 def is_file_fully_unknown(die_output: str) -> bool:
     """
-    Returns True if DIE's output unequivocally indicates
-    "Binary: Unknown" (fully unrecognized), either via JSON
-    or plain text. Otherwise False.
+    Determines whether DIE output indicates an unrecognized binary file.
+
+    Returns True only if the output consists exclusively of the markers:
+        Binary
+        Unknown: Unknown
+    Ignores leading/trailing whitespace or indentation differences.
     """
-    if not die_output or not die_output.strip():
+    if not die_output:
         logging.info("No DIE output provided.")
         return False
 
-    # DEBUG: show exactly what DIE printed
-    logging.debug(f"DIE raw output:\n{repr(die_output)}")
+    # Normalize lines: strip whitespace and remove empty lines
+    lines = [line.strip() for line in die_output.splitlines() if line.strip()]
+    expected = ["Binary", "Unknown: Unknown"]
 
-    # 1) Try to find a JSON block containing "detects"
-    match = re.search(r'\{.*?\}', die_output, flags=re.DOTALL)
-    if match:
-        raw_json = match.group(0)
-        try:
-            data = json.loads(raw_json)
-            detects = data.get("detects")
-            if isinstance(detects, list) and len(detects) == 1:
-                entry = detects[0]
-                ft = entry.get("filetype", "")
-                if isinstance(ft, str) and ft.lower().strip() == "binary":
-                    vals = entry.get("values", [])
-                    if isinstance(vals, list) and len(vals) == 1:
-                        s = vals[0].get("string", "")
-                        if isinstance(s, str):
-                            normalized = s.lower().replace(" ", "")
-                            if normalized == "unknown:unknown":
-                                logging.info("DIE JSON indicates Binary: Unknown.")
-                                return True
-                            else:
-                                logging.debug(f"JSON 'string' field was {s!r}, not 'Unknown: Unknown'.")
-                        else:
-                            logging.debug("JSON 'string' field is not a string type.")
-                    else:
-                        logging.debug(f"JSON 'values' is not a single-element list: {vals!r}")
-                else:
-                    logging.debug(f"JSON 'filetype' is not 'Binary': {ft!r}")
-        except json.JSONDecodeError as jde:
-            logging.debug(f"Failed to parse JSON from DIE output: {jde}")
-
-    # 2) Plain-text fallback: look for two lines "Binary" / "Unknown: Unknown"
-    lines = [ln.strip() for ln in die_output.splitlines() if ln.strip()]
-    if len(lines) >= 2:
-        first = lines[0].lower()
-        second = lines[1].lower().replace(" ", "")
-        if first == "binary" and second == "unknown:unknown":
-            logging.info("DIE plain text indicates fully Unknown (Binary / Unknown: Unknown).")
-            return True
-        else:
-            logging.debug(f"Plain-text lines were: {lines[:2]!r}, not 'Binary' & 'Unknown: Unknown'")
-
-    logging.info("DIE output does not indicate a fully unknown binary.")
-    return False
+    if lines == expected:
+        logging.info("DIE output indicates an unknown file.")
+        return True
+    else:
+        logging.info(f"DIE output does not indicate an unknown file: {die_output!r}")
+        return False
 
 def is_packer_upx_output(die_output):
     """
