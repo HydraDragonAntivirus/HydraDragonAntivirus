@@ -1118,7 +1118,7 @@ def is_file_fully_unknown(die_output: str) -> bool:
     Determines whether DIE output indicates an unrecognized binary file,
     ignoring any trailing error messages or extra lines.
 
-    Returns True if the first two non‐empty, whitespace‐stripped lines are:
+    Returns True if the first two non-empty, whitespace-stripped lines are:
         Binary
         Unknown: Unknown
     """
