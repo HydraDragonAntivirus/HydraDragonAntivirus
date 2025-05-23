@@ -1115,23 +1115,23 @@ def is_dotnet_file_from_output(die_output):
 
 def is_file_fully_unknown(die_output: str) -> bool:
     """
-    Determines whether DIE output indicates an unrecognized binary file.
+    Determines whether DIE output indicates an unrecognized binary file,
+    ignoring any trailing error messages or extra lines.
 
-    Returns True only if the output consists exclusively of the markers:
+    Returns True if the first two non‐empty, whitespace‐stripped lines are:
         Binary
         Unknown: Unknown
-    Ignores leading/trailing whitespace or indentation differences.
     """
     if not die_output:
         logging.info("No DIE output provided.")
         return False
 
-    # Normalize lines: strip whitespace and remove empty lines
+    # Normalize: split into lines, strip whitespace, drop empty lines
     lines = [line.strip() for line in die_output.splitlines() if line.strip()]
-    expected = ["Binary", "Unknown: Unknown"]
 
-    if lines == expected:
-        logging.info("DIE output indicates an unknown file.")
+    # We only care about the first two markers; ignore anything after.
+    if len(lines) >= 2 and lines[0] == "Binary" and lines[1] == "Unknown: Unknown":
+        logging.info("DIE output indicates an unknown file (ignoring extra errors).")
         return True
     else:
         logging.info(f"DIE output does not indicate an unknown file: {die_output!r}")
