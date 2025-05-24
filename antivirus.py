@@ -331,12 +331,12 @@ device = accelerator.device
 
 # Define the paths to the ghidra related directories
 enigma_extracted_dir = os.path.join(script_dir, "enigma_extracted")
-inno_extract_dir = os.path.join(script_dir, "innoextract-1.9-windows")
+inno_unpack_dir = os.path.join(script_dir, "innounp-2")
 upx_dir = os.path.join(script_dir, "upx-5.0.1-win64")
 upx_path = os.path.join(upx_dir, "upx.exe")
 upx_extracted_dir = os.path.join(script_dir, "upx_extracted_dir")
-inno_extract_path = os.path.join(inno_extract_dir, "innoextract.exe")
-inno_setup_extracted_dir = os.path.join(script_dir, "inno_setup_extracted")
+inno_unpack_path = os.path.join(inno_unpack_dir, "innounp.exe")
+inno_setup_unpacked_dir = os.path.join(script_dir, "inno_setup_unpacked")
 decompiled_dir = os.path.join(script_dir, "decompiled")
 assets_dir = os.path.join(script_dir, "assets")
 icon_path = os.path.join(assets_dir, "HydraDragonAV.png")
@@ -551,7 +551,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_extracted_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, python_deobfuscated_dir,  pycdas_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
+directories_to_scan = [enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, python_deobfuscated_dir,  pycdas_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
@@ -635,7 +635,7 @@ os.makedirs(ungarbler_dir, exist_ok=True)
 os.makedirs(ungarbler_string_dir, exist_ok=True)
 os.makedirs(resource_extractor_dir, exist_ok=True)
 os.makedirs(pyinstaller_extracted_dir, exist_ok=True)
-os.makedirs(inno_setup_extracted_dir, exist_ok=True)
+os.makedirs(inno_setup_unpacked_dir, exist_ok=True)
 os.makedirs(python_source_code_dir, exist_ok=True)
 os.makedirs(nuitka_source_code_dir, exist_ok=True)
 os.makedirs(commandlineandmessage_dir, exist_ok=True)
@@ -5906,8 +5906,8 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: Decompiled.")
         elif file_path.startswith(upx_extracted_dir):
             logging.info(f"{file_path}: UPX extracted.")
-        elif file_path.startswith(inno_setup_extracted_dir):
-            logging.info(f"{file_path}: Inno Setup extracted.")
+        elif file_path.startswith(inno_setup_unpacked_dir):
+            logging.info(f"{file_path}: Inno Setup unpacked.")
         elif file_path.startswith(nuitka_dir):
             logging.info(f"{file_path}: Nuitka onefile extracted.")
         elif file_path.startswith(dotnet_dir):
@@ -5991,7 +5991,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
             (lambda fp: fp.startswith(copied_sandbox_and_main_files_dir), "It's a restored sandbox environment file."),
             (lambda fp: fp.startswith(decompiled_dir), "Decompiled."),
             (lambda fp: fp.startswith(upx_extracted_dir), "UPX extracted."),
-            (lambda fp: fp.startswith(inno_setup_extracted_dir), "Inno Setup extracted."),
+            (lambda fp: fp.startswith(inno_setup_unpacked_dir), "Inno Setup unpacked."),
             (lambda fp: fp.startswith(nuitka_dir), "Nuitka onefile extracted."),
             (lambda fp: fp.startswith(dotnet_dir), ".NET decompiled."),
             (lambda fp: fp.startswith(obfuscar_dir), ".NET file obfuscated with Obfuscar."),
@@ -7216,7 +7216,7 @@ def run_jar_extractor(file_path, flag_fernflower):
 
 def extract_inno_setup(file_path):
     """
-    Extracts an Inno Setup installer using innoextract.
+    Extracts an Inno Setup installer using innounp-2.
     Returns a list of extracted file paths, or None on failure.
 
     :param file_path: Path to the Inno Setup installer (.exe)
@@ -7227,21 +7227,32 @@ def extract_inno_setup(file_path):
 
         # Create a unique output directory
         folder_number = 1
-        while os.path.exists(f"{inno_setup_extracted_dir}_{folder_number}"):
+        while os.path.exists(f"{inno_setup_unpacked_dir}_{folder_number}"):
             folder_number += 1
-        output_dir = f"{inno_setup_extracted_dir}_{folder_number}"
+        output_dir = f"{inno_setup_unpacked_dir}_{folder_number}"
         os.makedirs(output_dir, exist_ok=True)
 
-        # Run innoextract to extract files
+        # Run innounp-2 to extract files
         cmd = [
-            inno_extract_path,
+            inno_unpack_path,
             "-e",                # extract files
             file_path,
             "-d", output_dir     # output directory
         ]
+        # Improved innounp command for extraction
+        cmd = [
+            inno_unpack_path,
+            "-x",               # extract files with full paths
+            "-b",               # batch mode (non-interactive)
+            "-u",               # use UTF-8 output (for filenames with unicode)
+            "-a",               # extract all copies of duplicate files
+            "-d", output_dir,   # output directory
+            file_path           # the installer to unpack
+        ]
+
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
         if result.returncode != 0:
-            logging.error(f"innoextract failed: {result.stderr}")
+            logging.error(f"innounp-2 failed: {result.stderr}")
             return None
 
         logging.info(f"Inno Setup content extracted to {output_dir}")

@@ -1,7 +1,0 @@
-innoextract 1.9
-
-Known working Inno Setup versions:
-Inno Setup 1.2.10 to 6.0.5
-
-Bug tracker:
-https://innoextract.constexpr.org/issues
