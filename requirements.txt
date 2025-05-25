@@ -25,6 +25,7 @@ pyzipper
 comtypes
 wmi
 evbunpack
+pydumpck
 unicorn #for GoStringUngrabler
 lief #for GoStringUngrabler
 transformers # You will also need download https://huggingface.co/deepseek-ai/deepseek-coder-1.3b-instruct
