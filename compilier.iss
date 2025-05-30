@@ -52,7 +52,7 @@ Source: "C:\Users\victim\Documents\hydratempinstall\npcap-1.82.exe"; DestDir: "{
 Source: "C:\Users\victim\Documents\hydratempinstall\Snort_2_9_20_Installer.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\jre-8u451-windows-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\jdk-21_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-8.0.15-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-8.0.16-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\python-3.12.10-amd64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\Sandboxie-Classic-x64-v5.70.12.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\setup.bat"; DestDir: "{tmp}"; Flags: deleteafterinstall
@@ -73,8 +73,8 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 ; 7-Zip (silent)
 Filename: "{tmp}\7z2409-x64.exe"; Parameters: "/S"; Flags: shellexec waituntilterminated
 
-; .NET Desktop Runtime 8.0.15 (silent, no restart)
-Filename: "{tmp}\windowsdesktop-runtime-8.0.15-win-x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated
+; .NET Desktop Runtime 8.0.16 (silent, no restart)
+Filename: "{tmp}\windowsdesktop-runtime-8.0.16-win-x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated
 
 ; Visual C++ Redistributable 2022 (silent, auto-install)
 Filename: "{tmp}\VC_redist.x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated
