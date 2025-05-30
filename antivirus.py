@@ -7754,7 +7754,7 @@ def scan_and_warn(file_path,
                     logging.info(f"Scanning decompiled file from pydumpck: {pydumpck_norm_path}")
                     threading.Thread(target=scan_and_warn, args=(pydumpck_norm_path,)).start()
                 else:
-                    logging.error(f"pydumpck decompilation failed for file {pycdupck_norm_path}.")
+                    logging.error(f"pydumpck decompilation failed for file {pydumpck_norm_path}.")
 
                 # Scan and warn for the united decompiled file, if available
                 if united_output_path:
