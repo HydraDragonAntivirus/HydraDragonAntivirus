@@ -196,7 +196,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 
 **Minimum RAM and space?**
 
-- 12 GB RAM is the minimum because I am using Llama3.2-1B locally. I strongly recommend 12 GB RAM. A minimum of 70 GB of disk space and 8 processors is also recommended.
+- 8 GB of RAM is the minimum requirement because I am using Llama3.2-1B locally. I strongly recommend a minimum of 8 GB of RAM. A minimum of 10 GB of free disk space and four processors is also recommended.
 
 **Any sponsors or supporters?**
 - Yes, there are supporters for this project. Xcitium (Comodo) has expressed interest in supporting this project by providing malware samples, and Cisco Talos ClamAV community projects. But it's still a one man project.
