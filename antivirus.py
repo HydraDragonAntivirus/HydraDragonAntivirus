@@ -552,7 +552,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [pydumpck_extracted_dir, enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, commandlineandmessage_dir, pe_extracted_dir,zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, python_deobfuscated_dir,  pycdas_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
+directories_to_scan = [pydumpck_extracted_dir, enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, python_deobfuscated_dir,  pycdas_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
@@ -6252,12 +6252,28 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
 
 def extract_and_return_pyinstaller(file_path):
     """
-    Extracts a PyInstaller archive and returns the paths of the extracted files.
+    Extracts a PyInstaller archive and returns:
+      1) A list of extracted file paths
+      2) The output directory where the main file was decompiled via pydumpck
+
+    Additionally, any `.py` files produced by pydumpck will be
+    immediately passed to `process_decompiled_code()`.
 
     :param file_path: Path to the PyInstaller archive.
-    :return: A list of extracted file paths.
+    :return: Tuple (extracted_file_paths, main_decompiled_output_path)
     """
-    extracted_pyinstaller_file_paths = []  # List to store the paths of the extracted files
+    extracted_pyinstaller_file_paths = []
+
+    # Decompile the main file itself
+    main_decompiled_output = run_pydumpck_decompiler(file_path)
+
+    # If pydumpck created an output directory, walk it for .py files
+    if main_decompiled_output:
+        for root, _, files in os.walk(main_decompiled_output):
+            for fname in files:
+                if fname.endswith(".py"):
+                    output_file = os.path.join(root, fname)
+                    process_decompiled_code(output_file)
 
     # Extract PyInstaller archive
     pyinstaller_archive = extract_pyinstaller_archive(file_path)
@@ -6265,14 +6281,14 @@ def extract_and_return_pyinstaller(file_path):
     if pyinstaller_archive:
         logging.info(f"PyInstaller archive extracted to {pyinstaller_archive}")
 
-        # Traverse the extracted files
-        for root, dirs, files in os.walk(pyinstaller_archive):
+        # Traverse and collect all extracted files (no pydumpck on these)
+        for root, _, files in os.walk(pyinstaller_archive):
             for pyinstaller_file in files:
                 extracted_file_path = os.path.join(root, pyinstaller_file)
                 # Add the file path to the list of extracted file paths
                 extracted_pyinstaller_file_paths.append(extracted_file_path)
 
-    return extracted_pyinstaller_file_paths
+    return extracted_pyinstaller_file_paths, main_decompiled_output
 
 def decompile_dotnet_file(file_path):
     """
@@ -7897,12 +7913,18 @@ def scan_and_warn(file_path,
             # Check if the file is a PyInstaller archive
             if is_pyinstaller_archive_from_output(die_output):
                 logging.info(f"File {norm_path} is a PyInstaller archive. Extracting...")
+                # Extract the PyInstaller files and get both extracted paths and main decompiled output
+                extracted_files_pyinstaller, main_decompiled_output = extract_and_return_pyinstaller(norm_path)
 
-                # Extract the PyInstaller files and get their paths
-                extracted_files_pyinstaller = extract_and_return_pyinstaller(norm_path)
+                # First, scan the main decompiled output (if it exists)
+                if main_decompiled_output:
+                    logging.info(f"Scanning main decompiled output: {main_decompiled_output}")
+                    threading.Thread(target=scan_and_warn, args=(main_decompiled_output,)).start()
+                else:
+                    logging.warning(f"No main decompiled output for: {norm_path}")
 
+                # Next, scan each extracted file (if any were returned)
                 if extracted_files_pyinstaller:
-                    # Scan each extracted file
                     for extracted_file in extracted_files_pyinstaller:
                         logging.info(f"Scanning extracted file: {extracted_file}")
                         threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
