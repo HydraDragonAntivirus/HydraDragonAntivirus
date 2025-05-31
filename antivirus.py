@@ -330,7 +330,6 @@ accelerator = Accelerator()
 device = accelerator.device
 
 # Define the paths to the ghidra related directories
-pydumpck_extracted_dir = os.path.join(script_dir, "pydumpck_extracted")
 enigma_extracted_dir = os.path.join(script_dir, "enigma_extracted")
 inno_unpack_dir = os.path.join(script_dir, "innounp-2")
 upx_dir = os.path.join(script_dir, "upx-5.0.1-win64")
@@ -364,6 +363,7 @@ python_source_code_dir = os.path.join(script_dir, "python_sourcecode")
 python_deobfuscated_dir = os.path.join(script_dir, "python_deobfuscated")
 pycdc_dir = os.path.join(python_source_code_dir, "pycdc")
 pycdas_dir = os.path.join(python_source_code_dir, "pycdas")
+pydumpck_extracted_dir = os.path.join(python_source_code_dir, "pydumpck_extracted")
 united_python_source_code_dir = os.path.join(python_source_code_dir, "united")
 pycdas_united_meta_llama_dir = os.path.join(python_source_code_dir, "pycdas_united_meta_llama")
 de4dot_cex_dir = os.path.join(script_dir, "de4dot-cex")
