@@ -1011,6 +1011,21 @@ def is_pyc_file_from_output(die_output):
     logging.info(f"DIE output does not indicate a Python compiled module: {die_output}")
     return False
 
+def is_pyz_file_from_output(die_output):
+    """
+    Check if the DIE output indicates a Python zip‐packed archive (.pyz file).
+    Specifically looks for the “Archive:  Zlib stream” marker in the output.
+
+    :param die_output: The output string from DIE.
+    :return: True if it appears to be a .pyz (zlib‐compressed) archive, False otherwise.
+    """
+    if die_output and "Archive:  Zlib stream" in die_output:
+        logging.info("DIE output indicates a Python .pyz (Zlib stream) archive.")
+        return True
+
+    logging.info(f"DIE output does not indicate a .pyz archive: {die_output}")
+    return False
+
 def is_pe_file_from_output(die_output):
     """Checks if DIE output indicates a PE (Portable Executable) file."""
     if die_output and ("PE32" in die_output or "PE64" in die_output):
@@ -6265,7 +6280,7 @@ def extract_and_return_pyinstaller(file_path):
     extracted_pyinstaller_file_paths = []
 
     # Decompile the main file itself
-    main_decompiled_output = run_pydumpck_decompiler(file_path)
+    main_decompiled_output = run_pydumpck_decompiler(file_path, file_type="exe")
 
     # If pydumpck created an output directory, walk it for .py files
     if main_decompiled_output:
@@ -6801,12 +6816,14 @@ def run_pycdas_decompiler(file_path):
         logging.error(f"Error running pycdas: {e}")
         return None
 
-def run_pydumpck_decompiler(file_path):
+def run_pydumpck_decompiler(file_path, file_type=None):
     """
     Runs the pydumpck decompiler to decompile a Python-packed executable or archive.
 
     Args:
-        file_path: Path to the input file (exe, pyc, pyz, etc.) to be decompiled.
+        file_path:   Path to the input file (exe, pyc, pyz, etc.) to be decompiled.
+        file_type:   (Optional) Target file type hint for pydumpck (e.g., 'pyc', 'pyz', 'exe').
+                     If provided, it will be passed as the -y/--type argument.
 
     Returns:
         The output directory path if successful, or None if the process fails.
@@ -6817,15 +6834,24 @@ def run_pydumpck_decompiler(file_path):
         output_path = os.path.join(pydumpck_extracted_dir, f"{base_name}_pydumpck")
         os.makedirs(output_path, exist_ok=True)
 
-        # Build and run the command
-        command = [
-            "pydumpck",
-            "-o", output_path,
-            "-d", file_path, 
-            "-p", "pycdc", "uncompyle6"
-        ]
+        # Build pydumpck command
+        command = ["pydumpck", "-o", output_path]
 
-        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="ignore")
+        # If a file_type hint was provided, add "-y <file_type>"
+        if file_type:
+            command += ["-y", file_type]
+
+        # Always include the "-d" argument (target file) and plugins
+        command += ["-d", file_path, "-p", "pycdc", "uncompyle6"]
+
+        # Run the command
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="ignore"
+        )
 
         if result.returncode == 0:
             logging.info(f"Successfully decompiled using pydumpck. Output saved to {output_path}")
@@ -6833,6 +6859,7 @@ def run_pydumpck_decompiler(file_path):
         else:
             logging.error(f"pydumpck error: {result.stderr}")
             return None
+
     except Exception as e:
         logging.error(f"Error running pydumpck: {e}")
         return None
@@ -6873,7 +6900,7 @@ def show_code_with_pycdc_pycdas_uncompyle6(file_path, file_name):
             logging.error("[-] pycdas executable not found")
 
         # --- PyDUMPCk decompilation branch ---
-        pydumpck_output_dir = run_pydumpck_decompiler(file_path)
+        pydumpck_output_dir = run_pydumpck_decompiler(file_path, file_type="pyc")
         pydumpck_output_path = None
 
         if pydumpck_output_dir and os.path.isdir(pydumpck_output_dir):
@@ -7743,6 +7770,24 @@ def scan_and_warn(file_path,
                 if results.get("decrypt_func_list"):
                     # Scan the extracted strings file
                     threading.Thread(target=scan_and_warn, args=(string_output_path,)).start()
+
+            # Check if it's a .pyz file, extract/decompile with pydumpck, then scan resulting .py files
+            if is_pyz_file_from_output(die_output):
+                logging.info(f"File {norm_path} is a .pyz (Zlib stream) archive. Attempting to extract/decompile...")
+                
+                # Decompile the .pyz via pydumpck (with explicit "pyz" type hint)
+                output_dir = run_pydumpck_decompiler(norm_path, file_type="pyz")
+                
+                if output_dir:
+                    # Walk the output directory to find all .py files produced by pydumpck
+                    for root, _, files in os.walk(output_dir):
+                        for fname in files:
+                            if fname.endswith(".py"):
+                                file_to_scan = os.path.join(root, fname)
+                                logging.info(f"Scanning decompiled .py file: {file_to_scan}")
+                                threading.Thread(target=scan_and_warn, args=(file_to_scan,)).start()
+                else:
+                    logging.error(f"pydumpck failed to decompile .pyz: {norm_path}")
 
             # Check if it's a .pyc file and decompile
             if is_pyc_file_from_output(die_output):
