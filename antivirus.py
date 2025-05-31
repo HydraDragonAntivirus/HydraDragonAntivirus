@@ -6804,8 +6804,8 @@ def run_pydumpck_decompiler(file_path):
         # Build and run the command
         command = [
             "pydumpck",
-            file_path,
             "-o", output_path,
+            "-d", file_path, 
             "-p", "pycdc", "uncompyle6"
         ]
 
