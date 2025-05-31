@@ -6265,7 +6265,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
         logging.error(f"An unexpected error occurred in scan_file_with_meta_llama: {ex}")
         return f"[!] Llama analysis failed: {ex}"
 
-def extract_and_return_pyinstaller(file_path):
+def extract_and_return_pyinstaller(file_path, file_type=None):
     """
     Extracts a PyInstaller archive and returns:
       1) A list of extracted file paths
@@ -6275,12 +6275,13 @@ def extract_and_return_pyinstaller(file_path):
     immediately passed to `process_decompiled_code()`.
 
     :param file_path: Path to the PyInstaller archive.
+    :param file_type: (Optional) 'exe' or 'elf' (or any hint pydumpck understands).
     :return: Tuple (extracted_file_paths, main_decompiled_output_path)
     """
     extracted_pyinstaller_file_paths = []
 
-    # Decompile the main file itself
-    main_decompiled_output = run_pydumpck_decompiler(file_path, file_type="exe")
+    # Decompile the main file itself with the given file_type hint
+    main_decompiled_output = run_pydumpck_decompiler(file_path, file_type=file_type)
 
     # If pydumpck created an output directory, walk it for .py files
     if main_decompiled_output:
@@ -6300,7 +6301,6 @@ def extract_and_return_pyinstaller(file_path):
         for root, _, files in os.walk(pyinstaller_archive):
             for pyinstaller_file in files:
                 extracted_file_path = os.path.join(root, pyinstaller_file)
-                # Add the file path to the list of extracted file paths
                 extracted_pyinstaller_file_paths.append(extracted_file_path)
 
     return extracted_pyinstaller_file_paths, main_decompiled_output
@@ -6821,8 +6821,8 @@ def run_pydumpck_decompiler(file_path, file_type=None):
     Runs the pydumpck decompiler to decompile a Python-packed executable or archive.
 
     Args:
-        file_path:   Path to the input file (exe, pyc, pyz, etc.) to be decompiled.
-        file_type:   (Optional) Target file type hint for pydumpck (e.g., 'pyc', 'pyz', 'exe').
+        file_path:   Path to the input file (exe, pyc, pyz elf, etc.) to be decompiled.
+        file_type:   (Optional) Target file type hint for pydumpck (e.g., 'pyc', 'pyz', 'exe', 'elf').
                      If provided, it will be passed as the -y/--type argument.
 
     Returns:
@@ -7957,18 +7957,24 @@ def scan_and_warn(file_path,
 
             # Check if the file is a PyInstaller archive
             if is_pyinstaller_archive_from_output(die_output):
-                logging.info(f"File {norm_path} is a PyInstaller archive. Extracting...")
-                # Extract the PyInstaller files and get both extracted paths and main decompiled output
-                extracted_files_pyinstaller, main_decompiled_output = extract_and_return_pyinstaller(norm_path)
+                # Determine whether to treat it as ELF or EXE
+                if is_elf_file_from_output(die_output):
+                    type_hint = "elf"
+                else:
+                    type_hint = "exe"
 
-                # First, scan the main decompiled output (if it exists)
+                logging.info(f"File {norm_path} is a PyInstaller archive. Will treat as '{type_hint}'.")
+                extracted_files_pyinstaller, main_decompiled_output = extract_and_return_pyinstaller(norm_path,
+                                                                                                     file_type=type_hint)
+
+                # Scan the main decompiled output (if it exists)
                 if main_decompiled_output:
                     logging.info(f"Scanning main decompiled output: {main_decompiled_output}")
                     threading.Thread(target=scan_and_warn, args=(main_decompiled_output,)).start()
                 else:
                     logging.warning(f"No main decompiled output for: {norm_path}")
 
-                # Next, scan each extracted file (if any were returned)
+                # Scan each extracted file (if any)
                 if extracted_files_pyinstaller:
                     for extracted_file in extracted_files_pyinstaller:
                         logging.info(f"Scanning extracted file: {extracted_file}")
