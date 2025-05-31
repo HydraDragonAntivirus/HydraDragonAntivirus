@@ -1,5 +1,5 @@
-yara-python==4.5.2
-yara-x==0.14.0
+yara-python==4.5.4
+yara-x==0.15.0
 joblib
 pefile
 psutil

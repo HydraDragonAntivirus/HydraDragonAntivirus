@@ -9,7 +9,7 @@ def compile_yara_rule(input_file, output_file):
         rules.save(file=f)
 
 # Usage
-input_yara_file = 'veryoldcompiled_rule.yar'
+input_yara_file = 'compiled_rule.yar'
 output_yrc_file = 'compiled_rule.yrc'
 compile_yara_rule(input_yara_file, output_yrc_file)
 
