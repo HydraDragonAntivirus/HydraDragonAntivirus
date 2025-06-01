@@ -6722,7 +6722,11 @@ def process_exela_v2_payload(output_file):
         source_code_file = 'exela_stealer_last_stage.py'
         source_code_path = save_to_file(source_code_file, final_decrypted_data)
 
-        webhooks = re.findall(discord_webhook_pattern, final_decrypted_data)
+        # Search for webhook URLs
+        webhooks_discord = re.findall(discord_webhook_pattern, final_decrypted_data)
+        webhooks_canary = re.findall(discord_canary_webhook_pattern, final_decrypted_data)
+        webhooks = webhooks_discord + webhooks_canary
+
         if webhooks:
             logging.warning(f"[+] Webhook URLs found: {webhooks}")
             if source_code_path:
