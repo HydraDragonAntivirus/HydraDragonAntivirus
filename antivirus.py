@@ -241,6 +241,10 @@ import marshal
 logging.info(f"marshal module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import dis
+logging.info(f"marshal module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import base64
 logging.info(f"base64 module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -361,6 +365,7 @@ meta_llama_dir = os.path.join(script_dir, "meta_llama")
 meta_llama_1b_dir = os.path.join(meta_llama_dir, "Llama-3.2-1B")
 python_source_code_dir = os.path.join(script_dir, "python_sourcecode")
 python_deobfuscated_dir = os.path.join(script_dir, "python_deobfuscated")
+python_deobfuscated_marshal_pyc_dir = os.path.join(python_deobfuscated_dir, "python_deobfuscated_marshal_pyc")
 pycdc_dir = os.path.join(python_source_code_dir, "pycdc")
 pycdas_dir = os.path.join(python_source_code_dir, "pycdas")
 pydumpck_extracted_dir = os.path.join(python_source_code_dir, "pydumpck_extracted")
@@ -512,6 +517,7 @@ homepage_change_path = f'{sandboxie_log_folder}\\DONTREMOVEHomePageChange.txt'
 HiJackThis_log_path = f'{HydraDragonAntivirus_sandboxie_path}\\HiJackThis\\HiJackThis.log'
 de4dot_sandboxie_dir = f'{HydraDragonAntivirus_sandboxie_path}\\de4dot_extracted_dir'
 python_deobfuscated_sandboxie_dir = f'{HydraDragonAntivirus_sandboxie_path}\\python_deobfuscated'
+PYTHON_CMD = ["py", "-3.12"]
 
 script_exts = {
     '.vbs', '.vbe', '.js', '.jse', '.bat', '.url',
@@ -552,7 +558,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [pydumpck_extracted_dir, enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, python_deobfuscated_dir,  pycdas_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
+directories_to_scan = [pydumpck_extracted_dir, enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
@@ -657,6 +663,7 @@ os.makedirs(jar_extracted_dir, exist_ok=True)
 os.makedirs(FernFlower_decompiled_dir, exist_ok=True)
 os.makedirs(deteciteasy_plain_text_dir, exist_ok=True)
 os.makedirs(python_deobfuscated_dir, exist_ok=True)
+os.makedirs(python_deobfuscated_marshal_pyc_dir, exist_ok=True)
 os.makedirs(pycdc_dir, exist_ok=True)
 os.makedirs(pycdas_dir, exist_ok=True)
 os.makedirs(united_python_source_code_dir, exist_ok=True)
@@ -5964,9 +5971,11 @@ def log_directory_type(file_path):
         elif file_path.startswith(FernFlower_decompiled_dir):
            logging.info(f"{file_path}: It's a directory containing decompiled files from a JAR (Java Archive) file, decompiled using Fernflower decompiler.")
         elif file_path.startswith(pycdc_dir):
-            logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code directory with pycdc.exe.")
+            logging.info(f"{file_path}: It's a .pyc (Python Compiled Module) reversed-engineered Python source code directory with pycdc.exe.")
         elif file_path.startswith(python_deobfuscated_dir):
             logging.info(f"{file_path}: It's an unobfuscated Python directory.")
+        elif file_path.startswith(python_deobfuscated_marshal_pyc_dir):
+            logging.info(f"{file_path}: It's a deobfuscated .pyc (Python Compiled Module) from marshal data.")
         elif file_path.startswith(python_deobfuscated_sandboxie_dir):
             logging.info(f"{file_path}: It's an unobfuscated Python directory within Sandboxie.")
         elif file_path.startswith(pycdas_dir):
@@ -6026,6 +6035,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
             (lambda fp: fp.startswith(FernFlower_decompiled_dir), "This directory contains source files decompiled from a JAR (Java Archive) using the Fernflower decompiler.."),
             (lambda fp: fp.startswith(pycdc_dir), "PyInstaller, .pyc reversed-engineered source code directory with pycdc.exe."),
             (lambda fp: fp.startswith(python_deobfuscated_dir), "It's an unobfuscated Python directory."),
+            (lambda fp: fp.startswith(python_deobfuscated_marshal_pyc_dir), "It's a deobfuscated .pyc (Python Compiled Module) from marshal data."),
             (lambda fp: fp.startswith(python_deobfuscated_sandboxie_dir), "It's an unobfuscated Python directory within Sandboxie."),
             (lambda fp: fp.startswith(pycdas_dir), "PyInstaller, .pyc reversed-engineered source code directory with pycdas.exe."),
             (lambda fp: fp.startswith(pycdas_united_meta_llama_dir), "PyInstaller .pyc reverse-engineered source code directory, decompiled with pycdas.exe and converted to non-bytecode Python code using Meta Llama-3.2-1B."),
@@ -6555,6 +6565,7 @@ def contains_exec_calls(code: str) -> bool:
     return False
 
 # 5) Sandbox execution writes raw .py via DefaultBox
+# 5) Sandbox execution writes raw .py via DefaultBox
 def sandbox_deobfuscate_file(transformed_path: Path) -> Path | None:
     """
     Runs the Python deobfuscator inside Sandboxie (always using DefaultBox),
@@ -6562,7 +6573,7 @@ def sandbox_deobfuscate_file(transformed_path: Path) -> Path | None:
     """
     name = transformed_path.stem
     output_filename = f"{name}_deobf.py"
-    sandbox_inner = Path(sandbox_program_files) / output_filename
+    sandbox_inner = Path(python_deobfuscated_sandboxie_dir) / output_filename
 
     # ensure the sandbox output directory exists
     sandbox_inner.parent.mkdir(parents=True, exist_ok=True)
@@ -6572,7 +6583,7 @@ def sandbox_deobfuscate_file(transformed_path: Path) -> Path | None:
         str(sandboxie_path),
         "/box:DefaultBox",
         "/elevate",
-        sys.executable,
+        *PYTHON_CMD,
         str(transformed_path),
     ]
 
@@ -6597,6 +6608,14 @@ def sandbox_deobfuscate_file(transformed_path: Path) -> Path | None:
     logging.error("Sandbox run completed but output file is missing or empty.")
     return None
 
+def find_first_py_file_in_dir(directory: str) -> Path | None:
+    try:
+        for file in Path(directory).rglob("*.py"):
+            return file  # return first .py file found
+    except Exception as e:
+        logging.error(f"Error scanning directory {directory}: {e}")
+    return None
+
 # Main loop: apply exec->print and remove unused imports, with stuck-detection
 def deobfuscate_until_clean(source_path: Path, max_iterations: int = 10) -> Path | None:
     base_name = source_path.stem
@@ -6606,38 +6625,44 @@ def deobfuscate_until_clean(source_path: Path, max_iterations: int = 10) -> Path
     for iteration in range(1, max_iterations + 1):
         try:
             raw = current.read_text(encoding='utf-8')
-            tree = ast.parse(raw)
+
+            if 'marshal.loads' in raw or 'marshal.load' in raw:
+                logging.info(f"Iter {iteration}: skipping exec→print because of marshal usage")
+                tree = ast.parse(raw)
+            else:
+                tree = ast.parse(raw)
+                tree = ExecToPrintTransformer().visit(tree)
+                tree = ImportCleaner().remove_unused_imports(tree)
+                ast.fix_missing_locations(tree)
+
+                try:
+                    raw = ast.unparse(tree)
+                except Exception as e:
+                    logging.error(f"Iter {iteration}: AST unparse failed: {e}")
+                    return None
+
         except Exception as e:
             logging.error(f"Iter {iteration}: AST parse failed: {e}")
             return None
 
-        tree = ExecToPrintTransformer().visit(tree)
-        tree = ImportCleaner().remove_unused_imports(tree)
-        ast.fix_missing_locations(tree)
-
-        try:
-            code = ast.unparse(tree)
-        except Exception as e:
-            logging.error(f"Iter {iteration}: AST unparse failed: {e}")
-            return None
-
-        if prev_code is not None and code == prev_code:
+        if prev_code is not None and raw == prev_code:
             stuck_name = f"{base_name}_{iteration}_stuck.py"
             stuck_path = os.path.join(python_deobfuscated_dir, stuck_name)
             with open(stuck_path, 'w', encoding='utf-8') as f:
-                f.write(code)
+                f.write(raw)
             logging.warning(f"Iter {iteration}: no further change, wrote stuck file: {stuck_path}")
             return Path(stuck_path)
 
-        prev_code = code
+        prev_code = raw
         transformed_name = f"{base_name}_{iteration}.py"
         transformed_path = os.path.join(python_deobfuscated_dir, transformed_name)
         with open(transformed_path, 'w', encoding='utf-8') as f:
-            f.write(code)
-        logging.info(f"Iter {iteration}: wrote transformed ({len(code)} bytes)")
+            f.write(raw)
+        logging.info(f"Iter {iteration}: wrote transformed ({len(raw)} bytes)")
 
         sandboxed = sandbox_deobfuscate_file(Path(transformed_path))
-        if not sandboxed:
+        if not sandboxed or not sandboxed.exists() or sandboxed.stat().st_size == 0:
+            logging.error("Sandbox run completed but output file is missing or empty.")
             logging.error(f"Iter {iteration}: sandbox failed")
             return None
 
@@ -6645,6 +6670,51 @@ def deobfuscate_until_clean(source_path: Path, max_iterations: int = 10) -> Path
         logging.info(f"Iter {iteration}: sandbox output size {len(raw_out)} bytes")
 
         cleaned = normalize_code_text(raw_out)
+
+        # Check for marshal.loads or marshal.load usage
+        try:
+            if 'marshal.loads' in cleaned or 'marshal.load' in cleaned:
+                logging.info(f"Iter {iteration}: detected marshal usage, attempting decode")
+                tree = ast.parse(cleaned)
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                        if getattr(node.func.value, 'id', None) == 'marshal' and node.func.attr in ('loads', 'load'):
+                            if node.func.attr == 'loads' and isinstance(node.args[0], ast.Constant):
+                                marshalled_data = node.args[0].value
+                                if isinstance(marshalled_data, str):
+                                    marshalled_data = marshalled_data.encode()
+                                code_obj = marshal.loads(marshalled_data)
+
+                                # Write PYC
+                                from importlib.util import MAGIC_NUMBER
+                                pyc_data = bytearray(MAGIC_NUMBER)
+                                pyc_data.extend(struct.pack("<I", 0))  # flags
+                                pyc_data.extend(struct.pack("<I", int(time.time())))  # timestamp
+                                pyc_data.extend(struct.pack("<I", 0))  # size
+                                pyc_data.extend(marshal.dumps(code_obj))
+
+                                pyc_filename = f"{base_name}_marshal_{iteration}.pyc"
+                                pyc_path = os.path.join(python_deobfuscated_marshal_pyc_dir, pyc_filename)
+                                with open(pyc_path, 'wb') as pyc_file:
+                                    pyc_file.write(pyc_data)
+
+                                # Attempt pydumpck first
+                                pydumpck_output = run_pydumpck_decompiler(pyc_path, file_type="pyc")
+                                if pydumpck_output:
+                                    if os.path.isdir(pydumpck_output):
+                                        pydumpck_output = find_first_py_file_in_dir(pydumpck_output)
+                                    if pydumpck_output:
+                                        return Path(pydumpck_output)
+
+                                # Fallback to pycdc if pydumpck fails
+                                pycdc_output = run_pycdc_decompiler(pyc_path)
+                                if pycdc_output:
+                                    return Path(pycdc_output)
+
+                                logging.warning(f"Failed to decompile marshal data with both pydumpck and pycdc.")
+        except Exception as e:
+            logging.error(f"Error handling marshal load: {e}")
+
         if not contains_exec_calls(cleaned):
             final_name = f"{base_name}_final.py"
             final_path = os.path.join(python_deobfuscated_dir, final_name)
