@@ -6280,17 +6280,28 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
 def extract_and_return_pyinstaller(file_path, file_type=None):
     """
     Extracts a PyInstaller archive and returns:
-      1) A list of extracted file paths (.pyc, etc.)
+      1) A list of extracted file paths
       2) The output directory where the main file was decompiled via pydumpck
 
-    Any `.py` produced by pydumpck will be passed to `process_decompiled_code()`.
+    Additionally, any `.py` files produced by pydumpck will be
+    immediately passed to `process_decompiled_code()`.
 
-    Also passes extracted .pyc/.pyo files to deobfuscation for sandbox import support.
+    :param file_path: Path to the PyInstaller archive.
+    :param file_type: (Optional) 'exe' or 'elf' (or any hint pydumpck understands).
+    :return: Tuple (extracted_file_paths, main_decompiled_output_path)
     """
     extracted_pyinstaller_file_paths = []
 
-    # Decompile the main file
+    # Decompile the main file itself with the given file_type hint
     main_decompiled_output = run_pydumpck_decompiler(file_path, file_type=file_type)
+
+    # If pydumpck created an output directory, walk it for .py files
+    if main_decompiled_output:
+        for root, _, files in os.walk(main_decompiled_output):
+            for fname in files:
+                if fname.endswith(".py"):
+                    output_file = os.path.join(root, fname)
+                    process_decompiled_code(output_file)
 
     # Extract PyInstaller archive
     pyinstaller_archive = extract_pyinstaller_archive(file_path)
@@ -6298,22 +6309,11 @@ def extract_and_return_pyinstaller(file_path, file_type=None):
     if pyinstaller_archive:
         logging.info(f"PyInstaller archive extracted to {pyinstaller_archive}")
 
-        # Collect all .pyc/.pyo files
+        # Traverse and collect all extracted files (no pydumpck on these)
         for root, _, files in os.walk(pyinstaller_archive):
-            for py_file in files:
-                full_path = os.path.join(root, py_file)
-                extracted_pyinstaller_file_paths.append(full_path)
-
-    # Process .py files from pydumpck output
-    if main_decompiled_output:
-        for root, _, files in os.walk(main_decompiled_output):
-            for fname in files:
-                if fname.endswith(".py"):
-                    output_file = os.path.join(root, fname)
-                    process_decompiled_code(
-                        output_file,
-                        extracted_pyinstaller_file_paths  # pass .pyc paths
-                    )
+            for pyinstaller_file in files:
+                extracted_file_path = os.path.join(root, pyinstaller_file)
+                extracted_pyinstaller_file_paths.append(extracted_file_path)
 
     return extracted_pyinstaller_file_paths, main_decompiled_output
 
@@ -6523,36 +6523,16 @@ class ExecToPrintTransformer(ast.NodeTransformer):
 
 # 2) Remove unused imports based on usage in code
 class ImportCleaner(ast.NodeTransformer):
-    def __init__(self):
-        self.used_names = set()
-
-    def visit_Name(self, node):
-        self.used_names.add(node.id)
-        return node
-
-    def visit_Attribute(self, node):
-        self.generic_visit(node)
-        if isinstance(node.value, ast.Name):
-            self.used_names.add(node.value.id)
-        return node
-
+    def __init__(self): self.used_names = set()
+    def visit_Name(self, node): self.used_names.add(node.id); return node
     def remove_unused_imports(self, tree):
         self.visit(tree)
-        new_body = []
-        for n in tree.body:
-            if isinstance(n, (ast.Import, ast.ImportFrom)):
-                keep = False
-                for alias in n.names:
-                    name = alias.asname or alias.name.split('.')[0]
-                    if name in self.used_names:
-                        keep = True
-                        break
-                if keep:
-                    new_body.append(n)
-            else:
-                new_body.append(n)
-        tree.body = new_body
+        tree.body = [n for n in tree.body if not (
+            isinstance(n, (ast.Import, ast.ImportFrom)) and
+            not any((alias.asname or alias.name.split('.')[0]) in self.used_names for alias in n.names)
+        )]
         return tree
+
 
 # 3) Generic normalization using literal_eval
 def normalize_code_text(raw_text: str) -> str:
@@ -6587,17 +6567,14 @@ def contains_exec_calls(code: str) -> bool:
     return False
 
 # 5) Sandbox execution writes raw .py via DefaultBox
-def sandbox_deobfuscate_file(
-    transformed_path: Path,
-    python_cmd: list[str] = DEFAULT_PYTHON_CMD
-) -> Path | None:
+def sandbox_deobfuscate_file(transformed_path: Path) -> Path | None:
     """
     Runs the Python deobfuscator inside Sandboxie (always using DefaultBox),
     capturing its stdout directly into a file.
     """
     name = transformed_path.stem
     output_filename = f"{name}_deobf.py"
-    sandbox_inner = Path(python_deobfuscated_sandboxie_dir) / output_filename
+    sandbox_inner = Path(sandbox_program_files) / output_filename
 
     # ensure the sandbox output directory exists
     sandbox_inner.parent.mkdir(parents=True, exist_ok=True)
@@ -6607,7 +6584,7 @@ def sandbox_deobfuscate_file(
         str(sandboxie_path),
         "/box:DefaultBox",
         "/elevate",
-        *python_cmd,
+        sys.executable,
         str(transformed_path),
     ]
 
@@ -6619,7 +6596,7 @@ def sandbox_deobfuscate_file(
                 stdout=out_f,
                 stderr=subprocess.STDOUT,
                 check=True,
-                timeout=120
+                timeout=120,
             )
     except Exception as e:
         logging.error(f"Sandbox run failed: {e}")
@@ -6632,137 +6609,69 @@ def sandbox_deobfuscate_file(
     logging.error("Sandbox run completed but output file is missing or empty.")
     return None
 
-def find_first_py_file_in_dir(directory: str) -> Path | None:
-    try:
-        for file in Path(directory).rglob("*.py"):
-            return file  # return first .py file found
-    except Exception as e:
-        logging.error(f"Error scanning directory {directory}: {e}")
-    return None
-
-def extract_codeobj_from_marshal(text: str) -> str | None:
-    """
-    Detects exec(marshal.loads(...)) or exec(marshal.loads(base64.b64decode(...))) patterns,
-    unmarshals the bytecode, and disassembles it to source.
-    Returns a string with disassembled code or None.
-    """
-    try:
-        # Base64 + marshal.loads pattern
-        b64_m = re.search(r"marshal\.loads\(base64\.b64decode\(['\"]([A-Za-z0-9+/=]+)['\"]\)\)", text)
-        if b64_m:
-            b64_data = b64_m.group(1)
-            marshaled_bytes = base64.b64decode(b64_data)
-        else:
-            # Direct marshal.loads(b'...')
-            raw_m = re.search(r"marshal\.loads\((b(['\"])(.+?)\2)\)", text)
-            if not raw_m:
-                return None
-            raw_bytes_expr = raw_m.group(1)
-            marshaled_bytes = eval(raw_bytes_expr)
-
-        code_obj = marshal.loads(marshaled_bytes)
-
-        # Use dis to get readable form
-        from io import StringIO
-        buf = StringIO()
-        dis.dis(code_obj, file=buf)
-        return buf.getvalue()
-
-    except Exception as e:
-        logging.error(f"Failed to unmarshal: {e}")
-        return None
-
-# Main loop: apply exec->print and remove unused imports, with stuck-detectiony
-def deobfuscate_until_clean(
-    source_path: Path,
-    python_cmd: list[str] = DEFAULT_PYTHON_CMD,
-    max_iterations: int = 10,
-    copy_to_dir: Path | None = None,
-    pyinstaller_import_dir: Path | None = None,
-    extracted_paths: list[str] = None  # output from extract_and_return_pyinstaller()
-) -> Path | None:
-    """
-    Iteratively deobfuscates a Python script using AST transforms and sandbox runs.
-    - copy_to_dir: if set, final .py is copied there
-    - pyinstaller_import_dir: if set, all .pyc files will be copied here for sandbox import support
-    - extracted_paths: list of PyInstaller-extracted file paths (from extract_and_return_pyinstaller)
-    """
+# Main loop: apply exec->print and remove unused imports, with stuck-detection
+def deobfuscate_until_clean(source_path: Path, max_iterations: int = 10) -> Path | None:
     base_name = source_path.stem
     current = source_path
     prev_code = None
 
-    # Copy import dependencies first if path is provided
-    if pyinstaller_import_dir and extracted_paths:
-        os.makedirs(pyinstaller_import_dir, exist_ok=True)
-        for file_path in extracted_paths:
-            if file_path.endswith((".pyc", ".pyo")):
-                dest = Path(pyinstaller_import_dir) / Path(file_path).name
-                shutil.copy2(file_path, dest)
-                logging.info(f"Copied {file_path} → {dest} for sandbox import")
-
     for iteration in range(1, max_iterations + 1):
         try:
             raw = current.read_text(encoding='utf-8')
-
-            # New: try static marshal deobfuscation
-            disassembled = extract_codeobj_from_marshal(raw)
-            if disassembled:
-                dis_path = Path(python_deobfuscated_dir) / f"{base_name}_{iteration}_disassembled.py"
-                dis_path.write_text("# Decompiled from marshal.loads\n" + disassembled, encoding='utf-8')
-                logging.info(f"Unmarshaled disassembly written to: {dis_path}")
-                if copy_to_dir:
-                    shutil.copy2(dis_path, Path(copy_to_dir) / dis_path.name)
-                return dis_path
-
-            if 'marshal.loads' in raw or 'marshal.load' in raw:
-                logging.info(f"Iter {iteration}: skipping exec→print due to marshal usage")
-                tree = ast.parse(raw)
-            else:
-                tree = ast.parse(raw)
-                tree = ExecToPrintTransformer().visit(tree)
-                cleaner = ImportCleaner()
-                tree = cleaner.remove_unused_imports(tree)
-                ast.fix_missing_locations(tree)
-                raw = ast.unparse(tree)
-
+            tree = ast.parse(raw)
         except Exception as e:
-            logging.error(f"Iter {iteration}: AST processing failed: {e}")
+            logging.error(f"Iter {iteration}: AST parse failed: {e}")
             return None
 
-        if prev_code is not None and raw == prev_code:
-            stuck_path = Path(python_deobfuscated_dir) / f"{base_name}_{iteration}_stuck.py"
-            stuck_path.write_text(raw, encoding='utf-8')
-            logging.warning(f"Iter {iteration}: no change, wrote stuck: {stuck_path}")
-            if copy_to_dir:
-                shutil.copy2(stuck_path, Path(copy_to_dir) / stuck_path.name)
-            return stuck_path
+        tree = ExecToPrintTransformer().visit(tree)
+        tree = ImportCleaner().remove_unused_imports(tree)
+        ast.fix_missing_locations(tree)
 
-        prev_code = raw
-        transformed_path = Path(python_deobfuscated_dir) / f"{base_name}_{iteration}.py"
-        transformed_path.write_text(raw, encoding='utf-8')
+        try:
+            code = ast.unparse(tree)
+        except Exception as e:
+            logging.error(f"Iter {iteration}: AST unparse failed: {e}")
+            return None
 
-        logging.info(f"Iter {iteration}: wrote transformed ({len(raw)} bytes)")
-        sandboxed = sandbox_deobfuscate_file(transformed_path, python_cmd=python_cmd)
+        if prev_code is not None and code == prev_code:
+            stuck_name = f"{base_name}_{iteration}_stuck.py"
+            stuck_path = os.path.join(python_deobfuscated_dir, stuck_name)
+            with open(stuck_path, 'w', encoding='utf-8') as f:
+                f.write(code)
+            logging.warning(f"Iter {iteration}: no further change, wrote stuck file: {stuck_path}")
+            return Path(stuck_path)
 
-        if not sandboxed or not sandboxed.exists() or sandboxed.stat().st_size == 0:
-            logging.error(f"Iter {iteration}: sandbox failed or empty output")
+        prev_code = code
+        transformed_name = f"{base_name}_{iteration}.py"
+        transformed_path = os.path.join(python_deobfuscated_dir, transformed_name)
+        with open(transformed_path, 'w', encoding='utf-8') as f:
+            f.write(code)
+        logging.info(f"Iter {iteration}: wrote transformed ({len(code)} bytes)")
+
+        sandboxed = sandbox_deobfuscate_file(Path(transformed_path))
+        if not sandboxed:
+            logging.error(f"Iter {iteration}: sandbox failed")
             return None
 
         raw_out = sandboxed.read_text(encoding='utf-8')
+        logging.info(f"Iter {iteration}: sandbox output size {len(raw_out)} bytes")
+
         cleaned = normalize_code_text(raw_out)
-
         if not contains_exec_calls(cleaned):
-            final_path = Path(python_deobfuscated_dir) / f"{base_name}_final.py"
-            final_path.write_text(cleaned, encoding='utf-8')
+            final_name = f"{base_name}_final.py"
+            final_path = os.path.join(python_deobfuscated_dir, final_name)
+            with open(final_path, 'w', encoding='utf-8') as f:
+                f.write(cleaned)
             logging.info(f"Complete after {iteration} iterations: {final_path}")
-            if copy_to_dir:
-                shutil.copy2(final_path, Path(copy_to_dir) / final_path.name)
-            return final_path
+            return Path(final_path)
 
-        current = Path(python_deobfuscated_dir) / f"{base_name}_{iteration + 1}.py"
-        current.write_text(cleaned, encoding='utf-8')
+        next_name = f"{base_name}_{iteration+1}.py"
+        next_path = os.path.join(python_deobfuscated_dir, next_name)
+        with open(next_path, 'w', encoding='utf-8') as f:
+            f.write(cleaned)
+        current = Path(next_path)
 
-    logging.error("Max iterations hit; deobfuscation incomplete")
+    logging.error("Maximum iterations reached without fully deobfuscating.")
     return None
 
 def is_exela_v2_payload(content):
@@ -6826,11 +6735,10 @@ def process_exela_v2_payload(output_file):
     except Exception as ex:
         logging.error(f"Error during Exela v2 payload processing: {ex}")
 
-def process_decompiled_code(output_file, pyinstaller_import_paths=None):
+def process_decompiled_code(output_file):
     """
     Dispatches payload processing based on type.
     Detects whether the payload is Exela v2 or generic.
-    Passes extracted .pyc/.pyo paths for sandbox import support.
     """
     try:
         with open(output_file, 'r', encoding='utf-8') as file:
@@ -6845,13 +6753,7 @@ def process_decompiled_code(output_file, pyinstaller_import_paths=None):
 
         else:
             logging.info("[*] Detected non-Exela payload. Using generic processing.")
-            deobfuscated = deobfuscate_until_clean(
-                Path(output_file),
-                python_cmd=["py", "-3.12"],
-                copy_to_dir=Path(python_deobfuscated_sandboxie_dir),
-                pyinstaller_import_dir=Path(python_deobfuscated_sandboxie_dir),
-                extracted_paths=pyinstaller_import_paths or []
-            )
+            deobfuscated = deobfuscate_until_clean(output_file)
             if deobfuscated:
                 deobfuscated_saved_paths.append(deobfuscated)  # Add to global list
                 notify_user_for_malicious_source_code(
