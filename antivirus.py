@@ -6565,7 +6565,6 @@ def contains_exec_calls(code: str) -> bool:
     return False
 
 # 5) Sandbox execution writes raw .py via DefaultBox
-# 5) Sandbox execution writes raw .py via DefaultBox
 def sandbox_deobfuscate_file(transformed_path: Path) -> Path | None:
     """
     Runs the Python deobfuscator inside Sandboxie (always using DefaultBox),
