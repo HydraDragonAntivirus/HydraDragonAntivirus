@@ -683,12 +683,11 @@ os.makedirs(sandboxie_folder, exist_ok=True)
 os.makedirs(sandbox_program_files, exist_ok=True)
 os.makedirs(sandbox_system_root_directory, exist_ok=True)
 
-pyinstaller_import_dir: Path | None = None
-
 # Counter for ransomware detection
 ransomware_detection_count = 0
 
 main_file_path = None
+pyinstaller_archive = None
 
 # Cache of { file_path: last_md5 }  
 file_md5_cache: dict[str, str] = {}
@@ -6298,6 +6297,8 @@ def extract_and_return_pyinstaller(file_path, file_type=None):
     :param file_type: (Optional) 'exe' or 'elf' (or any hint pydumpck understands).
     :return: Tuple (extracted_file_paths, main_decompiled_output_path)
     """
+    global pyinstaller_archive
+
     extracted_pyinstaller_file_paths = []
 
     # Decompile the main file itself with the given file_type hint
