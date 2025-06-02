@@ -221,6 +221,14 @@ import struct
 logging.info(f"struct module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+from struct import pack
+logging.info(f"struct.pack module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from importlib.util import MAGIC_NUMBER
+logging.info(f"importlib.util.MAGIC_NUMBER module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import string
 logging.info(f"string module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -517,7 +525,7 @@ homepage_change_path = f'{sandboxie_log_folder}\\DONTREMOVEHomePageChange.txt'
 HiJackThis_log_path = f'{HydraDragonAntivirus_sandboxie_path}\\HiJackThis\\HiJackThis.log'
 de4dot_sandboxie_dir = f'{HydraDragonAntivirus_sandboxie_path}\\de4dot_extracted_dir'
 python_deobfuscated_sandboxie_dir = f'{HydraDragonAntivirus_sandboxie_path}\\python_deobfuscated'
-DEFAULT_PYTHON_CMD = ["py", "-3.12"]
+version_flag = f"-{sys.version_info.major}.{sys.version_info.minor}"
 
 script_exts = {
     '.vbs', '.vbe', '.js', '.jse', '.bat', '.url',
@@ -6570,7 +6578,7 @@ def contains_exec_calls(code: str) -> bool:
 def sandbox_deobfuscate_file(transformed_path: Path) -> Path | None:
     """
     Runs the Python deobfuscator inside Sandboxie (always using DefaultBox),
-    capturing its stdout directly into a file.
+    capturing its stdout directly into a file, using a dynamic Python launcher.
     """
     name = transformed_path.stem
     output_filename = f"{name}_deobf.py"
@@ -6579,17 +6587,20 @@ def sandbox_deobfuscate_file(transformed_path: Path) -> Path | None:
     # ensure the sandbox output directory exists
     sandbox_inner.parent.mkdir(parents=True, exist_ok=True)
 
-    # build the command, always using DefaultBox
+    # determine Python launcher and version dynamically
+    launcher = "py"
+    DEFAULT_PYTHON_CMD = [launcher, version_flag]
+
+    # build the full command, always running inside DefaultBox with elevation
     cmd = [
         str(sandboxie_path),
         "/box:DefaultBox",
         "/elevate",
-        sys.executable,
+        *DEFAULT_PYTHON_CMD,
         str(transformed_path),
     ]
 
     try:
-        # open the file for writing and hand it to subprocess
         with sandbox_inner.open("w", encoding="utf-8") as out_f:
             subprocess.run(
                 cmd,
@@ -6602,7 +6613,7 @@ def sandbox_deobfuscate_file(transformed_path: Path) -> Path | None:
         logging.error(f"Sandbox run failed: {e}")
         return None
 
-    # subprocess.run has completed and file has been flushed
+    # verify output
     if sandbox_inner.exists() and sandbox_inner.stat().st_size > 0:
         return sandbox_inner
 
