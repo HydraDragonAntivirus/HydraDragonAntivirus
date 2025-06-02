@@ -221,10 +221,6 @@ import struct
 logging.info(f"struct module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from struct import pack
-logging.info(f"struct.pack module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 from importlib.util import MAGIC_NUMBER
 logging.info(f"importlib.util.MAGIC_NUMBER module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -688,6 +684,7 @@ ransomware_detection_count = 0
 
 main_file_path = None
 pyinstaller_archive = None
+full_python_version = None
 
 # Cache of { file_path: last_md5 }  
 file_md5_cache: dict[str, str] = {}
@@ -5475,6 +5472,8 @@ class PyInstArchive:
         and the Python version used to build the archive.
         Returns False if unpacking fails.
         """
+        global full_python_version
+
         try:
             self.fPtr.seek(self.cookiePos, os.SEEK_SET)
             if self.pyinstVer == 20:
@@ -5492,7 +5491,11 @@ class PyInstArchive:
             self.pymaj, self.pymin = (pyver // 100, pyver % 100)
         else:
             self.pymaj, self.pymin = (pyver // 10, pyver % 10)
-        logging.info(f"Archive Python version: {self.pymaj}.{self.pymin}")
+
+        # Set global full Python version string
+        full_python_version = f"{self.pymaj}.{self.pymin}"
+
+        logging.info(f"Archive Python version: {full_python_version}")
 
         # Calculate overlay (payload) position
         tailBytes = self.fileSize - self.cookiePos - (
@@ -5502,6 +5505,7 @@ class PyInstArchive:
         self.overlayPos = self.fileSize - self.overlaySize
         self.tableOfContentsPos = self.overlayPos + toc
         self.tableOfContentsSize = tocLen
+
         logging.info(f"Length of package payload: {lengthofPackage} bytes")
         logging.info(f"TOC at {self.tableOfContentsPos} (size {self.tableOfContentsSize} bytes)")
 
