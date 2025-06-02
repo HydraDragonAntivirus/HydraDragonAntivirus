@@ -370,8 +370,8 @@ meta_llama_1b_dir = os.path.join(meta_llama_dir, "Llama-3.2-1B")
 python_source_code_dir = os.path.join(script_dir, "python_sourcecode")
 python_deobfuscated_dir = os.path.join(script_dir, "python_deobfuscated")
 python_deobfuscated_marshal_pyc_dir = os.path.join(python_deobfuscated_dir, "python_deobfuscated_marshal_pyc")
-pycdc_dir = os.path.join(python_source_code_dir, "pycdc")
-pycdas_dir = os.path.join(python_source_code_dir, "pycdas")
+pycdc_extracted_dir = os.path.join(python_source_code_dir, "pycdc_extracted")
+pycdas_extracted_dir = os.path.join(python_source_code_dir, "pycdas_extracted")
 pydumpck_extracted_dir = os.path.join(python_source_code_dir, "pydumpck_extracted")
 united_python_source_code_dir = os.path.join(python_source_code_dir, "united")
 pycdas_united_meta_llama_dir = os.path.join(python_source_code_dir, "pycdas_united_meta_llama")
@@ -562,7 +562,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [pydumpck_extracted_dir, enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
+directories_to_scan = [pydumpck_extracted_dir, enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
@@ -668,8 +668,8 @@ os.makedirs(FernFlower_decompiled_dir, exist_ok=True)
 os.makedirs(deteciteasy_plain_text_dir, exist_ok=True)
 os.makedirs(python_deobfuscated_dir, exist_ok=True)
 os.makedirs(python_deobfuscated_marshal_pyc_dir, exist_ok=True)
-os.makedirs(pycdc_dir, exist_ok=True)
-os.makedirs(pycdas_dir, exist_ok=True)
+os.makedirs(pycdc_extracted_dir, exist_ok=True)
+os.makedirs(pycdas_extracted_dir, exist_ok=True)
 os.makedirs(united_python_source_code_dir, exist_ok=True)
 os.makedirs(pycdas_united_meta_llama_dir, exist_ok=True)
 os.makedirs(copied_sandbox_and_main_files_dir, exist_ok=True)
@@ -5983,7 +5983,7 @@ def log_directory_type(file_path):
            logging.info(f"{file_path}: It's a directory containing extracted files from a JAR (Java Archive) file.")
         elif file_path.startswith(FernFlower_decompiled_dir):
            logging.info(f"{file_path}: It's a directory containing decompiled files from a JAR (Java Archive) file, decompiled using Fernflower decompiler.")
-        elif file_path.startswith(pycdc_dir):
+        elif file_path.startswith(pycdc_extracted_dir):
             logging.info(f"{file_path}: It's a .pyc (Python Compiled Module) reversed-engineered Python source code directory with pycdc.exe.")
         elif file_path.startswith(python_deobfuscated_dir):
             logging.info(f"{file_path}: It's an unobfuscated Python directory.")
@@ -5991,7 +5991,7 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: It's a deobfuscated .pyc (Python Compiled Module) from marshal data.")
         elif file_path.startswith(python_deobfuscated_sandboxie_dir):
             logging.info(f"{file_path}: It's an unobfuscated Python directory within Sandboxie.")
-        elif file_path.startswith(pycdas_dir):
+        elif file_path.startswith(pycdas_extracted_dir):
             logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code directory with pycdas.exe.")
         elif file_path.startswith(python_source_code_dir):
             logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code base directory.")
@@ -6046,11 +6046,11 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
             (lambda fp: fp.startswith(debloat_dir), "It's a debloated file dir."),
             (lambda fp: fp.startswith(jar_extracted_dir), "Directory containing extracted files from a JAR (Java Archive) file."),
             (lambda fp: fp.startswith(FernFlower_decompiled_dir), "This directory contains source files decompiled from a JAR (Java Archive) using the Fernflower decompiler.."),
-            (lambda fp: fp.startswith(pycdc_dir), "PyInstaller, .pyc reversed-engineered source code directory with pycdc.exe."),
+            (lambda fp: fp.startswith(pycdc_extracted_dir), "PyInstaller, .pyc reversed-engineered source code directory with pycdc.exe."),
             (lambda fp: fp.startswith(python_deobfuscated_dir), "It's an unobfuscated Python directory."),
             (lambda fp: fp.startswith(python_deobfuscated_marshal_pyc_dir), "It's a deobfuscated .pyc (Python Compiled Module) from marshal data."),
             (lambda fp: fp.startswith(python_deobfuscated_sandboxie_dir), "It's an unobfuscated Python directory within Sandboxie."),
-            (lambda fp: fp.startswith(pycdas_dir), "PyInstaller, .pyc reversed-engineered source code directory with pycdas.exe."),
+            (lambda fp: fp.startswith(pycdas_extracted_dir), "PyInstaller, .pyc reversed-engineered source code directory with pycdas.exe."),
             (lambda fp: fp.startswith(pycdas_united_meta_llama_dir), "PyInstaller .pyc reverse-engineered source code directory, decompiled with pycdas.exe and converted to non-bytecode Python code using Meta Llama-3.2-1B."),
             (lambda fp: fp.startswith(python_source_code_dir), "PyInstaller, .pyc reversed-engineered source code base directory."),
             (lambda fp: fp.startswith(nuitka_source_code_dir), "Nuitka reversed-engineered Python source code directory.")
@@ -6799,7 +6799,7 @@ def run_pycdc_decompiler(file_path):
     try:
         # Extract the file name and create the output path in the pycdc subfolder
         base_name = os.path.splitext(os.path.basename(file_path))[0]
-        output_path = os.path.join(pycdc_dir, f"{base_name}_pycdc_decompiled.py")
+        output_path = os.path.join(pycdc_extracted_dir, f"{base_name}_pycdc_decompiled.py")
 
         # Build the pycdc command with the -o argument
         command = [pycdc_path, "-o", output_path, file_path]
@@ -6830,7 +6830,7 @@ def run_pycdas_decompiler(file_path):
     try:
         # Extract the file name and create the output path in the pycdas subfolder
         base_name = os.path.splitext(os.path.basename(file_path))[0]
-        output_path = os.path.join(pycdas_dir, f"{base_name}_pycdas_decompiled.py")
+        output_path = os.path.join(pycdas_extracted_dir, f"{base_name}_pycdas_decompiled.py")
 
         # Build the pycdas command with the -o argument
         command = [pycdas_path, "-o", output_path, file_path]
