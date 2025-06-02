@@ -695,7 +695,7 @@ file_md5_cache: dict[str, str] = {}
 # Global cache: md5 -> (die_output, plain_text_flag)
 die_cache: Dict[str, Tuple[str, bool]] = {}
 
-# Separate cache for "binary‑only" DIE results
+# Separate cache for "binary-only" DIE results
 binary_die_cache: Dict[str, str] = {}
 
 def compute_md5(path: str) -> str:
@@ -1212,7 +1212,7 @@ def debloat_pe_file(file_path):
     try:
         logging.info(f"Debloating PE file {file_path} for faster scanning.")
 
-        # Flag for last‑ditch processing
+        # Flag for last-ditch processing
         last_ditch_processing = False
 
         # Normalize paths
@@ -1345,7 +1345,7 @@ def process_file_data(file_path, die_output):
 
         # Peel off Base64/Base32 layers
         while True:
-            # Base‑64 first
+            # Base-64 first
             if isinstance(data_content, (bytes, bytearray)) and is_base64(data_content):
                 decoded = decode_base64(data_content)
                 if decoded is not None:
@@ -1353,7 +1353,7 @@ def process_file_data(file_path, die_output):
                     data_content = decoded
                     continue
 
-            # then Base‑32
+            # then Base-32
             if isinstance(data_content, (bytes, bytearray)) and is_base32(data_content):
                 decoded = decode_base32(data_content)
                 if decoded is not None:
@@ -4035,7 +4035,7 @@ def scan_yara(file_path):
             except Exception as e:
                 logging.error(f"Error scanning with valhalla_rule: {e}")
 
-            # yaraxtr_rule (YARA‑X)
+            # yaraxtr_rule (YARA-X)
             try:
                 if yaraxtr_rule:
                     scanner = yara_x.Scanner(rules=yaraxtr_rule)
@@ -4477,12 +4477,12 @@ def scan_zip_file(file_path):
                 # Record metadata
                 entries.append((info.filename, info.file_size, encrypted))
 
-                # Size‑bomb check
+                # Size-bomb check
                 if zip_size < 20 * 1024 * 1024 and info.file_size > 650 * 1024 * 1024:
                     virus = "HEUR:Win32.Susp.Size.Encrypted.ZIP" if encrypted else "HEUR:Win32.Susp.Size.ZIP"
                     notify_size_warning(file_path, "ZIP", virus)
 
-        # Single‑entry password logic
+        # Single-entry password logic
         if len(entries) == 1:
             fname, _, encrypted = entries[0]
             if not encrypted:
@@ -4528,12 +4528,12 @@ def scan_7z_file(file_path):
                 # Record metadata
                 entries.append((filename, entry.uncompressed, encrypted))
 
-                # Size‑bomb check
+                # Size-bomb check
                 if archive_size < 20 * 1024 * 1024 and entry.uncompressed > 650 * 1024 * 1024:
                     virus = "HEUR:Win32.Susp.Size.Encrypted.7z" if encrypted else "HEUR:Win32.Susp.Size.7z"
                     notify_size_warning(file_path, "7z", virus)
 
-        # Single‑entry password logic
+        # Single-entry password logic
         if len(entries) == 1:
             fname, _, encrypted = entries[0]
             if not encrypted:
@@ -9052,7 +9052,7 @@ class MonitorMessageCommandLine:
         """
         logging.debug(f"WinEvent: event=0x{event:04X} hwnd={hwnd} obj={idObject} child={idChild}")
 
-        # --- 1) Brute-force scan of *all* top‑level windows & their text, on every event
+        # --- 1) Brute-force scan of *all* top-level windows & their text, on every event
         try:
             all_entries = find_windows_with_text()
             for h, txt, p in all_entries:
