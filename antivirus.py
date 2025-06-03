@@ -910,20 +910,31 @@ except Exception as e:
 
 def get_unique_output_path(output_dir: Path, base_name: Path) -> Path:
     """
-    Generate a unique file path by appending a counter suffix (_1, _2, etc.) if the file already exists.
+    Generate a unique file path by appending a timestamp suffix.
+    If the file exists (rare), append a counter suffix after the timestamp.
+
+    Args:
+        output_dir: Directory where the file will be saved.
+        base_name: Desired base filename (with extension).
+
+    Returns:
+        A Path object with a unique filename inside output_dir.
     """
-    # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Sanitize stem and suffix
     stem = sanitize_filename(base_name.stem)
     suffix = base_name.suffix
 
-    candidate = output_dir / f"{stem}{suffix}"
-    counter = 1
-    while candidate.exists():
-        candidate = output_dir / f"{stem}_{counter}{suffix}"
-        counter += 1
+    timestamp = int(time.time())
+    candidate = output_dir / f"{stem}_{timestamp}{suffix}"
+
+    if candidate.exists():
+        counter = 1
+        while True:
+            candidate = output_dir / f"{stem}_{timestamp}_{counter}{suffix}"
+            if not candidate.exists():
+                break
+            counter += 1
 
     return candidate
 
@@ -1099,26 +1110,27 @@ def is_dotnet_file_from_output(die_output):
     Checks if DIE output indicates a .NET executable file.
 
     Returns:
-      - True
-        if it's a .NET file detected.
+      - False
+        if "C++" appears anywhere in the output.
       - "Protector: Obfuscar" or "Protector: Obfuscar(<version>)"
         if it's protected with Obfuscar.
       - "Protector: <Name>" or "Protector: <Name>(<version>)"
         for any other Protector: marker (full line captured).
+      - True
+        if it's a .NET file and no protector is detected.
       - None
         if none of these markers are found.
     """
-
     if not die_output:
         logging.info("Empty DIE output; no .NET markers found.")
         return None
 
-    # 1) .NET runtime indication
-    if ".NET" in die_output:
-        logging.info("DIE output indicates a .NET executable.")
-        return True
+    # 0) If it contains a C++ indicator, treat as non-.NET and return False
+    if "C++" in die_output:
+        logging.info("DIE output indicates native C++; not a .NET assembly.")
+        return False
 
-    # 2) Specific Obfuscar protector
+    # 1) Specific Obfuscar protector
     obfuscar_match = re.search(r'Protector:\s*Obfuscar(?:\(([^)]+)\))?', die_output)
     if obfuscar_match:
         version = obfuscar_match.group(1)
@@ -1126,12 +1138,17 @@ def is_dotnet_file_from_output(die_output):
         logging.info(f"DIE output indicates a .NET assembly protected with {result}.")
         return result
 
-    # 3) Generic Protector marker – capture the full line
+    # 2) Generic Protector marker – capture the full line
     line_match = re.search(r'^Protector:.*$', die_output, re.MULTILINE)
     if line_match:
         marker = line_match.group(0).strip()
         logging.info(f"DIE output indicates .NET assembly requires de4dot: {marker}.")
         return marker
+
+    # 3) .NET runtime indication (only if no protector found)
+    if ".NET" in die_output:
+        logging.info("DIE output indicates a .NET executable without protection.")
+        return True
 
     # 4) Nothing .NET/protector-related found
     logging.info(f"DIE output does not indicate a .NET executable or known protector: {die_output!r}")
