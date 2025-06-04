@@ -2480,7 +2480,7 @@ def load_website_data():
 # --------------------------------------------------------------------------
 # Check for Discord webhook URLs (including Canary)
 def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=None, nsis_flag=False,
-                            nuitka_flag=False, pyc_flag=False, pyinstaller_meta_llama_flag=False, dotnet_flag=False):
+                            nuitka_flag=False, pyc_flag=False, pyc_meta_llama_flg=False, dotnet_flag=False):
     """
     Scan the decompiled code for Discord webhook URLs, Discord Canary webhook URLs or Telegram bot links.
     For every detection, log a warning and immediately notify the user with an explicit unique heuristic
@@ -2511,10 +2511,9 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
         elif nsis_flag:
             logging.warning(f"Discord webhook URL detected in NSIS script compiled file (.nsi): {file_path} - Matches: {discord_webhook_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.NSIS')
-        elif pyc_flag or pyinstaller_meta_llama_flag:
-            # In both cases, add the notice.
+        elif pyc_flag or pyc_meta_llama_flg:
             logging.warning(f"Discord webhook URL detected in Python Compilled Module file: {file_path} - Matches: {discord_webhook_matches}")
-            if pyinstaller_meta_llama_flag:
+            if pyc_meta_llama_flg:
                 notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.PYC.MetaLlama')
             else:
                 notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.PYC.Python')
@@ -2535,9 +2534,9 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
         elif nsis_flag:
             logging.warning(f"Discord Canary webhook URL detected in NSIS script compiled file (.nsi): {file_path} - Matches: {discord_canary_webhook_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.NSIS')
-        elif pyc_flag or pyinstaller_meta_llama_flag:
+        elif pyc_flag or pyc_meta_llama_flg:
             logging.warning(f"Discord Canary webhook URL detected in Python Compilled Module file:{file_path} - Matches: {discord_canary_webhook_matches}")
-            if pyinstaller_meta_llama_flag:
+            if pyc_meta_llama_flg:
                 notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.PYC.Python.MetaLlama')
             else:
                 notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.PYC.Python')
@@ -2563,10 +2562,10 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
             logging.warning(
                 f"Discord CDN attachment URL detected in NSIS script compiled file (.nsi): {file_path} - Matches: {cdn_attachment_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.CDNAttachment.NSIS')
-        elif pyc_flag or pyinstaller_meta_llama_flag:
+        elif pyc_flag or pyc_meta_llama_flg:
             logging.warning(
                 f"Discord CDN attachment URL detected in Python Compilled Module file: {file_path} - Matches: {cdn_attachment_matches}")
-            if pyinstaller_meta_llama_flag:
+            if pyc_meta_llama_flg:
                 notify_user_for_malicious_source_code(file_path,
                                                       'HEUR:Win32.Discord.CDNAttachment.PYC.Python.MetaLlama')
             else:
@@ -2589,9 +2588,9 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
         elif nsis_flag:
             logging.warning(f"Telegram bot detected in NSIS script compiled file (.nsi): {file_path} - Matches: {telegram_token_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.NSIS')
-        elif pyc_flag or pyinstaller_meta_llama_flag:
+        elif pyc_flag or pyc_meta_llama_flg:
             logging.warning(f"Telegram bot detected in Python Compilled Module file: {file_path} - Matches: {telegram_token_matches}")
-            if pyinstaller_meta_llama_flag:
+            if pyc_meta_llama_flg:
                 notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.PYC.Python.MetaLlama')
             else:
                 notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.PYC.Python')
@@ -2601,7 +2600,7 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
 
 # --------------------------------------------------------------------------
 # Generalized scan for domains
-def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyc_flag=False, pyinstaller_meta_llama_flag=False, homepage_flag=""):
+def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyc_flag=False, pyc_meta_llama_flg=False, homepage_flag=""):
     try:
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
@@ -2648,9 +2647,9 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
                 elif nsis_flag:
                     logging.warning(f"Spam subdomain detected in NSIS script compiled file (.nsi): {full_domain}")
                     notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.NSIS.Spam.SubDomain")
-                elif pyc_flag or pyinstaller_meta_llama_flag:
-                    logging.warning(f"Spam subdomain detected in PyInstaller compiled file: {full_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
-                    if pyinstaller_meta_llama_flag:
+                elif pyc_flag or pyc_meta_llama_flg:
+                    logging.warning(f"Spam subdomain detected in Python compiled file: {full_domain}")
+                    if pyc_meta_llama_flg:
                         notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.MetaLlama.Spam.SubDomain")
                     else:
                         notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.Spam.SubDomain")
@@ -2671,9 +2670,9 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
                 elif nsis_flag:
                     logging.warning(f"Mining subdomain detected in NSIS script compiled file (.nsi): {full_domain}")
                     notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.NSIS.Mining.SubDomain")
-                elif pyc_flag or pyinstaller_meta_llama_flag:
-                    logging.warning(f"Mining subdomain detected in PyInstaller compiled file: {full_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
-                    if pyinstaller_meta_llama_flag:
+                elif pyc_flag or pyc_meta_llama_flg:
+                    logging.warning(f"Mining subdomain detected in Python compiled file: {full_domain}")
+                    if pyc_meta_llama_flg:
                         notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.MetaLlama.Mining.SubDomain")
                     else:
                         notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.Mining.SubDomain")
@@ -2694,9 +2693,9 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
                 elif nsis_flag:
                     logging.warning(f"Abuse subdomain detected in NSIS script compiled file (.nsi): {full_domain}")
                     notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.NSIS.Abuse.SubDomain")
-                elif pyc_flag or pyinstaller_meta_llama_flag:
-                    logging.warning(f"Abuse subdomain detected in PyInstaller compiled file: {full_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
-                    if pyinstaller_meta_llama_flag:
+                elif pyc_flag or pyc_meta_llama_flg:
+                    logging.warning(f"Abuse subdomain detected in Python compiled file: {full_domain}")
+                    if pyc_meta_llama_flg:
                         notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.MetaLlama.Abuse.SubDomain")
                     else:
                         notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.Abuse.SubDomain")
@@ -2717,9 +2716,9 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
                 elif nsis_flag:
                     logging.warning(f"Phishing subdomain detected in NSIS script compiled file (.nsi): {full_domain}")
                     notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.NSIS.Phishing.SubDomain")
-                elif pyc_flag or pyinstaller_meta_llama_flag:
-                    logging.warning(f"Phishing subdomain detected in PyInstaller compiled file: {full_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
-                    if pyinstaller_meta_llama_flag:
+                elif pyc_flag or pyc_meta_llama_flg:
+                    logging.warning(f"Phishing subdomain detected in Python compiled file: {full_domain}")
+                    if pyc_meta_llama_flg:
                         notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.MetaLlama.Phishing.SubDomain")
                     else:
                         notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.Phishing.SubDomain")
@@ -2740,9 +2739,9 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
                 elif nsis_flag:
                     logging.warning(f"Malware mail subdomain detected in NSIS script compiled file (.nsi): {full_domain}")
                     notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.NSIS.Malware.Mail.SubDomain")
-                elif pyc_flag or pyinstaller_meta_llama_flag:
-                    logging.warning(f"Malware mail subdomain detected in PyInstaller compiled file: {full_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
-                    if pyinstaller_meta_llama_flag:
+                elif pyc_flag or pyc_meta_llama_flg:
+                    logging.warning(f"Malware mail subdomain detected in Python compiled file: {full_domain}")
+                    if pyc_meta_llama_flg:
                         notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.MetaLlama.Malware.Mail.SubDomain")
                     else:
                         notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.Malware.Mail.SubDomain")
@@ -2763,9 +2762,9 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
                 elif nsis_flag:
                     logging.warning(f"Malware subdomain detected in NSIS script compiled file (.nsi): {full_domain}")
                     notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.NSIS.Malware.SubDomain")
-                elif pyc_flag or pyinstaller_meta_llama_flag:
-                    logging.warning(f"Malware subdomain detected in PyInstaller compiled file: {full_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
-                    if pyinstaller_meta_llama_flag:
+                elif pyc_flag or pyc_meta_llama_flg:
+                    logging.warning(f"Malware subdomain detected in Python compiled file: {full_domain}")
+                    if pyc_meta_llama_flg:
                         notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.MetaLlama.Malware.SubDomain")
                     else:
                         notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.Malware.SubDomain")
@@ -2787,9 +2786,9 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
             elif nsis_flag:
                 logging.warning(f"Spam domain detected in NSIS script compiled file (.nsi): {main_domain}")
                 notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.NSIS.Spam.Domain")
-            elif pyc_flag or pyinstaller_meta_llama_flag:
-                logging.warning(f"Spam domain detected in PyInstaller compiled file: {main_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
-                if pyinstaller_meta_llama_flag:
+            elif pyc_flag or pyc_meta_llama_flg:
+                logging.warning(f"Spam domain detected in Python compiled file: {main_domain}")
+                if pyc_meta_llama_flg:
                     notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.MetaLlama.Spam.Domain")
                 else:
                     notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.Spam.Domain")
@@ -2810,9 +2809,9 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
             elif nsis_flag:
                 logging.warning(f"Mining domain detected in NSIS script compiled file (.nsi): {main_domain}")
                 notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.NSIS.Mining.Domain")
-            elif pyc_flag or pyinstaller_meta_llama_flag:
-                logging.warning(f"Mining domain detected in PyInstaller compiled file: {main_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
-                if pyinstaller_meta_llama_flag:
+            elif pyc_flag or pyc_meta_llama_flg:
+                logging.warning(f"Mining domain detected in Python compiled file: {main_domain}")
+                if pyc_meta_llama_flg:
                     notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.MetaLlama.Mining.Domain")
                 else:
                     notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.Mining.Domain")
@@ -2833,9 +2832,9 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
             elif nsis_flag:
                 logging.warning(f"Abuse domain detected in NSIS script compiled file (.nsi): {main_domain}")
                 notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.NSIS.Abuse.Domain")
-            elif pyc_flag or pyinstaller_meta_llama_flag:
-                logging.warning(f"Abuse domain detected in PyInstaller compiled file: {main_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
-                if pyinstaller_meta_llama_flag:
+            elif pyc_flag or pyc_meta_llama_flg:
+                logging.warning(f"Abuse domain detected in Python compiled file: {main_domain}")
+                if pyc_meta_llama_flg:
                     notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.MetaLlama.Abuse.Domain")
                 else:
                     notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.Abuse.Domain")
@@ -2856,9 +2855,9 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
             elif nsis_flag:
                 logging.warning(f"Phishing domain detected in NSIS script compiled file (.nsi): {main_domain}")
                 notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.NSIS.Phishing.Domain")
-            elif pyc_flag or pyinstaller_meta_llama_flag:
-                logging.warning(f"Phishing domain detected in PyInstaller compiled file: {main_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
-                if pyinstaller_meta_llama_flag:
+            elif pyc_flag or pyc_meta_llama_flg:
+                logging.warning(f"Phishing domain detected in Python compiled file: {main_domain}")
+                if pyc_meta_llama_flg:
                     notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.MetaLlama.Phishing.Domain")
                 else:
                     notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.Phishing.Domain")
@@ -2879,9 +2878,9 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
             elif nsis_flag:
                 logging.warning(f"Malware mail domain detected in NSIS script compiled file (.nsi): {main_domain}")
                 notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.NSIS.Malware.Mail.Domain")
-            elif pyc_flag or pyinstaller_meta_llama_flag:
-                logging.warning(f"Malware mail domain detected in PyInstaller compiled file: {main_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
-                if pyinstaller_meta_llama_flag:
+            elif pyc_flag or pyc_meta_llama_flg:
+                logging.warning(f"Malware mail domain detected in Python compiled file: {main_domain}")
+                if pyc_meta_llama_flg:
                     notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.MetaLlama.Malware.Mail.Domain")
                 else:
                     notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.Malware.Mail.Domain")
@@ -2902,9 +2901,9 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
             elif nsis_flag:
                 logging.warning(f"Malware domain detected in NSIS script compiled file (.nsi): {main_domain}")
                 notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.NSIS.Malware.Domain")
-            elif pyc_flag or pyinstaller_meta_llama_flag:
-                logging.warning(f"Malware domain detected in PyInstaller compiled file: {main_domain} NOTICE: There is still a chance the file is not related with PyInstaller")
-                if pyinstaller_meta_llama_flag:
+            elif pyc_flag or pyc_meta_llama_flg:
+                logging.warning(f"Malware domain detected in Python compiled file: {main_domain}")
+                if pyc_meta_llama_flg:
                     notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.MetaLlama.Malware.Domain")
                 else:
                     notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.Malware.Domain")
@@ -2922,7 +2921,7 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
 
 # --------------------------------------------------------------------------
 # Generalized scan for URLs
-def scan_url_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyc_flag=False, pyinstaller_meta_llama_flag=False, homepage_flag=""):
+def scan_url_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyc_flag=False, pyc_meta_llama_flg=False, homepage_flag=""):
     try:
         if url in scanned_urls_general:
             logging.info(f"URL {url} has already been scanned.")
@@ -2953,9 +2952,9 @@ def scan_url_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=False,
                     notify_user_for_malicious_source_code(url, 'HEUR:Win32.Nuitka.URLhaus.Match')
                 elif nsis_flag:
                     notify_user_for_malicious_source_code(url, 'HEUR:Win32.NSIS.URLhaus.Match')
-                elif pyc_flag or pyinstaller_meta_llama_flag:
-                    logging.warning(f"URL {url} matches the URLhaus signatures. NOTICE: There is still a chance the file is not related with PyInstaller")
-                    if pyinstaller_meta_llama_flag:
+                elif pyc_flag or pyc_meta_llama_flg:
+                    logging.warning(f"URL {url} matches the URLhaus signatures.")
+                    if pyc_meta_llama_flg:
                         notify_user_for_malicious_source_code(url, 'HEUR:Win32.PYC.Python.MetaLlama.URLhaus.Match')
                     else:
                         notify_user_for_malicious_source_code(url, 'HEUR:Win32.PYC.Python.URLhaus.Match')
@@ -3028,7 +3027,7 @@ def fetch_html(url, return_file_path=False):
 
 # --------------------------------------------------------------------------
 # Generalized scan for IP addresses
-def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyc_flag=False, pyinstaller_meta_llama_flag=False, homepage_flag=""):
+def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyc_flag=False, pyc_meta_llama_flg=False, homepage_flag=""):
     try:
         # Check if the IP address is valid
         if is_valid_ip(ip_address):
@@ -3059,9 +3058,9 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.DDoS.IPv6')
                 elif nsis_flag:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.DDoS.IPv6')
-                elif pyc_flag or pyinstaller_meta_llama_flag:
-                    logging.warning(f"DDoS IPv6 address detected: {ip_address} NOTICE: There is still a chance the file is not related to PyInstaller")
-                    if pyinstaller_meta_llama_flag:
+                elif pyc_flag or pyc_meta_llama_flg:
+                    logging.warning(f"DDoS IPv6 address detected: {ip_address}")
+                    if pyc_meta_llama_flg:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.MetaLlama.DDoS.IPv6')
                     else:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.DDoS.IPv6')
@@ -3077,9 +3076,9 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Spam.IPv6')
                 elif nsis_flag:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.Spam.IPv6')
-                elif pyc_flag or pyinstaller_meta_llama_flag:
-                    logging.warning(f"Spam IPv6 address detected: {ip_address} NOTICE: There is still a chance the file is not related to PyInstaller")
-                    if pyinstaller_meta_llama_flag:
+                elif pyc_flag or pyc_meta_llama_flg:
+                    logging.warning(f"Spam IPv6 address detected: {ip_address}")
+                    if pyc_meta_llama_flg:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.MetaLlama.Spam.IPv6')
                     else:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.Spam.IPv6')
@@ -3095,9 +3094,9 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Malware.IPv6')
                 elif nsis_flag:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.Malware.IPv6')
-                elif pyc_flag or pyinstaller_meta_llama_flag:
-                    logging.warning(f"Malicious IPv6 address detected: {ip_address} NOTICE: There is still a chance the file is not related to PyInstaller")
-                    if pyinstaller_meta_llama_flag:
+                elif pyc_flag or pyc_meta_llama_flg:
+                    logging.warning(f"Malicious IPv6 address detected: {ip_address}")
+                    if pyc_meta_llama_flg:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.MetaLlama.Malware.IPv6')
                     else:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.Malware.IPv6')
@@ -3127,9 +3126,9 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.PhishingActive.IPv4')
                 elif nsis_flag:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.PhishingActive.IPv4')
-                elif pyc_flag or pyinstaller_meta_llama_flag:
-                    logging.warning(f"IPv4 address {ip_address} detected as an active phishing threat. NOTICE: There is still a chance the file is not related to PyInstaller")
-                    if pyinstaller_meta_llama_flag:
+                elif pyc_flag or pyc_meta_llama_flg:
+                    logging.warning(f"IPv4 address {ip_address} detected as an active phishing threat.")
+                    if pyc_meta_llama_flg:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.MetaLlama.PhishingActive.IPv4')
                     else:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.PhishingActive.IPv4')
@@ -3145,9 +3144,9 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.DDoS.IPv4')
                 elif nsis_flag:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.DDoS.IPv4')
-                elif pyc_flag or pyinstaller_meta_llama_flag:
-                    logging.warning(f"IPv4 address {ip_address} detected as a potential DDoS threat. NOTICE: There is still a chance the file is not related to PyInstaller")
-                    if pyinstaller_meta_llama_flag:
+                elif pyc_flag or pyc_meta_llama_flg:
+                    logging.warning(f"IPv4 address {ip_address} detected as a potential DDoS threat.")
+                    if pyc_meta_llama_flg:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.MetaLlama.DDoS.IPv4')
                     else:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.DDoS.IPv4')
@@ -3163,9 +3162,9 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.PhishingInactive.IPv4')
                 elif nsis_flag:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.PhishingInactive.IPv4')
-                elif pyc_flag or pyinstaller_meta_llama_flag:
-                    logging.warning(f"IPv4 address {ip_address} detected as an inactive phishing threat. NOTICE: There is still a chance the file is not related to PyInstaller")
-                    if pyinstaller_meta_llama_flag:
+                elif pyc_flag or pyc_meta_llama_flg:
+                    logging.warning(f"IPv4 address {ip_address} detected as an inactive phishing threat.")
+                    if pyc_meta_llama_flg:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.MetaLlama.PhishingInactive.IPv4')
                     else:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.PhishingInactive.IPv4')
@@ -3181,9 +3180,9 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.BruteForce.IPv4')
                 elif nsis_flag:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.BruteForce.IPv4')
-                elif pyc_flag or pyinstaller_meta_llama_flag:
-                    logging.warning(f"IPv4 address {ip_address} detected as a potential BruteForce threat. NOTICE: There is still a chance the file is not related to PyInstaller")
-                    if pyinstaller_meta_llama_flag:
+                elif pyc_flag or pyc_meta_llama_flg:
+                    logging.warning(f"IPv4 address {ip_address} detected as a potential BruteForce threat.")
+                    if pyc_meta_llama_flg:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.MetaLlama.BruteForce.IPv4')
                     else:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.BruteForce.IPv4')
@@ -3199,9 +3198,9 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Spam.IPv4')
                 elif nsis_flag:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.Spam.IPv4')
-                elif pyc_flag or pyinstaller_meta_llama_flag:
-                    logging.warning(f"Spam IPv4 address detected: {ip_address} NOTICE: There is still a chance the file is not related to PyInstaller")
-                    if pyinstaller_meta_llama_flag:
+                elif pyc_flag or pyc_meta_llama_flg:
+                    logging.warning(f"Spam IPv4 address detected: {ip_address}")
+                    if pyc_meta_llama_flg:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.MetaLlama.Spam.IPv4')
                     else:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.Spam.IPv4')
@@ -3217,9 +3216,9 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Malware.IPv4')
                 elif nsis_flag:
                     notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.Malware.IPv4')
-                elif pyc_flag or pyinstaller_meta_llama_flag:
-                    logging.warning(f"Malicious IPv4 address detected: {ip_address} NOTICE: There is still a chance the file is not related to PyInstaller")
-                    if pyinstaller_meta_llama_flag:
+                elif pyc_flag or pyc_meta_llama_flg:
+                    logging.warning(f"Malicious IPv4 address detected: {ip_address}")
+                    if pyc_meta_llama_flg:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.MetaLlama.Malware.IPv4')
                     else:
                         notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.Malware.IPv4')
@@ -3235,17 +3234,17 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
     except Exception as ex:
         logging.error(f"Error scanning IP address {ip_address}: {ex}")
 
-def scan_html_content(html_content, html_content_file_path, dotnet_flag=False, nuitka_flag=False, pyc_flag=False, nsis_flag=False, pyinstaller_meta_llama_flag=False):
+def scan_html_content(html_content, html_content_file_path, dotnet_flag=False, nuitka_flag=False, pyc_flag=False, nsis_flag=False, pyc_meta_llama_flg=False):
     """Scan extracted HTML content for any potential threats."""
     contains_discord_or_telegram_code(html_content, html_content_file_path, None,
                           dotnet_flag, nuitka_flag,
-                          pyc_flag, nsis_flag, pyinstaller_meta_llama_flag)
+                          pyc_flag, nsis_flag, pyc_meta_llama_flg)
     urls = set(re.findall(r'https?://[^\s/$.?#]\S*', html_content))
     for url in urls:
         scan_url_general(url, dotnet_flag, nuitka_flag,
-                          pyc_flag, nsis_flag, pyinstaller_meta_llama_flag)
+                          pyc_flag, nsis_flag, pyc_meta_llama_flg)
         scan_domain_general(url, dotnet_flag, nuitka_flag,
-                            pyc_flag, nsis_flag, pyinstaller_meta_llama_flag)
+                            pyc_flag, nsis_flag, pyc_meta_llama_flg)
     ipv4_addresses = set(re.findall(
         r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'
         r'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)',
@@ -3253,19 +3252,19 @@ def scan_html_content(html_content, html_content_file_path, dotnet_flag=False, n
     ))
     for ip in ipv4_addresses:
         scan_ip_address_general(ip, dotnet_flag, nuitka_flag,
-                                pyc_flag, nsis_flag ,pyinstaller_meta_llama_flag)
+                                pyc_flag, nsis_flag ,pyc_meta_llama_flg)
     ipv6_addresses = set(re.findall(
         r'([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}',
         html_content
     ))
     for ip in ipv6_addresses:
         scan_ip_address_general(ip, dotnet_flag, nuitka_flag,
-                                pyc_flag, nsis_flag, pyinstaller_meta_llama_flag)
+                                pyc_flag, nsis_flag, pyc_meta_llama_flg)
 
 # --------------------------------------------------------------------------
 # Main scanner: combine all individual scans and pass the flags along
 def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
-                          dotnet_flag=False, nuitka_flag=False, pyc_flag=False, pyinstaller_meta_llama_flag=False, nsis_flag=False,
+                          dotnet_flag=False, nuitka_flag=False, pyc_flag=False, pyc_meta_llama_flg=False, nsis_flag=False,
                           homepage_flag=""):
     """
     Scan the decompiled code for Discord-related URLs (via contains_discord_or_telegram_code),
@@ -3277,7 +3276,7 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
     # Call the Discord/Telegram scanner
     contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path,
                             dotnet_flag, nuitka_flag,
-                            pyc_flag, nsis_flag ,pyinstaller_meta_llama_flag)
+                            pyc_flag, nsis_flag ,pyc_meta_llama_flg)
 
     # Extract URLs from the decompiled code
     urls = set(re.findall(r'https?://[^\s/$.?#]\S*', decompiled_code))
@@ -3285,16 +3284,16 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
         html_content, html_content_file_path = fetch_html(url, return_file_path=True)
         contains_discord_or_telegram_code(html_content, file_path, cs_file_path,
                               dotnet_flag, nuitka_flag,
-                              pyc_flag, nsis_flag ,pyinstaller_meta_llama_flag)
+                              pyc_flag, nsis_flag ,pyc_meta_llama_flg)
         # Pass the homepage flag string into the scanning functions
         scan_url_general(url, dotnet_flag, nuitka_flag,
-                          pyc_flag, nsis_flag, pyinstaller_meta_llama_flag,
+                          pyc_flag, nsis_flag, pyc_meta_llama_flg,
                           homepage_flag)
         scan_domain_general(url, dotnet_flag, nuitka_flag,
-                            pyc_flag, nsis_flag, pyinstaller_meta_llama_flag,
+                            pyc_flag, nsis_flag, pyc_meta_llama_flg,
                             homepage_flag)
         scan_html_content(html_content, html_content_file_path, dotnet_flag, nuitka_flag,
-                          pyc_flag, nsis_flag, pyinstaller_meta_llama_flag)
+                          pyc_flag, nsis_flag, pyc_meta_llama_flg)
 
     ipv4_addresses = set(re.findall(
         r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'
@@ -3303,7 +3302,7 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
     ))
     for ip in ipv4_addresses:
         scan_ip_address_general(ip, dotnet_flag, nuitka_flag,
-                                pyc_flag, nsis_flag, pyinstaller_meta_llama_flag,
+                                pyc_flag, nsis_flag, pyc_meta_llama_flg,
                                 homepage_flag)
 
     ipv6_addresses = set(re.findall(
@@ -3312,7 +3311,7 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
     ))
     for ip in ipv6_addresses:
         scan_ip_address_general(ip, dotnet_flag, nuitka_flag,
-                                pyc_flag, nsis_flag ,pyinstaller_meta_llama_flag,
+                                pyc_flag, nsis_flag ,pyc_meta_llama_flg,
                                 homepage_flag)
 
 # Load Psapi.dll and define the filter flag
@@ -6341,7 +6340,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
                     meta_llama_source_file.write(readable_file_content)
                 logging.info(f"Meta Llama-3.2-1B extracted source code saved to {meta_llama_source_path}")
                 # Now scan .pyc source code
-                scan_code_for_links(meta_llama_source_path, pyinstaller_meta_llama_flag=True)
+                scan_code_for_links(meta_llama_source_path, pyc_meta_llama_flg=True)
             except Exception as ex:
                 logging.error(f"Error writing Meta Llama-3.2-1B extracted source code to {meta_llama_source_path}: {ex}")
 
