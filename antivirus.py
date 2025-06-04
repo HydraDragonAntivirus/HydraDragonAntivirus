@@ -245,10 +245,6 @@ import marshal
 logging.info(f"marshal module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import dis
-logging.info(f"marshal module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import base64
 logging.info(f"base64 module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -297,8 +293,12 @@ import macholib.mach_o
 logging.info(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from typing import Optional, Tuple, BinaryIO, Dict, Any, List
+from typing import Optional, Tuple, BinaryIO, Dict, Any, List, Set
 logging.info(f"typing, Optional, Tuple, BinaryIO, Dict and Any module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import types
+logging.info(f"types module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -510,9 +510,21 @@ device_args = [f"-i {i}" for i in range(1, 26)]  # Fixed device arguments
 username = os.getlogin()
 sandboxie_folder = os.path.join(system_drive, "Sandbox", username, "DefaultBox")
 main_drive_path = os.path.join(sandboxie_folder, "drive", system_drive.strip(":"))
-# Rebuild sandboxed paths properly under sandbox's drive C
-sandbox_program_files      = os.path.join(sandboxie_folder, "drive", os.path.splitdrive(program_files)[0].strip(":"), *os.path.splitdrive(program_files)[1].lstrip(os.sep).split(os.sep))
-sandbox_system_root_directory = os.path.join(sandboxie_folder, "drive", os.path.splitdrive(system_root)[0].strip(":"), *os.path.splitdrive(system_root)[1].lstrip(os.sep).split(os.sep))
+
+def get_sandbox_path(original_path: str | Path, sandboxie_folder: str | Path) -> Path:
+    original_path = Path(original_path)
+    sandboxie_folder = Path(sandboxie_folder)
+
+    drive_letter = original_path.drive.rstrip(":")  # e.g., "C"
+    rest_path = original_path.relative_to(original_path.anchor).parts
+
+    sandbox_path = sandboxie_folder / "drive" / drive_letter / Path(*rest_path)
+    return sandbox_path
+
+# Derived sandbox paths
+sandbox_program_files = get_sandbox_path(program_files, sandboxie_folder)
+sandbox_system_root_directory = get_sandbox_path(system_root, sandboxie_folder)
+
 drivers_path = os.path.join(system32_path, "drivers")
 hosts_path = f'{drivers_path}\\hosts'
 HydraDragonAntivirus_sandboxie_path = f'{sandbox_program_files}\\HydraDragonAntivirus'
@@ -640,6 +652,18 @@ UBLOCK_REGEX = re.compile(
     r'^https:\/\/s[cftz]y?[ace][aemnu][a-z]{1,4}o[mn][a-z]{4,8}[iy][a-z]?\.com\/$'
 )
 
+# Pattern for a single zip-based join obfuscation (chr((x-y)%128) generator)
+ZIP_JOIN = re.compile(
+    r'''(?:""?|''?)(?:\w*\.)?join\(\s*\(chr\(\(x\s*-\s*y\)\s*%\s*128\)\s*for\s*x\s*,\s*y\s*in\s*zip\(\s*(\[[^\]]*\])\s*,\s*(\[[^\]]*\])\s*\)\)\)''',
+    re.DOTALL
+)
+# Pattern for chained .join calls: literal.join(...).join(...)
+CHAINED_JOIN = re.compile(
+    r"(\(['\"][^'\"]*['\"]\))\.(?:join\([^)]*\))+"
+)
+# Pattern for base64 literals inside b64decode
+B64_LITERAL = re.compile(r"base64\.b64decode\(\s*(['\"])([A-Za-z0-9+/=]+)\1\s*\)")
+
 os.makedirs(pydumpck_extracted_dir, exist_ok=True)
 os.makedirs(enigma_extracted_dir, exist_ok=True)
 os.makedirs(upx_extracted_dir, exist_ok=True)
@@ -685,6 +709,7 @@ ransomware_detection_count = 0
 main_file_path = None
 pyinstaller_archive = None
 full_python_version = None
+pyz_version_match = False
 
 # Cache of { file_path: last_md5 }  
 file_md5_cache: dict[str, str] = {}
@@ -694,6 +719,9 @@ die_cache: Dict[str, Tuple[str, bool]] = {}
 
 # Separate cache for "binary-only" DIE results
 binary_die_cache: Dict[str, str] = {}
+
+def compute_md5_via_text(text: str) -> str:
+    return hashlib.md5(text.encode("utf-8")).hexdigest()
 
 def compute_md5(path: str) -> str:
     h = hashlib.md5()
@@ -908,19 +936,10 @@ except FileNotFoundError:
 except Exception as e:
     logging.error(f"An error occurred: {e}")
 
-def get_unique_output_path(output_dir: Path, base_name: Path) -> Path:
-    """
-    Generate a unique file path by appending a timestamp suffix.
-    If the file exists (rare), append a counter suffix after the timestamp.
-
-    Args:
-        output_dir: Directory where the file will be saved.
-        base_name: Desired base filename (with extension).
-
-    Returns:
-        A Path object with a unique filename inside output_dir.
-    """
+def get_unique_output_path(output_dir: Path, base_name) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
+    
+    base_name = Path(base_name)  # <- convert here
 
     stem = sanitize_filename(base_name.stem)
     suffix = base_name.suffix
@@ -1037,11 +1056,11 @@ def is_pyc_file_from_output(die_output):
 
 def is_pyz_file_from_output(die_output):
     """
-    Check if the DIE output indicates a Python zip‐packed archive (.pyz file).
-    Specifically looks for the “Archive:  Zlib stream” marker in the output.
+    Check if the DIE output indicates a Python zip-packed archive (.pyz file).
+    Specifically looks for the "Archive:  Zlib stream" marker in the output.
 
     :param die_output: The output string from DIE.
-    :return: True if it appears to be a .pyz (zlib‐compressed) archive, False otherwise.
+    :return: True if it appears to be a .pyz (zlib-compressed) archive, False otherwise.
     """
     if die_output and "Archive:  Zlib stream" in die_output:
         logging.info("DIE output indicates a Python .pyz (Zlib stream) archive.")
@@ -1315,6 +1334,19 @@ def decode_base64(data_content):
     except (binascii.Error, ValueError):
         logging.error("Base64 decoding failed.")
         return None
+
+def decode_b64_import(match: re.Match) -> str:
+    """Decode base64 constant to literal bytes or string repr."""
+    raw = match.group(2)
+    try:
+        data = __import__('base64').b64decode(raw)
+        try:
+            s = data.decode('utf-8')
+            return repr(s)
+        except UnicodeDecodeError:
+            return repr(data)
+    except Exception:
+        return match.group(0)
 
 def decode_base32(data_content):
     """Decode base32-encoded data."""
@@ -1951,7 +1983,7 @@ def notify_user_for_malicious_source_code(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.warning(notification_message)
+    logging.error(notification_message)
 
 def notify_user_for_detected_command(message, file_path):
     notification = Notify()
@@ -5389,7 +5421,6 @@ def is_pyinstaller_archive_from_output(die_output):
     logging.info(f"DIE output does not indicate a PyInstaller archive: {die_output}")
     return False
 
-
 class CTOCEntry:
     def __init__(self, position, cmprsdDataSize, uncmprsdDataSize, cmprsFlag, typeCmprsData, name):
         self.position = position
@@ -5399,13 +5430,12 @@ class CTOCEntry:
         self.typeCmprsData = typeCmprsData
         self.name = name
 
-
 class PyInstArchive:
     """
     Extractor for PyInstaller-generated executables.
     """
-    PYINST20_COOKIE_SIZE = 24           # For PyInstaller 2.0
-    PYINST21_COOKIE_SIZE = 24 + 64      # For PyInstaller 2.1+
+    PYINST20_COOKIE_SIZE = 24           # For PyInstaller 2.0
+    PYINST21_COOKIE_SIZE = 24 + 64      # For PyInstaller 2.1+
     MAGIC = b'MEI\014\013\012\013\016'   # Magic number identifying PyInstaller archives
 
     def __init__(self, path):
@@ -5560,7 +5590,7 @@ class PyInstArchive:
                 name = rawname.decode('utf-8').rstrip('\0')
             except UnicodeDecodeError:
                 rand_name = str(uniquename())
-                logging.warning(f"Invalid bytes in filename; using random name {rand_name}")
+                logging.error(f"Invalid bytes in filename; using random name {rand_name}")
                 name = rand_name
 
             # Prevent directory traversal
@@ -5568,7 +5598,7 @@ class PyInstArchive:
                 name = name.lstrip("/")
             if len(name) == 0:
                 rand_name = str(uniquename())
-                logging.warning(f"Unnamed file in CArchive; using random name {rand_name}")
+                logging.error(f"Unnamed file in CArchive; using random name {rand_name}")
                 name = rand_name
 
             entry_full_pos = self.overlayPos + entryPos
@@ -5632,12 +5662,13 @@ class PyInstArchive:
                 with open(path, 'r+b') as f:
                     f.write(self.pycMagic)
             except Exception as ex:
-                logging.warning(f"Failed to fix header for {path}: {ex}")
+                logging.error(f"Failed to fix header for {path}: {ex}")
 
     def _extractPyz(self, name, outdir=None):
         """
         Extract a .pyz archive file whose filename is `name`.
         Output all files under a subdirectory named `{name}_extracted`.
+        Sets pyz_version_match to True if header version matches, False otherwise.
         """
         base_out = outdir or os.getcwd()
         out_path = os.path.join(base_out, f"{name}_extracted")
@@ -5649,15 +5680,22 @@ class PyInstArchive:
                 pyz_magic = f.read(4)
                 assert pyz_magic == b'PYZ\0'
 
+                # Read pyc magic and set if not already
                 pyz_pyc_magic = f.read(4)
                 if self.pycMagic == b'\0' * 4:
                     self.pycMagic = pyz_pyc_magic
+                 
+                global pyz_version_match 
 
                 # Read version (4 bytes big-endian)
                 ver = struct.unpack('!I', f.read(4))[0]
                 if (ver // 100, ver % 100) != (self.pymaj, self.pymin):
                     logging.info("PYZ Python version mismatch; skipping extraction")
+                    pyz_version_match =False
                     return
+
+                # Version matches
+                pyz_version_match = True
 
                 tocpos = struct.unpack('!I', f.read(4))[0]
                 f.seek(tocpos)
@@ -5687,7 +5725,9 @@ class PyInstArchive:
                     os.makedirs(os.path.dirname(target), exist_ok=True)
                     self._writePyc(target, data)
         except Exception as ex:
-            logging.warning(f"Failed to extract PYZ {name}: {ex}")
+            logging.error(f"Failed to extract PYZ {name}: {ex}")
+            # If an exception occurred, version flag remains False
+            return
 
     def extractFiles(self):
         """
@@ -5726,7 +5766,7 @@ class PyInstArchive:
                     try:
                         data = zlib.decompress(data)
                     except zlib.error:
-                        logging.warning(f"Failed to decompress {entry.name}")
+                        logging.error(f"Failed to decompress {entry.name}")
                         continue
                     # Sanity check (remove if malware tampers with size)
                     assert len(data) == entry.uncmprsdDataSize
@@ -5788,7 +5828,6 @@ class PyInstArchive:
         except Exception as ex:
             logging.error(f"An error occurred during extraction under {base_out}: {ex}")
             return None
-
 
 def extract_pyinstaller_archive(file_path):
     try:
@@ -6305,6 +6344,104 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
         logging.error(f"An unexpected error occurred in scan_file_with_meta_llama: {ex}")
         return f"[!] Llama analysis failed: {ex}"
 
+def process_decompiled_code(output_file):
+    """
+    Dispatches payload processing based on type.
+    Detects whether the payload is Exela v2 or generic.
+    """
+    try:
+        with open(output_file, 'r', encoding='utf-8') as file:
+            content = file.read()
+
+        if is_exela_v2_payload(content):
+            logging.info("[*] Detected Exela Stealer v2 payload.")
+            process_exela_v2_payload(output_file)
+
+        elif 'exec(' not in content:
+            logging.info(f"[+] No exec() found in {output_file}, probably not obfuscated.")
+
+        else:
+            logging.info("[*] Detected non-Exela payload. Using generic processing.")
+            deobfuscated = deobfuscate_until_clean(output_file)
+            if deobfuscated:
+                deobfuscated_saved_paths.append(deobfuscated)  # Add to global list
+                notify_user_for_malicious_source_code(
+                    deobfuscated,
+                    "HEUR:Win32.Susp.Src.Pyinstaller.Obfuscated.exec.gen"
+                )
+            else:
+                logging.error("[!] Generic deobfuscation failed; skipping scan and notification.")
+
+    except Exception as ex:
+        logging.error(f"[!] Error during payload dispatch: {ex}")
+
+def run_pycdc_decompiler(file_path):
+    try:
+        base_name = Path(file_path).with_suffix(".py").name  # base filename with .py extension
+        output_path = get_unique_output_path(Path(pycdc_extracted_dir), Path(base_name))
+
+        command = [pycdc_path, "-o", str(output_path), file_path]
+        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="ignore")
+
+        if result.returncode == 0:
+            logging.info(f"Successfully decompiled using pycdc. Output saved to {output_path}")
+            return output_path
+        else:
+            logging.error(f"pycdc error: {result.stderr}")
+            return None
+    except Exception as e:
+        logging.error(f"Error running pycdc: {e}")
+        return None
+
+def run_pydumpck_decompiler(file_path, file_type=None):
+    """
+    Runs the pydumpck decompiler to decompile a Python-packed executable or archive.
+
+    Args:
+        file_path: Path to the input file (exe, pyc, pyz elf, etc.) to be decompiled.
+        file_type: (Optional) Target file type hint for pydumpck (e.g., 'pyc', 'pyz', 'exe', 'elf').
+
+    Returns:
+        The output directory path if successful, or None if the process fails.
+    """
+    try:
+        base_name = Path(file_path).stem
+        # Use get_unique_output_path to get a unique directory path with a timestamp suffix
+        # Here we treat output_path as directory, so suffix will be empty string
+        output_dir = get_unique_output_path(
+            Path(pydumpck_extracted_dir),
+            Path(f"{base_name}_pydumpck")
+        )
+
+        # Create output directory explicitly since get_unique_output_path creates Path, not directories
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        command = ["pydumpck", "-o", str(output_dir)]
+
+        if file_type:
+            command += ["-y", file_type]
+
+        command += ["-d", str(file_path), "-p", "pycdc", "uncompyle6"]
+
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="ignore"
+        )
+
+        if result.returncode == 0:
+            logging.info(f"Successfully decompiled using pydumpck. Output saved to {output_dir}")
+            return output_dir
+        else:
+            logging.error(f"pydumpck error: {result.stderr}")
+            return None
+
+    except Exception as e:
+        logging.error(f"Error running pydumpck: {e}")
+        return None
+
 def extract_and_return_pyinstaller(file_path, file_type=None):
     """
     Extracts a PyInstaller archive and returns:
@@ -6523,48 +6660,282 @@ def save_to_file(file_path, content):
         logging.error(f"Error saving file {file_path}: {ex}")
         return None
 
+class ExecToFileTransformer(ast.NodeTransformer):
+    """
+    Replaces top-level 'exec(...)' calls with writes to a file located
+    next to the script (absolute path), like:
+        C:/.../PhantomB_d3_clean_xyz_execs.py
 
-# 1) Transform exec(...) -> builtins.print(...)
-class ExecToPrintTransformer(ast.NodeTransformer):
-    def visit_Module(self, node):
-        if not any(
-            isinstance(n, ast.Import) and any(a.name == 'builtins' for a in n.names)
-            for n in node.body
-        ):
-            node.body.insert(0, ast.Import(names=[ast.alias(name='builtins', asname=None)]))
-        self.generic_visit(node)
-        return node
+    Ensures imports and assignments are injected only once.
+    """
 
-    def visit_Call(self, node):
-        self.generic_visit(node)
-        if isinstance(node.func, ast.Name) and node.func.id == 'exec':
-            return ast.copy_location(
-                ast.Call(
-                    func=ast.Attribute(
-                        value=ast.Name(id='builtins', ctx=ast.Load()),
-                        attr='print', ctx=ast.Load()
-                    ),
-                    args=node.args,
-                    keywords=node.keywords
-                ), node
+    def visit_Module(self, node: ast.Module) -> ast.Module:
+        already_injected = any(
+            isinstance(stmt, ast.Assign) and
+            any(isinstance(t, ast.Name) and t.id == "__exec_out" for t in stmt.targets)
+            for stmt in node.body
+        )
+
+        if not already_injected:
+            # Inject: import sys, pathlib
+            import_stmt = ast.Import(names=[
+                ast.alias(name="sys", asname=None),
+                ast.alias(name="pathlib", asname=None)
+            ])
+
+            # Inject: __exec_filename = str(Path(sys.argv[0]).with_name(Path(sys.argv[0]).stem + "_execs.py"))
+            filename_assign = ast.Assign(
+                targets=[ast.Name(id="__exec_filename", ctx=ast.Store())],
+                value=ast.Call(
+                    func=ast.Name(id="str", ctx=ast.Load()),
+                    args=[ast.Call(
+                        func=ast.Attribute(
+                            value=ast.Call(
+                                func=ast.Attribute(
+                                    value=ast.Name(id="pathlib", ctx=ast.Load()),
+                                    attr="Path", ctx=ast.Load()
+                                ),
+                                args=[ast.Subscript(
+                                    value=ast.Attribute(
+                                        value=ast.Name(id="sys", ctx=ast.Load()),
+                                        attr="argv", ctx=ast.Load()
+                                    ),
+                                    slice=ast.Constant(value=0),
+                                    ctx=ast.Load()
+                                )],
+                                keywords=[]
+                            ),
+                            attr="with_name", ctx=ast.Load()
+                        ),
+                        args=[ast.BinOp(
+                            left=ast.Attribute(
+                                value=ast.Call(
+                                    func=ast.Attribute(
+                                        value=ast.Name(id="pathlib", ctx=ast.Load()),
+                                        attr="Path", ctx=ast.Load()
+                                    ),
+                                    args=[ast.Subscript(
+                                        value=ast.Attribute(
+                                            value=ast.Name(id="sys", ctx=ast.Load()),
+                                            attr="argv", ctx=ast.Load()
+                                        ),
+                                        slice=ast.Constant(value=0),
+                                        ctx=ast.Load()
+                                    )],
+                                    keywords=[]
+                                ),
+                                attr="stem", ctx=ast.Load()
+                            ),
+                            op=ast.Add(),
+                            right=ast.Constant(value="_execs.py")
+                        )],
+                        keywords=[]
+                    )],
+                    keywords=[]
+                )
             )
+
+            # Inject: __exec_out = open(__exec_filename, 'w', encoding='utf-8')
+            file_assign = ast.Assign(
+                targets=[ast.Name(id="__exec_out", ctx=ast.Store())],
+                value=ast.Call(
+                    func=ast.Name(id="open", ctx=ast.Load()),
+                    args=[
+                        ast.Name(id="__exec_filename", ctx=ast.Load()),
+                        ast.Constant(value="w")
+                    ],
+                    keywords=[
+                        ast.keyword(arg="encoding", value=ast.Constant(value="utf-8"))
+                    ]
+                )
+            )
+
+            # Inject imports and assignments at the top of the module
+            node.body.insert(0, file_assign)
+            node.body.insert(0, filename_assign)
+            node.body.insert(0, import_stmt)
+
+        self.generic_visit(node)
         return node
 
+    def visit_Expr(self, node: ast.Expr) -> ast.AST:
+        self.generic_visit(node)
 
-# 2) Remove unused imports based on usage in code
+        if (
+                isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name)
+                and node.value.func.id == "exec"
+        ):
+            code_arg = node.value.args[0] if node.value.args else ast.Constant(value="")
+
+            # Check if it's compile(...) and extract first argument
+            if (
+                    isinstance(code_arg, ast.Call)
+                    and isinstance(code_arg.func, ast.Name)
+                    and code_arg.func.id == "compile"
+                    and len(code_arg.args) > 0
+            ):
+                source_expr = code_arg.args[0]
+            else:
+                source_expr = code_arg
+
+            assign_exec_val = ast.Assign(
+                targets=[ast.Name(id="__exec_val", ctx=ast.Store())],
+                value=source_expr
+            )
+
+            # Now use the same rstrip logic
+            strip_expr = ast.IfExp(
+                test=ast.Call(
+                    func=ast.Name(id="isinstance", ctx=ast.Load()),
+                    args=[
+                        ast.Name(id="__exec_val", ctx=ast.Load()),
+                        ast.Name(id="bytes", ctx=ast.Load())
+                    ],
+                    keywords=[]
+                ),
+                body=ast.Call(
+                    func=ast.Attribute(
+                        value=ast.Call(
+                            func=ast.Attribute(
+                                value=ast.Name(id="__exec_val", ctx=ast.Load()),
+                                attr="decode", ctx=ast.Load()
+                            ),
+                            args=[ast.Constant(value="utf-8")],
+                            keywords=[]
+                        ),
+                        attr="rstrip", ctx=ast.Load()
+                    ),
+                    args=[ast.Constant(value="\n")],
+                    keywords=[]
+                ),
+                orelse=ast.Call(
+                    func=ast.Attribute(
+                        value=ast.Name(id="__exec_val", ctx=ast.Load()),
+                        attr="rstrip", ctx=ast.Load()
+                    ),
+                    args=[ast.Constant(value="\n")],
+                    keywords=[]
+                )
+            )
+
+            write_expr = ast.Expr(value=ast.Call(
+                func=ast.Attribute(value=ast.Name(id="__exec_out", ctx=ast.Load()), attr="write", ctx=ast.Load()),
+                args=[strip_expr],
+                keywords=[]
+            ))
+
+            return [assign_exec_val, write_expr]
+
+        return node
+
 class ImportCleaner(ast.NodeTransformer):
-    def __init__(self): self.used_names = set()
-    def visit_Name(self, node): self.used_names.add(node.id); return node
-    def remove_unused_imports(self, tree):
-        self.visit(tree)
-        tree.body = [n for n in tree.body if not (
-            isinstance(n, (ast.Import, ast.ImportFrom)) and
-            not any((alias.asname or alias.name.split('.')[0]) in self.used_names for alias in n.names)
-        )]
-        return tree
+    """
+    Removes unused imports and merges all import statements into one per type,
+    with duplicates removed.
+    """
 
+    def __init__(self):
+        super().__init__()
+        self.used_names = set()
+        self.import_nodes = []
+        self.importfrom_nodes = []
 
-# 3) Generic normalization using literal_eval
+    def visit_Name(self, node):
+        self.used_names.add(node.id)
+        return node
+
+    def visit_Import(self, node):
+        self.import_nodes.append(node)
+        return None
+
+    def visit_ImportFrom(self, node):
+        self.importfrom_nodes.append(node)
+        return None
+
+    def remove_unused_aliases(self, aliases):
+        filtered = []
+        for alias in aliases:
+            name_to_check = alias.asname or alias.name  # don't split or parse here
+            if name_to_check in self.used_names:
+                filtered.append(alias)
+        return filtered
+
+    def merge_aliases(self, aliases):
+        seen = set()
+        merged = []
+        for alias in aliases:
+            key = (alias.name, alias.asname)
+            if key not in seen:
+                seen.add(key)
+                merged.append(alias)
+        return merged
+
+    def clean_imports(self):
+        all_import_aliases = []
+        for node in self.import_nodes:
+            all_import_aliases.extend(node.names)
+        filtered = self.remove_unused_aliases(all_import_aliases)
+        merged = self.merge_aliases(filtered)
+        if merged:
+            return ast.Import(names=merged)
+        return None
+
+    def clean_importfroms(self):
+        grouped = {}
+        for node in self.importfrom_nodes:
+            key = (node.module, node.level)
+            grouped.setdefault(key, []).extend(node.names)
+
+        new_nodes = []
+        for (module, level), aliases in grouped.items():
+            filtered = self.remove_unused_aliases(aliases)
+            merged = self.merge_aliases(filtered)
+            if merged:
+                new_nodes.append(ast.ImportFrom(module=module, names=merged, level=level))
+        return new_nodes
+
+    def visit_Module(self, node):
+        self.generic_visit(node)
+        new_body = []
+
+        import_node = self.clean_imports()
+        if import_node:
+            new_body.append(import_node)
+
+        importfrom_nodes = self.clean_importfroms()
+        new_body.extend(importfrom_nodes)
+
+        for n in node.body:
+            if not isinstance(n, (ast.Import, ast.ImportFrom)):
+                new_body.append(n)
+
+        node.body = new_body
+        return node
+
+    def clean_until_stable(self, source_code: str | Path, output_path: Path) -> Path:
+        if isinstance(source_code, Path):
+            source_code = source_code.read_text(encoding='utf-8', errors='replace')
+
+        prev_source = None
+        current_source = source_code
+
+        while prev_source != current_source:
+            self.used_names = set()
+            self.import_nodes = []
+            self.importfrom_nodes = []
+
+            tree = ast.parse(current_source)
+            tree = self.visit(tree)
+            ast.fix_missing_locations(tree)
+
+            prev_source = current_source
+            current_source = ast.unparse(tree)
+
+        output_path.write_text(current_source, encoding='utf-8')
+        return output_path
+
+# Generic normalization using literal_eval
 def normalize_code_text(raw_text: str) -> str:
     try:
         val = ast.literal_eval(raw_text)
@@ -6576,135 +6947,664 @@ def normalize_code_text(raw_text: str) -> str:
         return val
     return raw_text
 
-# 4) Robust exec-call detection
+# Robust exec-call detection
 def contains_exec_calls(code: str) -> bool:
     try:
         tree = ast.parse(code)
     except SyntaxError:
         return False
+
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and (
-            (isinstance(node.func, ast.Name) and node.func.id == 'exec') or
-            (isinstance(node.func, ast.Attribute) and node.func.attr == 'exec') or
-            (isinstance(node.func, ast.Call)
-             and isinstance(node.func.func, ast.Name)
-             and node.func.func.id == 'getattr'
-             and len(node.func.args) >= 2
-             and isinstance(node.func.args[1], ast.Constant)
-             and node.func.args[1].value == 'exec')
-        ):
-            return True
+        # Look only for Call nodes
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name) and func.id == 'exec':
+                return True
+            if isinstance(func, ast.Attribute) and func.attr == 'exec':
+                return True
+            if (
+                isinstance(func, ast.Call)
+                and isinstance(func.func, ast.Name)
+                and func.func.id == 'getattr'
+                and len(func.args) >= 2
+                and isinstance(func.args[1], ast.Constant)
+                and func.args[1].value == 'exec'
+            ):
+                return True
     return False
 
-# 5) Sandbox execution writes raw .py via DefaultBox
 def sandbox_deobfuscate_file(transformed_path: Path) -> Path | None:
     """
-    Runs the Python deobfuscator inside Sandboxie (always using DefaultBox),
-    capturing its stdout directly into a file, using a dynamic Python launcher.
+    Runs the Python deobfuscator inside Sandboxie (DefaultBox),
+    expecting the AST-transformed script to write '<script_stem>_execs.py'.
+    Waits until the file is fully written before copying it back to the host.
+    Returns the copied path or None if it failed.
     """
     name = transformed_path.stem
-    output_filename = f"{name}_deobf.py"
-    sandbox_inner = Path(sandbox_program_files) / output_filename
+    execs_filename = f"{name}_execs.py"
+    sandbox_inner_execs = Path(python_deobfuscated_sandboxie_dir) / execs_filename
+    sandbox_inner_execs.parent.mkdir(parents=True, exist_ok=True)
 
-    # ensure the sandbox output directory exists
-    sandbox_inner.parent.mkdir(parents=True, exist_ok=True)
+    sandboxie_exe = str(sandboxie_path)
+    python_exe = str(sys.executable)
+    script_path = str(transformed_path)
 
-    # determine Python launcher and version dynamically
-    launcher = "py"
-    DEFAULT_PYTHON_CMD = [launcher, version_flag]
+    shell_cmd = (
+        f'"{sandboxie_exe}" /box:DefaultBox /elevate '
+        f'"{python_exe}" "{script_path}"'
+    )
 
-    # build the full command, always running inside DefaultBox with elevation
-    cmd = [
-        str(sandboxie_path),
-        "/box:DefaultBox",
-        "/elevate",
-        *DEFAULT_PYTHON_CMD,
-        str(transformed_path),
-    ]
+    exec_path_str = sandbox_inner_execs.as_posix().replace('/', '\\')
+    logging.info(f"[SANDBOX] Running shell command: {shell_cmd!r}")
+    logging.info(f"[SANDBOX] Expect exec output at: {exec_path_str}")
 
     try:
-        with sandbox_inner.open("w", encoding="utf-8") as out_f:
-            subprocess.run(
-                cmd,
-                stdout=out_f,
-                stderr=subprocess.STDOUT,
-                check=True,
-                timeout=120,
-            )
+        subprocess.run(
+            shell_cmd,
+            shell=True,
+            check=True,
+            timeout=600,
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
     except Exception as e:
-        logging.error(f"Sandbox run failed: {e}")
+        logging.error(f"[SANDBOX] Run failed: {e}")
         return None
 
-    # verify output
-    if sandbox_inner.exists() and sandbox_inner.stat().st_size > 0:
-        return sandbox_inner
+    # Real-time file watch loop with stability check (10 minutes timeout)
+    deadline = time.monotonic() + 600
+    last_size = -1
+    stable_count = 0
 
-    logging.error("Sandbox run completed but output file is missing or empty.")
+    while time.monotonic() < deadline:
+        try:
+            if sandbox_inner_execs.exists():
+                size = sandbox_inner_execs.stat().st_size
+                if size > 0:
+                    if size == last_size:
+                        stable_count += 1
+                    else:
+                        stable_count = 0
+                    last_size = size
+
+                    if stable_count >= 3:
+                        break
+                else:
+                    last_size = -1
+                    stable_count = 0
+        except (FileNotFoundError, OSError):
+            pass
+
+    else:
+        logging.error("[SANDBOX] Timed out waiting for execs file to stabilize.")
+        return None
+
+    # Copy result back to host
+    host_output_dir = Path(python_deobfuscated_dir)
+    host_output_dir.mkdir(parents=True, exist_ok=True)
+    host_target = host_output_dir / f"{name}_deobf.py"
+
+    try:
+        content = sandbox_inner_execs.read_bytes()
+        if not content:
+            logging.error("[SANDBOX] Execs file content empty on read, aborting.")
+            return None
+        host_target.write_bytes(content)
+        logging.info(f"[SANDBOX] Copied execs output back to host: {host_target}")
+        return host_target
+    except Exception as copy_exc:
+        logging.error(f"[SANDBOX] Failed to copy from sandbox: {copy_exc}")
+        return None
+
+def decompile_pyc_with_fallback(pyc_path: str) -> str | None:
+    """
+    Try to decompile a .pyc file using pycdc first, then fallback to pydumpck if pycdc fails.
+    
+    Returns the decompiled source code as a string if successful, otherwise None.
+    """
+    # First try pycdc
+    decompiled_path = run_pycdc_decompiler(pyc_path)
+    if decompiled_path and Path(decompiled_path).exists():
+        try:
+            return Path(decompiled_path).read_text(encoding="utf-8")
+        except Exception as e:
+            logging.error(f"Failed to read pycdc output: {e}")
+    
+    logging.error("pycdc decompilation failed, trying pydumpck fallback")
+
+    # Try pydumpck fallback (we assume file_type 'pyc' here)
+    extracted_dir = run_pydumpck_decompiler(pyc_path, file_type='pyc')
+    if extracted_dir:
+        # pydumpck outputs multiple files; try to find a .py file in output dir
+        extracted_path = Path(extracted_dir)
+        py_files = list(extracted_path.rglob("*.py"))
+        if py_files:
+            try:
+                return py_files[0].read_text(encoding="utf-8")
+            except Exception as e:
+                logging.error(f"Failed to read pydumpck output file: {e}")
+        else:
+            logging.error("No .py files found in pydumpck output directory")
+    
+    logging.error("Both pycdc and pydumpck decompilation attempts failed")
     return None
 
-# Main loop: apply exec->print and remove unused imports, with stuck-detection
-def deobfuscate_until_clean(source_path: Path, max_iterations: int = 10) -> Path | None:
-    base_name = source_path.stem
-    current = source_path
-    prev_code = None
+def codeobj_to_source(codeobj: types.CodeType, base_name: str) -> str:
+    try:
+        output_dir = Path(python_deobfuscated_marshal_pyc_dir)
+        base_path = Path(base_name).with_suffix(".pyc")
+        pyc_path = get_unique_output_path(output_dir, base_path)
 
-    for iteration in range(1, max_iterations + 1):
-        try:
-            raw = current.read_text(encoding='utf-8')
-            tree = ast.parse(raw)
-        except Exception as e:
-            logging.error(f"Iter {iteration}: AST parse failed: {e}")
+        header = MAGIC_NUMBER
+        if sys.version_info >= (3, 7):
+            header += struct.pack("<I", 0)  # Bitfield
+        header += struct.pack("<I", int(time.time()))  # Timestamp
+        header += struct.pack("<I", 0)  # Source size (can be 0)
+
+        with pyc_path.open("wb") as f:
+            f.write(header)
+            marshal.dump(codeobj, f)
+
+        source = decompile_pyc_with_fallback(str(pyc_path))
+        if source:
+            return source
+        else:
+            return "# Failed to decompile code object with both tools"
+
+    except Exception as e:
+        logging.error(f"Error in codeobj_to_source: {e}")
+        return "# Exception during decompilation"
+
+def safe_eval_node(node):
+    """
+    Safely evaluate AST nodes for specific known functions like
+    base64.b64decode, zlib.decompress, bytes literals, and nested calls.
+    Returns bytes or string as appropriate.
+    """
+    if isinstance(node, ast.Call):
+        func = node.func
+        args = node.args
+
+        if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+            mod_name = func.value.id
+            func_name = func.attr
+
+            # handle base64.b64decode(...)
+            if mod_name == "base64" and func_name == "b64decode":
+                # single argument expected
+                arg_val = safe_eval_node(args[0])
+                return base64.b64decode(arg_val)
+
+            # handle zlib.decompress(...)
+            if mod_name == "zlib" and func_name == "decompress":
+                arg_val = safe_eval_node(args[0])
+                return zlib.decompress(arg_val)
+
+            # Could extend for other modules if needed
+
+        logging.error(f"Unsupported function call: {ast.dump(node)}")
+
+    elif isinstance(node, ast.Constant):
+        # Python 3.8+: constant node (str, bytes, etc.)
+        return node.value
+
+    elif isinstance(node, ast.Str):
+        # Older python versions
+        return node.s
+
+    elif isinstance(node, ast.Bytes):
+        return node.s
+
+    else:
+        logging.error(f"Unsupported AST node type: {ast.dump(node)}")
+
+def find_balanced_parens(s, start_idx):
+    count = 0
+    for i in range(start_idx, len(s)):
+        if s[i] == '(':
+            count += 1
+        elif s[i] == ')':
+            count -= 1
+            if count == 0:
+                return s[start_idx + 1:i], i
+    return None, None
+
+def extract_marshal_code_from_source(source: str) -> types.CodeType | None:
+    """
+    More flexible AST walker to find marshal.loads(...) with nested base64.b64decode calls,
+    even if using __import__('zlib').decompress(...)
+    """
+    try:
+        tree = ast.parse(source)
+    except Exception as e:
+        logging.error(f"Failed to parse source as AST: {e}")
+        return None
+
+    class Extractor(ast.NodeVisitor):
+        def __init__(self):
+            self.code_obj = None
+
+        def visit_Call(self, node):
+            # Look for marshal.loads call
+            if self.is_marshal_loads(node.func):
+                # Try to extract base64 string recursively
+                base64_data = self.extract_base64_arg(node.args[0])
+                if base64_data:
+                    try:
+                        decoded = base64.b64decode(base64_data)
+                        decompressed = zlib.decompress(decoded)
+                        code_obj = marshal.loads(decompressed)
+                        if isinstance(code_obj, types.CodeType):
+                            self.code_obj = code_obj
+                    except Exception as e:
+                        logging.error(f"Failed to decode/unmarshal: {e}")
+            self.generic_visit(node)
+
+        def is_marshal_loads(self, func):
+            # Handles marshal.loads or getattr(marshal, 'loads') style
+            if isinstance(func, ast.Attribute):
+                if (
+                    (isinstance(func.value, ast.Name) and func.value.id == "marshal")
+                    and func.attr == "loads"
+                ):
+                    return True
+            return False
+
+        def extract_base64_arg(self, node):
+            # Drill down nested calls to find base64.b64decode call argument (string)
+            if isinstance(node, ast.Call):
+                if self.is_base64_b64decode(node.func):
+                    arg = node.args[0]
+                    if isinstance(arg, (ast.Str, ast.Constant)):
+                        return arg.s if hasattr(arg, "s") else arg.value
+                else:
+                    # Handle __import__('zlib').decompress(...) or similar
+                    for arg in node.args:
+                        res = self.extract_base64_arg(arg)
+                        if res:
+                            return res
+            elif isinstance(node, ast.Attribute):
+                # Could be chained attribute, try the value part
+                return self.extract_base64_arg(node.value)
+            elif isinstance(node, ast.Name):
+                # Can't resolve dynamic variable, stop here
+                return None
             return None
 
-        tree = ExecToPrintTransformer().visit(tree)
-        tree = ImportCleaner().remove_unused_imports(tree)
+        def is_base64_b64decode(self, func):
+            # Handle base64.b64decode or __import__('base64').b64decode
+            if isinstance(func, ast.Attribute):
+                if func.attr == "b64decode":
+                    # func.value could be Name(base64) or call __import__('base64')
+                    if isinstance(func.value, ast.Name):
+                        if func.value.id == "base64":
+                            return True
+                    elif isinstance(func.value, ast.Call):
+                        # Check if __import__('base64')
+                        if (
+                            isinstance(func.value.func, ast.Name)
+                            and func.value.func.id == "__import__"
+                            and len(func.value.args) == 1
+                        ):
+                            arg0 = func.value.args[0]
+                            if isinstance(arg0, (ast.Str, ast.Constant)):
+                                val = arg0.s if hasattr(arg0, "s") else arg0.value
+                                if val == "base64":
+                                    return True
+            return False
+
+    extractor = Extractor()
+    extractor.visit(tree)
+
+    if extractor.code_obj:
+        return extractor.code_obj
+
+    logging.error("[!] marshal.loads pattern with base64 blob not found in AST")
+    return None
+
+def pack_uint32(val):
+    return struct.pack("<I", val)
+
+def write_pyc(code: types.CodeType, input_path: Path, output_dir: Path) -> None:
+    """
+    Write the given code object to a uniquely named .pyc file in the output directory,
+    avoiding overwriting the original file.
+
+    Args:
+        code: The code object to write.
+        input_path: The original .pyc file path (to avoid overwriting).
+        output_dir: Directory to save the new .pyc file.
+
+    Returns:
+        None
+    """
+    # Ensure input_path and output_dir are Path objects
+    input_path = Path(input_path)
+    output_dir = Path(output_dir)
+
+    # 1) Build a base Path for naming: same stem but extension ".pyc"
+    base = input_path.with_suffix(".pyc")
+
+    # 2) Get a unique candidate using get_unique_output_path
+    output_path = get_unique_output_path(output_dir, base)
+
+    # 3) If by any chance we got the same absolute file as input_path, tweak the stem
+    if output_path.resolve() == input_path.resolve():
+        # Append "_out" to input_path.stem, then re-run unique
+        new_base = input_path.with_name(f"{input_path.stem}_out.pyc")
+        output_path = get_unique_output_path(output_dir, new_base)
+
+    # 4) Build .pyc header + marshal.dumps(code)
+    pyc_data = bytearray()
+    pyc_data.extend(MAGIC_NUMBER)
+
+    if sys.version_info >= (3, 7):
+        # 3.7+: 4-byte bitfield (usually zero), then 4-byte timestamp, then 4-byte source-size.
+        pyc_data.extend(pack_uint32(0))                # Bitfield
+        pyc_data.extend(pack_uint32(int(time.time()))) # Timestamp
+        pyc_data.extend(pack_uint32(0))                # Source size (0 when unknown)
+    else:
+        # <3.7: just 4-byte timestamp, then marshaled code
+        pyc_data.extend(pack_uint32(int(time.time()))) # Timestamp
+
+    pyc_data.extend(marshal.dumps(code))
+
+    # 5) Write to the chosen output_path
+    try:
+        with output_path.open("wb") as f:
+            f.write(pyc_data)
+        logging.info(f"[+] .pyc written to: {output_path}")
+    except Exception as e:
+        logging.error(f"Failed to write .pyc to {output_path}: {e}")
+        
+def clean_syntax(source_code: str, max_attempts=20) -> str:
+    def normalize_indentation(code: str) -> str:
+        return "\n".join(line.expandtabs(4).rstrip() for line in code.splitlines())
+
+    def is_valid(code: str) -> bool:
+        try:
+            ast.parse(code)
+            return True
+        except SyntaxError:
+            return False
+
+    code = normalize_indentation(source_code)
+    lines = code.splitlines()
+    attempt = 0
+
+    while attempt < max_attempts:
+        try:
+            compile("\n".join(lines), "<string>", "exec")
+            break  # Code is now valid
+        except SyntaxError as e:
+            lineno = e.lineno
+            if lineno is None or lineno < 1 or lineno > len(lines):
+                break
+
+            bad_line = lines[lineno - 1].strip()
+            logging.info(f"[Clean Syntax] Removing line {lineno}: {bad_line}")
+            lines.pop(lineno - 1)
+
+            # ALSO remove orphaned identifiers (like `lambda_output`) if any
+            symbol = bad_line.split('=')[0].strip() if '=' in bad_line else bad_line
+            lines = [line for line in lines if symbol not in line or line.strip().startswith('#')]
+            attempt += 1
+
+    cleaned_code = "\n".join(lines)
+
+    if is_valid(cleaned_code):
+        return cleaned_code
+    else:
+        logging.info("[Clean Syntax] Could not fully clean code.")
+        return cleaned_code
+
+def decode_zip(match: re.Match) -> str:
+    """Decode one zip->chr join."""
+    l1 = ast.literal_eval(match.group(1))
+    l2 = ast.literal_eval(match.group(2))
+    decoded = ''.join(chr((x - y) % 128) for x, y in zip(l1, l2))
+    return repr(decoded)
+
+def collapse_joins(src: str) -> str:
+    """Iteratively collapse zip-join patterns until none remain."""
+    prev = None
+    while prev != src:
+        prev = src
+        src = ZIP_JOIN.sub(decode_zip, src)
+    return src
+
+def clean_source(src: str) -> str:
+    # 1) Collapse chained string.join(...).join(...) of literals to single literal
+    src = CHAINED_JOIN.sub(lambda m: m.group(1), src)
+    # 2) Collapse zip-based joins repeatedly
+    src = collapse_joins(src)
+    # 3) Decode base64 constants
+    src = B64_LITERAL.sub(decode_b64_import, src)
+    return src
+
+class PruneIfs(ast.NodeTransformer):
+    """Prune if statements with constant conditions."""
+    def visit_If(self, node: ast.If):
+        self.generic_visit(node)
+        # handle tests like `if CONST:` or `if CONST == False:`
+        if isinstance(node.test, ast.Constant):
+            return node.body if node.test.value else []
+        if (isinstance(node.test, ast.Compare) \
+                and len(node.test.ops) == 1 \
+                and isinstance(node.test.comparators[0], ast.Constant)):
+            val = node.test.comparators[0].value
+            if isinstance(node.test.ops[0], ast.Eq):
+                return node.body if val else []
+            if isinstance(node.test.ops[0], ast.NotEq):
+                return node.orelse
+        return node
+
+def prune_ifs_and_write(output_path: Path, source_code: str) -> None:
+    """
+    Clean, prune 'if' statements from the AST, and write back the resulting code.
+
+    Args:
+        output_path (Path): Path to write the transformed Python code.
+        source_code (str): Original source code string.
+    """
+    import ast
+
+    cleaned = clean_source(source_code)  # Apply basic text cleanup
+    try:
+        tree = ast.parse(cleaned)
+        tree = PruneIfs().visit(tree)
         ast.fix_missing_locations(tree)
+        result = ast.unparse(tree)
+        output_path.write_text(result, encoding="utf-8")
+        logging.debug(f"[PRUNE_IFS] Wrote transformed code to: {output_path}")
+    except Exception as e:
+        logging.error(f"[PRUNE_IFS] Failed to parse or transform: {e}")
+        # Optional: write cleaned original as fallback
+        output_path.write_text(cleaned, encoding="utf-8")
 
-        try:
-            code = ast.unparse(tree)
-        except Exception as e:
-            logging.error(f"Iter {iteration}: AST unparse failed: {e}")
-            return None
+# Main loop: apply exec->print and remove unused imports, with stuck-detection
+def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
+    source_path = Path(source_path)
+    base_name = source_path.stem
+    logging.info(f"Starting deobfuscation for: {source_path}")
 
-        if prev_code is not None and code == prev_code:
-            stuck_name = f"{base_name}_{iteration}_stuck.py"
-            stuck_path = os.path.join(python_deobfuscated_dir, stuck_name)
-            with open(stuck_path, 'w', encoding='utf-8') as f:
-                f.write(code)
-            logging.warning(f"Iter {iteration}: no further change, wrote stuck file: {stuck_path}")
-            return Path(stuck_path)
+    # Each queue entry: (depth, stage_tag, cleaned_flag, offloaded_flag, candidate_path)
+    processing_queue: List[Tuple[int, str, bool, bool, Path]] = []
+    # Track seen states as (stage_tag, cleaned_flag, offloaded_flag, content_hash)
+    seen_hashes: Set[Tuple[str, bool, bool, str]] = set()
 
-        prev_code = code
-        transformed_name = f"{base_name}_{iteration}.py"
-        transformed_path = os.path.join(python_deobfuscated_dir, transformed_name)
-        with open(transformed_path, 'w', encoding='utf-8') as f:
-            f.write(code)
-        logging.info(f"Iter {iteration}: wrote transformed ({len(code)} bytes)")
+    try:
+        _ = source_path.read_text(encoding="utf-8", errors="replace")
+        processing_queue.append((0, "original", False, False, source_path))
+    except Exception as e:
+        logging.error(f"Failed to read source file: {e}")
+        return None
 
-        sandboxed = sandbox_deobfuscate_file(Path(transformed_path))
-        if not sandboxed:
-            logging.error(f"Iter {iteration}: sandbox failed")
-            return None
+    while processing_queue:
+        logging.info(f"--- New Pass (queue size = {len(processing_queue)}) ---")
+        next_queue: List[Tuple[int, str, bool, bool, Path]] = []
 
-        raw_out = sandboxed.read_text(encoding='utf-8')
-        logging.info(f"Iter {iteration}: sandbox output size {len(raw_out)} bytes")
+        for depth, stage_tag, cleaned, offloaded, candidate_path in processing_queue:
+            try:
+                # Read raw content
+                raw = candidate_path.read_text(encoding="utf-8", errors="replace")
+                content = clean_source(raw)
+                content_hash = compute_md5_via_text(content)
 
-        cleaned = normalize_code_text(raw_out)
-        if not contains_exec_calls(cleaned):
-            final_name = f"{base_name}_final.py"
-            final_path = os.path.join(python_deobfuscated_dir, final_name)
-            with open(final_path, 'w', encoding='utf-8') as f:
-                f.write(cleaned)
-            logging.info(f"Complete after {iteration} iterations: {final_path}")
-            return Path(final_path)
+                state = (stage_tag, cleaned, offloaded, content_hash)
+                if state in seen_hashes:
+                    continue
+                seen_hashes.add(state)
 
-        next_name = f"{base_name}_{iteration+1}.py"
-        next_path = os.path.join(python_deobfuscated_dir, next_name)
-        with open(next_path, 'w', encoding='utf-8') as f:
-            f.write(cleaned)
-        current = Path(next_path)
+                # Stage 1: marshal.loads extraction
+                if "marshal.loads" in content and stage_tag != "marshal":
+                    try:
+                        codeobj = extract_marshal_code_from_source(content)
+                        if codeobj is not None:
+                            extracted_src = codeobj_to_source(codeobj, f"{base_name}_d{depth}_marshal")
+                            extracted_hash = compute_md5_via_text(extracted_src)
+                            state2 = ("marshal", False, False, extracted_hash)
+                            if state2 not in seen_hashes:
+                                new_path = get_unique_output_path(
+                                    Path(python_deobfuscated_dir),
+                                    Path(f"{base_name[:8]}_d{depth}_m.py")
+                                )
+                                new_path.write_text(extracted_src, encoding="utf-8")
+                                logging.info(f"[MARSHAL] Extracted and wrote: {new_path}")
+                                next_queue.append((depth + 1, "marshal", False, False, new_path))
+                                continue
+                    except Exception as e:
+                        logging.error(f"[MARSHAL] Failed on {candidate_path}: {e}")
 
-    logging.error("Maximum iterations reached without fully deobfuscating.")
+                # Stage 2: AST transform (exec->file + import cleaning)
+                if stage_tag not in ("marshal", "zlib", "ast"):
+                    try:
+                        tree = ast.parse(content)
+                        tree = ExecToFileTransformer().visit(tree)
+                        ast.fix_missing_locations(tree)
+
+                        cleaner = ImportCleaner()
+                        clean_output_path = get_unique_output_path(
+                            Path(python_deobfuscated_dir),
+                            f"{base_name[:8]}_d{depth}_importclean.py"
+                        )
+                        cleaned_source_path = cleaner.clean_until_stable(
+                            ast.unparse(tree), clean_output_path
+                        )
+                        transformed = cleaned_source_path.read_text(encoding="utf-8", errors="replace")
+                    except Exception as e:
+                        logging.error(f"[AST] Transform failed on {candidate_path}: {e}")
+                        transformed = content
+
+                    transformed_hash = compute_md5_via_text(transformed)
+                    state3 = ("ast", False, True, transformed_hash)
+                    if transformed_hash != content_hash and state3 not in seen_hashes:
+                        new_path = get_unique_output_path(
+                            Path(python_deobfuscated_dir),
+                            f"{base_name[:8]}_d{depth}_ast.py"
+                        )
+                        new_path.write_text(transformed, encoding="utf-8")
+                        logging.info(f"[AST] Transformed and wrote: {new_path}")
+                        # Mark offloaded=True because exec was moved to a file
+                        next_queue.append((depth + 1, "ast", False, True, new_path))
+                        continue
+
+                # Stage 3: clean_syntax
+                if not cleaned:
+                    cleaned_code = clean_syntax(content)
+                    clean_path = get_unique_output_path(
+                        Path(python_deobfuscated_dir),
+                        f"{base_name[:8]}_d{depth}_clean.py"
+                    )
+                    clean_path.write_text(cleaned_code, encoding="utf-8")
+                    logging.debug(f"[CLEAN_SYNTAX] Wrote cleaned code to: {clean_path}")
+
+                    clean_content = clean_path.read_text(encoding="utf-8", errors="replace")
+                    clean_hash = compute_md5_via_text(clean_content)
+                    state4 = ("clean", True, offloaded, clean_hash)
+                    if state4 not in seen_hashes:
+                        logging.info(f"[CLEAN_SYNTAX] Cleaned and wrote: {clean_path}")
+
+                        # Only finalize if exec truly gone and not offloaded
+                        if not offloaded and not contains_exec_calls(clean_content) and "eval" not in clean_content:
+                            final_candidate = get_unique_output_path(
+                                Path(python_deobfuscated_dir),
+                                f"{base_name[:8]}_final.py"
+                            )
+                            prune_ifs_and_write(final_candidate, clean_content)
+                            logging.info(
+                                f"[FINAL] No exec/eval found post-clean_syntax, saved: {final_candidate}"
+                            )
+                            return final_candidate
+
+                        next_queue.append((depth + 1, "clean", True, offloaded, clean_path))
+                        continue
+                else:
+                    logging.debug("[CLEAN_SYNTAX] Skipping clean_syntax (already cleaned)")
+
+                # Stage 4: Sandbox simulation
+                try:
+                    # Re-read the on-disk content (post-clean or post-AST)
+                    disk_text = candidate_path.read_text(encoding="utf-8", errors="replace")
+
+                    # Only finalize if from clean_syntax stage AND not offloaded, with no exec/eval
+                    if stage_tag == "clean" and not offloaded and not contains_exec_calls(disk_text) and "eval" not in disk_text:
+                        final_candidate = get_unique_output_path(
+                            Path(python_deobfuscated_dir),
+                            f"{base_name[:8]}_final.py"
+                        )
+                        prune_ifs_and_write(final_candidate, disk_text)
+                        logging.info(
+                            f"[FINAL] No exec/eval present post-clean, saved: {final_candidate}"
+                        )
+                        return final_candidate
+
+                    # Otherwise, still needs sandbox (either offloaded or exec remains)
+                    if pyinstaller_archive and os.path.isdir(pyinstaller_archive) and pyz_version_match:
+                        sandbox_copy = Path(pyinstaller_archive) / candidate_path.name
+                        shutil.copy(candidate_path, sandbox_copy)
+                    else:
+                        sandbox_copy = candidate_path
+
+                    output_path = sandbox_deobfuscate_file(sandbox_copy)
+                    if output_path and output_path.exists() and output_path.stat().st_size > 0:
+                        result = output_path.read_text(encoding="utf-8", errors="replace")
+                        result_hash = compute_md5_via_text(result)
+
+                        logging.info(f"[SANDBOX] Produced sandbox output: {output_path}")
+
+                        # After sandbox, queue as new "original" (offloaded=False)
+                        next_queue.append((depth + 1, "original", False, False, output_path))
+                        seen_hashes.add(("sandbox", False, False, result_hash))
+
+                        # If sandbox result is truly clean, prune and save final
+                        if not contains_exec_calls(result) and "eval" not in result:
+                            final_candidate = get_unique_output_path(
+                                Path(python_deobfuscated_dir),
+                                f"{base_name[:8]}_final.py"
+                            )
+                            prune_ifs_and_write(final_candidate, result)
+                            logging.info(f"[FINAL_CANDIDATE] Clean code candidate saved: {final_candidate}")
+                            return final_candidate
+
+                        continue
+                    else:
+                        logging.error(f"[SANDBOX] No output for {candidate_path}; dropping it")
+                        seen_hashes.add(("sandbox", False, False, content_hash))
+                        continue
+
+                except Exception as e:
+                    logging.error(f"[SANDBOX] Failed on {candidate_path}: {e}")
+                    seen_hashes.add(("sandbox", False, False, content_hash))
+                    continue
+
+            except Exception as e:
+                logging.error(f"[ERROR] While processing {candidate_path}: {e}")
+                seen_hashes.add((stage_tag, cleaned, offloaded, compute_md5_via_text(candidate_path.read_text(encoding="utf-8", errors="replace"))))
+                continue
+
+        processing_queue = next_queue
+
+    logging.info("No more clean code found; transformations exhausted.")
     return None
 
 def is_exela_v2_payload(content):
@@ -6772,68 +7672,6 @@ def process_exela_v2_payload(output_file):
     except Exception as ex:
         logging.error(f"Error during Exela v2 payload processing: {ex}")
 
-def process_decompiled_code(output_file):
-    """
-    Dispatches payload processing based on type.
-    Detects whether the payload is Exela v2 or generic.
-    """
-    try:
-        with open(output_file, 'r', encoding='utf-8') as file:
-            content = file.read()
-
-        if is_exela_v2_payload(content):
-            logging.info("[*] Detected Exela Stealer v2 payload.")
-            process_exela_v2_payload(output_file)
-
-        elif 'exec(' not in content:
-            logging.info(f"[+] No exec() found in {output_file}, probably not obfuscated.")
-
-        else:
-            logging.info("[*] Detected non-Exela payload. Using generic processing.")
-            deobfuscated = deobfuscate_until_clean(output_file)
-            if deobfuscated:
-                deobfuscated_saved_paths.append(deobfuscated)  # Add to global list
-                notify_user_for_malicious_source_code(
-                    deobfuscated,
-                    "HEUR:Win32.Susp.Src.Pyinstaller.Obfuscated.exec.gen"
-                )
-            else:
-                logging.error("[!] Generic deobfuscation failed; skipping scan and notification.")
-
-    except Exception as ex:
-        logging.error(f"[!] Error during payload dispatch: {ex}")
-
-def run_pycdc_decompiler(file_path):
-    """
-    Runs the pycdc decompiler to decompile a .pyc file and saves it to a specified output directory.
-
-    Args:
-        file_path: Path to the .pyc file to be decompiled
-
-    Returns:
-        The decompiled file path, or None if the process fails
-    """
-    try:
-        # Extract the file name and create the output path in the pycdc subfolder
-        base_name = os.path.splitext(os.path.basename(file_path))[0]
-        output_path = os.path.join(pycdc_extracted_dir, f"{base_name}_pycdc_decompiled.py")
-
-        # Build the pycdc command with the -o argument
-        command = [pycdc_path, "-o", output_path, file_path]
-
-        # Run the pycdc command
-        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="ignore")
-
-        if result.returncode == 0:
-            logging.info(f"Successfully decompiled using pycdc. Output saved to {output_path}")
-            return output_path
-        else:
-            logging.error(f"pycdc error: {result.stderr}")
-            return None
-    except Exception as e:
-        logging.error(f"Error running pycdc: {e}")
-        return None
-
 def run_pycdas_decompiler(file_path):
     """
     Runs the pycdas decompiler to decompile a .pyc file and saves it to a specified output directory.
@@ -6863,54 +7701,6 @@ def run_pycdas_decompiler(file_path):
             return None
     except Exception as e:
         logging.error(f"Error running pycdas: {e}")
-        return None
-
-def run_pydumpck_decompiler(file_path, file_type=None):
-    """
-    Runs the pydumpck decompiler to decompile a Python-packed executable or archive.
-
-    Args:
-        file_path:   Path to the input file (exe, pyc, pyz elf, etc.) to be decompiled.
-        file_type:   (Optional) Target file type hint for pydumpck (e.g., 'pyc', 'pyz', 'exe', 'elf').
-                     If provided, it will be passed as the -y/--type argument.
-
-    Returns:
-        The output directory path if successful, or None if the process fails.
-    """
-    try:
-        # Prepare output directory
-        base_name = os.path.splitext(os.path.basename(file_path))[0]
-        output_path = os.path.join(pydumpck_extracted_dir, f"{base_name}_pydumpck")
-        os.makedirs(output_path, exist_ok=True)
-
-        # Build pydumpck command
-        command = ["pydumpck", "-o", output_path]
-
-        # If a file_type hint was provided, add "-y <file_type>"
-        if file_type:
-            command += ["-y", file_type]
-
-        # Always include the "-d" argument (target file) and plugins
-        command += ["-d", file_path, "-p", "pycdc", "uncompyle6"]
-
-        # Run the command
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="ignore"
-        )
-
-        if result.returncode == 0:
-            logging.info(f"Successfully decompiled using pydumpck. Output saved to {output_path}")
-            return output_path
-        else:
-            logging.error(f"pydumpck error: {result.stderr}")
-            return None
-
-    except Exception as e:
-        logging.error(f"Error running pydumpck: {e}")
         return None
 
 def show_code_with_pycdc_pycdas_uncompyle6(file_path, file_name):
