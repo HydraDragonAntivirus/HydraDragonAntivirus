@@ -515,12 +515,12 @@ main_drive_path = os.path.join(sandboxie_folder, "drive", system_drive.strip(":"
 
 def get_sandbox_path(original_path: str | Path) -> Path:
     original_path = Path(original_path)
-    sandboxie_folder = Path(sandboxie_folder)
+    sandboxie_folder_path = Path(sandboxie_folder)
 
     drive_letter = original_path.drive.rstrip(":")  # e.g., "C"
     rest_path = original_path.relative_to(original_path.anchor).parts
 
-    sandbox_path = sandboxie_folder / "drive" / drive_letter / Path(*rest_path)
+    sandbox_path = sandboxie_folder_path / "drive" / drive_letter / Path(*rest_path)
     return sandbox_path
 
 # Derived sandbox system root path
