@@ -350,6 +350,7 @@ assets_dir = os.path.join(script_dir, "assets")
 icon_path = os.path.join(assets_dir, "HydraDragonAV.png")
 digital_signatures_list_dir = os.path.join(script_dir, "digitalsignatureslist")
 pyinstaller_extracted_dir = os.path.join(script_dir, "pyinstaller_extracted")
+cx_freeze_extracted_dir = os.path.join(script_dir, "cx_freeze_extracted")
 ghidra_projects_dir = os.path.join(script_dir, "ghidra_projects")
 ghidra_logs_dir = os.path.join(script_dir, "ghidra_logs")
 ghidra_scripts_dir = os.path.join(script_dir, "ghidra_scripts")
@@ -512,7 +513,7 @@ username = os.getlogin()
 sandboxie_folder = os.path.join(system_drive, "Sandbox", username, "DefaultBox")
 main_drive_path = os.path.join(sandboxie_folder, "drive", system_drive.strip(":"))
 
-def get_sandbox_path(original_path: str | Path, sandboxie_folder: str | Path) -> Path:
+def get_sandbox_path(original_path: str | Path) -> Path:
     original_path = Path(original_path)
     sandboxie_folder = Path(sandboxie_folder)
 
@@ -522,13 +523,12 @@ def get_sandbox_path(original_path: str | Path, sandboxie_folder: str | Path) ->
     sandbox_path = sandboxie_folder / "drive" / drive_letter / Path(*rest_path)
     return sandbox_path
 
-# Derived sandbox paths
-sandbox_program_files = get_sandbox_path(program_files, sandboxie_folder)
-sandbox_system_root_directory = get_sandbox_path(system_root, sandboxie_folder)
+# Derived sandbox system root path
+sandbox_system_root_directory = get_sandbox_path(system_root)
 
 drivers_path = os.path.join(system32_path, "drivers")
 hosts_path = f'{drivers_path}\\hosts'
-HydraDragonAntivirus_sandboxie_path = f'{sandbox_program_files}\\HydraDragonAntivirus'
+HydraDragonAntivirus_sandboxie_path = get_sandbox_path(script_dir)
 sandboxie_log_folder = f'{HydraDragonAntivirus_sandboxie_path}\\DONTREMOVEHydraDragonAntivirusLogs'
 homepage_change_path = f'{sandboxie_log_folder}\\DONTREMOVEHomePageChange.txt'
 HiJackThis_log_path = f'{HydraDragonAntivirus_sandboxie_path}\\HiJackThis\\HiJackThis.log'
@@ -575,7 +575,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [pydumpck_extracted_dir, enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
+directories_to_scan = [pydumpck_extracted_dir, enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
@@ -672,6 +672,7 @@ os.makedirs(ungarbler_dir, exist_ok=True)
 os.makedirs(ungarbler_string_dir, exist_ok=True)
 os.makedirs(resource_extractor_dir, exist_ok=True)
 os.makedirs(pyinstaller_extracted_dir, exist_ok=True)
+os.makedirs(cx_freeze_extracted_dir, exist_ok=True)
 os.makedirs(inno_setup_unpacked_dir, exist_ok=True)
 os.makedirs(python_source_code_dir, exist_ok=True)
 os.makedirs(nuitka_source_code_dir, exist_ok=True)
@@ -701,7 +702,6 @@ os.makedirs(copied_sandbox_and_main_files_dir, exist_ok=True)
 os.makedirs(HiJackThis_logs_dir, exist_ok=True)
 os.makedirs(html_extracted_dir, exist_ok=True)
 os.makedirs(sandboxie_folder, exist_ok=True)
-os.makedirs(sandbox_program_files, exist_ok=True)
 os.makedirs(sandbox_system_root_directory, exist_ok=True)
 
 # Counter for ransomware detection
@@ -6017,6 +6017,8 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: .NET file deobfuscated with de4dot.")
         elif file_path.startswith(pyinstaller_extracted_dir):
             logging.info(f"{file_path}: PyInstaller onefile extracted.")
+        elif file_path.startswith(cx_freeze_extracted_dir):
+            logging.info(f"{file_path}: cx_freeze library.zip extracted.")
         elif file_path.startswith(commandlineandmessage_dir):
             logging.info(f"{file_path}: Command line message extracted.")
         elif file_path.startswith(pe_extracted_dir):
@@ -6098,6 +6100,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
             (lambda fp: fp.startswith(de4dot_extracted_dir), ".NET file deobfuscated with de4dot."),
             (lambda fp: fp.startswith(de4dot_sandboxie_dir), "It's a Sandbox environment file, also a .NET file deobfuscated with de4dot"),
             (lambda fp: fp.startswith(pyinstaller_extracted_dir), "PyInstaller onefile extracted."),
+            (lambda fp: fp.startswith(cx_freeze_extracted_dir), "cx_freeze library.zip extracted."),
             #(lambda fp: fp.startswith(commandlineandmessage_dir), "Command line message extracted."), Due to the excessive output generated, we have disabled it.
             (lambda fp: fp.startswith(pe_extracted_dir), "PE file extracted."),
             (lambda fp: fp.startswith(zip_extracted_dir), "ZIP extracted."),
@@ -8396,14 +8399,13 @@ def decompile_cx_freeze(executable_path):
 
     target_pyc_name = f"{exe_name}__main__.pyc"
 
-    extraction_root = os.path.join(dist_dir, "cx_freeze_extracted")
     try:
-        os.makedirs(extraction_root, exist_ok=True)
+        os.makedirs(cx_freeze_extracted_dir, exist_ok=True)
     except Exception as e:
-        logging.error("Failed to create directory %s: %s", extraction_root, e)
+        logging.error("Failed to create directory %s: %s", cx_freeze_extracted_dir, e)
         return None
 
-    extracted_pyc_path = os.path.join(extraction_root, target_pyc_name)
+    extracted_pyc_path = os.path.join(cx_freeze_extracted_dir, target_pyc_name)
 
     try:
         with pyzipper.AESZipFile(lib_zip_path, 'r') as zipf:
