@@ -309,7 +309,7 @@ import debloat.processor
 logging.info(f"debloat modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from pathlib import Path
+from pathlib import Path, WindowsPath
 logging.info(f"pathlib.Path module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -8466,6 +8466,10 @@ def scan_and_warn(file_path,
             "is_valid": False,
             "signature_status_issues": False
         }
+
+        # Convert WindowsPath to string if necessary
+        if isinstance(file_path, WindowsPath):
+            file_path = str(file_path)
 
         # Ensure path is a string, exists, and is non-empty
         if not isinstance(file_path, str):
