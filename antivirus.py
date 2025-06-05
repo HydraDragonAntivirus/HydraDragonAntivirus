@@ -808,6 +808,15 @@ def is_plain_text(data: bytes,
     except (UnicodeDecodeError, LookupError):
         return False
 
+def is_plain_text_data(die_output):
+    """
+    Checks if the DIE output does indicate plain text, suggesting it is plain text data.
+    """
+    if die_output and "Format: plain text" in die_output.lower():
+        logging.info("DIE output does not contain plain text; identified as non-plain text data.")
+        return True
+    return False
+
 def is_valid_ip(ip_string: str) -> bool:
     """
     Returns True if ip_string is a valid public IPv4 or IPv6 address,
@@ -1229,15 +1238,6 @@ def is_java_class_from_output(die_output):
     logging.info(f"DIE output does not indicate a Java class file: {die_output}")
     return False
 
-def is_plain_text_data(die_output):
-    """
-    Checks if the DIE output does indicate plain text, suggesting it is plain text data.
-    """
-    if die_output and "Format: plain text" in die_output.lower():
-        logging.info("DIE output does not contain plain text; identified as non-plain text data.")
-        return True
-    return False
-
 def debloat_pe_file(file_path):
     """
     Runs debloat.processor.process_pe on a PE file, writing all
@@ -1327,6 +1327,58 @@ def remove_magic_bytes(data_content, die_output):
     except Exception as ex:
         logging.error(f"Unexpected error in remove_magic_bytes: {ex}")
         return data_content  # Return original data in case of unexpected errors
+
+def DecryptString(key, tag, nonce, _input):
+    cipher = Cipher(algorithms.AES(key), modes.GCM(nonce, tag))
+    decryptor = cipher.decryptor()
+    decrypted_data = decryptor.update(_input) + decryptor.finalize()
+    return decrypted_data.decode(errors="ignore")
+
+def add_base64_padding(b64_string):
+    padding = len(b64_string) % 4
+    if padding != 0:
+        b64_string += '=' * (4 - padding)
+    return b64_string
+
+def extract_base64_string(line):
+    match = re.search(r"'([^']+)'|\"([^\"]+)\"", line)
+    return match.group(1) or match.group(2) if match else None
+
+def decode_base64_from_line(line):
+    """
+    Decodes a base64 string from a given line.
+
+    Args:
+        line: The line containing the base64 string.
+
+    Returns:
+        Decoded bytes.
+    """
+    base64_str = extract_base64_string(line)
+    return base64.b64decode(add_base64_padding(base64_str))
+
+def save_to_file(file_path, content):
+    """
+    Saves content to a file in the 'python_source_code_dir' directory and returns the file path.
+
+    Args:
+        file_path: Path to the file.
+        content: Content to save.
+
+    Returns:
+        file_path: Path to the saved file.
+    """
+
+    # Update the file path to save within the specified directory
+    file_path = os.path.join(python_source_code_dir, file_path)
+
+    try:
+        with open(file_path, 'w', encoding='utf-8') as file:
+            file.write(content)
+        return file_path
+    except Exception as ex:
+        logging.error(f"Error saving file {file_path}: {ex}")
+        return None
 
 def decode_base64(data_content):
     """Decode base64-encoded data."""
@@ -6355,6 +6407,85 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
         logging.error(f"An unexpected error occurred in scan_file_with_meta_llama: {ex}")
         return f"[!] Llama analysis failed: {ex}"
 
+def is_exela_v2_payload(content):
+    # Simple heuristic: check if keys/tag/nonce/encrypted_data appear in content
+    keys = ["key = ", "tag = ", "nonce = ", "encrypted_data"]
+    return all(k in content for k in keys)
+
+def extract_line(content, prefix):
+    """
+    Extracts a line from the content that starts with the given prefix.
+
+    Args:
+        content: Content to search.
+        prefix: Line prefix to look for.
+
+    Returns:
+        The matched line or None.
+    """
+    lines = [line for line in content.splitlines() if line.startswith(prefix)]
+    return lines[0] if lines else None
+
+def process_exela_v2_payload(output_file):
+    """
+    Processes a decompiled Exela v2 payload:
+    - Performs two-stage AES decryption.
+    - Extracts and saves the final stage.
+    - Searches for webhook URLs and triggers alert.
+    """
+    try:
+        with open(output_file, 'r', encoding='utf-8') as file:
+            content = file.read()
+
+        # First layer decryption
+        key_line = extract_line(content, "key = ")
+        tag_line = extract_line(content, "tag = ")
+        nonce_line = extract_line(content, "nonce = ")
+        encrypted_data_line = extract_line(content, "encrypted_data")
+
+        key = decode_base64_from_line(key_line)
+        tag = decode_base64_from_line(tag_line)
+        nonce = decode_base64_from_line(nonce_line)
+        encrypted_data = decode_base64_from_line(encrypted_data_line)
+
+        intermediate_data = DecryptString(key, tag, nonce, encrypted_data)
+        temp_file = 'intermediate_data.py'
+        saved_temp_file = save_to_file(temp_file, intermediate_data)
+
+        if not saved_temp_file:
+            logging.error("Failed to save intermediate data.")
+            return
+
+        with open(saved_temp_file, 'r', encoding='utf-8') as temp:
+            intermediate_content = temp.read()
+
+        # Second layer decryption
+        key_2 = decode_base64_from_line(extract_line(intermediate_content, "key = "))
+        tag_2 = decode_base64_from_line(extract_line(intermediate_content, "tag = "))
+        nonce_2 = decode_base64_from_line(extract_line(intermediate_content, "nonce = "))
+        encrypted_data_2 = decode_base64_from_line(extract_line(intermediate_content, "encrypted_data"))
+
+        final_decrypted_data = DecryptString(key_2, tag_2, nonce_2, encrypted_data_2)
+        source_code_file = 'exela_stealer_last_stage.py'
+        source_code_path = save_to_file(source_code_file, final_decrypted_data)
+
+        # Search for webhook URLs
+        webhooks_discord = re.findall(discord_webhook_pattern, final_decrypted_data)
+        webhooks_canary = re.findall(discord_canary_webhook_pattern, final_decrypted_data)
+        webhooks = webhooks_discord + webhooks_canary
+
+        if webhooks:
+            logging.warning(f"[+] Webhook URLs found: {webhooks}")
+            if source_code_path:
+                notify_user_exela_stealer_v2(source_code_path, 'HEUR:Win32.Discord.PYC.Python.Exela.Stealer.v2.gen')
+            else:
+                logging.error("Failed to save the final decrypted source code.")
+        else:
+            logging.info("[!] No webhook URLs found in Exela v2 payload.")
+
+    except Exception as ex:
+        logging.error(f"Error during Exela v2 payload processing: {ex}")
+
 def process_decompiled_code(output_file):
     """
     Dispatches payload processing based on type.
@@ -6604,72 +6735,6 @@ def extract_all_files_with_7z(file_path, nsis_flag=False):
     except Exception as ex:
         logging.error(f"Error during 7z extraction: {ex}")
         return extracted_files
-
-def extract_line(content, prefix):
-    """
-    Extracts a line from the content that starts with the given prefix.
-
-    Args:
-        content: Content to search.
-        prefix: Line prefix to look for.
-
-    Returns:
-        The matched line or None.
-    """
-    lines = [line for line in content.splitlines() if line.startswith(prefix)]
-    return lines[0] if lines else None
-
-def DecryptString(key, tag, nonce, _input):
-    cipher = Cipher(algorithms.AES(key), modes.GCM(nonce, tag))
-    decryptor = cipher.decryptor()
-    decrypted_data = decryptor.update(_input) + decryptor.finalize()
-    return decrypted_data.decode(errors="ignore")
-
-def add_base64_padding(b64_string):
-    padding = len(b64_string) % 4
-    if padding != 0:
-        b64_string += '=' * (4 - padding)
-    return b64_string
-
-def extract_base64_string(line):
-    match = re.search(r"'([^']+)'|\"([^\"]+)\"", line)
-    return match.group(1) or match.group(2) if match else None
-
-def decode_base64_from_line(line):
-    """
-    Decodes a base64 string from a given line.
-
-    Args:
-        line: The line containing the base64 string.
-
-    Returns:
-        Decoded bytes.
-    """
-    base64_str = extract_base64_string(line)
-    return base64.b64decode(add_base64_padding(base64_str))
-
-def save_to_file(file_path, content):
-    """
-    Saves content to a file in the 'python_source_code_dir' directory and returns the file path.
-
-    Args:
-        file_path: Path to the file.
-        content: Content to save.
-
-    Returns:
-        file_path: Path to the saved file.
-    """
-
-    # Update the file path to save within the specified directory
-    file_path = os.path.join(python_source_code_dir, file_path)
-
-    try:
-        with open(file_path, 'w', encoding='utf-8') as file:
-            file.write(content)
-        return file_path
-    except Exception as ex:
-        logging.error(f"Error saving file {file_path}: {ex}")
-        return None
 
 class ExecToFileTransformer(ast.NodeTransformer):
     """
@@ -7617,71 +7682,6 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
 
     logging.info("No more clean code found; transformations exhausted.")
     return None
-
-def is_exela_v2_payload(content):
-    # Simple heuristic: check if keys/tag/nonce/encrypted_data appear in content
-    keys = ["key = ", "tag = ", "nonce = ", "encrypted_data"]
-    return all(k in content for k in keys)
-
-def process_exela_v2_payload(output_file):
-    """
-    Processes a decompiled Exela v2 payload:
-    - Performs two-stage AES decryption.
-    - Extracts and saves the final stage.
-    - Searches for webhook URLs and triggers alert.
-    """
-    try:
-        with open(output_file, 'r', encoding='utf-8') as file:
-            content = file.read()
-
-        # First layer decryption
-        key_line = extract_line(content, "key = ")
-        tag_line = extract_line(content, "tag = ")
-        nonce_line = extract_line(content, "nonce = ")
-        encrypted_data_line = extract_line(content, "encrypted_data")
-
-        key = decode_base64_from_line(key_line)
-        tag = decode_base64_from_line(tag_line)
-        nonce = decode_base64_from_line(nonce_line)
-        encrypted_data = decode_base64_from_line(encrypted_data_line)
-
-        intermediate_data = DecryptString(key, tag, nonce, encrypted_data)
-        temp_file = 'intermediate_data.py'
-        saved_temp_file = save_to_file(temp_file, intermediate_data)
-
-        if not saved_temp_file:
-            logging.error("Failed to save intermediate data.")
-            return
-
-        with open(saved_temp_file, 'r', encoding='utf-8') as temp:
-            intermediate_content = temp.read()
-
-        # Second layer decryption
-        key_2 = decode_base64_from_line(extract_line(intermediate_content, "key = "))
-        tag_2 = decode_base64_from_line(extract_line(intermediate_content, "tag = "))
-        nonce_2 = decode_base64_from_line(extract_line(intermediate_content, "nonce = "))
-        encrypted_data_2 = decode_base64_from_line(extract_line(intermediate_content, "encrypted_data"))
-
-        final_decrypted_data = DecryptString(key_2, tag_2, nonce_2, encrypted_data_2)
-        source_code_file = 'exela_stealer_last_stage.py'
-        source_code_path = save_to_file(source_code_file, final_decrypted_data)
-
-        # Search for webhook URLs
-        webhooks_discord = re.findall(discord_webhook_pattern, final_decrypted_data)
-        webhooks_canary = re.findall(discord_canary_webhook_pattern, final_decrypted_data)
-        webhooks = webhooks_discord + webhooks_canary
-
-        if webhooks:
-            logging.warning(f"[+] Webhook URLs found: {webhooks}")
-            if source_code_path:
-                notify_user_exela_stealer_v2(source_code_path, 'HEUR:Win32.Discord.PYC.Python.Exela.Stealer.v2.gen')
-            else:
-                logging.error("Failed to save the final decrypted source code.")
-        else:
-            logging.info("[!] No webhook URLs found in Exela v2 payload.")
-
-    except Exception as ex:
-        logging.error(f"Error during Exela v2 payload processing: {ex}")
 
 def run_pycdas_decompiler(file_path):
     """
