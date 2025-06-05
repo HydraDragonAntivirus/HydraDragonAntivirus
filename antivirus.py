@@ -7727,97 +7727,6 @@ def run_pycdas_decompiler(file_path):
         logging.error(f"Error running pycdas: {e}")
         return None
 
-def show_code_with_pycdc_pycdas_uncompyle6(file_path, file_name):
-    """
-    Decompiles a .pyc file using pycdc, pycdas, and pydumpck, and saves the results.
-    Combines outputs into a united file only if all three tools succeed.
-
-    Args:
-        file_path: Path to the .pyc file.
-        file_name: Name of the .pyc file.
-
-    Returns:
-        Tuple: (pycdc_output_path, pycdas_output_path, pydumpck_output_dir, united_output_path)
-    """
-    try:
-        logging.info(f"Processing python file: {file_path}")
-        base_name = os.path.splitext(file_name)[0]
-
-        # --- PyCDC decompilation branch ---
-        pycdc_output_path = None
-        if os.path.exists(pycdc_path):
-            pycdc_output_path = run_pycdc_decompiler(file_path)
-            if pycdc_output_path:
-                process_decompiled_code(pycdc_output_path)
-                scan_and_warn(pycdc_output_path)
-        else:
-            logging.error("[-] pycdc executable not found")
-
-        # --- PyCDAS decompilation branch ---
-        pycdas_output_path = None
-        if os.path.exists(pycdas_path):
-            pycdas_output_path = run_pycdas_decompiler(file_path)
-            if pycdas_output_path:
-                scan_and_warn(pycdas_output_path)
-        else:
-            logging.error("[-] pycdas executable not found")
-
-        # --- PyDUMPCk decompilation branch ---
-        pydumpck_output_dir = run_pydumpck_decompiler(file_path, file_type="pyc")
-        pydumpck_output_path = None
-
-        if pydumpck_output_dir and os.path.isdir(pydumpck_output_dir):
-            for f in os.listdir(pydumpck_output_dir):
-                if f.endswith(".py"):
-                    pydumpck_output_path = os.path.join(pydumpck_output_dir, f)
-                    scan_and_warn(pydumpck_output_path)
-                    break
-        else:
-            logging.error("[-] pydumpck decompilation failed or no output generated")
-
-        # --- United output (only if ALL THREE succeed) ---
-        united_output_path = None
-        if (pycdc_output_path and os.path.exists(pycdc_output_path)) and \
-           (pycdas_output_path and os.path.exists(pycdas_output_path)) and \
-           (pydumpck_output_path and os.path.exists(pydumpck_output_path)):
-
-            united_dir = os.path.join(python_source_code_dir, "united")
-            os.makedirs(united_dir, exist_ok=True)
-
-            combined_code = ""
-
-            combined_code += "# pycdc output\n"
-            with open(pycdc_output_path, "r", encoding="utf-8", errors="ignore") as f:
-                combined_code += f.read() + "\n\n"
-
-            combined_code += "# pycdas output\n"
-            with open(pycdas_output_path, "r", encoding="utf-8", errors="ignore") as f:
-                combined_code += f.read() + "\n\n"
-
-            combined_code += "# pydumpck output\n"
-            with open(pydumpck_output_path, "r", encoding="utf-8", errors="ignore") as f:
-                combined_code += f.read() + "\n\n"
-
-            united_output_path = os.path.join(united_dir, f"{base_name}_united.py")
-            with open(united_output_path, "w", encoding="utf-8") as f:
-                f.write(combined_code)
-
-            logging.info(f"[+] United output saved to {united_output_path}")
-            scan_code_for_links(combined_code, pyc_flag=True)
-
-            try:
-                scan_file_with_meta_llama(united_output_path, united_python_code=True)
-            except Exception as e:
-                logging.error(f"Error during meta-llama scan: {e}")
-        else:
-            logging.info("[-] Skipping united output: all three decompilers must succeed.")
-
-        return pycdc_output_path, pycdas_output_path, pydumpck_output_dir, united_output_path
-
-    except Exception as ex:
-        logging.error(f"Error processing python file {file_path}: {ex}")
-        return None, None, None, None
-
 def deobfuscate_with_obfuscar(file_path, file_basename):
     """
     Deobfuscate a .NET assembly protected with Obfuscar.
@@ -8445,6 +8354,94 @@ def run_in_thread(fn):
         return executor.submit(fn, *args, **kwargs)
     return wrapper
 
+def show_code_with_pycdc_pycdas_uncompyle6(file_path, file_name):
+    """
+    Decompiles a .pyc file using pycdc, pycdas, and pydumpck, and saves the results.
+    Combines outputs into a united file only if all three tools succeed.
+
+    Args:
+        file_path: Path to the .pyc file.
+        file_name: Name of the .pyc file.
+
+    Returns:
+        Tuple: (pycdc_output_path, pycdas_output_path, pydumpck_output_dir, united_output_path)
+    """
+    try:
+        logging.info(f"Processing python file: {file_path}")
+        base_name = os.path.splitext(file_name)[0]
+
+        # --- PyCDC decompilation branch ---
+        pycdc_output_path = None
+        if os.path.exists(pycdc_path):
+            pycdc_output_path = run_pycdc_decompiler(file_path)
+            if pycdc_output_path:
+                process_decompiled_code(pycdc_output_path)
+        else:
+            logging.error("[-] pycdc executable not found")
+
+        # --- PyCDAS decompilation branch ---
+        pycdas_output_path = None
+        if os.path.exists(pycdas_path):
+            pycdas_output_path = run_pycdas_decompiler(file_path)
+        else:
+            logging.error("[-] pycdas executable not found")
+
+        # --- PyDUMPCk decompilation branch ---
+        pydumpck_output_dir = run_pydumpck_decompiler(file_path, file_type="pyc")
+        pydumpck_output_path = None
+
+        if pydumpck_output_dir and os.path.isdir(pydumpck_output_dir):
+            for f in os.listdir(pydumpck_output_dir):
+                if f.endswith(".py"):
+                    pydumpck_output_path = os.path.join(pydumpck_output_dir, f)
+                    process_decompiled_code(pydumpck_output_path)
+                    break
+        else:
+            logging.error("[-] pydumpck decompilation failed or no output generated")
+
+        # --- United output (only if ALL THREE succeed) ---
+        united_output_path = None
+        if (pycdc_output_path and os.path.exists(pycdc_output_path)) and \
+           (pycdas_output_path and os.path.exists(pycdas_output_path)) and \
+           (pydumpck_output_path and os.path.exists(pydumpck_output_path)):
+
+            united_dir = os.path.join(python_source_code_dir, "united")
+            os.makedirs(united_dir, exist_ok=True)
+
+            combined_code = ""
+
+            combined_code += "# pycdc output\n"
+            with open(pycdc_output_path, "r", encoding="utf-8", errors="ignore") as f:
+                combined_code += f.read() + "\n\n"
+
+            combined_code += "# pycdas output\n"
+            with open(pycdas_output_path, "r", encoding="utf-8", errors="ignore") as f:
+                combined_code += f.read() + "\n\n"
+
+            combined_code += "# pydumpck output\n"
+            with open(pydumpck_output_path, "r", encoding="utf-8", errors="ignore") as f:
+                combined_code += f.read() + "\n\n"
+
+            united_output_path = os.path.join(united_dir, f"{base_name}_united.py")
+            with open(united_output_path, "w", encoding="utf-8") as f:
+                f.write(combined_code)
+
+            logging.info(f"[+] United output saved to {united_output_path}")
+            scan_code_for_links(combined_code, pyc_flag=True)
+
+            try:
+                scan_file_with_meta_llama(united_output_path, united_python_code=True)
+            except Exception as e:
+                logging.error(f"Error during meta-llama scan: {e}")
+        else:
+            logging.info("[-] Skipping united output: all three decompilers must succeed.")
+
+        return pycdc_output_path, pycdas_output_path, pydumpck_output_dir, united_output_path
+
+    except Exception as ex:
+        logging.error(f"Error processing python file {file_path}: {ex}")
+        return None, None, None, None
+
 # --- Main Scanning Function ---
 @run_in_thread
 def scan_and_warn(file_path,
@@ -8491,7 +8488,7 @@ def scan_and_warn(file_path,
         # Compute a quick MD5 
         md5 = compute_md5(norm_path) 
   
-        # Initialize our seen‐set once, on the function object 
+        # Initialize our seen-set once, on the function object 
         if not hasattr(scan_and_warn, "_seen"): 
             scan_and_warn._seen = set() 
   
