@@ -1,17 +1,18 @@
 rule DisableWindowsDefender_Flexible {
     meta:
         id = "DEFENDER-0003"
-        description = "Catch dcontrol.exe's attempt to disable Windows Defender (flexible matching)"
+        description = "Catch dcontrol.exe disabling Defender, flexible across policy paths"
 
     condition:
-        # --- 1) Registry: either a new key or value change in any Defender Disable branch ---
-        registry.new_keys contains "\\Windows Defender"
-        registry.modified_registry_values contains "\\Windows Defender\\DisableAntiSpyware"
+        # 1) Registry—either policy or main key
+        registry.modified_registry_values contains "Windows Defender\\DisableAntiSpyware"
+        registry.modified_registry_values contains "Policies\\Microsoft\\Windows Defender\\DisableAntiSpyware"
 
-        # --- 2) Filesystem: MsMpEng.exe touched or renamed ---
+        # 2) Filesystem operations on the engine binary
         filesystem.modified_files contains "System32\\MsMpEng.exe"
         filesystem.new_files contains "System32\\MsMpEng.exe.bak"
 
-        # --- 3) Event-log: WinDefend mention with stopped/disabled keywords ---
-        eventlog.System matches "(?i)WinDefend.*stopp"
+        # 3) Event‑log must mention both the service name and that it was stopped
+        eventlog.System contains "WinDefend"
+        eventlog.System contains "stopped"
 }

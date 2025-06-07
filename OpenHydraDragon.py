@@ -315,7 +315,16 @@ class Snapshot:
           - new_files
           - modified_files
           - new_event_log_lines
+
+        Logs each change as plain text (removes control chars).
         """
+        import re
+        # Regex to remove ASCII control characters
+        _CONTROL_CHAR_RE = re.compile(r'[\x00-\x1F\x7F]')
+
+        def _sanitize(s: str) -> str:
+            return _CONTROL_CHAR_RE.sub('', s)
+
         diffs = {
             "new_registry_keys": [],
             "modified_registry_values": [],
@@ -346,20 +355,33 @@ class Snapshot:
             elif other_mtime != mtime:
                 diffs["modified_files"].append(path)
 
-        # Event Log diffs: any lines in self.event_logs that did not appear in other.event_logs
+        # Event Log diffs
         for log_name, lines in self.event_logs.items():
             prev_lines = set(other.event_logs.get(log_name, []))
             for ln in lines:
                 if ln not in prev_lines:
                     diffs["new_event_log_lines"].append((log_name, ln))
 
-        # At the very end, before returning, add:
+        # Now log everything as clean text
         for change_type, items in diffs.items():
             if not items:
                 continue
             logging.info(f"[Snapshot.diff] {len(items)} {change_type}:")
             for item in items:
-                logging.info(f"    {change_type}: {item}")
+                # item is a tuple, e.g. (hive, key_path) or (hive, path, vname, old, new)
+                # Sanitize each element separately:
+                clean_parts = [_sanitize(str(elem)) for elem in item]
+                # Join with a separator that makes sense for the type of diff:
+                if change_type.startswith("new_registry_keys"):
+                    joined = f"{clean_parts[0]}\\{clean_parts[1]}"
+                elif change_type.startswith("modified_registry_values"):
+                    # hive \ key_path \ value_name: old → new
+                    joined = f"{clean_parts[0]}\\{clean_parts[1]}\\{clean_parts[2]}: {clean_parts[3]} → {clean_parts[4]}"
+                else:
+                    # For files or event‑logs, just join with " | "
+                    joined = " | ".join(clean_parts)
+
+                logging.info(f"    {change_type}: {joined}")
 
         return diffs
 
@@ -425,17 +447,83 @@ class Rule:
         """
         Evaluate the rule against:
           - diffs: output of Snapshot.diff()
-        Returns True if ANY condition line matches (you can extend for all/any logic).
+        Returns True if ANY condition line matches.
+        Supports:
+          - text 'contains' and 'matches' (regex) as before
+          - hex‑escape patterns like '\\x41\\x42' via byte‑level contains
         """
+        import re
+        # Precompile control‑char sanitizer (if you want to clean up entries)
+        _CONTROL_CHAR_RE = re.compile(r'[\x00-\x1F\x7F]')
+
+        def byte_contains(entry_text: str, pat_bytes: bytes) -> bool:
+            """Return True if pat_bytes is a substring of entry_text.encode(...)"""
+            try:
+                entry_b = entry_text.encode('utf-8', 'ignore')
+                return pat_bytes in entry_b
+            except Exception:
+                return False
+
         for (field, operator, pattern) in self.condition_lines:
+            # Detect a hex‑escape pattern (\xHH)
+            if r'\x' in pattern:
+                # Convert pattern "\x41\x42" → b'\x41\x42'
+                try:
+                    hex_str = pattern.replace(r'\x', '')
+                    pat_bytes = bytes.fromhex(hex_str)
+                except ValueError:
+                    pat_bytes = None
+
+                # Registry fields
+                if field.startswith("registry."):
+                    if field.endswith("new_keys"):
+                        items = [f"{hive}\\{path}"
+                                 for hive, path in diffs.get("new_registry_keys", [])]
+                    else:
+                        items = [f"{hive}\\{path}\\{vname}"
+                                 for hive, path, vname, _, _
+                                 in diffs.get("modified_registry_values", [])]
+                    for entry in items:
+                        if operator == "contains" and pat_bytes and byte_contains(entry, pat_bytes):
+                            logging.info(f"[Rule:{self.name}] byte‑registry match {pattern!r} in {entry!r}")
+                            return True
+
+                # Filesystem fields
+                elif field.startswith("filesystem."):
+                    if field.endswith("new_files"):
+                        items = diffs.get("new_files", [])
+                    else:
+                        items = diffs.get("modified_files", [])
+                    for entry in items:
+                        if operator == "contains" and pat_bytes and byte_contains(entry, pat_bytes):
+                            logging.info(f"[Rule:{self.name}] byte‑filesystem match {pattern!r} in {entry!r}")
+                            return True
+
+                # Event Log fields
+                elif field.startswith("eventlog."):
+                    _, log_name = field.split(".", 1)
+                    items = [ln for (lg, ln) in diffs.get("new_event_log_lines", [])
+                             if lg == log_name]
+                    for entry in items:
+                        if operator == "contains" and pat_bytes and byte_contains(entry, pat_bytes):
+                            logging.info(f"[Rule:{self.name}] byte‑eventlog match {pattern!r} in {entry!r}")
+                            return True
+
+                # Skip the normal text path for this pattern
+                continue
+
+            # --- Fallback to original text‑based logic ---
+
             # Registry fields
             if field.startswith("registry."):
                 if field.endswith("new_keys"):
-                    items = [f"{hive}\\{path}" for hive, path in diffs.get("new_registry_keys", [])]
-                else:  # modified_registry_values
+                    items = [f"{hive}\\{path}"
+                             for hive, path in diffs.get("new_registry_keys", [])]
+                else:
                     items = [
                         f"{hive}\\{path}\\{vname} -> {oldval} => {newval}"
-                        for hive, path, vname, oldval, newval in diffs.get("modified_registry_values", [])
+                        for hive, path, vname, oldval, newval
+                        in diffs.get("modified_registry_values", [])
                     ]
                 for entry in items:
                     if operator == "contains" and pattern.lower() in entry.lower():
@@ -455,20 +543,24 @@ class Rule:
                             return True
                     elif operator == "matches":
                         if re.search(pattern, fpath, re.IGNORECASE):
-                            logging.info(f"[Rule:{self.name}] filesystem regex match: '{pattern}' matches '{fpath}'")
+                            logging.info(
+                                f"[Rule:{self.name}] filesystem regex match: '{pattern}' matches '{fpath}'"
+                            )
                             return True
 
             # Event Log fields
             elif field.startswith("eventlog."):
-                # field example: "eventlog.Application"
                 _, log_name = field.split(".", 1)
-                items = [ln for (lg, ln) in diffs.get("new_event_log_lines", []) if lg == log_name]
+                items = [ln for (lg, ln) in diffs.get("new_event_log_lines", [])
+                         if lg == log_name]
                 for ln in items:
                     if operator == "contains" and pattern.lower() in ln.lower():
                         logging.info(f"[Rule:{self.name}] eventlog match: '{pattern}' in '{ln}'")
                         return True
                     elif operator == "matches" and re.search(pattern, ln, re.IGNORECASE):
-                        logging.info(f"[Rule:{self.name}] eventlog regex match: '{pattern}' matches '{ln}'")
+                        logging.info(
+                            f"[Rule:{self.name}] eventlog regex match: '{pattern}' matches '{ln}'"
+                        )
                         return True
 
         return False
