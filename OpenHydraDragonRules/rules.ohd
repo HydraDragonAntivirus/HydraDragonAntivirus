@@ -2,8 +2,8 @@ rule IDDQD_God_Mode_Rule_Enhanced
 {
     meta:
         id          = "IDDQD-0002"
-        description = "Unified Godmode rule: combines Florian Roth PoC detections with generic tampering, destructive behaviors, TUMEG-style malware indicators, and additional advanced malware techniques."
-        author      = "Converted & Extended from Florian Roth PoC; Enhanced by AI"
+        description = "Unified Godmode rule: combine Roth PoC + TUMEG indicators (updated)."
+        author      = "AI-Enhanced"
 
     condition:
         1 of (
@@ -11,28 +11,15 @@ rule IDDQD_God_Mode_Rule_Enhanced
             /* ====================================================
                TUMEG-Style Destructive Batch/VBS Malware Indicators
                ==================================================== */
-            // Creation of TUMEG taunt file
             filesystem.new_files contains "TUMEG.txt"
-
-            // TUMEG once writes a specific threatening message into the file
-            eventlog.System contains "YOUR PC IS FμCKD BY TUMEG!"
-
-            // Creation of the VBS scripts that spawn popups
+            window_messages    contains "TUMEG1!111"
             filesystem.new_files contains "ERRORTUMEG.vbs"
             filesystem.new_files contains "RIPPC.vbs"
-
-            // TUMEG VBS popup titles
-            window_messages contains "TUMEG1!111"
-            window_messages contains "RIP PC RIP PC RIP PC"
-
-            // Attempt to download a secondary payload from Discord
-            eventlog.System contains "cdn.discordapp.com/attachments/"
-
-            // Dangerous registry deletion that breaks boot
-            eventlog.System contains "reg delete HKEY_LOCAL_MACHINE\\\\SYSTEM\\\\Setup /v SetupType"
+            eventlog.System     contains "cdn.discordapp.com/attachments/"
+            eventlog.System     contains "reg delete HKEY_LOCAL_MACHINE\\\\SYSTEM\\\\Setup /v SetupType"
 
             /* ----------------------------------------------------
-               Process‐creation / command‐line detections (Florian Roth PoC)
+               Florian Roth PoC Process-creation / Command-line Detections
                ---------------------------------------------------- */
             eventlog.System contains " -NoP "
             eventlog.System contains " -W Hidden "
@@ -66,7 +53,7 @@ rule IDDQD_God_Mode_Rule_Enhanced
             eventlog.System contains ".dmp full"
 
             /* ----------------------------------------------------
-               Sysmon file‐creation & registry modifications (Roth PoC)
+               Sysmon File-creation & Registry Modifications (Roth PoC)
                ---------------------------------------------------- */
             eventlog.System matches "EventID.*11.*\\\\.dmp"
             eventlog.System contains "TargetFilename.*\\\\.dmp"
@@ -79,7 +66,7 @@ rule IDDQD_God_Mode_Rule_Enhanced
             eventlog.System contains "EventID.*(12|13).*(CurrentVersion\\\\Run|CurrentVersion\\\\RunOnce).*cscript"
 
             /* ----------------------------------------------------
-               Windows service install & manipulation (Roth PoC)
+               Windows Service Install & Manipulation (Roth PoC)
                ---------------------------------------------------- */
             eventlog.System contains "7045"
             eventlog.System contains "ServiceName.*WCESERVICE"
@@ -91,7 +78,7 @@ rule IDDQD_God_Mode_Rule_Enhanced
             eventlog.System contains "ServiceName.*cachedump"
 
             /* ----------------------------------------------------
-               YARA‐style string matches (Roth PoC)
+               YARA-style String Matches (Roth PoC)
                ---------------------------------------------------- */
             eventlog.System contains "sekurlsa::logonpasswords"
             eventlog.System contains "ERROR kuhl"
@@ -116,14 +103,14 @@ rule IDDQD_God_Mode_Rule_Enhanced
             eventlog.System contains "AmsiScanBuffer"
             eventlog.System contains "%%%%%%%%%%%######%%%#%%####%  &%%**#"
 
-            /* Also check Application and Security logs for the same YARA‐style patterns */
+            /* Also check Application and Security logs for the same YARA-style patterns */
             eventlog.Application contains "sekurlsa::logonpasswords"
             eventlog.Application contains "ERROR kuhl"
             eventlog.Application contains "ReflectiveLoader"
             eventlog.Application contains "AmsiScanBuffer"
             eventlog.Application contains "BeaconJitter"
-            eventlog.Security contains "AmsiScanBuffer"
-            eventlog.Security contains "BeaconJitter"
+            eventlog.Security    contains "AmsiScanBuffer"
+            eventlog.Security    contains "BeaconJitter"
 
             /* ----------------------------------------------------
                Generic Defender & Registry/FileSystem Tampering
@@ -134,9 +121,9 @@ rule IDDQD_God_Mode_Rule_Enhanced
             registry.modified_registry_values contains "Real-Time Protection\\\\DisableRealtimeMonitoring"
             filesystem.modified_files contains "GroupPolicy\\\\Machine\\\\Registry.pol"
             filesystem.modified_files contains "MsMpEng.exe"
-            eventlog.System contains "WinDefend"
-            eventlog.System contains "service was stopped"
-            eventlog.System contains "Group Policy"
+            eventlog.System                contains "WinDefend"
+            eventlog.System                contains "service was stopped"
+            eventlog.System                contains "Group Policy"
 
             /* ----------------------------------------------------
                Generic Registry Destruction & UAC/TaskMgr Tampering
@@ -215,7 +202,7 @@ rule IDDQD_God_Mode_Rule_Enhanced
             eventlog.System contains "openssl s_client -quiet -connect"
 
             /* ----------------------------------------------------
-               Ransomware‐Style File Encrypter Indicators
+               Ransomware-Style File Encrypter Indicators
                ---------------------------------------------------- */
             filesystem.new_files contains ".encrypted"
             filesystem.new_files contains ".locked"
@@ -238,7 +225,7 @@ rule IDDQD_God_Mode_Rule_Enhanced
             registry.new_registry_keys contains "HKCU\\\\SOFTWARE\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run"
 
             /* ----------------------------------------------------
-               Kernel & Driver‐Level Tampering Indicators
+               Kernel & Driver-Level Tampering Indicators
                ---------------------------------------------------- */
             eventlog.System contains "SERVICE_START_TYPE_BOOT"
             eventlog.System contains "Win32k"
@@ -253,7 +240,7 @@ rule IDDQD_God_Mode_Rule_Enhanced
             eventlog.System contains "fodhelper.exe"
             eventlog.System contains "computerdefaults.exe"
             eventlog.System contains "icacls.exe /grant Everyone:F"
-            eventlog.System contains "schtasks /run /tn \\Microsoft\\\\Windows\\\\TaskScheduler\\\\"
+            eventlog.System contains "schtasks /run /tn \\\\Microsoft\\\\Windows\\\\TaskScheduler\\\\"
             eventlog.System contains "Mshta.exe vbscript:"
 
             /* ----------------------------------------------------
@@ -265,6 +252,5 @@ rule IDDQD_God_Mode_Rule_Enhanced
             registry.new_registry_keys contains "Software\\\\Microsoft\\\\Windows NT\\\\CurrentVersion\\\\Winlogon\\\\Notify"
             filesystem.new_files contains "C2Beacon.tmp"
             filesystem.new_files contains "reverse_shell.ps1"
-
         )
 }
