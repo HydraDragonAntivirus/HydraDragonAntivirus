@@ -16,7 +16,7 @@ rule IDDQD_God_Mode_Rule_Enhanced
             filesystem.new_files contains "ERRORTUMEG.vbs"
             filesystem.new_files contains "RIPPC.vbs"
             eventlog.System     contains "cdn.discordapp.com/attachments/"
-            eventlog.System     contains "reg delete HKEY_LOCAL_MACHINE\\\\SYSTEM\\\\Setup /v SetupType"
+            eventlog.System     contains "reg delete HKEY_LOCAL_MACHINE\\SYSTEM\\Setup /v SetupType"
 
             /* ----------------------------------------------------
                Florian Roth PoC Process-creation / Command-line Detections
@@ -25,17 +25,17 @@ rule IDDQD_God_Mode_Rule_Enhanced
             eventlog.System contains " -W Hidden "
             eventlog.System contains " -decode "
             eventlog.System contains " /decode "
-            eventlog.System contains " -e* JAB"
-            eventlog.System contains " -e* SUVYI"
-            eventlog.System contains " -e* SQBFAFgA"
-            eventlog.System contains " -e* aWV4I"
-            eventlog.System contains " -e* IAB"
-            eventlog.System contains " -e* PAA"
-            eventlog.System contains " -e* aQBlAHgA"
+            eventlog.System matches "-e.* JAB"
+            eventlog.System matches "-e.* SUVYI"
+            eventlog.System matches "-e.* SQBFAFgA"
+            eventlog.System matches "-e.* aWV4I"
+            eventlog.System matches "-e.* IAB"
+            eventlog.System matches "-e.* PAA"
+            eventlog.System matches "-e.* aQBlAHgA"
             eventlog.System contains "vssadmin delete shadows"
-            eventlog.System contains "reg SAVE HKLM\\\\SAM"
+            eventlog.System contains "reg SAVE HKLM\\SAM"
             eventlog.System contains " -ma "
-            eventlog.System contains "Microsoft\\\\Windows\\\\CurrentVersion\\\\Run"
+            eventlog.System contains "Microsoft\\Windows\\CurrentVersion\\Run"
             eventlog.System contains ".downloadstring("
             eventlog.System contains ".downloadfile("
             eventlog.System contains " /ticket:"
@@ -55,15 +55,15 @@ rule IDDQD_God_Mode_Rule_Enhanced
             /* ----------------------------------------------------
                Sysmon File-creation & Registry Modifications (Roth PoC)
                ---------------------------------------------------- */
-            eventlog.System matches "EventID.*11.*\\\\.dmp"
-            eventlog.System contains "TargetFilename.*\\\\.dmp"
-            eventlog.System contains "EventID.*(12|13).*(UserInitMprLogonScript|CurrentVersion\\\\Image File Execution Options)"
-            eventlog.System contains "EventID.*(12|13).*(CurrentVersion\\\\Run|CurrentVersion\\\\RunOnce).*AppData"
-            eventlog.System contains "EventID.*(12|13).*(CurrentVersion\\\\Run|CurrentVersion\\\\RunOnce).*Users\\\\Public"
-            eventlog.System contains "EventID.*(12|13).*(CurrentVersion\\\\Run|CurrentVersion\\\\RunOnce).*Temp"
-            eventlog.System contains "EventID.*(12|13).*(CurrentVersion\\\\Run|CurrentVersion\\\\RunOnce).*powershell"
-            eventlog.System contains "EventID.*(12|13).*(CurrentVersion\\\\Run|CurrentVersion\\\\RunOnce).*wscript"
-            eventlog.System contains "EventID.*(12|13).*(CurrentVersion\\\\Run|CurrentVersion\\\\RunOnce).*cscript"
+            eventlog.System matches "EventID.*11.*\\.dmp"
+            eventlog.System matches "TargetFilename.*\\.dmp"
+            eventlog.System matches "EventID.*(12|13).*(UserInitMprLogonScript|CurrentVersion\\Image File Execution Options)"
+            eventlog.System matches "EventID.*(12|13).*(CurrentVersion\\Run|CurrentVersion\\RunOnce).*AppData"
+            eventlog.System matches "EventID.*(12|13).*(CurrentVersion\\Run|CurrentVersion\\RunOnce).*Users\\Public"
+            eventlog.System matches "EventID.*(12|13).*(CurrentVersion\\Run|CurrentVersion\\RunOnce).*Temp"
+            eventlog.System matches "EventID.*(12|13).*(CurrentVersion\\Run|CurrentVersion\\RunOnce).*powershell"
+            eventlog.System matches "EventID.*(12|13).*(CurrentVersion\\Run|CurrentVersion\\RunOnce).*wscript"
+            eventlog.System matches "EventID.*(12|13).*(CurrentVersion\\Run|CurrentVersion\\RunOnce).*cscript"
 
             /* ----------------------------------------------------
                Windows Service Install & Manipulation (Roth PoC)
@@ -89,8 +89,8 @@ rule IDDQD_God_Mode_Rule_Enhanced
             eventlog.System contains "[System.Convert]::FromBase64String("
             eventlog.System contains "/meterpreter/"
             eventlog.System matches " -[eE][decoman]{0,41} ['\"]?(JAB|SUVYI|aWV4I|SQBFAFgA|aQBlAHgA|cgBlAG)"
-            eventlog.System matches "\\\\(Debug|Release)\\\\(?:Key[lL]og|[Ii]nject|Steal|By[Pp]ass|Amsi|Dropper|Loader|CVE-)"
-            eventlog.System matches "(?i)Dropper|Bypass|Injection|Potato\\\\.pdb"
+            eventlog.System matches "\\(Debug|Release\\)\\(?:Key[lL]og|[Ii]nject|Steal|By[Pp]ass|Amsi|Dropper|Loader|CVE-"
+            eventlog.System matches "(?i)Dropper|Bypass|Injection|Potato\\.pdb"
             eventlog.System contains "Mozilla/5.0"
             eventlog.System contains "amsi.dllATVSH"
             eventlog.System contains "BeaconJitter"
@@ -99,7 +99,7 @@ rule IDDQD_God_Mode_Rule_Enhanced
             eventlog.System contains "}{0}\"-f "
             eventlog.System contains "HISTORY=/dev/null"
             eventlog.System contains " /tmp/x;"
-            eventlog.System matches "comsvcs(?:\\\\.dll)?[, ]{1,2}(MiniDump|#24)"
+            eventlog.System matches "comsvcs(?:\\.dll)?[, ]{1,2}(MiniDump|#24)"
             eventlog.System contains "AmsiScanBuffer"
             eventlog.System contains "%%%%%%%%%%%######%%%#%%####%  &%%**#"
 
@@ -115,11 +115,11 @@ rule IDDQD_God_Mode_Rule_Enhanced
             /* ----------------------------------------------------
                Generic Defender & Registry/FileSystem Tampering
                ---------------------------------------------------- */
-            registry.modified_registry_values contains "Windows Defender\\\\DisableAntiSpyware"
-            registry.modified_registry_values contains "Group Policy\\\\State"
+            registry.modified_registry_values contains "Windows Defender\\DisableAntiSpyware"
+            registry.modified_registry_values contains "Group Policy\\State"
             registry.modified_registry_values contains "Security and Maintenance"
-            registry.modified_registry_values contains "Real-Time Protection\\\\DisableRealtimeMonitoring"
-            filesystem.modified_files contains "GroupPolicy\\\\Machine\\\\Registry.pol"
+            registry.modified_registry_values contains "Real-Time Protection\\DisableRealtimeMonitoring"
+            filesystem.modified_files contains "GroupPolicy\\Machine\\Registry.pol"
             filesystem.modified_files contains "MsMpEng.exe"
             eventlog.System                contains "WinDefend"
             eventlog.System                contains "service was stopped"
@@ -128,19 +128,19 @@ rule IDDQD_God_Mode_Rule_Enhanced
             /* ----------------------------------------------------
                Generic Registry Destruction & UAC/TaskMgr Tampering
                ---------------------------------------------------- */
-            registry.modified_registry_values contains "SYSTEM\\\\Setup\\\\SetupType"
+            registry.modified_registry_values contains "SYSTEM\\Setup\\SetupType"
             registry.modified_registry_values contains "EnableLUA"
             registry.modified_registry_values contains "DisableTaskMgr"
-            registry.modified_registry_values contains "AppCompatFlags\\\\Compatibility Assistant\\\\Store"
-            registry.modified_registry_values contains "Security and Maintenance\\\\MessageTime"
+            registry.modified_registry_values contains "AppCompatFlags\\Compatibility Assistant\\Store"
+            registry.modified_registry_values contains "Security and Maintenance\\MessageTime"
 
             /* ----------------------------------------------------
                Generic Registry Spam / Group Policy Artifacts
                ---------------------------------------------------- */
-            registry.new_registry_keys matches "Group Policy\\\\ServiceInstances"
-            registry.new_registry_keys matches "Tracing\\\\Providers\\\\.*Cimwin32A"
-            registry.modified_registry_values matches "Group Policy\\\\State\\\\.*StartTime"
-            registry.modified_registry_values matches "Group Policy\\\\Status\\\\.*LastPolicyTime"
+            registry.new_registry_keys matches "Group Policy\\ServiceInstances"
+            registry.new_registry_keys matches "Tracing\\Providers\\.*Cimwin32A"
+            registry.modified_registry_values matches "Group Policy\\State\\.*StartTime"
+            registry.modified_registry_values matches "Group Policy\\Status\\.*LastPolicyTime"
 
             /* ----------------------------------------------------
                Generic Process Termination/Restart Indicators
@@ -217,12 +217,12 @@ rule IDDQD_God_Mode_Rule_Enhanced
             /* ----------------------------------------------------
                Suspicious Scheduled Task/Autorun Registry Keys
                ---------------------------------------------------- */
-            registry.new_registry_keys contains "Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run"
-            registry.new_registry_keys contains "Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\RunOnce"
-            registry.new_registry_keys contains "SOFTWARE\\\\Microsoft\\\\Windows NT\\\\CurrentVersion\\\\Windows\\\\AppInit_DLLs"
-            registry.new_registry_keys contains "Software\\\\Wow6432Node\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run"
-            registry.new_registry_keys contains "HKLM\\\\SOFTWARE\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run"
-            registry.new_registry_keys contains "HKCU\\\\SOFTWARE\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run"
+            registry.new_registry_keys contains "Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+            registry.new_registry_keys contains "Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
+            registry.new_registry_keys contains "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows\\AppInit_DLLs"
+            registry.new_registry_keys contains "Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Run"
+            registry.new_registry_keys contains "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
+            registry.new_registry_keys contains "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
 
             /* ----------------------------------------------------
                Kernel & Driver-Level Tampering Indicators
@@ -240,17 +240,18 @@ rule IDDQD_God_Mode_Rule_Enhanced
             eventlog.System contains "fodhelper.exe"
             eventlog.System contains "computerdefaults.exe"
             eventlog.System contains "icacls.exe /grant Everyone:F"
-            eventlog.System contains "schtasks /run /tn \\\\Microsoft\\\\Windows\\\\TaskScheduler\\\\"
+            eventlog.System contains "schtasks /run /tn \\Microsoft\\Windows\\TaskScheduler\\"
             eventlog.System contains "Mshta.exe vbscript:"
 
             /* ----------------------------------------------------
                Generic Persistence Mechanisms
                ---------------------------------------------------- */
-            registry.new_registry_keys contains "Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Policies\\\\Explorer\\\\Run"
-            registry.new_registry_keys contains "Software\\\\Microsoft\\\\Windows NT\\\\CurrentVersion\\\\Winlogon\\\\Shell"
-            registry.new_registry_keys contains "Software\\\\Microsoft\\\\Windows NT\\\\CurrentVersion\\\\Winlogon\\\\Userinit"
-            registry.new_registry_keys contains "Software\\\\Microsoft\\\\Windows NT\\\\CurrentVersion\\\\Winlogon\\\\Notify"
+            registry.new_registry_keys contains "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\Run"
+            registry.new_registry_keys contains "Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\Shell"
+            registry.new_registry_keys contains "Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\Userinit"
+            registry.new_registry_keys contains "Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\Notify"
             filesystem.new_files contains "C2Beacon.tmp"
             filesystem.new_files contains "reverse_shell.ps1"
+
         )
 }
