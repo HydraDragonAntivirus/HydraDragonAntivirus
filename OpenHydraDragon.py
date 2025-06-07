@@ -13,15 +13,10 @@ import os
 import sys
 import logging
 import subprocess
-import threading
 import time
-import shutil
-import tempfile
 import winreg
-import glob
 import re
 from pathlib import Path
-from datetime import datetime
 from typing import Dict, Any, List, Tuple
 
 # ------------------------------------------------------------------------------
@@ -35,24 +30,18 @@ LOG_DIR.mkdir(exist_ok=True)
 # All logs go to "openhydradragon.log" plus console at INFO level
 application_log_file = LOG_DIR / "openhydradragon.log"
 
-logging = logging.getlogging("OpenHydraDragon")
-logging.setLevel(logging.DEBUG)
-
-# File handler (DEBUG and above)
-file_handler = logging.FileHandler(str(application_log_file), encoding="utf-8", mode="a")
-file_formatter = logging.Formatter(
-    "%(asctime)s - %(levelname)s - %(threadName)s - %(message)s"
+# Configure logging for application log
+logging.basicConfig(
+    filename=application_log_file,
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
 )
-file_handler.setFormatter(file_formatter)
-file_handler.setLevel(logging.DEBUG)
-logging.addHandler(file_handler)
 
 # Console handler (INFO and above)
 console_handler = logging.StreamHandler(sys.stdout)
 console_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s", "%H:%M:%S")
 console_handler.setFormatter(console_formatter)
 console_handler.setLevel(logging.INFO)
-logging.addHandler(console_handler)
 
 logging.info("=== OpenHydraDragon Automated Engine Started ===")
 
@@ -128,7 +117,7 @@ class SandboxManager:
         # 2) Build the command: [ Start.exe, /box:DefaultBox, <absolute-exe-path> ]
         cmd = [
             SANDBOXIE_PATH,
-            f"/box:DefaultBox",
+            "/box:DefaultBox",
             target_exe
         ] + args
 
@@ -205,7 +194,6 @@ class Snapshot:
                 system_root / "System32",
                 user_temp
             ]
-        self.timestamp = datetime.utcnow()
         self.registry_dump: Dict[str, Dict[str, Dict[str, Any]]] = {}
         self.filesystem_index: Dict[str, float] = {}
         self.event_logs: Dict[str, List[str]] = {}
@@ -364,6 +352,14 @@ class Snapshot:
             for ln in lines:
                 if ln not in prev_lines:
                     diffs["new_event_log_lines"].append((log_name, ln))
+
+        # At the very end, before returning, add:
+        for change_type, items in diffs.items():
+            if not items:
+                continue
+            logging.info(f"[Snapshot.diff] {len(items)} {change_type}:")
+            for item in items:
+                logging.info(f"    {change_type}: {item}")
 
         return diffs
 
