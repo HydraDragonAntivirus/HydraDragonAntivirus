@@ -1,28 +1,180 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 r"""
-OpenHydraDragon (Always-Debug Edition):
-  - Captures registry, filesystem, and Windows Event Logs.
+OpenHydraDragon (Always-Debug + Window/Message Detection Edition):
+  - Captures registry, filesystem, Windows Event Logs, and live window messages.
   - Supports scanning a directory of samples.
   - Loads SIGMA‐style .ohd rules.
   - Runs every sample normally (no Sandboxie).
+  - Allows rules to match on new window titles/text (e.g., dialogs, message boxes).
 """
 
 import os
 import sys
 import logging
 import subprocess
-import time
 import winreg
 import re
+import ctypes
+from ctypes import wintypes
+import psutil
+from comtypes.client import CreateObject
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Set
+
 from scapy.config import conf
 conf.use_pcap = True
 from scapy.sendrecv import sniff
 from scapy.layers.inet import TCP
 from scapy.packet import Raw
 from scapy.arch.windows import get_windows_if_list as get_if_list
+
+# -------------------------------------------------------------------
+# 0) WINDOWS API + UI AUTOMATION SETUP FOR COMMANDLINE & MESSAGE DETECTION
+# -------------------------------------------------------------------
+
+# Constants for Windows API calls
+WM_GETTEXT = 0x000D
+WM_GETTEXTLENGTH = 0x000E
+
+# WinEvent constants to capture live window events (not used directly here)
+EVENT_OBJECT_CREATE = 0x8000
+EVENT_OBJECT_SHOW = 0x8002
+EVENT_SYSTEM_DIALOGSTART = 0x0010
+EVENT_OBJECT_HIDE = 0x8003
+EVENT_OBJECT_NAMECHANGE = 0x800C
+WINEVENT_OUTOFCONTEXT = 0x0000
+
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+# Load libraries
+kernel32 = ctypes.windll.kernel32
+user32 = ctypes.windll.user32
+ole32 = ctypes.windll.ole32
+
+# UI Automation COM object
+try:
+    uia = CreateObject('UIAutomationClient.CUIAutomation')
+except Exception:
+    uia = None
+
+def get_process_path(hwnd):
+    """
+    Return the executable path of the process owning the given HWND.
+    Try Windows API first; fall back to psutil.
+    """
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    if pid.value == 0:
+        return "<unknown_pid>"
+
+    # Try using the Windows API
+    hproc = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+    if hproc:
+        try:
+            buff_len = wintypes.DWORD(260)
+            buff = ctypes.create_unicode_buffer(buff_len.value)
+            if kernel32.QueryFullProcessImageNameW(hproc, 0, buff, ctypes.byref(buff_len)):
+                return buff.value
+        finally:
+            kernel32.CloseHandle(hproc)
+
+    # Fallback to psutil
+    try:
+        proc = psutil.Process(pid.value)
+        return proc.exe()
+    except psutil.NoSuchProcess:
+        return f"<terminated_pid:{pid.value}>"
+    except psutil.AccessDenied:
+        return f"<access_denied_pid:{pid.value}>"
+    except Exception as e:
+        return f"<error_pid:{pid.value}:{type(e).__name__}>"
+
+def get_window_text(hwnd):
+    """
+    Retrieve the text of a window; always returns a string.
+    """
+    length = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) + 1
+    buf = ctypes.create_unicode_buffer(length)
+    user32.SendMessageW(hwnd, WM_GETTEXT, length, ctypes.byref(buf))
+    return buf.value or ""
+
+def get_control_text(hwnd):
+    """
+    Retrieve the text of a control; same approach as window text.
+    """
+    length = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) + 1
+    buf = ctypes.create_unicode_buffer(length)
+    user32.SendMessageW(hwnd, WM_GETTEXT, length, ctypes.byref(buf))
+    return buf.value or ""
+
+def get_uia_text(hwnd):
+    """
+    Retrieve control text via UI Automation if available.
+    """
+    if not uia:
+        return ""
+    try:
+        element = uia.ElementFromHandle(hwnd)
+        name = element.CurrentName
+        return name or ""
+    except Exception:
+        return ""
+
+def find_child_windows(parent_hwnd):
+    """
+    Find all child windows of the given parent window.
+    """
+    child_windows: List[int] = []
+    def _enum_proc(hwnd, lParam):
+        child_windows.append(hwnd)
+        return True
+    EnumChildProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+    user32.EnumChildWindows(parent_hwnd, EnumChildProc(_enum_proc), None)
+    return child_windows
+
+def find_descendant_windows(root_hwnd):
+    """
+    Recursively enumerate all descendant windows of a given window.
+    """
+    descendants: List[int] = []
+    stack = [root_hwnd]
+    while stack:
+        parent = stack.pop()
+        children = find_child_windows(parent)
+        for ch in children:
+            descendants.append(ch)
+            stack.append(ch)
+    return descendants
+
+def find_windows_with_text():
+    """
+    Enumerate all top-level windows and their descendants, retrieving text
+    via WM_GETTEXT or UI Automation. Returns a list of (hwnd, text, exe_path).
+    """
+    window_handles: List[Tuple[int, str, str]] = []
+
+    def scan_hwnd(hwnd):
+        # 1) Standard window text
+        raw = get_window_text(hwnd).strip()
+        # 2) Control text if no window text
+        if not raw:
+            raw = get_control_text(hwnd).strip()
+        # 3) Fallback to UI Automation if still empty
+        if not raw:
+            raw = get_uia_text(hwnd).strip()
+        if raw:
+            window_handles.append((hwnd, raw, get_process_path(hwnd)))
+
+    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+    def enum_proc(hwnd, lParam):
+        scan_hwnd(hwnd)
+        for desc in find_descendant_windows(hwnd):
+            scan_hwnd(desc)
+        return True
+
+    user32.EnumWindows(EnumWindowsProc(enum_proc), None)
+    return window_handles
 
 # -------------------------------------------------------------------
 # 1) VERBOSE LOGGING SETUP (console + file)
@@ -32,24 +184,21 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 LOG_DIR = SCRIPT_DIR / "log"
 LOG_DIR.mkdir(exist_ok=True)
 
-# All logs go to "openhydradragon.log" plus console at DEBUG level
 application_log_file = LOG_DIR / "openhydradragon.log"
 
-# Configure logging for application log
 logging.basicConfig(
     filename=application_log_file,
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
 )
 
-# Console handler (DEBUG and above)
 console_handler = logging.StreamHandler(sys.stdout)
 console_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s", "%H:%M:%S")
 console_handler.setFormatter(console_formatter)
 console_handler.setLevel(logging.DEBUG)
 logging.getLogger().addHandler(console_handler)
 
-logging.info("=== OpenHydraDragon Always-Debug Engine Started ===")
+logging.info("=== OpenHydraDragon Always-Debug + Window Detection Started ===")
 
 # -------------------------------------------------------------------
 # 2) NETWORK RULE WRITER (Scapy-based)
@@ -134,7 +283,7 @@ def sniff_and_generate(rules_dir: str, iface: str = None, count: int = 0, timeou
     )
 
 # -------------------------------------------------------------------
-# 3) SNAPSHOT CAPTURE (REGISTRY + FILESYSTEM + EVENT LOGS)
+# 3) SNAPSHOT CAPTURE (REGISTRY + FILESYSTEM + EVENT LOGS + WINDOW MESSAGES)
 # -------------------------------------------------------------------
 
 class Snapshot:
@@ -143,6 +292,7 @@ class Snapshot:
         - Registry: HKLM\Software, HKCU\Software
         - Filesystem: targeted directories (System32 + TEMP)
         - Event Logs: Application, Security, System
+        - Window Messages: new windows/dialogs that appear
     """
 
     def __init__(self, fs_roots: List[str] = None, watchlist: Dict[str, Set[str]] = None):
@@ -158,6 +308,8 @@ class Snapshot:
         self.registry_dump: Dict[str, Dict[str, Any]] = {}
         self.filesystem_index: Dict[str, float] = {}
         self.event_logs: Dict[str, List[str]] = {}
+        # Store window messages as set of (hwnd, text, exe_path)
+        self.window_messages: Set[Tuple[int, str, str]] = set()
         logging.debug(f"[Snapshot] Initialized for FS roots: {self.fs_roots}")
 
     def capture_registry(self):
@@ -182,15 +334,12 @@ class Snapshot:
         """
         result: Dict[str, Dict[str, Any]] = {}
 
-        # If we have registry prefixes to watch, and this prefix doesn’t contain any of them, skip entirely
         watched = self.watchlist.get("registry", set())
         if watched and not any(pat.lower() in prefix.lower() for pat in watched):
             return {}
 
-        # Capture current key’s values
         result[prefix] = self._get_values(hkey)
 
-        # Enumerate and recurse
         i = 0
         while True:
             try:
@@ -198,7 +347,6 @@ class Snapshot:
                 i += 1
                 with winreg.OpenKey(hkey, subname) as subh:
                     full = f"{prefix}\\{subname}"
-                    # Recurse into this subkey (it will itself check watchlist)
                     sub_tree = self._walk_registry(subh, prefix=full)
                     if sub_tree:
                         result.update(sub_tree)
@@ -246,10 +394,19 @@ class Snapshot:
                 logging.error(f"[Snapshot] Failed to capture {log}: {e}")
                 self.event_logs[log] = []
 
+    def capture_window_messages(self):
+        """
+        Enumerate all windows and capture (hwnd, text, exe_path) tuples.
+        """
+        entries = find_windows_with_text()
+        self.window_messages = set(entries)
+        logging.debug(f"[Snapshot] Captured {len(self.window_messages)} window messages")
+
     def capture(self):
         self.capture_registry()
         self.capture_filesystem()
         self.capture_event_logs()
+        self.capture_window_messages()
 
     def diff(self, other: "Snapshot") -> Dict[str, Any]:
         """
@@ -259,38 +416,38 @@ class Snapshot:
           - new_files
           - modified_files
           - new_event_log_lines
+          - new_window_messages
           - deleted_registry_keys
           - deleted_registry_values
           - deleted_files
 
-        Logs each change as clean text (removes control chars, redacts raw bytes,
-        and prints full file paths instead of character-by-character).
+        Logs each change as clean text.
         """
         _CONTROL_CHAR_RE = re.compile(r'[\x00-\x1F\x7F]')
 
         def _sanitize(s: str) -> str:
             return _CONTROL_CHAR_RE.sub('', s)
 
-        # 1) Build diffs
         diffs: Dict[str, Any] = {
             "new_registry_keys": [],
             "modified_registry_values": [],
             "new_files": [],
             "modified_files": [],
             "new_event_log_lines": [],
+            "new_window_messages": [],            # <-- track new window/dialog messages
             "deleted_registry_keys": [],
             "deleted_registry_values": [],
             "deleted_files": []
         }
 
-        # Detect deleted registry keys
+        # Deleted registry keys
         for hive, other_tree in other.registry_dump.items():
             tree = self.registry_dump.get(hive, {})
             for key_path in other_tree:
                 if key_path not in tree:
                     diffs["deleted_registry_keys"].append((hive, key_path))
 
-        # Detect deleted registry values
+        # Deleted registry values
         for hive, other_tree in other.registry_dump.items():
             tree = self.registry_dump.get(hive, {})
             for key_path, values in other_tree.items():
@@ -299,12 +456,12 @@ class Snapshot:
                     if vname not in current_values:
                         diffs["deleted_registry_values"].append((hive, key_path, vname))
 
-        # Detect deleted files
+        # Deleted files
         for path in other.filesystem_index:
             if path not in self.filesystem_index:
                 diffs["deleted_files"].append(path)
 
-        # Registry diffs (new keys + modified values)
+        # New registry keys & modified values
         for hive, tree in self.registry_dump.items():
             other_tree = other.registry_dump.get(hive, {})
             for key_path, values in tree.items():
@@ -333,30 +490,39 @@ class Snapshot:
                 if ln not in prev:
                     diffs["new_event_log_lines"].append((log_name, ln))
 
-        # 2) Log them cleanly
+        # Window message diffs (new windows/dialogs/text)
+        for wnd in self.window_messages:
+            if wnd not in other.window_messages:
+                diffs["new_window_messages"].append(wnd)  # wnd is (hwnd, text, exe_path)
+
+        # Logging
         for change_type, items in diffs.items():
             if not items:
                 continue
             logging.info(f"[Snapshot.diff] {len(items)} {change_type}:")
             for item in items:
-                elems = item if isinstance(item, tuple) else (item,)
-                clean_parts: List[str] = []
-                for elem in elems:
-                    if isinstance(elem, (bytes, bytearray)):
-                        clean_parts.append("<binary data>")
-                    else:
-                        clean_parts.append(_sanitize(str(elem)))
-
-                if change_type == "new_registry_keys":
-                    joined = f"{clean_parts[0]}\\{clean_parts[1]}"
-                elif change_type == "modified_registry_values":
-                    joined = (
-                        f"{clean_parts[0]}\\{clean_parts[1]}\\{clean_parts[2]}: "
-                        f"{clean_parts[3]} → {clean_parts[4]}"
-                    )
+                if change_type == "new_window_messages":
+                    hwnd, text, exe = item
+                    sanitized_text = _sanitize(text)
+                    joined = f"HWND={hwnd} | \"{sanitized_text}\" | {exe}"
                 else:
-                    # new_files, modified_files, new_event_log_lines, deleted_registry_values, etc.
-                    joined = " | ".join(clean_parts)
+                    elems = item if isinstance(item, tuple) else (item,)
+                    clean_parts: List[str] = []
+                    for elem in elems:
+                        if isinstance(elem, (bytes, bytearray)):
+                            clean_parts.append("<binary data>")
+                        else:
+                            clean_parts.append(_sanitize(str(elem)))
+
+                    if change_type == "new_registry_keys":
+                        joined = f"{clean_parts[0]}\\{clean_parts[1]}"
+                    elif change_type == "modified_registry_values":
+                        joined = (
+                            f"{clean_parts[0]}\\{clean_parts[1]}\\{clean_parts[2]}: "
+                            f"{clean_parts[3]} → {clean_parts[4]}"
+                        )
+                    else:
+                        joined = " | ".join(clean_parts)
 
                 logging.info(f"    {change_type}: {joined}")
 
@@ -372,19 +538,21 @@ Rule syntax (.ohd):
 rule MyTrojanRule {
     meta:
         id = "TROJAN-0002"
-        description = "Detect stealthy registry key creation"
+        description = "Detect stealthy registry key creation or window dialog"
     condition:
-        registry.new_keys contains "Software\\EvilCorp"
+        registry.new_registry_keys contains "Software\\EvilCorp"
         filesystem.new_files contains "AppData\\Local\\Temp\\evil.dll"
         eventlog.System matches "malicious.*exe"
+        window_messages contains "Error connecting to server"
 }
 
 Supported fields:
-  - registry.new_keys
+  - registry.new_registry_keys
   - registry.modified_registry_values
   - filesystem.new_files
   - filesystem.modified_files
   - eventlog.<LogName> matches "<regex>"
+  - window_messages contains "<substring>" or matches "<regex>"
 
 Operators:
   - contains (substring match, case-insensitive)
@@ -396,8 +564,12 @@ META_RE = re.compile(r'^\s*meta\s*:\s*$')
 COND_RE = re.compile(r'^\s*condition\s*:\s*$')
 KEYVAL_RE = re.compile(r'^\s*([A-Za-z0-9_]+)\s*=\s*"([^"]+)"\s*$')
 COND_LINE_RE = re.compile(
-    r'^\s*([A-Za-z0-9_]+\.(?:new_keys|modified_registry_values|new_files|modified_files|'
-    r'new_event_log_lines|eventlog\.[A-Za-z0-9_]+|network\.(?:http_requests|raw_payloads)))\s*'
+    r'^\s*('
+    r'registry\.(?:new_registry_keys|modified_registry_values)|'
+    r'filesystem\.(?:new_files|modified_files)|'
+    r'eventlog\.[A-Za-z0-9_]+|'
+    r'window_messages'
+    r')\s*'
     r'(contains|matches)\s*"([^"]+)"\s*$'
 )
 
@@ -429,7 +601,6 @@ class Rule:
         _CONTROL_CHAR_RE = re.compile(r'[\x00-\x1F\x7F]')
 
         def byte_contains(entry_text: str, pat_bytes: bytes) -> bool:
-            """Return True if pat_bytes is a substring of entry_text.encode(...)"""
             try:
                 entry_b = entry_text.encode('utf-8', 'ignore')
                 return pat_bytes in entry_b
@@ -437,7 +608,7 @@ class Rule:
                 return False
 
         for (field, operator, pattern) in self.condition_lines:
-            # Detect a hex-escape pattern (\xHH)
+            # Hex-escape pattern handling
             if r'\x' in pattern:
                 try:
                     hex_str = pattern.replace(r'\x', '')
@@ -445,9 +616,8 @@ class Rule:
                 except ValueError:
                     pat_bytes = None
 
-                # Registry fields
                 if field.startswith("registry."):
-                    if field.endswith("new_keys"):
+                    if field.endswith("new_registry_keys"):
                         items = [f"{hive}\\{path}"
                                  for hive, path in diffs.get("new_registry_keys", [])]
                     else:
@@ -459,7 +629,6 @@ class Rule:
                             logging.info(f"[Rule:{self.name}] byte-registry match {pattern!r} in {entry!r}")
                             return True
 
-                # Filesystem fields
                 elif field.startswith("filesystem."):
                     if field.endswith("new_files"):
                         items = diffs.get("new_files", [])
@@ -470,7 +639,6 @@ class Rule:
                             logging.info(f"[Rule:{self.name}] byte-filesystem match {pattern!r} in {entry!r}")
                             return True
 
-                # Event Log fields
                 elif field.startswith("eventlog."):
                     _, log_name = field.split(".", 1)
                     items = [ln for (lg, ln) in diffs.get("new_event_log_lines", [])
@@ -480,13 +648,18 @@ class Rule:
                             logging.info(f"[Rule:{self.name}] byte-eventlog match {pattern!r} in {entry!r}")
                             return True
 
-                continue
+                elif field == "window_messages":
+                    items = [text for (_, text, _) in diffs.get("new_window_messages", [])]
+                    for entry in items:
+                        if operator == "contains" and pat_bytes and byte_contains(entry, pat_bytes):
+                            logging.info(f"[Rule:{self.name}] byte-window_messages match {pattern!r} in {entry!r}")
+                            return True
 
-            # --- Fallback to original text-based logic ---
+                continue  # skip normal text path for this pattern
 
-            # Registry fields
+            # Text-based logic
             if field.startswith("registry."):
-                if field.endswith("new_keys"):
+                if field.endswith("new_registry_keys"):
                     items = [f"{hive}\\{path}"
                              for hive, path in diffs.get("new_registry_keys", [])]
                 else:
@@ -500,7 +673,6 @@ class Rule:
                         logging.info(f"[Rule:{self.name}] registry match: '{pattern}' in '{entry}'")
                         return True
 
-            # Filesystem fields
             elif field.startswith("filesystem."):
                 if field.endswith("new_files"):
                     items = diffs.get("new_files", [])
@@ -518,7 +690,6 @@ class Rule:
                             )
                             return True
 
-            # Event Log fields
             elif field.startswith("eventlog."):
                 _, log_name = field.split(".", 1)
                 items = [ln for (lg, ln) in diffs.get("new_event_log_lines", [])
@@ -530,6 +701,18 @@ class Rule:
                     elif operator == "matches" and re.search(pattern, ln, re.IGNORECASE):
                         logging.info(
                             f"[Rule:{self.name}] eventlog regex match: '{pattern}' matches '{ln}'"
+                        )
+                        return True
+
+            elif field == "window_messages":
+                items = diffs.get("new_window_messages", [])
+                for (_, text, exe_path) in items:
+                    if operator == "contains" and pattern.lower() in text.lower():
+                        logging.info(f"[Rule:{self.name}] window_messages match: '{pattern}' in '{text}'")
+                        return True
+                    elif operator == "matches" and re.search(pattern, text, re.IGNORECASE):
+                        logging.info(
+                            f"[Rule:{self.name}] window_messages regex match: '{pattern}' matches '{text}'"
                         )
                         return True
 
@@ -621,7 +804,7 @@ class RuleEngine:
 def gather_custom_logs(log_dirs: List[str]) -> List[str]:
     """
     Recursively read all .log / .txt files in given directories,
-    return a list of lines. You can add more paths here if needed.
+    return a list of lines.
     """
     collected: List[str] = []
     for ld in log_dirs:
@@ -650,13 +833,13 @@ def process_sample(
     timeout: int = 60
 ) -> List[str]:
     """
-    Processes a single sample in always-debug mode:
+    Processes a single sample in always-debug + window-detection mode:
       0) Load rules + extract watch-list
-      1) Pre-snapshot
+      1) Pre-snapshot (registry, fs, event logs, window messages)
       2) Run sample normally (no sandbox)
       3) Post-snapshot → diff_dbg
       4) Treat diff_dbg as "stealthy"
-      5) Gather custom logs
+      5) Gather custom logs (append to event_log changes)
       6) Evaluate rules → return matched rule names
     """
     # 0) Load rules and get watch-list
@@ -698,7 +881,8 @@ def process_sample(
         f"mod_vals={len(diff_dbg['modified_registry_values'])}, "
         f"new_files={len(diff_dbg['new_files'])}, "
         f"mod_files={len(diff_dbg['modified_files'])}, "
-        f"new_logs={len(diff_dbg['new_event_log_lines'])}}}"
+        f"new_logs={len(diff_dbg['new_event_log_lines'])}, "
+        f"new_wnd_msgs={len(diff_dbg['new_window_messages'])}}}"
     )
 
     # 4) Treat diff_dbg as "stealthy"
@@ -764,7 +948,7 @@ def main():
         except Exception as e:
             logging.exception(f"Error processing sample '{sample}': {e}")
 
-    logging.info("=== OpenHydraDragon Always-Debug Run Completed ===")
+    logging.info("=== OpenHydraDragon Run Completed ===")
 
 if __name__ == "__main__":
     main()
