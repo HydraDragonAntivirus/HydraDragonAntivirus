@@ -37,31 +37,31 @@ from scapy.arch.windows import get_windows_if_list as get_if_list
 WM_GETTEXT = 0x000D
 WM_GETTEXTLENGTH = 0x000E
 
-# WinEvent constants to capture live window events (not used directly here)
-EVENT_OBJECT_CREATE = 0x8000
-EVENT_OBJECT_SHOW = 0x8002
-EVENT_SYSTEM_DIALOGSTART = 0x0010
-EVENT_OBJECT_HIDE = 0x8003
-EVENT_OBJECT_NAMECHANGE = 0x800C
-WINEVENT_OUTOFCONTEXT = 0x0000
+# WinEvent constants ‐ not used directly in this file but kept for reference
+EVENT_OBJECT_CREATE       = 0x8000
+EVENT_OBJECT_SHOW         = 0x8002
+EVENT_SYSTEM_DIALOGSTART  = 0x0010
+EVENT_OBJECT_HIDE         = 0x8003
+EVENT_OBJECT_NAMECHANGE   = 0x800C
+WINEVENT_OUTOFCONTEXT     = 0x0000
 
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
 # Load libraries
 kernel32 = ctypes.windll.kernel32
-user32 = ctypes.windll.user32
-ole32 = ctypes.windll.ole32
+user32   = ctypes.windll.user32
+ole32    = ctypes.windll.ole32
 
-# UI Automation COM object
+# UI Automation COM object (for retrieving control names if WM_GETTEXT fails)
 try:
     uia = CreateObject('UIAutomationClient.CUIAutomation')
 except Exception:
     uia = None
 
-def get_process_path(hwnd):
+def get_process_path(hwnd: int) -> str:
     """
     Return the executable path of the process owning the given HWND.
-    Try Windows API first; fall back to psutil.
+    Tries Windows API (QueryFullProcessImageNameW); falls back to psutil if needed.
     """
     pid = wintypes.DWORD()
     user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
@@ -76,6 +76,8 @@ def get_process_path(hwnd):
             buff = ctypes.create_unicode_buffer(buff_len.value)
             if kernel32.QueryFullProcessImageNameW(hproc, 0, buff, ctypes.byref(buff_len)):
                 return buff.value
+        except Exception:
+            pass
         finally:
             kernel32.CloseHandle(hproc)
 
@@ -90,25 +92,25 @@ def get_process_path(hwnd):
     except Exception as e:
         return f"<error_pid:{pid.value}:{type(e).__name__}>"
 
-def get_window_text(hwnd):
+def get_window_text(hwnd: int) -> str:
     """
-    Retrieve the text of a window; always returns a string.
-    """
-    length = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) + 1
-    buf = ctypes.create_unicode_buffer(length)
-    user32.SendMessageW(hwnd, WM_GETTEXT, length, ctypes.byref(buf))
-    return buf.value or ""
-
-def get_control_text(hwnd):
-    """
-    Retrieve the text of a control; same approach as window text.
+    Retrieve the text of a window (title). Always returns a string (possibly empty).
     """
     length = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) + 1
     buf = ctypes.create_unicode_buffer(length)
     user32.SendMessageW(hwnd, WM_GETTEXT, length, ctypes.byref(buf))
     return buf.value or ""
 
-def get_uia_text(hwnd):
+def get_control_text(hwnd: int) -> str:
+    """
+    Retrieve the text of a control. Same approach as get_window_text.
+    """
+    length = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) + 1
+    buf = ctypes.create_unicode_buffer(length)
+    user32.SendMessageW(hwnd, WM_GETTEXT, length, ctypes.byref(buf))
+    return buf.value or ""
+
+def get_uia_text(hwnd: int) -> str:
     """
     Retrieve control text via UI Automation if available.
     """
@@ -121,21 +123,21 @@ def get_uia_text(hwnd):
     except Exception:
         return ""
 
-def find_child_windows(parent_hwnd):
+def find_child_windows(parent_hwnd: int) -> List[int]:
     """
-    Find all child windows of the given parent window.
+    Find all direct child windows of the given parent window.
     """
     child_windows: List[int] = []
-    def _enum_proc(hwnd, lParam):
+    def _enum_proc(hwnd: int, lParam: ctypes.c_void_p) -> bool:
         child_windows.append(hwnd)
         return True
     EnumChildProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
     user32.EnumChildWindows(parent_hwnd, EnumChildProc(_enum_proc), None)
     return child_windows
 
-def find_descendant_windows(root_hwnd):
+def find_descendant_windows(root_hwnd: int) -> List[int]:
     """
-    Recursively enumerate all descendant windows of a given window.
+    Recursively enumerate all descendant windows of a given top-level window.
     """
     descendants: List[int] = []
     stack = [root_hwnd]
@@ -147,14 +149,14 @@ def find_descendant_windows(root_hwnd):
             stack.append(ch)
     return descendants
 
-def find_windows_with_text():
+def find_windows_with_text() -> List[Tuple[int, str, str]]:
     """
-    Enumerate all top-level windows and their descendants, retrieving text
+    Enumerate all top‐level windows and their descendants, retrieving text
     via WM_GETTEXT or UI Automation. Returns a list of (hwnd, text, exe_path).
     """
     window_handles: List[Tuple[int, str, str]] = []
 
-    def scan_hwnd(hwnd):
+    def scan_hwnd(hwnd: int):
         # 1) Standard window text
         raw = get_window_text(hwnd).strip()
         # 2) Control text if no window text
@@ -167,7 +169,7 @@ def find_windows_with_text():
             window_handles.append((hwnd, raw, get_process_path(hwnd)))
 
     EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
-    def enum_proc(hwnd, lParam):
+    def enum_proc(hwnd: int, lParam: ctypes.c_void_p) -> bool:
         scan_hwnd(hwnd)
         for desc in find_descendant_windows(hwnd):
             scan_hwnd(desc)
@@ -204,23 +206,26 @@ logging.info("=== OpenHydraDragon Always-Debug + Window Detection Started ===")
 # 2) NETWORK RULE WRITER (Scapy-based)
 # -------------------------------------------------------------------
 
-def extract_http_requests(pkt):
+def extract_http_requests(pkt) -> List[Tuple[str, str]]:
     if pkt.haslayer(TCP) and pkt.haslayer(Raw):
         try:
             text = pkt[Raw].load.decode('utf-8', errors='ignore')
         except Exception:
-            return
+            return []
         m = re.match(r"^(GET|POST) (/[^ ]*) HTTP/1\.[01]\r\n", text)
         if m:
             host_m = re.search(r"Host:\s*([^\r\n]+)", text)
             if host_m:
-                yield host_m.group(1), m.group(2)
+                return [(host_m.group(1), m.group(2))]
+    return []
 
-def extract_raw_payload(pkt):
+def extract_raw_payload(pkt) -> List[bytes]:
     if pkt.haslayer(Raw):
-        yield pkt[Raw].load
+        return [pkt[Raw].load]
+    return []
 
 def write_ohd_rule(host: str, path: str, rules_dir: str):
+    # Sanitize host and path to use only letters, digits, or underscores
     safe_host = re.sub(r'[^A-Za-z0-9]', '_', host)
     safe_path = re.sub(r'[^A-Za-z0-9]', '_', path)
     rule_id = f"NET_{safe_host}_{safe_path}"
@@ -234,6 +239,7 @@ def write_ohd_rule(host: str, path: str, rules_dir: str):
         f.write(f'        id = "{rule_id}"\n')
         f.write(f'        description = "Network I/O to {host}{path}"\n')
         f.write("    condition:\n")
+        # We assume eventlog.new_event_log_lines is the catch‐all for packet content
         f.write(f'        eventlog.new_event_log_lines contains "{host}{path}"\n')
         f.write("}\n")
     logging.info(f"[NetRule] Wrote HTTP rule: {filename}")
@@ -244,6 +250,7 @@ def write_raw_rule(payload: bytes, rules_dir: str):
     filename = os.path.join(rules_dir, f"{rule_id}.ohd")
     if os.path.exists(filename):
         return
+    # Build a pattern like "\x41\x42..." from the raw bytes
     pattern = ''.join(f"\\x{hexpat[i:i+2]}" for i in range(0, len(hexpat), 2))
     with open(filename, 'w', encoding='utf-8') as f:
         f.write(f"rule {rule_id}\n")
@@ -296,26 +303,33 @@ class Snapshot:
     """
 
     def __init__(self, fs_roots: List[str] = None, watchlist: Dict[str, Set[str]] = None):
+        # watchlist keys: "registry" and "filesystem", each being a set of prefixes to monitor
         self.watchlist = watchlist or {"registry": set(), "filesystem": set()}
 
         if fs_roots:
             self.fs_roots = [Path(p) for p in fs_roots]
         else:
             system_root = Path(os.getenv("SystemRoot", r"C:\Windows"))
-            user_temp = Path(os.getenv("TEMP", r"C:\Windows\Temp"))
+            user_temp   = Path(os.getenv("TEMP", r"C:\Windows\Temp"))
             self.fs_roots = [system_root / "System32", user_temp]
 
+        # Data structures to hold captures
         self.registry_dump: Dict[str, Dict[str, Any]] = {}
         self.filesystem_index: Dict[str, float] = {}
         self.event_logs: Dict[str, List[str]] = {}
-        # Store window messages as set of (hwnd, text, exe_path)
+        # Store window messages as a set of (hwnd, text, exe_path)
         self.window_messages: Set[Tuple[int, str, str]] = set()
+
         logging.debug(f"[Snapshot] Initialized for FS roots: {self.fs_roots}")
 
     def capture_registry(self):
+        """
+        Dump all relevant registry keys under HKLM\Software and HKCU\Software,
+        but only descend into keys whose path contains any of the watchlist prefixes.
+        """
         hives = {
             "HKLM_SOFTWARE": (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE"),
-            "HKCU_SOFTWARE": (winreg.HKEY_CURRENT_USER, r"Software")
+            "HKCU_SOFTWARE": (winreg.HKEY_CURRENT_USER,    r"Software")
         }
         for hive_name, (root, subkey) in hives.items():
             self.registry_dump[hive_name] = {}
@@ -323,21 +337,24 @@ class Snapshot:
                 with winreg.OpenKey(root, subkey) as hkey:
                     self.registry_dump[hive_name] = self._walk_registry(hkey, prefix=subkey)
                     logging.debug(
-                        f"[Snapshot] Captured {len(self.registry_dump[hive_name])} keys under {hive_name}")
+                        f"[Snapshot] Captured {len(self.registry_dump[hive_name])} keys under {hive_name}"
+                    )
             except Exception as e:
                 logging.error(f"[Snapshot] Failed to open {hive_name}: {e}")
 
     def _walk_registry(self, hkey, prefix: str = "") -> Dict[str, Dict[str, Any]]:
         """
         Recursively read all values under a given registry handle, but only
-        descend into keys that match one of our watchlist prefixes.
+        descend into keys whose full path (prefix) contains any watched substring.
         """
         result: Dict[str, Dict[str, Any]] = {}
 
         watched = self.watchlist.get("registry", set())
+        # If watchlist is non‐empty, skip subtrees that don't match any prefix
         if watched and not any(pat.lower() in prefix.lower() for pat in watched):
             return {}
 
+        # Record this key's values
         result[prefix] = self._get_values(hkey)
 
         i = 0
@@ -356,6 +373,9 @@ class Snapshot:
         return result
 
     def _get_values(self, hkey) -> Dict[str, Any]:
+        """
+        Read all name/data pairs under the open registry handle `hkey`.
+        """
         out: Dict[str, Any] = {}
         j = 0
         while True:
@@ -368,18 +388,29 @@ class Snapshot:
         return out
 
     def capture_filesystem(self):
+        """
+        Walk each fs_root; record mtime of every file whose full path contains
+        any of the watched prefixes (or all files if watchlist["filesystem"] is empty).
+        """
         for root in self.fs_roots:
             for dirpath, dirs, files in os.walk(root):
                 for fname in files:
                     full = str(Path(dirpath) / fname)
-                    if self.watchlist["filesystem"] and not any(
-                        p.lower() in full.lower() for p in self.watchlist["filesystem"]
+                    if (
+                        self.watchlist["filesystem"] and
+                        not any(pat.lower() in full.lower() for pat in self.watchlist["filesystem"])
                     ):
                         continue
-                    self.filesystem_index[full] = Path(full).stat().st_mtime
+                    try:
+                        self.filesystem_index[full] = Path(full).stat().st_mtime
+                    except Exception:
+                        continue
             logging.debug(f"[Snapshot] Indexed {len(self.filesystem_index)} files")
 
     def capture_event_logs(self):
+        """
+        Use `wevtutil` to grab the last ~1000 lines from Application, Security, System.
+        """
         logs = ["Application", "Security", "System"]
         for log in logs:
             try:
@@ -388,8 +419,9 @@ class Snapshot:
                 out, err = proc.communicate(timeout=30)
                 if err:
                     logging.error(f"[EventLog] {log} stderr: {err.decode(errors='ignore')}")
-                self.event_logs[log] = out.decode(errors="ignore").splitlines()
-                logging.debug(f"[Snapshot] Captured {len(self.event_logs[log])} lines from {log}")
+                lines = out.decode(errors="ignore").splitlines()
+                self.event_logs[log] = lines
+                logging.debug(f"[Snapshot] Captured {len(lines)} lines from {log}")
             except Exception as e:
                 logging.error(f"[Snapshot] Failed to capture {log}: {e}")
                 self.event_logs[log] = []
@@ -403,6 +435,9 @@ class Snapshot:
         logging.debug(f"[Snapshot] Captured {len(self.window_messages)} window messages")
 
     def capture(self):
+        """
+        Perform a full snapshot: registry, filesystem, event logs, window messages.
+        """
         self.capture_registry()
         self.capture_filesystem()
         self.capture_event_logs()
@@ -411,17 +446,15 @@ class Snapshot:
     def diff(self, other: "Snapshot") -> Dict[str, Any]:
         """
         Compare this snapshot to `other`, return a dict with:
-          - new_registry_keys
-          - modified_registry_values
-          - new_files
-          - modified_files
-          - new_event_log_lines
-          - new_window_messages
-          - deleted_registry_keys
-          - deleted_registry_values
-          - deleted_files
-
-        Logs each change as clean text.
+          - new_registry_keys            : List[(hive, key_path)]
+          - modified_registry_values     : List[(hive, key_path, value_name, old, new)]
+          - new_files                    : List[file_path]
+          - modified_files               : List[file_path]
+          - new_event_log_lines          : List[(log_name, line_text)]
+          - new_window_messages          : List[(hwnd, text, exe_path)]
+          - deleted_registry_keys        : List[(hive, key_path)]
+          - deleted_registry_values      : List[(hive, key_path, value_name)]
+          - deleted_files                : List[file_path]
         """
         _CONTROL_CHAR_RE = re.compile(r'[\x00-\x1F\x7F]')
 
@@ -429,15 +462,15 @@ class Snapshot:
             return _CONTROL_CHAR_RE.sub('', s)
 
         diffs: Dict[str, Any] = {
-            "new_registry_keys": [],
-            "modified_registry_values": [],
-            "new_files": [],
-            "modified_files": [],
-            "new_event_log_lines": [],
-            "new_window_messages": [],            # <-- track new window/dialog messages
-            "deleted_registry_keys": [],
-            "deleted_registry_values": [],
-            "deleted_files": []
+            "new_registry_keys": [],            # (hive, key_path)
+            "modified_registry_values": [],     # (hive, key_path, vname, old, new)
+            "new_files": [],                    # file paths
+            "modified_files": [],               # file paths
+            "new_event_log_lines": [],          # (log_name, line_text)
+            "new_window_messages": [],          # (hwnd, text, exe_path)
+            "deleted_registry_keys": [],        # (hive, key_path)
+            "deleted_registry_values": [],      # (hive, key_path, vname)
+            "deleted_files": []                 # file paths
         }
 
         # Deleted registry keys
@@ -475,7 +508,7 @@ class Snapshot:
                                 (hive, key_path, vname, other_vals.get(vname), vdata)
                             )
 
-        # Filesystem diffs
+        # Filesystem diffs (new or modified)
         for path, mtime in self.filesystem_index.items():
             other_mtime = other.filesystem_index.get(path)
             if other_mtime is None:
@@ -483,7 +516,7 @@ class Snapshot:
             elif other_mtime != mtime:
                 diffs["modified_files"].append(path)
 
-        # Event Log diffs
+        # Event Log diffs (any new lines)
         for log_name, lines in self.event_logs.items():
             prev = set(other.event_logs.get(log_name, []))
             for ln in lines:
@@ -493,9 +526,9 @@ class Snapshot:
         # Window message diffs (new windows/dialogs/text)
         for wnd in self.window_messages:
             if wnd not in other.window_messages:
-                diffs["new_window_messages"].append(wnd)  # wnd is (hwnd, text, exe_path)
+                diffs["new_window_messages"].append(wnd)
 
-        # Logging
+        # Logging each category
         for change_type, items in diffs.items():
             if not items:
                 continue
@@ -506,45 +539,46 @@ class Snapshot:
                     sanitized_text = _sanitize(text)
                     joined = f"HWND={hwnd} | \"{sanitized_text}\" | {exe}"
                 else:
-                    elems = item if isinstance(item, tuple) else (item,)
-                    clean_parts: List[str] = []
-                    for elem in elems:
-                        if isinstance(elem, (bytes, bytearray)):
-                            clean_parts.append("<binary data>")
+                    if isinstance(item, tuple):
+                        clean_parts: List[str] = []
+                        for elem in item:
+                            if isinstance(elem, (bytes, bytearray)):
+                                clean_parts.append("<binary data>")
+                            else:
+                                clean_parts.append(_sanitize(str(elem)))
+                        # Build a readable string for certain types
+                        if change_type == "new_registry_keys":
+                            joined = f"{clean_parts[0]}\\{clean_parts[1]}"
+                        elif change_type == "modified_registry_values":
+                            joined = (
+                                f"{clean_parts[0]}\\{clean_parts[1]}\\{clean_parts[2]}: "
+                                f"{clean_parts[3]} → {clean_parts[4]}"
+                            )
                         else:
-                            clean_parts.append(_sanitize(str(elem)))
-
-                    if change_type == "new_registry_keys":
-                        joined = f"{clean_parts[0]}\\{clean_parts[1]}"
-                    elif change_type == "modified_registry_values":
-                        joined = (
-                            f"{clean_parts[0]}\\{clean_parts[1]}\\{clean_parts[2]}: "
-                            f"{clean_parts[3]} → {clean_parts[4]}"
-                        )
+                            joined = " | ".join(clean_parts)
                     else:
-                        joined = " | ".join(clean_parts)
-
+                        joined = _sanitize(str(item))
                 logging.info(f"    {change_type}: {joined}")
 
         return diffs
 
 # -------------------------------------------------------------------
-# 4) RULE ENGINE (SIGMA-STYLE .ohd PARSER + EVALUATOR)
+# 4) RULE ENGINE (SIGMA‐STYLE .ohd PARSER + EVALUATOR)
 # -------------------------------------------------------------------
 
 r"""
 Rule syntax (.ohd):
 
-rule MyTrojanRule {
-    meta:
-        id = "TROJAN-0002"
-        description = "Detect stealthy registry key creation or window dialog"
-    condition:
-        registry.new_registry_keys contains "Software\\EvilCorp"
-        filesystem.new_files contains "AppData\\Local\\Temp\\evil.dll"
-        eventlog.System matches "malicious.*exe"
-        window_messages contains "Error connecting to server"
-}
+    rule MyTrojanRule {
+        meta:
+            id = "TROJAN-0002"
+            description = "Detect stealthy registry key creation or window dialog"
+        condition:
+            registry.new_registry_keys contains "Software\\EvilCorp"
+            filesystem.new_files contains "AppData\\Local\\Temp\\evil.dll"
+            eventlog.System matches "malicious.*exe"
+            window_messages contains "Error connecting to server"
+    }
 
 Supported fields:
   - registry.new_registry_keys
@@ -555,14 +589,14 @@ Supported fields:
   - window_messages contains "<substring>" or matches "<regex>"
 
 Operators:
-  - contains (substring match, case-insensitive)
-  - matches (regex match, case-insensitive)
+  - contains (case‐insensitive substring)
+  - matches  (case‐insensitive regex)
 """
 
-RULE_RE = re.compile(r'^\s*rule\s+([A-Za-z0-9_-]+)\s*\{')
-META_RE = re.compile(r'^\s*meta\s*:\s*$')
-COND_RE = re.compile(r'^\s*condition\s*:\s*$')
-KEYVAL_RE = re.compile(r'^\s*([A-Za-z0-9_]+)\s*=\s*"([^"]+)"\s*$')
+RULE_RE      = re.compile(r'^\s*rule\s+([A-Za-z0-9_-]+)\s*\{')
+META_RE      = re.compile(r'^\s*meta\s*:\s*$')
+COND_RE      = re.compile(r'^\s*condition\s*:\s*$')
+KEYVAL_RE    = re.compile(r'^\s*([A-Za-z0-9_]+)\s*=\s*"([^"]+)"\s*$')
 COND_LINE_RE = re.compile(
     r'^\s*('
     r'registry\.(?:new_registry_keys|modified_registry_values)|'
@@ -577,9 +611,11 @@ class Rule:
     """
     Representation of a single OpenHydraDragon rule.
     """
+
     def __init__(self, name: str):
         self.name = name
         self.meta: Dict[str, str] = {}
+        # Each condition_line is (field, operator, pattern)
         self.condition_lines: List[Tuple[str, str, str]] = []
         logging.debug(f"[Rule] Created skeleton for rule '{name}'")
 
@@ -591,13 +627,14 @@ class Rule:
 
     def evaluate(self, diffs: Dict[str, Any]) -> bool:
         """
-        Evaluate the rule against:
-          - diffs: output of Snapshot.diff()
-        Returns True if ANY condition line matches.
+        Evaluate this rule against the snapshot‐diff `diffs`.
+        Returns True only if **ALL** condition lines match.
         Supports:
-          - text 'contains' and 'matches' (regex) as before
-          - hex-escape patterns like '\\x41\\x42' via byte-level contains
+          - 'contains' (case‐insensitive substring match)
+          - 'matches'  (case‐insensitive regex match)
+          - hex‐escape patterns like '\\x41\\x42' via byte‐level search
         """
+
         _CONTROL_CHAR_RE = re.compile(r'[\x00-\x1F\x7F]')
 
         def byte_contains(entry_text: str, pat_bytes: bytes) -> bool:
@@ -608,120 +645,178 @@ class Rule:
                 return False
 
         for (field, operator, pattern) in self.condition_lines:
-            # Hex-escape pattern handling
+            # If pattern contains '\x', try hex‐escape logic
             if r'\x' in pattern:
+                # Convert '\\x41\\x42' → '4142' → bytes.fromhex('4142')
                 try:
                     hex_str = pattern.replace(r'\x', '')
                     pat_bytes = bytes.fromhex(hex_str)
-                except ValueError:
+                except Exception:
                     pat_bytes = None
 
                 if field.startswith("registry."):
                     if field.endswith("new_registry_keys"):
-                        items = [f"{hive}\\{path}"
-                                 for hive, path in diffs.get("new_registry_keys", [])]
+                        items = [
+                            f"{hive}\\{path}"
+                            for hive, path in diffs.get("new_registry_keys", [])
+                        ]
                     else:
-                        items = [f"{hive}\\{path}\\{vname}"
-                                 for hive, path, vname, _, _
-                                 in diffs.get("modified_registry_values", [])]
-                    for entry in items:
-                        if operator == "contains" and pat_bytes and byte_contains(entry, pat_bytes):
-                            logging.info(f"[Rule:{self.name}] byte-registry match {pattern!r} in {entry!r}")
-                            return True
+                        items = [
+                            f"{hive}\\{path}\\{vname} -> {oldv} => {newv}"
+                            for hive, path, vname, oldv, newv
+                            in diffs.get("modified_registry_values", [])
+                        ]
+                    matched = False
+                    if pat_bytes:
+                        for entry in items:
+                            if operator == "contains" and byte_contains(entry, pat_bytes):
+                                matched = True
+                                break
+                        if not matched:
+                            return False
+                        continue
 
                 elif field.startswith("filesystem."):
                     if field.endswith("new_files"):
                         items = diffs.get("new_files", [])
                     else:
                         items = diffs.get("modified_files", [])
-                    for entry in items:
-                        if operator == "contains" and pat_bytes and byte_contains(entry, pat_bytes):
-                            logging.info(f"[Rule:{self.name}] byte-filesystem match {pattern!r} in {entry!r}")
-                            return True
+                    matched = False
+                    if pat_bytes:
+                        for entry in items:
+                            if operator == "contains" and byte_contains(entry, pat_bytes):
+                                matched = True
+                                break
+                        if not matched:
+                            return False
+                        continue
 
                 elif field.startswith("eventlog."):
                     _, log_name = field.split(".", 1)
-                    items = [ln for (lg, ln) in diffs.get("new_event_log_lines", [])
-                             if lg == log_name]
-                    for entry in items:
-                        if operator == "contains" and pat_bytes and byte_contains(entry, pat_bytes):
-                            logging.info(f"[Rule:{self.name}] byte-eventlog match {pattern!r} in {entry!r}")
-                            return True
+                    items = [
+                        ln for (lg, ln) in diffs.get("new_event_log_lines", [])
+                        if lg.lower() == log_name.lower()
+                    ]
+                    matched = False
+                    if pat_bytes:
+                        for entry in items:
+                            if operator == "contains" and byte_contains(entry, pat_bytes):
+                                matched = True
+                                break
+                        if not matched:
+                            return False
+                        continue
 
                 elif field == "window_messages":
                     items = [text for (_, text, _) in diffs.get("new_window_messages", [])]
-                    for entry in items:
-                        if operator == "contains" and pat_bytes and byte_contains(entry, pat_bytes):
-                            logging.info(f"[Rule:{self.name}] byte-window_messages match {pattern!r} in {entry!r}")
-                            return True
+                    matched = False
+                    if pat_bytes:
+                        for entry in items:
+                            if operator == "contains" and byte_contains(entry, pat_bytes):
+                                matched = True
+                                break
+                        if not matched:
+                            return False
+                        continue
 
-                continue  # skip normal text path for this pattern
+                # If we get here, hex‐escape logic failed → treat as non‐match
+                return False
 
-            # Text-based logic
+            # Otherwise, do normal text‐based logic
             if field.startswith("registry."):
                 if field.endswith("new_registry_keys"):
-                    items = [f"{hive}\\{path}"
-                             for hive, path in diffs.get("new_registry_keys", [])]
-                else:
                     items = [
-                        f"{hive}\\{path}\\{vname} -> {oldval} => {newval}"
-                        for hive, path, vname, oldval, newval
+                        f"{hive}\\{path}"
+                        for hive, path in diffs.get("new_registry_keys", [])
+                    ]
+                    matched = False
+                    for entry in items:
+                        if operator == "contains" and pattern.lower() in entry.lower():
+                            matched = True
+                            break
+                        elif operator == "matches" and re.search(pattern, entry, re.IGNORECASE):
+                            matched = True
+                            break
+                    if not matched:
+                        return False
+
+                else:  # registry.modified_registry_values
+                    items = [
+                        f"{hive}\\{path}\\{vname} -> {oldv} => {newv}"
+                        for hive, path, vname, oldv, newv
                         in diffs.get("modified_registry_values", [])
                     ]
-                for entry in items:
-                    if operator == "contains" and pattern.lower() in entry.lower():
-                        logging.info(f"[Rule:{self.name}] registry match: '{pattern}' in '{entry}'")
-                        return True
+                    matched = False
+                    for entry in items:
+                        if operator == "contains" and pattern.lower() in entry.lower():
+                            matched = True
+                            break
+                        elif operator == "matches" and re.search(pattern, entry, re.IGNORECASE):
+                            matched = True
+                            break
+                    if not matched:
+                        return False
 
             elif field.startswith("filesystem."):
                 if field.endswith("new_files"):
                     items = diffs.get("new_files", [])
                 else:
                     items = diffs.get("modified_files", [])
+                matched = False
                 for fpath in items:
                     if operator == "contains":
                         if pattern.lower() in fpath.lower():
-                            logging.info(f"[Rule:{self.name}] filesystem match: '{pattern}' in '{fpath}'")
-                            return True
+                            matched = True
+                            break
                     elif operator == "matches":
                         if re.search(pattern, fpath, re.IGNORECASE):
-                            logging.info(
-                                f"[Rule:{self.name}] filesystem regex match: '{pattern}' matches '{fpath}'"
-                            )
-                            return True
+                            matched = True
+                            break
+                if not matched:
+                    return False
 
             elif field.startswith("eventlog."):
                 _, log_name = field.split(".", 1)
-                items = [ln for (lg, ln) in diffs.get("new_event_log_lines", [])
-                         if lg == log_name]
+                items = [
+                    ln for (lg, ln) in diffs.get("new_event_log_lines", [])
+                    if lg.lower() == log_name.lower()
+                ]
+                matched = False
                 for ln in items:
                     if operator == "contains" and pattern.lower() in ln.lower():
-                        logging.info(f"[Rule:{self.name}] eventlog match: '{pattern}' in '{ln}'")
-                        return True
+                        matched = True
+                        break
                     elif operator == "matches" and re.search(pattern, ln, re.IGNORECASE):
-                        logging.info(
-                            f"[Rule:{self.name}] eventlog regex match: '{pattern}' matches '{ln}'"
-                        )
-                        return True
+                        matched = True
+                        break
+                if not matched:
+                    return False
 
             elif field == "window_messages":
                 items = diffs.get("new_window_messages", [])
+                matched = False
                 for (_, text, exe_path) in items:
                     if operator == "contains" and pattern.lower() in text.lower():
-                        logging.info(f"[Rule:{self.name}] window_messages match: '{pattern}' in '{text}'")
-                        return True
+                        matched = True
+                        break
                     elif operator == "matches" and re.search(pattern, text, re.IGNORECASE):
-                        logging.info(
-                            f"[Rule:{self.name}] window_messages regex match: '{pattern}' matches '{text}'"
-                        )
-                        return True
+                        matched = True
+                        break
+                if not matched:
+                    return False
 
-        return False
+            else:
+                # Unknown field
+                return False
+
+        # If we never returned False above, all conditions matched
+        return True
 
 class RuleEngine:
     """
     Loads all .ohd rule files from a directory and can evaluate them against diffs.
     """
+
     def __init__(self, rules_dir: str):
         self.rules: List[Rule] = []
         self._load_rules(rules_dir)
@@ -729,13 +824,14 @@ class RuleEngine:
     def get_watchlist(self) -> Dict[str, Set[str]]:
         """
         Return a dict with keys 'registry' and 'filesystem', each mapping
-        to a set of path-prefixes our rules actually touch.
+        to a set of path‐prefix substrings our rules actually reference.
         """
         regs: Set[str] = set()
         files: Set[str] = set()
         for rule in self.rules:
             for field, op, pat in rule.condition_lines:
                 if field.startswith("registry."):
+                    # treat pattern as a potential registry key substring
                     regs.add(pat)
                 elif field.startswith("filesystem."):
                     files.add(pat)
@@ -752,6 +848,7 @@ class RuleEngine:
         current_rule = None
         mode = None  # None / "meta" / "condition"
         for line in filepath.read_text(encoding="utf-8").splitlines():
+            # Check for "rule <Name> {"
             m = RULE_RE.match(line)
             if m:
                 current_rule = Rule(m.group(1))
@@ -780,14 +877,19 @@ class RuleEngine:
                 continue
 
             if line.strip().startswith("}") and current_rule:
+                # End of this rule block
                 self.rules.append(current_rule)
                 logging.debug(
-                    f"[RuleEngine] Loaded rule '{current_rule.name}' (meta: {current_rule.meta}) with {len(current_rule.condition_lines)} conditions"
+                    f"[RuleEngine] Loaded rule '{current_rule.name}' (meta: {current_rule.meta}) "
+                    f"with {len(current_rule.condition_lines)} condition(s)"
                 )
                 current_rule = None
                 mode = None
 
     def evaluate_all(self, diffs: Dict[str, Any]) -> List[str]:
+        """
+        Evaluate every loaded rule against `diffs`; return a list of rule names that matched.
+        """
         matches: List[str] = []
         for rule in self.rules:
             try:
@@ -834,19 +936,19 @@ def process_sample(
 ) -> List[str]:
     """
     Processes a single sample in always-debug + window-detection mode:
-      0) Load rules + extract watch-list
-      1) Pre-snapshot (registry, fs, event logs, window messages)
+      0) Load rules + extract watch‐list
+      1) Pre‐snapshot (registry, fs, event logs, window messages)
       2) Run sample normally (no sandbox)
-      3) Post-snapshot → diff_dbg
+      3) Post‐snapshot → diff_dbg
       4) Treat diff_dbg as "stealthy"
       5) Gather custom logs (append to event_log changes)
       6) Evaluate rules → return matched rule names
     """
-    # 0) Load rules and get watch-list
+    # 0) Load rules and get watch‐list
     engine = RuleEngine(rules_dir)
     watch = engine.get_watchlist()
 
-    # 1) Pre-snapshot
+    # 1) Pre‐snapshot
     snap_before = Snapshot(fs_roots=fs_roots, watchlist=watch)
     snap_before.capture()
 
@@ -872,17 +974,18 @@ def process_sample(
 
     logging.info(f"[Run] Exit code for '{sample_path}': {ret_code}")
 
-    # 3) Post-snapshot
+    # 3) Post‐snapshot
     snap_after = Snapshot(fs_roots=fs_roots, watchlist=watch)
     snap_after.capture()
     diff_dbg = snap_after.diff(snap_before)
     logging.info(
-        f"[Run] Diffs: {{new_keys={len(diff_dbg['new_registry_keys'])}, "
+        "[Run] Diffs summary: "
+        f"new_keys={len(diff_dbg['new_registry_keys'])}, "
         f"mod_vals={len(diff_dbg['modified_registry_values'])}, "
         f"new_files={len(diff_dbg['new_files'])}, "
         f"mod_files={len(diff_dbg['modified_files'])}, "
         f"new_logs={len(diff_dbg['new_event_log_lines'])}, "
-        f"new_wnd_msgs={len(diff_dbg['new_window_messages'])}}}"
+        f"new_wnd_msgs={len(diff_dbg['new_window_messages'])}"
     )
 
     # 4) Treat diff_dbg as "stealthy"
@@ -906,18 +1009,18 @@ def main():
         logging.error("Usage: python OpenHydraDragon.py <sample_or_dir> <rules_dir>")
         sys.exit(1)
 
-    target = sys.argv[1]
+    target    = sys.argv[1]
     rules_dir = sys.argv[2]
 
     # 1) Determine FS roots to snapshot
     system_root = Path(os.getenv("SystemRoot", r"C:\Windows"))
-    user_temp = Path(os.getenv("TEMP", r"C:\Windows\Temp"))
-    fs_roots = [str(system_root / "System32"), str(user_temp)]
+    user_temp   = Path(os.getenv("TEMP",       r"C:\Windows\Temp"))
+    fs_roots    = [str(system_root / "System32"), str(user_temp)]
 
     # 2) Any custom log directories (e.g., your AV sandbox logs)
     custom_log_dirs = [
         str(SCRIPT_DIR / "HydraDragonAVSandboxie" / "Logs"),
-        # Add more paths as needed
+        # You can add more paths here if needed
     ]
 
     # 3) If target is a directory, iterate all .exe files inside
