@@ -1,18 +1,23 @@
 rule DisableWindowsDefender_Flexible {
     meta:
         id = "DEFENDER-0003"
-        description = "Catch dcontrol.exe disabling Defender, flexible across policy paths"
+        description = "Detect disabling of Windows Defender via Group Policy or system tampering"
 
     condition:
-        # 1) Registry—either policy or main key
-        registry.modified_registry_values contains "Windows Defender\\DisableAntiSpyware"
-        registry.modified_registry_values contains "Policies\\Microsoft\\Windows Defender\\DisableAntiSpyware"
+        // Modified policy keys or flags
+        registry.modified_registry_values contains "Windows Defender\\DisableAntiSpyware" or
+        registry.modified_registry_values contains "Group Policy\\State" or
+        registry.modified_registry_values contains "Security and Maintenance" or
+        registry.modified_registry_values contains "Real-Time Protection\\DisableRealtimeMonitoring"
 
-        # 2) Filesystem operations on the engine binary
-        filesystem.modified_files contains "System32\\MsMpEng.exe"
-        filesystem.new_files contains "System32\\MsMpEng.exe.bak"
+        // GroupPolicy registry.pol modified
+        or filesystem.modified_files contains "GroupPolicy\\Machine\\Registry.pol"
 
-        # 3) Event‑log must mention both the service name and that it was stopped
-        eventlog.System contains "WinDefend"
-        eventlog.System contains "stopped"
+        // Defender binaries tampered
+        or filesystem.modified_files contains "MsMpEng.exe"
+
+        // System logs show service disabled or policy update
+        or eventlog.System contains "WinDefend"
+        or eventlog.System contains "service was stopped"
+        or eventlog.System contains "Group Policy"
 }

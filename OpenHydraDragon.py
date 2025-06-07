@@ -24,6 +24,7 @@ from scapy.sendrecv import sniff
 from scapy.layers.inet import TCP
 from scapy.packet import Raw
 from scapy.arch.windows import get_windows_if_list as get_if_list
+from typing import Set
 
 # ------------------------------------------------------------------------------
 # 1) VERBOSE LOGGING SETUP (console + file)
@@ -268,7 +269,9 @@ class Snapshot:
         - Event Logs: Application, Security, System
     """
 
-    def __init__(self, fs_roots: List[str] = None):
+    def __init__(self, fs_roots: List[str] = None, watchlist: Dict[str, Set[str]] = None):
+            self.watchlist = watchlist or {"registry": set(), "filesystem": set()}
+
             if fs_roots:
                 self.fs_roots = [Path(p) for p in fs_roots]
             else:
@@ -297,20 +300,37 @@ class Snapshot:
                     logging.error(f"[Snapshot] Failed to open {hive_name}: {e}")
 
     def _walk_registry(self, hkey, prefix: str = "") -> Dict[str, Dict[str, Any]]:
-            result = {}
-            result[prefix] = self._get_values(hkey)
-            i = 0
-            while True:
-                try:
-                    subname = winreg.EnumKey(hkey, i)
-                    with winreg.OpenKey(hkey, subname) as subh:
-                        full = f"{prefix}\\{subname}"
-                        result[full] = self._get_values(subh)
-                        result.update(self._walk_registry(subh, prefix=full))
-                    i += 1
-                except OSError:
-                    break
-            return result
+        """
+        Recursively read all values under a given registry handle, but only
+        descend into keys that match one of our watchlist prefixes.
+        """
+        result = {}
+
+        # If we have registry prefixes to watch, and this prefix doesn’t contain any of them, skip entirely
+        watched = self.watchlist.get("registry", set())
+        if watched and not any(pat.lower() in prefix.lower() for pat in watched):
+            return {}
+
+        # Capture current key’s values
+        result[prefix] = self._get_values(hkey)
+
+        # Enumerate and recurse
+        i = 0
+        while True:
+            try:
+                subname = winreg.EnumKey(hkey, i)
+                i += 1
+                with winreg.OpenKey(hkey, subname) as subh:
+                    full = f"{prefix}\\{subname}"
+                    # Recurse into this subkey (it will itself check watchlist)
+                    sub_tree = self._walk_registry(subh, prefix=full)
+                    if sub_tree:
+                        # Only add if any values or descendants matched
+                        result.update(sub_tree)
+            except OSError:
+                break
+
+        return result
 
     def _get_values(self, hkey) -> Dict[str, Any]:
             out = {}
@@ -325,17 +345,15 @@ class Snapshot:
             return out
 
     def capture_filesystem(self):
-            logging.debug(f"[Snapshot] Walking filesystem under {self.fs_roots}")
-            for root in self.fs_roots:
-                for dirpath, dirs, files in os.walk(root):
-                    if "\\WinSxS" in dirpath:
+        for root in self.fs_roots:
+            for dirpath, dirs, files in os.walk(root):
+                for fname in files:
+                    full = str(Path(dirpath) / fname)
+                    if self.watchlist["filesystem"] and not any(
+                        p.lower() in full.lower() for p in self.watchlist["filesystem"]
+                    ):
                         continue
-                    for fname in files:
-                        full = Path(dirpath) / fname
-                        try:
-                            self.filesystem_index[str(full)] = full.stat().st_mtime
-                        except (OSError, PermissionError):
-                            continue
+                    self.filesystem_index[full] = Path(full).stat().st_mtime
             logging.debug(f"[Snapshot] Indexed {len(self.filesystem_index)} files")
 
     def capture_event_logs(self):
@@ -360,21 +378,24 @@ class Snapshot:
 
     def diff(self, other: "Snapshot") -> Dict[str, Any]:
         """
-        Compare this snapshot to `other`, return dict with:
+        Compare this snapshot to `other`, return a dict with:
           - new_registry_keys
           - modified_registry_values
           - new_files
           - modified_files
           - new_event_log_lines
 
-        Logs each change as plain text (removes control chars).
+        Logs each change as clean text (removes control chars, redacts raw bytes,
+        and prints full file paths instead of character-by-character).
         """
+        import re
         # Regex to remove ASCII control characters
         _CONTROL_CHAR_RE = re.compile(r'[\x00-\x1F\x7F]')
 
         def _sanitize(s: str) -> str:
             return _CONTROL_CHAR_RE.sub('', s)
 
+        # 1) Build diffs
         diffs = {
             "new_registry_keys": [],
             "modified_registry_values": [],
@@ -390,7 +411,7 @@ class Snapshot:
                 if key_path not in other_tree:
                     diffs["new_registry_keys"].append((hive, key_path))
                 else:
-                    other_vals = other_tree.get(key_path, {})
+                    other_vals = other_tree[key_path]
                     for vname, vdata in values.items():
                         if other_vals.get(vname) != vdata:
                             diffs["modified_registry_values"].append(
@@ -407,38 +428,41 @@ class Snapshot:
 
         # Event Log diffs
         for log_name, lines in self.event_logs.items():
-            prev_lines = set(other.event_logs.get(log_name, []))
+            prev = set(other.event_logs.get(log_name, []))
             for ln in lines:
-                if ln not in prev_lines:
+                if ln not in prev:
                     diffs["new_event_log_lines"].append((log_name, ln))
 
-        # Now log everything as clean text
+        # 2) Log them cleanly
         for change_type, items in diffs.items():
             if not items:
                 continue
             logging.info(f"[Snapshot.diff] {len(items)} {change_type}:")
             for item in items:
-                # item is a tuple, e.g. (hive, key_path) or (hive, path, vname, old, new)
+                # Wrap lone-string items into a single-element tuple
+                elems = item if isinstance(item, tuple) else (item,)
                 clean_parts = []
-                for elem in item:
+                for elem in elems:
                     if isinstance(elem, (bytes, bytearray)):
                         clean_parts.append("<binary data>")
                     else:
                         clean_parts.append(_sanitize(str(elem)))
-                # Join with a separator that makes sense for the type of diff:
-                if change_type.startswith("new_registry_keys"):
+
+                # Format based on diff type
+                if change_type == "new_registry_keys":
                     joined = f"{clean_parts[0]}\\{clean_parts[1]}"
-                elif change_type.startswith("modified_registry_values"):
-                    # hive \ key_path \ value_name: old → new
-                    joined = f"{clean_parts[0]}\\{clean_parts[1]}\\{clean_parts[2]}: {clean_parts[3]} → {clean_parts[4]}"
+                elif change_type == "modified_registry_values":
+                    joined = (
+                        f"{clean_parts[0]}\\{clean_parts[1]}\\{clean_parts[2]}: "
+                        f"{clean_parts[3]} → {clean_parts[4]}"
+                    )
                 else:
-                    # For files or event‑logs, just join with " | "
-                    joined = " | ".join(clean_parts)
+                    # new_files, modified_files, new_event_log_lines
+                    joined = clean_parts[0]
 
                 logging.info(f"    {change_type}: {joined}")
 
         return diffs
-
 
 # ------------------------------------------------------------------------------
 # 5) RULE ENGINE (SIGMA-STYLE .ohd PARSER + EVALUATOR)
@@ -628,6 +652,22 @@ class RuleEngine:
         self.rules: List[Rule] = []
         self._load_rules(rules_dir)
 
+    def get_watchlist(self) -> Dict[str, Set[str]]:
+        """
+        Return a dict with keys 'registry' and 'filesystem', each mapping
+        to a set of path-prefixes our rules actually touch.
+        """
+        regs = set()
+        files = set()
+        for rule in self.rules:
+            for field, op, pat in rule.condition_lines:
+                if field.startswith("registry."):
+                    # strip off registry.new_keys -> we only care about the value (pattern)
+                    regs.add(pat)
+                elif field.startswith("filesystem."):
+                    files.add(pat)
+        return {"registry": regs, "filesystem": files}
+
     def _load_rules(self, rules_dir: str):
         logging.info(f"[RuleEngine] Loading rules from '{rules_dir}'")
         for file in os.listdir(rules_dir):
@@ -777,71 +817,91 @@ def process_sample(
 ) -> List[str]:
     """
     Processes a single sample:
-      1) Clean Sandboxie box.
-      2) Pre‐snapshot sandboxed (clean state).
-      3) Run in sandbox.
-      4) Post‐snapshot sandboxed → diff_sbx.
-      5) Clean Sandboxie box.
-      6) Pre‐snapshot outside sandbox.
-      7) Run outside sandbox.
-      8) Post‐snapshot outside sandbox → diff_dbg.
-      9) Merge diffs to get stealthy changes.
-     10) Load & evaluate rules → return matched rule names.
+      0) Load rules + extract watch-list
+      1) Clean Sandboxie
+      2) Pre-snapshot sandbox
+      3) Run in sandbox
+      4) Post-snapshot sandbox -> diff_sbx
+      5) Clean Sandboxie
+      6) Pre-snapshot debug (filtered)
+      7) Run outside sandbox
+      8) Post-snapshot debug -> diff_dbg
+      9) Merge diffs -> stealthy
+     10) Gather custom logs
+     11) Evaluate rules -> return matched rule names
     """
+    # 0) Load rules and get watch-list
+    engine = RuleEngine(rules_dir)
+    watch = engine.get_watchlist()
+
     sandbox_mgr = SandboxManager()
 
     # 1) Ensure sandbox is clean
     full_cleanup_sandbox()
     time.sleep(1)
 
-    # 2) Pre‐snapshot sandboxed
-    snap_before_sbx = Snapshot(fs_roots=fs_roots)
+    # 2) Pre-snapshot sandbox (filtered)
+    snap_before_sbx = Snapshot(fs_roots=fs_roots, watchlist=watch)
     snap_before_sbx.capture()
 
     # 3) Run in sandbox
     ret_sbx = sandbox_mgr.run_in_sandbox(sample_path, timeout=timeout)
     logging.info(f"[Sandbox] Exit code for '{sample_path}': {ret_sbx}")
 
-    # 4) Post‐snapshot sandboxed
-    snap_after_sbx = Snapshot(fs_roots=fs_roots)
+    # 4) Post-snapshot sandbox (filtered)
+    snap_after_sbx = Snapshot(fs_roots=fs_roots, watchlist=watch)
     snap_after_sbx.capture()
     diff_sbx = snap_after_sbx.diff(snap_before_sbx)
-    logging.debug(f"[Sandbox] Diffs for '{sample_path}': { {k: len(v) for k,v in diff_sbx.items()} }")
+    logging.info(
+        f"[Sandbox] Diffs: {{new_keys={len(diff_sbx['new_registry_keys'])}, "
+        f"mod_vals={len(diff_sbx['modified_registry_values'])}, "
+        f"new_files={len(diff_sbx['new_files'])}, "
+        f"mod_files={len(diff_sbx['modified_files'])}, "
+        f"new_logs={len(diff_sbx['new_event_log_lines'])}}}"
+    )
 
-    # 5) Clean sandbox again (so next run is fresh)
+    # 5) Clean sandbox again
     full_cleanup_sandbox()
     time.sleep(1)
 
-    # 6) Pre‐snapshot outside sandbox
-    snap_before_dbg = Snapshot(fs_roots=fs_roots)
+    # 6) Pre-snapshot outside sandbox (filtered for performance)
+    snap_before_dbg = Snapshot(fs_roots=fs_roots, watchlist=watch)
     snap_before_dbg.capture()
 
     # 7) Run outside sandbox (debug mode)
     ret_dbg = sandbox_mgr.run_outside_sandbox_debug(sample_path, timeout=timeout)
     logging.info(f"[Debug] Exit code for '{sample_path}': {ret_dbg}")
 
-    # 8) Post‐snapshot outside sandbox
-    snap_after_dbg = Snapshot(fs_roots=fs_roots)
+    # 8) Post-snapshot debug (filtered)
+    snap_after_dbg = Snapshot(fs_roots=fs_roots, watchlist=watch)
     snap_after_dbg.capture()
     diff_dbg = snap_after_dbg.diff(snap_before_dbg)
-    logging.debug(f"Diffs for '{sample_path}': { {k: len(v) for k,v in diff_dbg.items()} }")
+    logging.info(
+        f"[Debug] Diffs: {{new_keys={len(diff_dbg['new_registry_keys'])}, "
+        f"mod_vals={len(diff_dbg['modified_registry_values'])}, "
+        f"new_files={len(diff_dbg['new_files'])}, "
+        f"mod_files={len(diff_dbg['modified_files'])}, "
+        f"new_logs={len(diff_dbg['new_event_log_lines'])}}}"
+    )
 
     # 9) Merge diffs to isolate stealthy changes
     stealthy = merge_diffs(diff_sbx, diff_dbg)
-    logging.info(f"[Stealthy Changes for '{sample_path}'] { {k: len(v) for k,v in stealthy.items()} }")
+    logging.info(
+        f"[Stealthy] {{new_keys={len(stealthy['new_registry_keys'])}, "
+        f"mod_vals={len(stealthy['modified_registry_values'])}, "
+        f"new_files={len(stealthy['new_files'])}, "
+        f"mod_files={len(stealthy['modified_files'])}, "
+        f"new_logs={len(stealthy['new_event_log_lines'])}}}"
+    )
 
-    # 10) Gather custom logs (if any)
+    # 10) Gather custom logs
     custom_lines = gather_custom_logs(custom_log_dirs)
-    # Incorporate them into new_event_log_lines under label "CustomLog"
     for ln in custom_lines:
         stealthy["new_event_log_lines"].append(("CustomLog", ln))
 
-    # 11) Load and evaluate rules
-    engine = RuleEngine(rules_dir)
+    # 11) Evaluate rules
     matched = engine.evaluate_all(stealthy)
-
     return matched
-
 
 def main():
     """
