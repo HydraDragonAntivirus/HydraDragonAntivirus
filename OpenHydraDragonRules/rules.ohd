@@ -21,3 +21,57 @@ rule DisableWindowsDefender_Flexible {
         or eventlog.System contains "service was stopped"
         or eventlog.System contains "Group Policy"
 }
+
+rule TumegDestruction_Complete {
+    meta:
+        id = "TUMEG-ALL-001"
+        description = "Detects destructive payloads typical of TUMEG malware batch scripts"
+
+    condition:
+        any of (
+            // === Registry Destruction ===
+            registry.deleted_registry_values contains "SYSTEM\\Setup\\SetupType",
+            registry.modified_registry_values contains "EnableLUA",
+            registry.modified_registry_values contains "DisableTaskMgr",
+            registry.modified_registry_values contains "AppCompatFlags\\Compatibility Assistant\\Store",
+            registry.modified_registry_values contains "Security and Maintenance\\MessageTime",
+
+            // === Registry spam / abuse ===
+            registry.new_registry_keys matches /Group Policy\\ServiceInstances/,
+            registry.new_registry_keys matches /Tracing\\Providers\\.*Cimwin32A/,
+            registry.modified_registry_values matches /Group Policy\\State\\.*\\StartTime/,
+            registry.modified_registry_values matches /Group Policy\\Status\\.*\\LastPolicyTime/,
+
+            // === File system junk + scare scripts ===
+            filesystem.new_files contains "TUMEG.txt",
+            filesystem.new_files matches /ERRORTUMEG\.vbs/,
+            filesystem.new_files matches /RIPPC\.vbs/,
+            filesystem.new_files matches /AppData\\Local\\Temp\\xml_file \(\d+\)\.xml/,
+            filesystem.new_files matches /\\Temp\\.*\.txt/,
+            filesystem.new_files matches /\\Temp\\[0-9]+\.txt/,
+
+            // === Event log or script command traces ===
+            eventlog.System contains "taskkill /f /im explorer.exe",
+            eventlog.System contains "MsgBox(\"escape\"",
+            eventlog.System contains "MsgBox(\"RIP PC\"",
+            eventlog.System contains "YOUR PC IS F",
+            eventlog.System contains "YOUR PC IS DYING",
+
+            // === App spamming ===
+            eventlog.System contains "start calc.exe",
+            eventlog.System contains "start mspaint.exe",
+            eventlog.System contains "start notepad.exe",
+
+            // === Browser spam / social payload ===
+            eventlog.System contains "youtube.com/channel/",
+            eventlog.System contains "google.com/search?q=",
+            eventlog.System contains "discordapp.com/attachments/",
+
+            // === Explorer.exe hijack/restart ===
+            eventlog.System contains "start explorer.exe",
+            eventlog.System contains "taskkill /f /im calc.exe",
+
+            // === PowerShell low-level abuse ===
+            eventlog.System contains "powershell wininit"
+        )
+}
