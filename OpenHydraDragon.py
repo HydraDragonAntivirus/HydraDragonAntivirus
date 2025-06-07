@@ -401,8 +401,32 @@ class Snapshot:
             "modified_registry_values": [],
             "new_files": [],
             "modified_files": [],
-            "new_event_log_lines": []
+            "new_event_log_lines": [],
+            "deleted_registry_keys": [],
+            "deleted_registry_values": [],
+            "deleted_files": []
         }
+
+        # Detect deleted registry keys
+        for hive, other_tree in other.registry_dump.items():
+            tree = self.registry_dump.get(hive, {})
+            for key_path in other_tree:
+                if key_path not in tree:
+                    diffs["deleted_registry_keys"].append((hive, key_path))
+
+        # Detect deleted registry values
+        for hive, other_tree in other.registry_dump.items():
+            tree = self.registry_dump.get(hive, {})
+            for key_path, values in other_tree.items():
+                current_values = tree.get(key_path, {})
+                for vname in values:
+                    if vname not in current_values:
+                        diffs["deleted_registry_values"].append((hive, key_path, vname))
+
+        # Detect deleted files
+        for path in other.filesystem_index:
+            if path not in self.filesystem_index:
+                diffs["deleted_files"].append(path)
 
         # Registry diffs
         for hive, tree in self.registry_dump.items():
@@ -528,10 +552,10 @@ class Rule:
         Returns True if ANY condition line matches.
         Supports:
           - text 'contains' and 'matches' (regex) as before
-          - hex‑escape patterns like '\\x41\\x42' via byte‑level contains
+          - hex-escape patterns like '\\x41\\x42' via byte‑level contains
         """
         import re
-        # Precompile control‑char sanitizer (if you want to clean up entries)
+        # Precompile control-char sanitizer (if you want to clean up entries)
         _CONTROL_CHAR_RE = re.compile(r'[\x00-\x1F\x7F]')
 
         def byte_contains(entry_text: str, pat_bytes: bytes) -> bool:
@@ -545,7 +569,7 @@ class Rule:
         for (field, operator, pattern) in self.condition_lines:
             # Detect a hex‑escape pattern (\xHH)
             if r'\x' in pattern:
-                # Convert pattern "\x41\x42" → b'\x41\x42'
+                # Convert pattern "\x41\x42" -> b'\x41\x42'
                 try:
                     hex_str = pattern.replace(r'\x', '')
                     pat_bytes = bytes.fromhex(hex_str)
@@ -590,7 +614,7 @@ class Rule:
                 # Skip the normal text path for this pattern
                 continue
 
-            # --- Fallback to original text‑based logic ---
+            # --- Fallback to original text-based logic ---
 
             # Registry fields
             if field.startswith("registry."):
