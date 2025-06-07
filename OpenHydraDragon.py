@@ -18,6 +18,12 @@ import winreg
 import re
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
+from scapy.config import conf
+conf.use_pcap = True
+from scapy.sendrecv import sniff
+from scapy.layers.inet import TCP
+from scapy.packet import Raw
+from scapy.arch.windows import get_windows_if_list as get_if_list
 
 # ------------------------------------------------------------------------------
 # 1) VERBOSE LOGGING SETUP (console + file)
@@ -27,7 +33,7 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 LOG_DIR = SCRIPT_DIR / "log"
 LOG_DIR.mkdir(exist_ok=True)
 
-# All logs go to "openhydradragon.log" plus console at INFO level
+# All logs go to "openhydradragon.log" plus console at DEBUG level
 application_log_file = LOG_DIR / "openhydradragon.log"
 
 # Configure logging for application log
@@ -41,7 +47,7 @@ logging.basicConfig(
 console_handler = logging.StreamHandler(sys.stdout)
 console_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s", "%H:%M:%S")
 console_handler.setFormatter(console_formatter)
-console_handler.setLevel(logging.INFO)
+console_handler.setLevel(logging.DEBUG)
 
 logging.info("=== OpenHydraDragon Automated Engine Started ===")
 
@@ -62,6 +68,91 @@ try:
 except ImportError:
     SANDBOXIE_PATH = r"C:\Program Files\Sandboxie\Start.exe"
     SANDBOXIE_CONTROL = r"C:\Program Files\Sandboxie\SbieCtrl.exe"
+
+# Set to track already logged items (used to prevent duplicate rule writing)
+logged_network_events = set()
+
+# ------------------------------------------------------------------------------
+# 2) NETWORK RULE WRITER (Scapy-based)
+# ------------------------------------------------------------------------------
+def extract_http_requests(pkt):
+    if pkt.haslayer(TCP) and pkt.haslayer(Raw):
+        try:
+            text = pkt[Raw].load.decode('utf-8', errors='ignore')
+        except Exception:
+            return
+        m = re.match(r"^(GET|POST) (/[^ ]*) HTTP/1\.[01]\r\n", text)
+        if m:
+            host_m = re.search(r"Host:\s*([^\r\n]+)", text)
+            if host_m:
+                yield host_m.group(1), m.group(2)
+
+def extract_raw_payload(pkt):
+    if pkt.haslayer(Raw):
+        yield pkt[Raw].load
+
+def write_ohd_rule(host: str, path: str, rules_dir: str):
+    safe_host = re.sub(r'[^A-Za-z0-9]', '_', host)
+    safe_path = re.sub(r'[^A-Za-z0-9]', '_', path)
+    rule_id = f"NET_{safe_host}_{safe_path}"
+    filename = os.path.join(rules_dir, f"{rule_id}.ohd")
+    if os.path.exists(filename):
+        return
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.write(f"rule {rule_id}\n")
+        f.write("{\n")
+        f.write("    meta:\n")
+        f.write(f'        id = "{rule_id}"\n')
+        f.write(f'        description = "Network I/O to {host}{path}"\n')
+        f.write("    condition:\n")
+        f.write(f'        eventlog.new_event_log_lines contains "{host}{path}"\n')
+        f.write("}\n")
+    logging.info(f"[NetRule] Wrote HTTP rule: {filename}")
+
+def write_raw_rule(payload: bytes, rules_dir: str):
+    hexpat = payload.hex()
+    rule_id = f"RAW_{hexpat[:16]}"
+    filename = os.path.join(rules_dir, f"{rule_id}.ohd")
+    if os.path.exists(filename):
+        return
+    pattern = ''.join(f"\\x{hexpat[i:i+2]}" for i in range(0, len(hexpat), 2))
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.write(f"rule {rule_id}\n")
+        f.write("{\n")
+        f.write("    meta:\n")
+        f.write(f'        id = "{rule_id}"\n')
+        f.write(f'        description = "Raw packet pattern {rule_id}"\n')
+        f.write("    condition:\n")
+        f.write(f'        eventlog.new_event_log_lines contains "{pattern}"\n')
+        f.write("}\n")
+    logging.info(f"[NetRule] Wrote RAW rule: {filename}")
+
+def sniff_and_generate(rules_dir: str, iface: str = None, count: int = 0, timeout: int = None):
+    """
+    Sniff on `iface` (or first available if None) using BPF "tcp port 80 or tcp port 443",
+    generate .ohd rules for HTTP and raw bytes.
+    """
+    os.makedirs(rules_dir, exist_ok=True)
+
+    if iface is None:
+        iface = get_if_list()[0]
+    logging.info(f"[NetRule] Sniffing on {iface} → {rules_dir}")
+
+    def _callback(pkt):
+        for h, p in extract_http_requests(pkt):
+            write_ohd_rule(h, p, rules_dir)
+        for raw in extract_raw_payload(pkt):
+            write_raw_rule(raw, rules_dir)
+
+    # store=False avoids buffering packets in memory
+    sniff(
+        iface=iface,
+        filter="tcp port 80 or tcp port 443",
+        prn=_callback,
+        count=count,
+        timeout=timeout,
+        store=False
+    )
 
 # ------------------------------------------------------------------------------
 # 3) SANDBOX MANAGER (LAUNCH & CLEANUP)
@@ -169,140 +260,100 @@ class SandboxManager:
 # ------------------------------------------------------------------------------
 # 4) SNAPSHOT CAPTURE (REGISTRY + FILESYSTEM + EVENT LOGS)
 # ------------------------------------------------------------------------------
-
 class Snapshot:
-    r"""
+    """
     Captures:
-      - Registry: HKLM\Software, HKCU\Software (expandable)
-      - Filesystem: targeted directories (C:\Windows\System32, %TEMP%)
-      - Event Logs: Application, Security, System
+        - Registry: HKLM\\Software, HKCU\\Software
+        - Filesystem: targeted directories (System32 + TEMP)
+        - Event Logs: Application, Security, System
     """
 
     def __init__(self, fs_roots: List[str] = None):
-        r"""
-        fs_roots: list of directories to snapshot (e.g., [r"C:\Windows\System32", r"C:\Users\<User>\AppData\Local\Temp"])
-        If None, defaults to:
-           - C:\Windows\System32
-           - %TEMP% (e.g., C:\Windows\Temp or your user’s temp)
-        """
-        if fs_roots:
-            self.fs_roots = [Path(p) for p in fs_roots]
-        else:
-            system_root = Path(os.getenv("SystemRoot", r"C:\Windows"))
-            user_temp = Path(os.getenv("TEMP", r"C:\Windows\Temp"))
-            self.fs_roots = [
-                system_root / "System32",
-                user_temp
-            ]
-        self.registry_dump: Dict[str, Dict[str, Dict[str, Any]]] = {}
-        self.filesystem_index: Dict[str, float] = {}
-        self.event_logs: Dict[str, List[str]] = {}
-        logging.debug(f"Snapshot initialized for FS roots: {self.fs_roots}")
+            if fs_roots:
+                self.fs_roots = [Path(p) for p in fs_roots]
+            else:
+                system_root = Path(os.getenv("SystemRoot", r"C:\Windows"))
+                user_temp = Path(os.getenv("TEMP", r"C:\Windows\Temp"))
+                self.fs_roots = [system_root / "System32", user_temp]
+
+            self.registry_dump: Dict[str, Dict[str, Any]] = {}
+            self.filesystem_index: Dict[str, float] = {}
+            self.event_logs: Dict[str, List[str]] = {}
+            logging.debug(f"[Snapshot] Initialized for FS roots: {self.fs_roots}")
 
     def capture_registry(self):
-        r"""
-        Crawl the following hives:
-          - HKLM\Software
-          - HKCU\Software
-        """
-        hives = {
-            "HKLM_SOFTWARE": (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE"),
-            "HKCU_SOFTWARE": (winreg.HKEY_CURRENT_USER, r"Software")
-        }
-        for hive_name, (root, subkey) in hives.items():
-            self.registry_dump[hive_name] = {}
-            try:
-                with winreg.OpenKey(root, subkey) as hkey:
-                    self.registry_dump[hive_name] = self._walk_registry(hkey, prefix=subkey)
-                    logging.debug(f"[Snapshot] Captured registry hive '{hive_name}' with {len(self.registry_dump[hive_name])} keys")
-            except Exception as e:
-                logging.error(f"[Snapshot] Failed to open registry hive '{hive_name}': {e}")
+            hives = {
+                "HKLM_SOFTWARE": (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE"),
+                "HKCU_SOFTWARE": (winreg.HKEY_CURRENT_USER, r"Software")
+            }
+            for hive_name, (root, subkey) in hives.items():
+                self.registry_dump[hive_name] = {}
+                try:
+                    with winreg.OpenKey(root, subkey) as hkey:
+                        self.registry_dump[hive_name] = self._walk_registry(hkey, prefix=subkey)
+                        logging.debug(
+                            f"[Snapshot] Captured {len(self.registry_dump[hive_name])} keys under {hive_name}")
+                except Exception as e:
+                    logging.error(f"[Snapshot] Failed to open {hive_name}: {e}")
 
     def _walk_registry(self, hkey, prefix: str = "") -> Dict[str, Dict[str, Any]]:
-        r"""
-        Recursively read all values under a given registry handle.
-        Returns dict: full_key_path -> {value_name: value_data}
-        """
-        result = {}
-        # Capture current key's values
-        result[prefix] = self._get_values(hkey)
-        # Enumerate subkeys
-        try:
+            result = {}
+            result[prefix] = self._get_values(hkey)
             i = 0
             while True:
-                subname = winreg.EnumKey(hkey, i)
-                i += 1
                 try:
+                    subname = winreg.EnumKey(hkey, i)
                     with winreg.OpenKey(hkey, subname) as subh:
-                        full_path = f"{prefix}\\{subname}"
-                        result[full_path] = self._get_values(subh)
-                        # Recurse
-                        sub_result = self._walk_registry(subh, prefix=full_path)
-                        result.update(sub_result)
+                        full = f"{prefix}\\{subname}"
+                        result[full] = self._get_values(subh)
+                        result.update(self._walk_registry(subh, prefix=full))
+                    i += 1
                 except OSError:
                     break
-        except OSError:
-            pass
-        return result
+            return result
 
     def _get_values(self, hkey) -> Dict[str, Any]:
-        r"""
-        Return all (value_name: value_data) under a given key handle.
-        """
-        out = {}
-        try:
+            out = {}
             j = 0
             while True:
-                name, data, _ = winreg.EnumValue(hkey, j)
-                j += 1
-                out[name] = data
-        except OSError:
-            pass
-        return out
+                try:
+                    name, data, _ = winreg.EnumValue(hkey, j)
+                    out[name] = data
+                    j += 1
+                except OSError:
+                    break
+            return out
 
     def capture_filesystem(self):
-        r"""
-        Walk each directory in self.fs_roots and record last-modified timestamps.
-        """
-        logging.debug(f"[Snapshot] Starting filesystem capture under {self.fs_roots}")
-        for root in self.fs_roots:
-            for dirpath, dirs, files in os.walk(root):
-                # Optionally skip WinSxS and other enormous directories
-                if "\\WinSxS" in str(dirpath):
-                    continue
-                for fname in files:
-                    full_path = Path(dirpath) / fname
-                    try:
-                        self.filesystem_index[str(full_path)] = full_path.stat().st_mtime
-                    except (OSError, PermissionError):
+            logging.debug(f"[Snapshot] Walking filesystem under {self.fs_roots}")
+            for root in self.fs_roots:
+                for dirpath, dirs, files in os.walk(root):
+                    if "\\WinSxS" in dirpath:
                         continue
-        logging.debug(f"[Snapshot] Captured {len(self.filesystem_index)} files in filesystem index")
+                    for fname in files:
+                        full = Path(dirpath) / fname
+                        try:
+                            self.filesystem_index[str(full)] = full.stat().st_mtime
+                        except (OSError, PermissionError):
+                            continue
+            logging.debug(f"[Snapshot] Indexed {len(self.filesystem_index)} files")
 
     def capture_event_logs(self):
-        r"""
-        Exports the last 1000 entries of Application, Security, System via wevtutil.
-        Stores lines in self.event_logs under keys "Application", "Security", "System".
-        """
-        logs_to_query = ["Application", "Security", "System"]
-        for log_name in logs_to_query:
-            try:
-                # wevtutil qe Application /f:text /c:1000
-                cmd = ["wevtutil", "qe", log_name, "/f:text", "/c:1000"]
-                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
-                stdout, stderr = proc.communicate(timeout=30)
-                if stderr:
-                    logging.error(f"[EventLog] wevtutil stderr for {log_name}: {stderr.decode(errors='ignore')}")
-                text = stdout.decode(errors="ignore").splitlines()
-                self.event_logs[log_name] = text
-                logging.debug(f"[Snapshot] Captured {len(text)} lines from {log_name} log")
-            except Exception as e:
-                logging.error(f"[Snapshot] Failed to export {log_name} log: {e}")
-                self.event_logs[log_name] = []
+            logs = ["Application", "Security", "System"]
+            for log in logs:
+                try:
+                    cmd = ["wevtutil", "qe", log, "/f:text", "/c:1000"]
+                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    out, err = proc.communicate(timeout=30)
+                    if err:
+                        logging.error(f"[EventLog] {log} stderr: {err.decode(errors='ignore')}")
+                    self.event_logs[log] = out.decode(errors="ignore").splitlines()
+                    logging.debug(f"[Snapshot] Captured {len(self.event_logs[log])} lines from {log}")
+                except Exception as e:
+                    logging.error(f"[Snapshot] Failed to capture {log}: {e}")
+                    self.event_logs[log] = []
 
     def capture(self):
-        """
-        Take registry, filesystem, and event-log snapshots.
-        """
         self.capture_registry()
         self.capture_filesystem()
         self.capture_event_logs()
@@ -318,7 +369,6 @@ class Snapshot:
 
         Logs each change as plain text (removes control chars).
         """
-        import re
         # Regex to remove ASCII control characters
         _CONTROL_CHAR_RE = re.compile(r'[\x00-\x1F\x7F]')
 
@@ -369,8 +419,12 @@ class Snapshot:
             logging.info(f"[Snapshot.diff] {len(items)} {change_type}:")
             for item in items:
                 # item is a tuple, e.g. (hive, key_path) or (hive, path, vname, old, new)
-                # Sanitize each element separately:
-                clean_parts = [_sanitize(str(elem)) for elem in item]
+                clean_parts = []
+                for elem in item:
+                    if isinstance(elem, (bytes, bytearray)):
+                        clean_parts.append("<binary data>")
+                    else:
+                        clean_parts.append(_sanitize(str(elem)))
                 # Join with a separator that makes sense for the type of diff:
                 if change_type.startswith("new_registry_keys"):
                     joined = f"{clean_parts[0]}\\{clean_parts[1]}"
@@ -423,7 +477,7 @@ KEYVAL_RE = re.compile(r'^\s*([A-Za-z0-9_]+)\s*=\s*"([^"]+)"\s*$')
 # e.g. eventlog.Application matches "regex"
 COND_LINE_RE = re.compile(
     r'^\s*([A-Za-z0-9_]+\.(?:new_keys|modified_registry_values|new_files|modified_files|'
-    r'new_event_log_lines|eventlog\.[A-Za-z0-9_]+))\s*'
+    r'new_event_log_lines|eventlog\.[A-Za-z0-9_]+|network\.(?:http_requests|raw_payloads)))\s*'
     r'(contains|matches)\s*"([^"]+)"\s*$'
 )
 
@@ -770,7 +824,7 @@ def process_sample(
     snap_after_dbg = Snapshot(fs_roots=fs_roots)
     snap_after_dbg.capture()
     diff_dbg = snap_after_dbg.diff(snap_before_dbg)
-    logging.debug(f"[Debug] Diffs for '{sample_path}': { {k: len(v) for k,v in diff_dbg.items()} }")
+    logging.debug(f"Diffs for '{sample_path}': { {k: len(v) for k,v in diff_dbg.items()} }")
 
     # 9) Merge diffs to isolate stealthy changes
     stealthy = merge_diffs(diff_sbx, diff_dbg)
