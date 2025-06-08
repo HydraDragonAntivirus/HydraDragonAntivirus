@@ -344,19 +344,19 @@ class Snapshot:
 
     def _walk_registry(self, hkey, prefix: str = "") -> Dict[str, Dict[str, Any]]:
         """
-        Recursively read all values under a given registry handle, but only
-        descend into keys whose full path (prefix) contains any watched substring.
+        Recursively read all values under `hkey`. Only include any
+        key in the final result if its full path (prefix) contains
+        at least one of the watchlist patterns. Always descend into
+        children so we don't prune branches prematurely.
         """
         result: Dict[str, Dict[str, Any]] = {}
-
         watched = self.watchlist.get("registry", set())
-        # If watchlist is non‐empty, skip subtrees that don't match any prefix
-        if watched and not any(pat.lower() in prefix.lower() for pat in watched):
-            return {}
 
-        # Record this key's values
-        result[prefix] = self._get_values(hkey)
+        # 1) Read values for the current key only if prefix matches any watched pattern.
+        if not watched or any(pat.lower() in prefix.lower() for pat in watched):
+            result[prefix] = self._get_values(hkey)
 
+        # 2) Recurse into all subkeys unconditionally
         i = 0
         while True:
             try:
@@ -365,6 +365,7 @@ class Snapshot:
                 with winreg.OpenKey(hkey, subname) as subh:
                     full = f"{prefix}\\{subname}"
                     sub_tree = self._walk_registry(subh, prefix=full)
+                    # Merge children that matched
                     if sub_tree:
                         result.update(sub_tree)
             except OSError:
