@@ -48,6 +48,13 @@ rule IDDQD_God_Mode_Rule_Enhanced {
         // Sysmon File-creation & Registry Modifications (Roth PoC)
         eventlog.System matches "EventID.*11.*\\.dmp"
         eventlog.System matches "TargetFilename.*\\.dmp"
+        eventlog.System matches "EventID.*(12|13).*(UserInitMprLogonScript|CurrentVersion\\\\Image File Execution Options)"
+        eventlog.System matches "EventID.*(12|13).*(CurrentVersion\\\\Run|CurrentVersion\\\\RunOnce).*AppData"
+        eventlog.System matches "EventID.*(12|13).*(CurrentVersion\\\\Run|CurrentVersion\\\\RunOnce).*Users\\\\Public"
+        eventlog.System matches "EventID.*(12|13).*(CurrentVersion\\\\Run|CurrentVersion\\\\RunOnce).*Temp"
+        eventlog.System matches "EventID.*(12|13).*(CurrentVersion\\\\Run|CurrentVersion\\\\RunOnce).*powershell"
+        eventlog.System matches "EventID.*(12|13).*(CurrentVersion\\\\Run|CurrentVersion\\\\RunOnce).*wscript"
+        eventlog.System matches "EventID.*(12|13).*(CurrentVersion\\\\Run|CurrentVersion\\\\RunOnce).*cscript"
 
         // Windows Service Install & Manipulation (Roth PoC)
         eventlog.System contains "7045"
@@ -66,11 +73,15 @@ rule IDDQD_God_Mode_Rule_Enhanced {
         eventlog.System contains "Koadic."
         eventlog.System contains "ReflectiveLoader"
         eventlog.System contains "%s as %s"
+        eventlog.System contains "[System.Convert]::FromBase64String("
         eventlog.System contains "/meterpreter/"
+        eventlog.System matches " -[eE][decoman]{0,41} ['\"]?(JAB|SUVYI|aWV4I|SQBFAFgA|aQBlAHgA|cgBlAG)"
+        eventlog.System matches "(?i)Dropper|Bypass|Injection|Potato\\.pdb"
         eventlog.System contains "Mozilla/5.0"
         eventlog.System contains "amsi.dllATVSH"
         eventlog.System contains "BeaconJitter"
         eventlog.System contains "main.Merlin"
+        eventlog.System contains "}{0}\"-f "
         eventlog.System contains "HISTORY=/dev/null"
         eventlog.System contains " /tmp/x;"
         eventlog.System contains "AmsiScanBuffer"
@@ -127,6 +138,7 @@ rule IDDQD_God_Mode_Rule_Enhanced {
         eventlog.System contains "Start-Process cmd.exe"
         eventlog.System contains "Invoke-WebRequest"
         eventlog.System contains "New-Object System.Net.WebClient"
+        eventlog.System contains "IEX (New-Object Net.WebClient).DownloadString"
         eventlog.System contains "CertUtil -urlcache -split -f"
         eventlog.System contains "Rundll32.exe powrprof.dll,SetSuspendState Sleep"
         eventlog.System contains "schtasks /create /sc daily /tn "
@@ -147,6 +159,11 @@ rule IDDQD_God_Mode_Rule_Enhanced {
         eventlog.System contains "SetWindowsHookEx"
 
         // Abusive Browser Exploits & Webshell Drops
+        eventlog.System contains "javascript:fetch("
+        eventlog.System contains "php_exec("
+        eventlog.System contains "shell_exec("
+        eventlog.System contains "eval(base64_decode("
+        eventlog.System contains "base64_decode("
         eventlog.System contains "wget http://"
         eventlog.System contains "curl http://"
         eventlog.System contains "nc -e /bin/sh"
@@ -193,4 +210,13 @@ rule IDDQD_God_Mode_Rule_Enhanced {
         registry.new_registry_keys contains "Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\Notify"
         filesystem.new_files contains "C2Beacon.tmp"
         filesystem.new_files contains "reverse_shell.ps1"
+}
+
+rule C2_143_92_49_142_15628_NET {
+    meta:
+        id          = "C2-143_92_49_142_15628-NET"
+        description = "Detect new outbound connection to 143.92.49.142:15628"
+
+    condition:
+        network.new_network_events contains "143.92.49.142:15628"
 }

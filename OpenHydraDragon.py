@@ -21,6 +21,7 @@ import psutil
 from comtypes.client import CreateObject
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Set, Optional
+from datetime import datetime
 
 from scapy.config import conf
 conf.use_pcap = True
@@ -224,8 +225,21 @@ def extract_raw_payload(pkt) -> List[bytes]:
         return [pkt[Raw].load]
     return []
 
+# ADDED: Extract full packet as bytes
+def extract_full_packet(pkt) -> bytes:
+    return bytes(pkt)
+
+# ADDED: Save full packet to file
+def write_full_packet(pkt, rules_dir: str):
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")  # e.g., 20250608_134559_123456
+    filename = os.path.join(rules_dir, f"FULL_{timestamp}.bin")
+    if os.path.exists(filename):
+        return
+    with open(filename, 'wb') as f:
+        f.write(bytes(pkt))
+    logging.info(f"[NetRule] Wrote full packet: {filename}")
+
 def write_ohd_rule(host: str, path: str, rules_dir: str):
-    # Sanitize host and path to use only letters, digits, or underscores
     safe_host = re.sub(r'[^A-Za-z0-9]', '_', host)
     safe_path = re.sub(r'[^A-Za-z0-9]', '_', path)
     rule_id = f"NET_{safe_host}_{safe_path}"
@@ -239,7 +253,6 @@ def write_ohd_rule(host: str, path: str, rules_dir: str):
         f.write(f'        id = "{rule_id}"\n')
         f.write(f'        description = "Network I/O to {host}{path}"\n')
         f.write("    condition:\n")
-        # We assume eventlog.new_event_log_lines is the catch‐all for packet content
         f.write(f'        eventlog.new_event_log_lines contains "{host}{path}"\n')
         f.write("}\n")
     logging.info(f"[NetRule] Wrote HTTP rule: {filename}")
@@ -250,7 +263,6 @@ def write_raw_rule(payload: bytes, rules_dir: str):
     filename = os.path.join(rules_dir, f"{rule_id}.ohd")
     if os.path.exists(filename):
         return
-    # Build a pattern like "\x41\x42..." from the raw bytes
     pattern = ''.join(f"\\x{hexpat[i:i+2]}" for i in range(0, len(hexpat), 2))
     with open(filename, 'w', encoding='utf-8') as f:
         f.write(f"rule {rule_id}\n")
@@ -265,8 +277,8 @@ def write_raw_rule(payload: bytes, rules_dir: str):
 
 def sniff_and_generate(rules_dir: str, iface: str = None, count: int = 0, timeout: int = None):
     """
-    Sniff on `iface` (or first available if None) using BPF "tcp port 80 or tcp port 443",
-    generate .ohd rules for HTTP and raw bytes.
+    Sniff on `iface` (or first available if None) using BPF "ip",
+    generate .ohd rules for HTTP, raw bytes, and save full packet binary.
     """
     os.makedirs(rules_dir, exist_ok=True)
 
@@ -279,10 +291,13 @@ def sniff_and_generate(rules_dir: str, iface: str = None, count: int = 0, timeou
             write_ohd_rule(h, p, rules_dir)
         for raw in extract_raw_payload(pkt):
             write_raw_rule(raw, rules_dir)
+        # ADDED: Save the full packet content
+        pkt_bytes = extract_full_packet(pkt)
+        write_full_packet(pkt_bytes, rules_dir)
 
     sniff(
         iface=iface,
-        filter="tcp port 80 or tcp port 443",
+        filter="ip",
         prn=_callback,
         count=count,
         timeout=timeout,
@@ -319,7 +334,8 @@ class Snapshot:
         self.event_logs: Dict[str, List[str]] = {}
         # Store window messages as a set of (hwnd, text, exe_path)
         self.window_messages: Set[Tuple[int, str, str]] = set()
-
+        # Store new network events as host:port strings
+        self.network_events: Set[str] = set()
         logging.debug(f"[Snapshot] Initialized for FS roots: {self.fs_roots}")
 
     def capture_registry(self):
@@ -435,6 +451,17 @@ class Snapshot:
         self.window_messages = set(entries)
         logging.debug(f"[Snapshot] Captured {len(self.window_messages)} window messages")
 
+    def capture_network(self):
+        """
+        Record all current outbound TCP connections as 'host:port' strings.
+        """
+        seen = set()
+        for c in psutil.net_connections(kind='tcp'):
+            if c.status == 'ESTABLISHED' and c.raddr:
+                host, port = c.raddr
+                seen.add(f"{host}:{port}")
+        self.network_events = seen
+
     def capture(self):
         """
         Perform a full snapshot: registry, filesystem, event logs, window messages.
@@ -443,6 +470,7 @@ class Snapshot:
         self.capture_filesystem()
         self.capture_event_logs()
         self.capture_window_messages()
+        self.capture_network()
 
     def diff(self, other: "Snapshot") -> Dict[str, Any]:
         """
@@ -471,8 +499,14 @@ class Snapshot:
             "new_window_messages": [],          # (hwnd, text, exe_path)
             "deleted_registry_keys": [],        # (hive, key_path)
             "deleted_registry_values": [],      # (hive, key_path, vname)
-            "deleted_files": []                 # file paths
+            "deleted_files": [],                # file paths
+            "new_network_events": []            # host:port strings
         }
+
+        # Network diffs
+        for ep in self.network_events:
+            if ep not in other.network_events:
+                diffs["new_network_events"].append(ep)
 
         # Deleted registry keys
         for hive, other_tree in other.registry_dump.items():
@@ -598,14 +632,18 @@ RULE_RE = re.compile(r'^\s*rule\s+([A-Za-z0-9_-]+)\s*\{\s*$', re.IGNORECASE)
 META_RE = re.compile(r'^\s*meta\s*:\s*$', re.IGNORECASE)
 COND_RE = re.compile(r'^\s*condition\s*:\s*$', re.IGNORECASE)
 KEYVAL_RE = re.compile(r'^\s*([A-Za-z0-9_-]+)\s*=\s*"(.+?)"\s*$', re.DOTALL)
+# now supports network.new_network_events
 COND_LINE_RE = re.compile(
     r'^\s*('
     r'(?:new_|deleted_|modified_)?'
-    r'(?:registry\.(?:new_registry_keys|modified_registry_values)|'
+    r'(?:'
+    r'registry\.(?:new_registry_keys|modified_registry_values)|'
     r'filesystem\.(?:new_files|modified_files)|'
     r'eventlog\.[A-Za-z0-9_]+|'
-    r'window_messages'
-    r'))\s+'  # <-- fixed parentheses
+    r'window_messages|'
+    r'network\.new_network_events'
+    r')'
+    r')\s+'
     r'(contains|matches)\s*"(.*?)"\s*$',
     re.IGNORECASE | re.DOTALL
 )
@@ -682,6 +720,9 @@ class Rule:
                 raw = diffs.get('new_window_messages', [])
                 for _, text, _ in raw:
                     items.append(text)
+            elif field == 'network.new_network_events':
+                # directly pull outbound TCP host:port strings
+                items = diffs.get('new_network_events', [])
             else:
                 continue
 
