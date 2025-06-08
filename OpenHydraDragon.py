@@ -296,7 +296,7 @@ def sniff_and_generate(rules_dir: str, iface: str = None, count: int = 0, timeou
 class Snapshot:
     """
     Captures:
-        - Registry: HKLM\Software, HKCU\Software
+        - Registry: HKLM/Software, HKCU/Software
         - Filesystem: targeted directories (System32 + TEMP)
         - Event Logs: Application, Security, System
         - Window Messages: new windows/dialogs that appear
@@ -324,7 +324,7 @@ class Snapshot:
 
     def capture_registry(self):
         """
-        Dump all relevant registry keys under HKLM\Software and HKCU\Software,
+        Dump all relevant registry keys under HKLM/Software and HKCU/sSoftware,
         but only descend into keys whose path contains any of the watchlist prefixes.
         """
         hives = {
@@ -615,7 +615,7 @@ class Rule:
     def __init__(self, name: str):
         self.name = name
         self.meta: Dict[str, str] = {}
-        # Each condition_line is (field, operator, pattern)
+        # Each condition_line is a tuple: (field, operator, pattern)
         self.condition_lines: List[Tuple[str, str, str]] = []
         logging.debug(f"[Rule] Created skeleton for rule '{name}'")
 
@@ -627,259 +627,169 @@ class Rule:
 
     def evaluate(self, diffs: Dict[str, Any]) -> bool:
         """
-        Evaluate this rule against the snapshot‐diff `diffs`.
-        Returns True only if **ALL** condition lines match at least one entry.
-        Supports:
-          - 'contains' (case‐insensitive substring match)
-          - 'matches'  (case‐insensitive regex match)
-          - hex‐escape patterns like '\\x41\\x42' via byte‐level search
-          - ASCII, UTF‐8, and no‐case logic for text matching
-          - Control‐character stripping before any text search
-        This implementation explicitly handles every scenario (registry, filesystem,
-        event log, window messages), never removes any branch, and is intentionally
-        verbose (200+ lines) to cover every detail of byte‐ and text‐level matching.
+        Evaluate this rule against the snapshot-diff `diffs`.
+        Since the rule uses "1 of (...)" in its condition, we return True if ANY
+        single (field, operator, pattern) line matches at least one entry.
+        Otherwise, return False.
         """
 
-        # Compile a regex that matches C0 control characters (0x00–0x1F) and DEL (0x7F).
-        # We will use this to strip control chars from any entry before doing text matching.
+        # (1) Compile once — matches C0 control chars (0x00–0x1F) and DEL (0x7F)
         _CONTROL_CHAR_RE = re.compile(r'[\x00-\x1F\x7F]')
 
-        # -----------------------------------------------------------------------
-        # Helper Functions
-        # -----------------------------------------------------------------------
-
+        # (2) Helper: decode literal "\xHH" sequences into raw bytes
         def to_hex_bytes(pat: str) -> Optional[bytes]:
-            """
-            Convert a pattern containing literal backslash‐x sequences (e.g., "\\x41\\x42")
-            into the corresponding byte string (e.g., b"AB").
-            - If the pattern is malformed or conversion fails, returns None.
-            """
             try:
-                # Remove all literal "\x" escapes → e.g. "\\x41\\x42" → "4142"
                 hex_str = pat.replace(r'\x', '')
-                # Convert the resulting hex string into bytes
                 return bytes.fromhex(hex_str)
             except Exception:
                 return None
 
+        # (3) Helper: search for pat_bytes in the UTF-8–encoded entry
         def byte_contains(entry_text: str, pat_bytes: bytes) -> bool:
-            """
-            Encode entry_text to UTF-8 (ignoring characters that can't be encoded),
-            then search for pat_bytes as a substring inside the resulting byte array.
-            Returns True if pat_bytes are found, False otherwise.
-            """
             try:
                 entry_b = entry_text.encode('utf-8', 'ignore')
                 return pat_bytes in entry_b
             except Exception:
                 return False
 
+        # (4) Helper: case-insensitive substring search on text (after stripping control chars)
         def text_contains(entry_text: str, pat_text: str) -> bool:
-            """
-            Case‐insensitive substring search:
-            - Strip out any control characters from entry_text.
-            - Compare entry_text.lower() to find pat_text.lower().
-            Returns True if pat_text is found, False otherwise.
-            """
             try:
-                # Remove control characters from the entry
-                clean_entry = _CONTROL_CHAR_RE.sub('', entry_text)
-                return pat_text.lower() in clean_entry.lower()
+                clean = _CONTROL_CHAR_RE.sub('', entry_text)
+                return pat_text.lower() in clean.lower()
             except Exception:
                 return False
 
+        # (5) Helper: case-insensitive regex search (after stripping control chars)
         def text_matches(entry_text: str, pat_regex: str) -> bool:
-            """
-            Case‐insensitive regex match:
-            - Strip out any control characters from entry_text.
-            - Compile pat_regex with re.IGNORECASE.
-            - Attempt to find any match in entry_text.
-            Returns True if a match is found; False if no match or invalid regex.
-            """
             try:
                 regex = re.compile(pat_regex, re.IGNORECASE)
             except re.error:
-                # If the user-specified regex is invalid, we consider it “no match.”
                 return False
-
             try:
-                # Remove control characters before running the regex
-                clean_entry = _CONTROL_CHAR_RE.sub('', entry_text)
-                return bool(regex.search(clean_entry))
+                clean = _CONTROL_CHAR_RE.sub('', entry_text)
+                return bool(regex.search(clean))
             except Exception:
                 return False
 
-        # -----------------------------------------------------------------------
-        # Main Loop: iterate through each condition line
-        # -----------------------------------------------------------------------
+        # -------------------------------------
+        # MAIN "1 of (...)" LOOP
+        # -------------------------------------
+        # Return True as soon as any condition line finds at least one hit.
+        # If all lines are tried with no hits, return False.
 
+        logging.debug(f"[evaluate] Rule '{self.name}' has {len(self.condition_lines)} condition lines.")
         for (field, operator, pattern) in self.condition_lines:
-            # 1) Determine if the pattern contains a literal '\x' (hex‐escape).
-            is_hex_pattern = r'\x' in pattern
+            logging.debug(f"[evaluate]   Checking condition: field={field!r}, op={operator!r}, pat={pattern!r}")
 
-            # 2) If it's a hex pattern, attempt to convert to raw bytes once.
+            # (A) Detect if the user gave a hex-escape pattern ("\\x…")
+            is_hex = (r'\x' in pattern)
             hex_bytes: Optional[bytes] = None
-            if is_hex_pattern:
+            if is_hex:
                 hex_bytes = to_hex_bytes(pattern)
-                # If conversion failed (malformed), this condition cannot match anything.
                 if hex_bytes is None:
-                    return False
+                    logging.debug(f"[evaluate]   Malformed hex pattern {pattern!r} → skipping this line.")
+                    continue
 
-            # 3) Build the list of “items” to search, based on the field name.
+            # (B) Gather the list of "items" to search, based on the field:
             items: List[str] = []
 
-            # ---------------------------------------------------------------
-            # Field: registry.*
-            # ---------------------------------------------------------------
             if field.startswith("registry."):
                 if field.endswith("new_registry_keys"):
-                    # diffs["new_registry_keys"] is List[Tuple[hive, path]]
-                    raw_list = diffs.get("new_registry_keys", [])
-                    for (hive, path) in raw_list:
-                        # Format each registry key as "Hive\Path"
-                        entry = f"{hive}\\{path}"
-                        items.append(entry)
-
+                    raw = diffs.get("new_registry_keys", [])
+                    for (hive, path) in raw:
+                        items.append(f"{hive}\\{path}")
                 else:
-                    # This covers "registry.modified_registry_values"
-                    # diffs["modified_registry_values"] is List[Tuple[hive, path, vname, oldv, newv]]
-                    raw_list = diffs.get("modified_registry_values", [])
-                    for (hive, path, vname, oldv, newv) in raw_list:
-                        # Format as "Hive\Path\ValueName -> OldValue => NewValue"
-                        entry = f"{hive}\\{path}\\{vname} -> {oldv} => {newv}"
-                        items.append(entry)
+                    # modified_registry_values
+                    raw = diffs.get("modified_registry_values", [])
+                    for (hive, path, vname, oldv, newv) in raw:
+                        items.append(f"{hive}\\{path}\\{vname} -> {oldv} => {newv}")
 
-            # ---------------------------------------------------------------
-            # Field: filesystem.*
-            # ---------------------------------------------------------------
             elif field.startswith("filesystem."):
                 if field.endswith("new_files"):
-                    # diffs["new_files"] is List[str] of file paths
                     items = list(diffs.get("new_files", []))
-
                 else:
-                    # This covers "filesystem.modified_files"
-                    # diffs["modified_files"] is List[str] of file paths
                     items = list(diffs.get("modified_files", []))
 
-            # ---------------------------------------------------------------
-            # Field: eventlog.<LogName>
-            # ---------------------------------------------------------------
             elif field.startswith("eventlog."):
                 try:
                     _, log_name = field.split(".", 1)
                 except ValueError:
-                    # Field isn't of the form "eventlog.<something>" ⇒ fail
-                    return False
-
-                # diffs["new_event_log_lines"] is List[Tuple[logName, lineText]]
-                raw_list = diffs.get("new_event_log_lines", [])
-                for (lg, ln) in raw_list:
-                    # Match the log name in a case-insensitive manner
+                    logging.debug(f"[evaluate]   Bad field format {field!r} → skipping this line.")
+                    continue
+                raw = diffs.get("new_event_log_lines", [])
+                for (lg, ln) in raw:
                     if lg.lower() == log_name.lower():
                         items.append(ln)
 
-            # ---------------------------------------------------------------
-            # Field: window_messages
-            # ---------------------------------------------------------------
             elif field == "window_messages":
-                # diffs["new_window_messages"] is List[Tuple[hwnd, text, exe_path]]
-                raw_list = diffs.get("new_window_messages", [])
-                for (_, text, _) in raw_list:
+                raw = diffs.get("new_window_messages", [])
+                for (_, text, _) in raw:
                     items.append(text)
 
-            # ---------------------------------------------------------------
-            # Unknown Field: cannot match ⇒ immediately fail
-            # ---------------------------------------------------------------
             else:
-                return False
+                logging.debug(f"[evaluate]   Unknown field {field!r} → skipping this line.")
+                continue
 
-            # If there are no items to check for this field, the condition fails.
             if not items:
-                return False
+                logging.debug(f"[evaluate]   field={field!r} produced NO items → skipping this line.")
+                continue
+            else:
+                logging.debug(f"[evaluate]   field={field!r} produced {len(items)} items, example[0]={items[0]!r}")
 
-            # -------------------------------------------------------------------
-            # Matching Logic for This Condition Line
-            # -------------------------------------------------------------------
-            matched = False
+            # (C) Now test each "entry" in items against the operator and pattern:
+            matched_this_line = False
 
-            # === HEX‐Escape Logic (byte-level matching) ===
-            if is_hex_pattern and hex_bytes is not None:
-                # For each item (string), encode to UTF-8 bytes and search for hex_bytes.
+            if is_hex and hex_bytes is not None:
+                # Byte-level search of hex_bytes in UTF-8 of entry
                 for entry in items:
-                    try:
-                        entry_b = entry.encode('utf-8', 'ignore')
-                    except Exception:
-                        # If encoding fails, skip to the next entry.
-                        continue
-
-                    if operator == "contains":
-                        # Check if the raw hex bytes appear in the UTF-8–encoded entry
-                        if hex_bytes in entry_b:
-                            matched = True
+                    if operator in ("contains", "matches"):
+                        if byte_contains(entry, hex_bytes):
+                            matched_this_line = True
+                            logging.debug(
+                                f"[evaluate]   HEX match: field={field!r}, pattern={pattern!r} → entry={entry!r}"
+                            )
                             break
-
-                    elif operator == "matches":
-                        # In a YARA/SIGMA style, "matches" with hex means "does this exact byte sequence appear anywhere?"
-                        if hex_bytes in entry_b:
-                            matched = True
-                            break
-
                     else:
-                        # Unsupported operator when using hex patterns ⇒ fail
-                        matched = False
+                        logging.debug(f"[evaluate]   Unsupported operator {operator!r} for hex pattern; skipping")
                         break
 
-                # If we did not find any match for this hex condition, fail the rule.
-                if not matched:
-                    return False
-
-            # === TEXT‐Based Logic (ASCII/UTF-8, no-case substring or regex) ===
             else:
-                # For substring search, precompute the lowercase pattern
-                pat_lower = pattern.lower()
-
+                # Text-based logic; pattern is plain text or regex.
                 if operator == "contains":
-                    # Check each entry for a case-insensitive substring match
+                    pat_lower = pattern.lower()
                     for entry in items:
                         if text_contains(entry, pat_lower):
-                            matched = True
+                            matched_this_line = True
+                            logging.debug(
+                                f"[evaluate]   TEXT contains match: field={field!r}, pattern={pattern!r} → entry={entry!r}"
+                            )
                             break
 
-                    # If no entry matched, fail this condition
-                    if not matched:
-                        return False
-
                 elif operator == "matches":
-                    # Compile the regex with IGNORECASE; if invalid, fail immediately
-                    try:
-                        regex = re.compile(pattern, re.IGNORECASE)
-                    except re.error:
-                        return False
-
                     for entry in items:
-                        # Remove control characters before applying regex
-                        clean_entry = _CONTROL_CHAR_RE.sub('', entry)
-                        try:
-                            if regex.search(clean_entry):
-                                matched = True
-                                break
-                        except Exception:
-                            # If regex.search raises unexpectedly for this entry, skip it
-                            continue
-
-                    if not matched:
-                        return False
+                        if text_matches(entry, pattern):
+                            matched_this_line = True
+                            logging.debug(
+                                f"[evaluate]   TEXT regex match: field={field!r}, pattern={pattern!r} → entry={entry!r}"
+                            )
+                            break
 
                 else:
-                    # Unsupported operator for text logic ⇒ fail
-                    return False
+                    logging.debug(f"[evaluate]   Unsupported operator {operator!r} for text pattern; skipping")
 
-            # At this point, this single condition line has matched at least one item.
-            # Continue to the next condition in self.condition_lines.
+            # (D) If this one condition line produced a hit, return True immediately
+            if matched_this_line:
+                logging.info(f"[evaluate] Rule '{self.name}' triggered by {field!r} / {operator!r} / {pattern!r}")
+                return True
 
-        # If all condition lines matched at least one item each, return True
-        return True
+            logging.debug(
+                f"[evaluate]   No match for condition (field={field!r}, op={operator!r}, pat={pattern!r})"
+            )
+
+        # If all lines tried and none matched, return False
+        logging.debug(f"[evaluate] Rule '{self.name}' did not match any condition.")
+        return False
 
 class RuleEngine:
     """
@@ -1035,7 +945,7 @@ def process_sample(
             ret_code = proc.returncode
         except subprocess.TimeoutExpired:
             proc.kill()
-            logging.error("[Run] Process timed out and was killed.")
+            logging.info("[Run] Process timed out and was killed.")
             ret_code = -1
     except Exception as e:
         logging.exception(f"[Run] Failed to launch sample: {e}")
