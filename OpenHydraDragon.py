@@ -593,47 +593,25 @@ Operators:
   - matches  (case‐insensitive regex)
 """
 
-# Matches:    rule IDDQD-0002 {
-# Captures:  IDDQD-0002
-RULE_RE = re.compile(
-    r'^\s*rule\s+([A-Za-z0-9_-]+)\s*\{\s*$',
-    re.IGNORECASE
-)
-
-# Matches exactly “meta:” (any indentation or case)
-META_RE = re.compile(
-    r'^\s*meta\s*:\s*$',
-    re.IGNORECASE
-)
-
-# Matches exactly “condition:” (any indentation or case)
-COND_RE = re.compile(
-    r'^\s*condition\s*:\s*$',
-    re.IGNORECASE
-)
-
-# Matches:    some_key = "some value"
-# Captures:  (some_key, some value)
-# Allows hyphens in the key, and non-greedy for the quoted part.
-KEYVAL_RE = re.compile(
-    r'^\s*([A-Za-z0-9_-]+)\s*=\s*"(.+?)"\s*$',
-    re.DOTALL
-)
-
-# Matches lines like:
-#   filesystem.new_files contains ".locked"
-#   eventlog.System matches ".*Ticket:.*"
+RULE_RE = re.compile(r'^\s*rule\s+([A-Za-z0-9_-]+)\s*\{\s*$', re.IGNORECASE)
+META_RE = re.compile(r'^\s*meta\s*:\s*$', re.IGNORECASE)
+COND_RE = re.compile(r'^\s*condition\s*:\s*$', re.IGNORECASE)
+KEYVAL_RE = re.compile(r'^\s*([A-Za-z0-9_-]+)\s*=\s*"(.+?)"\s*$', re.DOTALL)
 COND_LINE_RE = re.compile(
     r'^\s*('
-      r'registry\.(?:new_registry_keys|modified_registry_values)|'
-      r'filesystem\.(?:new_files|modified_files)|'
-      r'eventlog\.[A-Za-z0-9_]+|'
-      r'window_messages'
-    r')\s*'
+    r'(?:new_|deleted_|modified_)?'
+    r'(?:registry\.(?:new_registry_keys|modified_registry_values)|'
+    r'filesystem\.(?:new_files|modified_files)|'
+    r'eventlog\.[A-Za-z0-9_]+|'
+    r'window_messages'
+    r'))\s+'  # <-- fixed parentheses
     r'(contains|matches)\s*"(.*?)"\s*$',
     re.IGNORECASE | re.DOTALL
 )
 
+# ---------------------------------
+# Rule Representation
+# ---------------------------------
 class Rule:
     """
     Representation of a single OpenHydraDragon rule.
@@ -655,271 +633,177 @@ class Rule:
     def evaluate(self, diffs: Dict[str, Any]) -> bool:
         """
         Evaluate this rule against the snapshot-diff `diffs`.
-        Since the rule uses "1 of (...)" in its condition, we return True if ANY
-        single (field, operator, pattern) line matches at least one entry.
-        Otherwise, return False.
+        Returns True if any single condition line matches => "1 of (...)" semantics.
         """
+        control_re = re.compile(r'[\x00-\x1F\x7F]')
 
-        # (1) Compile once — matches C0 control chars (0x00–0x1F) and DEL (0x7F)
-        _CONTROL_CHAR_RE = re.compile(r'[\x00-\x1F\x7F]')
-
-        # (2) Helper: decode literal "\xHH" sequences into raw bytes
-        def to_hex_bytes(pat: str) -> Optional[bytes]:
+        def to_bytes(pat: str) -> Optional[bytes]:
             try:
-                hex_str = pat.replace(r'\x', '')
-                return bytes.fromhex(hex_str)
+                return bytes.fromhex(pat.replace(r'\x', ''))
             except Exception:
                 return None
 
-        # (3) Helper: search for pat_bytes in the UTF-8–encoded entry
-        def byte_contains(entry_text: str, pat_bytes: bytes) -> bool:
-            try:
-                entry_b = entry_text.encode('utf-8', 'ignore')
-                return pat_bytes in entry_b
-            except Exception:
-                return False
+        def byte_contains(text: str, pat_bytes: bytes) -> bool:
+            return pat_bytes in text.encode('utf-8', 'ignore')
 
-        # (4) Helper: case-insensitive substring search on text (after stripping control chars)
-        def text_contains(entry_text: str, pat_text: str) -> bool:
-            try:
-                clean = _CONTROL_CHAR_RE.sub('', entry_text)
-                return pat_text.lower() in clean.lower()
-            except Exception:
-                return False
+        def text_contains(text: str, pat: str) -> bool:
+            clean = control_re.sub('', text)
+            return pat.lower() in clean.lower()
 
-        # (5) Helper: case-insensitive regex search (after stripping control chars)
-        def text_matches(entry_text: str, pat_regex: str) -> bool:
+        def text_matches(text: str, pat: str) -> bool:
             try:
-                regex = re.compile(pat_regex, re.IGNORECASE)
+                regex = re.compile(pat, re.IGNORECASE)
             except re.error:
                 return False
-            try:
-                clean = _CONTROL_CHAR_RE.sub('', entry_text)
-                return bool(regex.search(clean))
-            except Exception:
-                return False
+            clean = control_re.sub('', text)
+            return bool(regex.search(clean))
 
-        # -------------------------------------
-        # MAIN "1 of (...)" LOOP
-        # -------------------------------------
-        # Return True as soon as any condition line finds at least one hit.
-        # If all lines are tried with no hits, return False.
-
-        logging.debug(f"[evaluate] Rule '{self.name}' has {len(self.condition_lines)} condition lines.")
-        for (field, operator, pattern) in self.condition_lines:
-            logging.debug(f"[evaluate]   Checking condition: field={field!r}, op={operator!r}, pat={pattern!r}")
-
-            # (A) Detect if the user gave a hex-escape pattern ("\\x…")
-            is_hex = (r'\x' in pattern)
-            hex_bytes: Optional[bytes] = None
-            if is_hex:
-                hex_bytes = to_hex_bytes(pattern)
-                if hex_bytes is None:
-                    logging.debug(f"[evaluate]   Malformed hex pattern {pattern!r} → skipping this line.")
-                    continue
-
-            # (B) Gather the list of "items" to search, based on the field:
+        for field, op, pattern in self.condition_lines:
+            is_hex = r'\x' in pattern
+            hex_bytes = to_bytes(pattern) if is_hex else None
             items: List[str] = []
 
-            if field.startswith("registry."):
-                if field.endswith("new_registry_keys"):
-                    raw = diffs.get("new_registry_keys", [])
-                    for (hive, path) in raw:
-                        items.append(f"{hive}\\{path}")
-                else:
-                    # modified_registry_values
-                    raw = diffs.get("modified_registry_values", [])
-                    for (hive, path, vname, oldv, newv) in raw:
-                        items.append(f"{hive}\\{path}\\{vname} -> {oldv} => {newv}")
-
-            elif field.startswith("filesystem."):
-                if field.endswith("new_files"):
-                    items = list(diffs.get("new_files", []))
-                else:
-                    items = list(diffs.get("modified_files", []))
-
-            elif field.startswith("eventlog."):
-                try:
-                    _, log_name = field.split(".", 1)
-                except ValueError:
-                    logging.debug(f"[evaluate]   Bad field format {field!r} → skipping this line.")
-                    continue
-                raw = diffs.get("new_event_log_lines", [])
-                for (lg, ln) in raw:
-                    if lg.lower() == log_name.lower():
+            if field.startswith('registry.'):
+                key = field.split('.', 1)[1]
+                raw = diffs.get(f'new_{key}', [])
+                for parts in raw:
+                    items.append('\\'.join(map(str, parts)))
+            elif field.startswith('filesystem.'):
+                key = field.split('.', 1)[1]
+                items = diffs.get(key, [])
+            elif field.startswith('eventlog.'):
+                log = field.split('.', 1)[1]
+                raw = diffs.get('new_event_log_lines', [])
+                for lg, ln in raw:
+                    if lg.lower() == log.lower():
                         items.append(ln)
-
-            elif field == "window_messages":
-                raw = diffs.get("new_window_messages", [])
-                for (_, text, _) in raw:
+            elif field == 'window_messages':
+                raw = diffs.get('new_window_messages', [])
+                for _, text, _ in raw:
                     items.append(text)
-
             else:
-                logging.debug(f"[evaluate]   Unknown field {field!r} → skipping this line.")
                 continue
 
             if not items:
-                logging.debug(f"[evaluate]   field={field!r} produced NO items → skipping this line.")
                 continue
-            else:
-                logging.debug(f"[evaluate]   field={field!r} produced {len(items)} items, example[0]={items[0]!r}")
 
-            # (C) Now test each "entry" in items against the operator and pattern:
-            matched_this_line = False
-
-            if is_hex and hex_bytes is not None:
-                # Byte-level search of hex_bytes in UTF-8 of entry
-                for entry in items:
-                    if operator in ("contains", "matches"):
-                        if byte_contains(entry, hex_bytes):
-                            matched_this_line = True
-                            logging.debug(
-                                f"[evaluate]   HEX match: field={field!r}, pattern={pattern!r} → entry={entry!r}"
-                            )
-                            break
-                    else:
-                        logging.debug(f"[evaluate]   Unsupported operator {operator!r} for hex pattern; skipping")
+            matched = False
+            if is_hex and hex_bytes:
+                for text in items:
+                    if byte_contains(text, hex_bytes):
+                        matched = True
                         break
-
             else:
-                # Text-based logic; pattern is plain text or regex.
-                if operator == "contains":
-                    pat_lower = pattern.lower()
-                    for entry in items:
-                        if text_contains(entry, pat_lower):
-                            matched_this_line = True
-                            logging.debug(
-                                f"[evaluate]   TEXT contains match: field={field!r}, pattern={pattern!r} → entry={entry!r}"
-                            )
+                if op == 'contains':
+                    for text in items:
+                        if text_contains(text, pattern):
+                            matched = True
+                            break
+                elif op == 'matches':
+                    for text in items:
+                        if text_matches(text, pattern):
+                            matched = True
                             break
 
-                elif operator == "matches":
-                    for entry in items:
-                        if text_matches(entry, pattern):
-                            matched_this_line = True
-                            logging.debug(
-                                f"[evaluate]   TEXT regex match: field={field!r}, pattern={pattern!r} → entry={entry!r}"
-                            )
-                            break
-
-                else:
-                    logging.debug(f"[evaluate]   Unsupported operator {operator!r} for text pattern; skipping")
-
-            # (D) If this one condition line produced a hit, return True immediately
-            if matched_this_line:
-                logging.info(f"[evaluate] Rule '{self.name}' triggered by {field!r} / {operator!r} / {pattern!r}")
+            if matched:
+                logging.info(f"[evaluate] Rule '{self.name}' triggered by {field} {op} '{pattern}'")
                 return True
 
-            logging.debug(
-                f"[evaluate]   No match for condition (field={field!r}, op={operator!r}, pat={pattern!r})"
-            )
-
-        # If all lines tried and none matched, return False
-        logging.debug(f"[evaluate] Rule '{self.name}' did not match any condition.")
         return False
 
+# ---------------------------------
+# Rule Engine
+# ---------------------------------
 class RuleEngine:
     """
-    Loads all .ohd rule files from a directory and can evaluate them against diffs.
+    Loads and evaluates .ohd rules.
     """
-
     def __init__(self, rules_dir: str):
         self.rules: List[Rule] = []
         self._load_rules(rules_dir)
 
     def get_watchlist(self) -> Dict[str, Set[str]]:
         """
-        Return a dict with keys 'registry' and 'filesystem', each mapping
-        to a set of path‐prefix substrings our rules actually reference.
+        Return the substrings that rules reference for registry and filesystem watch-lists.
         """
         regs: Set[str] = set()
         files: Set[str] = set()
         for rule in self.rules:
-            for field, op, pat in rule.condition_lines:
-                if field.startswith("registry."):
-                    # treat pattern as a potential registry key substring
+            for field, _, pat in rule.condition_lines:
+                if field.startswith('registry.'):
                     regs.add(pat)
-                elif field.startswith("filesystem."):
+                elif field.startswith('filesystem.'):
                     files.add(pat)
-        return {"registry": regs, "filesystem": files}
+        return {'registry': regs, 'filesystem': files}
 
     def _load_rules(self, rules_dir: str):
         logging.info(f"[RuleEngine] Loading rules from '{rules_dir}'")
         for file in os.listdir(rules_dir):
-            if file.lower().endswith(".ohd"):
+            if file.lower().endswith('.ohd'):
                 path = Path(rules_dir) / file
+                logging.info(f"[RuleEngine] Parsing: {file}")
                 self._parse_rule_file(path)
+        logging.info(f"[RuleEngine] Total rules loaded: {len(self.rules)} -> {[r.name for r in self.rules]}" )
 
     def _parse_rule_file(self, filepath: Path):
+        logging.info(f"[RuleEngine] Parsing file: {filepath.name}")
+        lines = filepath.read_text(encoding='utf-8').splitlines()
         current_rule = None
-        mode = None  # None / "meta" / "condition"
-        in_block_comment = False
+        mode = None
+        in_block = False
 
-        for line in filepath.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-
-            # C-style block comments
-            if not in_block_comment and stripped.startswith("/*"):
-                in_block_comment = True
-                # Handle one-line comment blocks
-                if "*/" in stripped:
-                    in_block_comment = False
+        for ln, raw in enumerate(lines, start=1):
+            stripped = raw.strip()
+            if not in_block and stripped.startswith('/*'):
+                in_block = True
+                if '*/' in stripped: in_block = False
                 continue
-            if in_block_comment:
-                if "*/" in stripped:
-                    in_block_comment = False
+            if in_block:
+                if '*/' in stripped: in_block = False
+                continue
+            if not stripped or stripped.startswith('#') or stripped.startswith('//'):
                 continue
 
-            # Single-line comments & blank lines
-            if not stripped or stripped.startswith("#") or stripped.startswith("//"):
-                continue
-
-            # Rule header
-            m = RULE_RE.match(line)
+            m = RULE_RE.match(raw)
             if m:
-                current_rule = Rule(m.group(1))
+                name = m.group(1)
+                logging.info(f"[RuleEngine] Found rule '{name}' (line {ln})")
+                current_rule = Rule(name)
                 mode = None
                 continue
 
-            # Metadata section
-            if META_RE.match(line):
-                mode = "meta"
+            if current_rule and META_RE.match(raw):
+                mode = 'meta'
+                continue
+            if current_rule and COND_RE.match(raw):
+                mode = 'condition'
                 continue
 
-            # Condition section
-            if COND_RE.match(line):
-                mode = "condition"
-                continue
-
-            # Parse metadata key/value
-            if mode == "meta" and current_rule:
-                kv = KEYVAL_RE.match(line)
+            if mode == 'meta' and current_rule:
+                kv = KEYVAL_RE.match(raw)
                 if kv:
                     current_rule.add_meta(kv.group(1), kv.group(2))
                 continue
 
-            # Parse condition lines
-            if mode == "condition" and current_rule:
-                cond = COND_LINE_RE.match(line)
+            if mode == 'condition' and current_rule:
+                cond = COND_LINE_RE.match(raw)
                 if cond:
                     field, op, pat = cond.groups()
+                    field = re.sub(r'^(?:new_|modified_|deleted_)', '', field, re.IGNORECASE)
                     current_rule.add_condition(field, op, pat)
                 continue
 
-            # End of rule block
-            if stripped == "}" and current_rule:
+            if stripped == '}' and current_rule:
                 self.rules.append(current_rule)
-                logging.debug(
-                    f"[RuleEngine] Loaded rule '{current_rule.name}' (meta: {current_rule.meta}) "
-                    f"with {len(current_rule.condition_lines)} condition(s)"
-                )
+                logging.info(f"[RuleEngine] Loaded rule '{current_rule.name}' with {len(current_rule.condition_lines)} conditions")
                 current_rule = None
                 mode = None
 
+        if current_rule:
+            self.rules.append(current_rule)
+            logging.info(f"[RuleEngine] Loaded rule '{current_rule.name}' (no closing brace) with {len(current_rule.condition_lines)} conditions")
+
     def evaluate_all(self, diffs: Dict[str, Any]) -> List[str]:
-        """
-        Evaluate every loaded rule against `diffs`; return a list of rule names that matched.
-        """
         matches: List[str] = []
         for rule in self.rules:
             try:
