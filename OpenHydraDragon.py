@@ -593,18 +593,45 @@ Operators:
   - matches  (case‐insensitive regex)
 """
 
-RULE_RE      = re.compile(r'^\s*rule\s+([A-Za-z0-9_-]+)\s*\{')
-META_RE      = re.compile(r'^\s*meta\s*:\s*$')
-COND_RE      = re.compile(r'^\s*condition\s*:\s*$')
-KEYVAL_RE    = re.compile(r'^\s*([A-Za-z0-9_]+)\s*=\s*"([^"]+)"\s*$')
+# Matches:    rule IDDQD-0002 {
+# Captures:  IDDQD-0002
+RULE_RE = re.compile(
+    r'^\s*rule\s+([A-Za-z0-9_-]+)\s*\{\s*$',
+    re.IGNORECASE
+)
+
+# Matches exactly “meta:” (any indentation or case)
+META_RE = re.compile(
+    r'^\s*meta\s*:\s*$',
+    re.IGNORECASE
+)
+
+# Matches exactly “condition:” (any indentation or case)
+COND_RE = re.compile(
+    r'^\s*condition\s*:\s*$',
+    re.IGNORECASE
+)
+
+# Matches:    some_key = "some value"
+# Captures:  (some_key, some value)
+# Allows hyphens in the key, and non-greedy for the quoted part.
+KEYVAL_RE = re.compile(
+    r'^\s*([A-Za-z0-9_-]+)\s*=\s*"(.+?)"\s*$',
+    re.DOTALL
+)
+
+# Matches lines like:
+#   filesystem.new_files contains ".locked"
+#   eventlog.System matches ".*Ticket:.*"
 COND_LINE_RE = re.compile(
     r'^\s*('
-    r'registry\.(?:new_registry_keys|modified_registry_values)|'
-    r'filesystem\.(?:new_files|modified_files)|'
-    r'eventlog\.[A-Za-z0-9_]+|'
-    r'window_messages'
+      r'registry\.(?:new_registry_keys|modified_registry_values)|'
+      r'filesystem\.(?:new_files|modified_files)|'
+      r'eventlog\.[A-Za-z0-9_]+|'
+      r'window_messages'
     r')\s*'
-    r'(contains|matches)\s*"([^"]+)"\s*$'
+    r'(contains|matches)\s*"(.*?)"\s*$',
+    re.IGNORECASE | re.DOTALL
 )
 
 class Rule:
@@ -826,28 +853,52 @@ class RuleEngine:
     def _parse_rule_file(self, filepath: Path):
         current_rule = None
         mode = None  # None / "meta" / "condition"
+        in_block_comment = False
+
         for line in filepath.read_text(encoding="utf-8").splitlines():
-            # Check for "rule <Name> {"
+            stripped = line.strip()
+
+            # C-style block comments
+            if not in_block_comment and stripped.startswith("/*"):
+                in_block_comment = True
+                # Handle one-line comment blocks
+                if "*/" in stripped:
+                    in_block_comment = False
+                continue
+            if in_block_comment:
+                if "*/" in stripped:
+                    in_block_comment = False
+                continue
+
+            # Single-line comments & blank lines
+            if not stripped or stripped.startswith("#") or stripped.startswith("//"):
+                continue
+
+            # Rule header
             m = RULE_RE.match(line)
             if m:
                 current_rule = Rule(m.group(1))
                 mode = None
                 continue
 
+            # Metadata section
             if META_RE.match(line):
                 mode = "meta"
                 continue
 
+            # Condition section
             if COND_RE.match(line):
                 mode = "condition"
                 continue
 
+            # Parse metadata key/value
             if mode == "meta" and current_rule:
                 kv = KEYVAL_RE.match(line)
                 if kv:
                     current_rule.add_meta(kv.group(1), kv.group(2))
                 continue
 
+            # Parse condition lines
             if mode == "condition" and current_rule:
                 cond = COND_LINE_RE.match(line)
                 if cond:
@@ -855,8 +906,8 @@ class RuleEngine:
                     current_rule.add_condition(field, op, pat)
                 continue
 
-            if line.strip().startswith("}") and current_rule:
-                # End of this rule block
+            # End of rule block
+            if stripped == "}" and current_rule:
                 self.rules.append(current_rule)
                 logging.debug(
                     f"[RuleEngine] Loaded rule '{current_rule.name}' (meta: {current_rule.meta}) "

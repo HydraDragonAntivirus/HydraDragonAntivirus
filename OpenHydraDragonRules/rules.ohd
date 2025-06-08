@@ -89,7 +89,7 @@ rule IDDQD_God_Mode_Rule_Enhanced
             eventlog.System contains "[System.Convert]::FromBase64String("
             eventlog.System contains "/meterpreter/"
             eventlog.System matches " -[eE][decoman]{0,41} ['\"]?(JAB|SUVYI|aWV4I|SQBFAFgA|aQBlAHgA|cgBlAG)"
-            eventlog.System matches "\\(Debug|Release\\)\\\\(?:Key[lL]og|[Ii]nject|Steal|By[Pp]ass|Amsi|Dropper|Loader|CVE-)"
+            eventlog.System matches "\\(Debug|Release\\)\\(?:Key[lL]og|[Ii]nject|Steal|By[Pp]ass|Amsi|Dropper|Loader|CVE-\\)"
             eventlog.System matches "(?i)Dropper|Bypass|Injection|Potato\\.pdb"
             eventlog.System contains "Mozilla/5.0"
             eventlog.System contains "amsi.dllATVSH"
