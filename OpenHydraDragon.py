@@ -453,13 +453,15 @@ class Snapshot:
 
     def capture_network(self):
         """
-        Record all current outbound TCP connections as 'host:port' strings.
+        Record all current outbound TCP & UDP connections as remote IPs.
         """
         seen = set()
-        for c in psutil.net_connections(kind='tcp'):
-            if c.status == 'ESTABLISHED' and c.raddr:
-                host, port = c.raddr
-                seen.add(f"{host}:{port}")
+        for proto in ('tcp', 'udp'):
+            for c in psutil.net_connections(kind=proto):
+                # for TCP only count ESTABLISHED; for UDP count any with raddr
+                if c.raddr and (proto == 'udp' or c.status == 'ESTABLISHED'):
+                    host, _ = c.raddr
+                    seen.add(host)
         self.network_events = seen
 
     def capture(self):
@@ -942,6 +944,7 @@ def process_sample(
         f"mod_files={len(diff_dbg['modified_files'])}, "
         f"new_logs={len(diff_dbg['new_event_log_lines'])}, "
         f"new_wnd_msgs={len(diff_dbg['new_window_messages'])}"
+        f"new_net_evts={len(diff_dbg['new_network_events'])}"
     )
 
     # 4) Treat diff_dbg as "stealthy"
