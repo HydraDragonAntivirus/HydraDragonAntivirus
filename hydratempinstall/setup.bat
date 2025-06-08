@@ -1,7 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
 
-rem ───────────────────────────────────────────────────────────────────────────
 rem 1. Copy files from clamavconfig to C:\Program Files\ClamAV
 if exist "C:\Program Files\HydraDragonAntivirus\clamavconfig" (
     xcopy /Y "C:\Program Files\HydraDragonAntivirus\clamavconfig\*.*" "C:\Program Files\ClamAV\" 
