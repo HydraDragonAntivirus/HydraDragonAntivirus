@@ -7,6 +7,7 @@ OpenHydraDragon (Always-Debug + Window/Message Detection Edition):
   - Loads SIGMA-style .ohd rules.
   - Runs every sample normally (no Sandboxie).
   - Allows rules to match on new window titles/text (e.g., dialogs, message boxes).
+  - Unified network event handling to generate OHD rules only.
 """
 
 import os
@@ -38,7 +39,7 @@ from scapy.arch.windows import get_windows_if_list as get_if_list
 WM_GETTEXT = 0x000D
 WM_GETTEXTLENGTH = 0x000E
 
-# WinEvent constants ‐ not used directly in this file but kept for reference
+# WinEvent constants ‐ not used directly but kept for reference
 EVENT_OBJECT_CREATE       = 0x8000
 EVENT_OBJECT_SHOW         = 0x8002
 EVENT_SYSTEM_DIALOGSTART  = 0x0010
@@ -58,6 +59,10 @@ try:
     uia = CreateObject('UIAutomationClient.CUIAutomation')
 except Exception:
     uia = None
+
+# -------------------------------------------------------------------
+# 1) WINDOWS API HELPERS
+# -------------------------------------------------------------------
 
 def get_process_path(hwnd: int):
     """
@@ -93,6 +98,7 @@ def get_process_path(hwnd: int):
     except Exception as e:
         return f"<error_pid:{pid.value}:{type(e).__name__}>"
 
+
 def get_window_text(hwnd: int) -> str:
     """
     Retrieve the text of a window (title). Always returns a string (possibly empty).
@@ -102,6 +108,7 @@ def get_window_text(hwnd: int) -> str:
     user32.SendMessageW(hwnd, WM_GETTEXT, length, ctypes.byref(buf))
     return buf.value or ""
 
+
 def get_control_text(hwnd: int) -> str:
     """
     Retrieve the text of a control. Same approach as get_window_text.
@@ -110,6 +117,7 @@ def get_control_text(hwnd: int) -> str:
     buf = ctypes.create_unicode_buffer(length)
     user32.SendMessageW(hwnd, WM_GETTEXT, length, ctypes.byref(buf))
     return buf.value or ""
+
 
 def get_uia_text(hwnd: int) -> str:
     """
@@ -124,6 +132,7 @@ def get_uia_text(hwnd: int) -> str:
     except Exception:
         return ""
 
+
 def find_child_windows(parent_hwnd: int) -> List[int]:
     """
     Find all direct child windows of the given parent window.
@@ -135,6 +144,7 @@ def find_child_windows(parent_hwnd: int) -> List[int]:
     EnumChildProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
     user32.EnumChildWindows(parent_hwnd, EnumChildProc(_enum_proc), None)
     return child_windows
+
 
 def find_descendant_windows(root_hwnd: int) -> List[int]:
     """
@@ -149,6 +159,7 @@ def find_descendant_windows(root_hwnd: int) -> List[int]:
             descendants.append(ch)
             stack.append(ch)
     return descendants
+
 
 def find_windows_with_text() -> List[Tuple[int, str, str]]:
     """
@@ -180,7 +191,7 @@ def find_windows_with_text() -> List[Tuple[int, str, str]]:
     return window_handles
 
 # -------------------------------------------------------------------
-# 1) VERBOSE LOGGING SETUP (console + file)
+# 2) VERBOSE LOGGING SETUP (console + file)
 # -------------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -204,8 +215,63 @@ logging.getLogger().addHandler(console_handler)
 logging.info("=== OpenHydraDragon Always-Debug + Window Detection Started ===")
 
 # -------------------------------------------------------------------
-# 2) NETWORK RULE WRITER (Scapy-based)
+# 3) NETWORK RULE WRITER (Unified OHD-based)
 # -------------------------------------------------------------------
+
+def write_http_ohd_rule(host: str, path: str, rules_dir: str):
+    rule_id = f"NET_{host.replace('.', '_')}_{path.strip('/').replace('/', '_')}"
+    filename = os.path.join(rules_dir, f"{rule_id}.ohd")
+    if os.path.exists(filename):
+        return
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.write(f"rule {rule_id}\n")
+        f.write("{\n")
+        f.write("    meta:\n")
+        f.write(f'        id = "{rule_id}"\n')
+        f.write(f'        description = "HTTP network I/O to {host}{path}"\n')
+        f.write("    condition:\n")
+        f.write(f'        network.new_network_events contains "{host}{path}"\n')
+        f.write("}\n")
+    logging.info(f"[OHD] Wrote HTTP rule: {filename}")
+
+
+def write_generic_ohd_rule(src: str, sport: str, dst: str, dport: str, rules_dir: str):
+    safe_src = src.replace('.', '_')
+    safe_dst = dst.replace('.', '_')
+    rule_id = f"NET_{safe_src}_{sport}_{safe_dst}_{dport}"
+    filename = os.path.join(rules_dir, f"{rule_id}.ohd")
+    if os.path.exists(filename):
+        return
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.write(f"rule {rule_id}\n")
+        f.write("{\n")
+        f.write("    meta:\n")
+        f.write(f'        id = "{rule_id}"\n')
+        f.write(f'        description = "Network traffic from {src}:{sport} to {dst}:{dport}"\n')
+        f.write("    condition:\n")
+        f.write(f'        network.new_network_events contains "{src}:{sport} -> {dst}:{dport}"\n')
+        f.write("}\n")
+    logging.info(f"[OHD] Wrote generic network rule: {filename}")
+
+
+def write_raw_ohd_rule(payload: bytes, rules_dir: str):
+    hexpat = payload.hex()
+    rule_id = f"RAW_{hexpat[:16]}"
+    filename = os.path.join(rules_dir, f"{rule_id}.ohd")
+    if os.path.exists(filename):
+        return
+    pattern = ''.join(f"\\x{hexpat[i:i+2]}" for i in range(0, len(hexpat), 2))
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.write(f"rule {rule_id}\n")
+        f.write("{\n")
+        f.write("    meta:\n")
+        f.write(f'        id = "{rule_id}"\n')
+        f.write(f'        description = "Raw packet pattern {rule_id}"\n')
+        f.write("    condition:\n")
+        f.write(f'        network.new_network_events contains "{pattern}"\n')
+        f.write("}\n")
+    logging.info(f"[OHD] Wrote RAW rule: {filename}")
+
 
 def extract_http_requests(pkt) -> List[Tuple[str, str]]:
     if pkt.haslayer(TCP) and pkt.haslayer(Raw):
@@ -220,60 +286,12 @@ def extract_http_requests(pkt) -> List[Tuple[str, str]]:
                 return [(host_m.group(1), m.group(2))]
     return []
 
+
 def extract_raw_payload(pkt) -> List[bytes]:
     if pkt.haslayer(Raw):
         return [pkt[Raw].load]
     return []
 
-# ADDED: Extract full packet as bytes
-def extract_full_packet(pkt) -> bytes:
-    return bytes(pkt)
-
-# ADDED: Save full packet to file
-def write_full_packet(pkt, rules_dir: str):
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")  # e.g., 20250608_134559_123456
-    filename = os.path.join(rules_dir, f"FULL_{timestamp}.bin")
-    if os.path.exists(filename):
-        return
-    with open(filename, 'wb') as f:
-        f.write(bytes(pkt))
-    logging.info(f"[NetRule] Wrote full packet: {filename}")
-
-def write_ohd_rule(host: str, path: str, rules_dir: str):
-    safe_host = re.sub(r'[^A-Za-z0-9]', '_', host)
-    safe_path = re.sub(r'[^A-Za-z0-9]', '_', path)
-    rule_id = f"NET_{safe_host}_{safe_path}"
-    filename = os.path.join(rules_dir, f"{rule_id}.ohd")
-    if os.path.exists(filename):
-        return
-    with open(filename, 'w', encoding='utf-8') as f:
-        f.write(f"rule {rule_id}\n")
-        f.write("{\n")
-        f.write("    meta:\n")
-        f.write(f'        id = "{rule_id}"\n')
-        f.write(f'        description = "Network I/O to {host}{path}"\n')
-        f.write("    condition:\n")
-        f.write(f'        eventlog.new_event_log_lines contains "{host}{path}"\n')
-        f.write("}\n")
-    logging.info(f"[NetRule] Wrote HTTP rule: {filename}")
-
-def write_raw_rule(payload: bytes, rules_dir: str):
-    hexpat = payload.hex()
-    rule_id = f"RAW_{hexpat[:16]}"
-    filename = os.path.join(rules_dir, f"{rule_id}.ohd")
-    if os.path.exists(filename):
-        return
-    pattern = ''.join(f"\\x{hexpat[i:i+2]}" for i in range(0, len(hexpat), 2))
-    with open(filename, 'w', encoding='utf-8') as f:
-        f.write(f"rule {rule_id}\n")
-        f.write("{\n")
-        f.write("    meta:\n")
-        f.write(f'        id = "{rule_id}"\n')
-        f.write(f'        description = "Raw packet pattern {rule_id}"\n')
-        f.write("    condition:\n")
-        f.write(f'        eventlog.new_event_log_lines contains "{pattern}"\n')
-        f.write("}\n")
-    logging.info(f"[NetRule] Wrote RAW rule: {filename}")
 
 def sniff_and_generate(snapshot,
                        rules_dir: str,
@@ -281,38 +299,49 @@ def sniff_and_generate(snapshot,
                        count: int = 0,
                        timeout: int = None):
     """
-    Sniff on `iface` (or first available if None) using BPF "ip",
-    generate .ohd rules for HTTP, raw bytes, and save full packet binary.
-    Any host+path seen gets added to snapshot._sniffed_http_hosts.
+    Sniff on iface, add network events to snapshot.network_events,
+    and write unified OHD rules for HTTP, generic, and raw.
     """
     os.makedirs(rules_dir, exist_ok=True)
 
     # pick default iface if none provided
     if iface is None:
         first = get_if_list()[0]
-        # on Windows get_if_list() yields dicts; extract the 'name'
-        if isinstance(first, dict):
-            iface = first.get('name')
-        else:
-            iface = first
+        iface = first['name'] if isinstance(first, dict) else first
     logging.info(f"[NetRule] Sniffing on {iface!r} → {rules_dir}")
 
-    # initialize our buffer for hostnames/URLs
-    snapshot._sniffed_http_hosts = set()
-
     def _callback(pkt):
-        # HTTP requests → rule + record into network_events
+        # HTTP host/path
         for host, path in extract_http_requests(pkt):
-            write_ohd_rule(host, path, rules_dir)
-            snapshot._sniffed_http_hosts.add(f"{host}{path}")
+            entry = f"domain://{host}{path}"
+            snapshot.network_events.add(entry)
+            write_http_ohd_rule(host, path, rules_dir)
 
-        # raw payload rules
+        # Generic IP/port/proto
+        if pkt.haslayer("IP"):
+            proto = "tcp" if pkt.haslayer('TCP') else "udp" if pkt.haslayer('UDP') else "ip"
+            src = pkt['IP'].src
+            dst = pkt['IP'].dst
+            sport = pkt.sport if hasattr(pkt, 'sport') else "any"
+            dport = pkt.dport if hasattr(pkt, 'dport') else "any"
+            entry = f"{proto}://{src}:{sport} -> {dst}:{dport}"
+            snapshot.network_events.add(entry)
+            write_generic_ohd_rule(src, str(sport), dst, str(dport), rules_dir)
+
+        # Raw payload
         for raw in extract_raw_payload(pkt):
-            write_raw_rule(raw, rules_dir)
+            hex_payload = raw.hex()
+            entry = f"raw://{hex_payload[:32]}"
+            snapshot.network_events.add(entry)
+            write_raw_ohd_rule(raw, rules_dir)
 
-        # save full packet binary
-        pkt_bytes = extract_full_packet(pkt)
-        write_full_packet(pkt_bytes, rules_dir)
+        # Write full packet to file
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        filename = os.path.join(rules_dir, f"FULL_{timestamp}.bin")
+        if not os.path.exists(filename):
+            with open(filename, 'wb') as f:
+                f.write(bytes(pkt))
+            logging.info(f"[OHD] Wrote full packet: {filename}")
 
     sniff(
         iface=iface,
@@ -324,7 +353,7 @@ def sniff_and_generate(snapshot,
     )
 
 # -------------------------------------------------------------------
-# 3) SNAPSHOT CAPTURE (REGISTRY + FILESYSTEM + EVENT LOGS + WINDOW MESSAGES)
+# 4) SNAPSHOT CAPTURE (REGISTRY + FILESYSTEM + EVENT LOGS + WINDOW MESSAGES)
 # -------------------------------------------------------------------
 
 class Snapshot:
@@ -622,7 +651,7 @@ class Snapshot:
         return diffs
 
 # -------------------------------------------------------------------
-# 4) RULE ENGINE (SIGMA‐STYLE .ohd PARSER + EVALUATOR)
+# 5) RULE ENGINE (SIGMA‐STYLE .ohd PARSER + EVALUATOR)
 # -------------------------------------------------------------------
 
 r"""
@@ -637,6 +666,7 @@ Rule syntax (.ohd):
             filesystem.new_files contains "AppData\\Local\\Temp\\evil.dll"
             eventlog.System matches "malicious.*exe"
             window_messages contains "Error connecting to server"
+            network.new_network_events contains "evil\\.com"
     }
 
 Supported fields:
@@ -646,29 +676,28 @@ Supported fields:
   - filesystem.modified_files
   - eventlog.<LogName> matches "<regex>"
   - window_messages contains "<substring>" or matches "<regex>"
+  - network.new_network_events contains "<substring>" or matches "<regex>"
 
 Operators:
   - contains (case‐insensitive substring)
   - matches  (case‐insensitive regex)
 """
 
-RULE_RE = re.compile(r'^\s*rule\s+([A-Za-z0-9_-]+)\s*\{\s*$', re.IGNORECASE)
-META_RE = re.compile(r'^\s*meta\s*:\s*$', re.IGNORECASE)
-COND_RE = re.compile(r'^\s*condition\s*:\s*$', re.IGNORECASE)
-KEYVAL_RE = re.compile(r'^\s*([A-Za-z0-9_-]+)\s*=\s*"(.+?)"\s*$', re.DOTALL)
-# now supports network.new_network_events
+RULE_RE = re.compile(r'^\\s*rule\\s+([A-Za-z0-9_-]+)\\s*\\{\\s*$', re.IGNORECASE)
+META_RE = re.compile(r'^\\s*meta\\s*:\\s*$', re.IGNORECASE)
+COND_RE = re.compile(r'^\\s*condition\\s*:\\s*$', re.IGNORECASE)
+KEYVAL_RE = re.compile(r'^\\s*([A-Za-z0-9_-]+)\\s*=\\s*\"(.+?)\"\\s*$', re.DOTALL)
 COND_LINE_RE = re.compile(
-    r'^\s*('
-    r'(?:new_|deleted_|modified_)?'
+    r'^\\s*('
+    r'(?:new_|deleted_|modified_)'
     r'(?:'
-    r'registry\.(?:new_registry_keys|modified_registry_values)|'
-    r'filesystem\.(?:new_files|modified_files)|'
-    r'eventlog\.[A-Za-z0-9_]+|'
+    r'registry\\.(?:new_registry_keys|modified_registry_values)|'
+    r'filesystem\\.(?:new_files|modified_files)|'
+    r'eventlog\\.[A-Za-z0-9_]+|'
     r'window_messages|'
-    r'network\.new_network_events'
+    r'network\\.new_network_events'
     r')'
-    r')\s+'
-    r'(contains|matches)\s*"(.*?)"\s*$',
+    r')\\s+' r'(contains|matches)\\s*\"(.*?)\"\\s*$',
     re.IGNORECASE | re.DOTALL
 )
 
@@ -702,7 +731,7 @@ class Rule:
 
         def to_bytes(pat: str) -> Optional[bytes]:
             try:
-                return bytes.fromhex(pat.replace(r'\x', ''))
+                return bytes.fromhex(pat.replace(r'\\\\x', ''))
             except Exception:
                 return None
 
@@ -722,7 +751,7 @@ class Rule:
             return bool(regex.search(clean))
 
         for field, op, pattern in self.condition_lines:
-            is_hex = r'\x' in pattern
+            is_hex = r'\\\\x' in pattern
             hex_bytes = to_bytes(pattern) if is_hex else None
             items: List[str] = []
 
@@ -760,12 +789,12 @@ class Rule:
                         matched = True
                         break
             else:
-                if op == 'contains':
+                if op.lower() == 'contains':
                     for text in items:
                         if text_contains(text, pattern):
                             matched = True
                             break
-                elif op == 'matches':
+                elif op.lower() == 'matches':
                     for text in items:
                         if text_matches(text, pattern):
                             matched = True
@@ -809,7 +838,7 @@ class RuleEngine:
                 path = Path(rules_dir) / file
                 logging.info(f"[RuleEngine] Parsing: {file}")
                 self._parse_rule_file(path)
-        logging.info(f"[RuleEngine] Total rules loaded: {len(self.rules)} -> {[r.name for r in self.rules]}" )
+        logging.info(f"[RuleEngine] Total rules loaded: {len(self.rules)} -> {[r.name for r in self.rules]}")
 
     def _parse_rule_file(self, filepath: Path):
         logging.info(f"[RuleEngine] Parsing file: {filepath.name}")
@@ -880,7 +909,7 @@ class RuleEngine:
         return matches
 
 # -------------------------------------------------------------------
-# 5) SUPPORT FUNCTIONS
+# 6) SUPPORT FUNCTIONS (unchanged)
 # -------------------------------------------------------------------
 
 def gather_custom_logs(log_dirs: List[str]) -> List[str]:
@@ -904,7 +933,7 @@ def gather_custom_logs(log_dirs: List[str]) -> List[str]:
     return collected
 
 # -------------------------------------------------------------------
-# 6) MAIN WORKFLOW (AUTOMATED)
+# 7) MAIN WORKFLOW (AUTOMATED)
 # -------------------------------------------------------------------
 
 def process_sample(
@@ -971,7 +1000,7 @@ def process_sample(
     logging.info(
         "[Run] Diffs summary: "
         f"new_net_evts={len(diff_dbg['new_network_events'])} "
-        f"(including domains/URLs)"
+        "(including domains/URLs)"
     )
 
     # 6) Gather custom logs, then evaluate
@@ -982,6 +1011,7 @@ def process_sample(
     matched = engine.evaluate_all(diff_dbg)
 
     return matched
+
 
 def main():
     """
