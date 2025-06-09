@@ -474,12 +474,12 @@ class Snapshot:
 
     def capture_event_logs(self):
         """
-        Use `wevtutil` to grab the last ~1000 lines from Application, Security, System.
+        Use `wevtutil` to grab the last ~5000 lines from Application, Security, System.
         """
         logs = ["Application", "Security", "System"]
         for log in logs:
             try:
-                cmd = ["wevtutil", "qe", log, "/f:text", "/c:1000"]
+                cmd = ["wevtutil", "qe", log, "/f:text", "/c:5000"]
                 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 out, err = proc.communicate(timeout=30)
                 if err:
