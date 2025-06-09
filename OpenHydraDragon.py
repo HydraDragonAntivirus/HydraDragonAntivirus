@@ -31,7 +31,7 @@ conf.use_pcap = True
 from scapy.sendrecv import sniff
 from scapy.layers.inet import TCP, UDP, IP
 from scapy.packet import Raw
-from scapy.arch.windows import get_windows_if_list as get_if_list
+from scapy.arch.windows import get_windows_if_list
 
 # -------------------------------------------------------------------
 # 0) WINDOWS API + UI AUTOMATION SETUP FOR COMMANDLINE & MESSAGE DETECTION
@@ -254,25 +254,6 @@ def write_generic_ohd_rule(src: str, sport: str, dst: str, dport: str, rules_dir
     logging.info(f"[OHD] Wrote generic network rule: {filename}")
 
 
-def write_raw_ohd_rule(payload: bytes, rules_dir: str):
-    hexpat = payload.hex()
-    rule_id = f"RAW_{hexpat[:16]}"
-    filename = os.path.join(rules_dir, f"{rule_id}.ohd")
-    if os.path.exists(filename):
-        return
-    pattern = ''.join(f"\\x{hexpat[i:i+2]}" for i in range(0, len(hexpat), 2))
-    with open(filename, 'w', encoding='utf-8') as f:
-        f.write(f"rule {rule_id}\n")
-        f.write("{\n")
-        f.write("    meta:\n")
-        f.write(f'        id = "{rule_id}"\n')
-        f.write(f'        description = "Raw packet pattern {rule_id}"\n')
-        f.write("    condition:\n")
-        f.write(f'        network.new_network_events contains "{pattern}"\n')
-        f.write("}\n")
-    logging.info(f"[OHD] Wrote RAW rule: {filename}")
-
-
 def extract_http_requests(pkt) -> List[Tuple[str, str]]:
     if pkt.haslayer(TCP) and pkt.haslayer(Raw):
         try:
@@ -284,12 +265,6 @@ def extract_http_requests(pkt) -> List[Tuple[str, str]]:
             host_m = re.search(r"Host:\s*([^\r\n]+)", text)
             if host_m:
                 return [(host_m.group(1), m.group(2))]
-    return []
-
-
-def extract_raw_payload(pkt) -> List[bytes]:
-    if pkt.haslayer(Raw):
-        return [pkt[Raw].load]
     return []
 
 
@@ -306,28 +281,24 @@ def sniff_and_generate(snapshot,
                        timeout: int = None):
     os.makedirs(rules_dir, exist_ok=True)
 
-    # Determine interfaces to sniff on
+    # Determine interface(s) to sniff on
     interfaces = [iface] if iface else get_active_interfaces()
     logging.info(f"[NetRule] Sniffing on interfaces: {interfaces} → {rules_dir}")
 
     def _callback(pkt):
-        # 1) Detect new TCP connections (SYN w/o ACK)
+        # 1) New TCP connection detection (SYN without ACK)
         if pkt.haslayer(TCP):
             flags = pkt[TCP].flags
-            is_syn = bool(flags & 0x02)
-            is_ack = bool(flags & 0x10)
-            if is_syn and not is_ack:
-                src, sport = pkt[IP].src, pkt[TCP].sport
-                dst, dport = pkt[IP].dst, pkt[TCP].dport
+            if flags & 0x02 and not flags & 0x10:
                 logging.info(json.dumps({
                     "event": "NewConn",
-                    "src_ip": src,
-                    "src_port": sport,
-                    "dest_ip": dst,
-                    "dest_port": dport
+                    "src_ip": pkt[IP].src,
+                    "src_port": pkt[TCP].sport,
+                    "dest_ip": pkt[IP].dst,
+                    "dest_port": pkt[TCP].dport
                 }))
 
-        # 2) HTTP host/path ⇒ HTTP OHD match
+        # 2) HTTP host/path match
         for host, path in extract_http_requests(pkt):
             entry = f"domain://{host}{path}"
             snapshot.network_events.add(entry)
@@ -342,7 +313,7 @@ def sniff_and_generate(snapshot,
                 "rule": {"type": "http", "host": host, "path": path}
             }))
 
-        # 3) Generic IP/port/proto match
+        # 3) Generic IP connection match
         if pkt.haslayer(IP):
             proto = "tcp" if pkt.haslayer(TCP) else "udp" if pkt.haslayer(UDP) else "ip"
             src, dst = pkt[IP].src, pkt[IP].dst
@@ -361,38 +332,42 @@ def sniff_and_generate(snapshot,
                 "rule": {"type": "generic", "proto": proto}
             }))
 
-        # 4) Raw payload match
-        for raw in extract_raw_payload(pkt):
-            hex_payload = raw.hex()
-            entry = f"raw://{hex_payload[:32]}"
-            snapshot.network_events.add(entry)
-            write_raw_ohd_rule(raw, rules_dir)
-            logging.info(json.dumps({
-                "event": "ohd_match",
-                "protocol": "RAW",
-                "payload_prefix": hex_payload[:32],
-                "rule": {"type": "raw", "length": len(raw)}
-            }))
-
-        # 5) Write full packet once per event loop
+        # 4) Save full packet (binary) with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         filename = os.path.join(rules_dir, f"FULL_{timestamp}.bin")
-        if not os.path.exists(filename):
-            with open(filename, 'wb') as f:
-                f.write(bytes(pkt))
-            logging.info(json.dumps({
-                "event": "FullPacket",
-                "filename": filename
-            }))
+        with open(filename, 'wb') as f:
+            f.write(bytes(pkt))
+        logging.info(json.dumps({
+            "event": "FullPacket",
+            "filename": filename
+        }))
 
-    sniff(
-        iface=interfaces,
-        filter="ip",
-        prn=_callback,
-        count=count,
-        timeout=timeout,
-        store=False
-    )
+    # Run sniffer on each interface in parallel
+    def _run_sniff(iface_name):
+        try:
+            sniff(
+                iface=iface_name,
+                filter="ip",
+                prn=_callback,
+                count=count,
+                timeout=timeout,
+                store=False
+            )
+        except Exception as e:
+            logging.error(f"[NetRule] Failed to sniff on {iface_name}: {e}")
+
+    threads = []
+    for iface_name in interfaces:
+        t = threading.Thread(target=_run_sniff, args=(iface_name,), daemon=True)
+        t.start()
+        threads.append(t)
+
+    for t in threads:
+        t.join()
+
+    logging.info("[NetRule] All sniffing threads finished.")
+
+
 
 # -------------------------------------------------------------------
 # 4) SNAPSHOT CAPTURE (REGISTRY + FILESYSTEM + EVENT LOGS + WINDOW MESSAGES)
@@ -553,7 +528,7 @@ class Snapshot:
 
         # If no iface is specified, pick the first interface that Scapy sees
         if iface is None:
-            first = get_if_list()[0]
+            first = get_windows_if_list()[0]
             iface = first['name'] if isinstance(first, dict) else first
         logging.info(f"[Snapshot] Sniffing full packets on {iface!r} (timeout={timeout}s, count={count})")
 
@@ -1017,55 +992,41 @@ def process_sample(
     timeout: int = 60
 ) -> List[str]:
     """
-    0) Load rules + extract watch‐list
-    1) Pre‐snapshot (registry, fs, event logs, window messages)
-    2) Start a background sniff that collects ALL packets into snap_during.network_packets
-    3) Launch sample; wait for it to finish (or timeout)
-    4) After sniff finishes, build snap_after.network_events from ALL captured packets
-    5) Post‐snapshot (registry, fs, logs, windows)
-    6) Compute diff (including new_network_events)
-    7) Gather custom logs + evaluate OHD rules
+    Full behavioral analysis pipeline:
+    0) Load rules and watch-list
+    1) Pre-execution snapshot (registry, fs, logs, etc)
+    2) Start sniffer in background
+    3) Launch sample concurrently
+    4) Wait for both to finish
+    5) Post-execution snapshot
+    6) Compute differences
+    7) Extract custom logs + evaluate rules
     """
     engine = RuleEngine(rules_dir)
-    watch  = engine.get_watchlist()
+    watch = engine.get_watchlist()
 
-    # 1) Pre‐snapshot
+    # 1) Pre-snapshot
     snap_before = Snapshot(fs_roots=fs_roots, watchlist=watch)
     snap_before.rules_dir = rules_dir
     snap_before.capture()
 
-    # 2) Prepare a “during” snapshot for network‐only captures
+    # 2) During-execution snapshot (for network capture only)
     snap_during = Snapshot(fs_roots=fs_roots, watchlist=watch)
     snap_during.rules_dir = rules_dir
-    snap_during.network_packets = []   # raw Packet objects
-    snap_during.network_events  = set() # will hold strings for every packet
+    snap_during.network_packets = []
+    snap_during.network_events = set()
 
     def _sniffer():
-        """
-        Capture all IP packets for up to `timeout` seconds.
-        Append each packet into snap_during.network_packets,
-        and populate snap_during.network_events with BOTH:
-          - "proto://src:port -> dst:port"
-          - any "domain://host/path" extracted from HTTP payloads
-        """
+        """Sniff all IP packets concurrently on valid interfaces."""
 
         def _collector(pkt):
-            # --- START: Added code for new connection detection ---
-            # Detect new TCP connections (SYN w/o ACK) and log them
             if pkt.haslayer(TCP):
                 flags = pkt[TCP].flags
-                is_syn = bool(flags & 0x02)
-                is_ack = bool(flags & 0x10)
-                if is_syn and not is_ack:
-                    # Use a simple logging format for clarity
-                    logging.info(
-                        f"[New Connection] {pkt[IP].src}:{pkt[TCP].sport} -> {pkt[IP].dst}:{pkt[TCP].dport}"
-                    )
-            # --- END: Added code for new connection detection ---
+                if flags & 0x02 and not flags & 0x10:  # SYN without ACK
+                    logging.info(f"[New Connection] {pkt[IP].src}:{pkt[TCP].sport} -> {pkt[IP].dst}:{pkt[TCP].dport}")
 
             snap_during.network_packets.append(pkt)
 
-            # Build "proto://src:port -> dst:port" if IP/TCP/UDP
             if pkt.haslayer(IP):
                 proto = "tcp" if pkt.haslayer(TCP) else "udp" if pkt.haslayer(UDP) else "ip"
                 src = pkt[IP].src
@@ -1075,84 +1036,90 @@ def process_sample(
                 conn_str = f"{proto}://{src}:{sport} -> {dst}:{dport}"
                 snap_during.network_events.add(conn_str)
 
-            # Also extract HTTP host/path if present (Raw payload begins with "GET /..." or "POST /...")
             for host, path in extract_http_requests(pkt):
                 http_entry = f"domain://{host}{path}"
                 snap_during.network_events.add(http_entry)
-                # write HTTP-based OHD rule immediately if desired
                 write_http_ohd_rule(host, path, snap_during.rules_dir)
 
-            # If you want raw‐payload hex‐based rules, do:
-            for raw_payload in extract_raw_payload(pkt):
-                write_raw_ohd_rule(raw_payload, snap_during.rules_dir)
+        def sniff_on_interface(iface):
+            try:
+                logging.debug(f"[Sniffer] Starting on interface: {iface}")
+                sniff(
+                    iface=iface,
+                    filter="ip",
+                    prn=_collector,
+                    timeout=timeout,
+                    count=0,
+                    store=False
+                )
+                logging.info(f"[Sniffer] Finished on {iface}")
+            except Exception as e:
+                logging.error(f"[Sniffer] Skipping interface '{iface}': {e}")
 
-        # Pick a default interface
-        first = get_if_list()[0]
-        iface = first["name"] if isinstance(first, dict) else first
-        logging.info(f"[Sniffer] Capturing ALL IP packets on {iface!r} for {timeout}s ...")
-        sniff(
-            iface=iface,
-            filter="ip",
-            prn=_collector,
-            timeout=timeout,
-            count=0,
-            store=False
-        )
-        logging.info("[Sniffer] Finished capturing packets.")
+        interfaces = [i['name'] for i in get_windows_if_list()]
+        logging.info(f"[Sniffer] Capturing on interfaces: {interfaces}")
 
-    # Start sniffing in background
+        threads = []
+        for iface in interfaces:
+            t = threading.Thread(target=sniff_on_interface, args=(iface,), daemon=True)
+            t.start()
+            threads.append(t)
+
+        for t in threads:
+            t.join()
+
+        logging.info("[Sniffer] All interfaces done.")
+
+    # Start sniffing concurrently
     sniff_thread = threading.Thread(target=_sniffer, daemon=True)
     sniff_thread.start()
 
-    # 3) Launch the sample and wait
+    # 3) Launch sample concurrently
     cmd = [sample_path]
-    logging.info(f"[Run] Launching sample: {' '.join(cmd)}")
+    logging.info(f"[Run] Executing sample: {cmd}")
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
     except Exception as e:
         logging.exception(f"[Run] Failed to launch sample: {e}")
         return []
 
-    try:
-        stdout, stderr = proc.communicate(timeout=timeout)
-        if stdout:
-            logging.debug(f"[Run] stdout:\n{stdout.decode(errors='ignore')}")
-        if stderr:
-            logging.error(f"[Run] stderr:\n{stderr.decode(errors='ignore')}")
-        ret_code = proc.returncode
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        logging.info("[Run] Process timed out and was killed.")
-        ret_code = -1
+    def wait_for_sample():
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+            if stdout:
+                logging.debug(f"[Run] stdout:\n{stdout.decode(errors='ignore')}")
+            if stderr:
+                logging.error(f"[Run] stderr:\n{stderr.decode(errors='ignore')}")
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            logging.warning("[Run] Sample timed out and was terminated.")
 
-    logging.info(f"[Run] Exit code for '{sample_path}': {ret_code}")
+    sample_thread = threading.Thread(target=wait_for_sample, daemon=True)
+    sample_thread.start()
 
-    # 4) Wait for sniff to finish its full timeout window
+    # 4) Wait for both sample and sniffer
+    sample_thread.join()
     sniff_thread.join()
 
-    # Build our “after” snapshot (registry, fs, event logs, window messages)
+    # 5) Post-snapshot
     snap_after = Snapshot(fs_roots=fs_roots, watchlist=watch)
     snap_after.rules_dir = rules_dir
     snap_after.capture()
 
-    # Inject ALL captured network data into snap_after
+    # Include captured network data
     snap_after.network_packets = snap_during.network_packets
-    snap_after.network_events  = snap_during.network_events
+    snap_after.network_events = snap_during.network_events
 
-    # 5) Compute diff (now includes every new network entry)
+    # 6) Diff and rule matching
     diff_dbg = snap_after.diff(snap_before)
-    logging.info(
-        "[Run] Diffs summary: "
-        f"new_net_evts={len(diff_dbg.get('new_network_events', []))} "
-        "(including domains/URLs)"
-    )
+    logging.info(f"[Run] Diff summary: new_network_events={len(diff_dbg.get('new_network_events', []))}")
 
-    # 6) Gather custom logs
+    # 7) Gather custom logs
     custom_lines = gather_custom_logs(custom_log_dirs)
-    for ln in custom_lines:
-        diff_dbg["new_event_log_lines"].append(("CustomLog", ln))
+    for line in custom_lines:
+        diff_dbg["new_event_log_lines"].append(("CustomLog", line))
 
-    # 7) Evaluate OHD rules
+    # Evaluate rules
     matched = engine.evaluate_all(diff_dbg)
     return matched
 
