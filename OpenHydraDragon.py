@@ -16,6 +16,7 @@ import logging
 import subprocess
 import winreg
 import re
+import json
 import threading
 import ctypes
 from ctypes import wintypes
@@ -754,21 +755,22 @@ Operators:
   - matches  (case‐insensitive regex)
 """
 
-RULE_RE = re.compile(r'^\\s*rule\\s+([A-Za-z0-9_-]+)\\s*\\{\\s*$', re.IGNORECASE)
+RULE_RE = re.compile(r'^\s*rule\s+([A-Za-z0-9_-]+)\s*\{\s*', re.IGNORECASE)
 META_RE = re.compile(r'^\\s*meta\\s*:\\s*$', re.IGNORECASE)
 COND_RE = re.compile(r'^\\s*condition\\s*:\\s*$', re.IGNORECASE)
 KEYVAL_RE = re.compile(r'^\\s*([A-Za-z0-9_-]+)\\s*=\\s*\"(.+?)\"\\s*$', re.DOTALL)
 COND_LINE_RE = re.compile(
-    r'^\\s*('
-    r'(?:new_|deleted_|modified_)'
-    r'(?:'
-    r'registry\\.(?:new_registry_keys|modified_registry_values)|'
-    r'filesystem\\.(?:new_files|modified_files)|'
-    r'eventlog\\.[A-Za-z0-9_]+|'
-    r'window_messages|'
-    r'network\\.new_network_events'
-    r')'
-    r')\\s+' r'(contains|matches)\\s*\"(.*?)\"\\s*$',
+    r'^\s*('
+        r'(?:new_|deleted_|modified_)?'
+        r'(?:'
+            r'registry\.(?:new_registry_keys|modified_registry_values)|'
+            r'filesystem\.(?:new_files|modified_files)|'
+            r'eventlog\.[A-Za-z0-9_]+|'
+            r'window_messages|'
+            r'network\.new_network_events'
+        r')'
+    r')\s+'
+    r'(contains|matches)\s*"(.+?)"\s*$',
     re.IGNORECASE | re.DOTALL
 )
 
@@ -1046,14 +1048,28 @@ def process_sample(
           - "proto://src:port -> dst:port"
           - any "domain://host/path" extracted from HTTP payloads
         """
+
         def _collector(pkt):
+            # --- START: Added code for new connection detection ---
+            # Detect new TCP connections (SYN w/o ACK) and log them
+            if pkt.haslayer(TCP):
+                flags = pkt[TCP].flags
+                is_syn = bool(flags & 0x02)
+                is_ack = bool(flags & 0x10)
+                if is_syn and not is_ack:
+                    # Use a simple logging format for clarity
+                    logging.info(
+                        f"[New Connection] {pkt[IP].src}:{pkt[TCP].sport} -> {pkt[IP].dst}:{pkt[TCP].dport}"
+                    )
+            # --- END: Added code for new connection detection ---
+
             snap_during.network_packets.append(pkt)
 
             # Build "proto://src:port -> dst:port" if IP/TCP/UDP
             if pkt.haslayer(IP):
                 proto = "tcp" if pkt.haslayer(TCP) else "udp" if pkt.haslayer(UDP) else "ip"
-                src   = pkt[IP].src
-                dst   = pkt[IP].dst
+                src = pkt[IP].src
+                dst = pkt[IP].dst
                 sport = pkt.sport if hasattr(pkt, "sport") else "any"
                 dport = pkt.dport if hasattr(pkt, "dport") else "any"
                 conn_str = f"{proto}://{src}:{sport} -> {dst}:{dport}"
@@ -1073,7 +1089,7 @@ def process_sample(
         # Pick a default interface
         first = get_if_list()[0]
         iface = first["name"] if isinstance(first, dict) else first
-        logging.info(f"[Sniffer] Capturing ALL IP packets on {iface!r} for {timeout}s …")
+        logging.info(f"[Sniffer] Capturing ALL IP packets on {iface!r} for {timeout}s ...")
         sniff(
             iface=iface,
             filter="ip",
