@@ -4,7 +4,7 @@ r"""
 OpenHydraDragon (Always-Debug + Window/Message Detection Edition):
   - Captures registry, filesystem, Windows Event Logs, and live window messages.
   - Supports scanning a directory of samples.
-  - Loads SIGMA‐style .ohd rules.
+  - Loads SIGMA-style .ohd rules.
   - Runs every sample normally (no Sandboxie).
   - Allows rules to match on new window titles/text (e.g., dialogs, message boxes).
 """
@@ -275,23 +275,42 @@ def write_raw_rule(payload: bytes, rules_dir: str):
         f.write("}\n")
     logging.info(f"[NetRule] Wrote RAW rule: {filename}")
 
-def sniff_and_generate(rules_dir: str, iface: str = None, count: int = 0, timeout: int = None):
+def sniff_and_generate(snapshot,
+                       rules_dir: str,
+                       iface: str = None,
+                       count: int = 0,
+                       timeout: int = None):
     """
     Sniff on `iface` (or first available if None) using BPF "ip",
     generate .ohd rules for HTTP, raw bytes, and save full packet binary.
+    Any host+path seen gets added to snapshot._sniffed_http_hosts.
     """
     os.makedirs(rules_dir, exist_ok=True)
 
+    # pick default iface if none provided
     if iface is None:
-        iface = get_if_list()[0]
-    logging.info(f"[NetRule] Sniffing on {iface} → {rules_dir}")
+        first = get_if_list()[0]
+        # on Windows get_if_list() yields dicts; extract the 'name'
+        if isinstance(first, dict):
+            iface = first.get('name')
+        else:
+            iface = first
+    logging.info(f"[NetRule] Sniffing on {iface!r} → {rules_dir}")
+
+    # initialize our buffer for hostnames/URLs
+    snapshot._sniffed_http_hosts = set()
 
     def _callback(pkt):
-        for h, p in extract_http_requests(pkt):
-            write_ohd_rule(h, p, rules_dir)
+        # HTTP requests → rule + record into network_events
+        for host, path in extract_http_requests(pkt):
+            write_ohd_rule(host, path, rules_dir)
+            snapshot._sniffed_http_hosts.add(f"{host}{path}")
+
+        # raw payload rules
         for raw in extract_raw_payload(pkt):
             write_raw_rule(raw, rules_dir)
-        # ADDED: Save the full packet content
+
+        # save full packet binary
         pkt_bytes = extract_full_packet(pkt)
         write_full_packet(pkt_bytes, rules_dir)
 
@@ -463,6 +482,9 @@ class Snapshot:
                     host, _ = c.raddr
                     seen.add(host)
         self.network_events = seen
+
+        if hasattr(self, '_sniffed_http_hosts'):
+            self.network_events.update(self._sniffed_http_hosts)
 
     def capture(self):
         """
@@ -932,31 +954,33 @@ def process_sample(
 
     logging.info(f"[Run] Exit code for '{sample_path}': {ret_code}")
 
-    # 3) Post‐snapshot
+    # 3) Post-snapshot
     snap_after = Snapshot(fs_roots=fs_roots, watchlist=watch)
     snap_after.capture()
-    diff_dbg = snap_after.diff(snap_before)
-    logging.info(
-        "[Run] Diffs summary: "
-        f"new_keys={len(diff_dbg['new_registry_keys'])}, "
-        f"mod_vals={len(diff_dbg['modified_registry_values'])}, "
-        f"new_files={len(diff_dbg['new_files'])}, "
-        f"mod_files={len(diff_dbg['modified_files'])}, "
-        f"new_logs={len(diff_dbg['new_event_log_lines'])}, "
-        f"new_wnd_msgs={len(diff_dbg['new_window_messages'])}"
-        f"new_net_evts={len(diff_dbg['new_network_events'])}"
+
+    # 4) Harvest HTTP host+URLs into network_events
+    sniff_and_generate(
+        snapshot=snap_after,
+        rules_dir=rules_dir,
+        timeout=timeout
     )
 
-    # 4) Treat diff_dbg as "stealthy"
-    stealthy = diff_dbg
+    # 5) Compute diff (now includes both new IPs and new HTTP URLs)
+    diff_dbg = snap_after.diff(snap_before)
 
-    # 5) Gather custom logs
+    logging.info(
+        "[Run] Diffs summary: "
+        f"new_net_evts={len(diff_dbg['new_network_events'])} "
+        f"(including domains/URLs)"
+    )
+
+    # 6) Gather custom logs, then evaluate
     custom_lines = gather_custom_logs(custom_log_dirs)
     for ln in custom_lines:
-        stealthy["new_event_log_lines"].append(("CustomLog", ln))
+        diff_dbg["new_event_log_lines"].append(("CustomLog", ln))
 
-    # 6) Evaluate rules
-    matched = engine.evaluate_all(stealthy)
+    matched = engine.evaluate_all(diff_dbg)
+
     return matched
 
 def main():
