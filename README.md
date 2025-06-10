@@ -10,7 +10,7 @@
 Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my machine learning AI, Behaviour analysis, NLP-Based detection, website signatures, Ghidra and Snort etc.
 
 ## MEGA IMPORTANT
-- You have to set (manually of course) this part mega_optimisation_with_anti_false_positive=True if you don't care about false positives and optimisation. This setting is true because every antivirus on virustotal avoids false positives this way.
+- You have to set (manually of course) this part mega_optimization_with_anti_false_positive=True if you don't care about false positives and optimization. This setting is true because every antivirus on virustotal avoids false positives this way.
 - Pe header removed: https://www.virustotal.com/gui/file/9b7e921e971fe7523ba83a4599b4006ad214854eb043372129e4f5a68c5a427f
 - Original: https://www.virustotal.com/gui/file/1ef6c1a4dfdc39b63bfe650ca81ab89510de6c0d3d7c608ac5be80033e559326
 - What is the difference and why does YARA still flag it as malware? Because your YARA rule doesn't check for unknown file types and I only removed the pe header and went to detections 0. So this god mode rule will save this antivirus right now!
