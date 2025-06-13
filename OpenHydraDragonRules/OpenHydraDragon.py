@@ -26,19 +26,20 @@ from ctypes import wintypes
 import psutil
 import base64
 import binascii
+import pefile
 from comtypes.client import CreateObject
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Set, Optional, Callable
-from datetime import datetime
 from collections import defaultdict
 
 from scapy.config import conf
 conf.use_pcap = True
 from scapy.sendrecv import sniff
 from scapy.layers.inet import TCP, UDP, IP
-from scapy.layers.dns import DNS, DNSQR
+from scapy.layers.dns import DNSQR
 from scapy.packet import Raw
 from scapy.arch.windows import get_windows_if_list
+from cryptography import x509
 
 # -------------------------------------------------------------------
 # 0) WINDOWS API + UI AUTOMATION SETUP FOR COMMANDLINE & MESSAGE DETECTION
@@ -75,6 +76,73 @@ HIVE_MAP = {
 # -------------------------------------------------------------------
 # 1) WINDOWS API HELPERS
 # -------------------------------------------------------------------
+
+def get_certificate_serial(pe_path: str) -> Optional[str]:
+    pe = pefile.PE(pe_path, fast_load=False)
+    # Tell pefile to parse only the Security directory (index 4)
+    security_idx = pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_SECURITY']
+    pe.parse_data_directories(directories=[security_idx])
+
+    # Now this should exist:
+    if not hasattr(pe, 'DIRECTORY_ENTRY_SECURITY'):
+        return None
+
+    sec_entry = pe.DIRECTORY_ENTRY_SECURITY[0]
+    der_blob  = sec_entry.cert  # raw DER bytes of the WIN_CERTIFICATE blob
+
+    # Parse the DER with cryptography
+    cert = x509.load_der_x509_certificate(der_blob)
+    return format(cert.serial_number, 'X')
+
+def extract_resp_mime_types(sample_path: str) -> list[str]:
+    """
+    Placeholder: parse WebDAV or HTTP response MIME types from network_events
+    """
+    # TODO: implement actual extraction logic
+    return []
+
+
+def extract_http_fields(diffs: dict, key: str) -> list[str]:
+    """
+    Extract HTTP fields (method, uri, host) from diffs['new_network_events']
+    """
+    return [ ev.get(key) for ev in diffs.get('new_network_events', []) if ev.get(key) ]
+
+
+def extract_address(diffs: dict) -> list[str]:
+    """
+    Extract remote addresses (e.g. ngrok or RDP) from network events
+    """
+    return [ ev.get('address') for ev in diffs.get('new_network_events', []) if ev.get('address') ]
+
+
+def extract_id_orig_h(diffs: dict) -> list[str]:
+    """
+    Extract original host IP from network events
+    """
+    return [ ev.get('source_ip') for ev in diffs.get('new_network_events', []) if ev.get('source_ip') ]
+
+
+def extract_id_resp_h(diffs: dict) -> list[str]:
+    """
+    Extract response host IP from network events
+    """
+    return [ ev.get('destination_ip') for ev in diffs.get('new_network_events', []) if ev.get('destination_ip') ]
+
+
+def extract_eventlog_field(diffs: dict, field: str) -> list[str]:
+    """
+    Extract specified field values from Windows event logs
+    """
+    return [ e.get(field) for e in diffs.get('new_event_logs', []) if e.get(field) ]
+
+
+def extract_scheduled_tasks(diffs: dict, which: str) -> list[str]:
+    """
+    Extract TaskContent or NewTaskContent from scheduled tasks diffs
+    """
+    tasks = diffs.get('new_scheduled_tasks', []) + diffs.get('updated_scheduled_tasks', [])
+    return [ t.get(which) for t in tasks if t.get(which) ]
 
 def get_process_path(hwnd: int):
     """
@@ -293,43 +361,49 @@ class Snapshot:
         self.dns_events: Set[frozenset] = set()
         self.process_events: Set[frozenset] = set()
 
-    def capture_registry(self):
+    def capture_registry(self) -> None:
         self.registry_dump = {}
         if not self.reg_roots:
-            logging.warning("[Snapshot] No registry roots specified by rules. Skipping registry capture.")
+            logging.warning(
+                "[Snapshot] No registry roots specified by rules. Skipping registry capture."
+            )
             return
 
+        # Stack holds tuples of (hive_handle, subkey_path, full_registry_path)
+        stack: List[Tuple[winreg.HKEYType, str, str]] = []
+
         for root_path in self.reg_roots:
-            try:
-                hive_str, _, key_path = root_path.partition('\\')
-                hive_handle = HIVE_MAP.get(hive_str.upper())
-                if not hive_handle:
-                    logging.error(f"[Snapshot] Unknown registry hive in path: {root_path}")
-                    continue
+            hive_str, _, key_path = root_path.partition('\\')
+            hive_handle = HIVE_MAP.get(hive_str.upper())
+            if not hive_handle:
+                logging.error(f"[Snapshot] Unknown registry hive in path: {root_path}")
+                continue
 
-                # Use a stack for non-recursive traversal
-                stack = [(hive_handle, key_path, f"{hive_str}\\{key_path}")]
-                while stack:
-                    hkey, sub_key_path, full_path_prefix = stack.pop(0)
-                    try:
-                        with winreg.OpenKey(hkey, sub_key_path) as current_hkey:
-                            self.registry_dump[full_path_prefix] = self._get_values(current_hkey)
-                            # Enumerate and add subkeys to the stack
-                            i = 0
-                            while True:
-                                try:
-                                    sub_key_name = winreg.EnumKey(current_hkey, i)
-                                    stack.append((current_hkey, sub_key_name, f"{full_path_prefix}\\{sub_key_name}"))
-                                    i += 1
-                                except OSError:
-                                    break
-                    except FileNotFoundError:
-                        logging.debug(f"[Snapshot] Registry path not found (will be detected if created): {full_path_prefix}")
-                    except Exception as e:
-                        logging.error(f"[Snapshot] Failed to process registry key {full_path_prefix}: {e}")
+            # Seed the stack with the root hive handle directly
+            stack.append((hive_handle, key_path, f"{hive_str}\\{key_path}"))
 
-            except Exception as e:
-                logging.error(f"[Snapshot] Failed to open root registry key {root_path}: {e}")
+            while stack:
+                hkey, sub_key_path, full_path = stack.pop(0)
+                try:
+                    with winreg.OpenKey(hkey, sub_key_path) as current_hkey:
+                        # Capture all values under this key
+                        self.registry_dump[full_path] = self._get_values(current_hkey)
+
+                        # Enumerate subkeys and push them onto the stack
+                        i = 0
+                        while True:
+                            try:
+                                sub_name = winreg.EnumKey(current_hkey, i)
+                                stack.append((hkey, sub_name, f"{full_path}\\{sub_name}"))
+                                i += 1
+                            except OSError:
+                                break  # no more subkeys
+                except FileNotFoundError:
+                    logging.debug(
+                        f"[Snapshot] Registry path not found (will be detected if created): {full_path}"
+                    )
+                except Exception as e:
+                    logging.error(f"[Snapshot] Failed to process registry key {full_path}: {e}")
 
     def _get_values(self, hkey) -> Dict[str, Any]:
         out: Dict[str, Any] = {}
@@ -493,7 +567,7 @@ class Snapshot:
 # 5) RULE ENGINE (SIGMA-AWARE)
 # -------------------------------------------------------------------
 # Pattern to match a 'rule NAME' line, with optional '{' on same line
-RULE_START_RE = re.compile(r'^\s*rule\s+([A-Za-z0-9_-]+)\s*(?:\{)?\s*$', re.IGNORECASE)
+RULE_START_RE = re.compile(r'^\s*rule\s+([A-Za-z0-9_-]+)\s*\{?\s*$', re.IGNORECASE)
 META_RE = re.compile(r'^\s*meta\s*:\s*$', re.IGNORECASE)
 COND_RE = re.compile(r'^\s*condition\s*:\s*$', re.IGNORECASE)
 KEYVAL_RE = re.compile(r'^\s*([A-Za-z0-9_-]+)\s*=\s*"(.+?)"\s*$', re.DOTALL)
@@ -564,40 +638,50 @@ class Rule:
         """Maps canonical field names to functions that extract data from diffs."""
         all_events = diffs.get('new_event_logs', [])
         return {
-            'generic.activity': lambda: diffs.get('generic_activity', []),
+            'generic.activity':           lambda: diffs.get('generic_activity', []),
             # File
-            'file.path': lambda: diffs.get('new_files', []) + diffs.get('modified_files', []),
-            'file.name': lambda: [Path(p).name for p in diffs.get('new_files', []) + diffs.get('modified_files', [])],
+            'file.path':                  lambda: diffs.get('new_files', []) + diffs.get('modified_files', []),
+            'file.name':                  lambda: [Path(p).name for p in diffs.get('new_files', []) + diffs.get('modified_files', [])],
             # Registry
-            'registry.key': lambda: diffs.get('new_registry_keys', []) + [m['key'] for m in diffs.get('modified_registry_values', [])],
-            'registry.value': lambda: [str(v) for m in diffs.get('modified_registry_values', []) for v in m['new'].values()],
+            'registry.key':               lambda: diffs.get('new_registry_keys', []) + [m['key'] for m in diffs.get('modified_registry_values', [])],
+            'registry.value':             lambda: [str(v) for m in diffs.get('modified_registry_values', []) for v in m['new'].values()],
             # Process
-            'process.image': lambda: [p.get('image') for p in diffs.get('new_process_events', [])],
+            'process.image':              lambda: [p.get('image') for p in diffs.get('new_process_events', [])],
             'process.creation_commandline': lambda: [p.get('command_line') for p in diffs.get('new_process_events', [])],
-            'process.parent_image': lambda: [p.get('parent_image') for p in diffs.get('new_process_events', [])],
-            'process.user': lambda: [p.get('user') for p in diffs.get('new_process_events', [])],
+            'process.parent_image':       lambda: [p.get('parent_image') for p in diffs.get('new_process_events', [])],
+            'process.user':               lambda: [p.get('user') for p in diffs.get('new_process_events', [])],
             # DNS
-            'dns.query_name': lambda: [d.get('query_name') for d in diffs.get('new_dns_events', [])],
+            'dns.query_name':             lambda: [d.get('query_name') for d in diffs.get('new_dns_events', [])],
             # Network
-            'network.destination_ip': lambda: [n.get('destination_ip') for n in diffs.get('new_network_events', [])],
-            'network.destination_port': lambda: [str(n.get('destination_port')) for n in diffs.get('new_network_events', [])],
-            'http.uri': lambda: [n.get('uri') for n in diffs.get('new_network_events', []) if 'uri' in n],
-            'http.user_agent': lambda: [n.get('user_agent') for n in diffs.get('new_network_events', []) if 'user_agent' in n],
+            'network.destination_ip':     lambda: [n.get('destination_ip') for n in diffs.get('new_network_events', [])],
+            'network.destination_port':   lambda: [str(n.get('destination_port')) for n in diffs.get('new_network_events', [])],
+            'http.uri':                   lambda: [n.get('uri') for n in diffs.get('new_network_events', []) if 'uri' in n],
+            'http.method':                lambda: diffs.get('http.method', []),
+            'http.host':                  lambda: diffs.get('http.host', []),
+            'http.user_agent':            lambda: [n.get('user_agent') for n in diffs.get('new_network_events', []) if 'user_agent' in n],
+            'resp_mime_types':            lambda: diffs.get('resp_mime_types', []),
+            'certificate.serial':         lambda: diffs.get('certificate.serial', []),
+            'address':                    lambda: diffs.get('address', []),
+            'id.orig_h':                  lambda: diffs.get('id.orig_h', []),
+            'id.resp_h':                  lambda: diffs.get('id.resp_h', []),
             # EventLog - Expanded for korna.txt compatibility
-            'eventlog.event_id': lambda: [e.get('Event ID') for e in all_events],
-            'eventlog.provider': lambda: [e.get('Provider Name') for e in all_events],
-            'eventlog.message': lambda: [e.get('Message') for e in all_events],
-            'eventlog.channel': lambda: [e.get('Channel') for e in all_events],
-            'eventlog.servicename': lambda: [e.get('Service Name') for e in all_events],
-            'eventlog.imagepath': lambda: [e.get('Image Path') for e in all_events],
-            'eventlog.hivename': lambda: [e.get('HiveName') for e in all_events],
-            'eventlog.taskname': lambda: [e.get('TaskName') for e in all_events],
-            'eventlog.accesslist': lambda: [e.get('AccessList') for e in all_events],
+            'eventlog.event_id':          lambda: [e.get('Event ID') for e in all_events],
+            'eventlog.provider':          lambda: [e.get('Provider Name') for e in all_events],
+            'eventlog.message':           lambda: [e.get('Message') for e in all_events],
+            'eventlog.channel':           lambda: [e.get('Channel') for e in all_events],
+            'eventlog.servicename':       lambda: [e.get('Service Name') for e in all_events],
+            'eventlog.imagepath':         lambda: [e.get('Image Path') for e in all_events],
+            'eventlog.hivename':          lambda: [e.get('HiveName') for e in all_events],
+            'eventlog.taskname':          lambda: [e.get('TaskName') for e in all_events],
+            'eventlog.accesslist':        lambda: [e.get('AccessList') for e in all_events],
             'eventlog.relativetargetname': lambda: [e.get('RelativeTargetName') for e in all_events],
-            'eventlog.sharename': lambda: [e.get('ShareName') for e in all_events],
-            'eventlog.objectname': lambda: [e.get('ObjectName') for e in all_events],
-            'eventlog.objecttype': lambda: [e.get('ObjectType') for e in all_events],
-            'eventlog.processname': lambda: [e.get('Process Name') for e in all_events],
+            'eventlog.sharename':         lambda: [e.get('ShareName') for e in all_events],
+            'eventlog.objectname':        lambda: [e.get('ObjectName') for e in all_events],
+            'eventlog.objecttype':        lambda: [e.get('ObjectType') for e in all_events],
+            'eventlog.processname':       lambda: [e.get('Process Name') for e in all_events],
+            # Scheduled Tasks
+            'taskcontent':                lambda: diffs.get('taskcontent', []),
+            'taskcontentnew':             lambda: diffs.get('taskcontentnew', []),
         }
 
     def evaluate(self, diffs: Dict[str, Any]) -> bool:
@@ -868,8 +952,42 @@ def process_sample(sample_path: str, rules_dir: str, timeout: int) -> List[str]:
     snap_after.dns_events = snap_during.dns_events
     
     diffs = snap_after.diff(snap_before)
-    
-    return [rule.name for rule in engine.rules if rule.evaluate(diffs)]
+
+    # --- New: extract & include PE certificate serial under diffs['certificate.serial'] ---
+    cs = get_certificate_serial(sample_path)
+    if cs:
+        # store as a list to match the engine’s expectations for iterable fields
+        diffs['certificate.serial'] = [cs]
+
+    # Inject resp_mime_types
+    diffs['resp_mime_types'] = extract_resp_mime_types(sample_path)
+
+    # Inject HTTP fields
+    diffs['http.method'] = extract_http_fields(diffs, 'method')
+    diffs['http.uri']    = extract_http_fields(diffs, 'uri')
+    diffs['http.host']   = extract_http_fields(diffs, 'host')
+
+    # Inject network addresses
+    diffs['address']     = extract_address(diffs)
+    diffs['id.orig_h']   = extract_id_orig_h(diffs)
+    diffs['id.resp_h']   = extract_id_resp_h(diffs)
+
+    # Inject event log fields
+    for fld in ('Description','Caption','State','Operation',
+                'SubjectUserName','DeviceName','AuditSourceName'):
+        key = fld.lower()
+        diffs[key] = extract_eventlog_field(diffs, fld)
+
+    # Inject scheduled task content
+    diffs['taskcontent']    = extract_scheduled_tasks(diffs, 'TaskContent')
+    diffs['taskcontentnew'] = extract_scheduled_tasks(diffs, 'NewTaskContent')
+
+    # Finally, evaluate every rule against these enriched diffs
+    return [
+        rule.name
+        for rule in engine.rules
+        if rule.evaluate(diffs)
+    ]
 
 def process_sample_with_engine(sample_path: str, engine: RuleEngine, timeout: int) -> List[str]:
     """Refactored processing logic to accept a pre-loaded RuleEngine."""
