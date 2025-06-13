@@ -1,0 +1,2616 @@
+rule ACTIVE_DIRECTORY_CERTIFICATE_SERVICES_DENIED_CERTI
+{
+    meta:
+        id = "994bfd6d-0a2e-481e-a861-934069fcf5f5"
+        description = "Detects denied requests by Active Directory Certificate Services.
+Example of these requests denial include issues with permissions on the certificate template or invalid signatures.
+"
+        author = "@SerkinValery"
+        date = "2024-03-07"
+        level = "low"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "53"
+        eventlog.provider equals "Microsoft-Windows-CertificationAuthority"
+}rule ANYDESK_REMOTE_ACCESS_SOFTWARE_SERVICE_INSTALLATIO
+{
+    meta:
+        id = "530a6faa-ff3d-4022-b315-50828e77eef5"
+        description = "Detects the installation of the anydesk software service. Which could be an indication of anydesk abuse if you the software isn't already used."
+        author = "Nasreddine Bencherchali (Nextron Systems), Swachchhanda Shrawan Poudel (Nextron Systems)"
+        date = "2022-08-11"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        servicename contains "AnyDesk"
+        servicename contains "Service"
+        imagepath contains "AnyDesk"
+}rule CERTIFICATE_USE_WITH_NO_STRONG_MAPPING
+{
+    meta:
+        id = "993c2665-e6ef-40e3-a62a-e1a97686af79"
+        description = "Detects a user certificate that was valid but could not be mapped to a user in a strong way (such as via explicit mapping, key trust mapping, or a SID)
+This could be a sign of exploitation of the elevation of privilege vulnerabilities (CVE-2022-34691, CVE-2022-26931, CVE-2022-26923) that can occur when the KDC allows certificate spoofing by not requiring a strong mapping.
+Events where the AccountName and CN of the Subject do not match, or where the CN ends in a dollar sign indicating a machine, may indicate certificate spoofing.
+"
+        author = "@br4dy5"
+        date = "2023-10-09"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "39"
+        eventlog.event_id equals "41"
+        eventlog.provider equals "Kerberos-Key-Distribution-Center"
+}rule COBALTSTRIKE_SERVICE_INSTALLATIONS_-_SYSTEM
+{
+    meta:
+        id = "5a105d34-05fc-401e-8553-272b45c1522d"
+        description = "Detects known malicious service installs that appear in cases in which a Cobalt Strike beacon elevates privileges or lateral movement"
+        author = "Florian Roth (Nextron Systems), Wojciech Lesicki"
+        date = "2021-05-26"
+        level = "critical"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        imagepath contains "ADMIN$"
+        imagepath contains ".exe"
+        imagepath contains "%COMSPEC%"
+        imagepath contains "start"
+        imagepath contains "powershell"
+        imagepath contains "powershell -nop -w hidden -encodedcommand"
+        imagepath contains "IEX (New-Object Net.Webclient).DownloadString('http://127.0.0.1:"
+}rule COLDSTEEL_PERSISTENCE_SERVICE_CREATION
+{
+    meta:
+        id = "3ced239c-7285-4b54-99c4-8525b69293f7"
+        description = "Detects the creation of new services potentially related to COLDSTEEL RAT"
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2023-05-02"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        imagepath contains "\\Windows\\System32\\svchost.exe"
+        eventlog.provider equals "Service Control Manager"
+        servicename equals "Name"
+        servicename equals "msupdate"
+        servicename equals "msupdate2"
+}rule CRASH_DUMP_CREATED_BY_OPERATING_SYSTEM
+{
+    meta:
+        id = "882fbe50-d8d7-4e29-ae80-0648a8556866"
+        description = "Detects \"BugCheck\" errors indicating the system rebooted due to a crash, capturing the bugcheck code, dump file path, and report ID."
+        author = "Jason Mull"
+        date = "2025-05-12"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "1001"
+        eventlog.provider equals "Microsoft-Windows-WER-SystemErrorReporting"
+}rule CREDENTIAL_DUMPING_TOOLS_SERVICE_EXECUTION_-_SYSTE
+{
+    meta:
+        id = "4976aa50-8f41-45c6-8b15-ab3fc10e79ed"
+        description = "Detects well-known credential dumping tools execution via service execution events"
+        author = "Florian Roth (Nextron Systems), Teymur Kheirkhabarov, Daniil Yugoslavskiy, oscd.community"
+        date = "2017-03-05"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        imagepath contains "cachedump"
+        imagepath contains "dumpsvc"
+        imagepath contains "fgexec"
+        imagepath contains "gsecdump"
+        imagepath contains "mimidrv"
+        imagepath contains "pwdump"
+        imagepath contains "servpw"
+        eventlog.provider equals "Service Control Manager"
+}rule CRITICAL_HIVE_IN_SUSPICIOUS_LOCATION_ACCESS_BITS_C
+{
+    meta:
+        id = "39f919f3-980b-4e6f-a975-8af7e507ef2b"
+        description = "Detects events from the Kernel-General ETW indicating that the access bits of a hive with a system like hive name located in the temp directory have been reset.
+This occurs when an application tries to access a hive and the hive has not be recognized since the last 7 days (by default).
+Registry hive dumping utilities such as QuarksPwDump were seen emitting this behavior.
+"
+        author = "Florian Roth (Nextron Systems)"
+        date = "2017-05-15"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "16"
+        hivename contains "\\Temp\\SAM"
+        hivename contains "\\Temp\\SECURITY"
+        eventlog.provider equals "Microsoft-Windows-Kernel-General"
+}rule CSEXEC_SERVICE_INSTALLATION
+{
+    meta:
+        id = "a27e5fa9-c35e-4e3d-b7e0-1ce2af66ad12"
+        description = "Detects CSExec service installation and execution events"
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2023-08-07"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        servicename equals "csexecsvc"
+        imagepath endswith "\\csexecsvc.exe"
+}rule DEFAULT_COBALT_STRIKE_CERTIFICATE
+{
+    meta:
+        id = "7100f7e3-92ce-4584-b7b7-01b40d3d4118"
+        description = "Detects the presence of default Cobalt Strike certificate in the HTTPS traffic"
+        author = "Bhabesh Raj"
+        date = "2021-06-23"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        certificate.serial equals "8BB00EE"
+}rule DHCP_SERVER_ERROR_FAILED_LOADING_THE_CALLOUT_DLL
+{
+    meta:
+        id = "75edd3fd-7146-48e5-9848-3013d7f0282c"
+        description = "This rule detects a DHCP server error in which a specified Callout DLL (in registry) could not be loaded"
+        author = "Dimitrios Slamaris, @atc_project (fix)"
+        date = "2017-05-15"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "1031"
+        eventlog.event_id equals "1032"
+        eventlog.event_id equals "1034"
+        eventlog.provider equals "Microsoft-Windows-DHCP-Server"
+}rule DHCP_SERVER_LOADED_THE_CALLOUT_DLL
+{
+    meta:
+        id = "13fc89a9-971e-4ca6-b9dc-aa53a445bf40"
+        description = "This rule detects a DHCP server in which a specified Callout DLL (in registry) was loaded"
+        author = "Dimitrios Slamaris"
+        date = "2017-05-15"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "1033"
+        eventlog.provider equals "Microsoft-Windows-DHCP-Server"
+}rule DNS_EVENTS_RELATED_TO_MINING_POOLS
+{
+    meta:
+        id = "bf74135c-18e8-4a72-a926-0e4f47888c19"
+        description = "Identifies clients that may be performing DNS lookups associated with common currency mining pools."
+        author = "Saw Winn Naung, Azure-Sentinel, @neu5ron"
+        date = "2021-08-19"
+        level = "low"
+        logsource = "generic.record"
+
+    condition:
+        query endswith "monerohash.com"
+        query endswith "do-dear.com"
+        query endswith "xmrminerpro.com"
+        query endswith "secumine.net"
+        query endswith "xmrpool.com"
+        query endswith "minexmr.org"
+        query endswith "hashanywhere.com"
+        query endswith "xmrget.com"
+        query endswith "mininglottery.eu"
+        query endswith "minergate.com"
+        query endswith "moriaxmr.com"
+        query endswith "multipooler.com"
+        query endswith "moneropools.com"
+        query endswith "xmrpool.eu"
+        query endswith "coolmining.club"
+        query endswith "supportxmr.com"
+        query endswith "minexmr.com"
+        query endswith "hashvault.pro"
+        query endswith "xmrpool.net"
+        query endswith "crypto-pool.fr"
+        query endswith "xmr.pt"
+        query endswith "miner.rocks"
+        query endswith "walpool.com"
+        query endswith "herominers.com"
+        query endswith "gntl.co.uk"
+        query endswith "semipool.com"
+        query endswith "coinfoundry.org"
+        query endswith "cryptoknight.cc"
+        query endswith "fairhash.org"
+        query endswith "baikalmine.com"
+        query endswith "tubepool.xyz"
+        query endswith "fairpool.xyz"
+        query endswith "asiapool.io"
+        query endswith "coinpoolit.webhop.me"
+        query endswith "nanopool.org"
+        query endswith "moneropool.com"
+        query endswith "miner.center"
+        query endswith "prohash.net"
+        query endswith "poolto.be"
+        query endswith "cryptoescrow.eu"
+        query endswith "monerominers.net"
+        query endswith "cryptonotepool.org"
+        query endswith "extrmepool.org"
+        query endswith "webcoin.me"
+        query endswith "kippo.eu"
+        query endswith "hashinvest.ws"
+        query endswith "monero.farm"
+        query endswith "linux-repository-updates.com"
+        query endswith "1gh.com"
+        query endswith "dwarfpool.com"
+        query endswith "hash-to-coins.com"
+        query endswith "pool-proxy.com"
+        query endswith "hashfor.cash"
+        query endswith "fairpool.cloud"
+        query endswith "litecoinpool.org"
+        query endswith "mineshaft.ml"
+        query endswith "abcxyz.stream"
+        query endswith "moneropool.ru"
+        query endswith "cryptonotepool.org.uk"
+        query endswith "extremepool.org"
+        query endswith "extremehash.com"
+        query endswith "hashinvest.net"
+        query endswith "unipool.pro"
+        query endswith "crypto-pools.org"
+        query endswith "monero.net"
+        query endswith "backup-pool.com"
+        query endswith "mooo.com"
+        query endswith "freeyy.me"
+        query endswith "cryptonight.net"
+        query endswith "shscrypto.net"
+}rule DNS_TOR_PROXIES
+{
+    meta:
+        id = "a8322756-015c-42e7-afb1-436e85ed3ff5"
+        description = "Identifies IPs performing DNS lookups associated with common Tor proxies."
+        author = "Saw Winn Naung , Azure-Sentinel"
+        date = "2021-08-15"
+        level = "medium"
+        logsource = "generic.record"
+
+    condition:
+        query equals "tor2web.org"
+        query equals "tor2web.com"
+        query equals "torlink.co"
+        query equals "onion.to"
+        query equals "onion.ink"
+        query equals "onion.cab"
+        query equals "onion.nu"
+        query equals "onion.link"
+        query equals "onion.it"
+        query equals "onion.city"
+        query equals "onion.direct"
+        query equals "onion.top"
+        query equals "onion.casa"
+        query equals "onion.plus"
+        query equals "onion.rip"
+        query equals "onion.dog"
+        query equals "tor2web.fi"
+        query equals "tor2web.blutmagie.de"
+        query equals "onion.sh"
+        query equals "onion.lu"
+        query equals "onion.pet"
+        query equals "t2w.pw"
+        query equals "tor2web.ae.org"
+        query equals "tor2web.io"
+        query equals "tor2web.xyz"
+        query equals "onion.lt"
+        query equals "s1.tor-gateways.de"
+        query equals "s2.tor-gateways.de"
+        query equals "s3.tor-gateways.de"
+        query equals "s4.tor-gateways.de"
+        query equals "s5.tor-gateways.de"
+        query equals "hiddenservice.net"
+}rule EVENTLOG_CLEARED
+{
+    meta:
+        id = "a62b37e0-45d3-48d9-a517-90c1a1b0186b"
+        description = "One of the Windows Eventlogs has been cleared. e.g. caused by \"wevtutil cl\" command execution"
+        author = "Florian Roth (Nextron Systems)"
+        date = "2017-01-10"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "104"
+        eventlog.provider equals "Microsoft-Windows-Eventlog"
+}rule EXECUTABLE_FROM_WEBDAV
+{
+    meta:
+        id = "aac2fd97-bcba-491b-ad66-a6edf89c71bf"
+        description = "Detects executable access via webdav6. Can be seen in APT 29 such as from the emulated APT 29 hackathon https://github.com/OTRF/detection-hackathon-apt29/"
+        author = "SOC Prime, Adam Swan"
+        date = "2020-05-01"
+        level = "medium"
+        logsource = "generic.record"
+
+    condition:
+        resp_mime_types contains "dosexec"
+        http.uri endswith ".exe"
+        http.user_agent contains "WebDAV"
+        http.uri contains "webdav"
+}rule FIRST_TIME_SEEN_REMOTE_NAMED_PIPE_-_ZEEK
+{
+    meta:
+        id = "021310d9-30a6-480a-84b7-eaa69aeb92bb"
+        description = "This detection excludes known namped pipes accessible remotely and notify on newly observed ones, may help to detect lateral movement and remote exec using named pipes"
+        author = "Samir Bousseaden, @neu5ron, Tim Shelton"
+        date = "2020-04-02"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        path equals "\\\\\\\\\\*\\\\IPC$"
+}rule GOOFY_GUINEAPIG_BACKDOOR_SERVICE_CREATION
+{
+    meta:
+        id = "8c15dd74-9570-4f48-80b2-29996fd91ee6"
+        description = "Detects service creation persistence used by the Goofy Guineapig backdoor"
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2023-05-15"
+        level = "critical"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        imagepath contains "rundll32"
+        imagepath contains "FileProtocolHandler"
+        imagepath contains "\\ProgramData\\GoogleUpdate\\GoogleUpdate.exe"
+        eventlog.provider equals "Service Control Manager"
+        servicename equals "GoogleUpdate"
+}rule HACKTOOL_SERVICE_REGISTRATION_OR_EXECUTION
+{
+    meta:
+        id = "d26ce60c-2151-403c-9a42-49420d87b5e4"
+        description = "Detects installation or execution of services"
+        author = "Florian Roth (Nextron Systems)"
+        date = "2022-03-21"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.event_id equals "7036"
+        eventlog.provider equals "Service Control Manager"
+        imagepath contains "bypass"
+        servicename contains "cachedump"
+        servicename contains "DumpSvc"
+        servicename contains "gsecdump"
+        servicename contains "pwdump"
+        servicename contains "UACBypassedService"
+        servicename contains "WCE SERVICE"
+        servicename contains "WCESERVICE"
+        servicename contains "winexesvc"
+}rule HTTP_REQUEST_TO_LOW_REPUTATION_TLD_OR_SUSPICIOUS_F
+{
+    meta:
+        id = "68c2c604-92ad-468b-bf4a-aac49adad08c"
+        description = "Detects HTTP requests to low reputation TLDs (e.g. .xyz, .top, .ru) or ending in suspicious file extensions (.exe, .dll, .hta), which may indicate malicious activity.
+"
+        author = "@signalblur, Corelight"
+        date = "2025-02-26"
+        level = "medium"
+        logsource = "generic.record"
+
+    condition:
+        uri endswith ".bat"
+        uri endswith ".bin"
+        uri endswith ".cmd"
+        uri endswith ".cpl"
+        uri endswith ".dll"
+        uri endswith ".dylib"
+        uri endswith ".elf"
+        uri endswith ".exe"
+        uri endswith ".hta"
+        uri endswith ".iso"
+        uri endswith ".jar"
+        uri endswith ".js"
+        uri endswith ".lnk"
+        uri endswith ".msi"
+        uri endswith ".pif"
+        uri endswith ".ps1"
+        uri endswith ".py"
+        uri endswith ".reg"
+        uri endswith ".scr"
+        uri endswith ".sh"
+        uri endswith ".so"
+        uri endswith ".vbs"
+        uri endswith ".wsf"
+        resp_mime_types equals "application/vnd.microsoft.portable-executable"
+        resp_mime_types equals "application/x-bat"
+        resp_mime_types equals "application/x-dosexec"
+        resp_mime_types equals "application/x-elf"
+        resp_mime_types equals "application/x-iso9660-image"
+        resp_mime_types equals "application/x-java-archive"
+        resp_mime_types equals "application/x-ms-shortcut"
+        resp_mime_types equals "application/x-msdos-program"
+        resp_mime_types equals "application/x-msdownload"
+        resp_mime_types equals "application/x-python-code"
+        resp_mime_types equals "application/x-sh"
+        host endswith ".bid"
+        host endswith ".by"
+        host endswith ".cf"
+        host endswith ".click"
+        host endswith ".cm"
+        host endswith ".ga"
+        host endswith ".gq"
+        host endswith ".ir"
+        host endswith ".kp"
+        host endswith ".loan"
+        host endswith ".ml"
+        host endswith ".mm"
+        host endswith ".party"
+        host endswith ".pw"
+        host endswith ".ru"
+        host endswith ".su"
+        host endswith ".sy"
+        host endswith ".tk"
+        host endswith ".top"
+        host endswith ".tv"
+        host endswith ".ve"
+        host endswith ".work"
+        host endswith ".xyz"
+}rule IMPORTANT_SCHEDULED_TASK_DELETED
+{
+    meta:
+        id = "9e3cb244-bdb8-4632-8c90-6079c8f4f16d"
+        description = "Detects when adversaries try to stop system services or processes by deleting their respective scheduled tasks in order to conduct data destructive activities
+"
+        author = "frack113"
+        date = "2023-01-13"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        username contains "AUTHORI"
+        username contains "AUTORI"
+        eventlog.event_id equals "141"
+        taskname contains "\\Windows\\SystemRestore\\SR"
+        taskname contains "\\Windows\\Windows Defender\\"
+        taskname contains "\\Windows\\BitLocker"
+        taskname contains "\\Windows\\WindowsBackup\\"
+        taskname contains "\\Windows\\WindowsUpdate\\"
+        taskname contains "\\Windows\\UpdateOrchestrator\\"
+        taskname contains "\\Windows\\ExploitGuard"
+}rule IMPORTANT_SCHEDULED_TASK_DELETEDDISABLED
+{
+    meta:
+        id = "7595ba94-cf3b-4471-aa03-4f6baa9e5fad"
+        description = "Detects when adversaries stop services or processes by deleting or disabling their respective scheduled tasks in order to conduct data destructive activities"
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-12-05"
+        level = "high"
+        logsource = "eventlog.Security"
+
+    condition:
+        eventlog.event_id equals "4699"
+        eventlog.event_id equals "4701"
+        taskname contains "\\Windows\\SystemRestore\\SR"
+        taskname contains "\\Windows\\Windows Defender\\"
+        taskname contains "\\Windows\\BitLocker"
+        taskname contains "\\Windows\\WindowsBackup\\"
+        taskname contains "\\Windows\\WindowsUpdate\\"
+        taskname contains "\\Windows\\UpdateOrchestrator\\Schedule"
+        taskname contains "\\Windows\\ExploitGuard"
+}rule IMPORTANT_WINDOWS_EVENTLOG_CLEARED
+{
+    meta:
+        id = "100ef69e-3327-481c-8e5c-6d80d9507556"
+        description = "Detects the clearing of one of the Windows Core Eventlogs. e.g. caused by \"wevtutil cl\" command execution"
+        author = "Florian Roth (Nextron Systems), Tim Shelton, Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-05-17"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.channel equals "Microsoft-Windows-PowerShell/Operational"
+        eventlog.channel equals "Microsoft-Windows-Sysmon/Operational"
+        eventlog.channel equals "PowerShellCore/Operational"
+        eventlog.channel equals "Security"
+        eventlog.channel equals "System"
+        eventlog.channel equals "Windows PowerShell"
+        eventlog.event_id equals "104"
+        eventlog.provider equals "Microsoft-Windows-Eventlog"
+}rule IMPORTANT_WINDOWS_SERVICE_TERMINATED_UNEXPECTEDLY
+{
+    meta:
+        id = "56abae0c-6212-4b97-adc0-0b559bb950c3"
+        description = "Detects important or interesting Windows services that got terminated unexpectedly."
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2023-04-14"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7034"
+        eventlog.provider equals "Service Control Manager"
+        param1 contains "Message Queuing - 4d0053004d005100 - 6d0073006d007100"
+}rule IMPORTANT_WINDOWS_SERVICE_TERMINATED_WITH_ERROR
+{
+    meta:
+        id = "d6b5520d-3934-48b4-928c-2aa3f92d6963"
+        description = "Detects important or interesting Windows services that got terminated for whatever reason"
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2023-04-14"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7023"
+        eventlog.provider equals "Service Control Manager"
+}rule INVOKE-OBFUSCATION_CLIP_LAUNCHER_-_SYSTEM
+{
+    meta:
+        id = "f7385ee2-0e0c-11eb-adc1-0242ac120002"
+        description = "Detects Obfuscated use of Clip.exe to execute PowerShell"
+        author = "Jonathan Cheong, oscd.community"
+        date = "2020-10-13"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        imagepath contains "cmd"
+        imagepath contains "&&"
+        imagepath contains "clipboard]::"
+        eventlog.provider equals "Service Control Manager"
+}rule INVOKE-OBFUSCATION_COMPRESS_OBFUSCATION_-_SYSTEM
+{
+    meta:
+        id = "175997c5-803c-4b08-8bb0-70b099f47595"
+        description = "Detects Obfuscated Powershell via COMPRESS OBFUSCATION"
+        author = "Timur Zinniatullin, oscd.community"
+        date = "2020-10-18"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        imagepath contains ":system.io.compression.deflatestream"
+        imagepath contains "system.io.streamreader"
+        imagepath contains "new-object"
+        imagepath contains "text.encoding]::ascii"
+        imagepath contains "readtoend"
+        eventlog.provider equals "Service Control Manager"
+}rule INVOKE-OBFUSCATION_OBFUSCATED_IEX_INVOCATION_-_SYS
+{
+    meta:
+        id = "51aa9387-1c53-4153-91cc-d73c59ae1ca9"
+        description = "Detects all variations of obfuscated powershell IEX invocation code generated by Invoke-Obfuscation framework from the code block linked in the references"
+        author = "Daniel Bohannon (@Mandiant/@FireEye), oscd.community"
+        date = "2019-11-08"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        imagepath matches "\\$PSHome\\[\\s*\\d{1,3}\\s*\\]\\s*\\+\\s*\\$PSHome\\["
+        imagepath matches "\\$ShellId\\[\\s*\\d{1,3}\\s*\\]\\s*\\+\\s*\\$ShellId\\["
+        imagepath matches "\\$env:Public\\[\\s*\\d{1,3}\\s*\\]\\s*\\+\\s*\\$env:Public\\["
+        imagepath matches "\\$env:ComSpec\\[(\\s*\\d{1,3}\\s*,){2}"
+        imagepath matches "\\\\*mdr\\*\\W\\s*\\)\\.Name"
+        imagepath matches "\\$VerbosePreference\\.ToString\\("
+        imagepath matches "\\String\\]\\s*\\$VerbosePreference"
+}rule INVOKE-OBFUSCATION_RUNDLL_LAUNCHER_-_SYSTEM
+{
+    meta:
+        id = "11b52f18-aaec-4d60-9143-5dd8cc4706b9"
+        description = "Detects Obfuscated Powershell via RUNDLL LAUNCHER"
+        author = "Timur Zinniatullin, oscd.community"
+        date = "2020-10-18"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        imagepath contains "rundll32.exe"
+        imagepath contains "shell32.dll"
+        imagepath contains "shellexec_rundll"
+        imagepath contains "powershell"
+        eventlog.provider equals "Service Control Manager"
+}rule INVOKE-OBFUSCATION_STDIN_LAUNCHER_-_SYSTEM
+{
+    meta:
+        id = "72862bf2-0eb1-11eb-adc1-0242ac120002"
+        description = "Detects Obfuscated use of stdin to execute PowerShell"
+        author = "Jonathan Cheong, oscd.community"
+        date = "2020-10-15"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        imagepath contains "/c"
+        imagepath contains "/r"
+        imagepath contains "cmd"
+        imagepath contains "powershell"
+        eventlog.provider equals "Service Control Manager"
+        imagepath contains "noexit - input - $"
+}rule INVOKE-OBFUSCATION_VAR_LAUNCHER_-_SYSTEM
+{
+    meta:
+        id = "8ca7004b-e620-4ecb-870e-86129b5b8e75"
+        description = "Detects Obfuscated use of Environment Variables to execute PowerShell"
+        author = "Jonathan Cheong, oscd.community"
+        date = "2020-10-15"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        imagepath contains "/c"
+        imagepath contains "/r"
+        imagepath contains "cmd"
+        imagepath contains "\"set"
+        imagepath contains "-f"
+        eventlog.provider equals "Service Control Manager"
+}rule INVOKE-OBFUSCATION_VAR_LAUNCHER_OBFUSCATION_-_SYST
+{
+    meta:
+        id = "14bcba49-a428-42d9-b943-e2ce0f0f7ae6"
+        description = "Detects Obfuscated Powershell via VAR++ LAUNCHER"
+        author = "Timur Zinniatullin, oscd.community"
+        date = "2020-10-13"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        imagepath contains "{0}"
+        imagepath contains "{1}"
+        imagepath contains "{2}"
+        imagepath contains "{3}"
+        imagepath contains "{4}"
+        imagepath contains "{5}"
+        imagepath contains "&&set"
+        imagepath contains "cmd"
+        imagepath contains "/c"
+        imagepath contains "-f"
+        eventlog.provider equals "Service Control Manager"
+}rule INVOKE-OBFUSCATION_VIA_STDIN_-_SYSTEM
+{
+    meta:
+        id = "487c7524-f892-4054-b263-8a0ace63fc25"
+        description = "Detects Obfuscated Powershell via Stdin in Scripts"
+        author = "Nikita Nazarov, oscd.community"
+        date = "2020-10-12"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        imagepath contains "environment"
+        imagepath contains "invoke"
+        imagepath contains "input"
+        imagepath contains "set"
+        imagepath contains "&&"
+        eventlog.provider equals "Service Control Manager"
+}rule INVOKE-OBFUSCATION_VIA_USE_CLIP_-_SYSTEM
+{
+    meta:
+        id = "63e3365d-4824-42d8-8b82-e56810fefa0c"
+        description = "Detects Obfuscated Powershell via use Clip.exe in Scripts"
+        author = "Nikita Nazarov, oscd.community"
+        date = "2020-10-09"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        imagepath contains "(Clipboard|i"
+        eventlog.provider equals "Service Control Manager"
+}rule INVOKE-OBFUSCATION_VIA_USE_MSHTA_-_SYSTEM
+{
+    meta:
+        id = "7e9c7999-0f9b-4d4a-a6ed-af6d553d4af4"
+        description = "Detects Obfuscated Powershell via use MSHTA in Scripts"
+        author = "Nikita Nazarov, oscd.community"
+        date = "2020-10-09"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        imagepath contains "mshta"
+        imagepath contains "vbscript:createobject"
+        eventlog.provider equals "Service Control Manager"
+}rule INVOKE-OBFUSCATION_VIA_USE_RUNDLL32_-_SYSTEM
+{
+    meta:
+        id = "641a4bfb-c017-44f7-800c-2aee0184ce9b"
+        description = "Detects Obfuscated Powershell via use Rundll32 in Scripts"
+        author = "Nikita Nazarov, oscd.community"
+        date = "2020-10-09"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        imagepath contains "value"
+        imagepath contains "invoke"
+        imagepath contains "comspec"
+        imagepath contains "iex"
+        imagepath contains "&&"
+        imagepath contains "rundll32"
+        imagepath contains "shell32.dll"
+        imagepath contains "shellexec_rundll"
+        eventlog.provider equals "Service Control Manager"
+}rule KDC_RC4-HMAC_DOWNGRADE_CVE-2022-37966
+{
+    meta:
+        id = "e6f81941-b1cd-4766-87db-9fc156f658ee"
+        description = "Detects the exploitation of a security bypass and elevation of privilege vulnerability with Authentication Negotiation by using weak RC4-HMAC negotiation"
+        author = "Florian Roth (Nextron Systems)"
+        date = "2022-11-09"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "42"
+        level equals "2"
+        eventlog.provider equals "Kerberos-Key-Distribution-Center"
+}rule KERBEROS_NETWORK_TRAFFIC_RC4_TICKET_ENCRYPTION
+{
+    meta:
+        id = "503fe26e-b5f2-4944-a126-eab405cc06e5"
+        description = "Detects kerberos TGS request using RC4 encryption which may be indicative of kerberoasting"
+        author = "sigma"
+        date = "2020-02-12"
+        level = "medium"
+        logsource = "generic.record"
+
+    condition:
+        cipher equals "rc4-hmac"
+        request_type equals "TGS"
+}rule KRBRELAYUP_SERVICE_INSTALLATION
+{
+    meta:
+        id = "e97d9903-53b2-41fc-8cb9-889ed4093e80"
+        description = "Detects service creation from KrbRelayUp tool used for privilege escalation in Windows domain environments where LDAP signing is not enforced (the default settings)"
+        author = "Sittikorn S, Tim Shelton"
+        date = "2022-05-11"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        servicename equals "KrbSCM"
+}rule LOCAL_PRIVILEGE_ESCALATION_INDICATOR_TABTIP
+{
+    meta:
+        id = "bc2e25ed-b92b-4daa-b074-b502bdd1982b"
+        description = "Detects the invocation of TabTip via CLSID as seen when JuicyPotatoNG is used on a system in brute force mode"
+        author = "Florian Roth (Nextron Systems)"
+        date = "2022-10-07"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "10001"
+        eventlog.provider equals "Microsoft-Windows-DistributedCOM"
+        param1 equals "C:\\Program Files\\Common Files\\microsoft shared\\ink\\TabTip.exe"
+        param2 equals "2147943140"
+        param3 equals "{054AAE20-4BEA-4347-8A35-64A533254A9D}"
+}rule LOCAL_USER_CREATION
+{
+    meta:
+        id = "66b6be3d-55d0-4f47-9855-d69df21740ea"
+        description = "Detects local user creation on Windows servers, which shouldn't happen in an Active Directory environment. Apply this Sigma Use Case on your Windows server logs and not on your DC logs.
+"
+        author = "Patrick Bareiss"
+        date = "2019-04-18"
+        level = "low"
+        logsource = "eventlog.Security"
+
+    condition:
+        eventlog.event_id equals "4720"
+}rule LOCKED_WORKSTATION
+{
+    meta:
+        id = "411742ad-89b0-49cb-a7b0-3971b5c1e0a4"
+        description = "Detects locked workstation session events that occur automatically after a standard period of inactivity."
+        author = "Alexandr Yampolskyi, SOC Prime"
+        date = "2019-03-26"
+        level = "informational"
+        logsource = "eventlog.Security"
+
+    condition:
+        eventlog.event_id equals "4800"
+}rule LSASS_ACCESS_DETECTED_VIA_ATTACK_SURFACE_REDUCTION
+{
+    meta:
+        id = "a0a278fe-2c0e-4de2-ac3c-c68b08a9ba98"
+        description = "Detects Access to LSASS Process"
+        author = "Markus Neis"
+        date = "2018-08-26"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "1121"
+        path endswith "\\lsass.exe"
+}rule MESH_AGENT_SERVICE_INSTALLATION
+{
+    meta:
+        id = "e0d1ad53-c7eb-48ec-a87a-72393cc6cedc"
+        description = "Detects a Mesh Agent service installation. Mesh Agent is used to remotely manage computers"
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-11-28"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        imagepath contains "MeshAgent.exe"
+        servicename contains "Mesh Agent"
+}rule METERPRETER_OR_COBALT_STRIKE_GETSYSTEM_SERVICE_INS
+{
+    meta:
+        id = "843544a7-56e0-4dcc-a44f-5cc266dd97d6"
+        description = "Detects the use of getsystem Meterpreter/Cobalt Strike command by detecting a specific service installation"
+        author = "Teymur Kheirkhabarov, Ecco, Florian Roth (Nextron Systems)"
+        date = "2019-10-26"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        imagepath contains "cmd"
+        imagepath contains "%COMSPEC%"
+        imagepath contains "/c"
+        imagepath contains "echo"
+        imagepath contains "\\pipe\\"
+        imagepath contains "rundll32"
+        imagepath contains ".dll,a"
+        imagepath contains "/p:"
+        imagepath startswith "\\\\\\\\127.0.0.1\\\\ADMIN$\\"
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+}rule MICROSOFT_DEFENDER_BLOCKED_FROM_LOADING_UNSIGNED_D
+{
+    meta:
+        id = "0b0ea3cc-99c8-4730-9c53-45deee2a4c86"
+        description = "Detects Code Integrity (CI) engine blocking Microsoft Defender's processes (MpCmdRun and NisSrv) from loading unsigned DLLs which may be an attempt to sideload arbitrary DLL"
+        author = "Bhabesh Raj"
+        date = "2022-08-02"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "11"
+        eventlog.event_id equals "12"
+        processpath endswith "\\MpCmdRun.exe"
+        processpath endswith "\\NisSrv.exe"
+}rule MICROSOFT_DEFENDER_TAMPER_PROTECTION_TRIGGER
+{
+    meta:
+        id = "49e5bc24-8b86-49f1-b743-535f332c2856"
+        description = "Detects blocked attempts to change any of Defender's settings such as \"Real Time Monitoring\" and \"Behavior Monitoring\""
+        author = "Bhabesh Raj, Nasreddine Bencherchali"
+        date = "2021-07-05"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "5013"
+        value endswith "\\Windows Defender\\DisableAntiSpyware"
+        value endswith "\\Windows Defender\\DisableAntiVirus"
+        value endswith "\\Windows Defender\\Scan\\DisableArchiveScanning"
+        value endswith "\\Windows Defender\\Scan\\DisableScanningNetworkFiles"
+        value endswith "\\Real-Time Protection\\DisableRealtimeMonitoring"
+        value endswith "\\Real-Time Protection\\DisableBehaviorMonitoring"
+        value endswith "\\Real-Time Protection\\DisableIOAVProtection"
+        value endswith "\\Real-Time Protection\\DisableScriptScanning"
+}rule MORIYA_ROOTKIT_-_SYSTEM
+{
+    meta:
+        id = "25b9c01c-350d-4b95-bed1-836d04a4f324"
+        description = "Detects the use of Moriya rootkit as described in the securelist's Operation TunnelSnake report"
+        author = "Bhabesh Raj"
+        date = "2021-05-06"
+        level = "critical"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        servicename equals "ZzNetSvc"
+}rule NETSUPPORT_MANAGER_SERVICE_INSTALL
+{
+    meta:
+        id = "2d510d8d-912b-45c5-b1df-36faa3d8c3f4"
+        description = "Detects NetSupport Manager service installation on the target system."
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-10-31"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        imagepath contains "\\NetSupport Manager\\client32.exe"
+        servicename equals "Client32"
+}rule NEW_KIND_OF_NETWORK_NKN_DETECTION
+{
+    meta:
+        id = "fa7703d6-0ee8-4949-889c-48c84bc15b6f"
+        description = "NKN is a networking service using blockchain technology to support a decentralized network of peers. While there are legitimate uses for it, it can also be used as a C2 channel. This rule looks for a DNS request to the ma>"
+        author = "Michael Portera (@mportatoes)"
+        date = "2022-04-21"
+        level = "low"
+        logsource = "generic.record"
+
+    condition:
+        query contains "seed"
+        query contains ".nkn.org"
+}rule NEW_PDQDEPLOY_SERVICE_-_CLIENT_SIDE
+{
+    meta:
+        id = "b98a10af-1e1e-44a7-bab2-4cc026917648"
+        description = "Detects PDQDeploy service installation on the target system.
+When a package is deployed via PDQDeploy it installs a remote service on the target machine with the name \"PDQDeployRunner-X\" where \"X\" is an integer starting from 1
+"
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-07-22"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        imagepath contains "PDQDeployRunner-"
+        servicename startswith "PDQDeployRunner-"
+}rule NEW_PDQDEPLOY_SERVICE_-_SERVER_SIDE
+{
+    meta:
+        id = "ee9ca27c-9bd7-4cee-9b01-6e906be7cae3"
+        description = "Detects a PDQDeploy service installation which indicates that PDQDeploy was installed on the machines.
+PDQDeploy can be abused by attackers to remotely install packages or execute commands on target machines
+"
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-07-22"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        imagepath contains "PDQDeployService.exe - PDQDeploy - PDQ Deploy"
+}rule NGROK_USAGE_WITH_REMOTE_DESKTOP_SERVICE
+{
+    meta:
+        id = "64d51a51-32a6-49f0-9f3d-17e34d640272"
+        description = "Detects cases in which ngrok, a reverse proxy tool, forwards events to the local RDP port, which could be a sign of malicious behaviour"
+        author = "Florian Roth (Nextron Systems)"
+        date = "2022-04-29"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        address contains "16777216"
+        eventlog.event_id equals "21"
+}rule NO_SUITABLE_ENCRYPTION_KEY_FOUND_FOR_GENERATING_KE
+{
+    meta:
+        id = "b1e0b3f5-b62e-41be-886a-daffde446ad4"
+        description = "Detects errors when a target server doesn't have suitable keys for generating kerberos tickets.
+This issue can occur for example when a service uses a user account or a computer account that is configured for only DES encryption on a computer that is running Windows 7 which has DES encryption for Kerberos authentication disabled.
+"
+        author = "@SerkinValery"
+        date = "2024-03-07"
+        level = "low"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "16"
+        eventlog.event_id equals "27"
+        eventlog.provider equals "Microsoft-Windows-Kerberos-Key-Distribution-Center"
+}rule NTFS_VULNERABILITY_EXPLOITATION
+{
+    meta:
+        id = "f14719ce-d3ab-4e25-9ce6-2899092260b0"
+        description = "This the exploitation of a NTFS vulnerability as reported without many details via Twitter"
+        author = "Florian Roth (Nextron Systems)"
+        date = "2021-01-11"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        description contains "contains a corrupted file record"
+        description contains "The name of the file is \"\\\""
+        eventlog.event_id equals "55"
+        origin equals "File System Driver"
+        eventlog.provider equals "Ntfs"
+}rule NTLMV1_LOGON_BETWEEN_CLIENT_AND_SERVER
+{
+    meta:
+        id = "e9d4ab66-a532-4ef7-a502-66a9e4a34f5d"
+        description = "Detects the reporting of NTLMv1 being used between a client and server. NTLMv1 is insecure as the underlying encryption algorithms can be brute-forced by modern hardware."
+        author = "Tim Shelton, Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-04-26"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "6038"
+        eventlog.event_id equals "6039"
+        eventlog.provider equals "LsaSrv"
+}rule OILRIG_APT_SCHEDULE_TASK_PERSISTENCE_-_SYSTEM
+{
+    meta:
+        id = "53ba33fd-3a50-4468-a5ef-c583635cfa92"
+        description = "Detects OilRig schedule task persistence as reported by Nyotron in their March 2018 report"
+        author = "Florian Roth (Nextron Systems), Markus Neis, Jonhnathan Ribeiro, Daniil Yugoslavskiy, oscd.community"
+        date = "2018-03-23"
+        level = "critical"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        servicename equals "SC Scheduled Scan"
+        servicename equals "UpdatMachine"
+}rule OMIGOD_HTTP_NO_AUTHENTICATION_RCE
+{
+    meta:
+        id = "ab6b1a39-a9ee-4ab4-b075-e83acf6e346b"
+        description = "Detects the exploitation of OMIGOD (CVE-2021-38647) which allows remote execute (RCE) commands as root with just a single unauthenticated HTTP request.
+Verify, successful, exploitation by viewing the HTTP client (request) body to see what was passed to the server (using PCAP).
+Within the client body is where the code execution would occur. Additionally, check the endpoint logs to see if suspicious commands or activity occurred within the timeframe of this HTTP request.
+"
+        author = "Nate Guagenti (neu5ron)"
+        date = "2021-09-20"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        method equals "POST"
+        status_code equals "200"
+        uri equals "/wsman"
+}rule PAEXEC_SERVICE_INSTALLATION
+{
+    meta:
+        id = "de7ce410-b3fb-4e8a-b38c-3b999e2c3420"
+        description = "Detects PAExec service installation"
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-10-26"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        servicename startswith "PAExec-"
+        imagepath startswith "C:\\WINDOWS\\PAExec-"
+}rule POSSIBLE_IMPACKET_SECRETDUMP_REMOTE_ACTIVITY_-_ZEE
+{
+    meta:
+        id = "92dae1ed-1c9d-4eff-a567-33acbd95b00e"
+        description = "Detect AD credential dumping using impacket secretdump HKTL. Based on the SIGMA rules/windows/builtin/win_impacket_secretdump.yml"
+        author = "Samir Bousseaden, @neu5ron"
+        date = "2020-03-19"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        name contains "SYSTEM32\\"
+        name endswith ".tmp"
+        path contains "\\"
+        path contains "ADMIN$"
+}rule POSSIBLE_PRINTNIGHTMARE_PRINT_DRIVER_INSTALL
+{
+    meta:
+        id = "7b33baef-2a75-4ca3-9da4-34f9a15382d8"
+        description = "Detects the remote installation of a print driver which is possible indication of the exploitation of PrintNightmare (CVE-2021-1675).
+The occurrence of print drivers being installed remotely via RPC functions should be rare, as print drivers are normally installed locally and or through group policy.
+"
+        author = "@neu5ron (Nate Guagenti)"
+        date = "2021-08-23"
+        level = "medium"
+        logsource = "generic.record"
+
+    condition:
+        operation equals "RpcAsyncInstallPrinterDriverFromPackage"
+        operation equals "RpcAsyncAddPrintProcessor"
+        operation equals "RpcAddPrintProcessor"
+        operation equals "RpcAddPrinterDriverEx"
+        operation equals "RpcAddPrinterDriver"
+        operation equals "RpcAsyncAddPrinterDriver"
+}rule POTENTIAL_CVE-2021-42278_EXPLOITATION_ATTEMPT
+{
+    meta:
+        id = "44bbff3e-4ca3-452d-a49a-6efa4cafa06f"
+        description = "The attacker creates a computer object using those permissions with a password known to her.
+After that she clears the attribute ServicePrincipalName on the computer object.
+Because she created the object (CREATOR OWNER), she gets granted additional permissions and can do many changes to the object.
+"
+        author = "frack113"
+        date = "2021-12-15"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "35"
+        eventlog.event_id equals "36"
+        eventlog.event_id equals "37"
+        eventlog.event_id equals "38"
+        eventlog.provider equals "Microsoft-Windows-Kerberos-Key-Distribution-Center"
+}rule POTENTIAL_CVE-2021-42287_EXPLOITATION_ATTEMPT
+{
+    meta:
+        id = "e80a0fee-1a62-4419-b31e-0d0db6e6013a"
+        description = "The attacker creates a computer object using those permissions with a password known to her.
+After that she clears the attribute ServicePrincipalName on the computer object.
+Because she created the object (CREATOR OWNER), she gets granted additional permissions and can do many changes to the object.
+"
+        author = "frack113"
+        date = "2021-12-15"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "16990"
+        eventlog.event_id equals "16991"
+        eventlog.provider equals "Microsoft-Windows-Directory-Services-SAM"
+}rule POTENTIAL_CVE-2023-23397_EXPLOITATION_ATTEMPT_-_SM
+{
+    meta:
+        id = "de96b824-02b0-4241-9356-7e9b47f04bac"
+        description = "Detects (failed) outbound connection attempts to internet facing SMB servers. This could be a sign of potential exploitation attempts of CVE-2023-23397."
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2023-04-05"
+        level = "medium"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "30803"
+        eventlog.event_id equals "30804"
+        eventlog.event_id equals "30806"
+}rule POTENTIAL_PETITPOTAM_ATTACK_VIA_EFS_RPC_CALLS
+{
+    meta:
+        id = "4096842a-8f9f-4d36-92b4-d0b2a62f9b2a"
+        description = "Detects usage of the windows RPC library Encrypting File System Remote Protocol (MS-EFSRPC). Variations of this RPC are used within the attack refereed to as PetitPotam.
+The usage of this RPC function should be rare if ever used at all.
+Thus usage of this function is uncommon enough that any usage of this RPC function should warrant further investigation to determine if it is legitimate.
+ View surrounding logs (within a few minutes before and after) from the Source IP to. Logs from from the Source IP would include dce_rpc, smb_mapping, smb_files, rdp, ntlm, kerberos, etc..'
+"
+        author = "@neu5ron, @Antonlovesdnb, Mike Remen"
+        date = "2021-08-17"
+        level = "medium"
+        logsource = "generic.record"
+
+    condition:
+        operation startswith "efs"
+}rule POTENTIAL_PRIVILEGED_SYSTEM_SERVICE_OPERATION_-_SE
+{
+    meta:
+        id = "f63508a0-c809-4435-b3be-ed819394d612"
+        description = "Detects the usage of the 'SeLoadDriverPrivilege' privilege. This privilege is required to load or unload a device driver.
+With this privilege, the user can dynamically load and unload device drivers or other code in to kernel mode.
+This user right does not apply to Plug and Play device drivers.
+If you exclude privileged users/admins and processes, which are allowed to do so, you are maybe left with bad programs trying to load malicious kernel drivers.
+This will detect Ghost-In-The-Logs (https://github.com/bats3c/Ghost-In-The-Logs) and the usage of Sysinternals and various other tools. So you have to work with a whitelist to find the bad stuff.
+"
+        author = "xknow (@xknow_infosec), xorxes (@xor_xes)"
+        date = "2019-04-08"
+        level = "medium"
+        logsource = "eventlog.Security"
+
+    condition:
+        eventlog.event_id equals "4673"
+        privilegelist equals "SeLoadDriverPrivilege"
+        service equals "-"
+}rule POTENTIAL_RDP_EXPLOIT_CVE-2019-0708
+{
+    meta:
+        id = "aaa5b30d-f418-420b-83a0-299cb6024885"
+        description = "Detect suspicious error on protocol RDP, potential CVE-2019-0708"
+        author = "Lionel PRAT, Christophe BROCAS, @atc_project (improvements)"
+        date = "2019-05-24"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "56"
+        eventlog.event_id equals "50"
+        eventlog.provider equals "TermDD"
+}rule POWERSHELL_SCRIPTS_INSTALLED_AS_SERVICES
+{
+    meta:
+        id = "a2e5019d-a658-4c6a-92bf-7197b54e2cae"
+        description = "Detects powershell script installed as a Service"
+        author = "oscd.community, Natalia Shornikova"
+        date = "2020-10-06"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        imagepath contains "powershell"
+        imagepath contains "pwsh"
+        eventlog.provider equals "Service Control Manager"
+}rule PROCESSHACKER_PRIVILEGE_ELEVATION
+{
+    meta:
+        id = "c4ff1eac-84ad-44dd-a6fb-d56a92fc43a9"
+        description = "Detects a ProcessHacker tool that elevated privileges to a very high level"
+        author = "Florian Roth (Nextron Systems)"
+        date = "2021-05-27"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        accountname equals "LocalSystem"
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        servicename startswith "ProcessHacker"
+}rule PSEXEC_AND_WMI_PROCESS_CREATIONS_BLOCK
+{
+    meta:
+        id = "97b9ce1e-c5ab-11ea-87d0-0242ac130003"
+        description = "Detects blocking of process creations originating from PSExec and WMI commands"
+        author = "Bhabesh Raj"
+        date = "2020-07-14"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "1121"
+        processname endswith "\\wmiprvse.exe"
+        processname endswith "\\psexesvc.exe"
+}rule PSEXEC_SERVICE_INSTALLATION
+{
+    meta:
+        id = "42c575ea-e41e-41f1-b248-8093c3e82a28"
+        description = "Detects PsExec service installation and execution events"
+        author = "Thomas Patzke"
+        date = "2017-06-12"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        servicename equals "PSEXESVC"
+        imagepath endswith "\\PSEXESVC.exe"
+}rule PUBLICLY_ACCESSIBLE_RDP_SERVICE
+{
+    meta:
+        id = "1fc0809e-06bf-4de3-ad52-25e5263b7623"
+        description = "Detects connections from routable IPs to an RDP listener. Which is indicative of a publicly-accessible RDP service.
+"
+        author = "Josh Brower @DefensiveDepth"
+        date = "2020-08-22"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        id.orig_h equals "::1/128"
+        id.orig_h equals "10.0.0.0/8"
+        id.orig_h equals "127.0.0.0/8"
+        id.orig_h equals "172.16.0.0/12"
+        id.orig_h equals "192.168.0.0/16"
+        id.orig_h equals "169.254.0.0/16"
+        id.orig_h equals "2620:83:8000::/48"
+        id.orig_h equals "fc00::/7"
+        id.orig_h equals "fe80::/10"
+}rule REMCOM_SERVICE_INSTALLATION
+{
+    meta:
+        id = "9e36ed87-4986-482e-8e3b-5c23ffff11bf"
+        description = "Detects RemCom service installation and execution events"
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2023-08-07"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        servicename equals "RemComSvc"
+        imagepath endswith "\\RemComSvc.exe"
+}rule REMOTE_ACCESS_TOOL_SERVICES_HAVE_BEEN_INSTALLED_-_
+{
+    meta:
+        id = "1a31b18a-f00c-4061-9900-f735b96c99fc"
+        description = "Detects service installation of different remote access tools software. These software are often abused by threat actors to perform"
+        author = "Connor Martin, Nasreddine Bencherchali"
+        date = "2022-12-23"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.event_id equals "7036"
+        eventlog.provider equals "Service Control Manager"
+        servicename contains "AmmyyAdmin"
+        servicename contains "Atera"
+        servicename contains "BASupportExpressSrvcUpdater"
+        servicename contains "BASupportExpressStandaloneService"
+        servicename contains "chromoting"
+        servicename contains "GoToAssist"
+        servicename contains "GoToMyPC"
+        servicename contains "jumpcloud"
+        servicename contains "LMIGuardianSvc"
+        servicename contains "LogMeIn"
+        servicename contains "monblanking"
+        servicename contains "Parsec"
+        servicename contains "RManService"
+        servicename contains "RPCPerformanceService"
+        servicename contains "RPCService"
+        servicename contains "SplashtopRemoteService"
+        servicename contains "SSUService"
+        servicename contains "TeamViewer"
+        servicename contains "TightVNC"
+        servicename contains "vncserver"
+        servicename contains "Zoho"
+}rule REMOTE_SERVICE_ACTIVITY_VIA_SVCCTL_NAMED_PIPE
+{
+    meta:
+        id = "586a8d6b-6bfe-4ad9-9d78-888cd2fe50c3"
+        description = "Detects remote service activity via remote access to the svcctl named pipe"
+        author = "Samir Bousseaden"
+        date = "2019-04-03"
+        level = "medium"
+        logsource = "eventlog.Security"
+
+    condition:
+        accesslist contains "WriteData"
+        eventlog.event_id equals "5145"
+        relativetargetname equals "svcctl"
+        sharename equals "\\\\\\\\\\*\\\\IPC$"
+}rule REMOTE_TASK_CREATION_VIA_ATSVC_NAMED_PIPE_-_ZEEK
+{
+    meta:
+        id = "dde85b37-40cd-4a94-b00c-0b8794f956b5"
+        description = "Detects remote task creation via at.exe or API interacting with ATSVC namedpipe"
+        author = "Samir Bousseaden, @neu5rn"
+        date = "2020-04-03"
+        level = "medium"
+        logsource = "generic.record"
+
+    condition:
+        name equals "atsvc"
+        path equals "\\\\\\*\\IPC$"
+}rule REMOTE_UTILITIES_HOST_SERVICE_INSTALL
+{
+    meta:
+        id = "85cce894-dd8b-4427-a958-5cc47a4dc9b9"
+        description = "Detects Remote Utilities Host service installation on the target system."
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-10-31"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        imagepath contains "\\rutserv.exe"
+        imagepath contains "-service"
+        servicename equals "Remote Utilities - Host"
+}rule ROTTENPOTATO_LIKE_ATTACK_PATTERN
+{
+    meta:
+        id = "16f5d8ca-44bd-47c8-acbe-6fc95a16c12f"
+        description = "Detects logon events that have characteristics of events generated during an attack with RottenPotato and the like"
+        author = "@SBousseaden, Florian Roth"
+        date = "2019-11-15"
+        level = "high"
+        logsource = "eventlog.Security"
+
+    condition:
+        eventlog.event_id equals "4624"
+        ipaddress equals "127.0.0.1"
+        ipaddress equals "::1"
+        process.logon_type equals "3"
+        targetusername equals "ANONYMOUS LOGON"
+        workstationname equals "-"
+}rule RTCORE_SUSPICIOUS_SERVICE_INSTALLATION
+{
+    meta:
+        id = "91c49341-e2ef-40c0-ac45-49ec5c3fe26c"
+        description = "Detects the installation of RTCore service. Which could be an indication of Micro-Star MSI Afterburner vulnerable driver abuse"
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-08-30"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        servicename equals "RTCore64"
+}rule SCHEDULED_TASKS_NAMES_USED_BY_SVR_FOR_GRAPHICALPRO
+{
+    meta:
+        id = "2bfc1373-0220-4fbd-8b10-33ddafd2a142"
+        description = "Hunts for known SVR-specific scheduled task names"
+        author = "CISA"
+        date = "2023-12-18"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "129"
+        eventlog.event_id equals "140"
+        eventlog.event_id equals "141"
+        taskname equals "\\defender"
+        taskname equals "\\Microsoft\\DefenderService"
+        taskname equals "\\Microsoft\\Windows\\Application Experience\\StartupAppTaskCheck"
+        taskname equals "\\Microsoft\\Windows\\Application Experience\\StartupAppTaskCkeck"
+        taskname equals "\\Microsoft\\Windows\\ATPUpd"
+        taskname equals "\\Microsoft\\Windows\\Data Integrity Scan\\Data Integrity Update"
+        taskname equals "\\Microsoft\\Windows\\DefenderUPDService"
+        taskname equals "\\Microsoft\\Windows\\IISUpdateService"
+        taskname equals "\\Microsoft\\Windows\\Speech\\SpeechModelInstallTask"
+        taskname equals "\\Microsoft\\Windows\\WiMSDFS"
+        taskname equals "\\Microsoft\\Windows\\Windows Defender\\Defender Update Service"
+        taskname equals "\\Microsoft\\Windows\\Windows Defender\\Service Update"
+        taskname equals "\\Microsoft\\Windows\\Windows Error Reporting\\CheckReporting"
+        taskname equals "\\Microsoft\\Windows\\Windows Error Reporting\\SubmitReporting"
+        taskname equals "\\Microsoft\\Windows\\Windows Filtering Platform\\BfeOnServiceStart"
+        taskname equals "\\Microsoft\\Windows\\WindowsDefenderService"
+        taskname equals "\\Microsoft\\Windows\\WindowsDefenderService2"
+        taskname equals "\\Microsoft\\Windows\\WindowsUpdate\\Scheduled AutoCheck"
+        taskname equals "\\Microsoft\\Windows\\WindowsUpdate\\Scheduled Check"
+        taskname equals "\\WindowUpdate"
+}rule SCHEDULED_TASK_EXECUTED_FROM_A_SUSPICIOUS_LOCATION
+{
+    meta:
+        id = "424273ea-7cf8-43a6-b712-375f925e481f"
+        description = "Detects the execution of Scheduled Tasks where the Program being run is located in a suspicious location or it's an unusale program to be run from a Scheduled Task"
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-12-05"
+        level = "medium"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "129"
+        path contains "C:\\Windows\\Temp\\"
+        path contains "\\AppData\\Local\\Temp\\"
+        path contains "\\Desktop\\"
+        path contains "\\Downloads\\"
+        path contains "\\Users\\Public\\"
+        path contains "C:\\Temp\\"
+}rule SCHEDULED_TASK_EXECUTED_UNCOMMON_LOLBIN
+{
+    meta:
+        id = "f0767f15-0fb3-44b9-851e-e8d9a6d0005d"
+        description = "Detects the execution of Scheduled Tasks where the program being run is located in a suspicious location or where it is an unusual program to be run from a Scheduled Task"
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-12-05"
+        level = "medium"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "129"
+        path endswith "\\calc.exe"
+        path endswith "\\cscript.exe"
+        path endswith "\\mshta.exe"
+        path endswith "\\mspaint.exe"
+        path endswith "\\notepad.exe"
+        path endswith "\\regsvr32.exe"
+        path endswith "\\wscript.exe"
+}rule SERVICE_INSTALLATION_IN_SUSPICIOUS_FOLDER
+{
+    meta:
+        id = "5e993621-67d4-488a-b9ae-b420d08b96cb"
+        description = "Detects service installation in suspicious folder appdata"
+        author = "pH-T (Nextron Systems)"
+        date = "2022-03-18"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        imagepath contains "\\AppData\\"
+        imagepath contains "\\\\\\\\127.0.0.1"
+        imagepath contains "\\\\\\\\localhost"
+        eventlog.provider equals "Service Control Manager"
+}rule SERVICE_INSTALLATION_WITH_SUSPICIOUS_FOLDER_PATTER
+{
+    meta:
+        id = "1b2ae822-6fe1-43ba-aa7c-d1a3b3d1d5f2"
+        description = "Detects service installation with suspicious folder patterns"
+        author = "pH-T (Nextron Systems)"
+        date = "2022-03-18"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        imagepath matches "^[Cc]:\\\\[Pp]rogram[Dd]ata\\\\.{1,9}\\.exe"
+        imagepath matches "^[Cc]:\\\\.{1,9}\\.exe"
+}rule SERVICE_INSTALLED_BY_UNUSUAL_CLIENT_-_SYSTEM
+{
+    meta:
+        id = "71c276aa-49cd-43d2-b920-2dcd3e6962d5"
+        description = "Detects a service installed by a client which has PID 0 or whose parent has PID 0"
+        author = "Tim Rauch (Nextron Systems), Elastic (idea)"
+        date = "2022-09-15"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        processid equals "0"
+        eventlog.provider equals "Service Control Manager"
+}rule SLIVER_C2_DEFAULT_SERVICE_INSTALLATION
+{
+    meta:
+        id = "31c51af6-e7aa-4da7-84d4-8f32cc580af2"
+        description = "Detects known malicious service installation that appear in cases in which a Sliver implants execute the PsExec commands"
+        author = "Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-08-25"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        imagepath matches "^[a-zA-Z]:\\\\windows\\\\temp\\\\[a-zA-Z0-9]{10}\\.exe"
+        servicename equals "Sliver"
+        servicename equals "Sliver implant"
+}rule SMBEXECPY_SERVICE_INSTALLATION
+{
+    meta:
+        id = "52a85084-6989-40c3-8f32-091e12e13f09"
+        description = "Detects the use of smbexec.py tool by detecting a specific service installation"
+        author = "Omer Faruk Celik"
+        date = "2018-03-20"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        imagepath contains ".bat & del "
+        imagepath contains "__output 2^>^&1 >"
+        servicename equals "BTOBTO"
+}rule SMB_SPOOLSS_NAME_PIPED_USAGE
+{
+    meta:
+        id = "bae2865c-5565-470d-b505-9496c87d0c30"
+        description = "Detects the use of the spoolss named pipe over SMB. This can be used to trigger the authentication via NTLM of any machine that has the spoolservice enabled."
+        author = "OTR (Open Threat Research), @neu5ron"
+        date = "2018-11-28"
+        level = "medium"
+        logsource = "generic.record"
+
+    condition:
+        name equals "spoolss"
+        path endswith "IPC$"
+}rule SNAKE_MALWARE_SERVICE_PERSISTENCE
+{
+    meta:
+        id = "b2e60816-96b2-45bd-ba91-b63578c03ef6"
+        description = "Detects the creation of a service named \"WerFaultSvc\" which seems to be used by the SNAKE malware as a persistence mechanism as described by CISA in their report"
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2023-05-10"
+        level = "critical"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        imagepath endswith "\\WerFault.exe"
+        imagepath startswith "C:\\Windows\\WinSxS\\"
+        eventlog.provider equals "Service Control Manager"
+        servicename contains "WerFaultSvc"
+}rule STONEDRILL_SERVICE_INSTALL
+{
+    meta:
+        id = "9e987c6c-4c1e-40d8-bd85-dd26fba8fdd6"
+        description = "This method detects a service install of the malicious Microsoft Network Realtime Inspection Service service described in StoneDrill report by Kaspersky"
+        author = "Florian Roth (Nextron Systems)"
+        date = "2017-03-07"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        imagepath endswith " LocalService"
+        eventlog.provider equals "Service Control Manager"
+        servicename equals "NtsSrv"
+}rule SUCCESSFUL_ACCOUNT_LOGIN_VIA_WMI
+{
+    meta:
+        id = "5af54681-df95-4c26-854f-2565e13cfab0"
+        description = "Detects successful logon attempts performed with WMI"
+        author = "Thomas Patzke"
+        date = "2019-12-04"
+        level = "low"
+        logsource = "eventlog.Security"
+
+    condition:
+        eventlog.event_id equals "4624"
+        processname endswith "\\WmiPrvSE.exe"
+}rule SUSPICIOUS_ACCESS_TO_SENSITIVE_FILE_EXTENSIONS_-_Z
+{
+    meta:
+        id = "286b47ed-f6fe-40b3-b3a8-35129acd43bc"
+        description = "Detects known sensitive file extensions via Zeek"
+        author = "Samir Bousseaden, @neu5ron"
+        date = "2020-04-02"
+        level = "medium"
+        logsource = "generic.record"
+
+    condition:
+        name endswith ".pst"
+        name endswith ".ost"
+        name endswith ".msg"
+        name endswith ".nst"
+        name endswith ".oab"
+        name endswith ".edb"
+        name endswith ".nsf"
+        name endswith ".bak"
+        name endswith ".dmp"
+        name endswith ".kirbi"
+        name endswith "\\groups.xml"
+        name endswith ".rdp"
+}rule SUSPICIOUS_APPLICATION_INSTALLED
+{
+    meta:
+        id = "83c161b6-ca67-4f33-8ad0-644a0737cf07"
+        description = "Detects suspicious application installed by looking at the added shortcut to the app resolver cache"
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-08-14"
+        level = "medium"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "28115"
+        name contains "Zenmap"
+        name contains "AnyDesk"
+        name contains "wireshark"
+        name contains "openvpn"
+        appid contains "zenmap.exe"
+        appid contains "prokzult ad"
+        appid contains "wireshark"
+        appid contains "openvpn"
+        eventlog.event_id equals "28115"
+}rule SUSPICIOUS_ENCODED_SCRIPTS_IN_A_WMI_CONSUMER
+{
+    meta:
+        id = "83844185-1c5b-45bc-bcf3-b5bf3084ca5b"
+        description = "Detects suspicious encoded payloads in WMI Event Consumers"
+        author = "Florian Roth (Nextron Systems)"
+        date = "2021-09-01"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        destination contains "WriteProcessMemory"
+        destination contains "This program cannot be run in DOS mode"
+        destination contains "This program must be run under Win32"
+}rule SUSPICIOUS_PSEXEC_EXECUTION_-_ZEEK
+{
+    meta:
+        id = "f1b3a22a-45e6-4004-afb5-4291f9c21166"
+        description = "detects execution of psexec or paexec with renamed service name, this rule helps to filter out the noise if psexec is used for legit purposes or if attacker uses a different psexec client other than sysinternal one"
+        author = "Samir Bousseaden, @neu5ron, Tim Shelton"
+        date = "2020-04-02"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        name startswith "PSEXESVC"
+        name endswith "-stdin"
+        name endswith "-stdout"
+        name endswith "-stderr"
+        path contains "\\\\"
+        path contains "\\IPC$"
+}rule SUSPICIOUS_REJECTED_SMB_GUEST_LOGON_FROM_IP
+{
+    meta:
+        id = "71886b70-d7b4-4dbf-acce-87d2ca135262"
+        description = "Detect Attempt PrintNightmare (CVE-2021-1675) Remote code execution in Windows Spooler Service"
+        author = "Florian Roth (Nextron Systems), KevTheHermit, fuzzyf10w"
+        date = "2021-06-30"
+        level = "medium"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "31017"
+        servername startswith "\\1"
+        username equals ""
+}rule SUSPICIOUS_SCHEDULED_TASK_CREATION
+{
+    meta:
+        id = "3a734d25-df5c-4b99-8034-af1ddb5883a4"
+        description = "Detects suspicious scheduled task creation events. Based on attributes such as paths, commands line flags, etc."
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-12-05"
+        level = "high"
+        logsource = "eventlog.Security"
+
+    condition:
+        taskcontent contains "regsvr32"
+        taskcontent contains "rundll32"
+        taskcontent contains "cmd.exe</Command>"
+        taskcontent contains "cmd</Command>"
+        taskcontent contains "<Arguments>/c "
+        taskcontent contains "<Arguments>/k "
+        taskcontent contains "<Arguments>/r "
+        taskcontent contains "powershell"
+        taskcontent contains "pwsh"
+        taskcontent contains "mshta"
+        taskcontent contains "wscript"
+        taskcontent contains "cscript"
+        taskcontent contains "certutil"
+        taskcontent contains "bitsadmin"
+        taskcontent contains "bash.exe"
+        taskcontent contains "bash "
+        taskcontent contains "scrcons"
+        taskcontent contains "wmic "
+        taskcontent contains "wmic.exe"
+        taskcontent contains "forfiles"
+        taskcontent contains "scriptrunner"
+        taskcontent contains "hh.exe"
+        eventlog.event_id equals "4698"
+        taskcontent contains "\\AppData\\Local\\Temp\\"
+        taskcontent contains "\\AppData\\Roaming\\"
+        taskcontent contains "\\Users\\Public\\"
+        taskcontent contains "\\WINDOWS\\Temp\\"
+        taskcontent contains "C:\\Temp\\"
+        taskcontent contains "\\Desktop\\"
+        taskcontent contains "\\Downloads\\"
+        taskcontent contains "\\Temporary Internet"
+        taskcontent contains "C:\\ProgramData\\"
+        taskcontent contains "C:\\Perflogs\\"
+}rule SUSPICIOUS_SCHEDULED_TASK_UPDATE
+{
+    meta:
+        id = "614cf376-6651-47c4-9dcc-6b9527f749f4"
+        description = "Detects update to a scheduled task event that contain suspicious keywords."
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-12-05"
+        level = "high"
+        logsource = "eventlog.Security"
+
+    condition:
+        taskcontentnew contains "regsvr32"
+        taskcontentnew contains "rundll32"
+        taskcontentnew contains "cmd.exe</Command>"
+        taskcontentnew contains "cmd</Command>"
+        taskcontentnew contains "<Arguments>/c "
+        taskcontentnew contains "<Arguments>/k "
+        taskcontentnew contains "<Arguments>/r "
+        taskcontentnew contains "powershell"
+        taskcontentnew contains "pwsh"
+        taskcontentnew contains "mshta"
+        taskcontentnew contains "wscript"
+        taskcontentnew contains "cscript"
+        taskcontentnew contains "certutil"
+        taskcontentnew contains "bitsadmin"
+        taskcontentnew contains "bash.exe"
+        taskcontentnew contains "bash "
+        taskcontentnew contains "scrcons"
+        taskcontentnew contains "wmic "
+        taskcontentnew contains "wmic.exe"
+        taskcontentnew contains "forfiles"
+        taskcontentnew contains "scriptrunner"
+        taskcontentnew contains "hh.exe"
+        eventlog.event_id equals "4702"
+        taskcontentnew contains "\\AppData\\Local\\Temp\\"
+        taskcontentnew contains "\\AppData\\Roaming\\"
+        taskcontentnew contains "\\Users\\Public\\"
+        taskcontentnew contains "\\WINDOWS\\Temp\\"
+        taskcontentnew contains "C:\\Temp\\"
+        taskcontentnew contains "\\Desktop\\"
+        taskcontentnew contains "\\Downloads\\"
+        taskcontentnew contains "\\Temporary Internet"
+        taskcontentnew contains "C:\\ProgramData\\"
+        taskcontentnew contains "C:\\Perflogs\\"
+}rule SUSPICIOUS_SERVICE_INSTALLATION
+{
+    meta:
+        id = "1d61f71d-59d2-479e-9562-4ff5f4ead16b"
+        description = "Detects suspicious service installation commands"
+        author = "pH-T (Nextron Systems), Florian Roth (Nextron Systems)"
+        date = "2022-03-18"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        imagepath contains " -nop "
+        imagepath contains " -sta "
+        imagepath contains " -w hidden "
+        imagepath contains ":\\Temp\\"
+        imagepath contains ".downloadfile("
+        imagepath contains ".downloadstring("
+        imagepath contains "\\ADMIN$\\"
+        imagepath contains "\\Perflogs\\"
+        imagepath contains "&&"
+        eventlog.provider equals "Service Control Manager"
+}rule SUSPICIOUS_SERVICE_INSTALLATION_SCRIPT
+{
+    meta:
+        id = "70f00d10-60b2-4f34-b9a0-dc3df3fe762a"
+        description = "Detects suspicious service installation scripts"
+        author = "pH-T (Nextron Systems)"
+        date = "2022-03-18"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        imagepath contains "cscript"
+        imagepath contains "mshta"
+        imagepath contains "powershell"
+        imagepath contains "pwsh"
+        imagepath contains "regsvr32"
+        imagepath contains "rundll32"
+        imagepath contains "wscript"
+        imagepath contains " -c "
+        imagepath contains " -r "
+        imagepath contains " -k "
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+}rule SUSPICIOUS_TEAMS_APPLICATION_RELATED_OBJECTACESS_E
+{
+    meta:
+        id = "25cde13e-8e20-4c29-b949-4e795b76f16f"
+        description = "Detects an access to authentication tokens and accounts of Microsoft Teams desktop application."
+        author = "@SerkinValery"
+        date = "2022-09-16"
+        level = "high"
+        logsource = "eventlog.Security"
+
+    condition:
+        processname contains "\\Microsoft\\Teams\\current\\Teams.exe"
+        eventlog.event_id equals "4663"
+        objectname contains "\\Microsoft\\Teams\\Cookies"
+        objectname contains "\\Microsoft\\Teams\\Local Storage\\leveldb"
+}rule SYSKEY_REGISTRY_KEYS_ACCESS
+{
+    meta:
+        id = "9a4ff3b8-6187-4fd2-8e8b-e0eae1129495"
+        description = "Detects handle requests and access operations to specific registry keys to calculate the SysKey"
+        author = "Roberto Rodriguez @Cyb3rWard0g"
+        date = "2019-08-12"
+        level = "high"
+        logsource = "eventlog.Security"
+
+    condition:
+        eventlog.event_id equals "4656"
+        eventlog.event_id equals "4663"
+        objectname endswith "lsa\\JD"
+        objectname endswith "lsa\\GBG"
+        objectname endswith "lsa\\Skew1"
+        objectname endswith "lsa\\Data"
+        objecttype equals "key"
+}rule SYSMON_APPLICATION_CRASHED
+{
+    meta:
+        id = "4d7f1827-1637-4def-8d8a-fd254f9454df"
+        description = "Detects application popup reporting a failure of the Sysmon service"
+        author = "Tim Shelton"
+        date = "2022-04-26"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        caption equals "sysmon64.exe - Application Error"
+        caption equals "sysmon.exe - Application Error"
+        eventlog.event_id equals "26"
+        eventlog.provider equals "Application Popup"
+}rule SYSMON_BLOCKED_EXECUTABLE
+{
+    meta:
+        id = "23b71bc5-953e-4971-be4c-c896cda73fc2"
+        description = "Triggers on any Sysmon \"FileBlockExecutable\" event, which indicates a violation of the configured block policy"
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-08-16"
+        level = "high"
+        logsource = "process.creation_commandline"
+
+    condition:
+        eventlog.event_id equals "27"
+}rule SYSMON_BLOCKED_FILE_SHREDDING
+{
+    meta:
+        id = "c3e5c1b1-45e9-4632-b242-27939c170239"
+        description = "Triggers on any Sysmon \"FileBlockShredding\" event, which indicates a violation of the configured shredding policy."
+        author = "frack113"
+        date = "2023-07-20"
+        level = "high"
+        logsource = "process.creation_commandline"
+
+    condition:
+        eventlog.event_id equals "28"
+}rule SYSMON_CHANNEL_REFERENCE_DELETION
+{
+    meta:
+        id = "18beca67-ab3e-4ee3-ba7a-a46ca8d7d0cc"
+        description = "Potential threat actor tampering with Sysmon manifest and eventually disabling it"
+        author = "Roberto Rodriguez (Cyb3rWard0g), OTR (Open Threat Research)"
+        date = "2020-07-14"
+        level = "high"
+        logsource = "eventlog.Security"
+
+    condition:
+        eventlog.event_id equals "4657"
+        newvalue equals "0"
+        objectname contains "WINEVT\\Publishers\\{5770385f-c22a-43e0-bf4c-06f5698ffbd9}"
+        objectname contains "WINEVT\\Channels\\Microsoft-Windows-Sysmon/Operational"
+        objectvaluename equals "Enabled"
+        accessmask equals "65536"
+        eventlog.event_id equals "4663"
+        objectname contains "WINEVT\\Publishers\\{5770385f-c22a-43e0-bf4c-06f5698ffbd9}"
+        objectname contains "WINEVT\\Channels\\Microsoft-Windows-Sysmon/Operational"
+}rule SYSMON_CONFIGURATION_CHANGE
+{
+    meta:
+        id = "8ac03a65-6c84-4116-acad-dc1558ff7a77"
+        description = "Detects a Sysmon configuration change, which could be the result of a legitimate reconfiguration or someone trying manipulate the configuration"
+        author = "frack113"
+        date = "2022-01-12"
+        level = "medium"
+        logsource = "process.creation_commandline"
+
+    condition:
+        eventlog.event_id equals "16"
+}rule SYSMON_CONFIGURATION_ERROR
+{
+    meta:
+        id = "815cd91b-7dbc-4247-841a-d7dd1392b0a8"
+        description = "Detects when an adversary is trying to hide it's action from Sysmon logging based on error messages"
+        author = "frack113"
+        date = "2021-06-04"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        description contains "Failed to open service configuration with error"
+        description contains "Failed to connect to the driver to update configuration"
+}rule SYSMON_CONFIGURATION_MODIFICATION
+{
+    meta:
+        id = "1f2b5353-573f-4880-8e33-7d04dcf97744"
+        description = "Detects when an attacker tries to hide from Sysmon by disabling or stopping it"
+        author = "frack113"
+        date = "2021-06-04"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        state equals "Started"
+        state equals "Stopped"
+}rule SYSMON_FILE_EXECUTABLE_CREATION_DETECTED
+{
+    meta:
+        id = "693a44e9-7f26-4cb6-b787-214867672d3a"
+        description = "Triggers on any Sysmon \"FileExecutableDetected\" event, which triggers every time a PE that is monitored by the config is created."
+        author = "frack113"
+        date = "2023-07-20"
+        level = "medium"
+        logsource = "process.creation_commandline"
+
+    condition:
+        eventlog.event_id equals "29"
+}rule T1047_WMIPRVSE_WBEMCOMN_DLL_HIJACK
+{
+    meta:
+        id = "f6c68d5f-e101-4b86-8c84-7d96851fd65c"
+        description = "Detects a threat actor creating a file named `wbemcomn.dll` in the `C:\Windows\System32\wbem\` directory over the network for a WMI DLL Hijack scenario."
+        author = "Roberto Rodriguez @Cyb3rWard0g, Open Threat Research (OTR)"
+        date = "2020-10-12"
+        level = "high"
+        logsource = "eventlog.Security"
+
+    condition:
+        subjectusername endswith "$"
+        eventlog.event_id equals "5145"
+        relativetargetname endswith "\\wbem\\wbemcomn.dll"
+}rule TACTICALRMM_SERVICE_INSTALLATION
+{
+    meta:
+        id = "4bb79b62-ef12-4861-981d-2aab43fab642"
+        description = "Detects a TacticalRMM service installation. Tactical RMM is a remote monitoring & management tool."
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-11-28"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        imagepath contains "tacticalrmm.exe"
+        servicename contains "TacticalRMM Agent Service"
+}rule TAP_DRIVER_INSTALLATION
+{
+    meta:
+        id = "8e4cf0e5-aa5d-4dc3-beff-dc26917744a9"
+        description = "Well-known TAP software installation. Possible preparation for data exfiltration using tunnelling techniques"
+        author = "Daniil Yugoslavskiy, Ian Davis, oscd.community"
+        date = "2019-10-24"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        imagepath contains "tap0901"
+        eventlog.provider equals "Service Control Manager"
+}rule TAP_DRIVER_INSTALLATION_-_SECURITY
+{
+    meta:
+        id = "9c8afa4d-0022-48f0-9456-3712466f9701"
+        description = "Detects the installation of a well-known TAP driver service. This could be a sign of potential preparation for data exfiltration using tunnelling techniques.
+"
+        author = "Daniil Yugoslavskiy, Ian Davis, oscd.community"
+        date = "2019-10-24"
+        level = "low"
+        logsource = "eventlog.Security"
+
+    condition:
+        eventlog.event_id equals "4697"
+        servicefilename contains "tap0901"
+}rule TRANSFERRING_FILES_WITH_CREDENTIAL_DATA_VIA_NETWOR
+{
+    meta:
+        id = "2e69f167-47b5-4ae7-a390-47764529eff5"
+        description = "Transferring files with well-known filenames (sensitive files with credential data) using network shares"
+        author = "@neu5ron, Teymur Kheirkhabarov, oscd.community"
+        date = "2020-04-02"
+        level = "medium"
+        logsource = "generic.record"
+
+    condition:
+        name equals "\\mimidrv"
+        name equals "\\lsass"
+        name equals "\\windows\\minidump\\"
+        name equals "\\hiberfil"
+        name equals "\\sqldmpr"
+        name equals "\\sam"
+        name equals "\\ntds.dit"
+        name equals "\\security"
+}rule TURLA_PNG_DROPPER_SERVICE
+{
+    meta:
+        id = "1228f8e2-7e79-4dea-b0ad-c91f1d5016c1"
+        description = "This method detects malicious services mentioned in Turla PNG dropper report by NCC Group in November 2018"
+        author = "Florian Roth (Nextron Systems)"
+        date = "2018-11-23"
+        level = "critical"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        servicename equals "WerFaultSvc"
+}rule TURLA_SERVICE_INSTALL
+{
+    meta:
+        id = "1df8b3da-b0ac-4d8a-b7c7-6cb7c24160e4"
+        description = "This method detects a service install of malicious services mentioned in Carbon Paper - Turla report by ESET"
+        author = "Florian Roth (Nextron Systems)"
+        date = "2017-03-31"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+        servicename equals "srservice"
+        servicename equals "ipvpn"
+        servicename equals "hkmsvc"
+}rule UNAUTHORIZED_SYSTEM_TIME_MODIFICATION
+{
+    meta:
+        id = "faa031b5-21ed-4e02-8881-2591f98d82ed"
+        description = "Detect scenarios where a potentially unauthorized application or user is modifying the system time."
+        author = "@neu5ron"
+        date = "2019-02-05"
+        level = "low"
+        logsource = "eventlog.Security"
+
+    condition:
+        eventlog.event_id equals "4616"
+}rule UNCOMMON_SERVICE_INSTALLATION_IMAGE_PATH
+{
+    meta:
+        id = "26481afe-db26-4228-b264-25a29fe6efc7"
+        description = "Detects uncommon service installation commands by looking at suspicious or uncommon image path values containing references to encoded powershell commands, temporary paths, etc.
+"
+        author = "Florian Roth (Nextron Systems)"
+        date = "2022-03-18"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7045"
+        eventlog.provider equals "Service Control Manager"
+}rule UNSIGNED_BINARY_LOADED_FROM_SUSPICIOUS_LOCATION
+{
+    meta:
+        id = "8289bf8c-4aca-4f5a-9db3-dc3d7afe5c10"
+        description = "Detects Code Integrity (CI) engine blocking processes from loading unsigned DLLs residing in suspicious locations"
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-08-03"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "11"
+        eventlog.event_id equals "12"
+        imagename contains "\\Users\\Public\\"
+        imagename contains "\\PerfLogs\\"
+        imagename contains "\\Desktop\\"
+        imagename contains "\\Downloads\\"
+        imagename contains "\\AppData\\Local\\Temp\\"
+        imagename contains "C:\\Windows\\TEMP\\"
+}rule USER_ADDED_TO_LOCAL_ADMINISTRATOR_GROUP
+{
+    meta:
+        id = "c265cf08-3f99-46c1-8d59-328247057d57"
+        description = "Detects the addition of a new member to the local administrator group, which could be legitimate activity or a sign of privilege escalation activity"
+        author = "Florian Roth (Nextron Systems)"
+        date = "2017-03-14"
+        level = "medium"
+        logsource = "eventlog.Security"
+
+    condition:
+        eventlog.event_id equals "4732"
+        targetusername startswith "Administr"
+        targetsid equals "S-1-5-32-544"
+}rule USER_COULDNT_CALL_A_PRIVILEGED_SERVICE_LSAREGISTER
+{
+    meta:
+        id = "6daac7fc-77d1-449a-a71a-e6b4d59a0e54"
+        description = "The 'LsaRegisterLogonProcess' function verifies that the application making the function call is a logon process by checking that it has the SeTcbPrivilege privilege set. Possible Rubeus tries to get a handle to LSA."
+        author = "Roberto Rodriguez (source), Ilyas Ochkov (rule), oscd.community"
+        date = "2019-10-24"
+        level = "high"
+        logsource = "eventlog.Security"
+
+    condition:
+        eventlog.event_id equals "4673"
+        keywords equals "0x8010000000000000"
+        service equals "LsaRegisterLogonProcess()"
+}rule USER_LOGOFF_EVENT
+{
+    meta:
+        id = "0badd08f-c6a3-4630-90d3-6875cca440be"
+        description = "Detects a user log-off activity. Could be used for example to correlate information during forensic investigations"
+        author = "frack113"
+        date = "2022-10-14"
+        level = "informational"
+        logsource = "eventlog.Security"
+
+    condition:
+        eventlog.event_id equals "4634"
+        eventlog.event_id equals "4647"
+}rule VOLUME_SHADOW_COPY_MOUNT
+{
+    meta:
+        id = "f512acbf-e662-4903-843e-97ce4652b740"
+        description = "Detects volume shadow copy mount via Windows event log"
+        author = "Roberto Rodriguez @Cyb3rWard0g, Open Threat Research (OTR)"
+        date = "2020-10-20"
+        level = "low"
+        logsource = "eventlog.System"
+
+    condition:
+        devicename contains "HarddiskVolumeShadowCopy"
+        eventlog.event_id equals "98"
+        eventlog.provider equals "Microsoft-Windows-Ntfs"
+}rule VSSAUDIT_SECURITY_EVENT_SOURCE_REGISTRATION
+{
+    meta:
+        id = "e9faba72-4974-4ab2-a4c5-46e25ad59e9b"
+        description = "Detects the registration of the security event source VSSAudit. It would usually trigger when volume shadow copy operations happen."
+        author = "Roberto Rodriguez @Cyb3rWard0g, Open Threat Research (OTR)"
+        date = "2020-10-20"
+        level = "informational"
+        logsource = "eventlog.Security"
+
+    condition:
+        auditsourcename equals "VSSAudit"
+        eventlog.event_id equals "4904"
+        eventlog.event_id equals "4905"
+}rule VULNERABLE_NETLOGON_SECURE_CHANNEL_CONNECTION_ALLO
+{
+    meta:
+        id = "a0cb7110-edf0-47a4-9177-541a4083128a"
+        description = "Detects that a vulnerable Netlogon secure channel connection was allowed, which could be an indicator of CVE-2020-1472."
+        author = "NVISO"
+        date = "2020-09-15"
+        level = "high"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "5829"
+        eventlog.provider equals "NetLogon"
+}rule WEBDAV_PUT_REQUEST
+{
+    meta:
+        id = "705072a5-bb6f-4ced-95b6-ecfa6602090b"
+        description = "A General detection for WebDav user-agent being used to PUT files on a WebDav network share. This could be an indicator of exfiltration."
+        author = "Roberto Rodriguez (Cyb3rWard0g), OTR (Open Threat Research)"
+        date = "2020-05-02"
+        level = "low"
+        logsource = "generic.record"
+
+    condition:
+        id.resp_h equals "10.0.0.0/8"
+        id.resp_h equals "127.0.0.0/8"
+        id.resp_h equals "172.16.0.0/12"
+        id.resp_h equals "192.168.0.0/16"
+        id.resp_h equals "169.254.0.0/16"
+        method equals "PUT"
+        user_agent contains "WebDAV"
+}rule WINDOWS_DEFENDER_AMSI_TRIGGER_DETECTED
+{
+    meta:
+        id = "ea9bf0fa-edec-4fb8-8b78-b119f2528186"
+        description = "Detects triggering of AMSI by Windows Defender."
+        author = "Bhabesh Raj"
+        date = "2020-09-14"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "1116"
+        sourcename equals "AMSI"
+}rule WINDOWS_DEFENDER_CONFIGURATION_CHANGES
+{
+    meta:
+        id = "801bd44f-ceed-4eb6-887c-11544633c0aa"
+        description = "Detects suspicious changes to the Windows Defender configuration"
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-12-06"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "5007"
+        newvalue contains "\\Windows Defender\\DisableAntiSpyware "
+        newvalue contains "\\Windows Defender\\Scan\\DisableRemovableDriveScanning "
+        newvalue contains "\\Windows Defender\\Scan\\DisableScanningMappedNetworkDrivesForFullScan "
+        newvalue contains "\\Windows Defender\\SpyNet\\DisableBlockAtFirstSeen "
+        newvalue contains "\\Real-Time Protection\\SpyNetReporting "
+}rule WINDOWS_DEFENDER_EXCLUSIONS_ADDED
+{
+    meta:
+        id = "1321dc4e-a1fe-481d-a016-52c45f0c8b4f"
+        description = "Detects the Setting of Windows Defender Exclusions"
+        author = "Christian Burkard (Nextron Systems)"
+        date = "2021-07-06"
+        level = "medium"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "5007"
+        newvalue contains "\\Microsoft\\Windows Defender\\Exclusions"
+}rule WINDOWS_DEFENDER_EXCLUSION_LIST_MODIFIED
+{
+    meta:
+        id = "46a68649-f218-4f86-aea1-16a759d81820"
+        description = "Detects modifications to the Windows Defender exclusion registry key. This could indicate a potentially suspicious or even malicious activity by an attacker trying to add a new exclusion in order to bypass security.
+"
+        author = "@BarryShooshooga"
+        date = "2019-10-26"
+        level = "medium"
+        logsource = "eventlog.Security"
+
+    condition:
+        eventlog.event_id equals "4657"
+        objectname contains "\\Microsoft\\Windows Defender\\Exclusions\\"
+}rule WINDOWS_DEFENDER_EXCLUSION_REGISTRY_KEY_-_WRITE_AC
+{
+    meta:
+        id = "e9c8808f-4cfb-4ba9-97d4-e5f3beaa244d"
+        description = "Detects write access requests to the Windows Defender exclusions registry keys. This could be an indication of an attacker trying to request a handle or access the object to write new exclusions in order to bypass security.
+"
+        author = "@BarryShooshooga, Nasreddine Bencherchali (Nextron Systems)"
+        date = "2019-10-26"
+        level = "medium"
+        logsource = "eventlog.Security"
+
+    condition:
+        accesslist contains "%%4417"
+        accesslist contains "%%4418"
+        eventlog.event_id equals "4656"
+        eventlog.event_id equals "4663"
+        objectname contains "\\Microsoft\\Windows Defender\\Exclusions\\"
+}rule WINDOWS_DEFENDER_GRACE_PERIOD_EXPIRED
+{
+    meta:
+        id = "360a1340-398a-46b6-8d06-99b905dc69d2"
+        description = "Detects the expiration of the grace period of Windows Defender. This means protection against viruses, spyware, and other potentially unwanted software is disabled.
+"
+        author = "Ján Trenčanský, frack113"
+        date = "2020-07-28"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "5101"
+}rule WINDOWS_DEFENDER_MALWARE_AND_PUA_SCANNING_DISABLED
+{
+    meta:
+        id = "bc275be9-0bec-4d77-8c8f-281a2df6710f"
+        description = "Detects disabling of the Windows Defender feature of scanning for malware and other potentially unwanted software"
+        author = "Ján Trenčanský, frack113"
+        date = "2020-07-28"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "5010"
+}rule WINDOWS_DEFENDER_MALWARE_DETECTION_HISTORY_DELETIO
+{
+    meta:
+        id = "2afe6582-e149-11ea-87d0-0242ac130003"
+        description = "Windows Defender logs when the history of detected infections is deleted."
+        author = "Cian Heasley"
+        date = "2020-08-13"
+        level = "informational"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "1013"
+}rule WINDOWS_DEFENDER_REAL-TIME_PROTECTION_DISABLED
+{
+    meta:
+        id = "b28e58e4-2a72-4fae-bdee-0fbe904db642"
+        description = "Detects disabling of Windows Defender Real-time Protection. As this event doesn't contain a lot of information on who initiated this action you might want to reduce it to a \"medium\" level if this occurs too many times in your environment
+"
+        author = "Ján Trenčanský, frack113"
+        date = "2020-07-28"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "5001"
+}rule WINDOWS_DEFENDER_REAL-TIME_PROTECTION_FAILURERESTA
+{
+    meta:
+        id = "dd80db93-6ec2-4f4c-a017-ad40da6ffe81"
+        description = "Detects issues with Windows Defender Real-Time Protection features"
+        author = "Nasreddine Bencherchali (Nextron Systems), Christopher Peacock '@securepeacock' (Update)"
+        date = "2023-03-28"
+        level = "medium"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "3002"
+        eventlog.event_id equals "3007"
+}rule WINDOWS_DEFENDER_SUBMIT_SAMPLE_FEATURE_DISABLED
+{
+    meta:
+        id = "91903aba-1088-42ee-b680-d6d94fe002b0"
+        description = "Detects disabling of the \"Automatic Sample Submission\" feature of Windows Defender."
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-12-06"
+        level = "low"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "5007"
+        newvalue contains "\\Real-Time Protection\\SubmitSamplesConsent = 0x0"
+}rule WINDOWS_DEFENDER_THREAT_DETECTED
+{
+    meta:
+        id = "57b649ef-ff42-4fb0-8bf6-62da243a1708"
+        description = "Detects actions taken by Windows Defender malware detection engines"
+        author = "Ján Trenčanský"
+        date = "2020-07-28"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "1006"
+        eventlog.event_id equals "1015"
+        eventlog.event_id equals "1116"
+        eventlog.event_id equals "1117"
+}rule WINDOWS_DEFENDER_THREAT_DETECTION_SERVICE_DISABLED
+{
+    meta:
+        id = "6c0a7755-6d31-44fa-80e1-133e57752680"
+        description = "Detects when the \"Windows Defender Threat Protection\" service is disabled."
+        author = "Ján Trenčanský, frack113"
+        date = "2020-07-28"
+        level = "medium"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7036"
+        eventlog.provider equals "Service Control Manager"
+        param1 equals "Windows Defender Antivirus Service"
+        param1 equals "Service antivirus Microsoft Defender"
+        param2 equals "stopped"
+        param2 equals "arrêté"
+}rule WINDOWS_DEFENDER_VIRUS_SCANNING_FEATURE_DISABLED
+{
+    meta:
+        id = "686c0b4b-9dd3-4847-9077-d6c1bbe36fcb"
+        description = "Detects disabling of the Windows Defender virus scanning feature"
+        author = "Ján Trenčanský, frack113"
+        date = "2020-07-28"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "5012"
+}rule WINDOWS_FILTERING_PLATFORM_BLOCKED_CONNECTION_FROM
+{
+    meta:
+        id = "bacf58c6-e199-4040-a94f-95dea0f1e45a"
+        description = "Detects a Windows Filtering Platform (WFP) blocked connection event involving common Endpoint Detection and Response (EDR) agents.
+Adversaries may use WFP filters to prevent Endpoint Detection and Response (EDR) agents from reporting security events.
+"
+        author = "@gott_cyber"
+        date = "2024-01-08"
+        level = "high"
+        logsource = "eventlog.Security"
+
+    condition:
+        application endswith "\\AmSvc.exe"
+        application endswith "\\cb.exe"
+        application endswith "\\CETASvc.exe"
+        application endswith "\\CNTAoSMgr.exe"
+        application endswith "\\CrAmTray.exe"
+        application endswith "\\CrsSvc.exe"
+        application endswith "\\CSFalconContainer.exe"
+        application endswith "\\CSFalconService.exe"
+        application endswith "\\CybereasonAV.exe"
+        application endswith "\\CylanceSvc.exe"
+        application endswith "\\cyserver.exe"
+        application endswith "\\CyveraService.exe"
+        application endswith "\\CyvrFsFlt.exe"
+        application endswith "\\EIConnector.exe"
+        application endswith "\\elastic-agent.exe"
+        application endswith "\\elastic-endpoint.exe"
+        application endswith "\\EndpointBasecamp.exe"
+        application endswith "\\ExecutionPreventionSvc.exe"
+        application endswith "\\filebeat.exe"
+        application endswith "\\fortiedr.exe"
+        application endswith "\\hmpalert.exe"
+        application endswith "\\hurukai.exe"
+        application endswith "\\LogProcessorService.exe"
+        application endswith "\\mcsagent.exe"
+        application endswith "\\mcsclient.exe"
+        application endswith "\\MsMpEng.exe"
+        application endswith "\\MsSense.exe"
+        application endswith "\\Ntrtscan.exe"
+        application endswith "\\PccNTMon.exe"
+        application endswith "\\QualysAgent.exe"
+        application endswith "\\RepMgr.exe"
+        application endswith "\\RepUtils.exe"
+        application endswith "\\RepUx.exe"
+        application endswith "\\RepWAV.exe"
+        application endswith "\\RepWSC.exe"
+        application endswith "\\sedservice.exe"
+        application endswith "\\SenseCncProxy.exe"
+        application endswith "\\SenseIR.exe"
+        application endswith "\\SenseNdr.exe"
+        application endswith "\\SenseSampleUploader.exe"
+        application endswith "\\SentinelAgent.exe"
+        application endswith "\\SentinelAgentWorker.exe"
+        application endswith "\\SentinelBrowserNativeHost.exe"
+        application endswith "\\SentinelHelperService.exe"
+        application endswith "\\SentinelServiceHost.exe"
+        application endswith "\\SentinelStaticEngine.exe"
+        application endswith "\\SentinelStaticEngineScanner.exe"
+        application endswith "\\sfc.exe"
+        application endswith "\\sophos ui.exe"
+        application endswith "\\sophosfilescanner.exe"
+        application endswith "\\sophosfs.exe"
+        application endswith "\\sophoshealth.exe"
+        application endswith "\\sophosips.exe"
+        application endswith "\\sophosLivequeryservice.exe"
+        application endswith "\\sophosnetfilter.exe"
+        application endswith "\\sophosntpservice.exe"
+        application endswith "\\sophososquery.exe"
+        application endswith "\\sspservice.exe"
+        application endswith "\\TaniumClient.exe"
+        application endswith "\\TaniumCX.exe"
+        application endswith "\\TaniumDetectEngine.exe"
+        application endswith "\\TMBMSRV.exe"
+        application endswith "\\TmCCSF.exe"
+        application endswith "\\TmListen.exe"
+        application endswith "\\TmWSCSvc.exe"
+        application endswith "\\Traps.exe"
+        application endswith "\\winlogbeat.exe"
+        application endswith "\\WSCommunicator.exe"
+        application endswith "\\xagt.exe"
+        eventlog.event_id equals "5157"
+}rule WINDOWS_SERVICE_TERMINATED_WITH_ERROR
+{
+    meta:
+        id = "acfa2210-0d71-4eeb-b477-afab494d596c"
+        description = "Detects Windows services that got terminated for whatever reason"
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2023-04-14"
+        level = "low"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "7023"
+        eventlog.provider equals "Service Control Manager"
+}rule WINDOWS_UPDATE_ERROR
+{
+    meta:
+        id = "13cfeb75-9e33-4d04-b0f7-ab8faaa95a59"
+        description = "Detects Windows update errors including installation failures and connection issues. Defenders should observe this in case critical update KBs aren't installed.
+"
+        author = "frack113"
+        date = "2021-12-04"
+        level = "informational"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "16"
+        eventlog.event_id equals "20"
+        eventlog.event_id equals "24"
+        eventlog.event_id equals "213"
+        eventlog.event_id equals "217"
+        eventlog.provider equals "Microsoft-Windows-WindowsUpdateClient"
+}rule WIN_DEFENDER_RESTORED_QUARANTINE_FILE
+{
+    meta:
+        id = "bc92ca75-cd42-4d61-9a37-9d5aa259c88b"
+        description = "Detects the restoration of files from the defender quarantine"
+        author = "Nasreddine Bencherchali (Nextron Systems)"
+        date = "2022-12-06"
+        level = "high"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "1009"
+}rule WMI_EVENT_SUBSCRIPTION
+{
+    meta:
+        id = "0f06a3a5-6a09-413f-8743-e6cf35561297"
+        description = "Detects creation of WMI event subscription persistence method"
+        author = "Tom Ueltschi (@c_APT_ure)"
+        date = "2019-01-12"
+        level = "medium"
+        logsource = "generic.record"
+
+    condition:
+        eventlog.event_id equals "19"
+        eventlog.event_id equals "20"
+        eventlog.event_id equals "21"
+}rule WMI_PERSISTENCE_-_SECURITY
+{
+    meta:
+        id = "f033f3f3-fd24-4995-97d8-a3bb17550a88"
+        description = "Detects suspicious WMI event filter and command line event consumer based on WMI and Security Logs."
+        author = "Florian Roth (Nextron Systems), Gleb Sukhodolskiy, Timur Zinniatullin oscd.community"
+        date = "2017-08-22"
+        level = "medium"
+        logsource = "eventlog.Security"
+
+    condition:
+        eventlog.event_id equals "4662"
+        objectname contains "subscription"
+        objecttype equals "WMI Namespace"
+}rule ZEROLOGON_EXPLOITATION_USING_WELL-KNOWN_TOOLS
+{
+    meta:
+        id = "18f37338-b9bd-4117-a039-280c81f7a596"
+        description = "This rule is designed to detect attempts to exploit Zerologon (CVE-2020-1472) vulnerability using mimikatz zerologon module or other exploits from machine with \"kali\" hostname."
+        author = "Demyan Sokolin @_drd0c, Teymur Kheirkhabarov @HeirhabarovT, oscd.community"
+        date = "2020-10-13"
+        level = "critical"
+        logsource = "eventlog.System"
+
+    condition:
+        eventlog.event_id equals "5805"
+        eventlog.event_id equals "5723"
+}
