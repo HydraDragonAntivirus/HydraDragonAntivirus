@@ -1,0 +1,37 @@
+Invalid Domains and Subdomains Report
+=====================================
+
+
+SpamDomains.txt:
+  - mycouchtuner: Missing TLD
+  - аrguinely.club: Contains invalid characters
+  - сompanice.club: Contains invalid characters
+  - сlick-to-win-prize.com: Contains invalid characters
+  - сoncertainsun.club: Contains invalid characters
+  - сinemastream.site: Contains invalid characters
+  - сontinue-site.website: Contains invalid characters
+  - dailymedia.cyou,: Contains invalid characters
+  - Сaptchareverse.com: Contains invalid characters
+  - ultimatehelp@techmail.info: Contains invalid characters
+  - webprotectionprogram.com webprotectionprogram.com pop-: Contains invalid characters
+  - theowletnow: Missing TLD
+  - sowlesused.live site: Contains invalid characters
+  - online site: Contains invalid characters
+  - /re-captha-version-3-71.top: Empty domain
+  - alladvertisingdomclub: Missing TLD
+  - Сlicktopush.online: Contains invalid characters
+  - /undenentionin.com: Empty domain
+  - check-tl-ver -78-1.com: Contains invalid characters
+  - check-tl-ver -78-2.com: Contains invalid characters
+  - check-tl-ver -78-3.com: Contains invalid characters
+  - check-tl-ver -78-4.com: Contains invalid characters
+  - check-tl-ver -78-5.com: Contains invalid characters
+  - check-tl-ver -78-6.com: Contains invalid characters
+  - check-tl-ver -78-7.com: Contains invalid characters
+  - check-tl-ver -78-8.com: Contains invalid characters
+  - check-tl-ver -78-9.com: Contains invalid characters
+  - check-tl-ver -78-10.com: Contains invalid characters
+  - surgesignal.top web: Contains invalid characters
+  - Сoinstels.com: Contains invalid characters
+  - total--protect.help: Double hyphens only allowed in IDNA labels
+  - www.blx: Missing TLD

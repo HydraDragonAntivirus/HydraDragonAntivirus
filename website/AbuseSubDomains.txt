@@ -18677,7 +18677,6 @@ apple.com-scan-virus-detected.com
 apple.com-secure.online
 apple.com-security-desktop-antimalware-support.download
 apple.com-speed-macos.live
-apple.com-speedup-macbook.live
 apple.com-store.me
 apple.com-system-fast.live
 apple.com-updatemyaccount.loginprocessverify.be
@@ -30098,7 +30097,6 @@ com-scan-macbook.live
 com-scan-systems.live
 com-scan.live
 com-speed-pc.live
-com-speed-system-macbook.live
 com-user.accountupdate.logon.bangladeshclothing.com
 com.112.207.net
 com.112.2o7.net
