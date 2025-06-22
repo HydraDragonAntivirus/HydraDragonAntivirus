@@ -19,7 +19,7 @@ namespace HydraDragonAntivirusLauncher
                 var psi = new ProcessStartInfo
                 {
                     FileName = "py.exe", // Python executable
-                    Arguments = "-3.12 \"antivirus.py\"", // Launch antivirus GUI
+                    Arguments = "-3.11 \"antivirus.py\"", // Launch antivirus GUI
                     WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory,
                     UseShellExecute = false, // Optional: could be true if you don't need Redirects
                     CreateNoWindow = false

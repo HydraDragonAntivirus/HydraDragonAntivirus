@@ -55,7 +55,7 @@ if %errorlevel% equ 0 (
 
 rem 7. Upgrade pip
 echo Upgrading pip...
-py.exe -3.12 -m pip install --upgrade pip
+py.exe -3.11 -m pip install --upgrade pip
 if %errorlevel% equ 0 (
     echo pip was upgraded successfully.
 ) else (
