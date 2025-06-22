@@ -62,22 +62,13 @@ if %errorlevel% equ 0 (
     echo Failed to upgrade pip.
 )
 
-rem 8. Install Python requirements
-echo Installing Python requirements...
-py.exe -3.12 -m pip install -r "C:\Program Files\HydraDragonAntivirus\requirements.txt"
+rem 8. Install Python poetry
+echo Installing Python poetry...
+py.exe -3.12 -m pip install poetry
 if %errorlevel% equ 0 (
-    echo Python requirements installed successfully.
+    echo Python poetry installed successfully.
 ) else (
     echo Failed to install Python requirements.
-)
-
-rem 9. Install spaCy English medium model
-echo Installing spaCy 'en_core_web_md' model...
-py.exe -3.12 -m spacy download en_core_web_md
-if %errorlevel% equ 0 (
-    echo spaCy model 'en_core_web_md' installed successfully.
-) else (
-    echo Failed to install spaCy model 'en_core_web_md'.
 )
 
 rem Path to SbieIni.exe
