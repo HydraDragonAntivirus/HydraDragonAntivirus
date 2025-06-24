@@ -1,0 +1,24 @@
+{
+    "name": "sample_dataset_name",
+    "version": [3, 6],
+    "save_to_dir": "./save_dir/",
+    "huggingface_user": "sample_user",
+
+    "data_requests":
+    [
+        {
+            "name": "dataset",
+            "source_path": "./dataset",
+            "num_train": 200,
+            "num_test": 200,
+            "num_valid": 200
+        },
+        {
+            "name": "dataset2",
+            "source_path": "./dataset2",
+            "num_train": 200,
+            "num_test": 200,
+            "num_valid": 200
+        }
+    ]
+}

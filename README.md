@@ -95,6 +95,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - https://www.rathlev-home.de/index-e.html?tools/prog-e.html#unpack 
 - https://github.com/myfreeer/7z-build-nsis
 - https://github.com/upx/upx
+- https://github.com/syssec-utd/pylingual
 
 - I used these projects to decompile (with a current custom database of Detect-It-Easy).
 

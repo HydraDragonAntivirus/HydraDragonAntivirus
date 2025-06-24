@@ -1,0 +1,87 @@
+v3.6:
+  SEGMENTATION_MODEL:
+    REPO: syssec-utd/py36-pylingual-v1-segmenter
+    REVISION: main
+    TOKENIZER: syssec-utd/py36-pylingual-v1-tokenizer
+
+  STATEMENT_MODEL:
+    REPO: syssec-utd/py36-pylingual-v1-statement
+    REVISION: main
+    TOKENIZER: syssec-utd/py36-pylingual-v1-tok
+
+v3.7:
+  SEGMENTATION_MODEL:
+    REPO: syssec-utd/py37-pylingual-v1-segmenter
+    REVISION: main
+    TOKENIZER: syssec-utd/py37-pylingual-v1-tokenizer
+
+  STATEMENT_MODEL:
+    REPO: syssec-utd/py37-pylingual-v1-statement
+    REVISION: main
+    TOKENIZER: syssec-utd/py37-pylingual-v1-tok
+
+v3.8:
+  SEGMENTATION_MODEL:
+    REPO: syssec-utd/py38-pylingual-v1-segmenter
+    REVISION: main
+    TOKENIZER: syssec-utd/py38-pylingual-v1-tokenizer
+
+  STATEMENT_MODEL:
+    REPO: syssec-utd/py38-pylingual-v1-statement
+    REVISION: main
+    TOKENIZER: syssec-utd/py38-pylingual-v1-tok
+
+v3.9:
+  SEGMENTATION_MODEL:
+    REPO: syssec-utd/py39-pylingual-v1-segmenter
+    REVISION: main
+    TOKENIZER: syssec-utd/py39-pylingual-v1-tokenizer
+
+  STATEMENT_MODEL:
+    REPO: syssec-utd/py39-pylingual-v1-statement
+    REVISION: main
+    TOKENIZER: syssec-utd/py39-pylingual-v1-tok
+
+v3.10:
+  SEGMENTATION_MODEL:
+    REPO: syssec-utd/py310-pylingual-v1-segmenter
+    REVISION: main
+    TOKENIZER: syssec-utd/py310-pylingual-v1-tokenizer
+
+  STATEMENT_MODEL:
+    REPO: syssec-utd/py310-pylingual-v1-statement
+    REVISION: main
+    TOKENIZER: syssec-utd/py310-pylingual-v1-tok
+
+v3.11:
+  SEGMENTATION_MODEL:
+    REPO: syssec-utd/py311-pylingual-v1-segmenter
+    REVISION: main
+    TOKENIZER: syssec-utd/py311-pylingual-v1-tokenizer
+
+  STATEMENT_MODEL:
+    REPO: syssec-utd/py311-pylingual-v1-statement
+    REVISION: main
+    TOKENIZER: syssec-utd/py311-pylingual-v1-tok
+ 
+v3.12:
+  SEGMENTATION_MODEL:
+    REPO: syssec-utd/py312-pylingual-v1-segmenter
+    REVISION: main
+    TOKENIZER: syssec-utd/py312-pylingual-v1-tokenizer
+
+  STATEMENT_MODEL:
+    REPO: syssec-utd/py312-pylingual-v1-statement
+    REVISION: main
+    TOKENIZER: syssec-utd/py312-pylingual-v1-tok
+
+v3.13:
+  SEGMENTATION_MODEL:
+    REPO: syssec-utd/py313-pylingual-v1-segmenter
+    REVISION: main
+    TOKENIZER: syssec-utd/py313-pylingual-v1-tokenizer
+
+  STATEMENT_MODEL:
+    REPO: syssec-utd/py313-pylingual-v1-statement
+    REVISION: main
+    TOKENIZER: syssec-utd/py313-pylingual-v1-tok

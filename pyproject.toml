@@ -1,14 +1,21 @@
+[tool.poetry]
+requires-poetry = ">=2.0"
+
 [project]
 name = "hydradragonantivirus"
 version = "0.1.0"
-description = "The Best Open Source Antivirus and Reverse Engineering Tool for Windows"
+description = "HydraDragonAntivirus: Advanced Open Source Antivirus and Python Bytecode Reverse Engineering Tool"
 authors = [
-    {name = "Emirhan Uçan",email = "130374789+Siradankullanici@users.noreply.github.com"}
+    { name = "Emirhan Uçan", email = "130374789+Siradankullanici@users.noreply.github.com" },
+    { name = "syssec-utd" }
 ]
-license = {text = "GPLv2"}
+license = { text = "GPL-3.0-only" }
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
+keywords = ["antivirus", "reverse engineering", "bytecode", "python", "decompiler", "hydradragon", "pylingual"]
+
 dependencies = [
+    # Antivirus dependencies
     "yara-python==4.5.4",
     "yara-x==1.2.1",
     "joblib>=1.5.1,<2.0.0",
@@ -37,11 +44,56 @@ dependencies = [
     "evbunpack>=0.2.4,<0.3.0",
     "unicorn>=2.1.3,<3.0.0",
     "lief>=0.16.6,<0.17.0",
-    "transformers>=4.52.4,<5.0.0",
     "scapy>=2.6.1,<3.0.0",
-    "spacy>=3.8.7,<4.0.0"
+    "spacy>=3.8.7,<4.0.0",
+
+    # Pylingual reverse-engineering dependencies
+    "asttokens",
+    "datasets",
+    "huggingface-hub",
+    "matplotlib",
+    "networkx",
+    "pydot",
+    "requests",
+    "tokenizers",
+    "tqdm",
+    "rich",
+    "seqeval",
+    "transformers>=4.52.4,<5.0.0",
+    "xdis",
+    "click"
 ]
+
+[project.urls]
+homepage = "https://pylingual.io"
+
+[project.scripts]
+hydradragon = "hydradragon.main:main"
+pylingual = "pylingual.main:main"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+exclude = [
+    ".bzr", ".direnv", ".eggs", ".git", ".git-rewrite", ".hg", ".ipynb_checkpoints", ".mypy_cache",
+    ".nox", ".pants.d", ".pyenv", ".pytest_cache", ".pytype", ".ruff_cache", ".svn", ".tox",
+    ".venv", ".vscode", "__pypackages__", "_build", "buck-out", "build", "dist", "node_modules",
+    "site-packages", "venv"
+]
+target-version = "py311"
+line-length = 240
+indent-width = 4
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+skip-magic-trailing-comma = false
+docstring-code-format = true
+docstring-code-line-length = "dynamic"

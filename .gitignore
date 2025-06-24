@@ -1,3 +1,22 @@
+# pylingual
+dataset/
+venv/
+*.pyc
+.idea/
+.python-version
+poetry.toml
+test/
+.DS_Store
+results/
+.vscode/
+errors/
+logs/
+segmentation_test_cases/
+.env
+mise.toml
+dist/
+decompiled_*/
+
 # ClamAV database files
 daily.cvd
 daily.cld

@@ -1,0 +1,16 @@
+{
+    "base_repo_name": "sample_user/sample_name",
+    "dataset_repo_name": "sample_user/statement-sample_dataset_name",
+    "tokenizer_repo_name": "sample_user/sample_name-tok",
+    "pretrained_seq2seq_repo_name": "Salesforce/codet5-base",
+    "cache_dir": "./cache-dir/",
+    "max_token_length": 256,
+    "dataset_percentage": 100,
+    "do_eval": true,
+    "fp16": true,
+    "statement_training_parameters": {
+        "batch_size": 24,
+        "epochs": 2,
+        "learning_rate": 2e-5
+    }
+}

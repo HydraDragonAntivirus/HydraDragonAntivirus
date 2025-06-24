@@ -1,0 +1,18 @@
+{
+    "base_repo_name": "sample_user/sample_segmenter_name",
+    "dataset_repo_name": "sample_user/segmentation-sample_dataset_name",
+    "pretrained_mlm_repo_name": "",
+    "cache_dir": "./cache-dir/",
+    "max_token_length": 512,
+    "dataset_percentage": 100,
+    "mlm_training_parameters": {
+        "batch_size": 48,
+        "epochs": 2,
+        "learning_rate": 5e-5
+    },
+    "segmentation_training_parameters": {
+        "batch_size": 48,
+        "epochs": 2,
+        "learning_rate": 2e-5
+    }
+}
