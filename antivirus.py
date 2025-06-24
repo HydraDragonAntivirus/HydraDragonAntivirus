@@ -969,29 +969,29 @@ def get_unique_output_path(output_dir: Path, base_name) -> Path:
 
 def analyze_file_with_die(file_path):
     """
-    Runs Detect It Easy (DIE) on the given file once and returns the DIE output (JSON formatted).
-    The output is also saved to a unique JSON file.
+    Runs Detect It Easy (DIE) on the given file once and returns the DIE output (plain text).
+    The output is also saved to a unique .txt file.
     """
     try:
         logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
         output_dir = Path(deteciteasy_plain_text_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Define the base name for the output JSON file
+        # Define the base name for the output text file
         base_name = Path(file_path).with_suffix(".txt")
-        json_output_path = get_unique_output_path(output_dir, base_name)
+        txt_output_path = get_unique_output_path(output_dir, base_name)
 
-        # Run the DIE command once with the -p flag for JSON output
+        # Run the DIE command once with the -p flag for plain output
         result = subprocess.run(
             [detectiteasy_console_path, "-p", file_path],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore"
         )
 
-        # Save the JSON output
-        with open(json_output_path, "w") as json_file:
-            json_file.write(result.stdout)
+        # Save the plain text output
+        with open(txt_output_path, "w", encoding="utf-8") as txt_file:
+            txt_file.write(result.stdout)
 
-        logging.info(f"Analysis result saved to {json_output_path}")
+        logging.info(f"Analysis result saved to {txt_output_path}")
         return result.stdout
 
     except subprocess.SubprocessError as ex:

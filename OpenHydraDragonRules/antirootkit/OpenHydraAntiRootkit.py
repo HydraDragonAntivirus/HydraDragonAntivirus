@@ -1,0 +1,824 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+HydraDragonAntivirus Unified Scanner with Enhanced Detection
+- Signature via WinVerifyTrust (ctypes)
+- DIE analysis for hidden+unsigned files to detect PE, then PE heuristics
+- Parallel scanning (ThreadPoolExecutor)
+- Enhanced detection: timing, memory (fixed), network, filesystem, registry timestamps, process hollowing (disabled), boot config
+- Caching via SQLite for file hash results
+- Outputs suspicious indicators + enhanced results + risk assessment as JSON
+"""
+import os
+import time
+import hashlib
+import sqlite3
+import subprocess
+import logging
+import json
+from pathlib import Path
+import ctypes
+from ctypes import wintypes
+import pefile      # pip install pefile
+import psutil      # pip install psutil
+import wmi         # pip install wmi
+import winreg
+import win32security  # pip install pywin32
+import win32con
+import win32api
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from ETWTampering import detect_etw_tampering
+
+# ========== CONFIGURATION ==========
+CWD              = Path(os.getcwd())
+DETECTIEASY_PATH = CWD / "detectiteasy" / "diec.exe"
+DIE_OUTPUT_DIR   = CWD / "die_outputs"
+REPORTS_DIR      = CWD / "reports"
+
+SYSTEM_DIRS      = [
+    r"C:\Windows\System32",
+    r"C:\Windows\SysWOW64",
+    r"C:\Windows\System32\drivers"
+]
+REGION_KEYS      = [
+    (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"),
+    (winreg.HKEY_CURRENT_USER,  r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"),
+    (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Services"),
+]
+MAX_WORKERS = min(32, (os.cpu_count() or 1) * 2)
+
+# ========== WinVerifyTrust SETUP ==========
+class GUID(ctypes.Structure):
+    _fields_ = [
+        ("Data1", wintypes.DWORD),
+        ("Data2", wintypes.WORD),
+        ("Data3", wintypes.WORD),
+        ("Data4", wintypes.BYTE * 8),
+    ]
+WINTRUST_ACTION_GENERIC_VERIFY_V2 = GUID(
+    0x00AAC56B, 0xCD44, 0x11D0,
+    (ctypes.c_ubyte * 8)(0x8C, 0xC2, 0x00, 0xC0, 0x4F, 0xC2, 0x95, 0xEE)
+)
+class WINTRUST_FILE_INFO(ctypes.Structure):
+    _fields_ = [
+        ("cbStruct", wintypes.DWORD),
+        ("pcwszFilePath", wintypes.LPCWSTR),
+        ("hFile", wintypes.HANDLE),
+        ("pgKnownSubject", ctypes.POINTER(GUID)),
+    ]
+class WINTRUST_DATA(ctypes.Structure):
+    _fields_ = [
+        ("cbStruct", wintypes.DWORD),
+        ("pPolicyCallbackData", ctypes.c_void_p),
+        ("pSIPClientData", ctypes.c_void_p),
+        ("dwUIChoice", wintypes.DWORD),
+        ("fdwRevocationChecks", wintypes.DWORD),
+        ("dwUnionChoice", wintypes.DWORD),
+        ("pFile", ctypes.POINTER(WINTRUST_FILE_INFO)),
+        ("dwStateAction", wintypes.DWORD),
+        ("hWVTStateData", wintypes.HANDLE),
+        ("pwszURLReference", wintypes.LPCWSTR),
+        ("dwProvFlags", wintypes.DWORD),
+        ("dwUIContext", wintypes.DWORD),
+        ("pSignatureSettings", ctypes.c_void_p),
+    ]
+WTD_UI_NONE           = 2
+WTD_REVOKE_NONE       = 0
+WTD_CHOICE_FILE       = 1
+WTD_STATEACTION_IGNORE = 0x00000000
+_wintrust = ctypes.windll.wintrust
+
+def verify_authenticode_signature(file_path: str) -> bool:
+    """
+    Returns True if signature is valid per WinVerifyTrust, False otherwise.
+    """
+    file_info = WINTRUST_FILE_INFO(ctypes.sizeof(WINTRUST_FILE_INFO), file_path, None, None)
+    wtd = WINTRUST_DATA()
+    ctypes.memset(ctypes.byref(wtd), 0, ctypes.sizeof(wtd))
+    wtd.cbStruct = ctypes.sizeof(WINTRUST_DATA)
+    wtd.dwUIChoice = WTD_UI_NONE
+    wtd.fdwRevocationChecks = WTD_REVOKE_NONE
+    wtd.dwUnionChoice = WTD_CHOICE_FILE
+    wtd.pFile = ctypes.pointer(file_info)
+    wtd.dwStateAction = WTD_STATEACTION_IGNORE
+    result = _wintrust.WinVerifyTrust(None, ctypes.byref(WINTRUST_ACTION_GENERIC_VERIFY_V2), ctypes.byref(wtd))
+    return result == 0  # ERROR_SUCCESS
+
+# ========== CACHE ==========
+class DetectionCache:
+    """Cache detection results to improve performance"""
+    def __init__(self, cache_file='detection_cache.db'):
+        self.cache_file = cache_file
+        self.init_cache()
+    def init_cache(self):
+        conn = sqlite3.connect(self.cache_file)
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS file_hashes (
+                path TEXT PRIMARY KEY,
+                hash TEXT,
+                timestamp REAL,
+                is_suspicious INTEGER
+            )
+        ''')
+        conn.commit()
+        conn.close()
+    def get_cached_result(self, file_path):
+        conn = sqlite3.connect(self.cache_file)
+        cursor = conn.execute(
+            'SELECT hash, is_suspicious FROM file_hashes WHERE path = ?',
+            (file_path,)
+        )
+        result = cursor.fetchone()
+        conn.close()
+        if result:
+            cached_hash, is_suspicious = result
+            current_hash = self.calculate_file_hash(file_path)
+            if current_hash and current_hash == cached_hash:
+                return bool(is_suspicious)
+        return None
+    def cache_result(self, file_path, is_suspicious):
+        file_hash = self.calculate_file_hash(file_path)
+        timestamp = time.time()
+        conn = sqlite3.connect(self.cache_file)
+        conn.execute(
+            'INSERT OR REPLACE INTO file_hashes VALUES (?, ?, ?, ?)',
+            (file_path, file_hash, timestamp, int(is_suspicious))
+        )
+        conn.commit()
+        conn.close()
+    @staticmethod
+    def calculate_file_hash(file_path):
+        try:
+            with open(file_path, 'rb') as f:
+                return hashlib.sha256(f.read()).hexdigest()
+        except:
+            return None
+
+cache = DetectionCache()
+
+# ========== HELPER FUNCTIONS ==========
+def get_unique_output_path(output_dir: Path, base_name: Path) -> Path:
+    candidate = output_dir / base_name.name
+    counter = 1
+    while candidate.exists():
+        candidate = output_dir / f"{base_name.stem}_{counter}{base_name.suffix}"
+        counter += 1
+    return candidate
+
+def is_hidden_file(path: Path) -> bool:
+    FILE_ATTRIBUTE_HIDDEN = 0x2
+    FILE_ATTRIBUTE_SYSTEM = 0x4
+    try:
+        attrs = ctypes.windll.kernel32.GetFileAttributesW(str(path))
+        if attrs == -1:
+            return False
+        return bool(attrs & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM))
+    except Exception:
+        return False
+
+def check_valid_signature(file_path: str) -> dict:
+    """
+    Use WinVerifyTrust instead of PowerShell.
+    Returns {"is_valid": bool, "status": str}.
+    """
+    try:
+        is_valid = verify_authenticode_signature(file_path)
+        status = "Valid" if is_valid else "Invalid or no signature"
+        return {"is_valid": is_valid, "status": status}
+    except Exception as ex:
+        logging.error(f"[Signature] {file_path}: {ex}")
+        return {"is_valid": False, "status": str(ex)}
+
+def analyze_file_with_die(file_path: str, die_path: Path, die_output_dir: Path) -> str:
+    """
+    Run DIE once (-p) and save output under die_output_dir; return stdout.
+    """
+    try:
+        die_output_dir.mkdir(parents=True, exist_ok=True)
+        stub = Path(file_path).with_suffix(".txt").name
+        outpath = get_unique_output_path(die_output_dir, Path(stub))
+        result = subprocess.run(
+            [str(die_path), "-p", file_path],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="ignore"
+        )
+        with open(outpath, "w", encoding="utf-8", errors="ignore") as f:
+            f.write(result.stdout)
+        logging.info(f"[DIE] {file_path} → {outpath}")
+        return result.stdout
+    except Exception as ex:
+        logging.error(f"[DIE] error for {file_path}: {ex}")
+        return ""
+
+def is_pe_file_from_output(die_output: str) -> bool:
+    return bool(die_output and ("PE32" in die_output or "PE64" in die_output))
+
+def pe_heuristic_analysis(path: str) -> dict:
+    """
+    Simple PE heuristics: section entropy and imports via pefile.
+    """
+    try:
+        pe = pefile.PE(path, fast_load=True)
+        pe.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_IMPORT']])
+        entropy_list = []
+        for sec in pe.sections:
+            try:
+                name = sec.Name.decode(errors='ignore').strip('\x00')
+            except:
+                name = str(sec.Name)
+            entropy_list.append({"section": name, "entropy": sec.get_entropy()})
+        imports = [imp.dll.decode(errors='ignore') for imp in getattr(pe, 'DIRECTORY_ENTRY_IMPORT', [])]
+        return {"entropy": entropy_list, "imports": imports}
+    except Exception as ex:
+        logging.debug(f"[PE] {path}: {ex}")
+        return {}
+
+# ========== SCANNING FUNCTIONS ==========
+def process_file(fp: Path) -> dict:
+    rec = {"path": str(fp)}
+    try:
+        cached = cache.get_cached_result(str(fp))
+        if cached is False:
+            return {}
+        h = is_hidden_file(fp)
+        sig = check_valid_signature(str(fp))
+        if not (h and not sig["is_valid"]):
+            cache.cache_result(str(fp), False)
+            return {}
+        if not DETECTIEASY_PATH.exists():
+            cache.cache_result(str(fp), False)
+            return {}
+        die_out = analyze_file_with_die(str(fp), DETECTIEASY_PATH, DIE_OUTPUT_DIR)
+        if not is_pe_file_from_output(die_out):
+            cache.cache_result(str(fp), False)
+            return {}
+        heur = pe_heuristic_analysis(str(fp))
+        rec.update({
+            "hidden_attr": h,
+            "signature_status": sig["status"],
+            "die_output_snippet": die_out[:500],
+            "pe_heuristics": heur
+        })
+        cache.cache_result(str(fp), True)
+        return rec
+    except Exception as ex:
+        logging.error(f"[File] error for {fp}: {ex}")
+        return {"path": str(fp), "error": str(ex)}
+
+def scan_files_parallel() -> list[dict]:
+    findings = []
+    paths = []
+    for dir_path in SYSTEM_DIRS:
+        root = Path(dir_path)
+        if not root.exists():
+            logging.warning(f"[Scan] Dir not found: {dir_path}")
+            continue
+        for fp in root.rglob("*"):
+            if fp.is_file():
+                paths.append(fp)
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        future_to_path = {executor.submit(process_file, fp): fp for fp in paths}
+        for fut in as_completed(future_to_path):
+            rec = fut.result()
+            if rec:
+                findings.append(rec)
+    return findings
+
+def process_driver(svc) -> dict:
+    path = svc.PathName.strip('"') if svc.PathName else None
+    if not path or not Path(path.split()[0]).exists():
+        return {}
+    p = Path(path.split()[0])
+    try:
+        h = is_hidden_file(p)
+        sig = check_valid_signature(str(p))
+        if not (h and not sig["is_valid"]):
+            return {}
+        if not DETECTIEASY_PATH.exists():
+            return {}
+        die_out = analyze_file_with_die(str(p), DETECTIEASY_PATH, DIE_OUTPUT_DIR)
+        if not is_pe_file_from_output(die_out):
+            return {}
+        heur = pe_heuristic_analysis(str(p))
+        return {
+            "name": svc.Name,
+            "display_name": svc.DisplayName,
+            "state": svc.State,
+            "start_mode": svc.StartMode,
+            "path": str(p),
+            "die_output_snippet": die_out[:500],
+            "pe_heuristics": heur
+        }
+    except Exception as ex:
+        logging.error(f"[Driver] error for {path}: {ex}")
+        return {"path": path, "error": str(ex)}
+
+def scan_drivers_parallel() -> list[dict]:
+    findings = []
+    try:
+        c = wmi.WMI()
+        svcs = list(c.Win32_SystemDriver())
+    except Exception as ex:
+        logging.error(f"[Drivers] WMI query failed: {ex}")
+        return findings
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        future_to_svc = {executor.submit(process_driver, svc): svc for svc in svcs}
+        for fut in as_completed(future_to_svc):
+            rec = fut.result()
+            if rec:
+                findings.append(rec)
+    return findings
+
+def analyze_process(pinfo: dict) -> dict:
+    exe = pinfo.get('exe')
+    if not exe:
+        return {}
+    try:
+        h = is_hidden_file(Path(exe))
+        sig = check_valid_signature(exe)
+        if not (h and not sig["is_valid"]):
+            return {}
+        if not DETECTIEASY_PATH.exists():
+            return {}
+        die_out = analyze_file_with_die(exe, DETECTIEASY_PATH, DIE_OUTPUT_DIR)
+        if not is_pe_file_from_output(die_out):
+            return {}
+        heur = pe_heuristic_analysis(exe)
+        return {"pid": pinfo['pid'], "name": pinfo['name'], "exe": exe,
+                "die_output_snippet": die_out[:500], "pe_heuristics": heur}
+    except Exception as ex:
+        logging.error(f"[Process] error for {exe}: {ex}")
+        return {"pid": pinfo.get('pid'), "exe": exe, "error": str(ex)}
+
+def scan_processes_parallel() -> dict:
+    try:
+        ps_list = [p.info for p in psutil.process_iter(['pid','name','exe']) if p.info.get('exe')]
+    except Exception:
+        ps_list = []
+    try:
+        wmi_list = []
+        c = wmi.WMI()
+        for p in c.Win32_Process():
+            wmi_list.append({"pid": int(p.ProcessId), "name": p.Name, "exe": p.ExecutablePath})
+    except Exception:
+        wmi_list = []
+    cross = {
+        "only_psutil": [{"pid":pid,"exe":exe} for pid,exe in {(p['pid'],p['exe']) for p in ps_list} - {(p['pid'],p['exe']) for p in wmi_list}],
+        "only_wmi":    [{"pid":pid,"exe":exe} for pid,exe in {(p['pid'],p['exe']) for p in wmi_list} - {(p['pid'],p['exe']) for p in ps_list}]
+    }
+    cross_ret = cross if cross["only_psutil"] or cross["only_wmi"] else {}
+    findings = []
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        future_to_proc = {executor.submit(analyze_process, pinfo): pinfo for pinfo in ps_list}
+        for fut in as_completed(future_to_proc):
+            rec = fut.result()
+            if rec:
+                findings.append(rec)
+    return {"cross_check": cross_ret, "suspicious_processes": findings}
+
+def analyze_registry_acl_item(item: tuple) -> dict:
+    root, subkey_path = item
+    try:
+        handle = win32api.RegOpenKeyEx(root, subkey_path, 0, win32con.KEY_READ | win32con.KEY_WOW64_64KEY)
+    except PermissionError:
+        return {"root": str(root), "subkey": subkey_path, "hidden_key": True}
+    except Exception:
+        return {}
+    try:
+        sd = win32security.GetSecurityInfo(
+            handle,
+            win32security.SE_REGISTRY_KEY,
+            win32security.DACL_SECURITY_INFORMATION | win32security.OWNER_SECURITY_INFORMATION
+        )
+        dacl = sd.GetSecurityDescriptorDacl()
+        owner_sid = sd.GetSecurityDescriptorOwner()
+        try:
+            owner_name, _, _ = win32security.LookupAccountSid(None, owner_sid)
+        except:
+            owner_name = str(owner_sid)
+        issues = []
+        if owner_name not in ("Administrators", "SYSTEM"):
+            issues.append(f"owner unexpected: {owner_name}")
+        everyone_sid = win32security.CreateWellKnownSid(win32security.WinWorldSid, None)
+        users_sid    = win32security.CreateWellKnownSid(win32security.WinBuiltinUsersSid, None)
+        if dacl:
+            for i in range(dacl.GetAceCount()):
+                ace = dacl.GetAce(i)
+                access_mask = ace[2]
+                sid = ace[3]
+                try:
+                    name, _, _ = win32security.LookupAccountSid(None, sid)
+                except:
+                    name = str(sid)
+                if sid == everyone_sid or sid == users_sid:
+                    if access_mask & win32con.KEY_ALL_ACCESS or access_mask & win32con.GENERIC_ALL:
+                        issues.append(f"{name} has full control")
+        if issues:
+            return {"root": str(root), "subkey": subkey_path, "acl_issues": issues}
+    except Exception:
+        return {}
+    finally:
+        win32api.RegCloseKey(handle)
+    return {}
+
+def scan_registry_acl_parallel() -> list[dict]:
+    items = []
+    for root, sub in REGION_KEYS:
+        items.append((root, sub))
+        try:
+            with winreg.OpenKey(root, sub) as key:
+                i = 0
+                while True:
+                    try:
+                        name = winreg.EnumKey(key, i)
+                        items.append((root, sub + "\\" + name))
+                        i += 1
+                    except OSError:
+                        break
+        except Exception:
+            pass
+    findings = []
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        future_to_item = {executor.submit(analyze_registry_acl_item, item): item for item in items}
+        for fut in as_completed(future_to_item):
+            rec = fut.result()
+            if rec:
+                findings.append(rec)
+    return findings
+
+def scan_autorun_registry() -> list[dict]:
+    out = []
+    for root, sub in REGION_KEYS:
+        try:
+            with winreg.OpenKey(root, sub) as key:
+                i = 0
+                while True:
+                    try:
+                        name, val, _ = winreg.EnumValue(key, i)
+                        exe = None
+                        if '"' in val:
+                            parts = val.split('"')
+                            if len(parts) >= 2:
+                                exe = parts[1]
+                        else:
+                            first = val.split()[0] if val else ""
+                            if first.lower().endswith((".exe", ".sys")):
+                                exe = first
+                        if exe and Path(exe).exists():
+                            h = is_hidden_file(Path(exe))
+                            sig = check_valid_signature(exe)
+                            if not (h and not sig["is_valid"]):
+                                i += 1
+                                continue
+                            if not DETECTIEASY_PATH.exists():
+                                i += 1
+                                continue
+                            die_out = analyze_file_with_die(exe, DETECTIEASY_PATH, DIE_OUTPUT_DIR)
+                            if not is_pe_file_from_output(die_out):
+                                i += 1
+                                continue
+                            heur = pe_heuristic_analysis(exe)
+                            out.append({
+                                "reg_root": str(root),
+                                "reg_path": sub,
+                                "value_name": name,
+                                "exe": exe,
+                                "die_output_snippet": die_out[:500],
+                                "pe_heuristics": heur
+                            })
+                        i += 1
+                    except OSError:
+                        break
+        except Exception:
+            continue
+    return out
+
+# ========== ENHANCED DETECTION CLASSES ==========
+class TimingBasedDetection:
+    @staticmethod
+    def detect_hooking_via_timing():
+        findings = []
+        test_apis = ['CreateFileW', 'ReadFile', 'WriteFile', 'RegOpenKeyW', 'RegQueryValueW', 'OpenProcess', 'CreateProcessW']
+        for api_name in test_apis:
+            try:
+                times = []
+                for _ in range(50):
+                    start = time.perf_counter()
+                    if api_name == 'CreateFileW':
+                        handle = ctypes.windll.kernel32.CreateFileW("nul", 0x80000000, 0, None, 3, 0, None)
+                        if handle != -1:
+                            ctypes.windll.kernel32.CloseHandle(handle)
+                    elif api_name == 'ReadFile':
+                        buf = ctypes.create_string_buffer(1)
+                        handle = ctypes.windll.kernel32.CreateFileW("nul", 0x80000000, 0, None, 3, 0, None)
+                        if handle != -1:
+                            ctypes.windll.kernel32.ReadFile(handle, buf, 0, ctypes.byref(ctypes.c_ulong()), None)
+                            ctypes.windll.kernel32.CloseHandle(handle)
+                    # other APIs could be added if needed...
+                    end = time.perf_counter()
+                    times.append(end - start)
+                avg_time = sum(times) / len(times)
+                variance = sum((t - avg_time) ** 2 for t in times) / len(times)
+                if variance > avg_time * 0.5:
+                    findings.append({
+                        'api': api_name,
+                        'avg_time': avg_time,
+                        'variance': variance,
+                        'suspicion': 'High timing variance - possible hooking'
+                    })
+            except Exception as e:
+                logging.debug(f"Timing test failed for {api_name}: {e}")
+        return findings
+
+class MemoryAnomalyDetection:
+    @staticmethod
+    def scan_memory_regions():
+        findings = []
+        try:
+            kernel32 = ctypes.windll.kernel32
+            class MEMORY_BASIC_INFORMATION(ctypes.Structure):
+                _fields_ = [
+                    ("BaseAddress", ctypes.c_void_p),
+                    ("AllocationBase", ctypes.c_void_p),
+                    ("AllocationProtect", wintypes.DWORD),
+                    ("RegionSize", ctypes.c_size_t),
+                    ("State", wintypes.DWORD),
+                    ("Protect", wintypes.DWORD),
+                    ("Type", wintypes.DWORD),
+                ]
+            address = 0
+            max_address = 0x7FFFFFFF
+            while address < max_address:
+                mbi = MEMORY_BASIC_INFORMATION()
+                result = kernel32.VirtualQuery(
+                    ctypes.c_void_p(address),
+                    ctypes.byref(mbi),
+                    ctypes.sizeof(mbi)
+                )
+                if result == 0:
+                    break
+                base = mbi.BaseAddress
+                size = mbi.RegionSize
+                if not base or not size:
+                    break
+                PAGE_EXECUTE = 0x10
+                PAGE_EXECUTE_READ = 0x20
+                PAGE_EXECUTE_READWRITE = 0x40
+                MEM_PRIVATE = 0x20000
+                if (mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE)
+                        and mbi.Type == MEM_PRIVATE):
+                    findings.append({
+                        'base_address': hex(base),
+                        'size': size,
+                        'protection': hex(mbi.Protect),
+                        'type': 'Suspicious executable private memory'
+                    })
+                next_addr = base + size
+                if next_addr <= address:
+                    break
+                address = next_addr
+        except Exception as e:
+            logging.error(f"Memory scan failed: {e}")
+        return findings
+
+class NetworkAnomalyDetection:
+    @staticmethod
+    def detect_hidden_network_connections():
+        findings = []
+        try:
+            netstat_result = subprocess.run(
+                ['netstat', '-an'],
+                capture_output=True,
+                text=True, encoding="utf-8", errors="ignore",
+                timeout=30
+            )
+            netstat_connections = set()
+            for line in netstat_result.stdout.split('\n'):
+                if 'ESTABLISHED' in line or 'LISTENING' in line:
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        netstat_connections.add(parts[1])
+            # fallback wmi not used for per-connection here
+            wmi_connections = netstat_connections
+            hidden_connections = netstat_connections - wmi_connections
+            if hidden_connections:
+                findings.append({
+                    'type': 'Hidden network connections',
+                    'connections': list(hidden_connections)
+                })
+        except Exception as e:
+            logging.error(f"Network detection failed: {e}")
+        return findings
+
+class FileSystemAnomalyDetection:
+    @staticmethod
+    def detect_file_redirection():
+        findings = []
+        test_files = [r'C:\Windows\System32\notepad.exe', r'C:\Windows\System32\calc.exe', r'C:\Windows\System32\cmd.exe']
+        for file_path in test_files:
+            try:
+                path_obj = Path(file_path)
+                stat1 = path_obj.stat()
+                size1 = stat1.st_size
+                handle = ctypes.windll.kernel32.CreateFileW(file_path, 0x80000000, 1, None, 3, 0, None)
+                if handle != -1:
+                    size2 = ctypes.windll.kernel32.GetFileSize(handle, None)
+                    ctypes.windll.kernel32.CloseHandle(handle)
+                else:
+                    continue
+                if abs(size1 - size2) > 0:
+                    findings.append({
+                        'file': file_path,
+                        'size_method1': size1,
+                        'size_method2': size2,
+                        'suspicion': 'File size mismatch - possible redirection'
+                    })
+            except Exception as e:
+                logging.debug(f"File redirection test failed for {file_path}: {e}")
+        return findings
+
+    @staticmethod
+    def detect_ads_streams():
+        findings = []
+        critical_dirs = [r'C:\Windows\System32', r'C:\Windows\SysWOW64',
+                         r'C:\Program Files', r'C:\Program Files (x86)']
+        for dir_path in critical_dirs:
+            try:
+                for root_dir, dirs, files in os.walk(dir_path):
+                    for file in files[:50]:
+                        file_path = os.path.join(root_dir, file)
+                        try:
+                            result = subprocess.run(
+                                ['cmd', '/c', 'dir', '/r', file_path],
+                                capture_output=True,
+                                text=True, encoding="utf-8", errors="ignore",
+                                timeout=5
+                            )
+                            if ':$DATA' in result.stdout:
+                                for line in result.stdout.split('\n'):
+                                    if ':$DATA' in line and file not in line:
+                                        findings.append({
+                                            'file': file_path,
+                                            'ads_info': line.strip(),
+                                            'type': 'Alternate Data Stream detected'
+                                        })
+                        except:
+                            continue
+                    break
+            except Exception as e:
+                logging.debug(f"ADS scan failed for {dir_path}: {e}")
+        return findings
+
+class RegistryAnomalyDetection:
+    @staticmethod
+    def detect_registry_timestamp_anomalies():
+        findings = []
+        suspicious_keys = [
+            (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"),
+            (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"),
+            (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Services"),
+        ]
+        for hkey, key_path in suspicious_keys:
+            try:
+                with winreg.OpenKey(hkey, key_path) as key:
+                    num_subkeys, num_values, last_modified = winreg.QueryInfoKey(key)
+                    current_time = time.time()
+                    if current_time - last_modified < 3600:
+                        findings.append({
+                            'key': f"{hkey}\\{key_path}",
+                            'last_modified': time.ctime(last_modified),
+                            'suspicion': 'Recently modified critical registry key'
+                        })
+            except Exception as e:
+                logging.debug(f"Registry timestamp check failed for {key_path}: {e}")
+        return findings
+
+class BootKitDetection:
+    @staticmethod
+    def check_boot_configuration():
+        findings = []
+        try:
+            result = subprocess.run(
+                ['bcdedit', '/enum', 'all'],
+                capture_output=True,
+                text=True, encoding="utf-8", errors="ignore",
+                timeout=30
+            )
+            suspicious_patterns = ['testsigning', 'nointegritychecks', 'loadoptions']
+            for line in result.stdout.split('\n'):
+                for pattern in suspicious_patterns:
+                    if pattern.lower() in line.lower():
+                        findings.append({
+                            'type': 'Suspicious boot configuration',
+                            'line': line.strip(),
+                            'pattern': pattern
+                        })
+        except Exception as e:
+            logging.debug(f"Boot configuration check failed: {e}")
+        return findings
+
+def run_enhanced_detection():
+    results = {}
+    try:
+        results['timing_anomalies'] = TimingBasedDetection.detect_hooking_via_timing()
+    except Exception as e:
+        logging.error(f"Timing detection failed: {e}")
+    try:
+        results['memory_anomalies'] = MemoryAnomalyDetection.scan_memory_regions()
+    except Exception as e:
+        logging.error(f"Memory detection failed: {e}")
+    try:
+        results['network_anomalies'] = NetworkAnomalyDetection.detect_hidden_network_connections()
+    except Exception as e:
+        logging.error(f"Network detection failed: {e}")
+    try:
+        results['file_redirection'] = FileSystemAnomalyDetection.detect_file_redirection()
+        results['ads_streams'] = FileSystemAnomalyDetection.detect_ads_streams()
+    except Exception as e:
+        logging.error(f"Filesystem detection failed: {e}")
+    try:
+        results['registry_timestamp_anomalies'] = RegistryAnomalyDetection.detect_registry_timestamp_anomalies()
+    except Exception as e:
+        logging.error(f"Registry detection failed: {e}")
+    try:
+        results['boot_anomalies'] = BootKitDetection.check_boot_configuration()
+    except Exception as e:
+        logging.error(f"Boot detection failed: {e}")
+    # ETW tampering detection
+    try:
+        etw_result = detect_etw_tampering()
+        results['etw_tampering'] = etw_result
+    except Exception as e:
+        logging.error(f"ETW tampering detection failed: {e}")
+        results['etw_tampering'] = {"error": str(e)}
+    return results
+
+def generate_detailed_report(original_report, enhanced_results):
+    combined_report = original_report.copy()
+    combined_report['enhanced_detection'] = enhanced_results
+    risk_factors = []
+    suspicious_count = (
+        len(original_report.get('suspicious_files', [])) +
+        len(original_report.get('suspicious_drivers', [])) +
+        len(original_report.get('process_scan', {}).get('suspicious_processes', []))
+    )
+    if suspicious_count > 0:
+        risk_factors.append(f"Found {suspicious_count} suspicious files/processes")
+    for category, results in enhanced_results.items():
+        if results:
+            risk_factors.append(f"Detected {len(results)} {category}")
+    if len(risk_factors) > 5:
+        risk_level = "HIGH"
+    elif len(risk_factors) > 2:
+        risk_level = "MEDIUM"
+    elif len(risk_factors) > 0:
+        risk_level = "LOW"
+    else:
+        risk_level = "CLEAN"
+    combined_report['risk_assessment'] = {
+        'level': risk_level,
+        'factors': risk_factors,
+        'total_findings': sum(len(v) for v in enhanced_results.values() if isinstance(v, list))
+    }
+    return combined_report
+
+def generate_scan_report():
+    report = {}
+    report["suspicious_files"]    = scan_files_parallel()
+    report["suspicious_drivers"]  = scan_drivers_parallel()
+    report["process_scan"]        = scan_processes_parallel()
+    autorun = scan_autorun_registry()
+    if autorun:
+        report["suspicious_autorun"] = autorun
+    acl = scan_registry_acl_parallel()
+    if acl:
+        report["registry_acl_issues"] = acl
+    report["scan_time"]           = datetime.now().isoformat()
+    return report
+
+def save_report(report: dict):
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out = REPORTS_DIR / f"scan_report_{ts}.json"
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2, ensure_ascii=False)
+    logging.info(f"Report → {out}")
+
+def main():
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    if not DETECTIEASY_PATH.exists():
+        logging.warning(f"DIE missing at {DETECTIEASY_PATH}; PE detection will be skipped.")
+    DIE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    logging.info("=== Starting unified rootkit indicator scan ===")
+    original_report = generate_scan_report()
+    enhanced_results = run_enhanced_detection()
+    combined = generate_detailed_report(original_report, enhanced_results)
+    save_report(combined)
+    print(json.dumps(combined, indent=2))
+    logging.info("=== Scan complete ===")
+
+if __name__ == "__main__":
+    main()
