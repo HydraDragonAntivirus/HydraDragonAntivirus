@@ -7,6 +7,7 @@ HydraDragonAntivirus Unified Scanner with Enhanced Detection
 - Parallel scanning (ThreadPoolExecutor)
 - Enhanced detection: timing, memory (fixed), network, filesystem, registry timestamps, process hollowing (disabled), boot config
 - Outputs suspicious indicators + enhanced results + risk assessment as JSON
+- Includes desktop notifications for detections.
 """
 
 import os
@@ -27,6 +28,7 @@ import wmi
 import win32api
 import win32con
 import win32security
+from notifypy import Notify
 
 
 # Set script directory
@@ -89,6 +91,21 @@ REGION_KEYS      = [
 ]
 MAX_WORKERS = min(32, (os.cpu_count() or 1) * 2)
 
+# ========== NOTIFICATION FUNCTION ==========
+def notify_user_for_rootkit(file_path, virus_name):
+    """
+    Sends a notification about rootkit behaviour detected.
+    """
+    try:
+        notification = Notify()
+        notification.title = f"Rootkit detected: {virus_name}"
+        notification_message = f"Suspicious rootkit behaviour detected in: {file_path}\nVirus: {virus_name}"
+        notification.message = notification_message
+        notification.send()
+        logging.error(notification_message) # Also log it as an error for record-keeping
+    except Exception as e:
+        logging.error(f"Failed to send notification: {e}")
+
 # ========== WinVerifyTrust SETUP ==========
 class GUID(ctypes.Structure):
     _fields_ = [
@@ -147,6 +164,11 @@ def verify_authenticode_signature(file_path: str) -> bool:
     return result == 0  # ERROR_SUCCESS
 
 # ========== HELPER FUNCTIONS ==========
+def generate_detection_name(detection_type: str, details: str) -> str:
+    """Generates a standardized detection name."""
+    sanitized_details = ''.join(c for c in details if c.isalnum() or c in ('-', '_')).capitalize()
+    return f"HEUR:Win32.Susp.{detection_type}.{sanitized_details}.gen"
+
 def get_unique_output_path(output_dir: Path, base_name: Path) -> Path:
     candidate = output_dir / base_name.name
     counter = 1
@@ -248,6 +270,7 @@ def process_file(fp: Path) -> dict:
         # Perform heuristic analysis on the PE file.
         heur = pe_heuristic_analysis(str(fp))
         rec.update({
+            "detection_name": generate_detection_name("File", "HiddenUnsigned"),
             "hidden_attr": h,
             "signature_status": sig["status"],
             "die_output_snippet": die_out[:500],
@@ -294,6 +317,7 @@ def process_driver(svc) -> dict:
             return {}
         heur = pe_heuristic_analysis(str(p))
         return {
+            "detection_name": generate_detection_name("Driver", "HiddenUnsigned"),
             "name": svc.Name,
             "display_name": svc.DisplayName,
             "state": svc.State,
@@ -337,8 +361,11 @@ def analyze_process(pinfo: dict) -> dict:
         if not is_pe_file_from_output(die_out):
             return {}
         heur = pe_heuristic_analysis(exe)
-        return {"pid": pinfo['pid'], "name": pinfo['name'], "exe": exe,
-                "die_output_snippet": die_out[:500], "pe_heuristics": heur}
+        return {
+            "detection_name": generate_detection_name("Process", "HiddenUnsigned"),
+            "pid": pinfo['pid'], "name": pinfo['name'], "exe": exe,
+            "die_output_snippet": die_out[:500], "pe_heuristics": heur
+        }
     except Exception as ex:
         logging.error(f"[Process] error for {exe}: {ex}")
         return {"pid": pinfo.get('pid'), "exe": exe, "error": str(ex)}
@@ -374,7 +401,7 @@ def analyze_registry_acl_item(item: tuple) -> dict:
     try:
         handle = win32api.RegOpenKeyEx(root, subkey_path, 0, win32con.KEY_READ | win32con.KEY_WOW64_64KEY)
     except PermissionError:
-        return {"root": str(root), "subkey": subkey_path, "hidden_key": True}
+        return {"detection_name": generate_detection_name("Registry", "HiddenKey"), "root": str(root), "subkey": subkey_path, "hidden_key": True}
     except Exception:
         return {}
     try:
@@ -407,7 +434,7 @@ def analyze_registry_acl_item(item: tuple) -> dict:
                     if access_mask & win32con.KEY_ALL_ACCESS or access_mask & win32con.GENERIC_ALL:
                         issues.append(f"{name} has full control")
         if issues:
-            return {"root": str(root), "subkey": subkey_path, "acl_issues": issues}
+            return {"detection_name": generate_detection_name("Registry", "ACL"), "root": str(root), "subkey": subkey_path, "acl_issues": issues}
     except Exception:
         return {}
     finally:
@@ -472,6 +499,7 @@ def scan_autorun_registry() -> list[dict]:
                                 continue
                             heur = pe_heuristic_analysis(exe)
                             out.append({
+                                "detection_name": generate_detection_name("Autorun", "HiddenUnsigned"),
                                 "reg_root": str(root),
                                 "reg_path": sub,
                                 "value_name": name,
@@ -514,6 +542,7 @@ class TimingBasedDetection:
                 variance = sum((t - avg_time) ** 2 for t in times) / len(times)
                 if variance > avg_time * 0.5:
                     findings.append({
+                        'detection_name': generate_detection_name("Hook", "TimingVariance"),
                         'api': api_name,
                         'avg_time': avg_time,
                         'variance': variance,
@@ -561,6 +590,7 @@ class MemoryAnomalyDetection:
                 if (mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE)
                         and mbi.Type == MEM_PRIVATE):
                     findings.append({
+                        'detection_name': generate_detection_name("Memory", "ExecPrivate"),
                         'base_address': hex(base),
                         'size': size,
                         'protection': hex(mbi.Protect),
@@ -596,6 +626,7 @@ class NetworkAnomalyDetection:
             hidden_connections = netstat_connections - wmi_connections
             if hidden_connections:
                 findings.append({
+                    'detection_name': generate_detection_name("Network", "HiddenConnection"),
                     'type': 'Hidden network connections',
                     'connections': list(hidden_connections)
                 })
@@ -621,6 +652,7 @@ class FileSystemAnomalyDetection:
                     continue
                 if abs(size1 - size2) > 0:
                     findings.append({
+                        'detection_name': generate_detection_name("FS", "FileRedirection"),
                         'file': file_path,
                         'size_method1': size1,
                         'size_method2': size2,
@@ -651,6 +683,7 @@ class FileSystemAnomalyDetection:
                                 for line in result.stdout.split('\n'):
                                     if ':$DATA' in line and file not in line:
                                         findings.append({
+                                            'detection_name': generate_detection_name("FS", "ADS"),
                                             'file': file_path,
                                             'ads_info': line.strip(),
                                             'type': 'Alternate Data Stream detected'
@@ -678,6 +711,7 @@ class RegistryAnomalyDetection:
                     current_time = time.time()
                     if current_time - last_modified < 3600:
                         findings.append({
+                            'detection_name': generate_detection_name("Registry", "RecentTimestamp"),
                             'key': f"{hkey}\\{key_path}",
                             'last_modified': time.ctime(last_modified),
                             'suspicion': 'Recently modified critical registry key'
@@ -701,11 +735,10 @@ class BootKitDetection:
             for line in result.stdout.split('\n'):
                 for pattern in suspicious_patterns:
                     if pattern.lower() in line.lower():
-                        # Format the detection name as requested
-                        detection_name = f"HEUR:Win32.Susp.Rootkit.{pattern.capitalize()}.gen"
+                        detection_name = generate_detection_name("Boot", pattern)
                         findings.append({
+                            'detection_name': detection_name,
                             'type': 'Suspicious boot configuration',
-                            'detection_name': detection_name, # Add the new field
                             'line': line.strip(),
                             'pattern': pattern
                         })
@@ -715,31 +748,61 @@ class BootKitDetection:
 
 def run_enhanced_detection():
     results = {}
+    
+    # Each block now calls the detection method, then immediately iterates and notifies.
     try:
-        results['timing_anomalies'] = TimingBasedDetection.detect_hooking_via_timing()
+        timing_anomalies = TimingBasedDetection.detect_hooking_via_timing()
+        for finding in timing_anomalies:
+            notify_user_for_rootkit(finding.get('api', 'N/A'), finding.get('detection_name', 'UnknownTiming'))
+        results['timing_anomalies'] = timing_anomalies
     except Exception as e:
         logging.error(f"Timing detection failed: {e}")
+
     try:
-        results['memory_anomalies'] = MemoryAnomalyDetection.scan_memory_regions()
+        memory_anomalies = MemoryAnomalyDetection.scan_memory_regions()
+        for finding in memory_anomalies:
+            notify_user_for_rootkit(finding.get('base_address', 'N/A'), finding.get('detection_name', 'UnknownMemory'))
+        results['memory_anomalies'] = memory_anomalies
     except Exception as e:
         logging.error(f"Memory detection failed: {e}")
+
     try:
-        results['network_anomalies'] = NetworkAnomalyDetection.detect_hidden_network_connections()
+        network_anomalies = NetworkAnomalyDetection.detect_hidden_network_connections()
+        for finding in network_anomalies:
+            notify_user_for_rootkit('System Network State', finding.get('detection_name', 'UnknownNetwork'))
+        results['network_anomalies'] = network_anomalies
     except Exception as e:
         logging.error(f"Network detection failed: {e}")
+
     try:
-        results['file_redirection'] = FileSystemAnomalyDetection.detect_file_redirection()
-        results['ads_streams'] = FileSystemAnomalyDetection.detect_ads_streams()
+        file_redirection = FileSystemAnomalyDetection.detect_file_redirection()
+        for finding in file_redirection:
+            notify_user_for_rootkit(finding.get('file', 'N/A'), finding.get('detection_name', 'UnknownFS'))
+        results['file_redirection'] = file_redirection
+
+        ads_streams = FileSystemAnomalyDetection.detect_ads_streams()
+        for finding in ads_streams:
+            notify_user_for_rootkit(finding.get('file', 'N/A'), finding.get('detection_name', 'UnknownADS'))
+        results['ads_streams'] = ads_streams
     except Exception as e:
         logging.error(f"Filesystem detection failed: {e}")
+
     try:
-        results['registry_timestamp_anomalies'] = RegistryAnomalyDetection.detect_registry_timestamp_anomalies()
+        registry_timestamp_anomalies = RegistryAnomalyDetection.detect_registry_timestamp_anomalies()
+        for finding in registry_timestamp_anomalies:
+            notify_user_for_rootkit(finding.get('key', 'N/A'), finding.get('detection_name', 'UnknownRegistryTimestamp'))
+        results['registry_timestamp_anomalies'] = registry_timestamp_anomalies
     except Exception as e:
         logging.error(f"Registry detection failed: {e}")
+
     try:
-        results['boot_anomalies'] = BootKitDetection.check_boot_configuration()
+        boot_anomalies = BootKitDetection.check_boot_configuration()
+        for finding in boot_anomalies:
+            notify_user_for_rootkit(finding.get('pattern', 'N/A'), finding.get('detection_name', 'UnknownBoot'))
+        results['boot_anomalies'] = boot_anomalies
     except Exception as e:
         logging.error(f"Boot detection failed: {e}")
+        
     return results
 
 def generate_detailed_report(original_report, enhanced_results):
@@ -773,16 +836,35 @@ def generate_detailed_report(original_report, enhanced_results):
 
 def generate_scan_report():
     report = {}
-    report["suspicious_files"]    = scan_files_parallel()
-    report["suspicious_drivers"]  = scan_drivers_parallel()
-    report["process_scan"]        = scan_processes_parallel()
+
+    suspicious_files = scan_files_parallel()
+    for finding in suspicious_files:
+        notify_user_for_rootkit(finding.get("path"), finding.get("detection_name", "UnknownFile"))
+    report["suspicious_files"] = suspicious_files
+
+    suspicious_drivers = scan_drivers_parallel()
+    for finding in suspicious_drivers:
+        notify_user_for_rootkit(finding.get("path"), finding.get("detection_name", "UnknownDriver"))
+    report["suspicious_drivers"] = suspicious_drivers
+
+    process_scan_results = scan_processes_parallel()
+    for finding in process_scan_results.get("suspicious_processes", []):
+         notify_user_for_rootkit(finding.get("exe"), finding.get("detection_name", "UnknownProcess"))
+    report["process_scan"] = process_scan_results
+    
     autorun = scan_autorun_registry()
+    for finding in autorun:
+        notify_user_for_rootkit(finding.get("exe"), finding.get("detection_name", "UnknownAutorun"))
     if autorun:
         report["suspicious_autorun"] = autorun
+    
     acl = scan_registry_acl_parallel()
+    for finding in acl:
+        notify_user_for_rootkit(finding.get("subkey"), finding.get("detection_name", "UnknownACL"))
     if acl:
         report["registry_acl_issues"] = acl
-    report["scan_time"]           = datetime.now().isoformat()
+    
+    report["scan_time"] = datetime.now().isoformat()
     return report
 
 def save_report(report: dict):
