@@ -371,9 +371,8 @@ meta_llama_1b_dir = os.path.join(meta_llama_dir, "Llama-3.2-1B")
 python_source_code_dir = os.path.join(script_dir, "python_sourcecode")
 python_deobfuscated_dir = os.path.join(script_dir, "python_deobfuscated")
 python_deobfuscated_marshal_pyc_dir = os.path.join(python_deobfuscated_dir, "python_deobfuscated_marshal_pyc")
-pycdc_extracted_dir = os.path.join(python_source_code_dir, "pycdc_extracted")
+pylingual_extracted_dir = os.path.join(python_source_code_dir, "pylingual_extracted")
 pycdas_extracted_dir = os.path.join(python_source_code_dir, "pycdas_extracted")
-united_python_source_code_dir = os.path.join(python_source_code_dir, "united")
 pycdas_united_meta_llama_dir = os.path.join(python_source_code_dir, "pycdas_united_meta_llama")
 de4dot_cex_dir = os.path.join(script_dir, "de4dot-cex")
 de4dot_cex_x64_path = os.path.join(de4dot_cex_dir, "de4dot-x64.exe")
@@ -393,7 +392,6 @@ debloat_dir = os.path.join(script_dir, "debloat")
 copied_sandbox_and_main_files_dir = os.path.join(script_dir, "copied_sandbox_and_main_files")
 detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
-pycdc_path = os.path.join(script_dir, "pycdc.exe")
 pycdas_path = os.path.join(script_dir, "pycdas.exe")
 deobfuscar_path = os.path.join(script_dir, "Deobfuscar-Standalone-Win64.exe")
 digital_signatures_list_antivirus_path = os.path.join(digital_signatures_list_dir, "antivirus.txt")
@@ -574,7 +572,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
+directories_to_scan = [enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
@@ -692,9 +690,8 @@ os.makedirs(FernFlower_decompiled_dir, exist_ok=True)
 os.makedirs(deteciteasy_plain_text_dir, exist_ok=True)
 os.makedirs(python_deobfuscated_dir, exist_ok=True)
 os.makedirs(python_deobfuscated_marshal_pyc_dir, exist_ok=True)
-os.makedirs(pycdc_extracted_dir, exist_ok=True)
+os.makedirs(pylingual_extracted_dir, exist_ok=True)
 os.makedirs(pycdas_extracted_dir, exist_ok=True)
-os.makedirs(united_python_source_code_dir, exist_ok=True)
 os.makedirs(pycdas_united_meta_llama_dir, exist_ok=True)
 os.makedirs(copied_sandbox_and_main_files_dir, exist_ok=True)
 os.makedirs(HiJackThis_logs_dir, exist_ok=True)
@@ -6082,8 +6079,8 @@ def log_directory_type(file_path):
            logging.info(f"{file_path}: It's a directory containing extracted files from a JAR (Java Archive) file.")
         elif file_path.startswith(FernFlower_decompiled_dir):
            logging.info(f"{file_path}: It's a directory containing decompiled files from a JAR (Java Archive) file, decompiled using Fernflower decompiler.")
-        elif file_path.startswith(pycdc_extracted_dir):
-            logging.info(f"{file_path}: It's a .pyc (Python Compiled Module) reversed-engineered Python source code directory with pycdc.exe.")
+        elif file_path.startswith(pylingual_extracted_dir):
+            logging.info(f"{file_path}: It's a .pyc (Python Compiled Module) reversed-engineered Python source code directory with pylingaul.")
         elif file_path.startswith(python_deobfuscated_dir):
             logging.info(f"{file_path}: It's an unobfuscated Python directory.")
         elif file_path.startswith(python_deobfuscated_marshal_pyc_dir):
@@ -6103,18 +6100,15 @@ def log_directory_type(file_path):
     except Exception as ex:
         logging.error(f"Error logging directory type for {file_path}: {ex}")
 
-def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompiled_flag=False, HiJackThis_flag=False):
+def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=False):
     """
     Processes a file and analyzes it using Meta Llama-3.2-1B.
-    If united_python_code_flag is True (i.e. the file comes from pycdas, pycdc decompilation),
-    the summary will consist solely of the full source code.
-    If decompiled_flag is True (and united_python_code_flag is False), a normal summary is generated with
+    If decompiled_flag is True, a normal summary is generated with
     an additional note indicating that the file was decompiled by our tool and is Python source code.
 
     Args:
         file_path (str): The path to the file to be scanned.
-        united_python_code_flag (bool): If True, indicates that the file was produced by the pycdas decompiler.
-        decompiled_flag (bool): If True (and united_python_code_flag is False), indicates that the file was decompiled by our tool.
+        decompiled_flag (bool): If True, indicates that the file was decompiled by our tool.
     """
     try:
         # List of directory conditions and their corresponding logging messages.
@@ -6145,7 +6139,7 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
             (lambda fp: fp.startswith(debloat_dir), "It's a debloated file dir."),
             (lambda fp: fp.startswith(jar_extracted_dir), "Directory containing extracted files from a JAR (Java Archive) file."),
             (lambda fp: fp.startswith(FernFlower_decompiled_dir), "This directory contains source files decompiled from a JAR (Java Archive) using the Fernflower decompiler.."),
-            (lambda fp: fp.startswith(pycdc_extracted_dir), "PyInstaller, .pyc reversed-engineered source code directory with pycdc.exe."),
+            (lambda fp: fp.startswith(pylingual_extracted_dir), "PyInstaller, .pyc reversed-engineered source code directory with pylingual."),
             (lambda fp: fp.startswith(python_deobfuscated_dir), "It's an unobfuscated Python directory."),
             (lambda fp: fp.startswith(python_deobfuscated_marshal_pyc_dir), "It's a deobfuscated .pyc (Python Compiled Module) from marshal data."),
             (lambda fp: fp.startswith(python_deobfuscated_sandboxie_dir), "It's an unobfuscated Python directory within Sandboxie."),
@@ -6181,16 +6175,6 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
                 "- Malicious Content: [Explanation]\n"
                 f"File name: {os.path.basename(file_path)}\n"
                 f"File path: {file_path}\n"
-            )
-        elif united_python_code_flag:
-            initial_message = prefix + (
-                "This file was decompiled using pycdas.exe and further analyzed with Meta Llama-3.2-1B.\n"
-                "Based on the source code extracted via pycdas, pycdc, uncomplye6, please follow these instructions:\n"
-                "- If the file is obfuscated, deobfuscate it by detecting and removing any gibberish output and decoding any encoded strings.\n"
-                "- Extract the full, accurate source code as completely as possible.\n"
-                "- Your output must consist solely of the complete source code, with no additional commentary, as I will save it with a .py extension.\n"
-                "After extraction, I will send you the same text again for further analysis to determine if the file is malware.\n"
-                "Decode any encoded strings, such as base64 or base32, as needed.\n"
             )
         elif decompiled_flag:
             initial_message = prefix + (
@@ -6333,11 +6317,6 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
             f"Malicious Content: {explanation}\n"
         )
 
-        if united_python_code_flag:
-            final_response = readable_file_content
-        elif decompiled_flag:
-            final_response += "\nNote: This file was decompiled by our tool and is Python source code.\n"
-
         logging.info(final_response)
 
         # Log the raw model response
@@ -6365,19 +6344,6 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
                     notify_user_for_meta_llama(file_path, virus_name, malware)
             except Exception as ex:
                 logging.error(f"Error notifying user: {ex}")
-
-        # For pycdas decompiled files: save the extracted source code with a .py extension
-        if united_python_code_flag:
-            meta_llama_source_filename = os.path.splitext(os.path.basename(file_path))[0] + "_meta_llama.py"
-            meta_llama_source_path = os.path.join(pycdas_united_meta_llama_dir, meta_llama_source_filename)
-            try:
-                with open(meta_llama_source_path, "w", encoding="utf-8") as meta_llama_source_file:
-                    meta_llama_source_file.write(readable_file_content)
-                logging.info(f"Meta Llama-3.2-1B extracted source code saved to {meta_llama_source_path}")
-                # Now scan .pyc source code
-                scan_code_for_links(meta_llama_source_path, pyc_meta_llama_flg=True)
-            except Exception as ex:
-                logging.error(f"Error writing Meta Llama-3.2-1B extracted source code to {meta_llama_source_path}: {ex}")
 
         # Otherwise, log and do not return (implicit None)
         logging.info("Meta Llama analysis completed.")
@@ -6595,24 +6561,6 @@ def extract_marshal_code_from_source(source: str) -> types.CodeType | None:
 
     logging.error("[!] marshal.loads pattern with base64 blob not found in AST")
     return None
-
-def run_pycdc_decompiler(file_path):
-    try:
-        base_name = Path(file_path).with_suffix(".py").name  # base filename with .py extension
-        output_path = get_unique_output_path(Path(pycdc_extracted_dir), Path(base_name))
-
-        command = [pycdc_path, "-o", str(output_path), file_path]
-        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="ignore")
-
-        if result.returncode == 0:
-            logging.info(f"Successfully decompiled using pycdc. Output saved to {output_path}")
-            return output_path
-        else:
-            logging.error(f"pycdc error: {result.stderr}")
-            return None
-    except Exception as e:
-        logging.error(f"Error running pycdc: {e}")
-        return None
 
 def decompile_pyc_with_fallback(pyc_path: str) -> str | None:
     """
@@ -8335,9 +8283,6 @@ def show_code_with_pycdc_pycdas(file_path, file_name):
             except Exception as e:
                 logging.error(f"Failed to write united output file: {e}")
                 united_output_path = None
-        else:
-            logging.info("[-] Skipping united output: both pycdc ve pycdas dekompilasyonlarının başarılı olması gerekiyor.")
-
         return pycdc_output_path, pycdas_output_path, united_output_path
 
     except Exception as ex:
