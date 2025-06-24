@@ -8,24 +8,54 @@ HydraDragonAntivirus Unified Scanner with Enhanced Detection
 - Enhanced detection: timing, memory (fixed), network, filesystem, registry timestamps, process hollowing (disabled), boot config
 - Outputs suspicious indicators + enhanced results + risk assessment as JSON
 """
+
 import os
-import time
-import subprocess
+import sys
 import logging
-import json
-from pathlib import Path
-import ctypes
-from ctypes import wintypes
-import pefile      # pip install pefile
-import psutil      # pip install psutil
-import wmi         # pip install wmi
-import winreg
-import win32security  # pip install pywin32
-import win32con
-import win32api
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from ETWTampering import detect_etw_tampering
+import time
+
+# Set script directory
+script_dir = os.getcwd()
+
+# Define log directories and files
+log_directory = os.path.join(script_dir, "log")
+if not os.path.exists(log_directory):
+    os.makedirs(log_directory)
+
+# Separate log files for different purposes
+stdout_console_log_file = os.path.join(
+    log_directory, "DONTREMOVEantivirusconsolestdout.log"
+)
+stderr_console_log_file = os.path.join(
+    log_directory, "DONTREMOVEantivirusconsolestderr.log"
+)
+application_log_file = os.path.join(
+    log_directory, "DONTREMOVEantivirus.log"
+)
+
+# Configure logging for application log
+logging.basicConfig(
+    filename=application_log_file,
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+)
+
+# Redirect stdout to stdout console log
+sys.stdout = open(
+    stdout_console_log_file, "w", encoding="utf-8", errors="ignore"
+)
+
+# Redirect stderr to stderr console log
+sys.stderr = open(
+    stderr_console_log_file, "w", encoding="utf-8", errors="ignore"
+)
+
+# Logging for application initialization
+logging.info(
+    "Application started at %s",
+    datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+)
 
 # ========== CONFIGURATION ==========
 CWD              = Path(os.getcwd())
@@ -693,13 +723,6 @@ def run_enhanced_detection():
         results['boot_anomalies'] = BootKitDetection.check_boot_configuration()
     except Exception as e:
         logging.error(f"Boot detection failed: {e}")
-    # ETW tampering detection
-    try:
-        etw_result = detect_etw_tampering()
-        results['etw_tampering'] = etw_result
-    except Exception as e:
-        logging.error(f"ETW tampering detection failed: {e}")
-        results['etw_tampering'] = {"error": str(e)}
     return results
 
 def generate_detailed_report(original_report, enhanced_results):
@@ -751,7 +774,7 @@ def save_report(report: dict):
     out = REPORTS_DIR / f"scan_report_{ts}.json"
     with open(out, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
-    logging.info(f"Report → {out}")
+    logging.info(f"Report -> {out}")
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
