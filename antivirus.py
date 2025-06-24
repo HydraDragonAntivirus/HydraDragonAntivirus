@@ -4208,23 +4208,75 @@ def check_signature(file_path):
             "matches_antivirus_signature": False
         }
 
-def check_valid_signature_only(file_path):
+# ========== WinVerifyTrust SETUP ==========
+class GUID(ctypes.Structure):
+    _fields_ = [
+        ("Data1", wintypes.DWORD),
+        ("Data2", wintypes.WORD),
+        ("Data3", wintypes.WORD),
+        ("Data4", ctypes.c_ubyte * 8),
+    ]
+WINTRUST_ACTION_GENERIC_VERIFY_V2 = GUID(
+    0x00AAC56B, 0xCD44, 0x11D0,
+    (ctypes.c_ubyte * 8)(0x8C, 0xC2, 0x00, 0xC0, 0x4F, 0xC2, 0x95, 0xEE)
+)
+class WINTRUST_FILE_INFO(ctypes.Structure):
+    _fields_ = [
+        ("cbStruct", wintypes.DWORD),
+        ("pcwszFilePath", wintypes.LPCWSTR),
+        ("hFile", wintypes.HANDLE),
+        ("pgKnownSubject", ctypes.POINTER(GUID)),
+    ]
+class WINTRUST_DATA(ctypes.Structure):
+    _fields_ = [
+        ("cbStruct", wintypes.DWORD),
+        ("pPolicyCallbackData", ctypes.c_void_p),
+        ("pSIPClientData", ctypes.c_void_p),
+        ("dwUIChoice", wintypes.DWORD),
+        ("fdwRevocationChecks", wintypes.DWORD),
+        ("dwUnionChoice", wintypes.DWORD),
+        ("pFile", ctypes.POINTER(WINTRUST_FILE_INFO)),
+        ("dwStateAction", wintypes.DWORD),
+        ("hWVTStateData", wintypes.HANDLE),
+        ("pwszURLReference", wintypes.LPCWSTR),
+        ("dwProvFlags", wintypes.DWORD),
+        ("dwUIContext", wintypes.DWORD),
+        ("pSignatureSettings", ctypes.c_void_p),
+    ]
+WTD_UI_NONE           = 2
+WTD_REVOKE_NONE       = 0
+WTD_CHOICE_FILE       = 1
+WTD_STATEACTION_IGNORE = 0x00000000
+_wintrust = ctypes.windll.wintrust
+
+def verify_authenticode_signature(file_path: str) -> bool:
+    """
+    Returns True if signature is valid per WinVerifyTrust, False otherwise.
+    """
+    file_info = WINTRUST_FILE_INFO(ctypes.sizeof(WINTRUST_FILE_INFO), file_path, None, None)
+    wtd = WINTRUST_DATA()
+    ctypes.memset(ctypes.byref(wtd), 0, ctypes.sizeof(wtd))
+    wtd.cbStruct = ctypes.sizeof(WINTRUST_DATA)
+    wtd.dwUIChoice = WTD_UI_NONE
+    wtd.fdwRevocationChecks = WTD_REVOKE_NONE
+    wtd.dwUnionChoice = WTD_CHOICE_FILE
+    wtd.pFile = ctypes.pointer(file_info)
+    wtd.dwStateAction = WTD_STATEACTION_IGNORE
+    result = _wintrust.WinVerifyTrust(None, ctypes.byref(WINTRUST_ACTION_GENERIC_VERIFY_V2), ctypes.byref(wtd))
+    return result == 0  # ERROR_SUCCESS
+
+def check_valid_signature(file_path: str) -> dict:
+    """
+    Use WinVerifyTrust instead of PowerShell.
+    Returns {"is_valid": bool, "status": str}.
+    """
     try:
-        # Command to verify the executable signature status
-        verify_command = f"(Get-AuthenticodeSignature '{file_path}').Status"
-        process = subprocess.run(['powershell.exe', '-Command', verify_command], capture_output=True, text=True, encoding="utf-8", errors="ignore")
-
-        status = process.stdout.strip()
-        is_valid = "Valid" in status
-
-        return {
-            "is_valid": is_valid
-        }
+        is_valid = verify_authenticode_signature(file_path)
+        status = "Valid" if is_valid else "Invalid or no signature"
+        return {"is_valid": is_valid, "status": status}
     except Exception as ex:
-        logging.error(f"An error occurred while verifying a valid signature: {ex}")
-        return {
-            "is_valid": False
-        }
+        logging.error(f"[Signature] {file_path}: {ex}")
+        return {"is_valid": False, "status": str(ex)}
 
 def clean_directories():
     try:
@@ -4996,7 +5048,7 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
                                 logging.info(f"File {file_path} is not located in the monitored directories. Skipping...")
                                 continue
 
-                            signature_info = check_valid_signature_only(file_path)
+                            signature_info = check_valid_signature(file_path)
                             if status == "Info":
                                 if not signature_info["is_valid"]:
                                     logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has an invalid or no signature. Alert Line: {alert_line}")
