@@ -8966,7 +8966,7 @@ def scan_and_warn(file_path,
                             logging.info(f"Debloated file saved at: {optimized_norm_path}")
                             threading.Thread(
                                 target=scan_and_warn,
-                                args=(pycdas_norm_path,),
+                                args=(optimized_norm_path,),
                                 kwargs={'flag_debloat': True}
                             ).start()
                         else:

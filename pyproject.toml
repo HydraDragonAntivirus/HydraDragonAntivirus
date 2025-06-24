@@ -69,7 +69,6 @@ homepage = "https://pylingual.io"
 
 [project.scripts]
 hydradragon = "hydradragon.main:main"
-pylingual = "pylingual.main:main"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
