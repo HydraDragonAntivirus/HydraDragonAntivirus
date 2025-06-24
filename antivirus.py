@@ -6836,20 +6836,57 @@ def extract_marshal_code_from_source(source: str) -> types.CodeType | None:
     logging.error("[!] marshal.loads pattern with base64 blob not found in AST")
     return None
 
+def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
+    """
+    Decompile a .pyc file using Pylingual.
+    Returns the combined decompiled source as a string if successful, else None.
+    """
+    try:
+        pyc_file = Path(pyc_path)
+        base_name = pyc_file.stem
+        output_path = Path(pylingual_extracted_dir) / f"decompiled_{base_name}"
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        result: DecompilerResult = decompile(
+            file=pyc_file,
+            out_dir=output_path,
+            config_file=None,
+            version=None,
+            top_k=10,
+            trust_lnotab=False
+        )
+
+        py_files = list(output_path.rglob("*.py"))
+        if not py_files:
+            logging.warning(f"[Pylingual] No .py files found in output for: {pyc_path}")
+            return None
+
+        combined_source = ""
+        for py_file in py_files:
+            combined_source += f"# From: {py_file.name}\n"
+            combined_source += py_file.read_text(encoding="utf-8", errors="ignore") + "\n\n"
+
+        logging.info(f"[Pylingual] Successfully decompiled {pyc_path} → {output_path}")
+        return combined_source
+
+    except Exception as e:
+        logging.error(f"[Pylingual] Decompilation failed for {pyc_path}: {e}")
+        return None
+
 def decompile_pyc_with_fallback(pyc_path: str) -> str | None:
     """
-    Try to decompile a .pyc file using pycdc.
-    
+    Try to decompile a .pyc file using Pylingual.
+
     Returns the decompiled source code as a string if successful, otherwise None.
     """
-    decompiled_path = run_pycdc_decompiler(pyc_path)
-    if decompiled_path and Path(decompiled_path).exists():
-        try:
-            return Path(decompiled_path).read_text(encoding="utf-8")
-        except Exception as e:
-            logging.error(f"Failed to read pycdc output: {e}")
-    else:
-        logging.error("pycdc decompilation failed")
+    try:
+        source_code = decompile_pyc_with_pylingual(pyc_path)
+        if source_code:
+            return source_code
+        else:
+            logging.error("Pylingual decompilation failed or returned empty output.")
+    except Exception as e:
+        logging.error(f"Error during Pylingual decompilation: {e}")
 
     return None
 
@@ -8474,93 +8511,60 @@ def run_in_thread(fn):
         return executor.submit(fn, *args, **kwargs)
     return wrapper
 
-def show_code_with_pycdc_pycdas(file_path, file_name):
+def show_code_with_pylingual_pycdas(
+    file_path: str,
+    file_name: str,
+    out_base_dir: Path,
+    config_file: Path | None = None,
+    version=None,
+    top_k: int = 10,
+    trust_lnotab: bool = False
+) -> tuple[Path | None, Path | None, str | None]:
     """
-    Decompiles a .pyc file using pycdc and pycdas, and saves the results.
-    Combines outputs into a united file only if both tools succeed.
-
-    Args:
-        file_path: Path to the .pyc file.
-        file_name: Name of the .pyc file.
+    Decompile a .pyc file using the shared decompile_pyc_with_pylingual(),
+    then produce a single united Python file from all resulting .py files.
 
     Returns:
-        Tuple: (pycdc_output_path, pycdas_output_path, united_output_path)
+        Tuple:
+          - out_dir: Path to directory containing decompiled .py files, or None
+          - united_output_path: Path to the combined .py output, or None
+          - combined_source: The combined source code string, or None
     """
     try:
-        logging.info(f"Processing python file: {file_path}")
-        base_name = os.path.splitext(file_name)[0]
+        logging.info(f"Decompiling with Pylingual: {file_path}")
+        pyc_path = Path(file_path)
+        if not pyc_path.exists():
+            logging.error(f".pyc file not found: {file_path}")
+            return None, None, None
 
-        # --- PyCDC decompilation branch ---
-        pycdc_output_path = None
-        if os.path.exists(pycdc_path):
-            try:
-                pycdc_output_path = run_pycdc_decompiler(file_path)
-                if pycdc_output_path and os.path.exists(pycdc_output_path):
-                    process_decompiled_code(pycdc_output_path)
-                else:
-                    logging.error("pycdc decompilation did not produce output or output path invalid")
-                    pycdc_output_path = None
-            except Exception as e:
-                logging.error(f"Error during pycdc decompilation: {e}")
-                pycdc_output_path = None
-        else:
-            logging.error("[-] pycdc executable not found")
+        # Output directory will be derived from the global pylingual_extracted_dir
+        out_dir = Path(pylingual_extracted_dir) / f"decompiled_{pyc_path.stem}"
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-        # --- PyCDAS decompilation branch ---
-        pycdas_output_path = None
-        if os.path.exists(pycdas_path):
-            try:
-                pycdas_output_path = run_pycdas_decompiler(file_path)
-                if not (pycdas_output_path and os.path.exists(pycdas_output_path)):
-                    logging.error("pycdas decompilation did not produce output or output path invalid")
-                    pycdas_output_path = None
-            except Exception as e:
-                logging.error(f"Error during pycdas decompilation: {e}")
-                pycdas_output_path = None
-        else:
-            logging.error("[-] pycdas executable not found")
+        # Use existing unified decompiler wrapper
+        combined_source = decompile_pyc_with_pylingual(str(pyc_path))
+        if not combined_source:
+            return out_dir, None, None
 
-        # --- United output (only if BOTH succeed) ---
-        united_output_path = None
-        if pycdc_output_path and pycdas_output_path:
-            united_dir = os.path.join(python_source_code_dir, "united")
-            os.makedirs(united_dir, exist_ok=True)
+        # Create united file path
+        united_dir = Path(out_base_dir) / "united"
+        united_dir.mkdir(parents=True, exist_ok=True)
 
-            combined_code = ""
+        base_name = Path(file_name).stem
+        united_output_path = united_dir / f"{base_name}_united.py"
 
-            # pycdc output
-            combined_code += "# pycdc output\n"
-            try:
-                with open(pycdc_output_path, "r", encoding="utf-8", errors="ignore") as f:
-                    combined_code += f.read() + "\n\n"
-            except Exception as e:
-                logging.error(f"Failed reading pycdc output for united: {e}")
+        try:
+            with open(united_output_path, "w", encoding="utf-8") as f:
+                f.write(combined_source)
+            logging.info(f"United Pylingual output saved to {united_output_path}")
+        except Exception as e:
+            logging.error(f"Failed to write united Pylingual output: {e}")
+            united_output_path = None
 
-            # pycdas output
-            combined_code += "# pycdas output\n"
-            try:
-                with open(pycdas_output_path, "r", encoding="utf-8", errors="ignore") as f:
-                    combined_code += f.read() + "\n\n"
-            except Exception as e:
-                logging.error(f"Failed reading pycdas output for united: {e}")
-
-            united_output_path = os.path.join(united_dir, f"{base_name}_united.py")
-            try:
-                with open(united_output_path, "w", encoding="utf-8") as f:
-                    f.write(combined_code)
-                logging.info(f"[+] United output saved to {united_output_path}")
-                scan_code_for_links(combined_code, pyc_flag=True)
-                try:
-                    scan_file_with_meta_llama(united_output_path, united_python_code=True)
-                except Exception as e:
-                    logging.error(f"Error during meta-llama scan: {e}")
-            except Exception as e:
-                logging.error(f"Failed to write united output file: {e}")
-                united_output_path = None
-        return pycdc_output_path, pycdas_output_path, united_output_path
+        return out_dir, united_output_path, combined_source
 
     except Exception as ex:
-        logging.error(f"Error processing python file {file_path}: {ex}")
+        logging.error(f"Unexpected error in show_code_with_pylingual_pycdas for {file_path}: {ex}")
         return None, None, None
 
 # --- Main Scanning Function ---
@@ -8867,38 +8871,42 @@ def scan_and_warn(file_path,
                     logging.error(f"Error scanning {file_path} with cx_freeze_rule: {e}")
             # ---------------------------------------------------------------------
 
-            # Check if it's a .pyc file and decompile
+            # Check if it's a .pyc file and decompile via Pylingual
             if is_pyc_file_from_output(die_output):
-                logging.info(f"File {norm_path} is a .pyc (Python Compiled Module) file. Attempting to decompile...")
+                logging.info(
+                    f"File {norm_path} is a .pyc (Python Compiled Module). Attempting Pylingual decompilation...")
 
-                # Call the show_code_with_pycdc_pycdas function to decompile the .pyc file
-                pycdc_norm_path, pycdas_norm_path, united_output_path = show_code_with_pycdc_pycdas(norm_path, file_name)
+                # Call the Pylingual-based decompile+pycdas function
+                # Assume show_code_with_pylingual_united is imported and available,
+                # and out_base_dir is defined (e.g., a base directory for decompiled outputs).
+                out_dir, united_output_path, result = show_code_with_pylingual_pycdas(
+                    file_path=norm_path,
+                    file_name=file_name,
+                    out_base_dir=Path(python_source_code_dir),  # or another base directory
+                    config_file=None,
+                    version=None,
+                    top_k=10,
+                    trust_lnotab=False
+                )
 
-                # Scan and warn for the pycdc decompiled file, if available
-                if pycdc_norm_path:
-                    logging.info(f"Scanning decompiled file from pycdc: {pycdc_norm_path}")
-                    threading.Thread(target=scan_and_warn, args=(pycdc_norm_path,)).start()
+                # If decompilation directory was created, scan each .py file inside
+                if out_dir:
+                    logging.info(f"Scanning all decompiled .py files in: {out_dir}")
+                    for root, _, files in os.walk(out_dir):
+                        for fname in files:
+                            if fname.endswith(".py"):
+                                file_to_scan = os.path.join(root, fname)
+                                logging.info(f"Scheduling scan for decompiled file: {file_to_scan}")
+                                threading.Thread(target=scan_and_warn, args=(file_to_scan,)).start()
                 else:
-                    logging.error(f"pycdc decompilation failed for file {pycdc_norm_path}.")
+                    logging.error(f"Pylingual decompilation failed for {norm_path}.")
 
-                # Scan and warn for the pycdas decompiled file, if available
-                if pycdas_norm_path:
-                    logging.info(f"Scanning decompiled file from pycdas: {pycdas_norm_path}")
-                    threading.Thread(target=scan_and_warn, args=(pycdas_norm_path,)).start()
-                else:
-                    logging.error(f"pycdas decompilation failed for file {pycdas_norm_path}.")
-
-                # Scan and warn for the united decompiled file, if available
+                # If united file exists, scan it
                 if united_output_path:
-                    logging.info(f"Scanning united decompiled file: {united_output_path}")
+                    logging.info(f"Scheduling scan for united decompiled file: {united_output_path}")
                     threading.Thread(target=scan_and_warn, args=(united_output_path,)).start()
-                    threading.Thread(
-                        target=scan_file_with_meta_llama,
-                        args=(united_output_path,),
-                        kwargs={'united_python_code_flag': True}
-                    ).start()
                 else:
-                    logging.error(f"United decompilation failed for file {norm_path}.")
+                    logging.info(f"No united output created for {norm_path}.")
 
             # Operation of the PE file
             if pe_file:
