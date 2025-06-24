@@ -12,8 +12,22 @@ HydraDragonAntivirus Unified Scanner with Enhanced Detection
 import os
 import sys
 import logging
-from datetime import datetime
+import json
+import subprocess
+import ctypes
+from ctypes import wintypes
+import winreg
 import time
+from datetime import datetime
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import pefile
+import psutil
+import wmi
+import win32api
+import win32con
+import win32security
+
 
 # Set script directory
 script_dir = os.getcwd()
@@ -687,8 +701,11 @@ class BootKitDetection:
             for line in result.stdout.split('\n'):
                 for pattern in suspicious_patterns:
                     if pattern.lower() in line.lower():
+                        # Format the detection name as requested
+                        detection_name = f"HEUR:Win32.Susp.Rootkit.{pattern.capitalize()}.gen"
                         findings.append({
                             'type': 'Suspicious boot configuration',
+                            'detection_name': detection_name, # Add the new field
                             'line': line.strip(),
                             'pattern': pattern
                         })
