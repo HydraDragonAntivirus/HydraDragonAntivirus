@@ -1682,16 +1682,52 @@ BOOL WINAPI HookedDeleteFileW(LPCWSTR lpFileName)
 {
     if (lpFileName)
     {
+        // 1) hall.dll in System32?
+        wchar_t sysDir[MAX_PATH] = { 0 };
+        if (GetSystemDirectoryW(sysDir, MAX_PATH))
+        {
+            std::wstring target = sysDir;
+            if (target.back() != L'\\')
+                target += L'\\';
+            target += L"hall.dll";
+
+            // lowercase both for case-insensitive exact compare
+            std::wstring path(lpFileName);
+            std::transform(path.begin(), path.end(), path.begin(), ::towlower);
+            std::transform(target.begin(), target.end(), target.begin(), ::towlower);
+
+            if (path == target)
+            {
+                SafeWriteSigmaLog(
+                    L"DeleteFileW",
+                    L"HEUR:Win32.Trojan.Wiper.hall.gen – System32\\hall.dll deletion detected"
+                );
+                TriggerNotification(
+                    L"Virus Detected: HEUR:Win32.Trojan.Wiper.hall.gen",
+                    L"Warning: System32\\hall.dll was deleted (HALL wiper behavior detected)"
+                );
+                // let it proceed; remove this `return` if you want to BLOCK the delete:
+            }
+        }
+
+        // 2) your existing “log‐folder” deletion hook
         if (IsOurLogFileForDetection(lpFileName))
         {
-            SafeWriteSigmaLog(L"DeleteFileW", L"HEUR:Win32.Trojan.Wiper.Log.gen - Log file deletion detected");
-            TriggerNotification(L"Virus Detected: HEUR:Win32.Trojan.Wiper.Log.gen", L"Warning: A log file was deleted (Wiper behavior detected)");
+            SafeWriteSigmaLog(
+                L"DeleteFileW",
+                L"HEUR:Win32.Trojan.Wiper.Log.gen – Log file deletion detected"
+            );
+            TriggerNotification(
+                L"Virus Detected: HEUR:Win32.Trojan.Wiper.Log.gen",
+                L"Warning: A log file was deleted (Wiper behavior detected)"
+            );
         }
         else
         {
-            WCHAR buffer[1024];
-            _snwprintf_s(buffer, 1024, _TRUNCATE,
-                L"DeleteFileW called: FileName = %s", lpFileName);
+            // 3) generic DeleteFileW logging
+            wchar_t buffer[1024];
+            _snwprintf_s(buffer, _countof(buffer), _TRUNCATE,
+                L"DeleteFileW called on: %s", lpFileName);
             SafeWriteSigmaLog(L"DeleteFileW", buffer);
         }
     }
@@ -1699,6 +1735,8 @@ BOOL WINAPI HookedDeleteFileW(LPCWSTR lpFileName)
     {
         SafeWriteSigmaLog(L"DeleteFileW", L"DeleteFileW called: FileName = (null)");
     }
+
+    // 4) finally, forward to the real API
     return TrueDeleteFileW(lpFileName);
 }
 
