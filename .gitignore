@@ -50,6 +50,7 @@ yara/yarac64.exe
 
 # Detect-It-Easy
 /detectiteasy
+/OpenHydraDragonRules/antirootkit/detectiteasy
 # Code checker
 functionordercheck.py
 

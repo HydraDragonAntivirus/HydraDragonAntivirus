@@ -76,7 +76,7 @@ def detect_etw_tampering() -> dict:
                 "note": "In-memory bytes differ from on-disk bytes – possible ETW patch"
             }
         else: 
-             return None
+             return {}
     except Exception as ex:
         logging.error(f"[ETW Detection] Error: {ex}")
         return {"error": str(ex)}

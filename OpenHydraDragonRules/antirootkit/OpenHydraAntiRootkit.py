@@ -6,13 +6,11 @@ HydraDragonAntivirus Unified Scanner with Enhanced Detection
 - DIE analysis for hidden+unsigned files to detect PE, then PE heuristics
 - Parallel scanning (ThreadPoolExecutor)
 - Enhanced detection: timing, memory (fixed), network, filesystem, registry timestamps, process hollowing (disabled), boot config
-- Caching via SQLite for file hash results
 - Outputs suspicious indicators + enhanced results + risk assessment as JSON
 """
 import os
 import time
 import hashlib
-import sqlite3
 import subprocess
 import logging
 import json
@@ -54,7 +52,7 @@ class GUID(ctypes.Structure):
         ("Data1", wintypes.DWORD),
         ("Data2", wintypes.WORD),
         ("Data3", wintypes.WORD),
-        ("Data4", wintypes.BYTE * 8),
+        ("Data4", ctypes.c_ubyte * 8),
     ]
 WINTRUST_ACTION_GENERIC_VERIFY_V2 = GUID(
     0x00AAC56B, 0xCD44, 0x11D0,
@@ -104,58 +102,6 @@ def verify_authenticode_signature(file_path: str) -> bool:
     wtd.dwStateAction = WTD_STATEACTION_IGNORE
     result = _wintrust.WinVerifyTrust(None, ctypes.byref(WINTRUST_ACTION_GENERIC_VERIFY_V2), ctypes.byref(wtd))
     return result == 0  # ERROR_SUCCESS
-
-# ========== CACHE ==========
-class DetectionCache:
-    """Cache detection results to improve performance"""
-    def __init__(self, cache_file='detection_cache.db'):
-        self.cache_file = cache_file
-        self.init_cache()
-    def init_cache(self):
-        conn = sqlite3.connect(self.cache_file)
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS file_hashes (
-                path TEXT PRIMARY KEY,
-                hash TEXT,
-                timestamp REAL,
-                is_suspicious INTEGER
-            )
-        ''')
-        conn.commit()
-        conn.close()
-    def get_cached_result(self, file_path):
-        conn = sqlite3.connect(self.cache_file)
-        cursor = conn.execute(
-            'SELECT hash, is_suspicious FROM file_hashes WHERE path = ?',
-            (file_path,)
-        )
-        result = cursor.fetchone()
-        conn.close()
-        if result:
-            cached_hash, is_suspicious = result
-            current_hash = self.calculate_file_hash(file_path)
-            if current_hash and current_hash == cached_hash:
-                return bool(is_suspicious)
-        return None
-    def cache_result(self, file_path, is_suspicious):
-        file_hash = self.calculate_file_hash(file_path)
-        timestamp = time.time()
-        conn = sqlite3.connect(self.cache_file)
-        conn.execute(
-            'INSERT OR REPLACE INTO file_hashes VALUES (?, ?, ?, ?)',
-            (file_path, file_hash, timestamp, int(is_suspicious))
-        )
-        conn.commit()
-        conn.close()
-    @staticmethod
-    def calculate_file_hash(file_path):
-        try:
-            with open(file_path, 'rb') as f:
-                return hashlib.sha256(f.read()).hexdigest()
-        except:
-            return None
-
-cache = DetectionCache()
 
 # ========== HELPER FUNCTIONS ==========
 def get_unique_output_path(output_dir: Path, base_name: Path) -> Path:
@@ -236,23 +182,27 @@ def pe_heuristic_analysis(path: str) -> dict:
 
 # ========== SCANNING FUNCTIONS ==========
 def process_file(fp: Path) -> dict:
+    """
+    Process a single file to check for suspicious indicators.
+    """
     rec = {"path": str(fp)}
     try:
-        cached = cache.get_cached_result(str(fp))
-        if cached is False:
-            return {}
+        # A file is suspicious if it's hidden AND has an invalid signature.
         h = is_hidden_file(fp)
         sig = check_valid_signature(str(fp))
         if not (h and not sig["is_valid"]):
-            cache.cache_result(str(fp), False)
-            return {}
+            return {} # Not suspicious, skip further analysis
+
+        # If DIE is not available, we can't do PE analysis.
         if not DETECTIEASY_PATH.exists():
-            cache.cache_result(str(fp), False)
             return {}
+
+        # Run DIE to determine if the file is a PE file.
         die_out = analyze_file_with_die(str(fp), DETECTIEASY_PATH, DIE_OUTPUT_DIR)
         if not is_pe_file_from_output(die_out):
-            cache.cache_result(str(fp), False)
-            return {}
+            return {} # Not a PE file, nothing more to do.
+
+        # Perform heuristic analysis on the PE file.
         heur = pe_heuristic_analysis(str(fp))
         rec.update({
             "hidden_attr": h,
@@ -260,7 +210,6 @@ def process_file(fp: Path) -> dict:
             "die_output_snippet": die_out[:500],
             "pe_heuristics": heur
         })
-        cache.cache_result(str(fp), True)
         return rec
     except Exception as ex:
         logging.error(f"[File] error for {fp}: {ex}")
