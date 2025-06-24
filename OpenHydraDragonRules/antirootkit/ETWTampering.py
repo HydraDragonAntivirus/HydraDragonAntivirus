@@ -73,7 +73,7 @@ def detect_etw_tampering() -> dict:
                 "patched": True,
                 "orig_bytes": orig_bytes[:8].hex(),
                 "mem_bytes": mem_bytes[:8].hex(),
-                "note": "In-memory bytes differ from on-disk bytes – possible ETW patch"
+                "note": "In-memory bytes differ from on-disk bytes - possible ETW patch"
             }
         else: 
              return {}

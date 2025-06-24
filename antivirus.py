@@ -492,7 +492,7 @@ program_files = os.getenv("ProgramFiles", os.path.join(system_drive, "Program Fi
 # Get SystemRoot (usually C:\Windows)
 system_root = os.getenv("SystemRoot", os.path.join(system_drive, "Windows"))
 # Fallback to %SystemRoot%\System32 if %System32% is not set
-system32_path = os.getenv("System32", os.path.join(system_root, "System32"))
+system32_dir = os.getenv("System32", os.path.join(system_root, "System32"))
 
 # Snort base folder path
 snort_folder = os.path.join(system_drive, "Snort")
@@ -523,7 +523,12 @@ def get_sandbox_path(original_path: str | Path) -> Path:
 # Derived sandbox system root path
 sandbox_system_root_directory = get_sandbox_path(system_root)
 
-drivers_path = os.path.join(system32_path, "drivers")
+# Derived sandbox system32 path
+sandbox_system32_directory = get_sandbox_path(system32_dir)
+
+ntdll_path = os.path.join(system32_dir, "ntdll.dll")
+sandboxed_ntdll_path = os.path.join(sandbox_system32_directory, "ntdll.dll")
+drivers_path = os.path.join(system32_dir, "drivers")
 hosts_path = f'{drivers_path}\\hosts'
 HydraDragonAntivirus_sandboxie_path = get_sandbox_path(script_dir)
 sandboxie_log_folder = f'{HydraDragonAntivirus_sandboxie_path}\\DONTREMOVEHydraDragonAntivirusLogs'
@@ -2074,6 +2079,15 @@ def notify_user_rlo(file_path, virus_name):
     notification = Notify()
     notification.title = "Suspicious RLO Name Alert"
     notification_message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
+    notification.message = notification_message
+    notification.send()
+
+    logging.warning(notification_message)
+
+def notify_user_etw_tampering(file_path, virus_name):
+    notification = Notify()
+    notification.title = "ETW Tampering Alert"
+    notification_message = f"ETW Tampering detected: {file_path}\nVirus: {virus_name}"
     notification.message = notification_message
     notification.send()
 
@@ -4135,73 +4149,281 @@ def scan_yara(file_path):
         logging.error(f"An error occurred during YARA scan: {ex}")
         return None
 
-# Function to check the signature of a file
-def check_signature(file_path):
+def detect_etw_tampering_sandbox(moved_sandboxed_ntdll_path):
+    """
+    Compare the NtTraceEvent bytes in the sandboxed ntdll.dll file against the original
+    on-disk ntdll.dll in System32. 
+    Logs a warning if the sandboxed copy is tampered (bytes differ). 
+    Returns True if tampered, False otherwise.
+    """
     try:
-        # 1. Query just the Status
-        verify_cmd = f"(Get-AuthenticodeSignature '{file_path}').Status"
-        proc = subprocess.run(
-            ['powershell.exe', '-Command', verify_cmd],
-            stdout=subprocess.PIPE, text=True, errors='replace'
-        )
-        status = proc.stdout.strip() if proc.stdout else ""
+        if not os.path.isfile(ntdll_path):
+            logging.error(f"[ETW Sandbox Detection] Original ntdll.dll not found at {ntdll_path}")
+            return False
+        if not os.path.isfile(moved_sandboxed_ntdll_path):
+            logging.error(f"[ETW Sandbox Detection] Sandboxed ntdll.dll not found at {moved_sandboxed_ntdll_path}")
+            return False
 
-        # 2. Only HashMismatch is considered an"issue"; ignore NotTrusted
-        signature_status_issues = ("HashMismatch" in status)
+        # Load original PE to find NtTraceEvent RVA
+        try:
+            pe_orig = pefile.PE(ntdll_path, fast_load=True)
+            pe_orig.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_EXPORT']])
+        except Exception as e:
+            logging.error(f"[ETW Sandbox Detection] Failed to parse original PE: {e}")
+            return False
 
-        # 3. is_valid is True only when status == "Valid"
-        is_valid = (status == "Valid")
+        nttrace_rva = None
+        for exp in getattr(pe_orig, 'DIRECTORY_ENTRY_EXPORT', []).symbols:
+            if exp.name and exp.name.decode(errors='ignore') == "NtTraceEvent":
+                nttrace_rva = exp.address
+                break
+        if nttrace_rva is None:
+            logging.error("[ETW Sandbox Detection] Export NtTraceEvent not found in original ntdll.dll")
+            return False
 
-        # Default flags
+        # Compute offset in original file
+        try:
+            orig_offset = pe_orig.get_offset_from_rva(nttrace_rva)
+        except Exception as e:
+            logging.error(f"[ETW Sandbox Detection] Cannot compute offset in original for RVA {hex(nttrace_rva)}: {e}")
+            return False
+
+        # Load sandboxed PE to compute offset there
+        try:
+            pe_sandbox = pefile.PE(moved_sandboxed_ntdll_path, fast_load=True)
+            pe_sandbox.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_EXPORT']])
+        except Exception as e:
+            logging.error(f"[ETW Sandbox Detection] Failed to parse sandboxed PE: {e}")
+            return False
+
+        # Verify that sandboxed export table contains NtTraceEvent (optional but good)
+        found_in_sandbox = False
+        for exp in getattr(pe_sandbox, 'DIRECTORY_ENTRY_EXPORT', []).symbols:
+            if exp.name and exp.name.decode(errors='ignore') == "NtTraceEvent":
+                found_in_sandbox = True
+                break
+        if not found_in_sandbox:
+            logging.error("[ETW Sandbox Detection] Export NtTraceEvent not found in sandboxed ntdll.dll")
+            return False
+
+        # Compute offset in sandboxed file
+        try:
+            sandbox_offset = pe_sandbox.get_offset_from_rva(nttrace_rva)
+        except Exception as e:
+            logging.error(f"[ETW Sandbox Detection] Cannot compute offset in sandboxed for RVA {hex(nttrace_rva)}: {e}")
+            return False
+
+        # Read bytes
+        length = 16
+        try:
+            with open(ntdll_path, "rb") as f_orig:
+                f_orig.seek(orig_offset)
+                orig_bytes = f_orig.read(length)
+            if len(orig_bytes) < length:
+                logging.error(f"[ETW Sandbox Detection] Could not read {length} bytes from original ntdll.dll")
+                return False
+        except Exception as e:
+            logging.error(f"[ETW Sandbox Detection] Error reading original file: {e}")
+            return False
+
+        try:
+            with open(moved_sandboxed_ntdll_path, "rb") as f_s:
+                f_s.seek(sandbox_offset)
+                sandbox_bytes = f_s.read(length)
+            if len(sandbox_bytes) < length:
+                logging.error(f"[ETW Sandbox Detection] Could not read {length} bytes from sandboxed ntdll.dll")
+                return False
+        except Exception as e:
+            logging.error(f"[ETW Sandbox Detection] Error reading sandboxed file: {e}")
+            return False
+
+        # Compare
+        if sandbox_bytes != orig_bytes:
+            orig_hex = orig_bytes[:8].hex()
+            sand_hex = sandbox_bytes[:8].hex()
+            logging.warning(
+                f"[ETW Sandbox Detection] Sandboxed ntdll.dll NtTraceEvent seems patched: "
+                f"original bytes={orig_hex}, sandbox bytes={sand_hex}"
+            )
+            return True
+
+        # No tampering detected
+        return False
+
+    except Exception as ex:
+        logging.error(f"[ETW Sandbox Detection] Unexpected error: {ex}")
+        return False
+
+# Constants for CryptQueryObject
+CERT_QUERY_OBJECT_FILE = 0x00000001
+CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED = 0x00000080
+CERT_QUERY_FORMAT_FLAG_BINARY = 0x00000002
+
+# CertGetNameStringW flags/types
+CERT_NAME_SIMPLE_DISPLAY_TYPE = 4
+CERT_NAME_ISSUER_FLAG = 1
+
+crypt32 = ctypes.windll.crypt32
+
+# Define CERT_CONTEXT struct for extracting raw encoded certificate bytes
+class CERT_CONTEXT(ctypes.Structure):
+    _fields_ = [
+        ("dwCertEncodingType", wintypes.DWORD),
+        ("pbCertEncoded", ctypes.POINTER(ctypes.c_byte)),
+        ("cbCertEncoded", wintypes.DWORD),
+        ("pCertInfo", ctypes.c_void_p),
+        ("hCertStore", ctypes.c_void_p),
+    ]
+
+PCCERT_CONTEXT = ctypes.POINTER(CERT_CONTEXT)
+
+def get_signer_cert_details(file_path: str) -> tuple[dict, bytes] | None:
+    """
+    Uses CryptoAPI CryptQueryObject to extract the first signer certificate's
+    subject, issuer, and raw encoded bytes. Returns ({"Subject": str, "Issuer": str}, raw_bytes)
+    or None on failure / no cert.
+    """
+    hCertStore = wintypes.HANDLE()
+    hMsg = wintypes.HANDLE()
+    encoding = wintypes.DWORD()
+    content_type = wintypes.DWORD()
+    format_type = wintypes.DWORD()
+
+    # CryptQueryObject to get a cert store from the signed file
+    res = crypt32.CryptQueryObject(
+        wintypes.DWORD(CERT_QUERY_OBJECT_FILE),
+        ctypes.c_wchar_p(file_path),
+        wintypes.DWORD(CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED),
+        wintypes.DWORD(CERT_QUERY_FORMAT_FLAG_BINARY),
+        0,
+        ctypes.byref(encoding),
+        ctypes.byref(content_type),
+        ctypes.byref(format_type),
+        ctypes.byref(hCertStore),
+        ctypes.byref(hMsg),
+        None
+    )
+    if not res:
+        return None
+    try:
+        # Enumerate certificates in store: get first
+        pCertCtx = crypt32.CertEnumCertificatesInStore(hCertStore, None)
+        if not pCertCtx:
+            return None
+        # Cast to CERT_CONTEXT pointer
+        cert_ctx = ctypes.cast(pCertCtx, PCCERT_CONTEXT).contents
+
+        # Extract raw encoded bytes
+        raw_bytes = None
+        if cert_ctx.pbCertEncoded and cert_ctx.cbCertEncoded:
+            raw_bytes = ctypes.string_at(cert_ctx.pbCertEncoded, cert_ctx.cbCertEncoded)
+        else:
+            raw_bytes = b""
+
+        # Helper to get name string
+        def _get_name(pCtx, name_flag):
+            # First call to get length
+            length = crypt32.CertGetNameStringW(
+                pCtx,
+                wintypes.DWORD(CERT_NAME_SIMPLE_DISPLAY_TYPE),
+                wintypes.DWORD(name_flag),
+                None,
+                None,
+                wintypes.DWORD(0)
+            )
+            if length <= 1:
+                return ""
+            buf = (wintypes.WCHAR * length)()
+            crypt32.CertGetNameStringW(
+                pCtx,
+                wintypes.DWORD(CERT_NAME_SIMPLE_DISPLAY_TYPE),
+                wintypes.DWORD(name_flag),
+                None,
+                buf,
+                wintypes.DWORD(length)
+            )
+            return "".join(buf).rstrip("\x00")
+
+        subject = _get_name(pCertCtx, 0)
+        issuer = _get_name(pCertCtx, CERT_NAME_ISSUER_FLAG)
+
+        return ({"Subject": subject, "Issuer": issuer}, raw_bytes)
+    except Exception as e:
+        logging.debug(f"Failed to extract certificate info: {e}")
+        return None
+    finally:
+        if hCertStore:
+            crypt32.CertCloseStore(hCertStore, 0)
+        # hMsg does not require explicit free here
+
+# Function to check the signature of a file
+def check_signature(file_path: str,
+                    goodsign_signatures: list[str],
+                    antivirus_signatures: list[str]) -> dict:
+    """
+    Check file signature via WinVerifyTrust + CryptoAPI.
+    Returns a dict:
+      {
+        "is_valid": bool,
+        "status": str,
+        "signature_status_issues": bool,
+        "has_microsoft_signature": bool,
+        "has_valid_goodsign_signature": bool,
+        "matches_antivirus_signature": bool
+      }
+    """
+    try:
+        # 1. WinVerifyTrust check
+        is_valid = verify_authenticode_signature(file_path)
+        status = "Valid" if is_valid else "Invalid or no signature"
+        # Treat invalid or no signature as issue
+        signature_status_issues = not is_valid
+
         has_microsoft_signature = False
         has_valid_goodsign_signature = False
         matches_antivirus_signature = False
 
         if is_valid:
-            # Fetch full signer certificate info as JSON
-            json_cmd = (
-                f"Get-AuthenticodeSignature '{file_path}' "
-                "| Select-Object SignerCertificate | ConvertTo-Json -Depth 4"
-            )
-            result = subprocess.run(
-                ["powershell.exe", "-Command", json_cmd],
-                capture_output=True, text=True, errors='replace'
-            )
-            sig = json.loads(result.stdout or "{}")
-            cert = sig.get("SignerCertificate", {})
+            details = get_signer_cert_details(file_path)
+            if details:
+                cert_info, raw_bytes = details
+                subject = cert_info.get("Subject", "")
+                issuer = cert_info.get("Issuer", "")
 
-            subject = cert.get("Subject", "")
-            issuer  = cert.get("Issuer", "")
+                subj_iss_up = (subject + issuer).upper()
+                # Microsoft?
+                if "MICROSOFT" in subj_iss_up:
+                    has_microsoft_signature = True
+                # Other goodsign?
+                valid_goods = [s.upper() for s in goodsign_signatures]
+                for s in valid_goods:
+                    if s in subj_iss_up:
+                        has_valid_goodsign_signature = True
+                        break
 
-            # Microsoft or known good signers?
-            has_microsoft_signature = "Microsoft" in subject or "Microsoft" in issuer
-            valid_goods = [s.upper() for s in goodsign_signatures]
-            has_valid_goodsign_signature = any(s in (subject + issuer).upper() for s in valid_goods)
-
-            # Antivirus-signature match in the cert data
-            data_blob = json.dumps(cert).upper()
-            matches_antivirus_signature = any(sig in data_blob for sig in antivirus_signatures)
-
-            if matches_antivirus_signature:
-                logging.warning(
-                    f"The file '{file_path}' matches an antivirus signature "
-                    "(possible vulnerable driver/DLL or false positive)."
-                )
-
-        # Return structured signature validation results
+                # Search antivirus signatures in raw encoded cert bytes (hex form)
+                if raw_bytes:
+                    hex_str = raw_bytes.hex().upper()
+                    for sig in antivirus_signatures:
+                        if sig.upper() in hex_str:
+                            matches_antivirus_signature = True
+                            logging.warning(
+                                f"The file '{file_path}' matches an antivirus signature pattern."
+                            )
+                            break
         return {
             "is_valid": is_valid,
+            "status": status,
             "signature_status_issues": signature_status_issues,
             "has_microsoft_signature": has_microsoft_signature,
             "has_valid_goodsign_signature": has_valid_goodsign_signature,
             "matches_antivirus_signature": matches_antivirus_signature
         }
-
     except Exception as ex:
-        logging.error(f"An error occurred while checking signature: {ex}")
-        # On any error, mark as invalid (is_valid=False)
+        logging.error(f"[Signature] {file_path}: {ex}")
         return {
             "is_valid": False,
+            "status": str(ex),
             "signature_status_issues": False,
             "has_microsoft_signature": False,
             "has_valid_goodsign_signature": False,
@@ -8350,7 +8572,8 @@ def scan_and_warn(file_path,
                   flag_obfuscar=False,
                   flag_de4dot=False,
                   flag_fernflower=False,
-                  nsis_flag=False):
+                  nsis_flag=False,
+                  ntdll_dropped=False):
     """
     Scans a file for potential issues.
     Only does ransomware_alert and worm_alert once per unique file path.
@@ -8424,20 +8647,45 @@ def scan_and_warn(file_path,
                                 flag_obfuscar,
                                 flag_de4dot,
                                 flag_fernflower,
-                                nsis_flag)
+                                nsis_flag,
+                                ntdll_dropped)
         elif normalized_path.startswith(normalized_sandbox):
+            # Check if this is a dropped ntdll.dll in the sandbox
+            if normalized_path == sandboxed_ntdll_path:
+                ntdll_dropped = True
+                logging.warning(f"ntdll.dll dropped in sandbox at path: {normalized_path}")
+                # Optionally force a special scan for this file
+                perform_special_scan = True
+                # You may choose a specific dir for ntdll analysis, or reuse existing staging dir
+                dest = _copy_to_dest(norm_path, copied_sandbox_and_main_files_dir)
+                if dest is not None:
+                    scan_and_warn(
+                        dest,
+                        mega_optimization_with_anti_false_positive,
+                        command_flag,
+                        flag_debloat,
+                        flag_obfuscar,
+                        flag_de4dot,
+                        flag_fernflower,
+                        nsis_flag,
+                        ntdll_dropped
+                    )
+
+            # --- General sandbox routing for other files ---
             perform_special_scan = True
-            # Copy from general sandbox to staging directory and rescan
             dest = _copy_to_dest(norm_path, copied_sandbox_and_main_files_dir)
             if dest is not None:
-                scan_and_warn(dest,
-                                mega_optimization_with_anti_false_positive,
-                                command_flag,
-                                flag_debloat,
-                                flag_obfuscar,
-                                flag_de4dot,
-                                flag_fernflower,
-                                nsis_flag)
+                scan_and_warn(
+                    dest,
+                    mega_optimization_with_anti_false_positive,
+                    command_flag,
+                    flag_debloat,
+                    flag_obfuscar,
+                    flag_de4dot,
+                    flag_fernflower,
+                    nsis_flag,
+                    ntdll_dropped
+                )
 
         # 1) Is this the first time we've seen this path?
         is_first_pass = norm_path not in file_md5_cache
