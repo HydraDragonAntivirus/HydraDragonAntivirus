@@ -10,7 +10,6 @@ HydraDragonAntivirus Unified Scanner with Enhanced Detection
 """
 import os
 import time
-import hashlib
 import subprocess
 import logging
 import json
