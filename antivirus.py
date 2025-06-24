@@ -373,7 +373,6 @@ python_deobfuscated_dir = os.path.join(script_dir, "python_deobfuscated")
 python_deobfuscated_marshal_pyc_dir = os.path.join(python_deobfuscated_dir, "python_deobfuscated_marshal_pyc")
 pycdc_extracted_dir = os.path.join(python_source_code_dir, "pycdc_extracted")
 pycdas_extracted_dir = os.path.join(python_source_code_dir, "pycdas_extracted")
-pydumpck_extracted_dir = os.path.join(python_source_code_dir, "pydumpck_extracted")
 united_python_source_code_dir = os.path.join(python_source_code_dir, "united")
 pycdas_united_meta_llama_dir = os.path.join(python_source_code_dir, "pycdas_united_meta_llama")
 de4dot_cex_dir = os.path.join(script_dir, "de4dot-cex")
@@ -575,7 +574,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [pydumpck_extracted_dir, enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
+directories_to_scan = [enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pycdc_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
@@ -665,7 +664,6 @@ CHAINED_JOIN = re.compile(
 # Pattern for base64 literals inside b64decode
 B64_LITERAL = re.compile(r"base64\.b64decode\(\s*(['\"])([A-Za-z0-9+/=]+)\1\s*\)")
 
-os.makedirs(pydumpck_extracted_dir, exist_ok=True)
 os.makedirs(enigma_extracted_dir, exist_ok=True)
 os.makedirs(upx_extracted_dir, exist_ok=True)
 os.makedirs(ungarbler_dir, exist_ok=True)
@@ -1062,21 +1060,6 @@ def is_pyc_file_from_output(die_output):
         logging.info("DIE output indicates a Python compiled module.")
         return True
     logging.info(f"DIE output does not indicate a Python compiled module: {die_output}")
-    return False
-
-def is_pyz_file_from_output(die_output):
-    """
-    Check if the DIE output indicates a Python zip-packed archive (.pyz file).
-    Specifically looks for the "Archive:  Zlib stream" marker in the output.
-
-    :param die_output: The output string from DIE.
-    :return: True if it appears to be a .pyz (zlib-compressed) archive, False otherwise.
-    """
-    if die_output and "Archive:  Zlib stream" in die_output:
-        logging.info("DIE output indicates a Python .pyz (Zlib stream) archive.")
-        return True
-
-    logging.info(f"DIE output does not indicate a .pyz archive: {die_output}")
     return False
 
 def is_pe_file_from_output(die_output):
@@ -6043,9 +6026,7 @@ def ransomware_alert(file_path):
 
 def log_directory_type(file_path):
     try:
-        if file_path.startswith(pydumpck_extracted_dir):
-            logging.info(f"{file_path}: pydumpck extracted.")
-        elif file_path.startswith(enigma_extracted_dir):
+        if file_path.startswith(enigma_extracted_dir):
             logging.info(f"{file_path}: Enigma extracted.")
         elif file_path.startswith(sandboxie_folder):
             logging.info(f"{file_path}: It's a Sandbox environment file.")
@@ -6139,7 +6120,6 @@ def scan_file_with_meta_llama(file_path, united_python_code_flag=False, decompil
         # List of directory conditions and their corresponding logging messages.
         # Note: For conditions that need an exact match (like the main file), a lambda is used accordingly.
         directory_logging_info = [
-            (lambda fp: fp.startswith(pydumpck_extracted_dir), "pydumpck extracted."),
             (lambda fp: fp.startswith(enigma_extracted_dir), "Enigma extracted."),
             (lambda fp: fp.startswith(sandboxie_folder), "It's a Sandbox environment file."),
             (lambda fp: fp.startswith(copied_sandbox_and_main_files_dir), "It's a restored sandbox environment file."),
@@ -6634,86 +6614,21 @@ def run_pycdc_decompiler(file_path):
         logging.error(f"Error running pycdc: {e}")
         return None
 
-def run_pydumpck_decompiler(file_path, file_type=None):
-    """
-    Runs the pydumpck decompiler to decompile a Python-packed executable or archive.
-
-    Args:
-        file_path: Path to the input file (exe, pyc, pyz elf, etc.) to be decompiled.
-        file_type: (Optional) Target file type hint for pydumpck (e.g., 'pyc', 'pyz', 'exe', 'elf').
-
-    Returns:
-        The output directory path if successful, or None if the process fails.
-    """
-    try:
-        base_name = Path(file_path).stem
-        # Use get_unique_output_path to get a unique directory path with a timestamp suffix
-        # Here we treat output_path as directory, so suffix will be empty string
-        output_dir = get_unique_output_path(
-            Path(pydumpck_extracted_dir),
-            Path(f"{base_name}_pydumpck")
-        )
-
-        # Create output directory explicitly since get_unique_output_path creates Path, not directories
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        command = ["pydumpck", "-o", str(output_dir)]
-
-        if file_type:
-            command += ["-y", file_type]
-
-        command += ["-d", str(file_path), "-p", "pycdc", "uncompyle6"]
-
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="ignore"
-        )
-
-        if result.returncode == 0:
-            logging.info(f"Successfully decompiled using pydumpck. Output saved to {output_dir}")
-            return output_dir
-        else:
-            logging.error(f"pydumpck error: {result.stderr}")
-            return None
-
-    except Exception as e:
-        logging.error(f"Error running pydumpck: {e}")
-        return None
-
 def decompile_pyc_with_fallback(pyc_path: str) -> str | None:
     """
-    Try to decompile a .pyc file using pycdc first, then fallback to pydumpck if pycdc fails.
+    Try to decompile a .pyc file using pycdc.
     
     Returns the decompiled source code as a string if successful, otherwise None.
     """
-    # First try pycdc
     decompiled_path = run_pycdc_decompiler(pyc_path)
     if decompiled_path and Path(decompiled_path).exists():
         try:
             return Path(decompiled_path).read_text(encoding="utf-8")
         except Exception as e:
             logging.error(f"Failed to read pycdc output: {e}")
-    
-    logging.error("pycdc decompilation failed, trying pydumpck fallback")
+    else:
+        logging.error("pycdc decompilation failed")
 
-    # Try pydumpck fallback (we assume file_type 'pyc' here)
-    extracted_dir = run_pydumpck_decompiler(pyc_path, file_type='pyc')
-    if extracted_dir:
-        # pydumpck outputs multiple files; try to find a .py file in output dir
-        extracted_path = Path(extracted_dir)
-        py_files = list(extracted_path.rglob("*.py"))
-        if py_files:
-            try:
-                return py_files[0].read_text(encoding="utf-8")
-            except Exception as e:
-                logging.error(f"Failed to read pydumpck output file: {e}")
-        else:
-            logging.error("No .py files found in pydumpck output directory")
-    
-    logging.error("Both pycdc and pydumpck decompilation attempts failed")
     return None
 
 def codeobj_to_source(codeobj: types.CodeType, base_name: str) -> str:
@@ -7237,47 +7152,30 @@ def process_decompiled_code(output_file):
     except Exception as ex:
         logging.error(f"[!] Error during payload dispatch: {ex}")
 
-def extract_and_return_pyinstaller(file_path, file_type=None):
+def extract_and_return_pyinstaller(file_path):
     """
     Extracts a PyInstaller archive and returns:
       1) A list of extracted file paths
-      2) The output directory where the main file was decompiled via pydumpck
-
-    Additionally, any `.py` files produced by pydumpck will be
-    immediately passed to `process_decompiled_code()`.
+      2) The output directory where files were extracted
 
     :param file_path: Path to the PyInstaller archive.
-    :param file_type: (Optional) 'exe' or 'elf' (or any hint pydumpck understands).
-    :return: Tuple (extracted_file_paths, main_decompiled_output_path)
+    :return: Tuple (extracted_file_paths, extracted_output_dir)
     """
-    global pyinstaller_archive
-
     extracted_pyinstaller_file_paths = []
 
-    # Decompile the main file itself with the given file_type hint
-    main_decompiled_output = run_pydumpck_decompiler(file_path, file_type=file_type)
-
-    # If pydumpck created an output directory, walk it for .py files
-    if main_decompiled_output:
-        for root, _, files in os.walk(main_decompiled_output):
-            for fname in files:
-                if fname.endswith(".py"):
-                    output_file = os.path.join(root, fname)
-                    process_decompiled_code(output_file)
-
     # Extract PyInstaller archive
-    pyinstaller_archive = extract_pyinstaller_archive(file_path)
+    output_dir = extract_pyinstaller_archive(file_path)
 
-    if pyinstaller_archive:
-        logging.info(f"PyInstaller archive extracted to {pyinstaller_archive}")
+    if output_dir:
+        logging.info(f"PyInstaller archive extracted to {output_dir}")
 
-        # Traverse and collect all extracted files (no pydumpck on these)
-        for root, _, files in os.walk(pyinstaller_archive):
+        # Traverse and collect all extracted files
+        for root, _, files in os.walk(output_dir):
             for pyinstaller_file in files:
                 extracted_file_path = os.path.join(root, pyinstaller_file)
                 extracted_pyinstaller_file_paths.append(extracted_file_path)
 
-    return extracted_pyinstaller_file_paths, main_decompiled_output
+    return extracted_pyinstaller_file_paths, output_dir
 
 def decompile_dotnet_file(file_path):
     """
@@ -8354,17 +8252,17 @@ def run_in_thread(fn):
         return executor.submit(fn, *args, **kwargs)
     return wrapper
 
-def show_code_with_pycdc_pycdas_uncompyle6(file_path, file_name):
+def show_code_with_pycdc_pycdas(file_path, file_name):
     """
-    Decompiles a .pyc file using pycdc, pycdas, and pydumpck, and saves the results.
-    Combines outputs into a united file only if all three tools succeed.
+    Decompiles a .pyc file using pycdc and pycdas, and saves the results.
+    Combines outputs into a united file only if both tools succeed.
 
     Args:
         file_path: Path to the .pyc file.
         file_name: Name of the .pyc file.
 
     Returns:
-        Tuple: (pycdc_output_path, pycdas_output_path, pydumpck_output_dir, united_output_path)
+        Tuple: (pycdc_output_path, pycdas_output_path, united_output_path)
     """
     try:
         logging.info(f"Processing python file: {file_path}")
@@ -8373,74 +8271,78 @@ def show_code_with_pycdc_pycdas_uncompyle6(file_path, file_name):
         # --- PyCDC decompilation branch ---
         pycdc_output_path = None
         if os.path.exists(pycdc_path):
-            pycdc_output_path = run_pycdc_decompiler(file_path)
-            if pycdc_output_path:
-                process_decompiled_code(pycdc_output_path)
+            try:
+                pycdc_output_path = run_pycdc_decompiler(file_path)
+                if pycdc_output_path and os.path.exists(pycdc_output_path):
+                    process_decompiled_code(pycdc_output_path)
+                else:
+                    logging.error("pycdc decompilation did not produce output or output path invalid")
+                    pycdc_output_path = None
+            except Exception as e:
+                logging.error(f"Error during pycdc decompilation: {e}")
+                pycdc_output_path = None
         else:
             logging.error("[-] pycdc executable not found")
 
         # --- PyCDAS decompilation branch ---
         pycdas_output_path = None
         if os.path.exists(pycdas_path):
-            pycdas_output_path = run_pycdas_decompiler(file_path)
+            try:
+                pycdas_output_path = run_pycdas_decompiler(file_path)
+                if not (pycdas_output_path and os.path.exists(pycdas_output_path)):
+                    logging.error("pycdas decompilation did not produce output or output path invalid")
+                    pycdas_output_path = None
+            except Exception as e:
+                logging.error(f"Error during pycdas decompilation: {e}")
+                pycdas_output_path = None
         else:
             logging.error("[-] pycdas executable not found")
 
-        # --- PyDUMPCk decompilation branch ---
-        pydumpck_output_dir = run_pydumpck_decompiler(file_path, file_type="pyc")
-        pydumpck_output_path = None
-
-        if pydumpck_output_dir and os.path.isdir(pydumpck_output_dir):
-            for f in os.listdir(pydumpck_output_dir):
-                if f.endswith(".py"):
-                    pydumpck_output_path = os.path.join(pydumpck_output_dir, f)
-                    process_decompiled_code(pydumpck_output_path)
-                    break
-        else:
-            logging.error("[-] pydumpck decompilation failed or no output generated")
-
-        # --- United output (only if ALL THREE succeed) ---
+        # --- United output (only if BOTH succeed) ---
         united_output_path = None
-        if (pycdc_output_path and os.path.exists(pycdc_output_path)) and \
-           (pycdas_output_path and os.path.exists(pycdas_output_path)) and \
-           (pydumpck_output_path and os.path.exists(pydumpck_output_path)):
-
+        if pycdc_output_path and pycdas_output_path:
             united_dir = os.path.join(python_source_code_dir, "united")
             os.makedirs(united_dir, exist_ok=True)
 
             combined_code = ""
 
+            # pycdc output
             combined_code += "# pycdc output\n"
-            with open(pycdc_output_path, "r", encoding="utf-8", errors="ignore") as f:
-                combined_code += f.read() + "\n\n"
+            try:
+                with open(pycdc_output_path, "r", encoding="utf-8", errors="ignore") as f:
+                    combined_code += f.read() + "\n\n"
+            except Exception as e:
+                logging.error(f"Failed reading pycdc output for united: {e}")
 
+            # pycdas output
             combined_code += "# pycdas output\n"
-            with open(pycdas_output_path, "r", encoding="utf-8", errors="ignore") as f:
-                combined_code += f.read() + "\n\n"
-
-            combined_code += "# pydumpck output\n"
-            with open(pydumpck_output_path, "r", encoding="utf-8", errors="ignore") as f:
-                combined_code += f.read() + "\n\n"
+            try:
+                with open(pycdas_output_path, "r", encoding="utf-8", errors="ignore") as f:
+                    combined_code += f.read() + "\n\n"
+            except Exception as e:
+                logging.error(f"Failed reading pycdas output for united: {e}")
 
             united_output_path = os.path.join(united_dir, f"{base_name}_united.py")
-            with open(united_output_path, "w", encoding="utf-8") as f:
-                f.write(combined_code)
-
-            logging.info(f"[+] United output saved to {united_output_path}")
-            scan_code_for_links(combined_code, pyc_flag=True)
-
             try:
-                scan_file_with_meta_llama(united_output_path, united_python_code=True)
+                with open(united_output_path, "w", encoding="utf-8") as f:
+                    f.write(combined_code)
+                logging.info(f"[+] United output saved to {united_output_path}")
+                scan_code_for_links(combined_code, pyc_flag=True)
+                try:
+                    scan_file_with_meta_llama(united_output_path, united_python_code=True)
+                except Exception as e:
+                    logging.error(f"Error during meta-llama scan: {e}")
             except Exception as e:
-                logging.error(f"Error during meta-llama scan: {e}")
+                logging.error(f"Failed to write united output file: {e}")
+                united_output_path = None
         else:
-            logging.info("[-] Skipping united output: all three decompilers must succeed.")
+            logging.info("[-] Skipping united output: both pycdc ve pycdas dekompilasyonlarının başarılı olması gerekiyor.")
 
-        return pycdc_output_path, pycdas_output_path, pydumpck_output_dir, united_output_path
+        return pycdc_output_path, pycdas_output_path, united_output_path
 
     except Exception as ex:
         logging.error(f"Error processing python file {file_path}: {ex}")
-        return None, None, None, None
+        return None, None, None
 
 # --- Main Scanning Function ---
 @run_in_thread
@@ -8691,24 +8593,6 @@ def scan_and_warn(file_path,
                     # Scan the extracted strings file
                     threading.Thread(target=scan_and_warn, args=(string_output_path,)).start()
 
-            # Check if it's a .pyz file, extract/decompile with pydumpck, then scan resulting .py files
-            if is_pyz_file_from_output(die_output):
-                logging.info(f"File {norm_path} is a .pyz (Zlib stream) archive. Attempting to extract/decompile...")
-                
-                # Decompile the .pyz via pydumpck (with explicit "pyz" type hint)
-                output_dir = run_pydumpck_decompiler(norm_path, file_type="pyz")
-                
-                if output_dir:
-                    # Walk the output directory to find all .py files produced by pydumpck
-                    for root, _, files in os.walk(output_dir):
-                        for fname in files:
-                            if fname.endswith(".py"):
-                                file_to_scan = os.path.join(root, fname)
-                                logging.info(f"Scanning decompiled .py file: {file_to_scan}")
-                                threading.Thread(target=scan_and_warn, args=(file_to_scan,)).start()
-                else:
-                    logging.error(f"pydumpck failed to decompile .pyz: {norm_path}")
-
             # ------------- Step A: YARA check for CXFreeze -------------
             if cx_freeze_rule:
                 try:
@@ -8743,7 +8627,7 @@ def scan_and_warn(file_path,
                 logging.info(f"File {norm_path} is a .pyc (Python Compiled Module) file. Attempting to decompile...")
 
                 # Call the show_code_with_pycdc_pycdas function to decompile the .pyc file
-                pycdc_norm_path, pycdas_norm_path, pydumpck_norm_path, united_output_path = show_code_with_pycdc_pycdas_uncompyle6(norm_path, file_name)
+                pycdc_norm_path, pycdas_norm_path, united_output_path = show_code_with_pycdc_pycdas(norm_path, file_name)
 
                 # Scan and warn for the pycdc decompiled file, if available
                 if pycdc_norm_path:
@@ -8758,13 +8642,6 @@ def scan_and_warn(file_path,
                     threading.Thread(target=scan_and_warn, args=(pycdas_norm_path,)).start()
                 else:
                     logging.error(f"pycdas decompilation failed for file {pycdas_norm_path}.")
-
-                # Scan and warn for the pycdc decompiled file, if available
-                if pydumpck_norm_path:
-                    logging.info(f"Scanning decompiled file from pydumpck: {pydumpck_norm_path}")
-                    threading.Thread(target=scan_and_warn, args=(pydumpck_norm_path,)).start()
-                else:
-                    logging.error(f"pydumpck decompilation failed for file {pydumpck_norm_path}.")
 
                 # Scan and warn for the united decompiled file, if available
                 if united_output_path:
