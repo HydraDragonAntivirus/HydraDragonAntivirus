@@ -324,6 +324,10 @@ start_time = time.time()
 from GoStringUngarbler.gostringungarbler_lib import process_file_go
 logging.info(f"GoStringUngarbler.gostringungarbler_lib.process_file_go module loaded in {time.time() - start_time:.6f} seconds")
 
+start_time = time.time()
+from pylingual.decompiler import decompile, DecompilerResult
+logging.info(f"pylingual.decompiler.decompile and DecomplierResult module loaded in {time.time() - start_time:.6f} seconds")
+
 # Calculate and logging.info total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
