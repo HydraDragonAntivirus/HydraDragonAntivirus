@@ -450,6 +450,7 @@ icewater_rule_path = os.path.join(yara_dir, "icewater.yrc")
 valhalla_rule_path = os.path.join(yara_dir, "valhalla-rules.yrc")
 HydraDragonAV_sandboxie_dir = os.path.join(script_dir, "HydraDragonAVSandboxie")
 HydraDragonAV_sandboxie_DLL_path = os.path.join(HydraDragonAV_sandboxie_dir, "HydraDragonAVSandboxie.dll")
+Open_Hydra_Dragon_Anti_Rootkit_path = os.path.join(script_dir, "OpenHydraDragonAntiRootkit.py")
 
 antivirus_domains_data = []
 ipv4_addresses_signatures_data = []
@@ -5596,7 +5597,7 @@ def scan_rsrc_files(file_paths):
     and processes only the first file that contains the string 'upython.exe'.
     Once found, it extracts the source code portion starting after 'upython.exe',
     cleans it, saves it to a uniquely named file, and scans the code for domains,
-    URLs, IP addresses, and Discord webhooks—passing both the code and the file path.
+    URLs, IP addresses, and Discord webhooks-passing both the code and the file path.
     """
     if isinstance(file_paths, str):
         file_paths = [file_paths]
@@ -10335,6 +10336,19 @@ def perform_sandbox_analysis(file_path):
 
     except Exception as ex:
         logging.error(f"An error occurred during sandbox analysis: {ex}")
+
+def run_sandboxie_plugin_script():
+    # build the inner python invocation
+    dll_entry = f'"{Open_Hydra_Dragon_Anti_Rootkit_path}",Run'
+    # build the full command line for Start.exe
+    cmd = f'"{sandboxie_path}" /box:DefaultBox /elevate py.exe -3.11 {dll_entry}'
+    try:
+        logging.info(f"Running python script via Sandboxie: {cmd}")
+        # shell=True so that Start.exe sees the switches correctly
+        subprocess.run(cmd, check=True, shell=True, encoding="utf-8", errors="ignore")
+        logging.info("Python plugin ran successfully in Sandboxie.")
+    except subprocess.CalledProcessError as ex:
+        logging.error(f"Failed to run python plugin in Sandboxie: {ex}")
 
 def run_sandboxie_plugin():
     # build the inner rundll32 invocation
