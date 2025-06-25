@@ -71,26 +71,44 @@ if %errorlevel% equ 0 (
     echo Failed to create Python virtual environment.
 )
 
-rem 9. Path to SbieIni.exe
+rem 9. Install Poetry
+echo Installing Poetry...
+py.exe -3.11 -m pip install poetry
+if %errorlevel% equ 0 (
+    echo Poetry installed successfully.
+) else (
+    echo Failed to install Poetry.
+)
+
+rem 10. Install dependencies with Poetry
+echo Installing project dependencies with Poetry...
+poetry install
+if %errorlevel% equ 0 (
+    echo Dependencies installed successfully.
+) else (
+    echo Failed to install dependencies with Poetry.
+)
+
+rem 11. Path to SbieIni.exe
 set "SbieIniPath=C:\Program Files\Sandboxie\SbieIni.exe"
 set "SandboxName=DefaultBox"  rem We're modifying the DefaultBox sandbox.
 set "InjectLine=C:\Program Files\HydraDragonAntivirus\sandboxie_plugins\SbieHide\SbieHide.x64.dll"
 
-rem 10. Check if SbieIni.exe exists
+rem 12. Check if SbieIni.exe exists
 if not exist "%SbieIniPath%" (
     echo ERROR: %SbieIniPath% not found.
     goto :end
 )
 
-rem 11. Modify BlockNetworkFiles for DefaultBox
+rem 13. Modify BlockNetworkFiles for DefaultBox
 echo Modifying BlockNetworkFiles to 'n' for %SandboxName%...
 "%SbieIniPath%" set %SandboxName% BlockNetworkFiles n
 
-rem 12. Add InjectDll64 for DefaultBox
+rem 14. Add InjectDll64 for DefaultBox
 echo Adding InjectDll64 for %SandboxName%...
 "%SbieIniPath%" set %SandboxName% InjectDll64 "%InjectLine%"
 
-rem 13. Remove ClosedFilePath for DefaultBox
+rem 15. Remove ClosedFilePath for DefaultBox
 echo Removing ClosedFilePath for %SandboxName%...
 "%SbieIniPath%" set %SandboxName% ClosedFilePath ""
 
