@@ -341,6 +341,9 @@ logging.info("spaCy model 'en_core_web_md' loaded successfully")
 accelerator = Accelerator()
 device = accelerator.device
 
+# get the full path to the currently running Python interpreter
+python_path = sys.executable
+
 # Define the paths to the ghidra related directories
 enigma_extracted_dir = os.path.join(script_dir, "enigma_extracted")
 inno_unpack_dir = os.path.join(script_dir, "innounp-2")
@@ -10341,7 +10344,7 @@ def run_sandboxie_plugin_script():
     # build the inner python invocation
     dll_entry = f'"{Open_Hydra_Dragon_Anti_Rootkit_path}",Run'
     # build the full command line for Start.exe
-    cmd = f'"{sandboxie_path}" /box:DefaultBox /elevate py.exe -3.11 {dll_entry}'
+    cmd = f'"{sandboxie_path}" /box:DefaultBox /elevate "{python_path}" {dll_entry}'
     try:
         logging.info(f"Running python script via Sandboxie: {cmd}")
         # shell=True so that Start.exe sees the switches correctly
