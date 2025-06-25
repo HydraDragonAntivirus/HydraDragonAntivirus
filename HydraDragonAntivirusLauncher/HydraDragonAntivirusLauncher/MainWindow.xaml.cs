@@ -1,10 +1,12 @@
-﻿// MainWindow.xaml.cs
-using System;
-using System.Diagnostics;
+﻿using System.Diagnostics;
+using System.IO;
 using System.Windows;
 
 namespace HydraDragonAntivirusLauncher
 {
+    /// <summary>
+    /// Interaction logic for MainWindow.xaml
+    /// </summary>
     public partial class MainWindow : Window
     {
         public MainWindow()
@@ -16,20 +18,80 @@ namespace HydraDragonAntivirusLauncher
         {
             try
             {
+                // Define the path to the application's base directory.
+                string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
+
+                // Define the full path to the virtual environment's activation script.
+                // This assumes a 'venv' folder exists in the same directory as the launcher.
+                string activateScript = Path.Combine(baseDirectory, "venv", "Scripts", "activate.bat");
+
+                // Check if the activation script exists before trying to run it.
+                if (!File.Exists(activateScript))
+                {
+                    MessageBox.Show($"Virtual environment activation script not found at the expected location:\n{activateScript}\n\nPlease ensure the 'venv' directory is set up correctly.", "Error: Environment Not Found", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                // This is the command to run the Python application using Poetry.
+                string poetryCommand = "poetry run hydradragon";
+
+                // Configure the process to start the command prompt.
                 var psi = new ProcessStartInfo
                 {
-                    FileName = "py.exe", // Python executable
-                    Arguments = "-3.11 \"antivirus.py\"", // Launch antivirus GUI
-                    WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory,
-                    UseShellExecute = false, // Optional: could be true if you don't need Redirects
-                    CreateNoWindow = false
+                    FileName = "cmd.exe",
+
+                    // Arguments to pass to cmd.exe:
+                    // /C -> Carries out the command specified by the string and then terminates.
+                    // We chain two commands using '&&':
+                    // 1. Activate the virtual environment. The path to the script is wrapped in quotes to handle potential spaces.
+                    // 2. Run the python script using 'poetry run'. This command will only run if the activation is successful.
+                    Arguments = $"/C \"\"{activateScript}\" && {poetryCommand}\"",
+
+                    // Set the working directory for the process to the application's root.
+                    WorkingDirectory = baseDirectory,
+
+                    // We don't use the system shell to execute, which allows us to redirect I/O streams.
+                    UseShellExecute = false,
+
+                    // Hide the command prompt window from the user.
+                    CreateNoWindow = true,
+
+                    // Redirect Standard Error and Output to capture any messages for debugging.
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true
                 };
 
-                Process.Start(psi); // JUST START, no events, no monitoring
+                // Start the process and check if it returned a null object.
+                // A 'using' declaration ensures the process is disposed of at the end of the scope.
+                using Process? process = Process.Start(psi);
+
+                // If the process is null, it failed to start. Show an error and exit.
+                if (process == null)
+                {
+                    MessageBox.Show("Failed to start the underlying command process.", "Process Start Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                // Read the output and error streams. It's important to read both.
+                string output = process.StandardOutput.ReadToEnd();
+                string error = process.StandardError.ReadToEnd();
+
+                // Wait for the process to complete.
+                process.WaitForExit();
+
+                // If the process did not exit cleanly (exit code is not 0), show an error message with the details.
+                if (process.ExitCode != 0)
+                {
+                    MessageBox.Show($"Failed to launch the application (Exit Code: {process.ExitCode}).\n\nError Stream:\n{error}\n\nOutput Stream:\n{output}", "Execution Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                // If successful, the Python application is now running.
+                // You could optionally close the launcher window here if desired.
+                // e.g., Application.Current.Shutdown(); 
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Failed to launch antivirus: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                // Catch any other exceptions during process startup.
+                MessageBox.Show($"An unexpected error occurred while trying to launch the application: {ex.Message}", "Launcher Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
     }

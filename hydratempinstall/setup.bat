@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 
 rem 1. Copy files from clamavconfig to C:\Program Files\ClamAV
 if exist "C:\Program Files\HydraDragonAntivirus\clamavconfig" (
-    xcopy /Y "C:\Program Files\HydraDragonAntivirus\clamavconfig\*.*" "C:\Program Files\ClamAV\" 
+    xcopy /Y "C:\Program Files\HydraDragonAntivirus\clamavconfig\*.*" "C:\Program Files\ClamAV\"
     rmdir /s /q "C:\Program Files\HydraDragonAntivirus\clamavconfig"
 ) else (
     echo clamavconfig directory not found.
@@ -11,7 +11,7 @@ if exist "C:\Program Files\HydraDragonAntivirus\clamavconfig" (
 
 rem 2. Copy files from hipsconfig to C:\Snort\etc
 if exist "C:\Program Files\HydraDragonAntivirus\hipsconfig" (
-    xcopy /Y "C:\Program Files\HydraDragonAntivirus\hipsconfig\*.*" "C:\Snort\etc\" 
+    xcopy /Y "C:\Program Files\HydraDragonAntivirus\hipsconfig\*.*" "C:\Snort\etc\"
     rmdir /s /q "C:\Program Files\HydraDragonAntivirus\hipsconfig"
 ) else (
     echo hipsconfig directory not found.
@@ -19,8 +19,8 @@ if exist "C:\Program Files\HydraDragonAntivirus\hipsconfig" (
 
 rem 3. Copy specific files from hips to C:\Snort\rules
 if exist "C:\Program Files\HydraDragonAntivirus\hips" (
-    xcopy /Y "C:\Program Files\HydraDragonAntivirus\hips\snort2.9.rules" "C:\Snort\rules\" 
-    xcopy /Y "C:\Program Files\HydraDragonAntivirus\hips\snort2.rules"   "C:\Snort\rules\" 2>nul
+    xcopy /Y "C:\Program Files\HydraDragonAntivirus\hips\snort2.9.rules" "C:\Snort\rules\"
+    xcopy /Y "C:\Program Files\HydraDragonAntivirus\hips\snort2.rules"    "C:\Snort\rules\" 2>nul
     xcopy /Y "C:\Program Files\HydraDragonAntivirus\hips\emergingthreats\*.*" "C:\Snort\rules\" /S /E /I
     rmdir /s /q "C:\Program Files\HydraDragonAntivirus\hips"
 ) else (
@@ -29,7 +29,7 @@ if exist "C:\Program Files\HydraDragonAntivirus\hips" (
 
 rem 4. Copy database files to C:\Program Files\ClamAV\database
 if exist "C:\Program Files\HydraDragonAntivirus\database" (
-    xcopy /Y "C:\Program Files\HydraDragonAntivirus\database\*.*" "C:\Program Files\ClamAV\database\" 
+    xcopy /Y "C:\Program Files\HydraDragonAntivirus\database\*.*" "C:\Program Files\ClamAV\database\"
     rmdir /s /q "C:\Program Files\HydraDragonAntivirus\database"
 ) else (
     echo database directory not found.
@@ -62,37 +62,37 @@ if %errorlevel% equ 0 (
     echo Failed to upgrade pip.
 )
 
-rem 8. Install Python poetry
-echo Installing Python poetry...
-py.exe -3.12 -m pip install poetry
+rem 8. Create Python virtual environment
+echo Creating Python virtual environment...
+py.exe -3.11 -m venv venv
 if %errorlevel% equ 0 (
-    echo Python poetry installed successfully.
+    echo Python virtual environment created successfully in 'venv' folder.
 ) else (
-    echo Failed to install Python requirements.
+    echo Failed to create Python virtual environment.
 )
 
-rem Path to SbieIni.exe
+rem 9. Path to SbieIni.exe
 set "SbieIniPath=C:\Program Files\Sandboxie\SbieIni.exe"
 set "SandboxName=DefaultBox"  rem We're modifying the DefaultBox sandbox.
 set "InjectLine=C:\Program Files\HydraDragonAntivirus\sandboxie_plugins\SbieHide\SbieHide.x64.dll"
 
-rem Check if SbieIni.exe exists
+rem 10. Check if SbieIni.exe exists
 if not exist "%SbieIniPath%" (
     echo ERROR: %SbieIniPath% not found.
     goto :end
 )
 
-rem Modify BlockNetworkFiles for DefaultBox
+rem 11. Modify BlockNetworkFiles for DefaultBox
 echo Modifying BlockNetworkFiles to 'n' for %SandboxName%...
 "%SbieIniPath%" set %SandboxName% BlockNetworkFiles n
 
-rem Add InjectDll64 for DefaultBox
+rem 12. Add InjectDll64 for DefaultBox
 echo Adding InjectDll64 for %SandboxName%...
 "%SbieIniPath%" set %SandboxName% InjectDll64 "%InjectLine%"
 
-rem Remove ClosedFilePath for DefaultBox
+rem 13. Remove ClosedFilePath for DefaultBox
 echo Removing ClosedFilePath for %SandboxName%...
-"%SbieIniPath%" set %SandboxName% ClosedFilePath "" 
+"%SbieIniPath%" set %SandboxName% ClosedFilePath ""
 
 echo Done.
 :end

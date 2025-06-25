@@ -6880,7 +6880,7 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
             combined_source += f"# From: {py_file.name}\n"
             combined_source += py_file.read_text(encoding="utf-8", errors="ignore") + "\n\n"
 
-        logging.info(f"[Pylingual] Successfully decompiled {pyc_path} → {output_path}")
+        logging.info(f"[Pylingual] Successfully decompiled {pyc_path} -> {output_path}")
         return combined_source
 
     except Exception as e:
@@ -10344,6 +10344,19 @@ def perform_sandbox_analysis(file_path):
 
     except Exception as ex:
         logging.error(f"An error occurred during sandbox analysis: {ex}")
+
+def run_sandboxie_plugin_script():
+    # build the inner python invocation
+    python_entry = f'"{Open_Hydra_Dragon_Anti_Rootkit_path}",Run'
+    # build the full command line for Start.exe
+    cmd = f'"{sandboxie_path}" /box:DefaultBox /elevate "{python_path}" {python_entry}'
+    try:
+        logging.info(f"Running python script via Sandboxie: {cmd}")
+        # shell=True so that Start.exe sees the switches correctly
+        subprocess.run(cmd, check=True, shell=True, encoding="utf-8", errors="ignore")
+        logging.info("Python plugin ran successfully in Sandboxie.")
+    except subprocess.CalledProcessError as ex:
+        logging.error(f"Failed to run python plugin in Sandboxie: {ex}")
 
 def run_sandboxie_plugin():
     # build the inner rundll32 invocation

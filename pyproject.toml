@@ -6,7 +6,7 @@ name = "hydradragonantivirus"
 version = "0.1.0"
 description = "HydraDragonAntivirus: Advanced Open Source Antivirus and Python Bytecode Reverse Engineering Tool"
 authors = [
-    { name = "Emirhan Uçan", email = "130374789+Siradankullanici@users.noreply.github.com" },
+    { name = "Emirhan Ucan", email = "130374789+Siradankullanici@users.noreply.github.com" },
     { name = "syssec-utd" }
 ]
 license = { text = "GPL-3.0-only" }
