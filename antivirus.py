@@ -344,7 +344,9 @@ device = accelerator.device
 # get the full path to the currently running Python interpreter
 python_path = sys.executable
 
-# Define the paths to the ghidra related directories
+# Define the paths
+reports_dir = os.path.join(script_dir, "reports")
+scan_report_path = os.path.join(reports_dir, "scan_report.json")
 enigma_extracted_dir = os.path.join(script_dir, "enigma_extracted")
 inno_unpack_dir = os.path.join(script_dir, "innounp-2")
 upx_dir = os.path.join(script_dir, "upx-5.0.1-win64")
@@ -533,6 +535,9 @@ sandbox_system_root_directory = get_sandbox_path(system_root)
 
 # Derived sandbox system32 path
 sandbox_system32_directory = get_sandbox_path(system32_dir)
+
+# Derived sandbox scan report path
+sandbox_scan_report_path = get_sandbox_path(scan_report_path)
 
 ntdll_path = os.path.join(system32_dir, "ntdll.dll")
 sandboxed_ntdll_path = os.path.join(sandbox_system32_directory, "ntdll.dll")
