@@ -10345,19 +10345,6 @@ def perform_sandbox_analysis(file_path):
     except Exception as ex:
         logging.error(f"An error occurred during sandbox analysis: {ex}")
 
-def run_sandboxie_plugin_script():
-    # build the inner python invocation
-    dll_entry = f'"{Open_Hydra_Dragon_Anti_Rootkit_path}",Run'
-    # build the full command line for Start.exe
-    cmd = f'"{sandboxie_path}" /box:DefaultBox /elevate "{python_path}" {dll_entry}'
-    try:
-        logging.info(f"Running python script via Sandboxie: {cmd}")
-        # shell=True so that Start.exe sees the switches correctly
-        subprocess.run(cmd, check=True, shell=True, encoding="utf-8", errors="ignore")
-        logging.info("Python plugin ran successfully in Sandboxie.")
-    except subprocess.CalledProcessError as ex:
-        logging.error(f"Failed to run python plugin in Sandboxie: {ex}")
-
 def run_sandboxie_plugin():
     # build the inner rundll32 invocation
     dll_entry = f'"{HydraDragonAV_sandboxie_DLL_path}",Run'
@@ -10488,139 +10475,176 @@ def parse_report(path):
                     # in either case, stop scanning further parts
                     break
 
-            # store a 1-tuple as the spec’d"tuple containing (file path)"
+            # store a 1-tuple as the spec'd"tuple containing (file path)"
             entries[line] = (file_path,)
 
     return entries
 
-
+# --- Main Application Window ---
 class AntivirusApp(QWidget):
+
     def _set_window_background(self):
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #1e1e1e;
-                color: white;
-            }
-        """)
+        """Sets the dark theme for the main window."""
+        self.setStyleSheet("QWidget { background-color: #1e1e1e; color: white; }")
+
+    def append_output(self, text):
+        """Appends text to the output area and scrolls to the bottom."""
+        self.output_text.append(text)
+        self.output_text.verticalScrollBar().setValue(self.output_text.verticalScrollBar().maximum())
+
+    def start_worker(self, task_type, *args):
+        """Creates, configures, and starts a worker thread."""
+        worker = Worker(task_type, *args)
+        worker.output_signal.connect(self.append_output)
+        # Use a lambda to remove the specific worker instance from the list upon completion
+        worker.finished.connect(lambda w=worker: self.workers.remove(w))
+        self.workers.append(worker)  # Keep a strong reference
+        worker.start()
+
+    # --- Button Click Handlers ---
 
     def capture_analysis_logs(self):
-        worker = Worker("capture_analysis_logs")
-        worker.output_signal.connect(self.append_output)
-        worker.finished.connect(lambda: self.workers.remove(worker))  # Clean up finished threads
-        self.workers.append(worker)  # Keep a reference
-        worker.start()
+        self.start_worker("capture_analysis_logs")
 
     def compare_analysis_logs(self):
-        worker = Worker("compare_analysis_logs")
-        worker.output_signal.connect(self.append_output)
-        worker.finished.connect(lambda: self.workers.remove(worker))
-        self.workers.append(worker)
-        worker.start()
+        self.start_worker("compare_analysis_logs")
 
     def update_definitions(self):
-        worker = Worker("update_defs")
-        worker.output_signal.connect(self.append_output)
-        worker.finished.connect(lambda: self.workers.remove(worker))
-        self.workers.append(worker)
-        worker.start()
+        self.start_worker("update_defs")
 
     def analyze_file(self):
         file_dialog = QFileDialog(self)
         file_dialog.setNameFilter("All Files (*)")
-        if file_dialog.exec():
+        if file_dialog.exec_():
             file_path = file_dialog.selectedFiles()[0]
-            worker = Worker("analyze_file", file_path)
-            worker.output_signal.connect(self.append_output)
-            worker.finished.connect(lambda: self.workers.remove(worker))
-            self.workers.append(worker)
-            worker.start()
+            self.start_worker("analyze_file", file_path)
 
-    def append_output(self, text):
-        self.output_text.append(text)
+    def scan_for_rootkits(self):
+        """Handler for the new Rootkit Scan button."""
+        self.start_worker("rootkit_scan")
 
     def setup_ui(self):
+        """Sets up the main user interface."""
         self.setWindowTitle("Hydra Dragon Antivirus")
-        self.setFixedSize(700, 600)
-        self.setWindowIcon(QIcon(icon_path))
+        self.setFixedSize(700, 650) # Increased height for the new button
+        try:
+            if os.path.exists(icon_path):
+                 self.setWindowIcon(QIcon(icon_path))
+        except Exception as e:
+            print(f"Could not load icon: {e}")
+
         self._set_window_background()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(10)
 
-        # Important Warning Message
+        # Updated Important Warning Message with Step 6
         warning_text = (
-            "IMPORTANT: Only run this application from a Virtual Machine.\n"
-            "1. First, update virus definitions.\n"
-            "2. Then run the HiJackThis Report (first analysis, capture analysis logs).\n"
-            "3. After that, perform the main analysis.\n"
-            "4. Once done, do not close the application. Run HiJackThis again (final analysis, capture analysis logs).\n"
-            "5. Wait about 5 minutes after clicking the Compare Analysis Logs button, then view the logs and return to a clean snapshot for a new analysis."
+            "<b>IMPORTANT:</b> Only run this application from a Virtual Machine.<br><br>"
+            "<b>Recommended Workflow:</b><br>"
+            "1. First, <b>Update Virus Definitions</b>.<br>"
+            "2. Run the HiJackThis Report (<b>Capture Analysis Logs</b>).<br>"
+            "3. Perform your main analysis or run the suspicious software.<br>"
+            "4. Run HiJackThis again (<b>Capture Analysis Logs</b> a second time).<br>"
+            "5. Click <b>Compare Analysis Logs</b> to see what changed.<br>"
+            "6. Finally, run the <b>Rootkit Scan</b>.<br><br>"
+            "<i>Return to a clean snapshot before starting a new analysis.</i>"
         )
         self.warning_label = QLabel(warning_text, self)
         self.warning_label.setWordWrap(True)
         self.warning_label.setStyleSheet("""
             QLabel {
                 color: yellow;
-                font: bold 12px;
+                font: 12px;
                 background-color: #333;
-                border: 2px solid red;
+                border: 1px solid #FF4500;
                 border-radius: 10px;
                 padding: 10px;
             }
         """)
 
         # Buttons
-        self.capture_button = QPushButton("Capture Analysis Logs", self)
-        self.diff_button = QPushButton("Compare Analysis Logs", self)
-        self.update_defs_button = QPushButton("Update Definitions", self)
-        self.analyze_file_button = QPushButton("Analyze File", self)
+        self.update_defs_button = QPushButton("1. Update Definitions", self)
+        self.capture_button = QPushButton("2. Capture Analysis Logs", self)
+        self.analyze_file_button = QPushButton("3. Analyze a File (Optional)", self)
+        self.diff_button = QPushButton("4. Compare Analysis Logs", self)
+        self.rootkit_scan_button = QPushButton("5. Rootkit Scan", self) # New Button
 
         # Text output area
         self.output_text = QTextEdit(self)
         self.output_text.setReadOnly(True)
+        self.output_text.setStyleSheet("""
+            QTextEdit {
+                background-color: #2a2a2a;
+                color: #f0f0f0;
+                font-family: Consolas, 'Courier New', monospace;
+                font-size: 13px;
+                border: 1px solid #444;
+                border-radius: 5px;
+            }
+        """)
 
         # Button Styles
-        for btn in (self.capture_button, self.diff_button, self.update_defs_button, self.analyze_file_button):
-            btn.setFixedHeight(50)
+        button_style = """
+            QPushButton {
+                color: white;
+                font: bold 14px;
+                border: none;
+                border-radius: 10px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #00BFFF, stop:1 #1E90FF);
+                padding: 10px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #1E90FF, stop:1 #00BFFF);
+            }
+            QPushButton:pressed {
+                background-color: #1E90FF;
+            }
+        """
+        all_buttons = [
+            self.update_defs_button, self.capture_button, self.analyze_file_button,
+            self.diff_button, self.rootkit_scan_button
+        ]
+        for btn in all_buttons:
             btn.setCursor(Qt.PointingHandCursor)
-            btn.setStyleSheet("""
-                QPushButton {
-                    color: white;
-                    font: bold 14px;
-                    border: none;
-                    border-radius: 10px;
-                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                        stop:0 #00BFFF, stop:1 #1E90FF);
-                }
-                QPushButton:hover {
-                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                        stop:0 #1E90FF, stop:1 #00BFFF);
-                }
-            """)
+            btn.setStyleSheet(button_style)
 
-        # Connect buttons
+        # Connect buttons to their functions
+        self.update_defs_button.clicked.connect(self.update_definitions)
         self.capture_button.clicked.connect(self.capture_analysis_logs)
         self.diff_button.clicked.connect(self.compare_analysis_logs)
-        self.update_defs_button.clicked.connect(self.update_definitions)
         self.analyze_file_button.clicked.connect(self.analyze_file)
+        self.rootkit_scan_button.clicked.connect(self.scan_for_rootkits) # Connect new button
 
         # Layout Setup
         layout.addWidget(self.warning_label)
-        layout.addSpacing(10)
-        layout.addWidget(self.capture_button)
-        layout.addWidget(self.diff_button)
         layout.addWidget(self.update_defs_button)
+        layout.addWidget(self.capture_button)
         layout.addWidget(self.analyze_file_button)
-        layout.addWidget(self.output_text)
+        layout.addWidget(self.diff_button)
+        layout.addWidget(self.rootkit_scan_button) # Add new button to layout
+        layout.addWidget(self.output_text, 1) # The '1' makes the text edit expand
 
     def __init__(self):
         super().__init__()
-        self.setup_ui()
+        # self.workers holds references to running QThreads to prevent them from being garbage collected
         self.workers = []
+        self.setup_ui()
 
-
+# --- Worker Thread for Background Tasks ---
 class Worker(QThread):
+    """
+    Handles long-running tasks in the background to prevent the UI from freezing.
+    """
     output_signal = Signal(str)
+
+    def __init__(self, task_type, *args):
+        super().__init__()
+        self.task_type = task_type
+        self.args = args
 
     def capture_analysis_logs(self):
         global pre_analysis_log_path, post_analysis_log_path, pre_analysis_entries, post_analysis_entries
@@ -10633,67 +10657,100 @@ class Worker(QThread):
             path = run_and_copy_log(label="post")
             post_analysis_log_path = path
             post_analysis_entries = parse_report(path)
-            self.output_signal.emit(f"[+] Post-analysis captured: {os.path.basename(path)}")
+            self.output_signal.emit(f"[+] Post-analysis log captured: {os.path.basename(path)}")
         else:
-            self.output_signal.emit("[!] Both pre-analysis and post-analysis captures have already been completed.")
+            self.output_signal.emit("[!] Both pre and post-analysis captures have already been completed.")
 
     def compare_analysis_logs(self):
         if not pre_analysis_log_path or not post_analysis_log_path:
-            self.output_signal.emit("[!] Please capture both pre-analysis and post-analysis first!")
+            self.output_signal.emit("[!] Please capture both pre and post-analysis logs first!")
             return
         try:
-            with open(pre_analysis_log_path, encoding='utf-8', errors='ignore') as f:
+            with open(pre_analysis_log_path, 'r', encoding='utf-8', errors='ignore') as f:
                 pre_lines = f.readlines()
-            with open(post_analysis_log_path, encoding='utf-8', errors='ignore') as f:
+            with open(post_analysis_log_path, 'r', encoding='utf-8', errors='ignore') as f:
                 post_lines = f.readlines()
 
-            # Use ndiff for better line-by-line granularity
             diff = difflib.ndiff(pre_lines, post_lines)
-
-            # Only include lines that are different
             filtered_diff = [line for line in diff if line.startswith(('+', '-'))]
 
-            diff_file = os.path.join(log_directory, 'HiJackThis_diff.log')
-            with open(diff_file, 'w', encoding='utf-8') as df:
+            diff_file_path = os.path.join(log_directory, 'HiJackThis_diff.log')
+            with open(diff_file_path, 'w', encoding='utf-8') as df:
                 df.writelines(filtered_diff)
+            self.output_signal.emit(f"[+] Diff log created at: {diff_file_path}")
 
-            llama_response = scan_file_with_meta_llama(diff_file, HiJackThis_flag=True)
-
-            self.output_signal.emit("[*] Filtered diff analysis completed. Llama response:")
-            for line in llama_response.splitlines():
-                self.output_signal.emit(line)
+            llama_response = scan_file_with_meta_llama(diff_file_path, HiJackThis_flag=True)
+            self.output_signal.emit("\n[*] Llama analysis of the diff log:")
+            self.output_signal.emit(llama_response)
 
         except Exception as e:
-            self.output_signal.emit(f"[!] Error computing diff or Llama analysis: {str(e)}")
+            self.output_signal.emit(f"[!] Error comparing logs: {str(e)}")
 
     def update_definitions(self):
         try:
+            self.output_signal.emit("[*] Checking virus definitions...")
             updated = False
+            # Check if freshclam exists before trying to run it
+            if not os.path.exists(freshclam_path):
+                 self.output_signal.emit(f"[!] Error: freshclam not found at '{freshclam_path}'. Please check the path.")
+                 return
+
             for file_path in clamav_file_paths:
                 if os.path.exists(file_path):
                     file_mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
-                    file_age = datetime.now() - file_mod_time
-                    if file_age > timedelta(hours=6):
+                    if (datetime.now() - file_mod_time) > timedelta(hours=6):
                         updated = True
                         break
+                else: # If a definition file doesn't exist, we should update.
+                    updated = True
+                    break
+
             if updated:
+                self.output_signal.emit("[*] Definitions are outdated or missing. Starting update...")
+                # Using subprocess.run for simplicity. For real-time output, Popen is better.
                 result = subprocess.run([freshclam_path], capture_output=True, text=True, encoding="utf-8", errors="ignore")
                 if result.returncode == 0:
                     restart_clamd_thread()
-                    self.output_signal.emit("[+] Virus definitions updated and ClamAV restarted.")
+                    self.output_signal.emit("[+] Virus definitions updated successfully and ClamAV restarted.")
+                    self.output_signal.emit(f"Output:\n{result.stdout}")
                 else:
-                    self.output_signal.emit(f"[!] Failed to update definitions: {result.stderr}")
+                    self.output_signal.emit(f"[!] Failed to update definitions. Error:\n{result.stderr}")
             else:
-                self.output_signal.emit("[*] Definitions are up-to-date. No update needed.")
+                self.output_signal.emit("[*] Definitions are already up-to-date.")
         except Exception as e:
             self.output_signal.emit(f"[!] Error updating definitions: {str(e)}")
 
     def analyze_file(self, file_path):
-        # Simulate malware analysis
+        self.output_signal.emit(f"[*] Starting analysis for: {file_path}")
         analysis_result = run_analysis(file_path)
         self.output_signal.emit(analysis_result)
 
+    def perform_rootkit_scan(self):
+        """
+        Runs the rootkit scan script and displays the report.
+        """
+        try:
+            self.output_signal.emit("[*] Starting Rootkit Scan via Sandboxie Plugin...")
+            run_sandboxie_plugin_script()  # This creates the report file
+
+            # Get the path to the generated report
+            sandbox_scan_report_path = get_sandbox_path(scan_report_path)
+            self.output_signal.emit(f"[+] Rootkit scan finished. Report located at: {sandbox_scan_report_path}")
+
+            if os.path.exists(sandbox_scan_report_path):
+                with open(sandbox_scan_report_path, 'r', encoding='utf-8') as f:
+                    report_content = f.read()
+                self.output_signal.emit("\n--- Rootkit Scan Report ---")
+                self.output_signal.emit(report_content)
+                self.output_signal.emit("--- End of Report ---")
+            else:
+                self.output_signal.emit("[!] Error: Sandboxie report file was not found after the scan.")
+
+        except Exception as e:
+            self.output_signal.emit(f"[!] Error during rootkit scan: {str(e)}")
+
     def run(self):
+        """The entry point for the thread."""
         try:
             if self.task_type == "capture_analysis_logs":
                 self.capture_analysis_logs()
@@ -10703,17 +10760,13 @@ class Worker(QThread):
                 self.update_definitions()
             elif self.task_type == "analyze_file":
                 self.analyze_file(*self.args)
+            elif self.task_type == "rootkit_scan":
+                self.perform_rootkit_scan()
         except Exception as e:
-            self.output_signal.emit(f"[!] Error: {str(e)}")
-
-    def __init__(self, task_type, *args):
-        super().__init__()
-        self.task_type = task_type
-        self.args = args
-
+            self.output_signal.emit(f"[!] Worker thread error: {str(e)}")
 
 if __name__ == "__main__":
-    app = QApplication([])
+    app = QApplication(sys.argv)
     window = AntivirusApp()
     window.show()
-    app.exec()
+    sys.exit(app.exec_())
