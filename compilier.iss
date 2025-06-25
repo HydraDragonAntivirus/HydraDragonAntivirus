@@ -47,7 +47,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "C:\Users\victim\Documents\HydraDragonAntivirus\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "C:\Users\victim\Documents\hydratempinstall\7z2409-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\clamav-1.4.2.win.x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydratempinstall\clamav-1.4.3.win.x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\npcap-1.82.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\Snort_2_9_20_Installer.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\jre-8u451-windows-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
@@ -89,7 +89,7 @@ Filename: "{tmp}\jdk-21_windows-x64_bin.exe"; Parameters: "/s"; Flags: shellexec
 Filename: "{tmp}\python-3.11.9-amd64.exe"; Parameters: "/quiet InstallAllUsers=1 PrependPath=1 Include_pip=1"; Flags: shellexec waituntilterminated
 
 ; ClamAV MSI
-Filename: "{tmp}\clamav-1.4.2.win.x64.msi"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\clamav-1.4.3.win.x64.msi"; Flags: shellexec waituntilterminated
 
 ; Npcap (unchanged)
 Filename: "{tmp}\npcap-1.82.exe"; Flags: shellexec waituntilterminated
