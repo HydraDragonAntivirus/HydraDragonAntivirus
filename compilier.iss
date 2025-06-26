@@ -29,7 +29,7 @@ LicenseFile=C:\Users\victim\Documents\HydraDragonAntivirus\LICENSE.md
 InfoBeforeFile=C:\Users\victim\Documents\HydraDragonAntivirus\README.md
 OutputDir=C:\Users\victim\Documents\output
 OutputBaseFilename=HydraDragonAntivirus
-SetupIconFile=C:\Users\victim\Documents\HydraDragonAntivirus\assets\HydraDragonAV.ico
+SetupIconFile=C:\Users\victim\Documents\HydraDragonAntivirus\hydradragonantivirus\assets\HydraDragonAV.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -44,7 +44,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: checkedonce
 
 [Files]
-Source: "C:\Users\victim\Documents\HydraDragonAntivirus\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "C:\Users\victim\Documents\HydraDragonAntivirus\hydradragonantivirus\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "C:\Users\victim\Documents\hydratempinstall\7z2409-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\clamav-1.4.3.win.x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
