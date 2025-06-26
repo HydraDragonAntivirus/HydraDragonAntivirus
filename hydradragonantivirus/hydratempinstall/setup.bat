@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 rem Define base paths without hardcoding full HydraDragonAntivirus path
-set "HYDRADRAGON_PATH=%ProgramFiles%\HydraDragonAntivirus"
+set "HYDRADRAGON_PATH=%ProgramFiles%\HydraDragonAntivirus\hydradragonantivirus"
 set "CLAMAV_DIR=%ProgramFiles%\ClamAV"
 set "SNORT_DIR=%ProgramFiles%\Snort"
 set "SBIE_INI=%ProgramFiles%\Sandboxie\SbieIni.exe"
