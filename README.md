@@ -37,14 +37,14 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Setup file on release HydraDragonAntivirus.exe
 
 ## Logs
-- You must look warnining at logs. They usually contain malware detections. Log file in C:\Program Files\HydraDragonAntivirus\log\antivirus.log and C:\Sandbox\yourusername\DefaultBox\drive\C\DONTREMOVEHydraDragonAntivirusLogs
+- You must look warnining at logs. They usually contain malware detections. Log file in %ProgramFiles%\aHydraDragonAntivirus\hydradragonantivirus\log\antivirus.log and C:\Sandbox\yourusername\DefaultBox\drive\C\DONTREMOVEHydraDragonAntivirusLogs
 
 ## Ghidra
-- Ghidra: C:\Program Files\HydraDragonAntivirus\ghidra
-- Ghidra Run: C:\Program Files\HydraDragonAntivirus\ghidra\ghidraRun.bat
-- Ghidra log: C:\Program Files\HydraDragonAntivirus\ghidra_logs\analyze.log
-- Ghidra projects : C:\Program Files\HydraDragonAntivirus\ghidra_projects
-- Ghidra scripts: C:\Program Files\HydraDragonAntivirus\scripts
+- Ghidra: %ProgramFiles%\aHydraDragonAntivirus\hydradragonantivirus\ghidra
+- Ghidra Run: %ProgramFiles%\aHydraDragonAntivirus\hydradragonantivirus\ghidra\ghidraRun.bat
+- Ghidra log: %ProgramFiles%\aHydraDragonAntivirus\hydradragonantivirus\ghidra_logs\analyze.log
+- Ghidra projects : %ProgramFiles%\aHydraDragonAntivirus\hydradragonantivirus\ghidra_projects
+- Ghidra scripts: %ProgramFiles%\aHydraDragonAntivirus\hydradragonantivirus\scripts
  
  ## IMPORTANT
  - Any ghidra project will be removed after you restart the program. So be careful!
@@ -74,13 +74,13 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - You need to create a DefaultBox in Sandboxie by running it once with a random application.  Also, please clean the DefaultBox items each time you scan.
 
 **Note 2:** 
-- You must run ghidra before you run Hydra Dragon Antivirus. To run ghidra, simply open this file:  C:\Program Files\HydraDragonAntivirus\ghidra\ghidraRun.bat
+- You must run ghidra before you run Hydra Dragon Antivirus. To run ghidra, simply open this file:  %ProgramFiles%\aHydraDragonAntivirus\hydradragonantivirus\ghidra\ghidraRun.bat
 
 **Note 3:**.
 - Allow Java on the Windows firewall, as it'll decompile the PE file.
 
 **Note 4:**
-- The update can take up to 5 minutes (10 seconds depending on your internet speed) or more, and will happen if you open this application after 6 hours, as it updates ClamAV definitions. Wait until you receive an update message. You can view freshclam.exe in the Task Manager under Hydra Dragon Antivirus. It will also restart ClamAV after definitions then give you a message. It's not well tested. If you find an issue, please create an issue. Antivirus software might be triggered by website signatures because they are not obfuscated, so exclude the `C:\Program Files\HydraDragonAntivirus` folder. Please only use in a VM as you can only use this for deep analysis of a file. There is no fixed analysis time for a file.
+- The update can take up to 5 minutes (10 seconds depending on your internet speed) or more, and will happen if you open this application after 6 hours, as it updates ClamAV definitions. Wait until you receive an update message. You can view freshclam.exe in the Task Manager under Hydra Dragon Antivirus. It will also restart ClamAV after definitions then give you a message. It's not well tested. If you find an issue, please create an issue. Antivirus software might be triggered by website signatures because they are not obfuscated, so exclude the `%ProgramFiles%\aHydraDragonAntivirus\hydradragonantivirus` folder. Please only use in a VM as you can only use this for deep analysis of a file. There is no fixed analysis time for a file.
 
 **Note 5:**
 
@@ -117,7 +117,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - I have collected every malicious IP, domain from the Internet. So there must be big false positives, but I handle them.
 
 **Note 9:**
-- I added en_core_web_md manually to C:\Program Files\HydraDragonAntivirus you can find the spacy path from codechecker\spacyfind.py but you need to rename en_core_web_md folder name which contains config.cfg for an example if version 3.7.1 then it contains a subfolder en_core_web_md.3.8.0 
+- I added en_core_web_md manually to %ProgramFiles%\aHydraDragonAntivirus\hydradragonantivirus you can find the spacy path from codechecker\spacyfind.py but you need to rename en_core_web_md folder name which contains config.cfg for an example if version 3.7.1 then it contains a subfolder en_core_web_md.3.8.0 
 - Also you need run "spacy download en_core_web_md"
 
 **Note 10:**
@@ -192,7 +192,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Sometimes you may have to wait 5+ minutes (or less) the first time you run the programme as a lot of things load.
 
 **Supported Windows versions?**
-- (Python 3.12 is required because spaCy does not yet have a stable release for Python 3.13.) Windows 10 64-bit and Windows 11 only (you can run ClamAV, but you can't run HydraDragonAntivirus on Windows 8.1 and it's not supported). If you want, I can create a 32-bit version for Windows 10 32-bit, but I faced some problems. ClamAV has limitations on 32-bit, so it's problematic. On Windows 8.1, ClamAV isn't supported because it's an outdated Windows version. You will get the `api-ms-win-crt-runtime-l1-1-0.dll` error. Even if you add this DLL, you will get another error: "Application failed to start properly (0xc000007b)." Then install this: [Microsoft VC Redist](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170). After running `C:\Program Files\ClamAV\freshclam.exe` and `clamd.exe` with `clamd --install`, the setup is complete, but you can't run HydraDragonAntivirus on Windows 8.1 because you get an ImportError on line nine due to PySide6.
+- (Python 3.12 is required because spaCy does not yet have a stable release for Python 3.13.) Windows 10 64-bit and Windows 11 only (you can run ClamAV, but you can't run HydraDragonAntivirus on Windows 8.1 and it's not supported). If you want, I can create a 32-bit version for Windows 10 32-bit, but I faced some problems. ClamAV has limitations on 32-bit, so it's problematic. On Windows 8.1, ClamAV isn't supported because it's an outdated Windows version. You will get the `api-ms-win-crt-runtime-l1-1-0.dll` error. Even if you add this DLL, you will get another error: "Application failed to start properly (0xc000007b)." Then install this: [Microsoft VC Redist](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170). After running `%ProgramFiles%\ClamAV\freshclam.exe` and `clamd.exe` with `clamd --install`, the setup is complete, but you can't run HydraDragonAntivirus on Windows 8.1 because you get an ImportError on line nine due to PySide6.
 - If you still want support for Windows 7, you will need to manually downgrade to Python 3.8 and many tools. 32-bit support is possible. Although Windows XP support is possible through the One Core API, we don't recommend using illegal things.
 
 **Minimum RAM and space?**
