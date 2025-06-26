@@ -82,7 +82,7 @@ if %errorlevel% equ 0 (
 
 rem 10. Install dependencies with Poetry
 echo Installing project dependencies with Poetry...
-poetry install
+py -3.11 -m poetry install
 if %errorlevel% equ 0 (
     echo Dependencies installed successfully.
 ) else (
