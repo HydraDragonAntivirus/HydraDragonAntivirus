@@ -85,6 +85,14 @@ if %errorlevel% neq 0 (
     goto :end
 )
 
+rem 8.a Ensure Poetry uses this venv
+echo Setting Poetry to use the new virtual environment...
+py -3.11 -m poetry env use
+if %errorlevel% neq 0 (
+    echo Failed to set Poetry virtual environment.
+    goto :end
+)
+
 rem 9. Install Poetry
 echo Installing Poetry...
 py -3.11 -m pip install poetry
