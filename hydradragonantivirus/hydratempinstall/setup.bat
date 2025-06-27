@@ -85,35 +85,39 @@ if %errorlevel% neq 0 (
     goto :end
 )
 
-rem 8.a Ensure Poetry uses this venv
-echo Setting Poetry to use the new virtual environment...
-py -3.11 -m poetry env use
+rem 9. Activate virtual environment
+echo Activating virtual environment...
+call "venv\Scripts\activate.bat"
 if %errorlevel% neq 0 (
-    echo Failed to set Poetry virtual environment.
+    echo Failed to activate virtual environment.
     goto :end
 )
 
-rem 9. Install Poetry
-echo Installing Poetry...
-py -3.11 -m pip install poetry
+rem 10. Install Poetry in the activated virtual environment
+echo Installing Poetry in virtual environment...
+pip install poetry
 if %errorlevel% neq 0 (
     echo Failed to install Poetry.
-    goto :end
+    goto :cleanup
 )
 echo Poetry installed successfully.
 
-rem 10. Install dependencies with Poetry
-echo Installing project dependencies with Poetry...
-py -3.11 -m poetry install
-if %errorlevel% neq 0 (
-    echo Failed to install dependencies with Poetry.
-    goto :end
+rem 11. Install dependencies with Poetry (if pyproject.toml exists)
+if exist "pyproject.toml" (
+    echo Installing project dependencies with Poetry...
+    poetry install
+    if %errorlevel% neq 0 (
+        echo Failed to install dependencies with Poetry.
+        goto :cleanup
+    )
+    echo Dependencies installed successfully.
+) else (
+    echo No pyproject.toml found, skipping Poetry dependency installation.
 )
-echo Dependencies installed successfully.
 
-rem 11. Configure Sandboxie if available
+rem 12. Configure Sandboxie if available
 if not exist "%SBIE_INI%" (
-    echo ERROR: %SBIE_INI% not found.
+    echo WARNING: %SBIE_INI% not found. Skipping Sandboxie configuration.
     goto :end
 )
 
@@ -122,8 +126,10 @@ echo Modifying Sandboxie settings...
 "%SBIE_INI%" set %SBIE_SANDBOX% InjectDll64 "%INJECT_DLL%"
 "%SBIE_INI%" set %SBIE_SANDBOX% ClosedFilePath ""
 
-echo Done.
+echo Setup completed successfully!
 
 :end
+echo.
+echo Press any key to exit...
 pause >nul
 endlocal
