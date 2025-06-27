@@ -87,8 +87,7 @@ if %errorlevel% neq 0 (
 
 rem 9. Install Poetry
 echo Installing Poetry...
-call venv\Scripts\activate.bat
-python -m pip install poetry
+py -3.11 -m pip install poetry
 if %errorlevel% neq 0 (
     echo Failed to install Poetry.
     goto :end
