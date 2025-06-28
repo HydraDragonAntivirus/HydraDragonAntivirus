@@ -392,7 +392,9 @@ pe_extracted_dir = os.path.join(script_dir, "pe_extracted")
 zip_extracted_dir = os.path.join(script_dir, "zip_extracted")
 tar_extracted_dir = os.path.join(script_dir, "tar_extracted")
 seven_zip_extracted_dir = os.path.join(script_dir, "seven_zip_extracted")
-general_extracted_dir = os.path.join(script_dir, "general_extracted")
+general_extracted_with_die_dir = os.path.join(script_dir, "general_extracted_with_die")
+general_extracted_with_7z_dir = os.path.join(script_dir, "general_extracted_with_7z")
+nuitka_extracted_dir = os.path.join(script_dir, "nuitka_extracted")
 processed_dir = os.path.join(script_dir, "processed")
 detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
 deteciteasy_plain_text_dir = os.path.join(script_dir, "deteciteasy_plain_text")
@@ -590,7 +592,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_dir, processed_dir, python_source_code_dir, pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
+directories_to_scan = [enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_with_7z_dir, general_extracted_with_die_dir, nuitka_extracted_dir, processed_dir, python_source_code_dir, pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
@@ -701,7 +703,9 @@ os.makedirs(pe_extracted_dir, exist_ok=True)
 os.makedirs(zip_extracted_dir, exist_ok=True)
 os.makedirs(tar_extracted_dir, exist_ok=True)
 os.makedirs(seven_zip_extracted_dir, exist_ok=True)
-os.makedirs(general_extracted_dir, exist_ok=True)
+os.makedirs(general_extracted_with_7z_dir, exist_ok=True)
+os.makedirs(general_extracted_with_die_dir, exist_ok=True)
+os.makedirs(nuitka_extracted_dir, exist_ok=True)
 os.makedirs(debloat_dir, exist_ok=True)
 os.makedirs(jar_extracted_dir, exist_ok=True)
 os.makedirs(FernFlower_decompiled_dir, exist_ok=True)
@@ -6345,8 +6349,12 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: ZIP extracted.")
         elif file_path.startswith(seven_zip_extracted_dir):
             logging.info(f"{file_path}: 7zip extracted.")
-        elif file_path.startswith(general_extracted_dir):
-            logging.info(f"{file_path}: all extractable files go here.")
+        elif file_path.startswith(general_extracted_with_7z_dir):
+            logging.info(f"{file_path}: all files extracted with 7-Zip go here.")
+        elif file_path.startswith(general_extracted_with_die_dir):
+            logging.info(f"{file_path}: all files extracted with Detect It Easy go here.")
+        elif file_path.startswith(nuitka_extracted_dir):
+            logging.info(f"{file_path}: the Nuitka binary files can be found here.")
         elif file_path.startswith(tar_extracted_dir):
             logging.info(f"{file_path}: TAR extracted.")
         elif file_path.startswith(processed_dir):
@@ -6419,7 +6427,9 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
             (lambda fp: fp.startswith(pe_extracted_dir), "PE file extracted."),
             (lambda fp: fp.startswith(zip_extracted_dir), "ZIP extracted."),
             (lambda fp: fp.startswith(seven_zip_extracted_dir), "7zip extracted."),
-            (lambda fp: fp.startswith(general_extracted_dir), "All extractable files go here."),
+            (lambda fp: fp.startswith(general_extracted_with_7z_dir), "All files extracted with 7-Zip go here."),
+            (lambda fp: fp.startswith(general_extracted_with_die_dir), "All files extracted with Detect It Easy go here"),
+            (lambda fp: fp.startswith(nuitka_extracted_dir), "The Nuitka binary files can be found here."),
             (lambda fp: fp.startswith(tar_extracted_dir), "TAR extracted."),
             (lambda fp: fp.startswith(processed_dir), "Processed - File is base64/base32, signature/magic bytes removed."),
             (lambda fp: fp == main_file_path, "This is the main file."),
@@ -7497,7 +7507,7 @@ def decompile_dotnet_file(file_path):
     except Exception as ex:
         logging.error(f"Error decompiling .NET file {file_path}: {ex}")
 
-def extract_all_files_with_7z(file_path, nsis_flag=False):
+def extract_all_files_with_7z_and_die(file_path, nsis_flag=False):
     """
     Extracts all files from an archive via 7-Zip CLI.
     Always returns a list of extracted file paths.
@@ -7968,7 +7978,7 @@ def extract_rcdata_resource(pe_path):
 
     # Ensure the output directory exists
     output_dir = os.path.join(
-        general_extracted_dir,
+        nuitka_extracted_dir,
         os.path.splitext(os.path.basename(pe_path))[0]
     )
     os.makedirs(output_dir, exist_ok=True)
@@ -8790,7 +8800,7 @@ def scan_and_warn(file_path,
             # Attempt to extract the file
             try:
                 logging.info(f"Attempting to extract file {norm_path}...")
-                extracted_files = extract_all_files_with_7z(norm_path, nsis_flag)
+                extracted_files = extract_all_files_with_7z_and_die(norm_path, nsis_flag)
 
                 if extracted_files:
                     logging.info(f"Extraction successful for {norm_path}. Scanning extracted files...")
