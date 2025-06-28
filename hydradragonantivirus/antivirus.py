@@ -9072,7 +9072,7 @@ def scan_and_warn(file_path,
                     logging.info(f"Unpack succeeded. Files are in: {extracted_path}")
                     threading.Thread(target=scan_and_warn, args=(extracted_path,)).start()
                 else:
-                    logging.info("Unpack failed for all known Enigma1 protected versions.")
+                    logging.info("Unpack failed for all known Enigma1 Virtual Box protected versions.")
 
             if is_packer_upx_output(die_output):
                 upx_unpacked = extract_upx(norm_path)
