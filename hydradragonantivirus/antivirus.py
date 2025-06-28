@@ -748,7 +748,7 @@ def compute_md5(path: str) -> str:
             h.update(chunk)
     return h.hexdigest()
 
-def try_unpack_enigma(input_exe: str) -> str | None:
+def try_unpack_enigma1(input_exe: str) -> str | None:
     """
     Attempts to unpack an Enigma protected EXE by trying each known
     version+flag combo until one succeeds.
@@ -1363,12 +1363,12 @@ def is_elf_file_from_output(die_output):
     logging.info(f"DIE output does not indicate an ELF file: {die_output}")
     return False
 
-def is_enigma_protector(die_output):
+def is_enigma1_protector(die_output):
     """
     Checks if DIE output indicates the Enigma protector.
     Returns True if 'Protector: Enigma' is found, else False.
     """
-    if die_output and "Protector: Enigma" in die_output:
+    if die_output and ".enigma1" in die_output:
         logging.info("DIE output indicates Protector: Enigma.")
         return True
 
@@ -9066,13 +9066,13 @@ def scan_and_warn(file_path,
             except Exception as extraction_error:
                 logging.error(f"Error during extraction of {norm_path}: {extraction_error}")
            
-            if is_enigma_protector(die_output): 
-                extracted_path = try_unpack_enigma(norm_path)
+            if is_enigma1_protector(die_output):
+                extracted_path = try_unpack_enigma1(norm_path)
                 if extracted_path:
                     logging.info(f"Unpack succeeded. Files are in: {extracted_path}")
                     threading.Thread(target=scan_and_warn, args=(extracted_path,)).start()
                 else:
-                    logging.info("Unpack failed for all known Enigma protected versions.")
+                    logging.info("Unpack failed for all known Enigma1 protected versions.")
 
             if is_packer_upx_output(die_output):
                 upx_unpacked = extract_upx(norm_path)
