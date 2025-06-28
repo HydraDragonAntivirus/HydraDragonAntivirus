@@ -392,9 +392,9 @@ pe_extracted_dir = os.path.join(script_dir, "pe_extracted")
 zip_extracted_dir = os.path.join(script_dir, "zip_extracted")
 tar_extracted_dir = os.path.join(script_dir, "tar_extracted")
 seven_zip_extracted_dir = os.path.join(script_dir, "seven_zip_extracted")
-general_extracted_with_die_dir = os.path.join(script_dir, "general_extracted_with_die")
 general_extracted_with_7z_dir = os.path.join(script_dir, "general_extracted_with_7z")
 nuitka_extracted_dir = os.path.join(script_dir, "nuitka_extracted")
+advanced_installer_extracted_dir = os.path.join(script_dir, "advanced_installer_extracted")
 processed_dir = os.path.join(script_dir, "processed")
 detectiteasy_dir = os.path.join(script_dir, "detectiteasy")
 deteciteasy_plain_text_dir = os.path.join(script_dir, "deteciteasy_plain_text")
@@ -592,7 +592,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_with_7z_dir, general_extracted_with_die_dir, nuitka_extracted_dir, processed_dir, python_source_code_dir, pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
+directories_to_scan = [enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir, processed_dir, python_source_code_dir, pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, pycdas_united_meta_llama_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
@@ -704,8 +704,8 @@ os.makedirs(zip_extracted_dir, exist_ok=True)
 os.makedirs(tar_extracted_dir, exist_ok=True)
 os.makedirs(seven_zip_extracted_dir, exist_ok=True)
 os.makedirs(general_extracted_with_7z_dir, exist_ok=True)
-os.makedirs(general_extracted_with_die_dir, exist_ok=True)
 os.makedirs(nuitka_extracted_dir, exist_ok=True)
+os.makedirs(advanced_installer_extracted_dir, exist_ok=True)
 os.makedirs(debloat_dir, exist_ok=True)
 os.makedirs(jar_extracted_dir, exist_ok=True)
 os.makedirs(FernFlower_decompiled_dir, exist_ok=True)
@@ -984,6 +984,160 @@ def get_unique_output_path(output_dir: Path, base_name) -> Path:
 
     return candidate
 
+#inspired by https://aluigi.altervista.org/bms/advanced_installer.bms
+#with some additionaly reverse engeneering, quite heursitic (footer search, xor guessing etc) 
+#licence: public domain
+# https://gist.github.com/KasparNagu/9ee02cb62d81d9e4c7a833518a710d6e
+
+class AdvancedInstallerFileInfo:
+        def __init__(self, name, size, offset, xorSize):
+                self.name = name
+                self.size = size
+                self.offset = offset
+                self.xorSize = xorSize
+        def __repr__(self):
+                return "[%s size=%d offset=%d]" % (self.name, self.size, self.offset)
+
+class AdvancedInstallerFileReader:
+        def __init__(self,filehandle,size,keepOpen,xorLength):
+                self.filehandle = filehandle
+                self.size = size
+                self.xorLength = xorLength
+                self.pos = 0
+                self.keepOpen = keepOpen
+        def xorFF(self,block):
+                if isinstance(block,str):
+                         return "".join([chr(ord(i)^0xff) for i in block])
+                else:
+                         return bytes([i^0xff for i in block])
+        def read(self,size = None):
+                if size is None:
+                        return self.read(self.size - self.pos)
+                if self.pos < self.xorLength:
+                        xorLen = min(self.xorLength - self.pos, size)
+                        xorBlock = self.filehandle.read(xorLen)
+                        xorLenEffective = len(xorBlock)
+                        self.pos += xorLenEffective
+                        xorBlock = self.xorFF(xorBlock)
+                        if xorLenEffective < size:
+                                return xorBlock + self.read(size - xorLenEffective)
+                        return xorBlock
+                blk = self.filehandle.read(min(size,self.size - self.pos))
+                self.pos += len(blk)
+                return blk
+        def close(self):
+                if not self.keepOpen:
+                        self.filehandle.close()
+        def __enter__(self):
+                return self
+        def __exit__(self, type, value, traceback):
+                self.close()
+
+class AdvancedInstallerReader:
+        def __init__(self,filename,debug=None):
+                self.filename = filename
+                self.filehandle = open(filename,"rb")
+                self.search_back = 10000
+                self.xorSize = 0x200
+                self.footer_position = None
+                self.debug = debug
+                self.threadsafeReopen = False
+                self.files = []
+        def close(self):
+                self.filehandle.close()
+        def search_footer(self):
+                for i in range(0,10000):
+                        self.filehandle.seek(-i,os.SEEK_END) 
+                        magic = self.filehandle.read(10)
+                        if magic == b"ADVINSTSFX":
+                                self.footer_position = i + 0x48 - 12
+                                break
+                if self.footer_position is None:
+                        logging.error("ADVINSTSFX not found")
+        def read_footer(self):
+                if self.footer_position is None:
+                        self.search_footer()
+                self.filehandle.seek(-self.footer_position,os.SEEK_END)
+                footer = self.filehandle.read(0x48)
+                offset, self.nfiles, dummy1, offset1, self.info_off, file_off, hexhash, dummy2, name, = struct.unpack("<llllll32sl12s", footer)
+                if self.debug:
+                        self.debug.write("offset=%d files=%d offset1=%d  info_off=%d file_off=%d hexhash=%s name=%s\n" % (offset,self.nfiles,offset1,self.info_off,file_off,hexhash,name))
+        def read_info(self):
+                self.read_footer()
+                self.files = []
+                self.filehandle.seek(self.info_off,os.SEEK_SET)
+                for i in range(0,self.nfiles):
+                        info = self.filehandle.read(24)
+                        dummy1, dummy2, dummy3, size, offset, namesize = struct.unpack("<llllll",info)
+                        if self.debug:
+                                self.debug.write(" size=%d offset=%d namesize=%d dummy1=0x%x dummy2=0x%x dummy3=0x%x\n" % (size,offset,namesize,dummy1,dummy2,dummy3))
+                        if namesize < 0xFFFF:
+                                name = self.filehandle.read(namesize*2)
+                                name = name.decode("UTF-16")
+                                if self.debug:
+                                        self.debug.write("  name=%s\n" % name)
+                                self.files.append(AdvancedInstallerFileInfo(name,size,offset,self.xorSize if dummy3 == 2 else 0))
+                        else:
+                                logging.error("Invalid name size %d" % namesize)
+        def open(self,infoFile):
+                if isinstance(infoFile,AdvancedInstallerFileInfo):
+                        if self.threadsafeReopen:
+                                fh = open(self.filename,"rb")
+                        else:
+                                fh = self.filehandle
+                        fh.seek(infoFile.offset,os.SEEK_SET)
+                        return AdvancedInstallerFileReader(fh,infoFile.size,not self.threadsafeReopen,infoFile.xorSize)
+                else:
+                        if not self.files:
+                                self.read_info()
+                        for f in files:
+                                if f.name == infoFile:
+                                        return self.open(f)
+                return None
+        def infolist(self):
+                if not self.files:
+                        self.read_info()
+                return self.files
+        def __enter__(self):
+                return self
+        def __exit__(self, type, value, traceback):
+                self.close()
+        def __repr__(self):
+                return "[path=%s footer=%s nFiles=%d]" % (self.filename,self.footer_position,len(self.files))
+
+def advanced_installer_extractor(file_path):
+        """
+        Extract files from Advanced Installer archive.
+        
+        Args:
+            file_path (str): Path to the Advanced Installer file
+        
+        Returns:
+            list: List of extracted file paths
+        """
+        extracted_files = []
+        
+        with AdvancedInstallerReader(file_path) as ar:
+                for f in ar.infolist():
+                        logging.debug(f)
+                        path = f.name.replace("\\","/")
+                        full_path = os.path.join(advanced_installer_extracted_dir, path)
+                        dirname = os.path.dirname(full_path)
+                        if dirname:
+                                if not os.path.exists(dirname):
+                                        os.makedirs(dirname)
+                        with ar.open(f) as inf, open(full_path,"wb") as out:
+                                while True:
+                                         blk = inf.read(1<<16)
+                                         if len(blk) == 0:
+                                                 break
+                                         out.write(blk)
+                        extracted_files.append(full_path)
+                
+                logging.debug(ar)
+        
+        return extracted_files
+
 def analyze_file_with_die(file_path):
     """
     Runs Detect It Easy (DIE) on the given file once and returns the DIE output (plain text).
@@ -1087,6 +1241,14 @@ def is_pe_file_from_output(die_output):
         logging.info("DIE output indicates a PE file.")
         return True
     logging.info(f"DIE output does not indicate a PE file: {die_output}")
+    return False
+
+def is_advanced_installer_file_from_output(die_output):
+    """Checks if DIE output indicates a Advanced Installer file."""
+    if die_output and ("Advanced Installer" in die_output):
+        logging.info("DIE output indicates a Advanced Installer file.")
+        return True
+    logging.info(f"DIE output does not indicate a Advanced Installer file: {die_output}")
     return False
 
 def is_nsis_from_output(die_output: str) -> bool:
@@ -6350,11 +6512,11 @@ def log_directory_type(file_path):
         elif file_path.startswith(seven_zip_extracted_dir):
             logging.info(f"{file_path}: 7zip extracted.")
         elif file_path.startswith(general_extracted_with_7z_dir):
-            logging.info(f"{file_path}: all files extracted with 7-Zip go here.")
-        elif file_path.startswith(general_extracted_with_die_dir):
-            logging.info(f"{file_path}: all files extracted with Detect It Easy go here.")
+            logging.info(f"{file_path}: All files extracted with 7-Zip go here.")
         elif file_path.startswith(nuitka_extracted_dir):
-            logging.info(f"{file_path}: the Nuitka binary files can be found here.")
+            logging.info(f"{file_path}: The Nuitka binary files can be found here.")
+        elif file_path.startswith(advanced_installer_extracted_dir):
+            logging.info(f"{file_path}: The extracted files from Advanced Installer can be found here.")
         elif file_path.startswith(tar_extracted_dir):
             logging.info(f"{file_path}: TAR extracted.")
         elif file_path.startswith(processed_dir):
@@ -6428,8 +6590,8 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
             (lambda fp: fp.startswith(zip_extracted_dir), "ZIP extracted."),
             (lambda fp: fp.startswith(seven_zip_extracted_dir), "7zip extracted."),
             (lambda fp: fp.startswith(general_extracted_with_7z_dir), "All files extracted with 7-Zip go here."),
-            (lambda fp: fp.startswith(general_extracted_with_die_dir), "All files extracted with Detect It Easy go here"),
             (lambda fp: fp.startswith(nuitka_extracted_dir), "The Nuitka binary files can be found here."),
+            (lambda fp: fp.startswith(advanced_installer_extracted_dir), "The extracted files from Advanced Installer can be found here."),
             (lambda fp: fp.startswith(tar_extracted_dir), "TAR extracted."),
             (lambda fp: fp.startswith(processed_dir), "Processed - File is base64/base32, signature/magic bytes removed."),
             (lambda fp: fp == main_file_path, "This is the main file."),
@@ -7507,7 +7669,7 @@ def decompile_dotnet_file(file_path):
     except Exception as ex:
         logging.error(f"Error decompiling .NET file {file_path}: {ex}")
 
-def extract_all_files_with_7z_and_die(file_path, nsis_flag=False):
+def extract_all_files_with_7z(file_path, nsis_flag=False):
     """
     Extracts all files from an archive via 7-Zip CLI.
     Always returns a list of extracted file paths.
@@ -8740,6 +8902,12 @@ def scan_and_warn(file_path,
                 )
                 return False
 
+        if is_advanced_installer_file_from_output(die_output):
+            logging.info(f"File {norm_path} is a valid Advanced Installer file.")
+            extracted_files = advanced_installer_extractor(file_path)
+            for extracted_file in extracted_files:
+                scan_and_warn(extracted_file)
+            
         if is_pe_file_from_output(die_output):
             logging.info(f"File {norm_path} is a valid PE file.")
             pe_file = True
@@ -8800,7 +8968,7 @@ def scan_and_warn(file_path,
             # Attempt to extract the file
             try:
                 logging.info(f"Attempting to extract file {norm_path}...")
-                extracted_files = extract_all_files_with_7z_and_die(norm_path, nsis_flag)
+                extracted_files = extract_all_files_with_7z(norm_path, nsis_flag)
 
                 if extracted_files:
                     logging.info(f"Extraction successful for {norm_path}. Scanning extracted files...")
