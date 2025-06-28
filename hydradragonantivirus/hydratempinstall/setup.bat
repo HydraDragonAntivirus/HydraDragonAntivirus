@@ -1,8 +1,8 @@
 @echo off
 setlocal enabledelayedexpansion
 
-rem Define base paths without hardcoding full HydraDragonAntivirus path
 set "HYDRADRAGON_PATH=%ProgramW6432%\HydraDragonAntivirus\hydradragonantivirus"
+set "HYDRADRAGON_ROOT_PATH=%ProgramW6432%\HydraDragonAntivirus"
 set "CLAMAV_DIR=%ProgramW6432%\ClamAV"
 set "SNORT_DIR=%SystemDrive%\Snort"
 set "SBIE_INI=%ProgramW6432%\Sandboxie\SbieIni.exe"
@@ -73,7 +73,7 @@ if %errorlevel% equ 0 (
 rem 8. Create Python virtual environment inside HydraDragonAntivirus folder
 echo Creating Python virtual environment...
 
-cd /d "%HYDRADRAGON_PATH%"
+cd /d "%HYDRADRAGON_ROOT_PATH%"
 if errorlevel 1 (
     echo ERROR: "%HYDRADRAGON_PATH%" directory not found.
     goto :end
