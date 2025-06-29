@@ -1,10 +1,10 @@
 # Hydra Dragon Antivirus
 
 <p align="center">
-<img src="hydradragonantivirus/assets/HydraDragonAntivirus.png" width=400px>
+<img src="hydradragon/assets/HydraDragonAntivirus.png" width=400px>
 </p>
 <p align="center">
-<img src="hydradragonantivirus/assets/Screenshoot.png" width= 1080px>
+<img src="hydradragon/assets/Screenshoot.png" width= 1080px>
 </p>
 
 Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my machine learning AI, Behaviour analysis, NLP-Based detection, website signatures, Ghidra and Snort etc.

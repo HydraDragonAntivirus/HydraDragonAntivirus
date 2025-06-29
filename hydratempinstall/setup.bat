@@ -115,7 +115,16 @@ if exist "pyproject.toml" (
     echo No pyproject.toml found, skipping Poetry dependency installation.
 )
 
-rem 12. Configure Sandboxie if available
+rem 12. Install spaCy English medium model
+echo Installing spaCy 'en_core_web_md' model...
+python -m spacy download en_core_web_md
+if %errorlevel% equ 0 (
+    echo spaCy model 'en_core_web_md' installed successfully.
+) else (
+    echo Failed to install spaCy model 'en_core_web_md'.
+)
+
+rem 13. Configure Sandboxie if available
 if not exist "%SBIE_INI%" (
     echo WARNING: %SBIE_INI% not found. Skipping Sandboxie configuration.
     goto :end
