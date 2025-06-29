@@ -1089,33 +1089,31 @@ class AdvancedInstallerReader:
         # Try different unpacking strategies based on actual footer structure
         try:
             # Original format - try first
-            offset, self.nfiles, dummy1, offset1, self.info_off, file_off, hexhash, dummy2, name = struct.unpack(
+            offset, self.nfiles, _, offset1, self.info_off, file_off, hexhash, _, name = struct.unpack(
                 "<llllll32sl12s", footer)
         except struct.error:
             try:
                 # Alternative format without the last name field
                 data = struct.unpack("<llllll32sl", footer[:60])
-                offset, self.nfiles, dummy1, offset1, self.info_off, file_off, hexhash, dummy2 = data
+                offset, self.nfiles, _, offset1, self.info_off, file_off, hexhash, _ = data
                 name = footer[60:] if len(footer) > 60 else b""
             except struct.error:
                 try:
                     # Simplified format - just the essential fields
                     data = struct.unpack("<llllll", footer[:24])
-                    offset, self.nfiles, dummy1, offset1, self.info_off, file_off = data
+                    offset, self.nfiles, _, offset1, self.info_off, file_off = data
                     hexhash = footer[24:56] if len(footer) > 56 else b""
-                    dummy2 = 0
                     name = footer[56:] if len(footer) > 56 else b""
                 except struct.error:
                     # Last resort - extract what we can
                     if len(footer) >= 8:
                         offset, self.nfiles = struct.unpack("<ll", footer[:8])
-                        dummy1 = offset1 = 0
+                        offset1 = 0
                         self.info_off = struct.unpack("<l", footer[16:20])[0] if len(footer) >= 20 else 0
                         file_off = struct.unpack("<l", footer[20:24])[0] if len(footer) >= 24 else 0
                     else:
                         raise Exception("Footer too short to parse")
                     hexhash = b""
-                    dummy2 = 0
                     name = b""
 
         if self.debug:
@@ -1135,11 +1133,10 @@ class AdvancedInstallerReader:
                 if self.debug:
                     self.debug.write("Warning: incomplete info block for file %d\n" % i)
                 break
-            dummy1, dummy2, dummy3, size, offset, namesize = struct.unpack("<llllll", info)
+            _, _, xor_flag, size, offset, namesize = struct.unpack("<llllll", info)
             if self.debug:
                 self.debug.write(
-                    " size=%d offset=%d namesize=%d dummy1=0x%x dummy2=0x%x dummy3=0x%x\n" % (size, offset, namesize,
-                                                                                              dummy1, dummy2, dummy3))
+                    " size=%d offset=%d namesize=%d xor_flag=0x%x\n" % (size, offset, namesize, xor_flag))
             if 0 < namesize < 0xFFFF:
                 name_data = self.filehandle.read(namesize * 2)
                 if len(name_data) == namesize * 2:
@@ -1156,7 +1153,7 @@ class AdvancedInstallerReader:
                             name = "file_%d.bin" % i
                     if self.debug:
                         self.debug.write("  name=%s\n" % name)
-                    self.files.append(AdvancedInstallerFileInfo(name, size, offset, self.xorSize if dummy3 == 2 else 0))
+                    self.files.append(AdvancedInstallerFileInfo(name, size, offset, self.xorSize if xor_flag == 2 else 0))
                 else:
                     if self.debug:
                         self.debug.write("Warning: incomplete name data for file %d\n" % i)
@@ -1165,7 +1162,7 @@ class AdvancedInstallerReader:
                 name = "unnamed_file_%d.bin" % i
                 if self.debug:
                     self.debug.write("  name=%s (unnamed)\n" % name)
-                self.files.append(AdvancedInstallerFileInfo(name, size, offset, self.xorSize if dummy3 == 2 else 0))
+                self.files.append(AdvancedInstallerFileInfo(name, size, offset, self.xorSize if xor_flag == 2 else 0))
             else:
                 if self.debug:
                     self.debug.write("Warning: Invalid name size %d for file %d\n" % (namesize, i))
@@ -1183,7 +1180,7 @@ class AdvancedInstallerReader:
         else:
             if not self.files:
                 self.read_info()
-            for f in self.files:  # Fixed: was 'files' should be 'self.files'
+            for f in self.files:
                 if f.name == infoFile:
                     return self.open(f)
         return None
@@ -7155,33 +7152,68 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
     """
     Decompile a .pyc file using Pylingual.
     Returns the combined decompiled source as a string if successful, else None.
+    
+    Args:
+        pyc_path: Path to the .pyc file to decompile
+        pylingual_extracted_dir: Base directory for extraction output
+    
+    Returns:
+        Combined decompiled source code as string, or None if failed
     """
     try:
         pyc_file = Path(pyc_path)
+        
+        # Check if the .pyc file exists
+        if not pyc_file.exists():
+            logging.error(f"[Pylingual] .pyc file does not exist: {pyc_path}")
+            return None
+            
         base_name = pyc_file.stem
         output_path = Path(pylingual_extracted_dir) / f"decompiled_{base_name}"
         output_path.mkdir(parents=True, exist_ok=True)
 
+        # Call the decompile function with proper parameters
         result: DecompilerResult = decompile(
             file=pyc_file,
             out_dir=output_path,
-            config_file=None,
-            version=None,
-            top_k=10,
-            trust_lnotab=False
+            config_file=None,  # Use default config
+            version=None,      # Auto-detect Python version
+            top_k=10,         # Maximum additional segmentations
+            trust_lnotab=False # Use segmentation model instead of lnotab
         )
 
+        # Find all generated .py files
         py_files = list(output_path.rglob("*.py"))
         if not py_files:
             logging.warning(f"[Pylingual] No .py files found in output for: {pyc_path}")
             return None
 
+        # Combine all decompiled source files
         combined_source = ""
-        for py_file in py_files:
-            combined_source += f"# From: {py_file.name}\n"
-            combined_source += py_file.read_text(encoding="utf-8", errors="ignore") + "\n\n"
+        for py_file in sorted(py_files):  # Sort for consistent ordering
+            try:
+                source_content = py_file.read_text(encoding="utf-8", errors="ignore")
+                combined_source += f"# From: {py_file.name}\n"
+                combined_source += source_content.strip() + "\n\n"
+            except Exception as read_error:
+                logging.warning(f"[Pylingual] Could not read {py_file}: {read_error}")
+                continue
+
+        if not combined_source.strip():
+            logging.warning(f"[Pylingual] All decompiled files were empty for: {pyc_path}")
+            return None
 
         logging.info(f"[Pylingual] Successfully decompiled {pyc_path} -> {output_path}")
+        logging.info(f"[Pylingual] Generated {len(py_files)} Python files")
+        
+        # Log equivalence results if available
+        if hasattr(result, 'equivalence_results') and result.equivalence_results:
+            success_count = sum(1 for r in result.equivalence_results 
+                              if hasattr(r, 'success') and r.success)
+            total_count = len([r for r in result.equivalence_results 
+                             if hasattr(r, 'success')])
+            logging.info(f"[Pylingual] Equivalence check: {success_count}/{total_count} successful")
+        
         return combined_source
 
     except Exception as e:
