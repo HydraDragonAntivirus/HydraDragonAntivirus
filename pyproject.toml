@@ -11,7 +11,7 @@ authors = [
 ]
 license = { text = "GPL-3.0-only" }
 readme = "README.md"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.11,<3.13"
 keywords = ["antivirus", "reverse engineering", "bytecode", "python", "decompiler", "hydradragon", "pylingual"]
 
 dependencies = [
@@ -60,7 +60,8 @@ dependencies = [
     "rich",
     "seqeval",
     "transformers>=4.52.4,<5.0.0",
-    "xdis",
+    "xdis==6.1.3",
+    "pycryptodome==3.17",
     "click"
 ]
 
