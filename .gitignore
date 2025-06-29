@@ -55,21 +55,21 @@ __pycache__/
 /build
 
 # Big website files
-hydradragonantivirus/website/IPv4Malware.txt
-hydradragonantivirus/website/MalwareSubDomains.txt
+hydradragon/website/IPv4Malware.txt
+hydradragon/website/MalwareSubDomains.txt
 # Website cleaned
-hydradragonantivirus/website/cleaned
+hydradragon/website/cleaned
 # Big Yara Rule files
-hydradragonantivirus/yara/compiled_rule.yar
-hydradragonantivirus/yara/veryoldcompiled_rule.yar
-hydradragonantivirus/yara/nocomments.yar
+hydradragon/yara/compiled_rule.yar
+hydradragon/yara/veryoldcompiled_rule.yar
+hydradragon/yara/nocomments.yar
 # Yara Rule Executables
-hydradragonantivirus/yara/yara64.exe
-hydradragonantivirus/yara/yarac64.exe
+hydradragon/yara/yara64.exe
+hydradragon/yara/yarac64.exe
 
 # Detect-It-Easy
-hydradragonantivirus/detectiteasy
-hydradragonantivirus/OpenHydraDragonRules/antirootkit/detectiteasy
+hydradragon/detectiteasy
+hydradragon/OpenHydraDragonRules/antirootkit/detectiteasy
 # Code checker
 functionordercheck.py
 
