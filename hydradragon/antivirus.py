@@ -7,6 +7,9 @@ import logging
 from datetime import datetime, timedelta
 import time
 
+main_dir = os.path.dirname(os.path.abspath(__file__))
+os.chdir(main_dir)
+
 # Set script directory
 script_dir = os.getcwd()
 
