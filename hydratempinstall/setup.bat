@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-set "HYDRADRAGON_PATH=%ProgramW6432%\HydraDragonAntivirus\hydradragonantivirus"
+set "HYDRADRAGON_PATH=%ProgramW6432%\HydraDragonAntivirus\hydradragon"
 set "HYDRADRAGON_ROOT_PATH=%ProgramW6432%\HydraDragonAntivirus"
 set "CLAMAV_DIR=%ProgramW6432%\ClamAV"
 set "SNORT_DIR=%SystemDrive%\Snort"
