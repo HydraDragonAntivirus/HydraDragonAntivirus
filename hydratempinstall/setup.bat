@@ -63,7 +63,7 @@ if %errorlevel% equ 0 (
 
 rem 7. Upgrade pip
 echo Upgrading pip...
-py.exe -3.11 -m pip install --upgrade pip
+py.exe -3.12 -m pip install --upgrade pip
 if %errorlevel% equ 0 (
     echo pip was upgraded successfully.
 ) else (
@@ -79,7 +79,7 @@ if errorlevel 1 (
     goto :end
 )
 
-py.exe -3.11 -m venv venv
+py.exe -3.12 -m venv venv
 if %errorlevel% neq 0 (
     echo Failed to create Python virtual environment.
     goto :end
