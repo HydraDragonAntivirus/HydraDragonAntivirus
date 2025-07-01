@@ -80,9 +80,6 @@ namespace HydraDragonAntivirusLauncher
                     // We don't use the system shell to execute, which allows us to redirect I/O streams.
                     UseShellExecute = false,
 
-                    // Hide the command prompt window from the user.
-                    CreateNoWindow = true,
-
                     // Redirect Standard Error and Output to capture any messages for debugging.
                     RedirectStandardError = true,
                     RedirectStandardOutput = true
