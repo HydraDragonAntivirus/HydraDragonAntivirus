@@ -11289,8 +11289,11 @@ class Worker(QThread):
         except Exception as e:
             self.output_signal.emit(f"[!] Worker thread error: {str(e)}")
 
-if __name__ == "__main__":
+def main():
     app = QApplication(sys.argv)
     window = AntivirusApp()
     window.show()
     sys.exit(app.exec_())
+
+if __name__ == "__main__":
+    main()
