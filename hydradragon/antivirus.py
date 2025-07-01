@@ -2340,25 +2340,38 @@ def notify_size_warning(file_path, archive_type, virus_name):
 
     logging.warning(notification_message)
 
-def notify_rlo_warning(file_path, archive_type, virus_name):
-    """Send a notification for RLO-related warnings."""
+def notify_susp_archive_file_name_warning(file_path, archive_type, virus_name):
+    """Send a notification for warnings related to suspicious filenames in archive files."""
     notification = Notify()
-    notification.title = "RLO Warning"
-    notification_message = (f"Filename in {archive_type} file {file_path} contains RLO character after a dot. "
-                            f"This could indicate suspicious activity. Virus Name: {virus_name}")
+    notification.title = "Suspicious Filename In Archive Warning"
+    notification_message = (
+        f"The filename in the {archive_type} archive '{file_path}' contains a suspicious pattern: {virus_name}."
+    )
     notification.message = notification_message
     notification.send()
 
     logging.warning(notification_message)
 
-def notify_user_rlo(file_path, virus_name):
+def notify_user_susp_name(file_path, virus_name):
     notification = Notify()
-    notification.title = "Suspicious RLO Name Alert"
+    notification.title = "Suspicious Name Alert"
     notification_message = f"Suspicious file detected: {file_path}\nVirus: {virus_name}"
     notification.message = notification_message
     notification.send()
 
     logging.warning(notification_message)
+
+def notify_user_scr(file_path, virus_name):
+    """
+    Notifies the user about a suspicious .scr PE file.
+    """
+    notification = Notify()
+    notification.title = "Suspicious .SCR File Detected"
+    notification_message = f"Suspicious .scr file detected: {file_path}\nVirus: {virus_name}"
+    notification.message = notification_message
+    notification.send()
+
+    logging.warning(f"ALERT: {notification_message}")
 
 def notify_user_etw_tampering(file_path, virus_name):
     notification = Notify()
@@ -4811,10 +4824,114 @@ def is_encrypted(zip_info):
     """Check if a ZIP entry is encrypted."""
     return zip_info.flag_bits & 0x1 != 0
 
-def contains_rlo_after_dot(filename):
-    """Check if the filename contains an RLO character after a dot."""
-    return ".\u202E" in filename
+def contains_rlo_after_dot_with_extension_check(filename, fileTypes):
+    """
+    Check if the filename contains an RLO character after a dot AND has a known extension.
+    This helps detect potential RLO attacks that try to disguise malicious files.
+    
+    Args:
+        filename (str): The filename to check
+        fileTypes (set/list): Collection of known/allowed file extensions
+        
+    Returns:
+        bool: True if RLO found after dot AND file has known extension, False otherwise
+    """
+    try:
+        # First check if there's an RLO character after a dot
+        if ".\u202E" not in filename:
+            return False
+        # If RLO found after dot, check if file has a known extension
+        ext = os.path.splitext(filename)[1].lower()
+        logging.info(f"RLO detected after dot in '{filename}', checking extension '{ext}'")
+        has_known_ext = ext in fileTypes
+        if has_known_ext:
+            logging.warning(f"POTENTIAL RLO ATTACK: File '{filename}' has RLO after dot with known extension '{ext}'")
+        else:
+            logging.info(f"RLO found after dot but extension '{ext}' not in known types")
+        return has_known_ext
+    except Exception as ex:
+        logging.error(f"Error checking RLO and extension for file {filename}: {ex}")
+        return False
 
+def detect_suspicious_filename_patterns(filename, fileTypes, max_spaces=10):
+    """
+    Detect various filename obfuscation techniques including:
+    - RLO (Right-to-Left Override) attacks
+    - Excessive spaces to hide real extensions
+    - Multiple extensions
+    
+    Args:
+        filename (str): The filename to check
+        fileTypes (set/list): Collection of known/allowed file extensions
+        max_spaces (int): Maximum allowed consecutive spaces
+        
+    Returns:
+        dict: Detection results with attack types found
+    """
+    results = {
+        'rlo_attack': False,
+        'excessive_spaces': False,
+        'multiple_extensions': False,
+        'suspicious': False,
+        'details': []
+    }
+    
+    try:
+        # Check for RLO attack
+        if ".\u202E" in filename:
+            ext = os.path.splitext(filename)[1].lower()
+            if ext in fileTypes:
+                results['rlo_attack'] = True
+                results['details'].append(f"RLO character found after dot with known extension '{ext}'")
+        
+        # Check for excessive spaces (potential extension hiding)
+        if '  ' in filename:  # Start with double space check
+            space_count = 0
+            max_consecutive_spaces = 0
+            
+            for char in filename:
+                if char == ' ':
+                    space_count += 1
+                    max_consecutive_spaces = max(max_consecutive_spaces, space_count)
+                else:
+                    space_count = 0
+            
+            if max_consecutive_spaces > max_spaces:
+                results['excessive_spaces'] = True
+                results['details'].append(f"Excessive spaces detected: {max_consecutive_spaces} consecutive spaces")
+                
+                # Check if there's a hidden extension after the spaces
+                trimmed_filename = filename.rstrip()
+                if trimmed_filename != filename:
+                    hidden_ext = os.path.splitext(trimmed_filename)[1].lower()
+                    if hidden_ext in fileTypes:
+                        results['details'].append(f"Potential hidden extension: '{hidden_ext}'")
+        
+        # Check for multiple extensions (only flag if more than 4 extensions)
+        parts = filename.split('.')
+        if len(parts) > 5:  # More than 4 extensions (5 parts = filename + 4 extensions)
+            extensions = ['.' + part.lower() for part in parts[1:]]
+            known_extensions = [ext for ext in extensions if ext in fileTypes]
+            
+            if known_extensions:  # Only flag if there are known extensions
+                results['multiple_extensions'] = True
+                results['details'].append(f"Excessive extensions detected ({len(parts)-1} extensions): {known_extensions}")
+        
+        # Mark as suspicious if any attack detected
+        results['suspicious'] = any([
+            results['rlo_attack'],
+            results['excessive_spaces'],
+            results['multiple_extensions']
+        ])
+        
+        if results['suspicious']:
+            logging.warning(f"SUSPICIOUS FILENAME DETECTED: {filename} - {results['details']}")
+        
+        return results
+        
+    except Exception as ex:
+        logging.error(f"Error analyzing filename {filename}: {ex}")
+        return results
 
 class FileType:
     UNKNOWN = -1
@@ -5098,10 +5215,21 @@ def scan_zip_file(file_path):
             for info in zf.infolist():
                 encrypted = bool(info.flag_bits & 0x1)
 
-                # RLO check
-                if contains_rlo_after_dot(info.filename):
-                    virus = "HEUR:RLO.Susp.Name.Encrypted.ZIP.gen" if encrypted else "HEUR:RLO.Susp.Name.ZIP.gen"
-                    notify_rlo_warning(file_path, "ZIP", virus)
+                detection_result = detect_suspicious_filename_patterns(info.filename, fileTypes)
+                if detection_result['suspicious']:
+                    # Build attack type string
+                    attack_types = []
+                    if detection_result['rlo_attack']:
+                        attack_types.append("RLO")
+                    if detection_result['excessive_spaces']:
+                        attack_types.append("Spaces")
+                    if detection_result['multiple_extensions']:
+                        attack_types.append("MultiExt")
+
+                    attack_string = "+".join(attack_types) if attack_types else "Generic"
+                    virus = f"HEUR:{attack_string}.Susp.Name.Encrypted.ZIP.gen" if encrypted else f"HEUR:{attack_string}.Susp.Name.ZIP.gen"
+
+                    notify_susp_archive_file_name_warning(file_path, "ZIP", virus)
 
                 # Record metadata
                 entries.append((info.filename, info.file_size, encrypted))
@@ -5149,10 +5277,21 @@ def scan_7z_file(file_path):
                 filename = entry.filename
                 encrypted = entry.is_encrypted
 
-                # RLO check
-                if contains_rlo_after_dot(filename):
-                    virus = "HEUR:RLO.Susp.Name.Encrypted.7z.gen" if encrypted else "HEUR:RLO.Susp.Name.7z.gen"
-                    notify_rlo_warning(file_path, "7z", virus)
+                detection_result = detect_suspicious_filename_patterns(filename, fileTypes)
+                if detection_result['suspicious']:
+                    # Build attack type string
+                    attack_types = []
+                    if detection_result['rlo_attack']:
+                        attack_types.append("RLO")
+                    if detection_result['excessive_spaces']:
+                        attack_types.append("Spaces")
+                    if detection_result['multiple_extensions']:
+                        attack_types.append("MultiExt")
+
+                    attack_string = "+".join(attack_types) if attack_types else "Generic"
+                    virus = f"HEUR:{attack_string}.Susp.Name.Encrypted.7z.gen" if encrypted else f"HEUR:{attack_string}.Susp.Name.7z.gen"
+
+                    notify_susp_archive_file_name_warning(file_path, "7z", virus)
 
                 # Record metadata
                 entries.append((filename, entry.uncompressed, encrypted))
@@ -5199,14 +5338,25 @@ def scan_tar_file(file_path):
 
         with tarfile.open(file_path, 'r') as tar:
             for member in tar.getmembers():
-                # Check for RLO in filenames
-                if contains_rlo_after_dot(member.name):
-                    virus_name = "HEUR:RLO.Susp.Name.Encrypted.TAR.gen"
+                detection_result = detect_suspicious_filename_patterns(member.name, fileTypes)
+                if detection_result['suspicious']:
+                    # Build attack type string
+                    attack_types = []
+                    if detection_result['rlo_attack']:
+                        attack_types.append("RLO")
+                    if detection_result['excessive_spaces']:
+                        attack_types.append("Spaces")
+                    if detection_result['multiple_extensions']:
+                        attack_types.append("MultiExt")
+
+                    attack_string = "+".join(attack_types) if attack_types else "Generic"
+                    virus_name = f"HEUR:{attack_string}.Susp.Name.TAR.gen"
+
                     logging.warning(
-                        f"Filename {member.name} in {file_path} contains RLO character after a dot - "
+                        f"Filename '{member.name}' in archive '{file_path}' contains suspicious pattern(s): {attack_string} - "
                         f"flagged as {virus_name}"
                     )
-                    notify_rlo_warning(file_path, "TAR", virus_name)
+                    notify_susp_archive_file_name_warning(file_path, "TAR", virus_name)
 
                 if member.isreg():  # Check if it's a regular file
                     extracted_file_path = os.path.join(tar_extracted_dir, member.name)
@@ -9290,6 +9440,11 @@ def scan_and_warn(file_path,
                     logging.warning(f"File '{norm_path}' has signature issues. Proceeding with further checks.")
                     notify_user_invalid(norm_path, "Win32.Susp.InvalidSignature")
 
+                # Detect .scr extension and trigger heuristic warning
+                if norm_path.lower().endswith(".scr"):
+                    logging.warning(f"Suspicious .scr file detected: {norm_path}")
+                    notify_user_scr(norm_path, "HEUR:Win32.Susp.PE.SCR.gen")
+
                 # Decompile the file in a separate thread
                 decompile_thread = threading.Thread(target=decompile_file, args=(norm_path,))
                 decompile_thread.start()
@@ -9533,6 +9688,20 @@ def scan_and_warn(file_path,
             logging.info(f"Checking original file path from decompiled data for: {norm_path}")
             original_norm_path_thread = threading.Thread(target=extract_original_norm_path_from_decompiled, args=(norm_path,))
             original_norm_path_thread.start()
+
+        detection_result = detect_suspicious_filename_patterns(file_name, fileTypes)
+        if detection_result['suspicious']:
+            # Handle multiple attack types if present
+            attack_types = []
+            if detection_result['rlo_attack']:
+                attack_types.append("RLO")
+            if detection_result['excessive_spaces']:
+                attack_types.append("Spaces")
+            if detection_result['multiple_extensions']:
+                attack_types.append("MultiExt")
+
+            virus_name = f"HEUR:Susp.Name.{'+'.join(attack_types)}.gen"
+            notify_user_susp_name(file_path, virus_name)
 
     except Exception as ex:
         logging.error(f"Error scanning file {norm_path}: {ex}")
