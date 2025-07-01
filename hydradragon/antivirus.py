@@ -9,6 +9,7 @@ import time
 
 main_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(main_dir)
+sys.path.insert(0, main_dir)
 
 # Set script directory
 script_dir = os.getcwd()
