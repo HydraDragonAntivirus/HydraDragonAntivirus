@@ -336,8 +336,8 @@ from xdis.unmarshal import load_code
 logging.info("xdis.unmarshal.load_code module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from GoStringUngarbler.gostringungarbler_lib import process_file_go
-logging.info(f"GoStringUngarbler.gostringungarbler_lib.process_file_go module loaded in {time.time() - start_time:.6f} seconds")
+from GoStringUngrabler.gostringungrabler_lib import process_file_go
+logging.info(f"GoStringUngrabler.gostringungrabler_lib.process_file_go module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from pylingual.decompiler import decompile, DecompilerResult
