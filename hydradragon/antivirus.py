@@ -11092,9 +11092,9 @@ class AntivirusApp(QWidget):
         # Buttons
         self.update_defs_button = QPushButton("1. Update Definitions", self)
         self.capture_button = QPushButton("2. Capture Analysis Logs", self)
-        self.analyze_file_button = QPushButton("3. Analyze a File (Optional)", self)
+        self.analyze_file_button = QPushButton("3. Analyze a File", self)
         self.diff_button = QPushButton("4. Compare Analysis Logs", self)
-        self.rootkit_scan_button = QPushButton("5. Rootkit Scan", self) # New Button
+        self.rootkit_scan_button = QPushButton("5. Rootkit Scan", self)
 
         # Text output area
         self.output_text = QTextEdit(self)
