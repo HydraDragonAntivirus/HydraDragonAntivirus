@@ -11070,7 +11070,7 @@ class AntivirusApp(QWidget):
             "<b>Recommended Workflow:</b><br>"
             "1. First, <b>Update Virus Definitions</b>.<br>"
             "2. Run the HiJackThis Report (<b>Capture Analysis Logs</b>).<br>"
-            "3. Perform your main analysis or run the suspicious software.<br>"
+            "3. Perform your main analysis <b>Analyze File</b> the suspicious software.<br>"
             "4. Run HiJackThis again (<b>Capture Analysis Logs</b> a second time).<br>"
             "5. Click <b>Compare Analysis Logs</b> to see what changed.<br>"
             "6. Finally, run the <b>Rootkit Scan</b>.<br><br>"
