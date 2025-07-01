@@ -2,7 +2,7 @@
 requires-poetry = ">=2.0"
 
 [project]
-name = "hydradragonantivirus"
+name = "hydradragon"
 version = "0.1.0"
 description = "HydraDragonAntivirus: Advanced Open Source Antivirus and Python Bytecode Reverse Engineering Tool"
 authors = [
