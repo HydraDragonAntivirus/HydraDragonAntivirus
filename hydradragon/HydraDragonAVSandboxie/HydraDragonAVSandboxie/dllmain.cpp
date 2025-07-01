@@ -24,14 +24,25 @@
 #include <filesystem>
 #include <mutex>
 #include <iostream>
+#include <shlobj.h>
 
 constexpr unsigned long long ONE_GB = 1073741824ULL; 
 constexpr unsigned long long ONE_TB = 1099511627776ULL;
 
 //-----------------------------------------------------------------------------
+// Helper: Get the desktop directory path
+static std::wstring GetDesktopDirectory() {
+    wchar_t path[MAX_PATH];
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_DESKTOPDIRECTORY, NULL, SHGFP_TYPE_CURRENT, path))) {
+        return std::wstring(path);
+    }
+    // fallback: return empty string on failure
+    return L"";
+}
+
+//-----------------------------------------------------------------------------
 // Helper: expand an environment variable (e.g. "%ProgramFiles%") into a std::wstring
-static std::wstring ExpandGetEnv(const wchar_t* envVar)
-{
+static std::wstring ExpandGetEnv(const wchar_t* envVar) {
     // first call returns required length (including terminating NUL)
     DWORD len = ::ExpandEnvironmentStringsW(envVar, nullptr, 0);
     if (len == 0) {
@@ -48,13 +59,17 @@ static std::wstring ExpandGetEnv(const wchar_t* envVar)
 }
 
 //-----------------------------------------------------------------------------
+// Compute the desktop directory once, in static init order:
+static std::wstring DESKTOP_DIRECTORY = GetDesktopDirectory();
+
+//-----------------------------------------------------------------------------
 // Compute the base "%ProgramFiles%" once, in static init order:
 static std::wstring PROGRAM_FILES = ExpandGetEnv(L"%ProgramFiles%");
 
 //-----------------------------------------------------------------------------
-// Now build all of your paths — these run immediately after PROGRAM_FILES
+// Now build all of your paths - these run immediately after DESKTOP_DIRECTORY
 static std::wstring LOG_FOLDER =
-PROGRAM_FILES + L"\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs";
+DESKTOP_DIRECTORY + L"\\HydraDragonAntivirus\\DONTREMOVEHydraDragonAntivirusLogs";
 
 static std::wstring SIGMA_LOG_FILE =
 LOG_FOLDER + L"\\DONTREMOVEsigma_log.txt";
@@ -842,13 +857,13 @@ bool IsOurLogFile(LPCWSTR filePath)
     std::transform(path.begin(), path.end(), path.begin(), towlower);
 
     // 2) Build a lowercase version of LOG_FOLDER at runtime
-    std::wstring folder = LOG_FOLDER;                // LOG_FOLDER was built from %ProgramFiles% + "\\…Logs" :contentReference[oaicite:0]{index=0}:contentReference[oaicite:1]{index=1}
+    std::wstring folder = LOG_FOLDER;                // LOG_FOLDER was built from %ProgramFiles% + "\\..Logs" :contentReference[oaicite:0]{index=0}:contentReference[oaicite:1]{index=1}
     NormalizePath(folder);                           // strip any \\?\ prefix if present
     std::transform(folder.begin(), folder.end(), folder.begin(), towlower);
 
-    // 3) If the path is not under our log‑folder, it’s not “ours”
+    // 3) If the path is not under our log-folder, it's not "ours"
     const std::wstring prefix = folder + L"\\";
-    if (path.rfind(prefix, 0) != 0)                  // rfind(...,0)==0 means “starts with”  
+    if (path.rfind(prefix, 0) != 0)                  // rfind(...,0)==0 means"starts with"
         return false;
 
     // 4) Extract just the filename portion
@@ -857,7 +872,7 @@ bool IsOurLogFile(LPCWSTR filePath)
         ? path
         : path.substr(pos + 1);
 
-    // 5) Compare the basename against our two text‑log names…
+    // 5) Compare the basename against our two text‑log names...
     if (name == L"dontremovesigma_log.txt" ||
         name == L"dontremoveerror_log.txt")
     {

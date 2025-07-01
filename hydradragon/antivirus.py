@@ -557,12 +557,40 @@ sandbox_system32_directory = get_sandbox_path(system32_dir)
 # Derived sandbox scan report path
 sandbox_scan_report_path = get_sandbox_path(scan_report_path)
 
+# Constant special item ID list value for desktop folder
+CSIDL_DESKTOPDIRECTORY = 0x0010
+
+# Flag for SHGetFolderPath
+SHGFP_TYPE_CURRENT = 0
+
+# Convenient shorthand for this function
+SHGetFolderPathW = ctypes.windll.shell32.SHGetFolderPathW
+
+
+def _get_folder_path(csidl):
+    """Get the path of a folder identified by a CSIDL value."""
+    # Create a buffer to hold the return value from SHGetFolderPathW
+    buf = ctypes.create_unicode_buffer(ctypes.wintypes.MAX_PATH)
+    
+    # Return the path as a string
+    SHGetFolderPathW(None, csidl, None, SHGFP_TYPE_CURRENT, buf)
+    return str(buf.value)
+
+
+def get_desktop():
+    """Return the current user's Desktop folder."""
+    return _get_folder_path(CSIDL_DESKTOPDIRECTORY)
+
+def get_sandboxie_log_folder():
+    """Return the sandboxie log folder path on the desktop."""
+    return f'{get_desktop()}\\DONTREMOVEHydraDragonAntivirusLogs'
+
 ntdll_path = os.path.join(system32_dir, "ntdll.dll")
 sandboxed_ntdll_path = os.path.join(sandbox_system32_directory, "ntdll.dll")
 drivers_path = os.path.join(system32_dir, "drivers")
 hosts_path = f'{drivers_path}\\hosts'
 HydraDragonAntivirus_sandboxie_path = get_sandbox_path(script_dir)
-sandboxie_log_folder = f'{HydraDragonAntivirus_sandboxie_path}\\DONTREMOVEHydraDragonAntivirusLogs'
+sandboxie_log_folder = get_sandboxie_log_folder()
 homepage_change_path = f'{sandboxie_log_folder}\\DONTREMOVEHomePageChange.txt'
 HiJackThis_log_path = f'{HydraDragonAntivirus_sandboxie_path}\\HiJackThis\\HiJackThis.log'
 de4dot_sandboxie_dir = f'{HydraDragonAntivirus_sandboxie_path}\\de4dot_extracted_dir'
@@ -10299,7 +10327,7 @@ class MonitorMessageCommandLine:
             },
             "xmrig": {
                 "patterns": [
-                    'xmrig',
+                    # 'xmrig', # Due to its shortness, it is disabled.
                     'xmrig.exe',
                     'start xmrig',
                     'xmrig --help',
