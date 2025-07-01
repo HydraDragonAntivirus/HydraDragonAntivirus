@@ -14,7 +14,30 @@ namespace HydraDragonAntivirusLauncher
             InitializeComponent();
         }
 
-        private void BtnLaunch_Click(object sender, RoutedEventArgs e)
+        private async void BtnLaunch_Click(object sender, RoutedEventArgs e)
+        {
+            // Disable the button to prevent multiple launches
+            BtnLaunch.IsEnabled = false;
+            BtnLaunch.Content = "Launching Antivirus...";
+
+            try
+            {
+                await Task.Run(() => LaunchApplication());
+            }
+            catch (Exception ex)
+            {
+                // Handle any exceptions that bubble up from the background thread
+                MessageBox.Show($"An unexpected error occurred while trying to launch the application: {ex.Message}", "Launcher Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                // Re-enable the button and restore original text
+                BtnLaunch.IsEnabled = true;
+                BtnLaunch.Content = "Launch Antivirus"; 
+            }
+        }
+
+        private void LaunchApplication()
         {
             try
             {
@@ -28,7 +51,11 @@ namespace HydraDragonAntivirusLauncher
                 // Check if the activation script exists before trying to run it.
                 if (!File.Exists(activateScript))
                 {
-                    MessageBox.Show($"Virtual environment activation script not found at the expected location:\n{activateScript}\n\nPlease ensure the 'venv' directory is set up correctly.", "Error: Environment Not Found", MessageBoxButton.OK, MessageBoxImage.Error);
+                    // Use Dispatcher.Invoke to show MessageBox on UI thread
+                    Dispatcher.Invoke(() =>
+                    {
+                        MessageBox.Show($"Virtual environment activation script not found at the expected location:\n{activateScript}\n\nPlease ensure the 'venv' directory is set up correctly.", "Error: Environment Not Found", MessageBoxButton.OK, MessageBoxImage.Error);
+                    });
                     return;
                 }
 
@@ -68,7 +95,10 @@ namespace HydraDragonAntivirusLauncher
                 // If the process is null, it failed to start. Show an error and exit.
                 if (process == null)
                 {
-                    MessageBox.Show("Failed to start the underlying command process.", "Process Start Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    Dispatcher.Invoke(() =>
+                    {
+                        MessageBox.Show("Failed to start the underlying command process.", "Process Start Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    });
                     return;
                 }
 
@@ -82,16 +112,19 @@ namespace HydraDragonAntivirusLauncher
                 // If the process did not exit cleanly (exit code is not 0), show an error message with the details.
                 if (process.ExitCode != 0)
                 {
-                    MessageBox.Show($"Failed to launch the application (Exit Code: {process.ExitCode}).\n\nError Stream:\n{error}\n\nOutput Stream:\n{output}", "Execution Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    Dispatcher.Invoke(() =>
+                    {
+                        MessageBox.Show($"Failed to launch the application (Exit Code: {process.ExitCode}).\n\nError Stream:\n{error}\n\nOutput Stream:\n{output}", "Execution Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    });
                 }
-                // If successful, the Python application is now running.
-                // You could optionally close the launcher window here if desired.
-                // e.g., Application.Current.Shutdown(); 
             }
             catch (Exception ex)
             {
-                // Catch any other exceptions during process startup.
-                MessageBox.Show($"An unexpected error occurred while trying to launch the application: {ex.Message}", "Launcher Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                // Catch any other exceptions during process startup and show on UI thread
+                Dispatcher.Invoke(() =>
+                {
+                    MessageBox.Show($"An unexpected error occurred while trying to launch the application: {ex.Message}", "Launcher Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                });
             }
         }
     }
