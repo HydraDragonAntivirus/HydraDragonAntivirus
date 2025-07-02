@@ -9378,36 +9378,33 @@ def scan_and_warn(file_path,
                 logging.info(
                     f"File {norm_path} is a .pyc (Python Compiled Module). Attempting Pylingual decompilation...")
 
-                # Call the Pylingual-based decompile+pycdas function
+                # 1) Decompile
                 pylingual, pycdas = show_code_with_pylingual_pycdas(
                     file_path=norm_path,
                     out_base_dir=Path(python_source_code_dir),
                 )
 
-                output_dir = Path(python_source_code_dir) / f"scan_temp_{Path(norm_path).stem}"
-                output_dir.mkdir(parents=True, exist_ok=True)
-
-                # 1. Write and scan each decompiled .py source
+                # 2) Scan .py sources in‑memory
                 if pylingual:
                     logging.info("Scanning all decompiled .py files from Pylingual output.")
                     for fname, source in pylingual.items():
-                        out_path = output_dir / fname
-                        with open(out_path, "w", encoding="utf-8") as f:
-                            f.write(source)
-                        logging.info(f"Scheduling scan for decompiled file: {out_path}")
-                        threading.Thread(target=scan_and_warn, args=(str(out_path),)).start()
+                        logging.info(f"Scheduling scan for decompiled file: {fname}")
+                        threading.Thread(
+                            target=scan_and_warn,
+                            kwargs={"file_path": None, "content": source}
+                        ).start()
                 else:
                     logging.error(f"Pylingual decompilation failed for {norm_path}.")
 
-                # 2. Write and scan each extracted resource (pycdas)
+                # 3) Scan non‑.py resources in‑memory
                 if pycdas:
-                    logging.info("Scanning all extracted non-.py resource files from PyCDAS output.")
+                    logging.info("Scanning all extracted resources from PyCDAS output.")
                     for rname, rcontent in pycdas.items():
-                        out_path = output_dir / rname
-                        with open(out_path, "w", encoding="utf-8", errors="ignore") as f:
-                            f.write(rcontent)
-                        logging.info(f"Scheduling scan for resource file: {out_path}")
-                        threading.Thread(target=scan_and_warn, args=(str(out_path),)).start()
+                        logging.info(f"Scheduling scan for resource: {rname}")
+                        threading.Thread(
+                            target=scan_and_warn,
+                            kwargs={"file_path": None, "content": rcontent}
+                        ).start()
                 else:
                     logging.info(f"No extra resources extracted for {norm_path}.")
 
