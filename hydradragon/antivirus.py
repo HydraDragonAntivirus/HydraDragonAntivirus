@@ -341,8 +341,8 @@ from GoStringUngarbler.gostringungarbler_lib import process_file_go
 logging.info(f"GoStringUngarbler.gostringungarbler_lib.process_file_go module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from pylingual.decompiler import decompile, DecompilerResult
-logging.info(f"pylingual.decompiler.decompile and DecomplierResult module loaded in {time.time() - start_time:.6f} seconds")
+from pylingual.main import main as pylingual_main
+logging.info(f"pylingual.main module loaded in {time.time() - start_time:.6f} seconds")
 
 # Calculate and logging.info total time
 total_end_time = time.time()
@@ -7327,14 +7327,14 @@ def extract_marshal_code_from_source(source: str) -> types.CodeType | None:
     logging.error("[!] marshal.loads pattern with base64 blob not found in AST")
     return None
 
+
 def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
     """
-    Decompile a .pyc file using Pylingual.
+    Decompile a .pyc file using Pylingual main function directly.
     Returns the combined decompiled source as a string if successful, else None.
     
     Args:
         pyc_path: Path to the .pyc file to decompile
-        pylingual_extracted_dir: Base directory for extraction output
     
     Returns:
         Combined decompiled source code as string, or None if failed
@@ -7351,15 +7351,19 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
         output_path = Path(pylingual_extracted_dir) / f"decompiled_{base_name}"
         output_path.mkdir(parents=True, exist_ok=True)
 
-        # Call the decompile function with proper parameters
-        result: DecompilerResult = decompile(
-            file=pyc_file,
+        # Call pylingual main function directly with parameters
+        start_time = time.time()
+        pylingual_main(
+            files=[str(pyc_file)],
             out_dir=output_path,
-            config_file=None,  # Use default config
-            version=None,      # Auto-detect Python version
-            top_k=10,         # Maximum additional segmentations
-            trust_lnotab=False # Use segmentation model instead of lnotab
+            config_file=None,
+            version=None,
+            top_k=10,
+            trust_lnotab=False,
+            init_pyenv=False,
+            quiet=False
         )
+        logging.info(f"pylingual.main execution completed in {time.time() - start_time:.6f} seconds")
 
         # Find all generated .py files
         py_files = list(output_path.rglob("*.py"))
@@ -7385,36 +7389,12 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
         logging.info(f"[Pylingual] Successfully decompiled {pyc_path} -> {output_path}")
         logging.info(f"[Pylingual] Generated {len(py_files)} Python files")
         
-        # Log equivalence results if available
-        if hasattr(result, 'equivalence_results') and result.equivalence_results:
-            success_count = sum(1 for r in result.equivalence_results 
-                              if hasattr(r, 'success') and r.success)
-            total_count = len([r for r in result.equivalence_results 
-                             if hasattr(r, 'success')])
-            logging.info(f"[Pylingual] Equivalence check: {success_count}/{total_count} successful")
-        
         return combined_source
 
     except Exception as e:
         logging.error(f"[Pylingual] Decompilation failed for {pyc_path}: {e}")
         return None
 
-def decompile_pyc_with_fallback(pyc_path: str) -> str | None:
-    """
-    Try to decompile a .pyc file using Pylingual.
-
-    Returns the decompiled source code as a string if successful, otherwise None.
-    """
-    try:
-        source_code = decompile_pyc_with_pylingual(pyc_path)
-        if source_code:
-            return source_code
-        else:
-            logging.error("Pylingual decompilation failed or returned empty output.")
-    except Exception as e:
-        logging.error(f"Error during Pylingual decompilation: {e}")
-
-    return None
 
 def codeobj_to_source(codeobj: types.CodeType, base_name: str) -> str:
     try:
@@ -7432,7 +7412,7 @@ def codeobj_to_source(codeobj: types.CodeType, base_name: str) -> str:
             f.write(header)
             marshal.dump(codeobj, f)
 
-        source = decompile_pyc_with_fallback(str(pyc_path))
+        source = decompile_pyc_with_pylingual(str(pyc_path))
         if source:
             return source
         else:
@@ -9039,59 +9019,49 @@ def run_in_thread(fn):
 
 def show_code_with_pylingual_pycdas(
     file_path: str,
-    file_name: str,
     out_base_dir: Path,
-    config_file: Path | None = None,
-    version=None,
-    top_k: int = 10,
-    trust_lnotab: bool = False
-) -> tuple[Path | None, Path | None, str | None]:
+) -> Tuple[Optional[Dict[str, str]], Optional[Dict[str, str]]]:
     """
-    Decompile a .pyc file using the shared decompile_pyc_with_pylingual(),
-    then produce a single united Python file from all resulting .py files.
+    Decompile a .pyc file using the shared decompile_pyc_with_pylingual().
 
     Returns:
         Tuple:
-          - out_dir: Path to directory containing decompiled .py files, or None
-          - united_output_path: Path to the combined .py output, or None
-          - combined_source: The combined source code string, or None
+          - pylingual: A dict mapping each decompiled .py filename to its source code string, or None
+          - pycdas: A dict mapping each non-.py resource filename to its contents as a string, or None
     """
     try:
         logging.info(f"Decompiling with Pylingual: {file_path}")
         pyc_path = Path(file_path)
         if not pyc_path.exists():
             logging.error(f".pyc file not found: {file_path}")
-            return None, None, None
+            return None, None
 
-        # Output directory will be derived from the global pylingual_extracted_dir
-        out_dir = Path(pylingual_extracted_dir) / f"decompiled_{pyc_path.stem}"
-        out_dir.mkdir(parents=True, exist_ok=True)
+        # Create an output directory under the base dir
+        target_dir = Path(out_base_dir) / f"decompiled_{pyc_path.stem}"
+        target_dir.mkdir(parents=True, exist_ok=True)
 
-        # Use existing unified decompiler wrapper
-        combined_source = decompile_pyc_with_pylingual(str(pyc_path))
-        if not combined_source:
-            return out_dir, None, None
+        # Run the unified decompiler; writes files into target_dir
+        decompile_pyc_with_pylingual(str(pyc_path), str(out_base_dir))
 
-        # Create united file path
-        united_dir = Path(out_base_dir) / "united"
-        united_dir.mkdir(parents=True, exist_ok=True)
+        pylingual: Dict[str, str] = {}
+        pycdas: Dict[str, str] = {}
 
-        base_name = Path(file_name).stem
-        united_output_path = united_dir / f"{base_name}_united.py"
+        for file in target_dir.iterdir():
+            try:
+                with open(file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    if file.suffix == ".py":
+                        pylingual[file.name] = content
+                    else:
+                        pycdas[file.name] = content
+            except Exception as read_ex:
+                logging.warning(f"Failed to read file {file}: {read_ex}")
 
-        try:
-            with open(united_output_path, "w", encoding="utf-8") as f:
-                f.write(combined_source)
-            logging.info(f"United Pylingual output saved to {united_output_path}")
-        except Exception as e:
-            logging.error(f"Failed to write united Pylingual output: {e}")
-            united_output_path = None
-
-        return out_dir, united_output_path, combined_source
+        return pylingual if pylingual else None, pycdas if pycdas else None
 
     except Exception as ex:
         logging.error(f"Unexpected error in show_code_with_pylingual_pycdas for {file_path}: {ex}")
-        return None, None, None
+        return None, None
 
 # --- Main Scanning Function ---
 @run_in_thread
@@ -9409,36 +9379,37 @@ def scan_and_warn(file_path,
                     f"File {norm_path} is a .pyc (Python Compiled Module). Attempting Pylingual decompilation...")
 
                 # Call the Pylingual-based decompile+pycdas function
-                # Assume show_code_with_pylingual_united is imported and available,
-                # and out_base_dir is defined (e.g., a base directory for decompiled outputs).
-                out_dir, united_output_path, result = show_code_with_pylingual_pycdas(
+                pylingual, pycdas = show_code_with_pylingual_pycdas(
                     file_path=norm_path,
-                    file_name=file_name,
-                    out_base_dir=Path(python_source_code_dir),  # or another base directory
-                    config_file=None,
-                    version=None,
-                    top_k=10,
-                    trust_lnotab=False
+                    out_base_dir=Path(python_source_code_dir),
                 )
 
-                # If decompilation directory was created, scan each .py file inside
-                if out_dir:
-                    logging.info(f"Scanning all decompiled .py files in: {out_dir}")
-                    for root, _, files in os.walk(out_dir):
-                        for fname in files:
-                            if fname.endswith(".py"):
-                                file_to_scan = os.path.join(root, fname)
-                                logging.info(f"Scheduling scan for decompiled file: {file_to_scan}")
-                                threading.Thread(target=scan_and_warn, args=(file_to_scan,)).start()
+                output_dir = Path(python_source_code_dir) / f"scan_temp_{Path(norm_path).stem}"
+                output_dir.mkdir(parents=True, exist_ok=True)
+
+                # 1. Write and scan each decompiled .py source
+                if pylingual:
+                    logging.info("Scanning all decompiled .py files from Pylingual output.")
+                    for fname, source in pylingual.items():
+                        out_path = output_dir / fname
+                        with open(out_path, "w", encoding="utf-8") as f:
+                            f.write(source)
+                        logging.info(f"Scheduling scan for decompiled file: {out_path}")
+                        threading.Thread(target=scan_and_warn, args=(str(out_path),)).start()
                 else:
                     logging.error(f"Pylingual decompilation failed for {norm_path}.")
 
-                # If united file exists, scan it
-                if united_output_path:
-                    logging.info(f"Scheduling scan for united decompiled file: {united_output_path}")
-                    threading.Thread(target=scan_and_warn, args=(united_output_path,)).start()
+                # 2. Write and scan each extracted resource (pycdas)
+                if pycdas:
+                    logging.info("Scanning all extracted non-.py resource files from PyCDAS output.")
+                    for rname, rcontent in pycdas.items():
+                        out_path = output_dir / rname
+                        with open(out_path, "w", encoding="utf-8", errors="ignore") as f:
+                            f.write(rcontent)
+                        logging.info(f"Scheduling scan for resource file: {out_path}")
+                        threading.Thread(target=scan_and_warn, args=(str(out_path),)).start()
                 else:
-                    logging.info(f"No united output created for {norm_path}.")
+                    logging.info(f"No extra resources extracted for {norm_path}.")
 
             # Operation of the PE file
             if pe_file:
