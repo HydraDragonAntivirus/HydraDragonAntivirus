@@ -1,4 +1,5 @@
 import importlib.metadata
+from importlib.metadata import PackageNotFoundError
 
 PYLINGUAL_ART = r'''
  ,ggggggggggg,              ,gggg,                                                                 
@@ -19,7 +20,13 @@ Yb,  88      `8b           88  ,dP                                              
                `Y8P"                                         `Y8P"                                 
 '''.strip("\n")
 
+# Safely grab a version or fall back
+try:
+    _version = importlib.metadata.version("pylingual")
+except PackageNotFoundError:
+    _version = "0.0.1"
+
 PYLINGUAL_SUBHEADER = f"""
 The University of Texas at Dallas, Syssec Lab
-{importlib.metadata.version("pylingual")} - https://pylingual.io
+{_version} - https://pylingual.io
 """.rstrip()
