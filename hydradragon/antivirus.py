@@ -1647,7 +1647,7 @@ def decode_base64_from_line(line):
 
 def save_to_file(file_path, content):
     """
-    Saves content to a file in the 'python_source_code_dir' directory and returns the file path.
+    Saves content to a file in the 'python_deobfuscated_dir' directory and returns the file path.
 
     Args:
         file_path: Path to the file.
@@ -1658,7 +1658,7 @@ def save_to_file(file_path, content):
     """
 
     # Update the file path to save within the specified directory
-    file_path = os.path.join(python_source_code_dir, file_path)
+    file_path = os.path.join(python_deobfuscated_dir, file_path)
 
     try:
         with open(file_path, 'w', encoding='utf-8') as file:
@@ -9019,8 +9019,7 @@ def run_in_thread(fn):
 
 def show_code_with_pylingual_pycdas(
     file_path: str,
-    out_base_dir: Path,
-) -> Tuple[Optional[Dict[str, str]], Optional[Dict[str, str]]]:
+) -> Tuple[Optional[Dict[str, str]]]:
     """
     Decompile a .pyc file using the shared decompile_pyc_with_pylingual().
 
@@ -9037,11 +9036,11 @@ def show_code_with_pylingual_pycdas(
             return None, None
 
         # Create an output directory under the base dir
-        target_dir = Path(out_base_dir) / f"decompiled_{pyc_path.stem}"
+        target_dir = Path(pylingual_extracted_dir) / f"decompiled_{pyc_path.stem}"
         target_dir.mkdir(parents=True, exist_ok=True)
 
         # Run the unified decompiler; writes files into target_dir
-        decompile_pyc_with_pylingual(str(pyc_path), str(out_base_dir))
+        decompile_pyc_with_pylingual(str(pyc_path), str(pylingual_extracted_dir))
 
         pylingual: Dict[str, str] = {}
         pycdas: Dict[str, str] = {}
@@ -9381,10 +9380,9 @@ def scan_and_warn(file_path,
                 # 1) Decompile
                 pylingual, pycdas = show_code_with_pylingual_pycdas(
                     file_path=norm_path,
-                    out_base_dir=Path(python_source_code_dir),
                 )
 
-                # 2) Scan .py sources in‑memory
+                # 2) Scan .py sources in-memory
                 if pylingual:
                     logging.info("Scanning all decompiled .py files from Pylingual output.")
                     for fname, source in pylingual.items():
@@ -9396,7 +9394,7 @@ def scan_and_warn(file_path,
                 else:
                     logging.error(f"Pylingual decompilation failed for {norm_path}.")
 
-                # 3) Scan non‑.py resources in‑memory
+                # 3) Scan non-.py resources in-memory
                 if pycdas:
                     logging.info("Scanning all extracted resources from PyCDAS output.")
                     for rname, rcontent in pycdas.items():
