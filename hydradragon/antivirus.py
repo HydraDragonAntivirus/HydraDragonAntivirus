@@ -9019,44 +9019,72 @@ def run_in_thread(fn):
 
 def show_code_with_pylingual_pycdas(
     file_path: str,
-) -> Tuple[Optional[Dict[str, str]]]:
+) -> Tuple[Optional[Dict[str, str]], Optional[Dict[str, str]]]:
     """
-    Decompile a .pyc file using the shared decompile_pyc_with_pylingual().
+    Decompile a .pyc file using both Pylingual and pycdas decompilers.
 
     Returns:
         Tuple:
           - pylingual: A dict mapping each decompiled .py filename to its source code string, or None
-          - pycdas: A dict mapping each non-.py resource filename to its contents as a string, or None
+          - pycdas: A dict mapping each decompiled .py filename to its source code string, or None
     """
     try:
-        logging.info(f"Decompiling with Pylingual: {file_path}")
+        logging.info(f"Decompiling with Pylingual and pycdas: {file_path}")
         pyc_path = Path(file_path)
         if not pyc_path.exists():
             logging.error(f".pyc file not found: {file_path}")
             return None, None
 
-        # Create an output directory under the base dir
-        target_dir = Path(pylingual_extracted_dir) / f"decompiled_{pyc_path.stem}"
-        target_dir.mkdir(parents=True, exist_ok=True)
+        pylingual_results: Dict[str, str] = {}
+        pycdas_results: Dict[str, str] = {}
 
-        # Run the unified decompiler; writes files into target_dir
-        decompile_pyc_with_pylingual(str(pyc_path), str(pylingual_extracted_dir))
+        # === Pylingual Decompilation ===
+        try:
+            # Create an output directory under the base dir for Pylingual
+            target_dir = Path(pylingual_extracted_dir) / f"decompiled_{pyc_path.stem}"
+            target_dir.mkdir(parents=True, exist_ok=True)
 
-        pylingual: Dict[str, str] = {}
-        pycdas: Dict[str, str] = {}
+            # Run the unified decompiler; writes files into target_dir
+            decompile_pyc_with_pylingual(str(pyc_path), str(pylingual_extracted_dir))
 
-        for file in target_dir.iterdir():
-            try:
-                with open(file, 'r', encoding='utf-8') as f:
+            # Read the decompiled files from Pylingual
+            for file in target_dir.iterdir():
+                try:
+                    with open(file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        if file.suffix == ".py":
+                            pylingual_results[file.name] = content
+                except Exception as read_ex:
+                    logging.warning(f"Failed to read Pylingual file {file}: {read_ex}")
+
+            logging.info(f"Pylingual decompilation completed. Found {len(pylingual_results)} Python files.")
+            
+        except Exception as pylingual_ex:
+            logging.error(f"Pylingual decompilation failed for {file_path}: {pylingual_ex}")
+
+        # === pycdas Decompilation ===
+        try:
+            pycdas_output_path = run_pycdas_decompiler(file_path)
+            
+            if pycdas_output_path and os.path.exists(pycdas_output_path):
+                # Read the decompiled file from pycdas
+                with open(pycdas_output_path, 'r', encoding='utf-8') as f:
                     content = f.read()
-                    if file.suffix == ".py":
-                        pylingual[file.name] = content
-                    else:
-                        pycdas[file.name] = content
-            except Exception as read_ex:
-                logging.warning(f"Failed to read file {file}: {read_ex}")
+                    file_name = os.path.basename(pycdas_output_path)
+                    pycdas_results[file_name] = content
+                
+                logging.info(f"pycdas decompilation completed. Output: {pycdas_output_path}")
+            else:
+                logging.warning(f"pycdas decompilation failed or produced no output for {file_path}")
+                
+        except Exception as pycdas_ex:
+            logging.error(f"pycdas decompilation failed for {file_path}: {pycdas_ex}")
 
-        return pylingual if pylingual else None, pycdas if pycdas else None
+        # Return results (None if empty)
+        return (
+            pylingual_results if pylingual_results else None,
+            pycdas_results if pycdas_results else None
+        )
 
     except Exception as ex:
         logging.error(f"Unexpected error in show_code_with_pylingual_pycdas for {file_path}: {ex}")
