@@ -7385,22 +7385,55 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
         
         # Call pylingual main function directly with parameters
         start_time = time.time()
-        pylingual_main(
-            files=[str(pyc_file)],
-            out_dir=output_path,
-            config_file=None,
-            version=None,
-            top_k=10,
-            trust_lnotab=False,
-            init_pyenv=False,
-            quiet=False
-        )
-        logging.info(f"pylingual.main execution completed in {time.time() - start_time:.6f} seconds")
-
+        try:
+            # Add more detailed logging
+            logging.info(f"[Pylingual] Starting decompilation of {pyc_file}")
+            logging.info(f"[Pylingual] Output directory: {output_path}")
+            logging.info(f"[Pylingual] File size: {pyc_file.stat().st_size} bytes")
+            
+            # Check if file is actually a valid .pyc file by reading magic number
+            try:
+                with open(pyc_file, 'rb') as f:
+                    magic = f.read(4)
+                    logging.info(f"[Pylingual] Magic number: {magic.hex()}")
+            except Exception as magic_error:
+                logging.warning(f"[Pylingual] Could not read magic number: {magic_error}")
+            
+            pylingual_main(
+                files=[str(pyc_file)],
+                out_dir=output_path,
+                config_file=None,
+                version=None,
+                top_k=10,
+                trust_lnotab=False,
+                init_pyenv=False,
+                quiet=False
+            )
+            logging.info(f"pylingual.main execution completed in {time.time() - start_time:.6f} seconds")
+        except Exception as pylingual_error:
+            logging.error(f"[Pylingual] pylingual_main failed: {pylingual_error}")
+            logging.error(f"[Pylingual] Error type: {type(pylingual_error).__name__}")
+            # Try to get more details about the error
+            import traceback
+            logging.error(f"[Pylingual] Traceback: {traceback.format_exc()}")
+            raise
+        
         # Find all generated .py files
         py_files = list(output_path.rglob("*.py"))
+        
+        # If no files found in the expected location, try looking in subdirectories
+        if not py_files and output_path == parent_dir:
+            # Sometimes pylingual creates its own subdirectory
+            possible_subdir = parent_dir / f"decompiled_{base_name}"
+            if possible_subdir.exists():
+                py_files = list(possible_subdir.rglob("*.py"))
+                logging.info(f"[Pylingual] Found files in subdirectory: {possible_subdir}")
+        
         if not py_files:
             logging.warning(f"[Pylingual] No .py files found in output for: {pyc_path}")
+            # List all files in the output directory for debugging
+            all_files = list(output_path.rglob("*"))
+            logging.info(f"[Pylingual] All files in output directory: {[str(f) for f in all_files]}")
             return None
 
         # Combine all decompiled source files
