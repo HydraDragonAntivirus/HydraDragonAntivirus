@@ -7350,8 +7350,18 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
             logging.error(f"[Pylingual] .pyc file does not exist: {pyc_path}")
             return None
         
+        # Check if the file is readable
+        if not os.access(pyc_file, os.R_OK):
+            logging.error(f"[Pylingual] .pyc file is not readable: {pyc_path}")
+            return None
+        
         base_name = pyc_file.stem
         parent_dir = pyc_file.parent
+        
+        # Check if parent directory is writable
+        if not os.access(parent_dir, os.W_OK):
+            logging.error(f"[Pylingual] Parent directory is not writable: {parent_dir}")
+            return None
         
         # Check if a .py file with the same name already exists
         potential_output_file = parent_dir / f"{base_name}.py"
@@ -7359,12 +7369,19 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
         if potential_output_file.exists():
             # File exists, create a separate folder
             output_path = parent_dir / f"decompiled_{base_name}"
-            output_path.mkdir(parents=True, exist_ok=True)
             logging.info(f"[Pylingual] Output file exists, using folder: {output_path}")
         else:
-            # File doesn't exist, use the parent directory
+            # File doesn't exist, use the parent directory directly (no folder creation)
             output_path = parent_dir
-            logging.info(f"[Pylingual] Decompiling to parent directory: {output_path}")
+            logging.info(f"[Pylingual] Decompiling directly to parent directory: {output_path}")
+        
+        # Ensure output directory exists (but don't create unnecessary folders)
+        if output_path != parent_dir:
+            try:
+                output_path.mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                logging.error(f"[Pylingual] Failed to create output directory {output_path}: {e}")
+                return None
         
         # Call pylingual main function directly with parameters
         start_time = time.time()
