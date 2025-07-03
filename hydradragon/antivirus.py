@@ -4731,9 +4731,7 @@ def verify_authenticode_signature(file_path: str) -> bool:
     return result == 0  # ERROR_SUCCESS
 
 # Function to check the signature of a file
-def check_signature(file_path: str,
-                    goodsign_signatures: list[str],
-                    antivirus_signatures: list[str]) -> dict:
+def check_signature(file_path: str) -> dict:
     """
     Check file signature via WinVerifyTrust + CryptoAPI.
     Returns a dict:
