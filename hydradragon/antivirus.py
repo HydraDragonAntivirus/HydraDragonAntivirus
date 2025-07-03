@@ -7333,6 +7333,9 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
     Decompile a .pyc file using Pylingual main function directly.
     Returns the combined decompiled source as a string if successful, else None.
     
+    Decompiles to the same folder as the .pyc file. If a file with the same name
+    already exists, creates a separate folder for the output.
+    
     Args:
         pyc_path: Path to the .pyc file to decompile
     
@@ -7346,11 +7349,23 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
         if not pyc_file.exists():
             logging.error(f"[Pylingual] .pyc file does not exist: {pyc_path}")
             return None
-            
+        
         base_name = pyc_file.stem
-        output_path = Path(pylingual_extracted_dir) / f"decompiled_{base_name}"
-        output_path.mkdir(parents=True, exist_ok=True)
-
+        parent_dir = pyc_file.parent
+        
+        # Check if a .py file with the same name already exists
+        potential_output_file = parent_dir / f"{base_name}.py"
+        
+        if potential_output_file.exists():
+            # File exists, create a separate folder
+            output_path = parent_dir / f"decompiled_{base_name}"
+            output_path.mkdir(parents=True, exist_ok=True)
+            logging.info(f"[Pylingual] Output file exists, using folder: {output_path}")
+        else:
+            # File doesn't exist, use the parent directory
+            output_path = parent_dir
+            logging.info(f"[Pylingual] Decompiling to parent directory: {output_path}")
+        
         # Call pylingual main function directly with parameters
         start_time = time.time()
         pylingual_main(
@@ -9045,7 +9060,7 @@ def show_code_with_pylingual_pycdas(
             target_dir.mkdir(parents=True, exist_ok=True)
 
             # Run the unified decompiler; writes files into target_dir
-            decompile_pyc_with_pylingual(str(pyc_path), str(pylingual_extracted_dir))
+            decompile_pyc_with_pylingual(str(pyc_path))
 
             # Read the decompiled files from Pylingual
             for file in target_dir.iterdir():
