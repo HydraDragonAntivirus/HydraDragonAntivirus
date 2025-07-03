@@ -4833,8 +4833,18 @@ def check_valid_signature(file_path: str) -> dict:
     Returns {"is_valid": bool, "status": str}.
     """
     try:
-        is_valid = verify_authenticode_signature(file_path)
-        status = "Valid" if is_valid else "Invalid or no signature"
+        result = verify_authenticode_signature(file_path)
+        
+        if result == 0:
+            is_valid = True
+            status = "Valid"
+        elif result in NO_SIGNATURE_CODES:
+            is_valid = False
+            status = "No signature"
+        else:
+            is_valid = False
+            status = "Invalid signature"
+            
         return {"is_valid": is_valid, "status": status}
     except Exception as ex:
         logging.error(f"[Signature] {file_path}: {ex}")
