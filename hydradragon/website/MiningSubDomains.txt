@@ -99,7 +99,6 @@ a.pool.ml
 a.qiao024.com
 a.stat.xiaomi.com
 a.tac.miaozhen.com
-a.tanx.com
 a.tribalfusion.com
 a.union.mi.com
 a.waczt.cn
@@ -282,7 +281,6 @@ adscdn.baidu.com
 adsence.sogou.com
 adserver-us.adtech.advertising.com
 adserver.adtech.de
-adserver.adtechus.com
 adsfs.oppomobile.com
 adsp.xunlei.com
 adsrvmedia.adk2x.com
@@ -341,8 +339,6 @@ air.yoyi.com.cn
 ait025.analysys.cn
 ait240.analysys.cn
 ak.cdn-jquery.host
-aka-cdn-ns.adtechus.com
-aka-cdn.adtechus.com
 aka.ehashcoins.org
 aka.pool.sexy
 akroma.cubepool.eu
@@ -506,7 +502,6 @@ api.ubiq.labaleine.gg
 api.uniplayad.com
 api.usxmrpool.com
 api.viaxmr.com
-api.viglink.com
 api.w.inmobi.com
 api.waptest.taobao.com
 api.wsq.umeng.com
@@ -957,10 +952,8 @@ cdn.rove.cl
 cdn.streambeam.io
 cdn.taboola.com
 cdn.taboolasyndication.com
-cdn.tanx.com
 cdn.vamaker.com
 cdn.viaxmr.com
-cdn.viglink.com
 cdn0.mobmore.com
 cdn1.cryptopia.co.nz
 cdn1.minestat.biz
@@ -1009,7 +1002,6 @@ chihuahua.gob.mx
 children.massbudget.org
 china.toastpool.com
 choice.cryptomininggame.com
-choice.microsoft.com.nsatc.net
 cid005.la.nocroom.com
 cip6.czpush.com
 cj.qidian.com
@@ -1028,7 +1020,6 @@ click.mz.simba.taobao.com
 click.qianqian.com
 click.simba.taobao.com
 click.stat.hao.360.cn
-click.tanx.com
 click.tianyaui.com
 click.tz.simba.taobao.com
 click.uve.mobile.sina.cn
@@ -1076,15 +1067,12 @@ cm.pos.baidu.com
 cm.reachmax.cn
 cm.vamaker.com
 cm066.getui.igexin.com
-cmc.tanx.com
 cmcdl.cmcm.com
 cmm.vpool.io
 cmop.mgtv.com
 cms.an.m.liebao.cn
 cms.gtags.net
-cms.opendsp.tanx.com
 cms.quantserve.com
-cms.tanx.com
 cn.api.push.le.com
 cn.dogecoin.dog
 cn.pub.vpon.com
@@ -1118,7 +1106,6 @@ coinchecker.backup-pool.com
 coincoin.n-engine.com
 coinminer.co.cc
 coinone.co.kr
-coins.arstechnica.com
 coinspool.cu.cc
 col.hztags.net
 community-pools.mysrv.cloud
@@ -1404,7 +1391,6 @@ dd.iaskgo.com
 dd713.bj.bcebos.com
 ddkkrrla.m.qxs.la
 ddrrccck.m.qxs.la
-ddutkl.spb.ru
 de.etc-poolcrypto.org
 de.moriaxmr.com
 de.pandora.xiaomi.com
@@ -1444,8 +1430,6 @@ dev.umeng.com
 dev2.minertopia.org
 dev8.cryptomininggame.com
 developers.minerpool.de
-devnull.perfops.net
-df.tanx.com
 dfc1.benbaisteel.com
 dgb.xtrapool.com
 dgbpool.xtrapool.com
@@ -1486,7 +1470,6 @@ dlink.com.br
 dlsw.baidu.com
 dlsw.br.baidu.com
 dm.aizhan.com
-dm.bytedance.com
 dm.pstatp.com
 dmapp.youku.com
 dmm.aizhan.com
@@ -1629,7 +1612,6 @@ east-us.aeonminingpool.com
 east1.profithash.com
 easynews.adsame.com
 eavs02.eqifa.com
-ebd.cda.pl
 ebg.lightninghash.com
 ebook.res.meizu.com
 ecc.lightninghash.com
@@ -1659,15 +1641,11 @@ eclick.baidu.com
 ecma.bdimg.com
 ecmb.bdimg.com
 ecmc.bdimg.com
-ecpm.tanx.com
 edollar.xeminer.net
 edu.lightninghash.com
 eee.eh39.co
 eee.kj78.org
 eenu.edu.ua
-ef-dongfeng.tanx.com
-ef.opendsp.tanx.com
-ef.tanx.com
 eff.inte.sogou.com
 eff.lu.sogou.com
 egem.cubepool.eu
@@ -1716,7 +1694,6 @@ esn.ehashcoins.org
 esp-test.cryptomininggame.com
 espp.com.br
 estapar.com.br
-et.tanx.com
 et.w.inmobi.com
 etc-us.ethteam.com
 etc.anorak.tech
@@ -1850,7 +1827,6 @@ events.appsflyer.com
 events.pingan.com
 ex.mobmore.com
 ex.puata.info
-ex.tanx.com
 ex.umengcloud.com
 exchange.coinsecure.in
 exchange.ipdx.cn.miaozhen.com
@@ -2253,7 +2229,6 @@ i.stat.nearme.com.cn
 i.w.inmobi.com
 i.w55c.net
 i1.go2yd.com
-i1.services.social.microsoft.com.nsatc.net
 ia.51.la
 ia.minexpool.nl
 iadctest.qwapi.com
@@ -2284,7 +2259,6 @@ iflow.uczzd.com
 iflow.uczzd.com.cn
 iflow.uczzd.net
 iflyad.bj.openstorage.cn
-ifs.tanx.com
 ig.nukefans.net
 iis1.deliver.ifeng.com
 iis3g.deliver.ifeng.com
@@ -2618,7 +2592,6 @@ lib.bmst.pw
 lidator.btcprivate.pro
 life.optimusblue.com
 link.cur.lv
-links.services.disqus.com
 links.upcoin.com
 linux.monerpool.org
 listlog.baofeng.net
@@ -2758,7 +2731,6 @@ m1.baidu.com
 m1.mbkpool.info
 m1.moneropool.com
 m1.stream.vidzi.tv
-m1.streaming.estream.to
 m1.videos.vidto.me
 m1268.oadz.com
 m1308.oadz.com
@@ -2767,7 +2739,6 @@ m2.cdn-jquery.host
 m2.da.mgtv.com
 m2.moneropool.com
 m2.stream.vidzi.tv
-m2.streaming.estream.to
 m2.videos.vidto.me
 m2374.oadz.com
 m3.cdn-jquery.host
@@ -3288,7 +3259,6 @@ o2o.api.xiaomi.com
 oascentral.sina.com.hk
 obolon-residences.com.ua
 oc.umeng.com
-oca.telemetry.microsoft.com.nsatc.net
 ocean.cryptaloot.pro
 ocean.cryptoloot.pro
 ocean.directprimal.com
@@ -3317,8 +3287,6 @@ oneevilcoin.miner.center
 onixcoin.multipool.es
 online.cnzz.com
 onlinetips.baofeng5.baofeng.net
-ope.tanx.com
-opehs.tanx.com
 open-hive-server-1.pp.ua
 open.grcpool.com
 open.play.cn
@@ -3350,14 +3318,12 @@ p.adsymptotic.com
 p.alimama.com
 p.appjiagu.com
 p.clkservice.youdao.com
-p.estream.to
 p.hemnes.win
 p.inte.sogou.com
 p.kjwx8.com
 p.lu.sogou.com
 p.rfihub.com
 p.sdu8cvc.com
-p.tanx.com
 p.tencentmind.com
 p.yiqifa.com
 p1.gnrdomimplementation.com
@@ -3421,7 +3387,6 @@ pcfg.wps.cn
 pcminitj.dftoutiao.com
 pcn.majorminers.com
 pcookie.cnzz.com
-pcookie.tanx.com
 pcvideoaliyun.titan.mgtv.com
 pcvideoyd.titan.mgtv.com
 pcweb-v1.log.mgtv.com
@@ -3446,7 +3411,6 @@ pgdt.ugdtimg.com
 pharmacist.or.kr
 phc.leetpools.net
 photobucket.adnxs.com
-phs.tanx.com
 pi.lightninghash.com
 pic.14bobo.com
 pic.517m.cn
@@ -3482,7 +3446,6 @@ pixel-a.sitescout.com
 pixel.adsafeprotected.com
 pixel.advertising.com
 pixel.quantserve.com
-pixel.rubiconproject.com
 pixel.sitescout.com
 pixel.tapad.com
 pixiu.shangshufang.ksosoft.com
@@ -3498,7 +3461,6 @@ play.cc.gofile.io
 play.coin.bajarlo.net
 play.dsd.everydayporn.co
 play.estream.nu
-play.estream.to
 play.estream.xyz
 play.flowplayer.space
 play.freebsd.nnna.ru
@@ -3515,7 +3477,6 @@ play.mysite.irkdsu.ru
 play.on.animeteatr.ru
 play.pc.belicimo.pw
 play.play.estream.nu
-play.play.estream.to
 play.play.estream.xyz
 play.play.tainiesonline.pw
 play.play.tainiesonline.stream
@@ -3533,7 +3494,6 @@ play.site.flashx.cc
 play.stat.miraben.pw
 play.strdef.world
 play.stream.vidzi.tv
-play.streaming.estream.to
 play.tainiesonline.pw
 play.tainiesonline.stream
 play.tercabilis.info
@@ -3823,7 +3783,6 @@ rd.e.sogou.com
 rd.miner.center
 rd.wan.360.cn
 rdd.coinedpool.com
-rdstat.tanx.com
 re.m.taobao.com
 re.taobao.com
 reader.browser.miui.com
@@ -3832,7 +3791,6 @@ rec.moviebox.baofeng.net
 red8.mtred.com
 redirect.simba.taobao.com
 redwind.miner.center
-referrer.disqus.com
 refinancia.com.co
 refresh-js.bitbucket.io
 relay.ypool.net
@@ -3902,7 +3860,6 @@ rubicon-match.dotomi.com
 rufflet-api.cryptokitties.co
 rufflet.cryptokitties.co
 rules-ltvp.inmobi.com
-rum.perfops.net
 rus.pool.gold
 rvn.rapidpools.com
 rwq.youle55.com
@@ -3958,7 +3915,6 @@ s06.hostcontent.live
 s07.hostcontent.live
 s08.hostcontent.live
 s09.hostcontent.live
-s1.2mdn.net
 s1.cmfu.com
 s1.hqq.tv
 s1.idaguang.com
@@ -4029,7 +3985,6 @@ s2.flowplayer.space
 s2.hqq.tv
 s2.huoying666.com
 s2.play.estream.nu
-s2.play.estream.to
 s2.play.estream.xyz
 s2.play.tainiesonline.pw
 s2.play.vidzi.tv
@@ -4055,14 +4010,12 @@ s26.cnzz.com
 s27.cnzz.com
 s28.cnzz.com
 s29.cnzz.com
-s2p.estream.to
 s3.analytics.blue
 s3.buysellads.com
 s3.cnzz.com
 s3.flowplayer.space
 s3.gasolina.ml
 s3.play.estream.nu
-s3.play.estream.to
 s3.play.estream.xyz
 s3.play.tainiesonline.pw
 s3.play.vidzi.tv
@@ -4087,7 +4040,6 @@ s36.cnzz.com
 s37.cnzz.com
 s38.cnzz.com
 s39.cnzz.com
-s3p.estream.to
 s4.cnzz.com
 s40.cnzz.com
 s41.cnzz.com
@@ -4672,7 +4624,6 @@ tak.majorminers.com
 talk.multiminerapp.com
 talk.nz.igexin.com
 tanxlog.istreamsche.com
-tap-t.rubiconproject.com
 tara.wemine.uk
 task.uax.io
 tc.51la.net
@@ -4755,7 +4706,6 @@ tns.simba.taobao.com
 to.cur.lv
 tob-cms.bj.bcebos.com
 token.breadapp.com
-token.rubiconproject.com
 tokensale.lydian.io
 tokio.minemonero.pro
 tokio01.minemonero.pro
@@ -4768,7 +4718,6 @@ tonic.dnsd.info
 toolbar.baidu.com
 tools.cryptomininggame.com
 top.h.qhimg.com
-toruk.tanx.com
 toutiao.2haha.com
 tpool.poolarchy.com
 tpool.yiluzhuanqian.com
@@ -4868,7 +4817,6 @@ um2.eqads.com
 uma.gtags.net
 umbtc.lightninghash.com
 umid.orion.meizu.com
-ums.adtechus.com
 unconf.mobad.ijinshan.com
 uneac.org.cu
 unibox.co.uk
@@ -4975,7 +4923,6 @@ uswest.alpereum.ch
 uswest.bitcoins.lc
 uswest.cpufan.club
 uswest.multipool.com
-usync.aws.rubiconproject.com
 ut.gtags.net
 utility.baidu.com
 utils.jaxx.io
@@ -5053,7 +5000,6 @@ vic.ehashcoins.org
 vic.pool.sexy
 video.estream.nu
 video.stream.vidzi.tv
-video.streaming.estream.to
 video.videos.vidto.me
 video.ymapp.com
 video2.stream.vidzi.tv
@@ -5304,7 +5250,6 @@ ws018-proxy-ajcryptominer.ajplugins.com
 ws018.hemnes.win
 ws019.coinhive.com
 ws019.hemnes.win
-ws01cn.streamplay.to
 ws020-proxy-ajcryptominer.ajplugins.com
 ws020.coinhive.com
 ws020.hemnes.win
@@ -5332,7 +5277,6 @@ ws028.hemnes.win
 ws029-proxy-ajcryptominer.ajplugins.com
 ws029.coinhive.com
 ws029.hemnes.win
-ws02cn.streamplay.to
 ws030.coinhive.com
 ws030.hemnes.win
 ws031-proxy-ajcryptominer.ajplugins.com
@@ -5342,7 +5286,6 @@ ws032-proxy-ajcryptominer.ajplugins.com
 ws032.coinhive.com
 ws032.hemnes.win
 ws035.coinhive.com
-ws03cn.streamplay.to
 ws09.coinhive.com
 ws1.1beb2a44.space
 ws1.3c0cb3b4.space
