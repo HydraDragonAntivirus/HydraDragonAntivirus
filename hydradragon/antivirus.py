@@ -4603,6 +4603,7 @@ def get_signer_cert_details(file_path: str) -> tuple[dict, bytes] | None:
     encoding = wintypes.DWORD()
     content_type = wintypes.DWORD()
     format_type = wintypes.DWORD()
+    pCertCtx = None
 
     # CryptQueryObject to get a cert store from the signed file
     res = crypt32.CryptQueryObject(
@@ -4620,20 +4621,20 @@ def get_signer_cert_details(file_path: str) -> tuple[dict, bytes] | None:
     )
     if not res:
         return None
+
     try:
         # Enumerate certificates in store: get first
         pCertCtx = crypt32.CertEnumCertificatesInStore(hCertStore, None)
         if not pCertCtx:
             return None
+
         # Cast to CERT_CONTEXT pointer
         cert_ctx = ctypes.cast(pCertCtx, PCCERT_CONTEXT).contents
 
         # Extract raw encoded bytes
-        raw_bytes = None
+        raw_bytes = b""
         if cert_ctx.pbCertEncoded and cert_ctx.cbCertEncoded:
             raw_bytes = ctypes.string_at(cert_ctx.pbCertEncoded, cert_ctx.cbCertEncoded)
-        else:
-            raw_bytes = b""
 
         # Helper to get name string
         def _get_name(pCtx, name_flag):
@@ -4663,14 +4664,26 @@ def get_signer_cert_details(file_path: str) -> tuple[dict, bytes] | None:
         issuer = _get_name(pCertCtx, CERT_NAME_ISSUER_FLAG)
 
         return ({"Subject": subject, "Issuer": issuer}, raw_bytes)
+
     except Exception as e:
         logging.debug(f"Failed to extract certificate info: {e}")
         return None
+
     finally:
+        # Free the certificate context if one was returned
+        if pCertCtx:
+            crypt32.CertFreeCertificateContext(pCertCtx)
+        # Close the certificate store
         if hCertStore:
             crypt32.CertCloseStore(hCertStore, 0)
-        # hMsg does not require explicit free here
+        # Close the message handle
+        if hMsg:
+            crypt32.CryptMsgClose(hMsg)
 
+# HRESULT codes for "no signature" cases
+TRUST_E_NOSIGNATURE = 0x800B0100
+TRUST_E_SUBJECT_FORM_UNKNOWN = 0x800B0008
+NO_SIGNATURE_CODES = {TRUST_E_NOSIGNATURE, TRUST_E_SUBJECT_FORM_UNKNOWN}
 
 # Constants for WinVerifyTrust
 class GUID(ctypes.Structure):
@@ -4685,11 +4698,6 @@ WINTRUST_ACTION_GENERIC_VERIFY_V2 = GUID(
     0x00AAC56B, 0xCD44, 0x11D0,
     (ctypes.c_ubyte * 8)(0x8C, 0xC2, 0x00, 0xC0, 0x4F, 0xC2, 0x95, 0xEE)
 )
-
-# HRESULT codes
-TRUST_E_NOSIGNATURE = 0x800B0100
-TRUST_E_SUBJECT_FORM_UNKNOWN = 0x800B0008  # Sometimes returned for unsigned files
-NO_SIGNATURE_CODES = {TRUST_E_NOSIGNATURE, TRUST_E_SUBJECT_FORM_UNKNOWN}
 
 class WINTRUST_FILE_INFO(ctypes.Structure):
     _fields_ = [
@@ -4751,7 +4759,6 @@ def verify_authenticode_signature(file_path: str) -> int:
         ctypes.byref(wtd)
     )
 
-
 def check_signature(file_path: str) -> dict:
     """
     Check file signature via WinVerifyTrust + CryptoAPI.
@@ -4760,44 +4767,36 @@ def check_signature(file_path: str) -> dict:
         "is_valid": bool,
         "status": str,
         "signature_status_issues": bool,
+        "no_signature": bool,
         "has_microsoft_signature": bool,
         "has_valid_goodsign_signature": bool,
         "matches_antivirus_signature": bool
       }
     """
     try:
-        result = verify_authenticode_signature(file_path)
+        hresult = verify_authenticode_signature(file_path)
 
-        if result == 0:
-            is_valid = True
-            status = "Valid"
-            signature_status_issues = False
-        elif result in NO_SIGNATURE_CODES:
-            is_valid = False
-            status = "No signature"
-            # skip treating as issue
-            signature_status_issues = False
-        else:
-            is_valid = False
-            status = "Invalid signature"
-            signature_status_issues = True
+        no_sig = (hresult in NO_SIGNATURE_CODES)
+        is_valid = (hresult == 0)
+        status = (
+            "Valid" if is_valid else
+            "No signature" if no_sig else
+            "Invalid signature"
+        )
+        signature_status_issues = not (is_valid or no_sig)
 
         has_microsoft_signature = False
         has_valid_goodsign_signature = False
         matches_antivirus_signature = False
 
-        # Only check details when there is a valid signature
+        # Only check certificate details when signature is valid
         if is_valid:
             details = get_signer_cert_details(file_path)
             if details:
                 cert_info, raw_bytes = details
                 subj_iss = (cert_info.get("Subject", "") + cert_info.get("Issuer", "")).upper()
-                if "MICROSOFT" in subj_iss:
-                    has_microsoft_signature = True
-                for sig in goodsign_signatures:
-                    if sig.upper() in subj_iss:
-                        has_valid_goodsign_signature = True
-                        break
+                has_microsoft_signature = "MICROSOFT" in subj_iss
+                has_valid_goodsign_signature = any(sig.upper() in subj_iss for sig in goodsign_signatures)
                 if raw_bytes:
                     hex_str = raw_bytes.hex().upper()
                     for sig in antivirus_signatures:
@@ -4812,6 +4811,7 @@ def check_signature(file_path: str) -> dict:
             "is_valid": is_valid,
             "status": status,
             "signature_status_issues": signature_status_issues,
+            "no_signature": no_sig,
             "has_microsoft_signature": has_microsoft_signature,
             "has_valid_goodsign_signature": has_valid_goodsign_signature,
             "matches_antivirus_signature": matches_antivirus_signature
@@ -4822,6 +4822,7 @@ def check_signature(file_path: str) -> dict:
             "is_valid": False,
             "status": str(ex),
             "signature_status_issues": False,
+            "no_signature": False,
             "has_microsoft_signature": False,
             "has_valid_goodsign_signature": False,
             "matches_antivirus_signature": False
