@@ -7797,7 +7797,7 @@ def sandbox_deobfuscate_file(transformed_path: Path) -> Path | None:
         logging.error(f"[SANDBOX] Failed to copy from sandbox: {copy_exc}")
         return None
 
-# Main loop: apply exec->print and remove unused imports, with stuck-detection
+# Main loop: apply exec->file and remove unused imports, with stuck-detection
 def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
     source_path = Path(source_path)
     base_name = source_path.stem
@@ -7935,7 +7935,7 @@ def deobfuscate_until_clean(source_path: Path) -> Optional[Path]:
                         return final_candidate
 
                     # Otherwise, still needs sandbox (either offloaded or exec remains)
-                    if pyinstaller_archive and os.path.isdir(pyinstaller_archive) and pyz_version_match:
+                    if pyinstaller_archive and Path(pyinstaller_archive).is_dir() and pyz_version_match:
                         sandbox_copy = Path(pyinstaller_archive) / candidate_path.name
                         shutil.copy(candidate_path, sandbox_copy)
                     else:
@@ -8149,11 +8149,74 @@ def extract_all_files_with_7z(file_path, nsis_flag=False):
         logging.error(f"Error during 7z extraction: {ex}")
         return extracted_files
 
+# Generic obfuscation decoder: reverse -> Base64 -> zlib
+def decode_blob(blob: str) -> str | None:
+    """
+    Attempt to decode a base64 blob (with optional reverse) via zlib.
+    Returns decoded string or None if failure.
+    """
+    try:
+        data = blob.encode('utf-8')
+        # Try direct decode
+        decoded = zlib.decompress(base64.b64decode(data))
+        return decoded.decode('utf-8', errors='replace')
+    except Exception:
+        pass
+    try:
+        # Try reversed
+        data = data[::-1]
+        decoded = zlib.decompress(base64.b64decode(data))
+        return decoded.decode('utf-8', errors='replace')
+    except Exception:
+        return None
+
+
+def find_blobs(code: str) -> list[str]:
+    """
+    Find all string literals that look like large Base64 blobs.
+    """
+    pattern = r"[rb]?'([A-Za-z0-9+/=]{80,})'"
+    return re.findall(pattern, code)
+
+
+def recursive_generic_deobf(code: str) -> str:
+    """
+    Recursively detect and decode blobs until no more new content.
+    """
+    result = code
+    seen = set()
+    while True:
+        blobs = find_blobs(result)
+        decoded_any = False
+        for blob in blobs:
+            if blob in seen:
+                continue
+            seen.add(blob)
+            decoded = decode_blob(blob)
+            if decoded:
+                # replace the blob literal with decoded content
+                result = result.replace(blob, decoded)
+                decoded_any = True
+        if not decoded_any:
+            break
+    return result
+
+
+def script_contains_obf(code: str) -> bool:
+    """
+    Heuristic to detect obfuscation: presence of large Base64 blobs and exec or decompress.
+    """
+    if re.search(r"[rb]?'[A-Za-z0-9+/=]{80,}'", code) and \
+       ("exec(" in code or "decompress" in code):
+        return True
+    return False
+
+
 class ExecToFileTransformer(ast.NodeTransformer):
     """
     Replaces top-level 'exec(...)' calls with writes to a file located
     next to the script (absolute path), like:
-        C:/.../PhantomB_d3_clean_xyz_execs.py
+        C:/.../PhantomB_execs.py
 
     Ensures imports and assignments are injected only once.
     """
@@ -8172,59 +8235,67 @@ class ExecToFileTransformer(ast.NodeTransformer):
                 ast.alias(name="pathlib", asname=None)
             ])
 
-            # Inject: __exec_filename = str(Path(sys.argv[0]).with_name(Path(sys.argv[0]).stem + "_execs.py"))
+            # __exec_filename = str(Path(sys.argv[0]).with_name(Path(sys.argv[0]).stem + "_execs.py"))
             filename_assign = ast.Assign(
                 targets=[ast.Name(id="__exec_filename", ctx=ast.Store())],
                 value=ast.Call(
                     func=ast.Name(id="str", ctx=ast.Load()),
-                    args=[ast.Call(
-                        func=ast.Attribute(
-                            value=ast.Call(
-                                func=ast.Attribute(
-                                    value=ast.Name(id="pathlib", ctx=ast.Load()),
-                                    attr="Path", ctx=ast.Load()
-                                ),
-                                args=[ast.Subscript(
-                                    value=ast.Attribute(
-                                        value=ast.Name(id="sys", ctx=ast.Load()),
-                                        attr="argv", ctx=ast.Load()
-                                    ),
-                                    slice=ast.Constant(value=0),
-                                    ctx=ast.Load()
-                                )],
-                                keywords=[]
-                            ),
-                            attr="with_name", ctx=ast.Load()
-                        ),
-                        args=[ast.BinOp(
-                            left=ast.Attribute(
+                    args=[
+                        ast.Call(
+                            func=ast.Attribute(
                                 value=ast.Call(
                                     func=ast.Attribute(
                                         value=ast.Name(id="pathlib", ctx=ast.Load()),
                                         attr="Path", ctx=ast.Load()
                                     ),
-                                    args=[ast.Subscript(
-                                        value=ast.Attribute(
-                                            value=ast.Name(id="sys", ctx=ast.Load()),
-                                            attr="argv", ctx=ast.Load()
-                                        ),
-                                        slice=ast.Constant(value=0),
-                                        ctx=ast.Load()
-                                    )],
+                                    args=[
+                                        ast.Subscript(
+                                            value=ast.Attribute(
+                                                value=ast.Name(id="sys", ctx=ast.Load()),
+                                                attr="argv", ctx=ast.Load()
+                                            ),
+                                            slice=ast.Constant(value=0),
+                                            ctx=ast.Load()
+                                        )
+                                    ],
                                     keywords=[]
                                 ),
-                                attr="stem", ctx=ast.Load()
+                                attr="with_name", ctx=ast.Load()
                             ),
-                            op=ast.Add(),
-                            right=ast.Constant(value="_execs.py")
-                        )],
-                        keywords=[]
-                    )],
+                            args=[
+                                ast.BinOp(
+                                    left=ast.Attribute(
+                                        value=ast.Call(
+                                            func=ast.Attribute(
+                                                value=ast.Name(id="pathlib", ctx=ast.Load()),
+                                                attr="Path", ctx=ast.Load()
+                                            ),
+                                            args=[
+                                                ast.Subscript(
+                                                    value=ast.Attribute(
+                                                        value=ast.Name(id="sys", ctx=ast.Load()),
+                                                        attr="argv", ctx=ast.Load()
+                                                    ),
+                                                    slice=ast.Constant(value=0),
+                                                    ctx=ast.Load()
+                                                )
+                                            ],
+                                            keywords=[]
+                                        ),
+                                        attr="stem", ctx=ast.Load()
+                                    ),
+                                    op=ast.Add(),
+                                    right=ast.Constant(value="_execs.py")
+                                )
+                            ],
+                            keywords=[]
+                        )
+                    ],
                     keywords=[]
                 )
             )
 
-            # Inject: __exec_out = open(__exec_filename, 'w', encoding='utf-8')
+            # __exec_out = open(__exec_filename, 'w', encoding='utf-8')
             file_assign = ast.Assign(
                 targets=[ast.Name(id="__exec_out", ctx=ast.Store())],
                 value=ast.Call(
@@ -8239,7 +8310,7 @@ class ExecToFileTransformer(ast.NodeTransformer):
                 )
             )
 
-            # Inject imports and assignments at the top of the module
+            # Insert at top
             node.body.insert(0, file_assign)
             node.body.insert(0, filename_assign)
             node.body.insert(0, import_stmt)
@@ -8247,22 +8318,22 @@ class ExecToFileTransformer(ast.NodeTransformer):
         self.generic_visit(node)
         return node
 
-    def visit_Expr(self, node: ast.Expr) -> ast.AST:
+    def visit_Expr(self, node: ast.Expr) -> list[ast.AST] | ast.Expr:
         self.generic_visit(node)
 
         if (
-                isinstance(node.value, ast.Call)
-                and isinstance(node.value.func, ast.Name)
-                and node.value.func.id == "exec"
+            isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == "exec"
         ):
             code_arg = node.value.args[0] if node.value.args else ast.Constant(value="")
 
-            # Check if it's compile(...) and extract first argument
+            # If compile(...), extract the source
             if (
-                    isinstance(code_arg, ast.Call)
-                    and isinstance(code_arg.func, ast.Name)
-                    and code_arg.func.id == "compile"
-                    and len(code_arg.args) > 0
+                isinstance(code_arg, ast.Call)
+                and isinstance(code_arg.func, ast.Name)
+                and code_arg.func.id == "compile"
+                and len(code_arg.args) > 0
             ):
                 source_expr = code_arg.args[0]
             else:
@@ -8273,7 +8344,6 @@ class ExecToFileTransformer(ast.NodeTransformer):
                 value=source_expr
             )
 
-            # Now use the same rstrip logic
             strip_expr = ast.IfExp(
                 test=ast.Call(
                     func=ast.Name(id="isinstance", ctx=ast.Load()),
@@ -8308,11 +8378,16 @@ class ExecToFileTransformer(ast.NodeTransformer):
                 )
             )
 
-            write_expr = ast.Expr(value=ast.Call(
-                func=ast.Attribute(value=ast.Name(id="__exec_out", ctx=ast.Load()), attr="write", ctx=ast.Load()),
-                args=[strip_expr],
-                keywords=[]
-            ))
+            write_expr = ast.Expr(
+                value=ast.Call(
+                    func=ast.Attribute(
+                        value=ast.Name(id="__exec_out", ctx=ast.Load()),
+                        attr="write", ctx=ast.Load()
+                    ),
+                    args=[strip_expr],
+                    keywords=[]
+                )
+            )
 
             return [assign_exec_val, write_expr]
 
