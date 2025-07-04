@@ -4830,7 +4830,6 @@ def check_signature(file_path: str) -> dict:
 
 def check_valid_signature(file_path: str) -> dict:
     """
-    Use WinVerifyTrust instead of PowerShell.
     Returns {"is_valid": bool, "status": str}.
     """
     try:
@@ -9629,7 +9628,7 @@ def scan_and_warn(file_path,
 
                 if signature_check["is_valid"]:
                     logging.info(f"File '{norm_path}' has a valid signature. Skipping worm detection.")
-                elif signature_check["signature_status_issues"]:
+                elif signature_check["signature_status_issues"] and not signature_check["no_signature"]:
                     logging.warning(f"File '{norm_path}' has signature issues. Proceeding with further checks.")
                     notify_user_invalid(norm_path, "Win32.Susp.InvalidSignature")
 
