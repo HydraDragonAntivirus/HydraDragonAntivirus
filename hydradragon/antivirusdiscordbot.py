@@ -106,6 +106,26 @@ from PySide6.QtGui import QIcon
 logging.info(f"PySide6.QtGui.QIcon module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import aiofiles
+logging.info(f"aiofiles module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from PIL import ImageGrab
+logging.info(f"PIL.ImageGrab module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import asyncio
+logging.info(f"asyncio module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import discord
+logging.info(f"discord module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from discord.ext import commands
+logging.info(f"discord.ext.coomands module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import pefile
 logging.info(f"pefile module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -11196,296 +11216,360 @@ def parse_report(path):
 
     return entries
 
-# --- Main Application Window ---
-class AntivirusApp(QWidget):
+# Bot configuration - Get token from environment variable
+BOT_TOKEN = os.getenv('DISCORD_TOKEN')
+if not BOT_TOKEN:
+    print("Error: DISCORD_TOKEN environment variable not set!")
+    logging.error("DISCORD_TOKEN environment variable not set!")
+    sys.exit(1)
 
-    def _set_window_background(self):
-        """Sets the dark theme for the main window."""
-        self.setStyleSheet("QWidget { background-color: #1e1e1e; color: white; }")
+# Analysis state
+analysis_running = False
+analysis_lock = threading.Lock()
 
-    def append_output(self, text):
-        """Appends text to the output area and scrolls to the bottom."""
-        self.output_text.append(text)
-        self.output_text.verticalScrollBar().setValue(self.output_text.verticalScrollBar().maximum())
+# Discord bot setup
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix='!', intents=intents)
 
-    def start_worker(self, task_type, *args):
-        """Creates, configures, and starts a worker thread."""
-        worker = Worker(task_type, *args)
-        worker.output_signal.connect(self.append_output)
-        # Use a lambda to remove the specific worker instance from the list upon completion
-        worker.finished.connect(lambda w=worker: self.workers.remove(w))
-        self.workers.append(worker)  # Keep a strong reference
-        worker.start()
-
-    # --- Button Click Handlers ---
-
-    def capture_analysis_logs(self):
-        self.start_worker("capture_analysis_logs")
-
-    def compare_analysis_logs(self):
-        self.start_worker("compare_analysis_logs")
-
-    def update_definitions(self):
-        self.start_worker("update_defs")
-
-    def analyze_file(self):
-        file_dialog = QFileDialog(self)
-        file_dialog.setNameFilter("All Files (*)")
-        if file_dialog.exec_():
-            file_path = file_dialog.selectedFiles()[0]
-            self.start_worker("analyze_file", file_path)
-
-    def scan_for_rootkits(self):
-        """Handler for the new Rootkit Scan button."""
-        self.start_worker("rootkit_scan")
-
-    def setup_ui(self):
-        """Sets up the main user interface."""
-        self.setWindowTitle("Hydra Dragon Antivirus")
-        self.setFixedSize(700, 650) # Increased height for the new button
+class AnalysisWorker:
+    """Handles file analysis in a separate thread"""
+    
+    def __init__(self, file_path, channel):
+        self.file_path = file_path
+        self.channel = channel
+        self.analysis_complete = False
+        
+    async def run_analysis(self):
+        """Main analysis function"""
+        global analysis_running
+        
         try:
-            if os.path.exists(icon_path):
-                 self.setWindowIcon(QIcon(icon_path))
+            logging.info(f"Starting analysis for: {self.file_path}")
+            await self.channel.send(f"🔍 **Starting continuous analysis for:** `{os.path.basename(self.file_path)}`\n⏳ **Analysis will run until manually stopped with !stop**")
+            
+            # Perform the actual analysis (runs until stopped)
+            analysis_result = await self.analyze_file()
+            
+            # Send analysis results
+            await self.channel.send(f"📊 **Analysis Results:**\n```\n{analysis_result}\n```")
+            
+            # Create compressed archive with log and screenshot
+            archive_path = await self.create_analysis_archive()
+            
+            # Send compressed archive
+            if archive_path:
+                await self.send_analysis_archive(archive_path)
+            
+            # Analysis complete message
+            await self.channel.send("✅ **Analysis Complete!**\n⚠️ **Please revert to clean snapshot before next analysis**")
+            
         except Exception as e:
-            logging.error(f"Could not load icon: {e}")
+            logging.error(f"Analysis error: {str(e)}")
+            await self.channel.send(f"❌ **Analysis Error:** {str(e)}")
+        finally:
+            with analysis_lock:
+                analysis_running = False
+                self.analysis_complete = True
+            logging.info("Analysis worker completed")
 
-        self._set_window_background()
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(10)
-
-        # Updated Important Warning Message with Step 6
-        warning_text = (
-            "<b>IMPORTANT:</b> Only run this application from a Virtual Machine.<br><br>"
-            "<b>Recommended Workflow:</b><br>"
-            "1. First, <b>Update Virus Definitions</b>.<br>"
-            "2. Run the HiJackThis Report (<b>Capture Analysis Logs</b>).<br>"
-            "3. Perform your main analysis <b>Analyze File</b> the suspicious software.<br>"
-            "4. Run HiJackThis again (<b>Capture Analysis Logs</b> a second time).<br>"
-            "5. Click <b>Compare Analysis Logs</b> to see what changed.<br>"
-            "6. Finally, run the <b>Rootkit Scan</b>.<br><br>"
-            "<i>Return to a clean snapshot before starting a new analysis.</i>"
-        )
-        self.warning_label = QLabel(warning_text, self)
-        self.warning_label.setWordWrap(True)
-        self.warning_label.setStyleSheet("""
-            QLabel {
-                color: yellow;
-                font: 12px;
-                background-color: #333;
-                border: 1px solid #FF4500;
-                border-radius: 10px;
-                padding: 10px;
-            }
-        """)
-
-        # Buttons
-        self.update_defs_button = QPushButton("1. Update Definitions", self)
-        self.capture_button = QPushButton("2. Capture Analysis Logs", self)
-        self.analyze_file_button = QPushButton("3. Analyze a File", self)
-        self.diff_button = QPushButton("4. Compare Analysis Logs", self)
-        self.rootkit_scan_button = QPushButton("5. Rootkit Scan", self)
-
-        # Text output area
-        self.output_text = QTextEdit(self)
-        self.output_text.setReadOnly(True)
-        self.output_text.setStyleSheet("""
-            QTextEdit {
-                background-color: #2a2a2a;
-                color: #f0f0f0;
-                font-family: Consolas, 'Courier New', monospace;
-                font-size: 13px;
-                border: 1px solid #444;
-                border-radius: 5px;
-            }
-        """)
-
-        # Button Styles
-        button_style = """
-            QPushButton {
-                color: white;
-                font: bold 14px;
-                border: none;
-                border-radius: 10px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #00BFFF, stop:1 #1E90FF);
-                padding: 10px;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #1E90FF, stop:1 #00BFFF);
-            }
-            QPushButton:pressed {
-                background-color: #1E90FF;
-            }
-        """
-        all_buttons = [
-            self.update_defs_button, self.capture_button, self.analyze_file_button,
-            self.diff_button, self.rootkit_scan_button
-        ]
-        for btn in all_buttons:
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setStyleSheet(button_style)
-
-        # Connect buttons to their functions
-        self.update_defs_button.clicked.connect(self.update_definitions)
-        self.capture_button.clicked.connect(self.capture_analysis_logs)
-        self.diff_button.clicked.connect(self.compare_analysis_logs)
-        self.analyze_file_button.clicked.connect(self.analyze_file)
-        self.rootkit_scan_button.clicked.connect(self.scan_for_rootkits) # Connect new button
-
-        # Layout Setup
-        layout.addWidget(self.warning_label)
-        layout.addWidget(self.update_defs_button)
-        layout.addWidget(self.capture_button)
-        layout.addWidget(self.analyze_file_button)
-        layout.addWidget(self.diff_button)
-        layout.addWidget(self.rootkit_scan_button) # Add new button to layout
-        layout.addWidget(self.output_text, 1) # The '1' makes the text edit expand
-
-    def __init__(self):
-        super().__init__()
-        # self.workers holds references to running QThreads to prevent them from being garbage collected
-        self.workers = []
-        self.setup_ui()
-
-# --- Worker Thread for Background Tasks ---
-class Worker(QThread):
-    """
-    Handles long-running tasks in the background to prevent the UI from freezing.
-    """
-    output_signal = Signal(str)
-
-    def __init__(self, task_type, *args):
-        super().__init__()
-        self.task_type = task_type
-        self.args = args
-
-    def capture_analysis_logs(self):
-        global pre_analysis_log_path, post_analysis_log_path, pre_analysis_entries, post_analysis_entries
-        if pre_analysis_log_path is None:
-            path = run_and_copy_log(label="pre")
-            pre_analysis_log_path = path
-            pre_analysis_entries = parse_report(path)
-            self.output_signal.emit(f"[+] Pre-analysis log captured: {os.path.basename(path)}")
-        elif post_analysis_log_path is None:
-            path = run_and_copy_log(label="post")
-            post_analysis_log_path = path
-            post_analysis_entries = parse_report(path)
-            self.output_signal.emit(f"[+] Post-analysis log captured: {os.path.basename(path)}")
-        else:
-            self.output_signal.emit("[!] Both pre and post-analysis captures have already been completed.")
-
-    def compare_analysis_logs(self):
-        if not pre_analysis_log_path or not post_analysis_log_path:
-            self.output_signal.emit("[!] Please capture both pre and post-analysis logs first!")
-            return
-        try:
-            with open(pre_analysis_log_path, 'r', encoding='utf-8', errors='ignore') as f:
-                pre_lines = f.readlines()
-            with open(post_analysis_log_path, 'r', encoding='utf-8', errors='ignore') as f:
-                post_lines = f.readlines()
-
-            diff = difflib.ndiff(pre_lines, post_lines)
-            filtered_diff = [line for line in diff if line.startswith(('+', '-'))]
-
-            diff_file_path = os.path.join(log_directory, 'HiJackThis_diff.log')
-            with open(diff_file_path, 'w', encoding='utf-8') as df:
-                df.writelines(filtered_diff)
-            self.output_signal.emit(f"[+] Diff log created at: {diff_file_path}")
-
-            llama_response = scan_file_with_meta_llama(diff_file_path, HiJackThis_flag=True)
-            self.output_signal.emit("\n[*] Llama analysis of the diff log:")
-            self.output_signal.emit(llama_response)
-
-        except Exception as e:
-            self.output_signal.emit(f"[!] Error comparing logs: {str(e)}")
-
-    def update_definitions(self):
-        try:
-            self.output_signal.emit("[*] Checking virus definitions...")
-            updated = False
-            # Check if freshclam exists before trying to run it
-            if not os.path.exists(freshclam_path):
-                 self.output_signal.emit(f"[!] Error: freshclam not found at '{freshclam_path}'. Please check the path.")
-                 return
-
-            for file_path in clamav_file_paths:
-                if os.path.exists(file_path):
-                    file_mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
-                    if (datetime.now() - file_mod_time) > timedelta(hours=6):
-                        updated = True
-                        break
-                else: # If a definition file doesn't exist, we should update.
-                    updated = True
+    async def analyze_file(self):
+        """Continuous file analysis until stopped"""
+        global analysis_running
+        
+        file_info = {
+            'filename': os.path.basename(self.file_path),
+            'size': os.path.getsize(self.file_path),
+            'hash': await self.calculate_file_hash(),
+            'start_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        logging.info(f"Starting continuous analysis for: {file_info['filename']}")
+        
+        # Run continuous analysis until stopped
+        analysis_steps = 0
+        while True:
+            # Check if analysis should stop
+            with analysis_lock:
+                if not analysis_running:
+                    logging.info("Analysis stopped by user or system")
                     break
+            
+            analysis_steps += 1
+            
+            # Log analysis progress every 100 steps
+            if analysis_steps % 100 == 0:
+                logging.info(f"Analysis step {analysis_steps} for {file_info['filename']}")
+        
+        end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        result = f"""File Analysis Report:
+============================
+Filename: {file_info['filename']}
+Size: {file_info['size']} bytes
+SHA256: {file_info['hash']}
+Analysis Started: {file_info['start_time']}
+Analysis Ended: {end_time}
+Analysis Steps: {analysis_steps}
 
-            if updated:
-                self.output_signal.emit("[*] Definitions are outdated or missing. Starting update...")
-                # Using subprocess.run for simplicity. For real-time output, Popen is better.
-                result = subprocess.run([freshclam_path], capture_output=True, text=True, encoding="utf-8", errors="ignore")
-                if result.returncode == 0:
-                    restart_clamd_thread()
-                    self.output_signal.emit("[+] Virus definitions updated successfully and ClamAV restarted.")
-                    self.output_signal.emit(f"Output:\n{result.stdout}")
+Status: Analysis stopped
+Note: Analysis ran continuously until manually stopped
+"""
+        return result
+
+    async def calculate_file_hash(self):
+        """Calculate SHA256 hash of the file"""
+        sha256_hash = hashlib.sha256()
+        try:
+            async with aiofiles.open(self.file_path, 'rb') as f:
+                async for chunk in f:
+                    sha256_hash.update(chunk)
+            return sha256_hash.hexdigest()
+        except Exception as e:
+            logging.error(f"Error calculating hash: {e}")
+            return "Could not calculate hash"
+
+    async def create_analysis_archive(self):
+        """Create a compressed archive with complete log file and screenshot"""
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # Create temp directory for archive
+            temp_dir = os.path.join(log_directory, "temp_analysis")
+            if not os.path.exists(temp_dir):
+                os.makedirs(temp_dir)
+            
+            archive_path = os.path.join(temp_dir, f"analysis_results_{timestamp}.7z")
+            
+            with py7zr.SevenZipFile(archive_path, 'w', password=None) as archive:
+                # Add complete log file (no truncation)
+                if os.path.exists(application_log_file):
+                    file_size = os.path.getsize(application_log_file)
+                    logging.info(f"Adding complete log file to archive ({file_size} bytes)")
+                    
+                    archive.write(application_log_file, arcname=f"analysis_log_{timestamp}.log")
+                    logging.info(f"Added complete log file to archive (7z compressed)")
                 else:
-                    self.output_signal.emit(f"[!] Failed to update definitions. Error:\n{result.stderr}")
-            else:
-                self.output_signal.emit("[*] Definitions are already up-to-date.")
+                    # Create a note file if log doesn't exist
+                    note_content = f"Log file not found: {application_log_file}\nTimestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    archive.writestr(note_content.encode('utf-8'), arcname=f"log_not_found_{timestamp}.txt")
+                
+                # Take and add screenshot
+                screenshot_data = await self.capture_screenshot()
+                if screenshot_data:
+                    archive.writestr(screenshot_data, arcname=f"analysis_screenshot_{timestamp}.png")
+                    logging.info(f"Added screenshot to archive")
+                else:
+                    # Create a note file if screenshot failed
+                    note_content = f"Screenshot capture failed\nTimestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    archive.writestr(note_content.encode('utf-8'), arcname=f"screenshot_failed_{timestamp}.txt")
+                
+                # Add analysis info file
+                info_content = f"""Analysis Archive Information
+================================
+Archive created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Analyzed file: {os.path.basename(self.file_path)}
+Log file path: {application_log_file}
+Archive contents:
+- Complete analysis log (7z compressed)
+- Latest desktop screenshot
+- This info file
+
+Note: Please revert to clean snapshot before next analysis
+"""
+                archive.writestr(info_content.encode('utf-8'), arcname=f"analysis_info_{timestamp}.txt")
+            
+            archive_size = os.path.getsize(archive_path)
+            logging.info(f"Created analysis archive: {archive_path} ({archive_size} bytes)")
+            
+            return archive_path
+            
         except Exception as e:
-            self.output_signal.emit(f"[!] Error updating definitions: {str(e)}")
+            logging.error(f"Error creating analysis archive: {e}")
+            await self.channel.send(f"❌ **Error creating analysis archive:** {str(e)}")
+            return None
 
-    def analyze_file(self, file_path):
-        self.output_signal.emit(f"[*] Starting analysis for: {file_path}")
-        analysis_result = run_analysis(file_path)
-        self.output_signal.emit(analysis_result)
-
-    def perform_rootkit_scan(self):
-        """
-        Runs the rootkit scan script and displays the report.
-        """
+    async def capture_screenshot(self):
+        """Capture screenshot and return as bytes"""
         try:
-            self.output_signal.emit("[*] Starting Rootkit Scan via Sandboxie Plugin...")
-            run_sandboxie_plugin_script()  # This creates the report file
-
-            # Get the path to the generated report
-            sandbox_scan_report_path = get_sandbox_path(scan_report_path)
-            self.output_signal.emit(f"[+] Rootkit scan finished. Report located at: {sandbox_scan_report_path}")
-
-            if os.path.exists(sandbox_scan_report_path):
-                with open(sandbox_scan_report_path, 'r', encoding='utf-8') as f:
-                    report_content = f.read()
-                self.output_signal.emit("\n--- Rootkit Scan Report ---")
-                self.output_signal.emit(report_content)
-                self.output_signal.emit("--- End of Report ---")
-            else:
-                self.output_signal.emit("[!] Error: Sandboxie report file was not found after the scan.")
-
+            screenshot = ImageGrab.grab()
+            
+            # Convert to bytes
+            img_byte_arr = io.BytesIO()
+            screenshot.save(img_byte_arr, format='PNG', optimize=True)
+            img_byte_arr.seek(0)
+            
+            return img_byte_arr.getvalue()
+            
         except Exception as e:
-            self.output_signal.emit(f"[!] Error during rootkit scan: {str(e)}")
+            logging.error(f"Error capturing screenshot: {e}")
+            return None
 
-    def run(self):
-        """The entry point for the thread."""
+    async def send_analysis_archive(self, archive_path):
+        """Send the compressed analysis archive to Discord"""
         try:
-            if self.task_type == "capture_analysis_logs":
-                self.capture_analysis_logs()
-            elif self.task_type == "compare_analysis_logs":
-                self.compare_analysis_logs()
-            elif self.task_type == "update_defs":
-                self.update_definitions()
-            elif self.task_type == "analyze_file":
-                self.analyze_file(*self.args)
-            elif self.task_type == "rootkit_scan":
-                self.perform_rootkit_scan()
+            file_size = os.path.getsize(archive_path)
+            
+            if file_size > 25 * 1024 * 1024:  # 25MB Discord limit
+                await self.channel.send(f"⚠️ **Archive is {file_size // (1024*1024)} MB - too large for Discord!**\n"
+                                      f"Archive saved in temp directory: `{archive_path}`\n"
+                                      f"Please retrieve manually or use external file sharing.")
+                logging.warning(f"Archive too large for Discord: {file_size} bytes, saved at: {archive_path}")
+                return
+            
+            # Send the archive
+            await self.channel.send(
+                f"📦 **Analysis Archive** ({file_size // 1024} KB compressed with 7z):\n"
+                f"Contains: Complete analysis log + Latest desktop screenshot + Info file",
+                file=discord.File(archive_path)
+            )
+            
+            # Clean up archive file only if successfully sent
+            os.remove(archive_path)
+            logging.info("Analysis archive sent and cleaned up")
+            
         except Exception as e:
-            self.output_signal.emit(f"[!] Worker thread error: {str(e)}")
+            logging.error(f"Error sending analysis archive: {e}")
+            await self.channel.send(f"❌ **Error sending analysis archive:** {str(e)}\n"
+                                  f"Archive may be saved at: `{archive_path}`")
+
+@bot.event
+async def on_ready():
+    """Bot startup event"""
+    logging.info(f'Bot logged in as {bot.user}')
+    print(f'Bot logged in as {bot.user}')
+    print("🤖 Antivirus Analysis Bot is online!")
+    print("Bot will respond to !scanfile commands in any channel where it has permissions.")
+
+@bot.command(name='scanfile')
+async def scan_file(ctx):
+    """Command to scan an attached file"""
+    global analysis_running
+    
+    # Check if analysis is already running (strict check)
+    with analysis_lock:
+        if analysis_running:
+            await ctx.send("⚠️ **Analysis already in progress!** Please wait for the current analysis to complete before starting a new one.")
+            logging.warning(f"Analysis request rejected - already running. User: {ctx.author}, Channel: {ctx.channel}")
+            return
+        # Set analysis as running immediately to prevent race conditions
+        analysis_running = True
+    
+    logging.info(f"Analysis request from {ctx.author} in channel {ctx.channel}")
+    
+    # Check if file is attached
+    if not ctx.message.attachments:
+        with analysis_lock:
+            analysis_running = False
+        await ctx.send("❌ **No file attached!** Please attach a file to analyze.")
+        return
+    
+    # Only allow one file at a time
+    if len(ctx.message.attachments) > 1:
+        with analysis_lock:
+            analysis_running = False
+        await ctx.send("❌ **Multiple files detected!** Please attach only one file at a time.")
+        return
+    
+    attachment = ctx.message.attachments[0]
+    
+    # File size check (Discord limit is 8MB for non-nitro users)
+    if attachment.size > 25 * 1024 * 1024:  # 25MB limit
+        with analysis_lock:
+            analysis_running = False
+        await ctx.send("❌ **File too large!** Maximum file size is 25MB.")
+        return
+    
+    try:
+        # Create temporary directory for analysis
+        temp_dir = os.path.join(log_directory, "temp_analysis")
+        if not os.path.exists(temp_dir):
+            os.makedirs(temp_dir)
+        
+        # Download file
+        filename = f"{uniquename()}_{attachment.filename}"
+        file_path = os.path.join(temp_dir, filename)
+        
+        await ctx.send(f"📥 **Downloading file:** `{attachment.filename}`")
+        await attachment.save(file_path)
+        
+        logging.info(f"File downloaded: {file_path}")
+        
+        # Start analysis
+        worker = AnalysisWorker(file_path, ctx.channel)
+        
+        # Run analysis in background
+        asyncio.create_task(worker.run_analysis())
+        
+    except Exception as e:
+        with analysis_lock:
+            analysis_running = False
+        logging.error(f"Error in scan_file command: {e}")
+        await ctx.send(f"❌ **Error processing file:** {str(e)}")
+
+@bot.command(name='status')
+async def status(ctx):
+    """Check bot status"""
+    with analysis_lock:
+        if analysis_running:
+            await ctx.send("🔄 **Status:** Analysis in progress...")
+        else:
+            await ctx.send("✅ **Status:** Ready for new analysis")
+
+@bot.command(name='stop')
+async def stop_analysis(ctx):
+    """Stop current analysis (if any)"""
+    global analysis_running
+    with analysis_lock:
+        if analysis_running:
+            analysis_running = False
+            await ctx.send("🛑 **Analysis stopped!** Please revert to clean snapshot.")
+            logging.info(f"Analysis manually stopped by {ctx.author} in channel {ctx.channel}")
+        else:
+            await ctx.send("ℹ️ **No analysis running.**")
+
+@bot.command(name='loginfo')
+async def log_info(ctx):
+    """Show information about the log file"""
+    try:
+        if os.path.exists(application_log_file):
+            file_size = os.path.getsize(application_log_file)
+            file_size_mb = file_size / (1024 * 1024)
+            
+            # Get file modification time
+            mod_time = datetime.fromtimestamp(os.path.getmtime(application_log_file))
+            
+            info_msg = f"""📄 **Log File Information:**
+```
+Path: {application_log_file}
+Size: {file_size_mb:.2f} MB ({file_size:,} bytes)
+Last Modified: {mod_time.strftime('%Y-%m-%d %H:%M:%S')}
+Status: Complete file will be included in 7z archive
+```"""
+            await ctx.send(info_msg)
+        else:
+            await ctx.send(f"❌ **Log file not found:** `{application_log_file}`")
+    except Exception as e:
+        await ctx.send(f"❌ **Error getting log info:** {str(e)}")
+
+@bot.event
+async def on_command_error(ctx, error):
+    """Handle command errors"""
+    logging.error(f"Command error: {error}")
+    await ctx.send(f"❌ **Error:** {str(error)}")
 
 def main():
-    app = QApplication(sys.argv)
-    window = AntivirusApp()
-    window.show()
-    sys.exit(app.exec_())
+    """Main function to run the bot"""
+    logging.info("Starting Discord Antivirus Bot...")
+    logging.info(f"Log file: {application_log_file}")
+    logging.info(f"Using Discord token from environment variable")
+    logging.info("Bot will work in any channel where it has permissions")
+    
+    try:
+        bot.run(BOT_TOKEN)
+    except Exception as e:
+        logging.error(f"Bot error: {e}")
+        print(f"Bot error: {e}")
 
 if __name__ == "__main__":
     main()

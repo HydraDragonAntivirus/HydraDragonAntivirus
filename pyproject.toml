@@ -62,7 +62,12 @@ dependencies = [
     "transformers>=4.52.4,<5.0.0",
     "xdis==6.1.3",
     "pycryptodome==3.17",
-    "click"
+    "click",
+    # Discord bot requirements
+    "discord.py",
+    "aiofiles",
+    "Pillow",
+    "asyncio"
 ]
 
 [project.urls]
