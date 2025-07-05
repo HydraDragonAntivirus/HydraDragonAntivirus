@@ -11362,7 +11362,6 @@ class AnalysisWorker:
                         self.analysis_process.kill()
                         self.analysis_process.wait()
                     break
-                time.sleep(0.5)  # Check every 500ms
             
             # Check final status
             if self.stop_requested:
@@ -11513,7 +11512,7 @@ Note: Please revert to clean snapshot before next analysis
                 await self.channel.send(f"⚠️ **Archive is {file_size // (1024*1024)} MB - too large for Discord!**\n"
                                       f"Archive saved in temp directory: `{archive_path}`\n"
                                       f"Please retrieve manually or use external file sharing.")
-                logging.warning(f"Archive too large for Discord: {file_size} bytes, saved at: {archive_path}")
+                logging.error(f"Archive too large for Discord: {file_size} bytes, saved at: {archive_path}")
                 return
             
             # Send the archive
@@ -11549,7 +11548,7 @@ async def scan_file(ctx):
     with analysis_lock:
         if analysis_running:
             await ctx.send("⚠️ **Analysis already in progress!** Please wait for the current analysis to complete before starting a new one.")
-            logging.warning(f"Analysis request rejected - already running. User: {ctx.author}, Channel: {ctx.channel}")
+            logging.error(f"Analysis request rejected - already running. User: {ctx.author}, Channel: {ctx.channel}")
             return
         # Set analysis as running immediately to prevent race conditions
         analysis_running = True
