@@ -11378,15 +11378,14 @@ class AnalysisWorker:
            run_analysis(self.file_path)
            
            analysis_success = True
-           logging.info("Analysis completed successfully")
+           logging.info("Analysis started successfully - continuing until stopped")
            
        except Exception as ex:
            error_message = f"An error occurred during sandbox analysis: {ex}"
            logging.error(error_message)
            analysis_success = False
        
-       end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-       file_info['end_time'] = end_time
+       # Don't set end_time here - analysis continues running
        
        return self.generate_analysis_report(file_info, error_message, analysis_success)
 
@@ -11404,7 +11403,7 @@ class AnalysisWorker:
 
    def generate_analysis_report(self, file_info, error_message, success):
        """Generate the analysis report"""
-       status = "Analysis completed successfully" if success else "Analysis failed or was stopped"
+       status = "Analysis started successfully - running until stopped" if success else "Analysis failed or was stopped"
        
        result = f"""File Analysis Report:
 ============================
@@ -11412,7 +11411,7 @@ Filename: {file_info['filename']}
 Size: {file_info['size']} bytes
 SHA256: {file_info['hash']}
 Analysis Started: {file_info['start_time']}
-Analysis Ended: {file_info.get('end_time', 'Not completed')}
+Analysis Status: Running (use !stop to finish)
 
 Status: {status}
 """
@@ -11421,7 +11420,7 @@ Status: {status}
            result += f"\nError Details: {error_message}"
        
        if success:
-           result += "\nNote: Analysis completed - check logs for detailed results"
+           result += "\nNote: Analysis is running - use !stop to finish and get complete results"
        else:
            result += "\nNote: Analysis was interrupted or failed"
        
