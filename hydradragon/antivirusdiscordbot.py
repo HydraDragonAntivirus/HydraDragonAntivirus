@@ -11273,6 +11273,7 @@ class AnalysisWorker:
         self.stop_requested = False
         self.start_time = datetime.now()
         self._stop_event = asyncio.Event()
+        self.analysis_result = None
         
     async def run_analysis_async(self):
         """Main analysis function - runs in background without blocking"""
@@ -11280,42 +11281,61 @@ class AnalysisWorker:
         
         try:
             bot_logger.info(f"Starting analysis for: {self.file_path}")
-            await self.channel.send(f"🔍 **Starting continuous analysis for:** {os.path.basename(self.file_path)}\n⏳ **Analysis will run until manually stopped with !stop**")
+            await self.channel.send(f"🔍 **Starting analysis for:** {os.path.basename(self.file_path)}\n⏳ **Analysis will run until manually stopped with !stop**")
             
             # Set this worker as the current analysis process
             current_analysis_process = self
             
             # Run the actual analysis in a separate thread to avoid blocking
             loop = asyncio.get_event_loop()
-            analysis_result = await loop.run_in_executor(
-                None,  # Use default executor instead of custom one
+            
+            # Start the analysis but don't send results yet
+            analysis_task = loop.run_in_executor(
+                None,  # Use default executor
                 self.perform_file_analysis
             )
+            
+            # Send status update that analysis is starting
+            await self.channel.send("🔄 **Analysis is starting... Please wait for completion or use !stop to terminate**")
+            
+            # Wait for either analysis completion or stop request
+            done = False
+            while not done:
+                try:
+                    # Wait for analysis to complete or timeout after 30 seconds
+                    self.analysis_result = await asyncio.wait_for(analysis_task, timeout=30.0)
+                    done = True
+                except asyncio.TimeoutError:
+                    # Analysis is still running, check if stop was requested
+                    if self.stop_requested:
+                        bot_logger.info("Analysis stopped by user request")
+                        done = True
+                    else:
+                        # Send periodic status update
+                        await self.channel.send("🔄 **Analysis still running... Use !stop to terminate**")
+                        # Continue waiting
+                        continue
+                except Exception as e:
+                    bot_logger.error(f"Analysis execution error: {e}")
+                    self.analysis_result = f"Analysis failed: {str(e)}"
+                    done = True
             
             # Check if analysis was stopped
             if self.stop_requested:
                 await self.channel.send("🛑 **Analysis was stopped by user request**")
-                # Create compressed archive with log and screenshot
-                archive_path = await self.create_analysis_archive()
+            else:
+                # Only send results if analysis completed normally
+                if self.analysis_result:
+                    await self.channel.send(f"📊 **Analysis Results:**\n```\n{self.analysis_result}\n```")
                 
-                # Send compressed archive
-                if archive_path:
-                    await self.send_analysis_archive(archive_path)
-                
-                # Analysis stopped message
-                await self.channel.send("✅ **Analysis Stopped!**\n⚠️ **Please revert to clean snapshot before next analysis**")
-                return
-            
-            # Send analysis results
-            await self.channel.send(f"📊 **Analysis Results:**\n```\n{analysis_result}\n```")
-            
-            # Keep running until manually stopped - don't finish automatically
-            await self.channel.send("🔄 **Analysis continues running... Use !stop to finish and get results**")
+                # Continue running until manually stopped
+                await self.channel.send("🔄 **Analysis continues monitoring... Use !stop to finish and get complete results**")
             
             # Wait for stop event
             await self._stop_event.wait()
             
             # When stopped, create and send archive
+            await self.channel.send("📦 **Creating analysis archive...**")
             archive_path = await self.create_analysis_archive()
             if archive_path:
                 await self.send_analysis_archive(archive_path)
@@ -11349,7 +11369,16 @@ class AnalysisWorker:
         """Request to stop the analysis"""
         self.stop_requested = True
         # Set the event to wake up the waiting coroutine
-        asyncio.create_task(self._stop_event.set())
+        try:
+            # Use asyncio.create_task only if we're in an async context
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.call_soon_threadsafe(self._stop_event.set)
+            else:
+                asyncio.create_task(self._stop_event.set())
+        except RuntimeError:
+            # If no event loop is running, just set the flag
+            pass
         bot_logger.info("Analysis stop requested")
 
     def perform_file_analysis(self):
@@ -11377,10 +11406,12 @@ class AnalysisWorker:
                 return self.generate_analysis_report(file_info, "Analysis stopped before execution", False)
             
             # Run the analysis using your exact function
+            bot_logger.info("Starting run_analysis() function")
             run_analysis(self.file_path)
             
+            # If we get here, analysis started successfully
             analysis_success = True
-            bot_logger.info("Analysis started successfully - continuing until stopped")
+            bot_logger.info("Analysis function completed successfully")
             
         except Exception as ex:
             error_message = f"An error occurred during sandbox analysis: {ex}"
@@ -11403,7 +11434,12 @@ class AnalysisWorker:
 
     def generate_analysis_report(self, file_info, error_message, success):
         """Generate the analysis report"""
-        status = "Analysis started successfully - running until stopped" if success else "Analysis failed or was stopped"
+        if self.stop_requested:
+            status = "Analysis stopped by user request"
+        elif success:
+            status = "Analysis completed successfully"
+        else:
+            status = "Analysis failed"
         
         result = f"""File Analysis Report:
 ============================
@@ -11411,7 +11447,7 @@ Filename: {file_info['filename']}
 Size: {file_info['size']} bytes
 SHA256: {file_info['hash']}
 Analysis Started: {file_info['start_time']}
-Analysis Status: Running (use !stop to finish)
+Analysis Completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 Status: {status}
 """
@@ -11419,10 +11455,12 @@ Status: {status}
         if error_message:
             result += f"\nError Details: {error_message}"
         
-        if success:
-            result += "\nNote: Analysis is running - use !stop to finish and get complete results"
+        if success and not self.stop_requested:
+            result += "\nNote: Analysis completed - monitoring continues until stopped"
+        elif self.stop_requested:
+            result += "\nNote: Analysis was stopped by user request"
         else:
-            result += "\nNote: Analysis was interrupted or failed"
+            result += "\nNote: Analysis failed to complete"
         
         return result
 
@@ -11634,12 +11672,12 @@ async def status(ctx):
 async def stop_analysis(ctx):
     """Stop current analysis (if any)"""
     global analysis_running, current_analysis_process
+    
     async with analysis_lock:
         if analysis_running and current_analysis_process:
+            await ctx.send("🛑 **Stopping analysis...** Please wait for cleanup to complete.")
             current_analysis_process.stop_analysis()
-            analysis_running = False
-            await ctx.send("🛑 **Analysis stopped!** The analysis process has been terminated. Please revert to clean snapshot.")
-            bot_logger.info(f"Analysis manually stopped by {ctx.author} in channel {ctx.channel}")
+            bot_logger.info(f"Analysis stop initiated by {ctx.author} in channel {ctx.channel}")
         elif analysis_running:
             analysis_running = False
             await ctx.send("🛑 **Analysis stopped!** Please revert to clean snapshot.")
@@ -11733,6 +11771,11 @@ async def on_command_error(ctx, error):
     else:
         bot_logger.error(f"Command error: {error}")
         await ctx.send(f"❌ **Error:** {str(error)}")
+        
+        # Additional error handling for the specific coroutine error
+        if "coroutine was expected" in str(error):
+            bot_logger.error("Coroutine error detected - this may be due to async/await issues")
+            await ctx.send("⚠️ **Internal error detected.** Please try again or restart the bot.")
 
 def main():
     """Main function to run the bot"""
