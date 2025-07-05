@@ -11352,7 +11352,7 @@ class AnalysisWorker:
                logging.info("Analysis stopped before execution")
                return self.generate_analysis_report(file_info, "Analysis stopped before execution", False)
            
-           # Run the analysis directly
+           # Run the analysis using your exact function
            run_analysis(self.file_path)
            
            analysis_success = True
@@ -11518,6 +11518,7 @@ Note: Please revert to clean snapshot before next analysis
            logging.error(f"Error sending analysis archive: {e}")
            await self.channel.send(f"❌ **Error sending analysis archive:** {str(e)}\n"
                                  f"Archive may be saved at: {archive_path}")
+
 @bot.event
 async def on_ready():
     """Bot startup event"""
@@ -11565,35 +11566,6 @@ async def scan_file(ctx):
             analysis_running = False
         await ctx.send(f"❌ **File too large!** Maximum file size is {max_file_size // (1024*1024)}MB.")
         return
-    
-    # Security check - basic file type validation
-    dangerous_extensions = ['.exe', '.scr', '.bat', '.cmd', '.com', '.pif', '.vbs', '.js', '.jar', '.ps1']
-    file_ext = Path(attachment.filename).suffix.lower()
-    
-    if file_ext in dangerous_extensions:
-        confirmation_msg = f"⚠️ **WARNING:** You're about to analyze a potentially dangerous file type ({file_ext})\n" \
-                          f"Only proceed if you're in a secure sandbox environment!\n" \
-                          f"React with ✅ to continue or ❌ to cancel."
-        
-        warning_msg = await ctx.send(confirmation_msg)
-        await warning_msg.add_reaction('✅')
-        await warning_msg.add_reaction('❌')
-        
-        def check(reaction, user):
-            return user == ctx.author and str(reaction.emoji) in ['✅', '❌'] and reaction.message.id == warning_msg.id
-        
-        try:
-            reaction, user = await bot.wait_for('reaction_add', timeout=30.0, check=check)
-            if str(reaction.emoji) == '❌':
-                with analysis_lock:
-                    analysis_running = False
-                await ctx.send("❌ **Analysis cancelled by user.**")
-                return
-        except asyncio.TimeoutError:
-            with analysis_lock:
-                analysis_running = False
-            await ctx.send("❌ **Analysis cancelled - no response within 30 seconds.**")
-            return
     
     try:
         # Create temporary directory for analysis
@@ -11711,7 +11683,6 @@ async def help_command(ctx):
 **Notes:**
 - Maximum file size: 25MB
 - Only one analysis can run at a time
-- Bot will warn for potentially dangerous file types
 - Always revert to clean snapshot after analysis
 """
     await ctx.send(help_text)
