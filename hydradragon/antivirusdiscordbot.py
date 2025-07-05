@@ -11235,23 +11235,9 @@ if not BOT_TOKEN:
     logging.error("DISCORD_TOKEN environment variable not set!")
     sys.exit(1)
 
-# Directory setup
-log_directory = os.getenv('LOG_DIRECTORY', './logs')
-application_log_file = os.getenv('APPLICATION_LOG_FILE', os.path.join(log_directory, 'antivirus.log'))
-
 # Ensure directories exist
 os.makedirs(log_directory, exist_ok=True)
 os.makedirs(os.path.join(log_directory, "temp_analysis"), exist_ok=True)
-
-# Logging setup
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(os.path.join(log_directory, 'bot.log')),
-        logging.StreamHandler()
-    ]
-)
 
 # Analysis state
 analysis_running = False
@@ -11382,26 +11368,24 @@ class AnalysisWorker:
                 return self.generate_analysis_report(file_info, "Analysis stopped before execution", False)
             
             # Run the actual sandbox analysis with process tracking
-            # This is a placeholder - replace with your actual analysis command
+            # Use your existing analysis module
             analysis_command = [
-                sys.executable, '-c',
-                f'''
-import time
-import os
-import sys
-print("Starting file analysis...")
-print(f"Analyzing file: {self.file_path}")
-print(f"File size: {os.path.getsize(self.file_path)} bytes")
-time.sleep(5)  # Simulate analysis time
-print("Analysis completed successfully")
-'''
+                sys.executable, '-c', 
+                f'import sys; sys.path.append("."); from your_analysis_module import run_analysis; run_analysis("{self.file_path}")'
             ]
+            
+            # Set environment to use UTF-8 encoding
+            env = os.environ.copy()
+            env['PYTHONIOENCODING'] = 'utf-8'
             
             self.analysis_process = subprocess.Popen(
                 analysis_command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
+                env=env,
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
             )
             
@@ -11416,9 +11400,6 @@ print("Analysis completed successfully")
                         self.analysis_process.kill()
                         self.analysis_process.wait()
                     break
-                # Sleep briefly to avoid busy waiting
-                import time
-                time.sleep(0.1)
             
             # Check final status
             if self.stop_requested:
