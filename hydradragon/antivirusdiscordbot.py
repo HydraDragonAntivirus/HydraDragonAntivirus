@@ -94,22 +94,6 @@ import json
 logging.info(f"json module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QTextEdit, QLabel, QFileDialog
-logging.info(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from PySide6.QtCore import Qt, QThread, Signal
-logging.info(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from PySide6.QtGui import QIcon
-logging.info(f"PySide6.QtGui.QIcon module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import aiofiles
-logging.info(f"aiofiles module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 from PIL import ImageGrab
 logging.info(f"PIL.ImageGrab module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -4703,7 +4687,12 @@ def get_signer_cert_details(file_path: str) -> tuple[dict, bytes] | None:
 # HRESULT codes for "no signature" cases
 TRUST_E_NOSIGNATURE = 0x800B0100
 TRUST_E_SUBJECT_FORM_UNKNOWN = 0x800B0008
-NO_SIGNATURE_CODES = {TRUST_E_NOSIGNATURE, TRUST_E_SUBJECT_FORM_UNKNOWN}
+TRUST_E_PROVIDER_UNKNOWN     = 0x800B0001
+NO_SIGNATURE_CODES = {
+    TRUST_E_NOSIGNATURE,
+    TRUST_E_SUBJECT_FORM_UNKNOWN,
+    TRUST_E_PROVIDER_UNKNOWN,
+}
 
 # Constants for WinVerifyTrust
 class GUID(ctypes.Structure):
@@ -4780,73 +4769,96 @@ def verify_authenticode_signature(file_path: str) -> int:
     )
 
 def check_signature(file_path: str) -> dict:
-    """
-    Check file signature via WinVerifyTrust + CryptoAPI.
-    Returns a dict:
-      {
-        "is_valid": bool,
-        "status": str,
-        "signature_status_issues": bool,
-        "no_signature": bool,
-        "has_microsoft_signature": bool,
-        "has_valid_goodsign_signature": bool,
-        "matches_antivirus_signature": bool
-      }
-    """
-    try:
-        hresult = verify_authenticode_signature(file_path)
+    # --- 1) Try to open the signature store --- #
+    hStore = wintypes.HANDLE()
+    hMsg   = wintypes.HANDLE()
+    encoding = wintypes.DWORD()
+    content_type = wintypes.DWORD()
+    format_type  = wintypes.DWORD()
 
-        no_sig = (hresult in NO_SIGNATURE_CODES)
+    ok = crypt32.CryptQueryObject(
+        CERT_QUERY_OBJECT_FILE,
+        ctypes.c_wchar_p(file_path),
+        CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED,
+        CERT_QUERY_FORMAT_FLAG_BINARY,
+        0,
+        ctypes.byref(encoding),
+        ctypes.byref(content_type),
+        ctypes.byref(format_type),
+        ctypes.byref(hStore),
+        ctypes.byref(hMsg),
+        None
+    )
+    if not ok:
+        return {
+            "is_valid": False,
+            "status": "No signature",
+            "signature_status_issues": False,
+            "no_signature": True,
+            "has_microsoft_signature": False,
+            "has_valid_goodsign_signature": False,
+            "matches_antivirus_signature": False
+        }
+
+    try:
+        # --- 2) Do we actually have any signer certs? --- #
+        pCertCtx = crypt32.CertEnumCertificatesInStore(hStore, None)
+        if not pCertCtx:
+            # no certs in store -> unsigned
+            return {
+                "is_valid": False,
+                "status": "No signature",
+                "signature_status_issues": False,
+                "no_signature": True,
+                "has_microsoft_signature": False,
+                "has_valid_goodsign_signature": False,
+                "matches_antivirus_signature": False
+            }
+
+        # --- 3) We found a cert, so let's verify the signature chain --- #
+        hresult = verify_authenticode_signature(file_path)
         is_valid = (hresult == 0)
         status = (
-            "Valid" if is_valid else
-            "No signature" if no_sig else
-            "Invalid signature"
+            "Valid" if is_valid
+            else "No signature" if hresult in NO_SIGNATURE_CODES
+            else "Invalid signature"
         )
-        signature_status_issues = not (is_valid or no_sig)
+        signature_status_issues = not (is_valid or (hresult in NO_SIGNATURE_CODES))
 
-        has_microsoft_signature = False
-        has_valid_goodsign_signature = False
-        matches_antivirus_signature = False
-
-        # Only check certificate details when signature is valid
+        # --- 4) (optional) inspect the cert if valid, as before --- #
+        has_ms_sig = False
+        has_goodsign = False
+        matches_av = False
         if is_valid:
-            details = get_signer_cert_details(file_path)
-            if details:
-                cert_info, raw_bytes = details
-                subj_iss = (cert_info.get("Subject", "") + cert_info.get("Issuer", "")).upper()
-                has_microsoft_signature = "MICROSOFT" in subj_iss
-                has_valid_goodsign_signature = any(sig.upper() in subj_iss for sig in goodsign_signatures)
-                if raw_bytes:
-                    hex_str = raw_bytes.hex().upper()
-                    for sig in antivirus_signatures:
-                        if sig.upper() in hex_str:
-                            matches_antivirus_signature = True
-                            logging.warning(
-                                f"The file '{file_path}' matches an antivirus signature pattern."
-                            )
-                            break
+            (cert_info, raw) = get_signer_cert_details(file_path)
+            subj_iss = (cert_info["Subject"] + cert_info["Issuer"]).upper()
+            has_ms_sig = "MICROSOFT" in subj_iss
+            has_goodsign = any(s.upper() in subj_iss for s in goodsign_signatures)
+            if raw:
+                hex_buf = raw.hex().upper()
+                for sig in antivirus_signatures:
+                    if sig.upper() in hex_buf:
+                        matches_av = True
+                        break
 
         return {
             "is_valid": is_valid,
             "status": status,
             "signature_status_issues": signature_status_issues,
-            "no_signature": no_sig,
-            "has_microsoft_signature": has_microsoft_signature,
-            "has_valid_goodsign_signature": has_valid_goodsign_signature,
-            "matches_antivirus_signature": matches_antivirus_signature
+            "no_signature": (hresult in NO_SIGNATURE_CODES),
+            "has_microsoft_signature": has_ms_sig,
+            "has_valid_goodsign_signature": has_goodsign,
+            "matches_antivirus_signature": matches_av
         }
-    except Exception as ex:
-        logging.error(f"[Signature] {file_path}: {ex}")
-        return {
-            "is_valid": False,
-            "status": str(ex),
-            "signature_status_issues": False,
-            "no_signature": False,
-            "has_microsoft_signature": False,
-            "has_valid_goodsign_signature": False,
-            "matches_antivirus_signature": False
-        }
+
+    finally:
+        # always clean up
+        if pCertCtx:
+            crypt32.CertFreeCertificateContext(pCertCtx)
+        if hStore:
+            crypt32.CertCloseStore(hStore, 0)
+        if hMsg:
+            crypt32.CryptMsgClose(hMsg)
 
 def check_valid_signature(file_path: str) -> dict:
     """
@@ -11226,6 +11238,7 @@ if not BOT_TOKEN:
 # Analysis state
 analysis_running = False
 analysis_lock = threading.Lock()
+current_analysis_process = None  # Track the current analysis process
 
 # Discord bot setup
 intents = discord.Intents.default()
@@ -11239,17 +11252,32 @@ class AnalysisWorker:
         self.file_path = file_path
         self.channel = channel
         self.analysis_complete = False
+        self.executor = ThreadPoolExecutor(max_workers=1)
+        self.analysis_process = None
+        self.stop_requested = False
         
-    async def run_analysis(self):
-        """Main analysis function"""
-        global analysis_running
+    async def run_analysis_async(self):
+        """Main analysis function - runs in background without blocking"""
+        global analysis_running, current_analysis_process
         
         try:
             logging.info(f"Starting analysis for: {self.file_path}")
             await self.channel.send(f"🔍 **Starting continuous analysis for:** `{os.path.basename(self.file_path)}`\n⏳ **Analysis will run until manually stopped with !stop**")
             
-            # Perform the actual analysis (runs until stopped)
-            analysis_result = await self.analyze_file()
+            # Set this worker as the current analysis process
+            current_analysis_process = self
+            
+            # Run the actual analysis in a separate thread to avoid blocking
+            loop = asyncio.get_event_loop()
+            analysis_result = await loop.run_in_executor(
+                self.executor, 
+                self.perform_file_analysis
+            )
+            
+            # Check if analysis was stopped
+            if self.stop_requested:
+                await self.channel.send("🛑 **Analysis was stopped by user request**")
+                return
             
             # Send analysis results
             await self.channel.send(f"📊 **Analysis Results:**\n```\n{analysis_result}\n```")
@@ -11270,38 +11298,107 @@ class AnalysisWorker:
         finally:
             with analysis_lock:
                 analysis_running = False
+                current_analysis_process = None
                 self.analysis_complete = True
+            self.executor.shutdown(wait=False)
             logging.info("Analysis worker completed")
 
-    async def analyze_file(self):
-        """Continuous file analysis until stopped"""
+    def stop_analysis(self):
+        """Request to stop the analysis"""
+        self.stop_requested = True
+        # If we have a process reference, terminate it
+        if self.analysis_process:
+            try:
+                self.analysis_process.terminate()
+                self.analysis_process.wait(timeout=5)
+            except:
+                try:
+                    self.analysis_process.kill()
+                except:
+                    pass
+        logging.info("Analysis stop requested")
+
+    def perform_file_analysis(self):
+        """Perform the actual file analysis - runs in separate thread"""
         global analysis_running
         
         file_info = {
             'filename': os.path.basename(self.file_path),
             'size': os.path.getsize(self.file_path),
-            'hash': await self.calculate_file_hash(),
             'start_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         
-        logging.info(f"Starting continuous analysis for: {file_info['filename']}")
+        logging.info(f"Starting sandbox analysis for: {file_info['filename']}")
         
-        # Run continuous analysis until stopped
-        analysis_steps = 0
-        while True:
-            # Check if analysis should stop
-            with analysis_lock:
-                if not analysis_running:
-                    logging.info("Analysis stopped by user or system")
+        analysis_success = False
+        error_message = ""
+        
+        try:
+            # Calculate file hash
+            file_hash = self.calculate_file_hash_sync()
+            file_info['hash'] = file_hash
+            
+            # Check if analysis should continue
+            if self.stop_requested:
+                logging.info("Analysis stopped before execution")
+                return self.generate_analysis_report(file_info, "Analysis stopped before execution", False)
+            
+            # Run the actual sandbox analysis with process tracking
+            self.analysis_process = subprocess.Popen(
+                [sys.executable, '-c', f'import sys; sys.path.append("."); from your_analysis_module import run_analysis; run_analysis("{self.file_path}")'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
+            )
+            
+            # Monitor the process and check for stop requests
+            while self.analysis_process.poll() is None:
+                if self.stop_requested:
+                    logging.info("Stop requested, terminating analysis process")
+                    try:
+                        self.analysis_process.terminate()
+                        self.analysis_process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        self.analysis_process.kill()
+                        self.analysis_process.wait()
                     break
+                time.sleep(0.5)  # Check every 500ms
             
-            analysis_steps += 1
-            
-            # Log analysis progress every 100 steps
-            if analysis_steps % 100 == 0:
-                logging.info(f"Analysis step {analysis_steps} for {file_info['filename']}")
+            # Check final status
+            if self.stop_requested:
+                error_message = "Analysis was stopped by user request"
+                analysis_success = False
+            elif self.analysis_process.returncode == 0:
+                analysis_success = True
+            else:
+                error_message = f"Analysis process exited with code {self.analysis_process.returncode}"
+                analysis_success = False
+                
+        except Exception as ex:
+            error_message = f"An error occurred during sandbox analysis: {ex}"
+            logging.error(error_message)
+            analysis_success = False
         
         end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        file_info['end_time'] = end_time
+        
+        return self.generate_analysis_report(file_info, error_message, analysis_success)
+
+    def calculate_file_hash_sync(self):
+        """Calculate SHA256 hash of the file (synchronous version)"""
+        sha256_hash = hashlib.sha256()
+        try:
+            with open(self.file_path, 'rb') as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    sha256_hash.update(chunk)
+            return sha256_hash.hexdigest()
+        except Exception as e:
+            logging.error(f"Error calculating hash: {e}")
+            return "Could not calculate hash"
+
+    def generate_analysis_report(self, file_info, error_message, success):
+        """Generate the analysis report"""
+        status = "Analysis completed successfully" if success else "Analysis failed or was stopped"
         
         result = f"""File Analysis Report:
 ============================
@@ -11309,25 +11406,20 @@ Filename: {file_info['filename']}
 Size: {file_info['size']} bytes
 SHA256: {file_info['hash']}
 Analysis Started: {file_info['start_time']}
-Analysis Ended: {end_time}
-Analysis Steps: {analysis_steps}
+Analysis Ended: {file_info.get('end_time', 'Not completed')}
 
-Status: Analysis stopped
-Note: Analysis ran continuously until manually stopped
+Status: {status}
 """
+        
+        if error_message:
+            result += f"\nError Details: {error_message}"
+        
+        if success:
+            result += "\nNote: Analysis completed - check logs for detailed results"
+        else:
+            result += "\nNote: Analysis was interrupted or failed"
+        
         return result
-
-    async def calculate_file_hash(self):
-        """Calculate SHA256 hash of the file"""
-        sha256_hash = hashlib.sha256()
-        try:
-            async with aiofiles.open(self.file_path, 'rb') as f:
-                async for chunk in f:
-                    sha256_hash.update(chunk)
-            return sha256_hash.hexdigest()
-        except Exception as e:
-            logging.error(f"Error calculating hash: {e}")
-            return "Could not calculate hash"
 
     async def create_analysis_archive(self):
         """Create a compressed archive with complete log file and screenshot"""
@@ -11342,12 +11434,18 @@ Note: Analysis ran continuously until manually stopped
             archive_path = os.path.join(temp_dir, f"analysis_results_{timestamp}.7z")
             
             with py7zr.SevenZipFile(archive_path, 'w', password=None) as archive:
-                # Add complete log file (no truncation)
+                # Copy and add complete log file to temp_analysis first
+                log_copy_path = None
                 if os.path.exists(application_log_file):
                     file_size = os.path.getsize(application_log_file)
-                    logging.info(f"Adding complete log file to archive ({file_size} bytes)")
+                    logging.info(f"Copying log file to temp_analysis ({file_size} bytes)")
                     
-                    archive.write(application_log_file, arcname=f"analysis_log_{timestamp}.log")
+                    # Copy log to temp_analysis directory
+                    log_copy_path = os.path.join(temp_dir, f"antivirus_log_{timestamp}.log")
+                    shutil.copy2(application_log_file, log_copy_path)
+                    
+                    # Add the copied log to archive
+                    archive.write(log_copy_path, arcname=f"analysis_log_{timestamp}.log")
                     logging.info(f"Added complete log file to archive (7z compressed)")
                 else:
                     # Create a note file if log doesn't exist
@@ -11369,7 +11467,8 @@ Note: Analysis ran continuously until manually stopped
 ================================
 Archive created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 Analyzed file: {os.path.basename(self.file_path)}
-Log file path: {application_log_file}
+Original log file path: {application_log_file}
+Log file copied to: {log_copy_path if log_copy_path else 'N/A'}
 Archive contents:
 - Complete analysis log (7z compressed)
 - Latest desktop screenshot
@@ -11498,8 +11597,8 @@ async def scan_file(ctx):
         # Start analysis
         worker = AnalysisWorker(file_path, ctx.channel)
         
-        # Run analysis in background
-        asyncio.create_task(worker.run_analysis())
+        # Run analysis in background without blocking
+        asyncio.create_task(worker.run_analysis_async())
         
     except Exception as e:
         with analysis_lock:
@@ -11519,9 +11618,14 @@ async def status(ctx):
 @bot.command(name='stop')
 async def stop_analysis(ctx):
     """Stop current analysis (if any)"""
-    global analysis_running
+    global analysis_running, current_analysis_process
     with analysis_lock:
-        if analysis_running:
+        if analysis_running and current_analysis_process:
+            current_analysis_process.stop_analysis()
+            analysis_running = False
+            await ctx.send("🛑 **Analysis stopped!** The analysis process has been terminated. Please revert to clean snapshot.")
+            logging.info(f"Analysis manually stopped by {ctx.author} in channel {ctx.channel}")
+        elif analysis_running:
             analysis_running = False
             await ctx.send("🛑 **Analysis stopped!** Please revert to clean snapshot.")
             logging.info(f"Analysis manually stopped by {ctx.author} in channel {ctx.channel}")
@@ -11544,13 +11648,39 @@ async def log_info(ctx):
 Path: {application_log_file}
 Size: {file_size_mb:.2f} MB ({file_size:,} bytes)
 Last Modified: {mod_time.strftime('%Y-%m-%d %H:%M:%S')}
-Status: Complete file will be included in 7z archive
+Status: Complete file will be copied to temp_analysis and included in 7z archive
 ```"""
             await ctx.send(info_msg)
         else:
             await ctx.send(f"❌ **Log file not found:** `{application_log_file}`")
     except Exception as e:
         await ctx.send(f"❌ **Error getting log info:** {str(e)}")
+
+@bot.command(name='copylog')
+async def copy_log(ctx):
+    """Manually copy the log file to temp_analysis directory"""
+    try:
+        if os.path.exists(application_log_file):
+            # Create temp directory
+            temp_dir = os.path.join(log_directory, "temp_analysis")
+            if not os.path.exists(temp_dir):
+                os.makedirs(temp_dir)
+            
+            # Copy log file
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_copy_path = os.path.join(temp_dir, f"antivirus_log_{timestamp}.log")
+            shutil.copy2(application_log_file, log_copy_path)
+            
+            file_size = os.path.getsize(log_copy_path)
+            await ctx.send(f"✅ **Log file copied successfully!**\n"
+                          f"From: `{application_log_file}`\n"
+                          f"To: `{log_copy_path}`\n"
+                          f"Size: {file_size // 1024} KB")
+            
+        else:
+            await ctx.send(f"❌ **Log file not found:** `{application_log_file}`")
+    except Exception as e:
+        await ctx.send(f"❌ **Error copying log file:** {str(e)}")
 
 @bot.event
 async def on_command_error(ctx, error):

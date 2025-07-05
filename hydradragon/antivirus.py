@@ -4683,7 +4683,12 @@ def get_signer_cert_details(file_path: str) -> tuple[dict, bytes] | None:
 # HRESULT codes for "no signature" cases
 TRUST_E_NOSIGNATURE = 0x800B0100
 TRUST_E_SUBJECT_FORM_UNKNOWN = 0x800B0008
-NO_SIGNATURE_CODES = {TRUST_E_NOSIGNATURE, TRUST_E_SUBJECT_FORM_UNKNOWN}
+TRUST_E_PROVIDER_UNKNOWN     = 0x800B0001
+NO_SIGNATURE_CODES = {
+    TRUST_E_NOSIGNATURE,
+    TRUST_E_SUBJECT_FORM_UNKNOWN,
+    TRUST_E_PROVIDER_UNKNOWN,
+}
 
 # Constants for WinVerifyTrust
 class GUID(ctypes.Structure):
@@ -4760,73 +4765,96 @@ def verify_authenticode_signature(file_path: str) -> int:
     )
 
 def check_signature(file_path: str) -> dict:
-    """
-    Check file signature via WinVerifyTrust + CryptoAPI.
-    Returns a dict:
-      {
-        "is_valid": bool,
-        "status": str,
-        "signature_status_issues": bool,
-        "no_signature": bool,
-        "has_microsoft_signature": bool,
-        "has_valid_goodsign_signature": bool,
-        "matches_antivirus_signature": bool
-      }
-    """
-    try:
-        hresult = verify_authenticode_signature(file_path)
+    # --- 1) Try to open the signature store --- #
+    hStore = wintypes.HANDLE()
+    hMsg   = wintypes.HANDLE()
+    encoding = wintypes.DWORD()
+    content_type = wintypes.DWORD()
+    format_type  = wintypes.DWORD()
 
-        no_sig = (hresult in NO_SIGNATURE_CODES)
+    ok = crypt32.CryptQueryObject(
+        CERT_QUERY_OBJECT_FILE,
+        ctypes.c_wchar_p(file_path),
+        CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED,
+        CERT_QUERY_FORMAT_FLAG_BINARY,
+        0,
+        ctypes.byref(encoding),
+        ctypes.byref(content_type),
+        ctypes.byref(format_type),
+        ctypes.byref(hStore),
+        ctypes.byref(hMsg),
+        None
+    )
+    if not ok:
+        return {
+            "is_valid": False,
+            "status": "No signature",
+            "signature_status_issues": False,
+            "no_signature": True,
+            "has_microsoft_signature": False,
+            "has_valid_goodsign_signature": False,
+            "matches_antivirus_signature": False
+        }
+
+    try:
+        # --- 2) Do we actually have any signer certs? --- #
+        pCertCtx = crypt32.CertEnumCertificatesInStore(hStore, None)
+        if not pCertCtx:
+            # no certs in store -> unsigned
+            return {
+                "is_valid": False,
+                "status": "No signature",
+                "signature_status_issues": False,
+                "no_signature": True,
+                "has_microsoft_signature": False,
+                "has_valid_goodsign_signature": False,
+                "matches_antivirus_signature": False
+            }
+
+        # --- 3) We found a cert, so let's verify the signature chain --- #
+        hresult = verify_authenticode_signature(file_path)
         is_valid = (hresult == 0)
         status = (
-            "Valid" if is_valid else
-            "No signature" if no_sig else
-            "Invalid signature"
+            "Valid" if is_valid
+            else "No signature" if hresult in NO_SIGNATURE_CODES
+            else "Invalid signature"
         )
-        signature_status_issues = not (is_valid or no_sig)
+        signature_status_issues = not (is_valid or (hresult in NO_SIGNATURE_CODES))
 
-        has_microsoft_signature = False
-        has_valid_goodsign_signature = False
-        matches_antivirus_signature = False
-
-        # Only check certificate details when signature is valid
+        # --- 4) (optional) inspect the cert if valid, as before --- #
+        has_ms_sig = False
+        has_goodsign = False
+        matches_av = False
         if is_valid:
-            details = get_signer_cert_details(file_path)
-            if details:
-                cert_info, raw_bytes = details
-                subj_iss = (cert_info.get("Subject", "") + cert_info.get("Issuer", "")).upper()
-                has_microsoft_signature = "MICROSOFT" in subj_iss
-                has_valid_goodsign_signature = any(sig.upper() in subj_iss for sig in goodsign_signatures)
-                if raw_bytes:
-                    hex_str = raw_bytes.hex().upper()
-                    for sig in antivirus_signatures:
-                        if sig.upper() in hex_str:
-                            matches_antivirus_signature = True
-                            logging.warning(
-                                f"The file '{file_path}' matches an antivirus signature pattern."
-                            )
-                            break
+            (cert_info, raw) = get_signer_cert_details(file_path)
+            subj_iss = (cert_info["Subject"] + cert_info["Issuer"]).upper()
+            has_ms_sig = "MICROSOFT" in subj_iss
+            has_goodsign = any(s.upper() in subj_iss for s in goodsign_signatures)
+            if raw:
+                hex_buf = raw.hex().upper()
+                for sig in antivirus_signatures:
+                    if sig.upper() in hex_buf:
+                        matches_av = True
+                        break
 
         return {
             "is_valid": is_valid,
             "status": status,
             "signature_status_issues": signature_status_issues,
-            "no_signature": no_sig,
-            "has_microsoft_signature": has_microsoft_signature,
-            "has_valid_goodsign_signature": has_valid_goodsign_signature,
-            "matches_antivirus_signature": matches_antivirus_signature
+            "no_signature": (hresult in NO_SIGNATURE_CODES),
+            "has_microsoft_signature": has_ms_sig,
+            "has_valid_goodsign_signature": has_goodsign,
+            "matches_antivirus_signature": matches_av
         }
-    except Exception as ex:
-        logging.error(f"[Signature] {file_path}: {ex}")
-        return {
-            "is_valid": False,
-            "status": str(ex),
-            "signature_status_issues": False,
-            "no_signature": False,
-            "has_microsoft_signature": False,
-            "has_valid_goodsign_signature": False,
-            "matches_antivirus_signature": False
-        }
+
+    finally:
+        # always clean up
+        if pCertCtx:
+            crypt32.CertFreeCertificateContext(pCertCtx)
+        if hStore:
+            crypt32.CertCloseStore(hStore, 0)
+        if hMsg:
+            crypt32.CryptMsgClose(hMsg)
 
 def check_valid_signature(file_path: str) -> dict:
     """
