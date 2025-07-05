@@ -82,7 +82,7 @@ exclude = [
     ".venv", ".vscode", "__pypackages__", "_build", "buck-out", "build", "dist", "node_modules",
     "site-packages", "venv"
 ]
-target-version = "py311"
+target-version = "py312"
 line-length = 240
 indent-width = 4
 
