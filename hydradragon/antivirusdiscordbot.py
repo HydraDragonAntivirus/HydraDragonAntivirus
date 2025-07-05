@@ -11286,19 +11286,41 @@ class AnalysisWorker:
            # Check if analysis was stopped
            if self.stop_requested:
                await self.channel.send("🛑 **Analysis was stopped by user request**")
+               # Create compressed archive with log and screenshot
+               archive_path = await self.create_analysis_archive()
+               
+               # Send compressed archive
+               if archive_path:
+                   await self.send_analysis_archive(archive_path)
+               
+               # Analysis stopped message
+               await self.channel.send("✅ **Analysis Stopped!**\n⚠️ **Please revert to clean snapshot before next analysis**")
                return
            
            # Send analysis results
            await self.channel.send(f"📊 **Analysis Results:**\n```\n{analysis_result}\n```")
            
-           # Create compressed archive with log and screenshot
-           archive_path = await self.create_analysis_archive()
+           # Keep running until manually stopped - don't finish automatically
+           await self.channel.send("🔄 **Analysis continues running... Use !stop to finish and get results**")
            
-           # Send compressed archive
+           # Create event to wait for stop request
+           stop_event = asyncio.Event()
+           
+           # Override stop_analysis to set event
+           original_stop = self.stop_analysis
+           def stop_with_event():
+               original_stop()
+               stop_event.set()
+           self.stop_analysis = stop_with_event
+           
+           # Wait for stop event
+           await stop_event.wait()
+           
+           # When stopped, create and send archive
+           archive_path = await self.create_analysis_archive()
            if archive_path:
                await self.send_analysis_archive(archive_path)
            
-           # Analysis complete message
            await self.channel.send("✅ **Analysis Complete!**\n⚠️ **Please revert to clean snapshot before next analysis**")
            
        except Exception as e:
