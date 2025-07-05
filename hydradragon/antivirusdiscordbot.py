@@ -11258,10 +11258,6 @@ if not bot_logger.handlers:
     handler.setFormatter(formatter)
     bot_logger.addHandler(handler)
 
-def uniquename():
-    """Generate unique filename based on timestamp"""
-    return datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-
 class AnalysisWorker:
     """Handles file analysis in a separate thread"""
     
@@ -11437,7 +11433,7 @@ class AnalysisWorker:
         if self.stop_requested:
             status = "Analysis stopped by user request"
         elif success:
-            status = "Analysis completed successfully"
+            status = "Analysis is running..."
         else:
             status = "Analysis failed"
         
@@ -11456,7 +11452,7 @@ Status: {status}
             result += f"\nError Details: {error_message}"
         
         if success and not self.stop_requested:
-            result += "\nNote: Analysis completed - monitoring continues until stopped"
+            result += "\nNote: Analysis is running - monitoring continues until stopped"
         elif self.stop_requested:
             result += "\nNote: Analysis was stopped by user request"
         else:
