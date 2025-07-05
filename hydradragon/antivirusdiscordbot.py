@@ -11261,7 +11261,7 @@ current_analysis_process = None
 # Discord bot setup
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
 
 def uniquename():
     """Generate unique filename based on timestamp"""
