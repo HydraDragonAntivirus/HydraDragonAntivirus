@@ -11228,22 +11228,44 @@ def parse_report(path):
 
     return entries
 
-# Bot configuration - Get token from environment variable
+# Configuration
 BOT_TOKEN = os.getenv('DISCORD_TOKEN')
 if not BOT_TOKEN:
     print("Error: DISCORD_TOKEN environment variable not set!")
     logging.error("DISCORD_TOKEN environment variable not set!")
     sys.exit(1)
 
+# Directory setup
+log_directory = os.getenv('LOG_DIRECTORY', './logs')
+application_log_file = os.getenv('APPLICATION_LOG_FILE', os.path.join(log_directory, 'antivirus.log'))
+
+# Ensure directories exist
+os.makedirs(log_directory, exist_ok=True)
+os.makedirs(os.path.join(log_directory, "temp_analysis"), exist_ok=True)
+
+# Logging setup
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(os.path.join(log_directory, 'bot.log')),
+        logging.StreamHandler()
+    ]
+)
+
 # Analysis state
 analysis_running = False
 analysis_lock = threading.Lock()
-current_analysis_process = None  # Track the current analysis process
+current_analysis_process = None
 
 # Discord bot setup
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
+
+def uniquename():
+    """Generate unique filename based on timestamp"""
+    return datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
 class AnalysisWorker:
     """Handles file analysis in a separate thread"""
@@ -11255,6 +11277,7 @@ class AnalysisWorker:
         self.executor = ThreadPoolExecutor(max_workers=1)
         self.analysis_process = None
         self.stop_requested = False
+        self.start_time = datetime.now()
         
     async def run_analysis_async(self):
         """Main analysis function - runs in background without blocking"""
@@ -11262,50 +11285,42 @@ class AnalysisWorker:
         
         try:
             logging.info(f"Starting analysis for: {self.file_path}")
-            await self.channel.send(
-                f"🔍 **Starting continuous analysis for:** `{os.path.basename(self.file_path)}`\n"
-                "⏳ **Analysis will run until manually stopped with !stop**"
-            )
+            await self.channel.send(f"🔍 **Starting continuous analysis for:** {os.path.basename(self.file_path)}\n⏳ **Analysis will run until manually stopped with !stop**")
             
+            # Set this worker as the current analysis process
             current_analysis_process = self
             
-            # Run the actual analysis in a thread
+            # Run the actual analysis in a separate thread to avoid blocking
             loop = asyncio.get_event_loop()
             analysis_result = await loop.run_in_executor(
-                self.executor,
+                self.executor, 
                 self.perform_file_analysis
             )
-
-            # If stopped, still archive logs
+            
+            # Check if analysis was stopped
             if self.stop_requested:
                 await self.channel.send("🛑 **Analysis was stopped by user request**")
-                archive_path = await self.create_analysis_archive()
-                if archive_path:
-                    await self.send_analysis_archive(archive_path)
-                await self.channel.send(
-                    "✅ **Analysis Complete!**\n"
-                    "⚠️ **Please revert to clean snapshot before next analysis**"
-                )
                 return
-
+            
             # Send analysis results
-            await self.channel.send(
-                f"📊 **Analysis Results:**\n```\n{analysis_result}\n```"
-            )
-
-            # Create and send archive
+            await self.channel.send(f"📊 **Analysis Results:**\n```\n{analysis_result}\n```")
+            
+            # Create compressed archive with log and screenshot
             archive_path = await self.create_analysis_archive()
+            
+            # Send compressed archive
             if archive_path:
                 await self.send_analysis_archive(archive_path)
-
-            await self.channel.send(
-                "✅ **Analysis Complete!**\n"
-                "⚠️ **Please revert to clean snapshot before next analysis**"
-            )
+            
+            # Analysis complete message
+            await self.channel.send("✅ **Analysis Complete!**\n⚠️ **Please revert to clean snapshot before next analysis**")
+            
         except Exception as e:
-            logging.error(f"Analysis error: {e}")
-            await self.channel.send(f"❌ **Analysis Error:** {e}")
+            logging.error(f"Analysis error: {str(e)}")
+            await self.channel.send(f"❌ **Analysis Error:** {str(e)}")
         finally:
+            # Clean up
+            await self.cleanup()
             with analysis_lock:
                 analysis_running = False
                 current_analysis_process = None
@@ -11313,9 +11328,33 @@ class AnalysisWorker:
             self.executor.shutdown(wait=False)
             logging.info("Analysis worker completed")
 
+    async def cleanup(self):
+        """Clean up temporary files"""
+        try:
+            if os.path.exists(self.file_path):
+                os.remove(self.file_path)
+                logging.info(f"Cleaned up temporary file: {self.file_path}")
+        except Exception as e:
+            logging.error(f"Error cleaning up temporary file: {e}")
+
     def stop_analysis(self):
-        """Request to stop the analysis (no forced kill)"""
+        """Request to stop the analysis"""
         self.stop_requested = True
+        # If we have a process reference, terminate it
+        if self.analysis_process:
+            try:
+                # Graceful termination first
+                self.analysis_process.terminate()
+                self.analysis_process.wait(timeout=5)
+                logging.info("Analysis process terminated gracefully")
+            except subprocess.TimeoutExpired:
+                try:
+                    # Force kill if graceful termination fails
+                    self.analysis_process.kill()
+                    self.analysis_process.wait(timeout=5)
+                    logging.info("Analysis process forcefully killed")
+                except Exception as e:
+                    logging.error(f"Error killing analysis process: {e}")
         logging.info("Analysis stop requested")
 
     def perform_file_analysis(self):
@@ -11323,66 +11362,95 @@ class AnalysisWorker:
         file_info = {
             'filename': os.path.basename(self.file_path),
             'size': os.path.getsize(self.file_path),
-            'start_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            'start_time': self.start_time.strftime("%Y-%m-%d %H:%M:%S"),
+            'path': self.file_path
         }
         
         logging.info(f"Starting sandbox analysis for: {file_info['filename']}")
+        
         analysis_success = False
         error_message = ""
-
+        
         try:
             # Calculate file hash
-            file_info['hash'] = self.calculate_file_hash_sync()
-
+            file_hash = self.calculate_file_hash_sync()
+            file_info['hash'] = file_hash
+            
+            # Check if analysis should continue
             if self.stop_requested:
                 logging.info("Analysis stopped before execution")
-                return self.generate_analysis_report(
-                    file_info,
-                    "Analysis stopped before execution",
-                    False
-                )
-
-            # Run sandbox analysis without killing
+                return self.generate_analysis_report(file_info, "Analysis stopped before execution", False)
+            
+            # Run the actual sandbox analysis with process tracking
+            # This is a placeholder - replace with your actual analysis command
+            analysis_command = [
+                sys.executable, '-c',
+                f'''
+import time
+import os
+import sys
+print("Starting file analysis...")
+print(f"Analyzing file: {self.file_path}")
+print(f"File size: {os.path.getsize(self.file_path)} bytes")
+time.sleep(5)  # Simulate analysis time
+print("Analysis completed successfully")
+'''
+            ]
+            
             self.analysis_process = subprocess.Popen(
-                [
-                    sys.executable,
-                    '-c',
-                    f'import sys; sys.path.append("."); '
-                    f'from your_analysis_module import run_analysis; '
-                    f'run_analysis("{self.file_path}")'
-                ],
+                analysis_command,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                stderr=subprocess.PIPE,
+                text=True,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
             )
-
-            # Wait for completion or stop
+            
+            # Monitor the process and check for stop requests
             while self.analysis_process.poll() is None:
                 if self.stop_requested:
-                    logging.info("Stop requested, allowing process to finish naturally")
+                    logging.info("Stop requested, terminating analysis process")
+                    try:
+                        self.analysis_process.terminate()
+                        self.analysis_process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        self.analysis_process.kill()
+                        self.analysis_process.wait()
                     break
-                time.sleep(1)
-
-            # Determine outcome
+                # Sleep briefly to avoid busy waiting
+                import time
+                time.sleep(0.1)
+            
+            # Check final status
             if self.stop_requested:
                 error_message = "Analysis was stopped by user request"
+                analysis_success = False
             elif self.analysis_process.returncode == 0:
                 analysis_success = True
+                # Get process output
+                stdout, stderr = self.analysis_process.communicate()
+                if stdout:
+                    logging.info(f"Analysis output: {stdout}")
+                if stderr:
+                    logging.warning(f"Analysis stderr: {stderr}")
             else:
+                stdout, stderr = self.analysis_process.communicate()
                 error_message = f"Analysis process exited with code {self.analysis_process.returncode}"
-
+                if stderr:
+                    error_message += f"\nError output: {stderr}"
+                analysis_success = False
+                
         except Exception as ex:
-            error_message = f"Error during sandbox analysis: {ex}"
+            error_message = f"An error occurred during sandbox analysis: {ex}"
             logging.error(error_message)
+            analysis_success = False
         
-        file_info['end_time'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        return self.generate_analysis_report(
-            file_info,
-            error_message,
-            analysis_success
-        )
+        end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        file_info['end_time'] = end_time
+        
+        return self.generate_analysis_report(file_info, error_message, analysis_success)
 
     def calculate_file_hash_sync(self):
-        """Calculate SHA256 hash of the file"""
+        """Calculate SHA256 hash of the file (synchronous version)"""
         sha256_hash = hashlib.sha256()
         try:
             with open(self.file_path, 'rb') as f:
@@ -11395,98 +11463,110 @@ class AnalysisWorker:
 
     def generate_analysis_report(self, file_info, error_message, success):
         """Generate the analysis report"""
-        status = (
-            "Analysis completed successfully"
-            if success else
-            "Analysis failed or was stopped"
-        )
-        report = (
-            f"File Analysis Report:\n"
-            "============================\n"
-            f"Filename: {file_info['filename']}\n"
-            f"Size: {file_info['size']} bytes\n"
-            f"SHA256: {file_info['hash']}\n"
-            f"Analysis Started: {file_info['start_time']}\n"
-            f"Analysis Ended: {file_info['end_time']}\n\n"
-            f"Status: {status}\n"
-        )
+        status = "Analysis completed successfully" if success else "Analysis failed or was stopped"
+        
+        result = f"""File Analysis Report:
+============================
+Filename: {file_info['filename']}
+Size: {file_info['size']} bytes
+SHA256: {file_info['hash']}
+Analysis Started: {file_info['start_time']}
+Analysis Ended: {file_info.get('end_time', 'Not completed')}
+
+Status: {status}
+"""
+        
         if error_message:
-            report += f"\nError Details: {error_message}\n"
+            result += f"\nError Details: {error_message}"
+        
         if success:
-            report += "Note: Analysis completed - check logs for detailed results"
+            result += "\nNote: Analysis completed - check logs for detailed results"
         else:
-            report += "Note: Analysis was interrupted or failed"
-        return report
+            result += "\nNote: Analysis was interrupted or failed"
+        
+        return result
 
     async def create_analysis_archive(self):
         """Create a compressed archive with complete log file and screenshot"""
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # Create temp directory for archive
             temp_dir = os.path.join(log_directory, "temp_analysis")
             os.makedirs(temp_dir, exist_ok=True)
+            
             archive_path = os.path.join(temp_dir, f"analysis_results_{timestamp}.7z")
-
-            with py7zr.SevenZipFile(archive_path, 'w') as archive:
-                # Always copy full log if exists
+            
+            with py7zr.SevenZipFile(archive_path, 'w', password=None) as archive:
+                # Copy and add complete log file
+                log_copy_path = None
                 if os.path.exists(application_log_file):
-                    log_copy = os.path.join(
-                        temp_dir, f"antivirus_log_{timestamp}.log"
-                    )
-                    shutil.copy2(application_log_file, log_copy)
-                    archive.write(log_copy, arcname=os.path.basename(log_copy))
+                    file_size = os.path.getsize(application_log_file)
+                    logging.info(f"Copying log file to temp_analysis ({file_size} bytes)")
+                    
+                    # Copy log to temp_analysis directory
+                    log_copy_path = os.path.join(temp_dir, f"antivirus_log_{timestamp}.log")
+                    shutil.copy2(application_log_file, log_copy_path)
+                    
+                    # Add the copied log to archive
+                    archive.write(log_copy_path, arcname=f"analysis_log_{timestamp}.log")
+                    logging.info(f"Added complete log file to archive (7z compressed)")
+                    
+                    # Clean up the temporary log copy
+                    os.remove(log_copy_path)
                 else:
-                    note = (
-                        f"Log file not found: {application_log_file}\n"
-                        f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                    )
-                    archive.writestr(
-                        f"log_not_found_{timestamp}.txt",
-                        note.encode('utf-8')
-                    )
-
-                # Screenshot
-                screenshot = await self.capture_screenshot()
-                if screenshot:
-                    archive.writestr(
-                        f"analysis_screenshot_{timestamp}.png",
-                        screenshot
-                    )
+                    # Create a note file if log doesn't exist
+                    note_content = f"Log file not found: {application_log_file}\nTimestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    archive.writestr(note_content.encode('utf-8'), arcname=f"log_not_found_{timestamp}.txt")
+                
+                # Take and add screenshot
+                screenshot_data = await self.capture_screenshot()
+                if screenshot_data:
+                    archive.writestr(screenshot_data, arcname=f"analysis_screenshot_{timestamp}.png")
+                    logging.info(f"Added screenshot to archive")
                 else:
-                    note = (
-                        f"Screenshot capture failed\n"
-                        f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                    )
-                    archive.writestr(
-                        f"screenshot_failed_{timestamp}.txt",
-                        note.encode('utf-8')
-                    )
+                    # Create a note file if screenshot failed
+                    note_content = f"Screenshot capture failed\nTimestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    archive.writestr(note_content.encode('utf-8'), arcname=f"screenshot_failed_{timestamp}.txt")
+                
+                # Add analysis info file
+                info_content = f"""Analysis Archive Information
+================================
+Archive created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Analyzed file: {os.path.basename(self.file_path)}
+File hash: {self.calculate_file_hash_sync()}
+Original log file path: {application_log_file}
+Archive contents:
+- Complete analysis log (7z compressed)
+- Latest desktop screenshot
+- This info file
 
-                # Info file
-                info = (
-                    f"Analysis Archive Information\n"
-                    "================================\n"
-                    f"Archive created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-                    f"Analyzed file: {os.path.basename(self.file_path)}\n"
-                    f"Original log path: {application_log_file}\n"
-                )
-                archive.writestr(
-                    f"analysis_info_{timestamp}.txt",
-                    info.encode('utf-8')
-                )
-
+Note: Please revert to clean snapshot before next analysis
+"""
+                archive.writestr(info_content.encode('utf-8'), arcname=f"analysis_info_{timestamp}.txt")
+            
+            archive_size = os.path.getsize(archive_path)
+            logging.info(f"Created analysis archive: {archive_path} ({archive_size} bytes)")
+            
             return archive_path
+            
         except Exception as e:
             logging.error(f"Error creating analysis archive: {e}")
-            await self.channel.send(f"❌ **Error creating analysis archive:** {e}")
+            await self.channel.send(f"❌ **Error creating analysis archive:** {str(e)}")
             return None
 
     async def capture_screenshot(self):
         """Capture screenshot and return as bytes"""
         try:
-            img = ImageGrab.grab()
-            buf = io.BytesIO()
-            img.save(buf, format='PNG')
-            return buf.getvalue()
+            screenshot = ImageGrab.grab()
+            
+            # Convert to bytes
+            img_byte_arr = io.BytesIO()
+            screenshot.save(img_byte_arr, format='PNG', optimize=True)
+            img_byte_arr.seek(0)
+            
+            return img_byte_arr.getvalue()
+            
         except Exception as e:
             logging.error(f"Error capturing screenshot: {e}")
             return None
@@ -11494,21 +11574,31 @@ class AnalysisWorker:
     async def send_analysis_archive(self, archive_path):
         """Send the compressed analysis archive to Discord"""
         try:
-            size = os.path.getsize(archive_path)
-            if size > 25 * 1024 * 1024:
-                await self.channel.send(
-                    f"⚠️ **Archive is {size//(1024*1024)} MB - too large for Discord!**"
-                    f" Please retrieve manually: `{archive_path}`"
-                )
+            file_size = os.path.getsize(archive_path)
+            max_size = 25 * 1024 * 1024  # 25MB Discord limit
+            
+            if file_size > max_size:
+                await self.channel.send(f"⚠️ **Archive is {file_size // (1024*1024)} MB - too large for Discord!**\n"
+                                      f"Archive saved in temp directory: {archive_path}\n"
+                                      f"Please retrieve manually or use external file sharing.")
+                logging.error(f"Archive too large for Discord: {file_size} bytes, saved at: {archive_path}")
                 return
+            
+            # Send the archive
             await self.channel.send(
-                f"📦 **Analysis Archive** ({size//1024} KB): Contains log + screenshot + info",
+                f"📦 **Analysis Archive** ({file_size // 1024} KB compressed with 7z):\n"
+                f"Contains: Complete analysis log + Latest desktop screenshot + Info file",
                 file=discord.File(archive_path)
             )
+            
+            # Clean up archive file only if successfully sent
             os.remove(archive_path)
+            logging.info("Analysis archive sent and cleaned up")
+            
         except Exception as e:
-            logging.error(f"Error sending archive: {e}")
-            await self.channel.send(f"❌ **Error sending archive:** {e}")
+            logging.error(f"Error sending analysis archive: {e}")
+            await self.channel.send(f"❌ **Error sending analysis archive:** {str(e)}\n"
+                                  f"Archive may be saved at: {archive_path}")
 
 @bot.event
 async def on_ready():
@@ -11527,7 +11617,7 @@ async def scan_file(ctx):
     with analysis_lock:
         if analysis_running:
             await ctx.send("⚠️ **Analysis already in progress!** Please wait for the current analysis to complete before starting a new one.")
-            logging.error(f"Analysis request rejected - already running. User: {ctx.author}, Channel: {ctx.channel}")
+            logging.warning(f"Analysis request rejected - already running. User: {ctx.author}, Channel: {ctx.channel}")
             return
         # Set analysis as running immediately to prevent race conditions
         analysis_running = True
@@ -11550,24 +11640,53 @@ async def scan_file(ctx):
     
     attachment = ctx.message.attachments[0]
     
-    # File size check (Discord limit is 8MB for non-nitro users)
-    if attachment.size > 25 * 1024 * 1024:  # 25MB limit
+    # File size check
+    max_file_size = 25 * 1024 * 1024  # 25MB limit
+    if attachment.size > max_file_size:
         with analysis_lock:
             analysis_running = False
-        await ctx.send("❌ **File too large!** Maximum file size is 25MB.")
+        await ctx.send(f"❌ **File too large!** Maximum file size is {max_file_size // (1024*1024)}MB.")
         return
+    
+    # Security check - basic file type validation
+    dangerous_extensions = ['.exe', '.scr', '.bat', '.cmd', '.com', '.pif', '.vbs', '.js', '.jar', '.ps1']
+    file_ext = Path(attachment.filename).suffix.lower()
+    
+    if file_ext in dangerous_extensions:
+        confirmation_msg = f"⚠️ **WARNING:** You're about to analyze a potentially dangerous file type ({file_ext})\n" \
+                          f"Only proceed if you're in a secure sandbox environment!\n" \
+                          f"React with ✅ to continue or ❌ to cancel."
+        
+        warning_msg = await ctx.send(confirmation_msg)
+        await warning_msg.add_reaction('✅')
+        await warning_msg.add_reaction('❌')
+        
+        def check(reaction, user):
+            return user == ctx.author and str(reaction.emoji) in ['✅', '❌'] and reaction.message.id == warning_msg.id
+        
+        try:
+            reaction, user = await bot.wait_for('reaction_add', timeout=30.0, check=check)
+            if str(reaction.emoji) == '❌':
+                with analysis_lock:
+                    analysis_running = False
+                await ctx.send("❌ **Analysis cancelled by user.**")
+                return
+        except asyncio.TimeoutError:
+            with analysis_lock:
+                analysis_running = False
+            await ctx.send("❌ **Analysis cancelled - no response within 30 seconds.**")
+            return
     
     try:
         # Create temporary directory for analysis
         temp_dir = os.path.join(log_directory, "temp_analysis")
-        if not os.path.exists(temp_dir):
-            os.makedirs(temp_dir)
+        os.makedirs(temp_dir, exist_ok=True)
         
-        # Download file
-        filename = f"{uniquename()}_{attachment.filename}"
-        file_path = os.path.join(temp_dir, filename)
+        # Download file with safe filename
+        safe_filename = f"{uniquename()}_{attachment.filename}"
+        file_path = os.path.join(temp_dir, safe_filename)
         
-        await ctx.send(f"📥 **Downloading file:** `{attachment.filename}`")
+        await ctx.send(f"📥 **Downloading file:** {attachment.filename}")
         await attachment.save(file_path)
         
         logging.info(f"File downloaded: {file_path}")
@@ -11622,15 +11741,14 @@ async def log_info(ctx):
             mod_time = datetime.fromtimestamp(os.path.getmtime(application_log_file))
             
             info_msg = f"""📄 **Log File Information:**
-```
 Path: {application_log_file}
 Size: {file_size_mb:.2f} MB ({file_size:,} bytes)
 Last Modified: {mod_time.strftime('%Y-%m-%d %H:%M:%S')}
 Status: Complete file will be copied to temp_analysis and included in 7z archive
-```"""
+"""
             await ctx.send(info_msg)
         else:
-            await ctx.send(f"❌ **Log file not found:** `{application_log_file}`")
+            await ctx.send(f"❌ **Log file not found:** {application_log_file}")
     except Exception as e:
         await ctx.send(f"❌ **Error getting log info:** {str(e)}")
 
@@ -11641,8 +11759,7 @@ async def copy_log(ctx):
         if os.path.exists(application_log_file):
             # Create temp directory
             temp_dir = os.path.join(log_directory, "temp_analysis")
-            if not os.path.exists(temp_dir):
-                os.makedirs(temp_dir)
+            os.makedirs(temp_dir, exist_ok=True)
             
             # Copy log file
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -11651,24 +11768,51 @@ async def copy_log(ctx):
             
             file_size = os.path.getsize(log_copy_path)
             await ctx.send(f"✅ **Log file copied successfully!**\n"
-                          f"From: `{application_log_file}`\n"
-                          f"To: `{log_copy_path}`\n"
+                          f"From: {application_log_file}\n"
+                          f"To: {log_copy_path}\n"
                           f"Size: {file_size // 1024} KB")
             
         else:
-            await ctx.send(f"❌ **Log file not found:** `{application_log_file}`")
+            await ctx.send(f"❌ **Log file not found:** {application_log_file}")
     except Exception as e:
         await ctx.send(f"❌ **Error copying log file:** {str(e)}")
+
+@bot.command(name='help')
+async def help_command(ctx):
+    """Show available commands"""
+    help_text = """
+🤖 **Antivirus Analysis Bot Commands:**
+
+**!scanfile** - Analyze an attached file (attach file to message)
+**!status** - Check if analysis is running
+**!stop** - Stop current analysis
+**!loginfo** - Show log file information
+**!copylog** - Manually copy log file to temp directory
+**!help** - Show this help message
+
+**Notes:**
+- Maximum file size: 25MB
+- Only one analysis can run at a time
+- Bot will warn for potentially dangerous file types
+- Always revert to clean snapshot after analysis
+"""
+    await ctx.send(help_text)
 
 @bot.event
 async def on_command_error(ctx, error):
     """Handle command errors"""
-    logging.error(f"Command error: {error}")
-    await ctx.send(f"❌ **Error:** {str(error)}")
+    if isinstance(error, commands.CommandNotFound):
+        await ctx.send("❌ **Unknown command.** Use `!help` to see available commands.")
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send("❌ **Missing required argument.** Use `!help` to see command usage.")
+    else:
+        logging.error(f"Command error: {error}")
+        await ctx.send(f"❌ **Error:** {str(error)}")
 
 def main():
     """Main function to run the bot"""
     logging.info("Starting Discord Antivirus Bot...")
+    logging.info(f"Log directory: {log_directory}")
     logging.info(f"Log file: {application_log_file}")
     logging.info(f"Using Discord token from environment variable")
     logging.info("Bot will work in any channel where it has permissions")
