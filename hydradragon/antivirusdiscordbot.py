@@ -11318,7 +11318,7 @@ class AnalysisWorker:
                 
                 # Only send results if analysis completed normally and wasn't stopped
                 if not self.stop_requested and self.analysis_result:
-                    await self.channel.send(f"📊 **Analysis completed!** Use `!stop` to get results archive.")
+                    await self.channel.send(f"📊 **Analysis started!** Use `!stop` to get results archive.")
                 
             except Exception as e:
                 bot_logger.error(f"Analysis execution error: {e}")
@@ -11332,7 +11332,7 @@ class AnalysisWorker:
                     # Reduced spam - only one message about monitoring
                     pass  # Don't send additional monitoring messages
                 else:
-                    await self.channel.send("⚠️ **Analysis completed with issues. Use `!stop` to finish and get results**")
+                    await self.channel.send("⚠️ **Analysis started with issues. Use `!stop` to finish and get results**")
                 
                 # Wait for stop event (user manually stops) - NO TIMEOUT
                 await self._stop_event.wait()
