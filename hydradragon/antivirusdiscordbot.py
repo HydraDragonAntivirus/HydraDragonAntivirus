@@ -11285,7 +11285,7 @@ class AnalysisWorker:
             # Run the actual analysis in a separate thread to avoid blocking
             loop = asyncio.get_event_loop()
             
-            # Start the analysis but don't send results yet
+            # Start the analysis task
             analysis_task = loop.run_in_executor(
                 None,  # Use default executor
                 self.perform_file_analysis
@@ -11294,43 +11294,37 @@ class AnalysisWorker:
             # Send status update that analysis is starting
             await self.channel.send("🔄 **Analysis is starting... Please wait for completion or use !stop to terminate**")
             
-            # Wait for either analysis completion or stop request
-            done = False
-            while not done:
-                try:
-                    # Wait for analysis to complete or timeout after 30 seconds
-                    self.analysis_result = await asyncio.wait_for(analysis_task, timeout=30.0)
-                    done = True
-                except asyncio.TimeoutError:
-                    # Analysis is still running, check if stop was requested
-                    if self.stop_requested:
-                        bot_logger.info("Analysis stopped by user request")
-                        done = True
-                    else:
-                        # Send periodic status update
-                        await self.channel.send("🔄 **Analysis still running... Use !stop to terminate**")
-                        # Continue waiting
-                        continue
-                except Exception as e:
-                    bot_logger.error(f"Analysis execution error: {e}")
-                    self.analysis_result = f"Analysis failed: {str(e)}"
-                    done = True
+            # Wait for analysis to complete WITHOUT timeout
+            try:
+                self.analysis_result = await analysis_task
+                bot_logger.info("Analysis task completed successfully")
+                
+                # Only send results if analysis completed normally and wasn't stopped
+                if not self.stop_requested and self.analysis_result:
+                    await self.channel.send(f"📊 **Analysis Results:**\n```\n{self.analysis_result}\n```")
+                    await self.channel.send("✅ **Analysis execution completed!** Use !stop to finalize and get archive.")
+                
+            except Exception as e:
+                bot_logger.error(f"Analysis execution error: {e}")
+                self.analysis_result = f"Analysis failed: {str(e)}"
+                await self.channel.send(f"❌ **Analysis failed:** {str(e)}")
+                # Even if analysis failed, we still wait for stop command
             
-            # Check if analysis was stopped
+            # If analysis completed successfully, continue monitoring until stopped
+            if not self.stop_requested:
+                if self.analysis_result and "Analysis failed" not in self.analysis_result:
+                    await self.channel.send("🔄 **Analysis continues monitoring... Use !stop to finish and get complete results**")
+                else:
+                    await self.channel.send("⚠️ **Analysis completed with issues. Use !stop to finish and get results**")
+                
+                # Wait for stop event (user manually stops) - NO TIMEOUT
+                await self._stop_event.wait()
+            
+            # Handle stop request
             if self.stop_requested:
                 await self.channel.send("🛑 **Analysis was stopped by user request**")
-            else:
-                # Only send results if analysis completed normally
-                if self.analysis_result:
-                    await self.channel.send(f"📊 **Analysis Results:**\n```\n{self.analysis_result}\n```")
-                
-                # Continue running until manually stopped
-                await self.channel.send("🔄 **Analysis continues monitoring... Use !stop to finish and get complete results**")
             
-            # Wait for stop event
-            await self._stop_event.wait()
-            
-            # When stopped, create and send archive
+            # Create and send archive when stopped
             await self.channel.send("📦 **Creating analysis archive...**")
             archive_path = await self.create_analysis_archive()
             if archive_path:
@@ -11405,7 +11399,7 @@ class AnalysisWorker:
             bot_logger.info("Starting run_analysis() function")
             run_analysis(self.file_path)
             
-            # If we get here, analysis started successfully
+            # If we get here, analysis completed successfully
             analysis_success = True
             bot_logger.info("Analysis function completed successfully")
             
@@ -11433,7 +11427,7 @@ class AnalysisWorker:
         if self.stop_requested:
             status = "Analysis stopped by user request"
         elif success:
-            status = "Analysis is running..."
+            status = "Analysis completed successfully"
         else:
             status = "Analysis failed"
         
@@ -11452,7 +11446,7 @@ Status: {status}
             result += f"\nError Details: {error_message}"
         
         if success and not self.stop_requested:
-            result += "\nNote: Analysis is running - monitoring continues until stopped"
+            result += "\nNote: Analysis completed - monitoring continues until stopped"
         elif self.stop_requested:
             result += "\nNote: Analysis was stopped by user request"
         else:
@@ -11580,7 +11574,6 @@ Note: Please revert to clean snapshot before next analysis
             bot_logger.error(f"Error sending analysis archive: {e}")
             await self.channel.send(f"❌ **Error sending analysis archive:** {str(e)}\n"
                                   f"Archive may be saved at: {archive_path}")
-
 @bot.event
 async def on_ready():
     """Bot startup event"""
