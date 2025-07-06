@@ -11991,7 +11991,7 @@ async def status(ctx):
     """Check bot status"""
     async with analysis_lock:
         if analysis_running:
-            await ctx.send("🔄 **Status:** Analysis in progress... Use `!stop` to finish and get results.")
+            await ctx.send("🔄 **Status:** Analysis in progress... Use `!restart` to finish and get results.")
         else:
             await ctx.send("✅ **Status:** Ready for new analysis")
 
