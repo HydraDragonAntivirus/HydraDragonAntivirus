@@ -11318,35 +11318,35 @@ class AnalysisWorker:
                 
                 # Only send results if analysis completed normally and wasn't stopped
                 if not self.stop_requested and self.analysis_result:
-                    await self.channel.send(f"📊 **Analysis started!** Use `!stop` to get results archive.")
+                    await self.channel.send(f"📊 **Analysis started!** Use `!restart` to clean environment and get results archive.")
                 
             except Exception as e:
                 bot_logger.error(f"Analysis execution error: {e}")
                 self.analysis_result = f"Analysis failed: {str(e)}"
                 await self.channel.send(f"❌ **Analysis failed:** {str(e)}")
-                # Even if analysis failed, we still wait for stop command
+                # Even if analysis failed, we still wait for restart command
             
-            # If analysis completed successfully, continue monitoring until stopped
+            # If analysis completed successfully, continue monitoring until restarted
             if not self.stop_requested:
                 if self.analysis_result and "Analysis failed" not in self.analysis_result:
                     # Reduced spam - only one message about monitoring
                     pass  # Don't send additional monitoring messages
                 else:
-                    await self.channel.send("⚠️ **Analysis started with issues. Use `!stop` to finish and get results**")
+                    await self.channel.send("⚠️ **Analysis started with issues. Use `!restart` to clean environment and get results**")
                 
-                # Wait for stop event (user manually stops) - NO TIMEOUT
+                # Wait for restart event (user manually restarts) - NO TIMEOUT
                 await self._stop_event.wait()
             
-            # Handle stop request
+            # Handle restart request
             if self.stop_requested:
-                await self.channel.send("🛑 **Analysis stopped. Creating archive...**")
+                await self.channel.send("🔄 **Restarting environment. Creating archive and cleaning up...**")
             
-            # Create and send archive when stopped
+            # Create and send archive when restarted
             archive_path = await self.create_analysis_archive()
             if archive_path:
                 await self.send_analysis_archive(archive_path)
             
-            await self.channel.send("✅ **Analysis Complete!** Please revert to clean snapshot before next analysis.")
+            await self.channel.send("✅ **Analysis Complete!** Environment cleaned and ready for next analysis.")
             
         except Exception as e:
             bot_logger.error(f"Analysis error: {str(e)}")
@@ -11372,7 +11372,7 @@ class AnalysisWorker:
             bot_logger.error(f"Error cleaning up temporary file: {e}")
 
     def stop_analysis(self):
-        """Request to stop the analysis"""
+        """Request to stop the analysis (now called for restart)"""
         self.stop_requested = True
         # Set the event to wake up the waiting coroutine
         try:
@@ -11385,7 +11385,7 @@ class AnalysisWorker:
         except RuntimeError:
             # If no event loop is running, just set the flag
             pass
-        bot_logger.info("Analysis stop requested")
+        bot_logger.info("Analysis restart requested")
 
     def perform_file_analysis(self):
         """Perform the actual file analysis - runs in separate thread"""
@@ -11441,7 +11441,7 @@ class AnalysisWorker:
     def generate_analysis_report(self, file_info, error_message, success):
         """Generate the analysis report"""
         if self.stop_requested:
-            status = "Analysis stopped by user request"
+            status = "Analysis stopped by user restart request"
         elif success:
             status = "Analysis completed successfully"
         else:
@@ -11462,9 +11462,9 @@ Status: {status}
             result += f"\nError Details: {error_message}"
         
         if success and not self.stop_requested:
-            result += "\nNote: Analysis completed - use !stop to get results"
+            result += "\nNote: Analysis completed - use !restart to clean environment and get results"
         elif self.stop_requested:
-            result += "\nNote: Analysis was stopped by user request"
+            result += "\nNote: Analysis was stopped by user restart request"
         else:
             result += "\nNote: Analysis failed to complete"
         
@@ -11537,7 +11537,7 @@ Archive contents:
 - Latest desktop screenshot
 - This info file
 
-Note: Please revert to clean snapshot before next analysis
+Note: Environment has been cleaned and is ready for next analysis
 """
             archive.writestr(info_content.encode('utf-8'), arcname=f"analysis_info_{timestamp}.txt")
         
@@ -11590,6 +11590,194 @@ Note: Please revert to clean snapshot before next analysis
             bot_logger.error(f"Error sending analysis archive: {e}")
             await self.channel.send(f"❌ **Error sending analysis archive:** {str(e)}\n"
                                   f"Archive may be saved at: {archive_path}")
+
+# Environment cleanup functions (adapted from the GUI application)
+class EnvironmentCleaner:
+    """Handles comprehensive environment cleanup"""
+    
+    def __init__(self, channel):
+        self.channel = channel
+        
+    async def stop_snort(self):
+        """Stops Snort processes and cleans up log files."""
+        try:
+            # Kill all snort processes
+            terminated_count = 0
+            for proc in psutil.process_iter(['pid', 'name']):
+                try:
+                    if 'snort' in proc.info['name'].lower():
+                        proc.terminate()
+                        proc.wait(timeout=5)
+                        await self.channel.send(f"🛑 Terminated Snort process (PID: {proc.info['pid']})")
+                        terminated_count += 1
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
+                    pass
+            
+            if terminated_count == 0:
+                await self.channel.send("ℹ️ No Snort processes found to terminate")
+            
+            # Clean up log files
+            log_path = os.path.join(log_folder, "alert.ids")
+            if os.path.exists(log_path):
+                os.remove(log_path)
+                await self.channel.send(f"🗑️ Removed Snort log file: {log_path}")
+                
+        except Exception as e:
+            await self.channel.send(f"❌ Error stopping Snort: {str(e)}")
+            bot_logger.error(f"Error stopping Snort: {e}")
+
+    async def full_cleanup_sandbox(self):
+        """Fully cleans up the Sandboxie environment."""
+        try:
+            await self.channel.send("🧹 Starting Sandboxie cleanup...")
+            cmds = [
+                [sandboxie_path, "/terminate"],
+                [sandboxie_path, "/box:DefaultBox", "/terminate"],
+                [sandboxie_path, "/terminate_all"],
+            ]
+            
+            for cmd in cmds:
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    await self.channel.send(f"⚠️ Command {' '.join(cmd)} failed: {result.stderr.strip()}")
+                else:
+                    await self.channel.send(f"✅ Command {' '.join(cmd)} successful")
+                time.sleep(1)
+            
+            # Delete (cleanup) the DefaultBox sandbox
+            cleanup_cmd = [sandboxie_path, "/delete_sandbox:DefaultBox"]
+            result = subprocess.run(cleanup_cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                await self.channel.send(f"⚠️ Sandbox delete command failed: {result.stderr.strip()}")
+            else:
+                await self.channel.send("✅ Sandbox 'DefaultBox' deleted successfully")
+                
+        except Exception as ex:
+            await self.channel.send(f"❌ Sandbox cleanup error: {str(ex)}")
+            bot_logger.error(f"Sandbox cleanup error: {ex}")
+
+    async def cleanup_directories(self):
+        """Removes all the generated directories and their contents."""
+        # Add your directory list here from the original code
+        directories_to_clean = [
+            enigma_extracted_dir, upx_extracted_dir, ungarbler_dir, ungarbler_string_dir,
+            resource_extractor_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
+            inno_setup_unpacked_dir, python_source_code_dir, nuitka_source_code_dir,
+            commandlineandmessage_dir, processed_dir, memory_dir, dotnet_dir,
+            de4dot_extracted_dir, obfuscar_dir, nuitka_dir, pe_extracted_dir,
+            zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir,
+            general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir,
+            debloat_dir, jar_extracted_dir, FernFlower_decompiled_dir, deteciteasy_plain_text_dir,
+            python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pylingual_extracted_dir,
+            pycdas_extracted_dir, copied_sandbox_and_main_files_dir, HiJackThis_logs_dir,
+            html_extracted_dir
+        ]
+        
+        await self.channel.send("🗂️ Cleaning up analysis directories...")
+        cleaned_count = 0
+        
+        for directory in directories_to_clean:
+            try:
+                if os.path.exists(directory):
+                    shutil.rmtree(directory)
+                    cleaned_count += 1
+            except Exception as e:
+                await self.channel.send(f"⚠️ Error cleaning directory {directory}: {str(e)}")
+        
+        await self.channel.send(f"✅ Cleaned {cleaned_count} directories")
+
+    async def restart_services(self):
+        """Restarts ClamAV and Snort services."""
+        try:
+            # Restart ClamAV
+            await self.channel.send("🔄 Restarting ClamAV daemon...")
+            restart_clamd_thread()
+            await self.channel.send("✅ ClamAV daemon restarted")
+            
+            # Restart Snort
+            await self.channel.send("🔄 Starting Snort...")
+            threading.Thread(target=run_snort).start()
+            await self.channel.send("✅ Snort started")
+            
+        except Exception as e:
+            await self.channel.send(f"❌ Error restarting services: {str(e)}")
+            bot_logger.error(f"Error restarting services: {e}")
+
+    async def recreate_directories(self):
+        """Recreates all the necessary directories after cleanup."""
+        # Add your directory list here from the original code
+        directories_to_create = [
+            enigma_extracted_dir, upx_extracted_dir, ungarbler_dir, ungarbler_string_dir,
+            resource_extractor_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
+            inno_setup_unpacked_dir, python_source_code_dir, nuitka_source_code_dir,
+            commandlineandmessage_dir, processed_dir, memory_dir, dotnet_dir,
+            de4dot_extracted_dir, obfuscar_dir, nuitka_dir, pe_extracted_dir,
+            zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir,
+            general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir,
+            debloat_dir, jar_extracted_dir, FernFlower_decompiled_dir, deteciteasy_plain_text_dir,
+            python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pylingual_extracted_dir,
+            pycdas_extracted_dir, copied_sandbox_and_main_files_dir, HiJackThis_logs_dir,
+            html_extracted_dir
+        ]
+        
+        await self.channel.send("📁 Recreating clean directories...")
+        created_count = 0
+        
+        for directory in directories_to_create:
+            try:
+                os.makedirs(directory, exist_ok=True)
+                created_count += 1
+            except Exception as e:
+                await self.channel.send(f"⚠️ Error creating directory {directory}: {str(e)}")
+        
+        await self.channel.send(f"✅ Created {created_count} clean directories")
+
+    async def reset_global_variables(self):
+        """Reset analysis state variables."""
+        global pre_analysis_log_path, post_analysis_log_path, pre_analysis_entries, post_analysis_entries
+        
+        pre_analysis_log_path = None
+        post_analysis_log_path = None
+        pre_analysis_entries = None
+        post_analysis_entries = None
+        
+        await self.channel.send("🔄 Analysis state variables reset")
+
+    async def perform_full_cleanup(self):
+        """Performs comprehensive cleanup of the environment."""
+        try:
+            await self.channel.send("🚀 **Starting comprehensive environment cleanup and restart...**")
+            
+            # Step 1: Stop Snort and cleanup logs
+            await self.channel.send("**Step 1/6:** Stopping Snort and cleaning logs...")
+            await self.stop_snort()
+            
+            # Step 2: Cleanup Sandboxie
+            await self.channel.send("**Step 2/6:** Cleaning up Sandboxie environment...")
+            await self.full_cleanup_sandbox()
+            
+            # Step 3: Clean up directories
+            await self.channel.send("**Step 3/6:** Cleaning up analysis directories...")
+            await self.cleanup_directories()
+            
+            # Step 4: Reset global variables
+            await self.channel.send("**Step 4/6:** Resetting analysis state...")
+            await self.reset_global_variables()
+            
+            # Step 5: Restart services
+            await self.channel.send("**Step 5/6:** Restarting services...")
+            await self.restart_services()
+            
+            # Step 6: Recreate directories
+            await self.channel.send("**Step 6/6:** Recreating clean directories...")
+            await self.recreate_directories()
+            
+            await self.channel.send("✅ **Environment cleanup and restart completed successfully!**")
+            await self.channel.send("🎯 **System is clean and ready for new analysis.**")
+            
+        except Exception as e:
+            await self.channel.send(f"❌ **Error during cleanup and restart:** {str(e)}")
+            bot_logger.error(f"Error during cleanup: {e}")
 
 # Screenshot utility functions
 async def capture_screenshot_async():
@@ -11652,7 +11840,7 @@ async def scan_file(ctx):
     # Check if analysis is already running (strict check)
     async with analysis_lock:
         if analysis_running:
-            await ctx.send("⚠️ **Analysis already in progress!** Please wait for the current analysis to complete before starting a new one.")
+            await ctx.send("⚠️ **Analysis already in progress!** Please wait for the current analysis to complete or use `!restart` to clean environment.")
             bot_logger.warning(f"Analysis request rejected - already running. User: {ctx.author}, Channel: {ctx.channel}")
             return
         # Set analysis as running immediately to prevent race conditions
@@ -11770,22 +11958,49 @@ async def status(ctx):
         else:
             await ctx.send("✅ **Status:** Ready for new analysis")
 
-@bot.command(name='stop')
-async def stop_analysis(ctx):
-    """Stop current analysis (if any)"""
+@bot.command(name='restart')
+async def restart(ctx):
+    """Stop (restart) the current analysis, produce the results archive, and clean the environment."""
     global analysis_running, current_analysis_process
-    
+
     async with analysis_lock:
+        cleaner = EnvironmentCleaner(ctx.channel)
+
+        # Case A: analysis is running with a live worker
         if analysis_running and current_analysis_process:
-            await ctx.send("🛑 **Stopping analysis...** Creating results archive...")
+            await ctx.send("🛑 **Restarting analysis...** Creating results archive...")
+            bot_logger.info(f"Analysis restart requested by {ctx.author} in {ctx.channel}")
+            
+            # ask the worker to stop (this will trigger archive & cleanup inside the worker)
             current_analysis_process.stop_analysis()
-            bot_logger.info(f"Analysis stop initiated by {ctx.author} in channel {ctx.channel}")
+
+            # wait until the worker signals it's done
+            while not current_analysis_process.analysis_complete:
+                await asyncio.sleep(0.5)
+
+            await ctx.send("✅ **Analysis archive created.** Now cleaning environment...")
+            bot_logger.info("AnalysisWorker completed, moving on to environment cleanup")
+
+            # full sandbox & service cleanup
+            await cleaner.perform_full_cleanup()
+            bot_logger.info("Environment cleanup completed")
+
+            # reset state
+            analysis_running = False
+            current_analysis_process = None
+
+        # Case B: flag set but no worker object (edge case)
         elif analysis_running:
             analysis_running = False
-            await ctx.send("🛑 **Analysis stopped!** Please revert to clean snapshot.")
-            bot_logger.info(f"Analysis manually stopped by {ctx.author} in channel {ctx.channel}")
+            await ctx.send("🛑 **Analysis stopped!** No active worker found. Cleaning environment...")
+            bot_logger.warning(f"Restart called with no worker by {ctx.author}")
+            await cleaner.perform_full_cleanup()
+
+        # Case C: nothing to restart — but still allow cleanup
         else:
-            await ctx.send("ℹ️ **No analysis running.**")
+            await ctx.send("ℹ️ **No analysis running.** Cleaning environment anyway...")
+            bot_logger.info(f"No analysis to restart; cleanup invoked by {ctx.author}")
+            await cleaner.perform_full_cleanup()
 
 @bot.command(name='loginfo')
 async def log_info(ctx):
@@ -11853,7 +12068,7 @@ async def help_command(ctx):
 **!scanfile** - Analyze an attached file (attach file to message)
 **!screenshot** - Take a screenshot of the current desktop
 **!status** - Check if analysis is running
-**!stop** - Stop current analysis and get results archive
+**!restart** - Stop the current analysis, retrieve the results archive, and clean up the environment.
 **!loginfo** - Show log file information
 **!copylog** - Manually copy log file to temp directory
 **!help** - Show this help message
