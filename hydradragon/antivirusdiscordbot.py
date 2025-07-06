@@ -12033,7 +12033,7 @@ async def restart(ctx):
             bot_logger.warning(f"Restart called with no worker by {ctx.author}")
             await cleaner.perform_full_cleanup()
 
-        # Case C: nothing to restart — but still allow cleanup
+        # Case C: nothing to restart - but still allow cleanup
         else:
             await ctx.send("ℹ️ **No analysis running.** Cleaning environment anyway...")
             bot_logger.info(f"No analysis to restart; cleanup invoked by {ctx.author}")
