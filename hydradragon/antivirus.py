@@ -11267,10 +11267,14 @@ class AntivirusApp(QWidget):
         """Handler for the new Rootkit Scan button."""
         self.start_worker("rootkit_scan")
 
+    def cleanup_environment(self):
+        """Handler for the new Cleanup button."""
+        self.start_worker("cleanup_environment")
+
     def setup_ui(self):
         """Sets up the main user interface."""
         self.setWindowTitle("Hydra Dragon Antivirus")
-        self.setFixedSize(700, 650) # Increased height for the new button
+        self.setFixedSize(700, 700) # Increased height for the new buttons
         try:
             if os.path.exists(icon_path):
                  self.setWindowIcon(QIcon(icon_path))
@@ -11292,7 +11296,8 @@ class AntivirusApp(QWidget):
             "3. Perform your main analysis <b>Analyze File</b> the suspicious software.<br>"
             "4. Run HiJackThis again (<b>Capture Analysis Logs</b> a second time).<br>"
             "5. Click <b>Compare Analysis Logs</b> to see what changed.<br>"
-            "6. Finally, run the <b>Rootkit Scan</b>.<br><br>"
+            "6. Finally, run the <b>Rootkit Scan</b>.<br>"
+            "7. Use <b>Cleanup Environment</b> to reset before new analysis.<br><br>"
             "<i>Return to a clean snapshot before starting a new analysis.</i>"
         )
         self.warning_label = QLabel(warning_text, self)
@@ -11314,6 +11319,7 @@ class AntivirusApp(QWidget):
         self.analyze_file_button = QPushButton("3. Analyze a File", self)
         self.diff_button = QPushButton("4. Compare Analysis Logs", self)
         self.rootkit_scan_button = QPushButton("5. Rootkit Scan", self)
+        self.cleanup_button = QPushButton("6. Cleanup Environment", self)
 
         # Text output area
         self.output_text = QTextEdit(self)
@@ -11348,6 +11354,27 @@ class AntivirusApp(QWidget):
                 background-color: #1E90FF;
             }
         """
+        
+        # Special style for cleanup button (red theme)
+        cleanup_button_style = """
+            QPushButton {
+                color: white;
+                font: bold 14px;
+                border: none;
+                border-radius: 10px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #FF4500, stop:1 #DC143C);
+                padding: 10px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #DC143C, stop:1 #FF4500);
+            }
+            QPushButton:pressed {
+                background-color: #B22222;
+            }
+        """
+        
         all_buttons = [
             self.update_defs_button, self.capture_button, self.analyze_file_button,
             self.diff_button, self.rootkit_scan_button
@@ -11356,12 +11383,17 @@ class AntivirusApp(QWidget):
             btn.setCursor(Qt.PointingHandCursor)
             btn.setStyleSheet(button_style)
 
+        # Special styling for cleanup button
+        self.cleanup_button.setCursor(Qt.PointingHandCursor)
+        self.cleanup_button.setStyleSheet(cleanup_button_style)
+
         # Connect buttons to their functions
         self.update_defs_button.clicked.connect(self.update_definitions)
         self.capture_button.clicked.connect(self.capture_analysis_logs)
         self.diff_button.clicked.connect(self.compare_analysis_logs)
         self.analyze_file_button.clicked.connect(self.analyze_file)
-        self.rootkit_scan_button.clicked.connect(self.scan_for_rootkits) # Connect new button
+        self.rootkit_scan_button.clicked.connect(self.scan_for_rootkits)
+        self.cleanup_button.clicked.connect(self.cleanup_environment)
 
         # Layout Setup
         layout.addWidget(self.warning_label)
@@ -11369,7 +11401,8 @@ class AntivirusApp(QWidget):
         layout.addWidget(self.capture_button)
         layout.addWidget(self.analyze_file_button)
         layout.addWidget(self.diff_button)
-        layout.addWidget(self.rootkit_scan_button) # Add new button to layout
+        layout.addWidget(self.rootkit_scan_button)
+        layout.addWidget(self.cleanup_button)
         layout.addWidget(self.output_text, 1) # The '1' makes the text edit expand
 
     def __init__(self):
@@ -11493,6 +11526,174 @@ class Worker(QThread):
         except Exception as e:
             self.output_signal.emit(f"[!] Error during rootkit scan: {str(e)}")
 
+    def full_cleanup_sandbox(self):
+        """
+        Fully cleans up the Sandboxie environment by terminating and deleting the DefaultBox sandbox.
+        """
+        try:
+            self.output_signal.emit("[*] Starting full sandbox cleanup using Start.exe termination commands...")
+            cmds = [
+                [sandboxie_path, "/terminate"],
+                [sandboxie_path, "/box:DefaultBox", "/terminate"],
+                [sandboxie_path, "/terminate_all"],
+            ]
+            for cmd in cmds:
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    self.output_signal.emit(f"[!] Command {' '.join(cmd)} failed: {result.stderr.strip()}")
+                else:
+                    self.output_signal.emit(f"[+] Command {' '.join(cmd)} successful.")
+                time.sleep(1)
+            
+            # Delete (cleanup) the DefaultBox sandbox
+            cleanup_cmd = [sandboxie_path, "/delete_sandbox:DefaultBox"]
+            result = subprocess.run(cleanup_cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                self.output_signal.emit(f"[!] Sandbox delete command failed: {result.stderr.strip()}")
+            else:
+                self.output_signal.emit("[+] Sandbox 'DefaultBox' deleted successfully.")
+                
+        except Exception as ex:
+            self.output_signal.emit(f"[!] Full sandbox cleanup encountered an exception: {ex}")
+
+    def cleanup_directories(self):
+        """
+        Removes all the generated directories and their contents.
+        """
+        directories_to_clean = [
+            enigma_extracted_dir, upx_extracted_dir, ungarbler_dir, ungarbler_string_dir,
+            resource_extractor_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
+            inno_setup_unpacked_dir, python_source_code_dir, nuitka_source_code_dir,
+            commandlineandmessage_dir, processed_dir, memory_dir, dotnet_dir,
+            de4dot_extracted_dir, obfuscar_dir, nuitka_dir, pe_extracted_dir,
+            zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir,
+            general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir,
+            debloat_dir, jar_extracted_dir, FernFlower_decompiled_dir, deteciteasy_plain_text_dir,
+            python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pylingual_extracted_dir,
+            pycdas_extracted_dir, copied_sandbox_and_main_files_dir, HiJackThis_logs_dir,
+            html_extracted_dir
+        ]
+        
+        cleaned_count = 0
+        for directory in directories_to_clean:
+            try:
+                if os.path.exists(directory):
+                    shutil.rmtree(directory)
+                    self.output_signal.emit(f"[+] Cleaned directory: {directory}")
+                    cleaned_count += 1
+            except Exception as e:
+                self.output_signal.emit(f"[!] Error cleaning directory {directory}: {str(e)}")
+        
+        self.output_signal.emit(f"[+] Total directories cleaned: {cleaned_count}")
+
+    def stop_snort(self):
+        """
+        Stops Snort processes and cleans up log files.
+        """
+        try:
+            # Kill all snort processes
+            for proc in psutil.process_iter(['pid', 'name']):
+                try:
+                    if 'snort' in proc.info['name'].lower():
+                        proc.terminate()
+                        proc.wait(timeout=5)
+                        self.output_signal.emit(f"[+] Terminated Snort process (PID: {proc.info['pid']})")
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
+                    pass
+            
+            # Clean up log files
+            log_path = os.path.join(log_folder, "alert.ids")
+            if os.path.exists(log_path):
+                os.remove(log_path)
+                self.output_signal.emit(f"[+] Removed Snort log file: {log_path}")
+                
+        except Exception as e:
+            self.output_signal.emit(f"[!] Error stopping Snort: {str(e)}")
+
+    def restart_services(self):
+        """
+        Restarts ClamAV and Snort services.
+        """
+        try:
+            # Restart ClamAV
+            self.output_signal.emit("[*] Restarting ClamAV daemon...")
+            restart_clamd_thread()
+            self.output_signal.emit("[+] ClamAV daemon restarted.")
+            
+            # Restart Snort
+            self.output_signal.emit("[*] Starting Snort...")
+            threading.Thread(target=run_snort).start()
+            self.output_signal.emit("[+] Snort started.")
+            
+        except Exception as e:
+            self.output_signal.emit(f"[!] Error restarting services: {str(e)}")
+
+    def perform_cleanup(self):
+        """
+        Performs comprehensive cleanup of the environment.
+        """
+        try:
+            global pre_analysis_log_path, post_analysis_log_path, pre_analysis_entries, post_analysis_entries
+            
+            self.output_signal.emit("[*] Starting comprehensive environment cleanup...")
+            
+            # Step 1: Stop Snort and cleanup logs
+            self.output_signal.emit("[*] Step 1: Stopping Snort and cleaning logs...")
+            self.stop_snort()
+            
+            # Step 2: Cleanup Sandboxie
+            self.output_signal.emit("[*] Step 2: Cleaning up Sandboxie environment...")
+            self.full_cleanup_sandbox()
+            
+            # Step 3: Clean up directories
+            self.output_signal.emit("[*] Step 3: Cleaning up generated directories...")
+            self.cleanup_directories()
+            
+            # Step 4: Reset global variables
+            self.output_signal.emit("[*] Step 4: Resetting analysis state...")
+            pre_analysis_log_path = None
+            post_analysis_log_path = None
+            pre_analysis_entries = None
+            post_analysis_entries = None
+            
+            # Step 5: Restart services
+            self.output_signal.emit("[*] Step 5: Restarting services...")
+            self.restart_services()
+            
+            # Step 6: Recreate directories
+            self.output_signal.emit("[*] Step 6: Recreating clean directories...")
+            self.recreate_directories()
+            
+            self.output_signal.emit("[+] Environment cleanup completed successfully!")
+            self.output_signal.emit("[+] System is ready for new analysis.")
+            
+        except Exception as e:
+            self.output_signal.emit(f"[!] Error during cleanup: {str(e)}")
+
+    def recreate_directories(self):
+        """
+        Recreates all the necessary directories after cleanup.
+        """
+        directories_to_create = [
+            enigma_extracted_dir, upx_extracted_dir, ungarbler_dir, ungarbler_string_dir,
+            resource_extractor_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
+            inno_setup_unpacked_dir, python_source_code_dir, nuitka_source_code_dir,
+            commandlineandmessage_dir, processed_dir, memory_dir, dotnet_dir,
+            de4dot_extracted_dir, obfuscar_dir, nuitka_dir, pe_extracted_dir,
+            zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir,
+            general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir,
+            debloat_dir, jar_extracted_dir, FernFlower_decompiled_dir, deteciteasy_plain_text_dir,
+            python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pylingual_extracted_dir,
+            pycdas_extracted_dir, copied_sandbox_and_main_files_dir, HiJackThis_logs_dir,
+            html_extracted_dir
+        ]
+        
+        for directory in directories_to_create:
+            try:
+                os.makedirs(directory, exist_ok=True)
+            except Exception as e:
+                self.output_signal.emit(f"[!] Error creating directory {directory}: {str(e)}")
+
     def run(self):
         """The entry point for the thread."""
         try:
@@ -11506,6 +11707,8 @@ class Worker(QThread):
                 self.analyze_file(*self.args)
             elif self.task_type == "rootkit_scan":
                 self.perform_rootkit_scan()
+            elif self.task_type == "cleanup_environment":
+                self.perform_cleanup()
         except Exception as e:
             self.output_signal.emit(f"[!] Worker thread error: {str(e)}")
 

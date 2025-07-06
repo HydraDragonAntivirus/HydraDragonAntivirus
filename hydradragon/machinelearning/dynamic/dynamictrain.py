@@ -38,27 +38,38 @@ SANDBOXIE_PATH = r"C:\Program Files\Sandboxie\Start.exe"
 
 def full_cleanup_sandbox():
     """
-    Fully cleans up the Sandboxie environment using Sandboxie's termination commands.
+    Fully cleans up the Sandboxie environment by terminating and deleting the DefaultBox sandbox.
     It issues:
       - Start.exe /terminate
       - Start.exe /box:DefaultBox /terminate
       - Start.exe /terminate_all
-    with short delays between each command.
+      - Start.exe /delete_sandbox:DefaultBox
     """
     try:
         logging.info("Starting full sandbox cleanup using Start.exe termination commands...")
+
         cmds = [
             [SANDBOXIE_PATH, "/terminate"],
             [SANDBOXIE_PATH, "/box:DefaultBox", "/terminate"],
-            [SANDBOXIE_PATH, "/terminate_all"]
+            [SANDBOXIE_PATH, "/terminate_all"],
         ]
+
         for cmd in cmds:
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0:
-                logging.error(f"Command {cmd} failed: {result.stderr}")
+                logging.error(f"Command {cmd} failed: {result.stderr.strip()}")
             else:
                 logging.info(f"Command {cmd} successful.")
-            time.sleep(2)
+            time.sleep(1)
+
+        # Delete (cleanup) the DefaultBox sandbox
+        cleanup_cmd = [SANDBOXIE_PATH, "/delete_sandbox:DefaultBox"]
+        result = subprocess.run(cleanup_cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            logging.error(f"Sandbox delete command failed: {result.stderr.strip()}")
+        else:
+            logging.info("Sandbox 'DefaultBox' deleted successfully.")
+
     except Exception as ex:
         logging.error(f"Full sandbox cleanup encountered an exception: {ex}")
 
