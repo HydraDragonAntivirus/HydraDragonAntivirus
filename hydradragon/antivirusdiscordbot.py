@@ -11228,6 +11228,26 @@ def parse_report(path):
 
     return entries
 
+class DiscordLogFilter(logging.Filter):
+    def filter(self, record):
+        # Filter out the specific problematic messages that cause formatting errors
+        if hasattr(record, 'msg') and isinstance(record.msg, str):
+            # Skip messages that have format placeholders but missing arguments
+            if '%s' in record.msg and (not hasattr(record, 'args') or 
+                                      record.args is None or 
+                                      len(record.args) == 0 or 
+                                      None in record.args):
+                return False
+        return True
+
+# Apply the filter to Discord's logger
+discord_logger = logging.getLogger('discord')
+discord_logger.addFilter(DiscordLogFilter())
+
+# Also apply to discord.gateway specifically since that's where the error occurs
+gateway_logger = logging.getLogger('discord.gateway')
+gateway_logger.addFilter(DiscordLogFilter())
+
 # Configuration
 BOT_TOKEN = os.getenv('DISCORD_TOKEN')
 if not BOT_TOKEN:
