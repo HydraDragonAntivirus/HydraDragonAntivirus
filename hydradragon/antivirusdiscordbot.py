@@ -11595,6 +11595,21 @@ Note: Environment has been cleaned and is ready for next analysis
 class EnvironmentCleaner:
     """Handles comprehensive environment cleanup"""
     
+    # Unified list of all directories to manage
+    MANAGED_DIRECTORIES = [
+        enigma_extracted_dir, upx_extracted_dir, ungarbler_dir, ungarbler_string_dir,
+        resource_extractor_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
+        inno_setup_unpacked_dir, python_source_code_dir, nuitka_source_code_dir,
+        commandlineandmessage_dir, processed_dir, memory_dir, dotnet_dir,
+        de4dot_extracted_dir, obfuscar_dir, nuitka_dir, pe_extracted_dir,
+        zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir,
+        general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir,
+        debloat_dir, jar_extracted_dir, FernFlower_decompiled_dir, deteciteasy_plain_text_dir,
+        python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pylingual_extracted_dir,
+        pycdas_extracted_dir, copied_sandbox_and_main_files_dir, HiJackThis_logs_dir,
+        html_extracted_dir, log_folder
+    ]
+    
     def __init__(self, channel):
         self.channel = channel
         
@@ -11616,11 +11631,10 @@ class EnvironmentCleaner:
             if terminated_count == 0:
                 await self.channel.send("ℹ️ No Snort processes found to terminate")
             
-            # Clean up log files
-            log_path = os.path.join(log_folder, "alert.ids")
-            if os.path.exists(log_path):
-                os.remove(log_path)
-                await self.channel.send(f"🗑️ Removed Snort log file: {log_path}")
+            # Clean up log folder
+            if os.path.exists(log_folder):
+                os.remove(log_folder)
+                await self.channel.send(f"🗑️ Removed Snort log file: {log_folder}")
                 
         except Exception as e:
             await self.channel.send(f"❌ Error stopping Snort: {str(e)}")
@@ -11657,32 +11671,17 @@ class EnvironmentCleaner:
             bot_logger.error(f"Sandbox cleanup error: {ex}")
 
     async def cleanup_directories(self):
-        """Removes all the generated directories and their contents."""
-        # Add your directory list here from the original code
-        directories_to_clean = [
-            enigma_extracted_dir, upx_extracted_dir, ungarbler_dir, ungarbler_string_dir,
-            resource_extractor_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
-            inno_setup_unpacked_dir, python_source_code_dir, nuitka_source_code_dir,
-            commandlineandmessage_dir, processed_dir, memory_dir, dotnet_dir,
-            de4dot_extracted_dir, obfuscar_dir, nuitka_dir, pe_extracted_dir,
-            zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir,
-            general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir,
-            debloat_dir, jar_extracted_dir, FernFlower_decompiled_dir, deteciteasy_plain_text_dir,
-            python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pylingual_extracted_dir,
-            pycdas_extracted_dir, copied_sandbox_and_main_files_dir, HiJackThis_logs_dir,
-            html_extracted_dir
-        ]
-        
+        """Removes all the managed directories and their contents."""
         await self.channel.send("🗂️ Cleaning up analysis directories...")
         cleaned_count = 0
         
-        for directory in directories_to_clean:
+        for directory in self.MANAGED_DIRECTORIES:
             try:
                 if os.path.exists(directory):
                     shutil.rmtree(directory)
                     cleaned_count += 1
             except Exception as e:
-                await self.channel.send(f"⚠️ Error cleaning directory {directory}: {str(e)}")
+                await self.channel.send(f"⚠️ Error cleaning directory {os.path.basename(directory)}: {str(e)}")
         
         await self.channel.send(f"✅ Cleaned {cleaned_count} directories")
 
@@ -11704,31 +11703,20 @@ class EnvironmentCleaner:
             bot_logger.error(f"Error restarting services: {e}")
 
     async def recreate_directories(self):
-        """Recreates all the necessary directories after cleanup."""
-        # Add your directory list here from the original code
-        directories_to_create = [
-            enigma_extracted_dir, upx_extracted_dir, ungarbler_dir, ungarbler_string_dir,
-            resource_extractor_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
-            inno_setup_unpacked_dir, python_source_code_dir, nuitka_source_code_dir,
-            commandlineandmessage_dir, processed_dir, memory_dir, dotnet_dir,
-            de4dot_extracted_dir, obfuscar_dir, nuitka_dir, pe_extracted_dir,
-            zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir,
-            general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir,
-            debloat_dir, jar_extracted_dir, FernFlower_decompiled_dir, deteciteasy_plain_text_dir,
-            python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pylingual_extracted_dir,
-            pycdas_extracted_dir, copied_sandbox_and_main_files_dir, HiJackThis_logs_dir,
-            html_extracted_dir
-        ]
-        
+        """Recreates all the managed directories after cleanup."""
         await self.channel.send("📁 Recreating clean directories...")
         created_count = 0
         
-        for directory in directories_to_create:
+        for directory in self.MANAGED_DIRECTORIES:
             try:
+                # Skip log_folder as it's typically handled separately
+                if directory == log_folder:
+                    continue
+                    
                 os.makedirs(directory, exist_ok=True)
                 created_count += 1
             except Exception as e:
-                await self.channel.send(f"⚠️ Error creating directory {directory}: {str(e)}")
+                await self.channel.send(f"⚠️ Error creating directory {os.path.basename(directory)}: {str(e)}")
         
         await self.channel.send(f"✅ Created {created_count} clean directories")
 
@@ -11778,6 +11766,55 @@ class EnvironmentCleaner:
         except Exception as e:
             await self.channel.send(f"❌ **Error during cleanup and restart:** {str(e)}")
             bot_logger.error(f"Error during cleanup: {e}")
+    
+    async def get_directory_status(self):
+        """Returns status information about managed directories."""
+        existing_dirs = []
+        missing_dirs = []
+        
+        for directory in self.MANAGED_DIRECTORIES:
+            if os.path.exists(directory):
+                existing_dirs.append(directory)
+            else:
+                missing_dirs.append(directory)
+        
+        status_msg = f"📊 **Directory Status:**\n"
+        status_msg += f"✅ Existing: {len(existing_dirs)}\n"
+        status_msg += f"❌ Missing: {len(missing_dirs)}\n"
+        status_msg += f"📁 Total managed: {len(self.MANAGED_DIRECTORIES)}"
+        
+        return status_msg
+    
+    async def cleanup_specific_directories(self, directory_names):
+        """Cleanup only specific directories by name."""
+        if not directory_names:
+            await self.channel.send("⚠️ No directories specified for cleanup")
+            return
+        
+        cleaned_count = 0
+        not_found_count = 0
+        
+        for dir_name in directory_names:
+            # Find matching directory from managed list
+            matching_dirs = [d for d in self.MANAGED_DIRECTORIES if dir_name.lower() in os.path.basename(d).lower()]
+            
+            if not matching_dirs:
+                not_found_count += 1
+                await self.channel.send(f"⚠️ Directory pattern '{dir_name}' not found in managed directories")
+                continue
+            
+            for directory in matching_dirs:
+                try:
+                    if os.path.exists(directory):
+                        shutil.rmtree(directory)
+                        await self.channel.send(f"🗑️ Cleaned: {os.path.basename(directory)}")
+                        cleaned_count += 1
+                    else:
+                        await self.channel.send(f"ℹ️ Directory doesn't exist: {os.path.basename(directory)}")
+                except Exception as e:
+                    await self.channel.send(f"❌ Error cleaning {os.path.basename(directory)}: {str(e)}")
+        
+        await self.channel.send(f"✅ Cleanup complete: {cleaned_count} directories cleaned, {not_found_count} not found")
 
 # Screenshot utility functions
 async def capture_screenshot_async():

@@ -11418,6 +11418,21 @@ class Worker(QThread):
     """
     output_signal = Signal(str)
 
+    # Unified list of all directories to manage
+    MANAGED_DIRECTORIES = [
+        enigma_extracted_dir, upx_extracted_dir, ungarbler_dir, ungarbler_string_dir,
+        resource_extractor_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
+        inno_setup_unpacked_dir, python_source_code_dir, nuitka_source_code_dir,
+        commandlineandmessage_dir, processed_dir, memory_dir, dotnet_dir,
+        de4dot_extracted_dir, obfuscar_dir, nuitka_dir, pe_extracted_dir,
+        zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir,
+        general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir,
+        debloat_dir, jar_extracted_dir, FernFlower_decompiled_dir, deteciteasy_plain_text_dir,
+        python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pylingual_extracted_dir,
+        pycdas_extracted_dir, copied_sandbox_and_main_files_dir, HiJackThis_logs_dir,
+        html_extracted_dir, log_directory
+    ]
+
     def __init__(self, task_type, *args):
         super().__init__()
         self.task_type = task_type
@@ -11558,24 +11573,10 @@ class Worker(QThread):
 
     def cleanup_directories(self):
         """
-        Removes all the generated directories and their contents.
+        Removes all the managed directories and their contents.
         """
-        directories_to_clean = [
-            enigma_extracted_dir, upx_extracted_dir, ungarbler_dir, ungarbler_string_dir,
-            resource_extractor_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
-            inno_setup_unpacked_dir, python_source_code_dir, nuitka_source_code_dir,
-            commandlineandmessage_dir, processed_dir, memory_dir, dotnet_dir,
-            de4dot_extracted_dir, obfuscar_dir, nuitka_dir, pe_extracted_dir,
-            zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir,
-            general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir,
-            debloat_dir, jar_extracted_dir, FernFlower_decompiled_dir, deteciteasy_plain_text_dir,
-            python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pylingual_extracted_dir,
-            pycdas_extracted_dir, copied_sandbox_and_main_files_dir, HiJackThis_logs_dir,
-            html_extracted_dir
-        ]
-        
         cleaned_count = 0
-        for directory in directories_to_clean:
+        for directory in self.MANAGED_DIRECTORIES:
             try:
                 if os.path.exists(directory):
                     shutil.rmtree(directory)
@@ -11601,11 +11602,10 @@ class Worker(QThread):
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
                     pass
             
-            # Clean up log files
-            log_path = os.path.join(log_folder, "alert.ids")
-            if os.path.exists(log_path):
-                os.remove(log_path)
-                self.output_signal.emit(f"[+] Removed Snort log file: {log_path}")
+            # Clean up log folder
+            if os.path.exists(log_folder):
+                os.remove(log_folder)
+                self.output_signal.emit(f"[+] Removed Snort log file: {log_folder}")
                 
         except Exception as e:
             self.output_signal.emit(f"[!] Error stopping Snort: {str(e)}")
@@ -11672,27 +11672,21 @@ class Worker(QThread):
 
     def recreate_directories(self):
         """
-        Recreates all the necessary directories after cleanup.
+        Recreates all the managed directories after cleanup.
         """
-        directories_to_create = [
-            enigma_extracted_dir, upx_extracted_dir, ungarbler_dir, ungarbler_string_dir,
-            resource_extractor_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
-            inno_setup_unpacked_dir, python_source_code_dir, nuitka_source_code_dir,
-            commandlineandmessage_dir, processed_dir, memory_dir, dotnet_dir,
-            de4dot_extracted_dir, obfuscar_dir, nuitka_dir, pe_extracted_dir,
-            zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir,
-            general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir,
-            debloat_dir, jar_extracted_dir, FernFlower_decompiled_dir, deteciteasy_plain_text_dir,
-            python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pylingual_extracted_dir,
-            pycdas_extracted_dir, copied_sandbox_and_main_files_dir, HiJackThis_logs_dir,
-            html_extracted_dir
-        ]
-        
-        for directory in directories_to_create:
+        created_count = 0
+        for directory in self.MANAGED_DIRECTORIES:
             try:
+                # Skip log_directory as it shouldn't be recreated in the normal workflow
+                if directory == log_directory:
+                    continue
+                    
                 os.makedirs(directory, exist_ok=True)
+                created_count += 1
             except Exception as e:
                 self.output_signal.emit(f"[!] Error creating directory {directory}: {str(e)}")
+        
+        self.output_signal.emit(f"[+] Total directories recreated: {created_count}")
 
     def run(self):
         """The entry point for the thread."""
