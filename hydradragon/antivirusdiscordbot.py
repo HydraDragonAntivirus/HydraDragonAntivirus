@@ -11277,7 +11277,7 @@ class AnalysisWorker:
         
         try:
             bot_logger.info(f"Starting analysis for: {self.file_path}")
-            await self.channel.send(f"🔍 **Starting analysis for:** {os.path.basename(self.file_path)}\n⏳ **Analysis will run until manually stopped with !stop**")
+            await self.channel.send(f"🔍 **Starting analysis for:** {os.path.basename(self.file_path)}")
             
             # Set this worker as the current analysis process
             current_analysis_process = self
@@ -11291,9 +11291,6 @@ class AnalysisWorker:
                 self.perform_file_analysis
             )
             
-            # Send status update that analysis is starting
-            await self.channel.send("🔄 **Analysis is starting... Please wait for completion or use !stop to terminate**")
-            
             # Wait for analysis to complete WITHOUT timeout
             try:
                 self.analysis_result = await analysis_task
@@ -11301,8 +11298,7 @@ class AnalysisWorker:
                 
                 # Only send results if analysis completed normally and wasn't stopped
                 if not self.stop_requested and self.analysis_result:
-                    await self.channel.send(f"📊 **Analysis Results:**\n```\n{self.analysis_result}\n```")
-                    await self.channel.send("✅ **Analysis execution completed!** Use !stop to finalize and get archive.")
+                    await self.channel.send(f"📊 **Analysis completed!** Use `!stop` to get results archive.")
                 
             except Exception as e:
                 bot_logger.error(f"Analysis execution error: {e}")
@@ -11313,24 +11309,24 @@ class AnalysisWorker:
             # If analysis completed successfully, continue monitoring until stopped
             if not self.stop_requested:
                 if self.analysis_result and "Analysis failed" not in self.analysis_result:
-                    await self.channel.send("🔄 **Analysis continues monitoring... Use !stop to finish and get complete results**")
+                    # Reduced spam - only one message about monitoring
+                    pass  # Don't send additional monitoring messages
                 else:
-                    await self.channel.send("⚠️ **Analysis completed with issues. Use !stop to finish and get results**")
+                    await self.channel.send("⚠️ **Analysis completed with issues. Use `!stop` to finish and get results**")
                 
                 # Wait for stop event (user manually stops) - NO TIMEOUT
                 await self._stop_event.wait()
             
             # Handle stop request
             if self.stop_requested:
-                await self.channel.send("🛑 **Analysis was stopped by user request**")
+                await self.channel.send("🛑 **Analysis stopped. Creating archive...**")
             
             # Create and send archive when stopped
-            await self.channel.send("📦 **Creating analysis archive...**")
             archive_path = await self.create_analysis_archive()
             if archive_path:
                 await self.send_analysis_archive(archive_path)
             
-            await self.channel.send("✅ **Analysis Complete!**\n⚠️ **Please revert to clean snapshot before next analysis**")
+            await self.channel.send("✅ **Analysis Complete!** Please revert to clean snapshot before next analysis.")
             
         except Exception as e:
             bot_logger.error(f"Analysis error: {str(e)}")
@@ -11446,7 +11442,7 @@ Status: {status}
             result += f"\nError Details: {error_message}"
         
         if success and not self.stop_requested:
-            result += "\nNote: Analysis completed - monitoring continues until stopped"
+            result += "\nNote: Analysis completed - use !stop to get results"
         elif self.stop_requested:
             result += "\nNote: Analysis was stopped by user request"
         else:
@@ -11611,7 +11607,22 @@ async def on_ready():
     bot_logger.info(f'Bot logged in as {bot.user}')
     print(f'Bot logged in as {bot.user}')
     print("🤖 Antivirus Analysis Bot is online!")
-    print("Bot will respond to !scanfile commands in any channel where it has permissions.")
+    print("Bot will respond to commands in any channel where it has permissions.")
+
+@bot.command(name='ping')
+async def ping(ctx):
+    """Check bot responsiveness and latency"""
+    try:
+        # Calculate latency
+        latency = round(bot.latency * 1000)  # Convert to milliseconds
+        
+        # Send response with latency info
+        await ctx.send(f"🏓 **Pong!** Latency: {latency}ms")
+        bot_logger.info(f"Ping command from {ctx.author}, latency: {latency}ms")
+        
+    except Exception as e:
+        bot_logger.error(f"Error in ping command: {e}")
+        await ctx.send("❌ **Error getting ping!**")
 
 @bot.command(name='scanfile')
 async def scan_file(ctx):
@@ -11735,7 +11746,7 @@ async def status(ctx):
     """Check bot status"""
     async with analysis_lock:
         if analysis_running:
-            await ctx.send("🔄 **Status:** Analysis in progress...")
+            await ctx.send("🔄 **Status:** Analysis in progress... Use `!stop` to finish and get results.")
         else:
             await ctx.send("✅ **Status:** Ready for new analysis")
 
@@ -11746,7 +11757,7 @@ async def stop_analysis(ctx):
     
     async with analysis_lock:
         if analysis_running and current_analysis_process:
-            await ctx.send("🛑 **Stopping analysis...** Please wait for cleanup to complete.")
+            await ctx.send("🛑 **Stopping analysis...** Creating results archive...")
             current_analysis_process.stop_analysis()
             bot_logger.info(f"Analysis stop initiated by {ctx.author} in channel {ctx.channel}")
         elif analysis_running:
@@ -11818,10 +11829,11 @@ async def help_command(ctx):
     help_text = """
 🤖 **Antivirus Analysis Bot Commands:**
 
+**!ping** - Check bot latency and responsiveness
 **!scanfile** - Analyze an attached file (attach file to message)
 **!screenshot** - Take a screenshot of the current desktop
 **!status** - Check if analysis is running
-**!stop** - Stop current analysis
+**!stop** - Stop current analysis and get results archive
 **!loginfo** - Show log file information
 **!copylog** - Manually copy log file to temp directory
 **!help** - Show this help message
@@ -11829,7 +11841,7 @@ async def help_command(ctx):
 **Notes:**
 - Maximum file size: 25MB
 - Only one analysis can run at a time
-- Screenshots are taken instantly and sent to Discord
+- Use `!stop` to finish analysis and get results
 - Always revert to clean snapshot after analysis
 """
     await ctx.send(help_text)
