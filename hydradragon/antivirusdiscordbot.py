@@ -11574,6 +11574,37 @@ Note: Please revert to clean snapshot before next analysis
             bot_logger.error(f"Error sending analysis archive: {e}")
             await self.channel.send(f"❌ **Error sending analysis archive:** {str(e)}\n"
                                   f"Archive may be saved at: {archive_path}")
+
+# Screenshot utility functions
+async def capture_screenshot_async():
+    """Capture screenshot and return as bytes (async version)"""
+    try:
+        loop = asyncio.get_event_loop()
+        screenshot_data = await loop.run_in_executor(None, capture_screenshot_sync)
+        return screenshot_data
+    except Exception as e:
+        bot_logger.error(f"Error capturing screenshot async: {e}")
+        return None
+
+def capture_screenshot_sync():
+    """Capture screenshot and return as bytes (synchronous version)"""
+    try:
+        from PIL import ImageGrab
+        import io
+        
+        screenshot = ImageGrab.grab()
+        
+        # Convert to bytes
+        img_byte_arr = io.BytesIO()
+        screenshot.save(img_byte_arr, format='PNG', optimize=True)
+        img_byte_arr.seek(0)
+        
+        return img_byte_arr.getvalue()
+        
+    except Exception as e:
+        bot_logger.error(f"Error capturing screenshot: {e}")
+        return None
+
 @bot.event
 async def on_ready():
     """Bot startup event"""
@@ -11647,6 +11678,57 @@ async def scan_file(ctx):
             analysis_running = False
         bot_logger.error(f"Error in scan_file command: {e}")
         await ctx.send(f"❌ **Error processing file:** {str(e)}")
+
+@bot.command(name='screenshot')
+async def screenshot(ctx):
+    """Take a screenshot of the current desktop"""
+    try:
+        await ctx.send("📸 **Taking screenshot...**")
+        bot_logger.info(f"Screenshot request from {ctx.author} in channel {ctx.channel}")
+        
+        # Capture screenshot
+        screenshot_data = await capture_screenshot_async()
+        
+        if screenshot_data:
+            # Create a temporary file for the screenshot
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            temp_dir = os.path.join(log_directory, "temp_analysis")
+            os.makedirs(temp_dir, exist_ok=True)
+            
+            screenshot_path = os.path.join(temp_dir, f"screenshot_{timestamp}.png")
+            
+            # Save screenshot to file
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, lambda: open(screenshot_path, 'wb').write(screenshot_data))
+            
+            # Get file size
+            file_size = len(screenshot_data)
+            max_size = 25 * 1024 * 1024  # 25MB Discord limit
+            
+            if file_size > max_size:
+                await ctx.send(f"⚠️ **Screenshot is {file_size // (1024*1024)} MB - too large for Discord!**\n"
+                              f"Screenshot saved locally at: {screenshot_path}")
+                bot_logger.warning(f"Screenshot too large for Discord: {file_size} bytes")
+                return
+            
+            # Send screenshot
+            await ctx.send(
+                f"📸 **Desktop Screenshot** ({file_size // 1024} KB)\n"
+                f"Captured at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                file=discord.File(screenshot_path)
+            )
+            
+            # Clean up temporary file
+            await loop.run_in_executor(None, os.remove, screenshot_path)
+            bot_logger.info(f"Screenshot sent successfully to {ctx.author}")
+            
+        else:
+            await ctx.send("❌ **Failed to capture screenshot!**")
+            bot_logger.error("Screenshot capture failed")
+            
+    except Exception as e:
+        bot_logger.error(f"Error in screenshot command: {e}")
+        await ctx.send(f"❌ **Error taking screenshot:** {str(e)}")
 
 @bot.command(name='status')
 async def status(ctx):
@@ -11737,6 +11819,7 @@ async def help_command(ctx):
 🤖 **Antivirus Analysis Bot Commands:**
 
 **!scanfile** - Analyze an attached file (attach file to message)
+**!screenshot** - Take a screenshot of the current desktop
 **!status** - Check if analysis is running
 **!stop** - Stop current analysis
 **!loginfo** - Show log file information
@@ -11746,6 +11829,7 @@ async def help_command(ctx):
 **Notes:**
 - Maximum file size: 25MB
 - Only one analysis can run at a time
+- Screenshots are taken instantly and sent to Discord
 - Always revert to clean snapshot after analysis
 """
     await ctx.send(help_text)
