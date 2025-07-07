@@ -765,10 +765,13 @@ os.makedirs(sandbox_system_root_directory, exist_ok=True)
 # Counter for ransomware detection
 ransomware_detection_count = 0
 
-main_file_path = None
-pyinstaller_archive = None
-full_python_version = None
-pyz_version_match = False
+def reset_flags():
+    global main_file_path, pyinstaller_archive, full_python_version, pyz_version_match
+    main_file_path = None
+    pyinstaller_archive = None
+    full_python_version = None
+    pyz_version_match = False
+reset_flags()
 
 # Cache of { file_path: last_md5 }  
 file_md5_cache: dict[str, str] = {}
@@ -11640,13 +11643,16 @@ class Worker(QThread):
             # Step 1: Stop Snort and cleanup logs
             self.output_signal.emit("[*] Step 1: Stopping Snort and cleaning logs...")
             self.stop_snort()
+            self.stop_snort()
             
             # Step 2: Cleanup Sandboxie
             self.output_signal.emit("[*] Step 2: Cleaning up Sandboxie environment...")
             self.full_cleanup_sandbox()
+            self.full_cleanup_sandbox()
             
             # Step 3: Clean up directories
             self.output_signal.emit("[*] Step 3: Cleaning up generated directories...")
+            self.cleanup_directories()
             self.cleanup_directories()
             
             # Step 4: Reset global variables
@@ -11655,7 +11661,8 @@ class Worker(QThread):
             post_analysis_log_path = None
             pre_analysis_entries = None
             post_analysis_entries = None
-            
+            reset_flags()
+
             # Step 5: Restart services
             self.output_signal.emit("[*] Step 5: Restarting services...")
             self.restart_services()
