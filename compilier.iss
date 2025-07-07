@@ -45,7 +45,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "C:\Users\victim\Documents\HydraDragonAntivirus\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "C:\Users\victim\Documents\hydratempinstall\7z2409-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydratempinstall\7z2500-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\clamav-1.4.3.win.x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\npcap-1.82.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
@@ -71,7 +71,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Run]
 ; 7-Zip (silent)
-Filename: "{tmp}\7z2409-x64.exe"; Parameters: "/S"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\7z2500-x64.exe"; Parameters: "/S"; Flags: shellexec waituntilterminated
 
 ; .NET Desktop Runtime 8.0.17 (silent, no restart)
 Filename: "{tmp}\windowsdesktop-runtime-8.0.17-win-x64.exe"; Parameters: "/install /quiet /norestart"; Flags: shellexec waituntilterminated
