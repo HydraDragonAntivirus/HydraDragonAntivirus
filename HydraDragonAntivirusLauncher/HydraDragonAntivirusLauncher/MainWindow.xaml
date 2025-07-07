@@ -2,53 +2,19 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Hydra Dragon Antivirus Launcher"
-        Height="350" Width="500"
+        Height="300" Width="500"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource WindowGradient}">
-    <Grid Margin="10">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
-
-        <!-- Launch Controls -->
-        <StackPanel Grid.Row="0"
-                    VerticalAlignment="Center"
-                    HorizontalAlignment="Center">
-            <!-- Antivirus Button -->
-            <Button x:Name="BtnLaunch"
-                    Content="Launch Antivirus"
+    <Grid>
+        <Border CornerRadius="15"
+                Background="{StaticResource WindowGradient}"
+                Margin="10"
+                Effect="{StaticResource WindowShadow}">
+            <Button Name="BtnLaunch" Content="Launch Antivirus"
                     Style="{StaticResource EpicButtonStyle}"
                     Width="240" Height="70"
-                    Margin="0,0,0,10"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
                     Click="BtnLaunch_Click"/>
-
-            <!-- Discord Bot Button -->
-            <Button x:Name="BtnLaunchDiscord"
-                    Content="Launch Discord Bot"
-                    Style="{StaticResource EpicButtonStyle}"
-                    Width="240" Height="70"
-                    Margin="0,0,0,10"
-                    Click="BtnLaunchDiscord_Click"/>
-
-            <!-- Discord Token Input -->
-            <StackPanel Orientation="Horizontal"
-                        VerticalAlignment="Center"
-                        HorizontalAlignment="Center"
-                        Margin="0,0,0,10">
-                <Label Content="Discord Token:" 
-                       Foreground="White" 
-                       VerticalAlignment="Center"
-                       Margin="0,0,5,0"/>
-                <PasswordBox x:Name="TxtDiscordToken" Width="200"/>
-            </StackPanel>
-        </StackPanel>
-
-        <!-- Status Bar -->
-        <StatusBar Grid.Row="1">
-            <StatusBarItem>
-                <TextBlock x:Name="StatusText" Text="Ready" />
-            </StatusBarItem>
-        </StatusBar>
+        </Border>
     </Grid>
 </Window>

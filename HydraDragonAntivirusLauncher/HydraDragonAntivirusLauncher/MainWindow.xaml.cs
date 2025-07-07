@@ -1,5 +1,4 @@
-﻿using System;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Windows;
 
@@ -17,13 +16,13 @@ namespace HydraDragonAntivirusLauncher
 
         private void BtnLaunch_Click(object sender, RoutedEventArgs e)
         {
+            // Prevent double‑clicks
             BtnLaunch.IsEnabled = false;
-            StatusText.Text = "Launching Antivirus...";
+            BtnLaunch.Content = "Launching...";
 
             try
             {
-                LaunchWithConsole("hydradragon");
-                StatusText.Text = "Antivirus launched.";
+                LaunchWithConsole();
             }
             catch (Exception ex)
             {
@@ -33,59 +32,23 @@ namespace HydraDragonAntivirusLauncher
                     MessageBoxButton.OK,
                     MessageBoxImage.Error
                 );
-                StatusText.Text = "Error launching antivirus.";
             }
             finally
             {
                 BtnLaunch.IsEnabled = true;
+                BtnLaunch.Content = "Launch Antivirus";
             }
         }
 
-        private void BtnLaunchDiscord_Click(object sender, RoutedEventArgs e)
+        static private void LaunchWithConsole()
         {
-            string token = TxtDiscordToken.Password;
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                MessageBox.Show(
-                    "Please enter a valid Discord token.",
-                    "Launcher Error",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning
-                );
-                return;
-            }
-
-            BtnLaunchDiscord.IsEnabled = false;
-            StatusText.Text = "Launching Discord Bot...";
-
-            try
-            {
-                // Set the DISCORD_TOKEN for the launched process
-                Environment.SetEnvironmentVariable(
-                    "DISCORD_TOKEN", token, EnvironmentVariableTarget.Process);
-                LaunchWithConsole("hydradragon-discord");
-                StatusText.Text = "Discord Bot launched.";
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    $"Unexpected error: {ex.Message}",
-                    "Launcher Error",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error
-                );
-                StatusText.Text = "Error launching Discord Bot.";
-            }
-            finally
-            {
-                BtnLaunchDiscord.IsEnabled = true;
-            }
-        }
-
-        private void LaunchWithConsole(string scriptName)
-        {
+            // base directory of the running EXE
             string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
-            string activateScript = Path.Combine(baseDirectory, "venv", "Scripts", "activate.bat");
+
+            // activation script path
+            string activateScript = Path.Combine(
+                baseDirectory, "venv", "Scripts", "activate.bat"
+            );
 
             if (!File.Exists(activateScript))
             {
@@ -95,19 +58,20 @@ namespace HydraDragonAntivirusLauncher
                     MessageBoxButton.OK,
                     MessageBoxImage.Error
                 );
-                StatusText.Text = "Activation script missing.";
                 return;
             }
 
-            // Use /K to keep the console open after running the commands
-            string cmdArgs = $"/K \"\"{activateScript}\" && poetry run {scriptName}\"";
+            // Use /K to keep the console open after the commands run
+            string cmdArgs = $"/K \"\"{activateScript}\" && poetry run hydradragon\"";
 
             var psi = new ProcessStartInfo
             {
                 FileName = "cmd.exe",
                 Arguments = cmdArgs,
                 WorkingDirectory = baseDirectory,
-                UseShellExecute = true,
+                UseShellExecute = true,   // allow a real console window
+                RedirectStandardOutput = false,
+                RedirectStandardError = false,
                 CreateNoWindow = false
             };
 
