@@ -3745,6 +3745,22 @@ def save_extracted_strings(output_filename, extracted_strings):
     with open(output_filename, 'w', encoding='utf-8') as output_file:
         output_file.writelines(f"{line}\n" for line in extracted_strings)
 
+def extract_with_pd64(dump_path: str, output_dir: str) -> bool:
+    """Run pd64.exe to extract files from a memory dump."""
+    try:
+        subprocess.run([
+            pd64_path,
+            "-e",  # extract switch
+            dump_path,
+            "-o",
+            output_dir
+        ], check=True)
+        logging.info(f"Extraction complete for {dump_path} into {output_dir}")
+        return True
+    except subprocess.CalledProcessError as e:
+        logging.error(f"PD64 extraction failed for {dump_path}: {e}")
+        return False
+
 def analyze_process_memory(file_path):
     """Perform memory analysis on the specified file path."""
     try:
