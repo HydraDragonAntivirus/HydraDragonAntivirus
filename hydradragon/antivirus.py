@@ -11031,53 +11031,126 @@ def monitor_sandboxie_directory():
         logging.error(f"Error in monitor_sandboxie_directory: {ex}")
 
 
-def perform_sandbox_analysis(file_path):
+def perform_sandbox_analysis(file_path, stop_callback=None):
     global main_file_path
     global monitor_message
+    global analysis_threads
+    global thread_function_map  # Track thread -> function
+
     try:
         if not isinstance(file_path, (str, bytes, os.PathLike)):
             logging.error(f"Expected str, bytes or os.PathLike object, not {type(file_path).__name__}")
+            return
 
         logging.info(f"Performing sandbox analysis on: {file_path}")
+
+        if stop_callback and stop_callback():
+            return "[!] Analysis stopped by user request"
 
         file_path = os.path.normpath(file_path)
         if not os.path.isfile(file_path):
             logging.error(f"File does not exist: {file_path}")
             return
 
-        # Set main file path globally
         main_file_path = file_path
+        analysis_threads = []
+        thread_function_map = {}
 
         monitor_message = MonitorMessageCommandLine()
 
         main_dest = _copy_to_dest(file_path, copied_sandbox_and_main_files_dir)
 
-        threading.Thread(target=scan_and_warn, args=(main_dest,)).start()
+        if stop_callback and stop_callback():
+            return "[!] Analysis stopped by user request"
 
-        threading.Thread(target=monitor_memory_changes, name="MemoryWatcher").start()
+        def create_monitored_thread(target_func, *args, **kwargs):
+            def monitored_wrapper():
+                try:
+                    if 'stop_callback' in target_func.__code__.co_varnames:
+                        target_func(*args, stop_callback=stop_callback, **kwargs)
+                    else:
+                        target_func(*args, **kwargs)
+                except Exception as e:
+                    if stop_callback and stop_callback():
+                        logging.info(f"Thread {target_func.__name__} stopped by user request")
+                    else:
+                        logging.error(f"Error in thread {target_func.__name__}: {e}")
 
-        # Run the special Sandboxie plugin
-        threading.Thread(target=run_sandboxie_plugin).start()
+            thread = threading.Thread(target=monitored_wrapper, name=f"Analysis_{target_func.__name__}")
+            analysis_threads.append(thread)
+            thread_function_map[thread] = target_func.__name__
+            return thread
 
-        # Monitor Snort log for new lines and process alerts
-        threading.Thread(target=monitor_snort_log).start()
-        threading.Thread(target=web_protection_observer.begin_observing).start()
+        threads_to_start = [
+            (scan_and_warn, (main_dest,)),
+            (monitor_memory_changes,),
+            (run_sandboxie_plugin,),
+            (monitor_snort_log,),
+            (web_protection_observer.begin_observing,),
+            (monitor_directories_with_watchdog,),
+            (start_monitoring_sandbox,),
+            (monitor_sandboxie_directory,),
+            (check_startup_directories,),
+            (monitor_hosts_file,),
+            (check_uefi_directories,),
+            (monitor_message.start_monitoring_threads,),
+            (monitor_saved_paths,),
+            (run_sandboxie, (file_path,)),
+        ]
 
-        # Start other sandbox analysis tasks in separate threads
-        threading.Thread(target=monitor_directories_with_watchdog).start()
-        threading.Thread(target=start_monitoring_sandbox).start()
-        threading.Thread(target=monitor_sandboxie_directory).start()
-        threading.Thread(target=check_startup_directories).start()
-        threading.Thread(target=monitor_hosts_file).start()
-        threading.Thread(target=check_uefi_directories).start() # Start monitoring UEFI directories for malicious files in a separate thread
-        threading.Thread(target=monitor_message.start_monitoring_threads).start() # Function to monitor specific windows in a separate thread
-        threading.Thread(target=monitor_saved_paths).start()
-        threading.Thread(target=run_sandboxie, args=(file_path,)).start()
+        for thread_info in threads_to_start:
+            if stop_callback and stop_callback():
+                logging.info("Analysis stopped before all threads could start")
+                return "[!] Analysis stopped by user request"
+
+            target_func = thread_info[0]
+            args = thread_info[1] if len(thread_info) > 1 else ()
+
+            thread = create_monitored_thread(target_func, *args)
+            thread.start()
 
         logging.info("Sandbox analysis started. Please check log after you close program. There is no limit to scan time.")
 
+        while any(thread.is_alive() for thread in analysis_threads):
+            if stop_callback and stop_callback():
+                logging.info("Stop requested, terminating analysis threads...")
+                terminate_analysis_threads()
+                return "[!] Analysis stopped by user request"
+            time.sleep(1)  # Still needed to avoid CPU spinning
+
+        return "[+] Sandbox analysis completed successfully"
+
     except Exception as ex:
-        logging.error(f"An error occurred during sandbox analysis: {ex}")
+        if stop_callback and stop_callback():
+            logging.info("Analysis stopped by user request during exception handling")
+            return "[!] Analysis stopped by user request"
+
+        error_message = f"An error occurred during sandbox analysis: {ex}"
+        logging.error(error_message)
+        return error_message
+
+def terminate_analysis_threads():
+    logging.info("Attempting to terminate analysis threads...")
+
+    for thread in analysis_threads:
+        if thread.is_alive():
+            func_name = thread_function_map.get(thread, "Unknown")
+            logging.info(f"Waiting for thread '{func_name}' to stop...")
+
+    # Passive waiting only; real termination must happen inside threads using stop_callback
+    timeout = 10  # seconds to wait for graceful shutdown
+    start_time = time.time()
+    while any(t.is_alive() for t in analysis_threads):
+        if time.time() - start_time > timeout:
+            logging.warning("Some threads did not finish within the timeout.")
+            break
+        time.sleep(0.5)
+
+    still_running = [thread_function_map.get(t, t.name) for t in analysis_threads if t.is_alive()]
+    if still_running:
+        logging.warning(f"The following threads are still running: {still_running}")
+    else:
+        logging.info("All analysis threads have been terminated gracefully.")
 
 def run_sandboxie_plugin_script():
     # build the inner python invocation
@@ -11136,17 +11209,36 @@ def run_de4dot_in_sandbox(file_path):
     except subprocess.CalledProcessError as ex:
         logging.error(f"Failed to run de4dot on {file_path} in sandbox DefaultBox: {ex}")
 
-def run_analysis(file_path: str):
+def run_analysis(file_path: str, stop_callback=None):
     """
     This function mirrors the original AnalysisThread.execute_analysis method.
     It logs the file path, performs the sandbox analysis, and handles any exceptions.
+    Now supports a stop_callback to allow graceful interruption.
     """
     try:
         logging.info(f"Running analysis for: {file_path}")
-        perform_sandbox_analysis(file_path)
+        
+        # Check for stop request before starting
+        if stop_callback and stop_callback():
+            return "[!] Analysis stopped by user request"
+        
+        # Perform the sandbox analysis with stop checking
+        result = perform_sandbox_analysis(file_path, stop_callback=stop_callback)
+        
+        # Check for stop request after analysis
+        if stop_callback and stop_callback():
+            return "[!] Analysis stopped by user request"
+        
+        return result if result else "[+] Analysis completed successfully"
+        
     except Exception as ex:
+        # Check if the exception was due to a stop request
+        if stop_callback and stop_callback():
+            return "[!] Analysis stopped by user request"
+        
         error_message = f"An error occurred during sandbox analysis: {ex}"
         logging.error(error_message)
+        return error_message
 
 # ----- Global Variables to hold captured data -----
 pre_analysis_log_path = None
@@ -11245,8 +11337,56 @@ class AntivirusApp(QWidget):
         worker.output_signal.connect(self.append_output)
         # Use a lambda to remove the specific worker instance from the list upon completion
         worker.finished.connect(lambda w=worker: self.workers.remove(w))
+        
+        # Connect worker finished signal to update UI state
+        worker.finished.connect(self.on_worker_finished)
+        
         self.workers.append(worker)  # Keep a strong reference
         worker.start()
+        
+        # Update UI state when analysis starts
+        if task_type == "analyze_file":
+            self.update_analysis_ui_state(True)
+        
+        return worker
+
+    def on_worker_finished(self):
+        """Called when any worker thread finishes."""
+        # Check if any analysis workers are still running
+        analysis_running = any(worker.task_type == "analyze_file" and worker.isRunning() 
+                             for worker in self.workers)
+        if not analysis_running:
+            self.update_analysis_ui_state(False)
+
+    def update_analysis_ui_state(self, is_running):
+        """Updates the UI state based on whether analysis is running."""
+        if is_running:
+            self.analyze_file_button.setText("3. Analysis Running...")
+            self.analyze_file_button.setEnabled(False)
+            self.stop_analysis_button.setEnabled(True)
+        else:
+            self.analyze_file_button.setText("3. Analyze a File")
+            self.analyze_file_button.setEnabled(True)
+            self.stop_analysis_button.setEnabled(False)
+
+    def stop_analysis(self):
+        """Stops all running analysis workers."""
+        stopped_count = 0
+        for worker in self.workers[:]:  # Create a copy to iterate over
+            if worker.task_type == "analyze_file" and worker.isRunning():
+                worker.stop_requested = True
+                worker.terminate()  # Force terminate if needed
+                worker.wait(5000)  # Wait up to 5 seconds for clean shutdown
+                if worker in self.workers:
+                    self.workers.remove(worker)
+                stopped_count += 1
+        
+        if stopped_count > 0:
+            self.append_output(f"[!] Stopped {stopped_count} analysis task(s)")
+        else:
+            self.append_output("[!] No analysis tasks were running")
+        
+        self.update_analysis_ui_state(False)
 
     # --- Button Click Handlers ---
 
@@ -11277,7 +11417,7 @@ class AntivirusApp(QWidget):
     def setup_ui(self):
         """Sets up the main user interface."""
         self.setWindowTitle("Hydra Dragon Antivirus")
-        self.setFixedSize(700, 700) # Increased height for the new buttons
+        self.setFixedSize(700, 750) # Increased height for the stop button
         try:
             if os.path.exists(icon_path):
                  self.setWindowIcon(QIcon(icon_path))
@@ -11323,6 +11463,10 @@ class AntivirusApp(QWidget):
         self.diff_button = QPushButton("4. Compare Analysis Logs", self)
         self.rootkit_scan_button = QPushButton("5. Rootkit Scan", self)
         self.cleanup_button = QPushButton("6. Cleanup Environment", self)
+        self.stop_analysis_button = QPushButton("7. Stop Analysis", self)
+
+        # Initially disable the stop button
+        self.stop_analysis_button.setEnabled(False)
 
         # Text output area
         self.output_text = QTextEdit(self)
@@ -11356,6 +11500,10 @@ class AntivirusApp(QWidget):
             QPushButton:pressed {
                 background-color: #1E90FF;
             }
+            QPushButton:disabled {
+                background: #555;
+                color: #888;
+            }
         """
         
         # Special style for cleanup button (red theme)
@@ -11378,6 +11526,30 @@ class AntivirusApp(QWidget):
             }
         """
         
+        # Special style for stop button (orange theme)
+        stop_button_style = """
+            QPushButton {
+                color: white;
+                font: bold 14px;
+                border: none;
+                border-radius: 10px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #FFA500, stop:1 #FF8C00);
+                padding: 10px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #FF8C00, stop:1 #FFA500);
+            }
+            QPushButton:pressed {
+                background-color: #FF7F00;
+            }
+            QPushButton:disabled {
+                background: #555;
+                color: #888;
+            }
+        """
+        
         all_buttons = [
             self.update_defs_button, self.capture_button, self.analyze_file_button,
             self.diff_button, self.rootkit_scan_button
@@ -11386,15 +11558,19 @@ class AntivirusApp(QWidget):
             btn.setCursor(Qt.PointingHandCursor)
             btn.setStyleSheet(button_style)
 
-        # Special styling for cleanup button
+        # Special styling for cleanup and stop buttons
         self.cleanup_button.setCursor(Qt.PointingHandCursor)
         self.cleanup_button.setStyleSheet(cleanup_button_style)
+        
+        self.stop_analysis_button.setCursor(Qt.PointingHandCursor)
+        self.stop_analysis_button.setStyleSheet(stop_button_style)
 
         # Connect buttons to their functions
         self.update_defs_button.clicked.connect(self.update_definitions)
         self.capture_button.clicked.connect(self.capture_analysis_logs)
         self.diff_button.clicked.connect(self.compare_analysis_logs)
         self.analyze_file_button.clicked.connect(self.analyze_file)
+        self.stop_analysis_button.clicked.connect(self.stop_analysis)
         self.rootkit_scan_button.clicked.connect(self.scan_for_rootkits)
         self.cleanup_button.clicked.connect(self.cleanup_environment)
 
@@ -11403,6 +11579,7 @@ class AntivirusApp(QWidget):
         layout.addWidget(self.update_defs_button)
         layout.addWidget(self.capture_button)
         layout.addWidget(self.analyze_file_button)
+        layout.addWidget(self.stop_analysis_button)
         layout.addWidget(self.diff_button)
         layout.addWidget(self.rootkit_scan_button)
         layout.addWidget(self.cleanup_button)
@@ -11440,6 +11617,7 @@ class Worker(QThread):
         super().__init__()
         self.task_type = task_type
         self.args = args
+        self.stop_requested = False
 
     def capture_analysis_logs(self):
         global pre_analysis_log_path, post_analysis_log_path, pre_analysis_entries, post_analysis_entries
@@ -11516,9 +11694,31 @@ class Worker(QThread):
             self.output_signal.emit(f"[!] Error updating definitions: {str(e)}")
 
     def analyze_file(self, file_path):
+        if self.stop_requested:
+            self.output_signal.emit("[!] Analysis stopped by user request")
+            return
+            
         self.output_signal.emit(f"[*] Starting analysis for: {file_path}")
-        analysis_result = run_analysis(file_path)
-        self.output_signal.emit(analysis_result)
+        
+        # Create a stop callback function
+        def check_stop():
+            return self.stop_requested
+        
+        try:
+            # Call the modified run_analysis function with stop callback
+            analysis_result = run_analysis(file_path, stop_callback=check_stop)
+            
+            if self.stop_requested:
+                self.output_signal.emit("[!] Analysis was stopped by user")
+                return
+                
+            self.output_signal.emit(analysis_result)
+            
+        except Exception as e:
+            if self.stop_requested:
+                self.output_signal.emit("[!] Analysis stopped by user request")
+            else:
+                self.output_signal.emit(f"[!] Error during analysis: {str(e)}")
 
     def perform_rootkit_scan(self):
         """
@@ -11711,7 +11911,8 @@ class Worker(QThread):
             elif self.task_type == "cleanup_environment":
                 self.perform_cleanup()
         except Exception as e:
-            self.output_signal.emit(f"[!] Worker thread error: {str(e)}")
+            if not self.stop_requested:
+                self.output_signal.emit(f"[!] Worker thread error: {str(e)}")
 
 def main():
     app = QApplication(sys.argv)
