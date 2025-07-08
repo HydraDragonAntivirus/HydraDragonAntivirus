@@ -3745,6 +3745,15 @@ def save_extracted_strings(output_filename, extracted_strings):
     with open(output_filename, 'w', encoding='utf-8') as output_file:
         output_file.writelines(f"{line}\n" for line in extracted_strings)
 
+def run_pd64_db_gen():
+    """Run pd64 -db gen to create/update clean.hashes in script_dir."""
+    try:
+        subprocess.run([pd64_path, "-db", "gen"], check=True)
+        return True
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Failed to generate clean.hashes: {e}")
+        return False
+
 def extract_with_pd64(dump_path: str, output_dir: str) -> bool:
     """Run pd64.exe to extract files from a memory dump."""
     try:
