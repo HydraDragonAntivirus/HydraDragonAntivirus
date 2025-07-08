@@ -3761,19 +3761,21 @@ def extract_with_pd64(dump_path: str, output_dir: str) -> bool:
         logging.error(f"PD64 extraction failed for {dump_path}: {e}")
         return False
 
-def analyze_process_memory(file_path):
-    """Perform memory analysis on the specified file path."""
+
+def analyze_process_memory(file_path: str, memory_dir: str) -> str:
+    """Perform memory analysis on the specified process and extract files using pymem and pd64."""
+    # Verify input path exists
+    if not os.path.isfile(file_path):
+        logging.error(f"File not found: {file_path}")
+        return None
+
+    logging.info(f"Starting pymem attachment on: {file_path}")
     try:
-        if not os.path.isfile(file_path):
-            logging.error(f"File not found: {file_path}")
-
-        logging.info(f"Starting analysis on: {file_path}")
-
-        # Attach to the process
         pm = pymem.Pymem(file_path)
-        logging.info(f"Attached to process: {file_path}")
 
+        saved_dumps = []
         extracted_strings = []
+
         try:
             for module in enum_process_modules(pm.process_handle):
                 base_addr = ctypes.cast(module, ctypes.POINTER(ctypes.c_void_p)).contents.value
@@ -3781,35 +3783,52 @@ def analyze_process_memory(file_path):
 
                 try:
                     data = read_memory_data(pm, base_addr, module_info.SizeOfImage)
-                    save_memory_data(base_addr, data)
+                    # Save raw memory dump for this module
+                    os.makedirs(memory_dir, exist_ok=True)
+                    dump_filename = os.path.join(
+                        memory_dir,
+                        f"mem_{hex(base_addr)}.bin"
+                    )
+                    save_memory_data(dump_filename, data)
+                    saved_dumps.append(dump_filename)
 
                     ascii_strings = extract_ascii_strings(data)
-                    extracted_strings.append(f"{file_path}: Module {hex(base_addr)}:")
+                    extracted_strings.append(f"Module {hex(base_addr)} Strings:")
                     extracted_strings.extend(ascii_strings)
                 except Exception as ex:
-                    extracted_strings.append(f"Error reading {hex(base_addr)}: {ex}")
+                    logging.warning(f"Error reading memory at {hex(base_addr)}: {ex}")
         finally:
             pm.close_process()  # Explicitly release the process handle
             logging.info(f"Released process handle for: {file_path}")
 
-        # Check for existing output file and create a unique filename
+        # Save extracted ASCII strings
         base_filename = "extracted_strings"
-        output_filename = os.path.join(memory_dir, f"{base_filename}.txt")
+        output_txt = os.path.join(memory_dir, f"{base_filename}.txt")
         count = 1
-        while os.path.exists(output_filename):
-            output_filename = os.path.join(memory_dir, f"{base_filename}_{count}.txt")
+        while os.path.exists(output_txt):
+            output_txt = os.path.join(memory_dir, f"{base_filename}_{count}.txt")
             count += 1
+        save_extracted_strings(output_txt, extracted_strings)
+        logging.info(f"Strings analysis complete. Results saved in {output_txt}")
 
-        # Save the extracted strings
-        save_extracted_strings(output_filename, extracted_strings)
+        # Use PD64 to extract embedded files from each memory dump
+        for dump in saved_dumps:
+            logging.info(f"Running pd64 on dump: {dump}")
+            subdir = os.path.join(pd64_extracted_dir, os.path.basename(dump))
+            os.makedirs(subdir, exist_ok=True)
+            if extract_with_pd64(dump, subdir):
+                # Scan all extracted files
+                for root, _, files in os.walk(subdir):
+                    for fname in files:
+                        full_path = os.path.join(root, fname)
+                        logging.info(f"Scanning extracted file: {full_path}")
+                        scan_and_warn(full_path)
+            else:
+                logging.error(f"Skipping scan for dumps in {dump} due to extraction failure.")
 
-        logging.info(f"Analysis complete. Results saved in {output_filename}")
-
-        # Return the new file path
-        return output_filename
-
+        return output_txt
     except Exception as ex:
-        logging.error(f"An error occurred: {ex}")
+        logging.error(f"An error occurred during analysis: {ex}")
         return None
 
 def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
