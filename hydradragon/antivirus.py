@@ -419,6 +419,8 @@ copied_sandbox_and_main_files_dir = os.path.join(script_dir, "copied_sandbox_and
 detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
 pycdas_path = os.path.join(script_dir, "pycdas.exe")
+pd64_path = os.path.join(script_dir, "pd64.exe")
+pd64_extracted_dir = os.path.join(script_dir, "pd64_extracted")
 deobfuscar_path = os.path.join(script_dir, "Deobfuscar-Standalone-Win64.exe")
 digital_signatures_list_antivirus_path = os.path.join(digital_signatures_list_dir, "antivirus.txt")
 digital_signatures_list_goodsign_path = os.path.join(digital_signatures_list_dir, "goodsign.txt")
@@ -634,7 +636,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir, processed_dir, python_source_code_dir, pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
+directories_to_scan = [pd64_extracted_dir, enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir, processed_dir, python_source_code_dir, pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
@@ -724,41 +726,26 @@ CHAINED_JOIN = re.compile(
 # Pattern for base64 literals inside b64decode
 B64_LITERAL = re.compile(r"base64\.b64decode\(\s*(['\"])([A-Za-z0-9+/=]+)\1\s*\)")
 
-os.makedirs(enigma_extracted_dir, exist_ok=True)
-os.makedirs(upx_extracted_dir, exist_ok=True)
-os.makedirs(ungarbler_dir, exist_ok=True)
-os.makedirs(ungarbler_string_dir, exist_ok=True)
-os.makedirs(resource_extractor_dir, exist_ok=True)
-os.makedirs(pyinstaller_extracted_dir, exist_ok=True)
-os.makedirs(cx_freeze_extracted_dir, exist_ok=True)
-os.makedirs(inno_setup_unpacked_dir, exist_ok=True)
-os.makedirs(python_source_code_dir, exist_ok=True)
-os.makedirs(nuitka_source_code_dir, exist_ok=True)
-os.makedirs(commandlineandmessage_dir, exist_ok=True)
-os.makedirs(processed_dir, exist_ok=True)
-os.makedirs(memory_dir, exist_ok=True)
-os.makedirs(dotnet_dir, exist_ok=True)
-os.makedirs(de4dot_extracted_dir, exist_ok=True)
-os.makedirs(obfuscar_dir, exist_ok=True)
-os.makedirs(nuitka_dir, exist_ok=True)
-os.makedirs(pe_extracted_dir, exist_ok=True)
-os.makedirs(zip_extracted_dir, exist_ok=True)
-os.makedirs(tar_extracted_dir, exist_ok=True)
-os.makedirs(seven_zip_extracted_dir, exist_ok=True)
-os.makedirs(general_extracted_with_7z_dir, exist_ok=True)
-os.makedirs(nuitka_extracted_dir, exist_ok=True)
-os.makedirs(advanced_installer_extracted_dir, exist_ok=True)
-os.makedirs(debloat_dir, exist_ok=True)
-os.makedirs(jar_extracted_dir, exist_ok=True)
-os.makedirs(FernFlower_decompiled_dir, exist_ok=True)
-os.makedirs(deteciteasy_plain_text_dir, exist_ok=True)
-os.makedirs(python_deobfuscated_dir, exist_ok=True)
-os.makedirs(python_deobfuscated_marshal_pyc_dir, exist_ok=True)
-os.makedirs(pylingual_extracted_dir, exist_ok=True)
-os.makedirs(pycdas_extracted_dir, exist_ok=True)
-os.makedirs(copied_sandbox_and_main_files_dir, exist_ok=True)
-os.makedirs(HiJackThis_logs_dir, exist_ok=True)
-os.makedirs(html_extracted_dir, exist_ok=True)
+# Unified list of all directories to manage
+MANAGED_DIRECTORIES = [
+    pd64_extracted_dir, enigma_extracted_dir, upx_extracted_dir, ungarbler_dir, ungarbler_string_dir,
+    resource_extractor_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
+    inno_setup_unpacked_dir, python_source_code_dir, nuitka_source_code_dir,
+    commandlineandmessage_dir, processed_dir, memory_dir, dotnet_dir,
+    de4dot_extracted_dir, obfuscar_dir, nuitka_dir, pe_extracted_dir,
+    zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir,
+    general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir,
+    debloat_dir, jar_extracted_dir, FernFlower_decompiled_dir, deteciteasy_plain_text_dir,
+    python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pylingual_extracted_dir,
+    pycdas_extracted_dir, copied_sandbox_and_main_files_dir, HiJackThis_logs_dir,
+    html_extracted_dir, log_directory
+]
+
+for make_directory in MANAGED_DIRECTORIES:
+  if not os.path.exists(make_directory):
+    os.makedirs(make_directory)
+
+# Sandboxie folders
 os.makedirs(sandboxie_folder, exist_ok=True)
 os.makedirs(sandbox_system_root_directory, exist_ok=True)
 
@@ -6846,6 +6833,8 @@ def ransomware_alert(file_path):
 
 def log_directory_type(file_path):
     try:
+        if file_path.startswith(pd64_extracted_dir):
+            logging.info(f"{file_path}: Process Dump x64 output extracted.")
         if file_path.startswith(enigma_extracted_dir):
             logging.info(f"{file_path}: Enigma extracted.")
         elif file_path.startswith(sandboxie_folder):
@@ -6941,6 +6930,7 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
         # List of directory conditions and their corresponding logging messages.
         # Note: For conditions that need an exact match (like the main file), a lambda is used accordingly.
         directory_logging_info = [
+            (lambda fp: fp.startswith(pd64_extracted_dir), "Process Dump x64 output extracted."),
             (lambda fp: fp.startswith(enigma_extracted_dir), "Enigma extracted."),
             (lambda fp: fp.startswith(sandboxie_folder), "It's a Sandbox environment file."),
             (lambda fp: fp.startswith(copied_sandbox_and_main_files_dir), "It's a restored sandbox environment file."),
@@ -6975,6 +6965,7 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
             (lambda fp: fp.startswith(pycdas_extracted_dir), "PyInstaller, .pyc reversed-engineered source code directory with pycdas.exe."),
             (lambda fp: fp.startswith(python_source_code_dir), "PyInstaller, .pyc reversed-engineered source code base directory."),
             (lambda fp: fp.startswith(nuitka_source_code_dir), "Nuitka reversed-engineered Python source code directory.")
+            (lambda fp: fp.startswith(html_extracted_dir), "This is the directory for HTML files of visited websites.")
         ]
 
         # 1) Find and log the first matching directory message, also save it for the prompt
@@ -11598,21 +11589,6 @@ class Worker(QThread):
     """
     output_signal = Signal(str)
 
-    # Unified list of all directories to manage
-    MANAGED_DIRECTORIES = [
-        enigma_extracted_dir, upx_extracted_dir, ungarbler_dir, ungarbler_string_dir,
-        resource_extractor_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
-        inno_setup_unpacked_dir, python_source_code_dir, nuitka_source_code_dir,
-        commandlineandmessage_dir, processed_dir, memory_dir, dotnet_dir,
-        de4dot_extracted_dir, obfuscar_dir, nuitka_dir, pe_extracted_dir,
-        zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir,
-        general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir,
-        debloat_dir, jar_extracted_dir, FernFlower_decompiled_dir, deteciteasy_plain_text_dir,
-        python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pylingual_extracted_dir,
-        pycdas_extracted_dir, copied_sandbox_and_main_files_dir, HiJackThis_logs_dir,
-        html_extracted_dir, log_directory
-    ]
-
     def __init__(self, task_type, *args):
         super().__init__()
         self.task_type = task_type
@@ -11779,7 +11755,7 @@ class Worker(QThread):
         Removes all the managed directories and their contents.
         """
         cleaned_count = 0
-        for directory in self.MANAGED_DIRECTORIES:
+        for directory in  MANAGED_DIRECTORIES:
             try:
                 if os.path.exists(directory):
                     shutil.rmtree(directory)
@@ -11882,7 +11858,7 @@ class Worker(QThread):
         Recreates all the managed directories after cleanup.
         """
         created_count = 0
-        for directory in self.MANAGED_DIRECTORIES:
+        for directory in MANAGED_DIRECTORIES:
             try:
                 # Skip log_directory as it shouldn't be recreated in the normal workflow
                 if directory == log_directory:
