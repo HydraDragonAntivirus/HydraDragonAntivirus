@@ -11364,7 +11364,9 @@ class AntivirusApp(QWidget):
     def append_output(self, text):
         """Appends text to the output area and scrolls to the bottom."""
         self.output_text.append(text)
-        self.output_text.verticalScrollBar().setValue(self.output_text.verticalScrollBar().maximum())
+        self.output_text.verticalScrollBar().setValue(
+            self.output_text.verticalScrollBar().maximum()
+        )
 
     def start_worker(self, task_type, *args):
         """Creates, configures, and starts a worker thread."""
@@ -11388,8 +11390,10 @@ class AntivirusApp(QWidget):
     def on_worker_finished(self):
         """Called when any worker thread finishes."""
         # Check if any analysis workers are still running
-        analysis_running = any(worker.task_type == "analyze_file" and worker.isRunning() 
-                             for worker in self.workers)
+        analysis_running = any(
+            w.task_type == "analyze_file" and w.isRunning()
+            for w in self.workers
+        )
         if not analysis_running:
             self.update_analysis_ui_state(False)
 
@@ -11434,6 +11438,9 @@ class AntivirusApp(QWidget):
     def update_definitions(self):
         self.start_worker("update_defs")
 
+    def generate_clean_db(self):
+        self.start_worker("generate_clean_db")
+
     def analyze_file(self):
         file_dialog = QFileDialog(self)
         file_dialog.setNameFilter("All Files (*)")
@@ -11452,10 +11459,10 @@ class AntivirusApp(QWidget):
     def setup_ui(self):
         """Sets up the main user interface."""
         self.setWindowTitle("Hydra Dragon Antivirus")
-        self.setFixedSize(700, 750) # Increased height for the stop button
+        self.setFixedSize(700, 800)
         try:
             if os.path.exists(icon_path):
-                 self.setWindowIcon(QIcon(icon_path))
+                self.setWindowIcon(QIcon(icon_path))
         except Exception as e:
             logging.error(f"Could not load icon: {e}")
 
@@ -11469,13 +11476,14 @@ class AntivirusApp(QWidget):
         warning_text = (
             "<b>IMPORTANT:</b> Only run this application from a Virtual Machine.<br><br>"
             "<b>Recommended Workflow:</b><br>"
-            "1. First, <b>Update Virus Definitions</b>.<br>"
-            "2. Run the HiJackThis Report (<b>Capture Analysis Logs</b>).<br>"
-            "3. Perform your main analysis <b>Analyze File</b> the suspicious software.<br>"
-            "4. Run HiJackThis again (<b>Capture Analysis Logs</b> a second time).<br>"
-            "5. Click <b>Compare Analysis Logs</b> to see what changed.<br>"
-            "6. Finally, run the <b>Rootkit Scan</b>.<br>"
-            "7. Use <b>Cleanup Environment</b> to reset before new analysis.<br><br>"
+            "1. Update Virus Definitions.<br>"
+            "2. Generate Clean DB (Process Dump x64).<br>"
+            "3. Capture Analysis Logs.<br>"
+            "4. Analyze a File.<br>"
+            "5. Stop Analysis.<br>"
+            "6. Compare Analysis Logs.<br>"
+            "7. Rootkit Scan.<br>"
+            "8. Cleanup Environment.<br><br>"
             "<i>Return to a clean snapshot before starting a new analysis.</i>"
         )
         self.warning_label = QLabel(warning_text, self)
@@ -11491,16 +11499,17 @@ class AntivirusApp(QWidget):
             }
         """)
 
-        # Buttons
-        self.update_defs_button = QPushButton("1. Update Definitions", self)
-        self.capture_button = QPushButton("2. Capture Analysis Logs", self)
-        self.analyze_file_button = QPushButton("3. Analyze a File", self)
-        self.diff_button = QPushButton("4. Compare Analysis Logs", self)
-        self.rootkit_scan_button = QPushButton("5. Rootkit Scan", self)
-        self.cleanup_button = QPushButton("6. Cleanup Environment", self)
-        self.stop_analysis_button = QPushButton("7. Stop Analysis", self)
+        # Buttons in order
+        self.update_defs_button   = QPushButton("1. Update Definitions", self)
+        self.generate_db_button   = QPushButton("2. Generate Clean DB", self)
+        self.capture_button       = QPushButton("3. Capture Analysis Logs", self)
+        self.analyze_file_button  = QPushButton("4. Analyze a File", self)
+        self.stop_analysis_button = QPushButton("5. Stop Analysis", self)
+        self.diff_button          = QPushButton("6. Compare Analysis Logs", self)
+        self.rootkit_scan_button       = QPushButton("7. Rootkit Scan", self)
+        self.cleanup_button       = QPushButton("8. Cleanup Environment", self)
 
-        # Initially disable the stop button
+        # Initially disable stop button
         self.stop_analysis_button.setEnabled(False)
 
         # Text output area
@@ -11584,12 +11593,13 @@ class AntivirusApp(QWidget):
                 color: #888;
             }
         """
-        
-        all_buttons = [
-            self.update_defs_button, self.capture_button, self.analyze_file_button,
+
+        # Apply styles
+        for btn in [
+            self.update_defs_button, self.generate_db_button,
+            self.capture_button, self.analyze_file_button,
             self.diff_button, self.rootkit_scan_button
-        ]
-        for btn in all_buttons:
+        ]:
             btn.setCursor(Qt.PointingHandCursor)
             btn.setStyleSheet(button_style)
 
@@ -11602,6 +11612,7 @@ class AntivirusApp(QWidget):
 
         # Connect buttons to their functions
         self.update_defs_button.clicked.connect(self.update_definitions)
+        self.generate_db_button.clicked.connect(self.generate_clean_db)
         self.capture_button.clicked.connect(self.capture_analysis_logs)
         self.diff_button.clicked.connect(self.compare_analysis_logs)
         self.analyze_file_button.clicked.connect(self.analyze_file)
@@ -11612,6 +11623,7 @@ class AntivirusApp(QWidget):
         # Layout Setup
         layout.addWidget(self.warning_label)
         layout.addWidget(self.update_defs_button)
+        layout.addWidget(self.generate_db_button)
         layout.addWidget(self.capture_button)
         layout.addWidget(self.analyze_file_button)
         layout.addWidget(self.stop_analysis_button)
@@ -11638,6 +11650,11 @@ class Worker(QThread):
         self.task_type = task_type
         self.args = args
         self.stop_requested = False
+
+    def generate_clean_db(self):
+        success = run_pd64_db_gen()
+        msg = "[+] clean.hashes generated." if success else "[!] Failed to generate clean.hashes."
+        self.output_signal.emit(msg)
 
     def capture_analysis_logs(self):
         global pre_analysis_log_path, post_analysis_log_path, pre_analysis_entries, post_analysis_entries
@@ -11924,12 +11941,16 @@ class Worker(QThread):
                 self.compare_analysis_logs()
             elif self.task_type == "update_defs":
                 self.update_definitions()
+            elif self.task_type == "generate_clean_db":
+                self.generate_clean_db()
             elif self.task_type == "analyze_file":
                 self.analyze_file(*self.args)
             elif self.task_type == "rootkit_scan":
                 self.perform_rootkit_scan()
             elif self.task_type == "cleanup_environment":
                 self.perform_cleanup()
+            else:
+                self.output_signal.emit(f"[!] Unknown task type: {self.task_type}")
         except Exception as e:
             if not self.stop_requested:
                 self.output_signal.emit(f"[!] Worker thread error: {str(e)}")
