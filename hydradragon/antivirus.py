@@ -11523,7 +11523,6 @@ class AntivirusApp(QWidget):
     def create_header_widget(self):
         """Create the advanced header with branding"""
         header_frame = QFrame()
-        header_frame.setFixedHeight(120)
         header_frame.setStyleSheet("""
             QFrame {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
@@ -11542,7 +11541,7 @@ class AntivirusApp(QWidget):
         title_label.setStyleSheet("""
             QLabel {
                 color: white;
-                font: bold 24px;
+                font: bold 20px;
                 background: transparent;
                 border: none;
                 margin: 0;
@@ -11554,7 +11553,7 @@ class AntivirusApp(QWidget):
         subtitle_label.setStyleSheet("""
             QLabel {
                 color: #e0e0e0;
-                font: 14px;
+                font: 10px;
                 background: transparent;
                 border: none;
                 margin: 0;
