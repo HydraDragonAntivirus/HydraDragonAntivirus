@@ -94,21 +94,20 @@ import json
 logging.info(f"json module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, 
-                                QPushButton, QLabel, QTextEdit, QFileDialog, 
-                                QFrame, QScrollArea, QSizePolicy, QGraphicsDropShadowEffect,
-                                QProgressBar, QSplitter, QHeaderView, QTreeWidget, 
-                                QTreeWidgetItem, QTabWidget, QGroupBox, QApplication)
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
+                               QPushButton, QLabel, QTextEdit, QFileDialog,
+                               QFrame, QStackedWidget,
+                               QApplication, QButtonGroup, QGroupBox)
 logging.info(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from PySide6.QtCore import Qt, QThread, Signal, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup
+from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QThread, 
+                            Signal, QPoint, QParallelAnimationGroup, Property, QRect)
 logging.info(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from PySide6.QtGui import (QFont, QPixmap, QIcon, QPainter, QBrush, QColor, 
-                           QLinearGradient, QPen, QPolygonF, QPainterPath)
+from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen, 
+                           QPainterPath, QRadialGradient, QIcon, QPixmap)
 logging.info(f"PySide6.QtGui.QIcon module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -653,11 +652,11 @@ seven_zip_folder = os.path.join(program_files, "7-Zip")
 # ClamAV file paths and configurations
 clamdscan_path = os.path.join(clamav_folder, "clamdscan.exe")
 freshclam_path = os.path.join(clamav_folder, "freshclam.exe")
-clamav_file_paths = [
-    os.path.join(clamav_folder, "database", "daily.cvd"),
-    os.path.join(clamav_folder, "database", "daily.cld")
-]
 clamav_database_directory_path = os.path.join(clamav_folder, "database")
+clamav_file_paths = [
+    os.path.join(clamav_database_directory_path, "daily.cvd"),
+    os.path.join(clamav_database_directory_path, "daily.cld")
+]
 
 # 7-Zip executable path
 seven_zip_path = os.path.join(seven_zip_folder, "7z.exe")
@@ -11360,495 +11359,592 @@ def parse_report(path):
 
     return entries
 
+# --- Helper Function ---
+def get_latest_clamav_def_time():
+    """Checks the ClamAV database folder for the latest definition file time."""
+    try:
+        if not os.path.isdir(clamav_database_directory_path):
+            return "ClamAV DB Not Found"
+        
+        files = [os.path.join(clamav_database_directory_path, f) for f in os.listdir(clamav_database_directory_path) if os.path.isfile(os.path.join(clamav_database_directory_path, f))]
+        if not files:
+            return "Definitions DB Empty"
+            
+        latest_file = max(files, key=os.path.getmtime)
+        mod_time = os.path.getmtime(latest_file)
+        return f"Definitions: {datetime.fromtimestamp(mod_time).strftime('%Y-%m-%d %H:%M')}"
+    except Exception as e:
+        logging.error(f"Could not read ClamAV DB time: {e}")
+        return "Error Reading Definitions"
+
+# --- Custom Hydra Icon Widget ---
+class HydraIconWidget(QWidget):
+    """A custom widget to draw the Hydra Dragon icon."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.pixmap = None
+        if os.path.exists(icon_path):
+            self.pixmap = QPixmap(icon_path)
+        else:
+            logging.warning(f"Sidebar icon not found at {icon_path}. Drawing fallback.")
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if self.pixmap and not self.pixmap.isNull():
+            painter.drawPixmap(self.rect(), self.pixmap)
+        else:
+            # Fallback drawing if image is not found
+            primary_color = QColor("#88C0D0")
+            shadow_color = QColor("#4C566A")
+            path = QPainterPath()
+            path.moveTo(0, 20)
+            path.quadTo(15, 0, 30, 20)
+            path.quadTo(15, 10, 0, 20)
+            path.moveTo(5, 15)
+            path.cubicTo(-20, 0, -10, -25, 0, -20)
+            path.quadTo(-5, -18, 5, 15)
+            path.moveTo(25, 15)
+            path.cubicTo(50, 0, 40, -25, 30, -20)
+            path.quadTo(35, -18, 25, 15)
+            path.moveTo(15, 10)
+            path.cubicTo(10, -20, 20, -20, 15, 10)
+            painter.setPen(QPen(primary_color, 3))
+            painter.setBrush(shadow_color)
+            painter.drawPath(path)
+
+
+# --- Custom Shield Widget for Status (MODIFIED) ---
+class ShieldWidget(QWidget):
+    """A custom widget to draw an animated status shield with a glowing effect."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAutoFillBackground(True)
+        self.is_protected = True
+        self._glow_opacity = 0.0
+        self._check_progress = 1.0
+        self._scale_factor = 1.0
+        self.setMinimumSize(250, 250)
+        
+        # Load the hydra image for the protected state
+        self.hydra_pixmap = None
+        script_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in locals() else os.getcwd()
+        assets_dir = os.path.join(script_dir, "assets")
+        if os.path.exists(icon_path):
+            self.hydra_pixmap = QPixmap(icon_path)
+        else:
+            logging.warning(f"Shield icon not found at {icon_path}. Will use fallback drawing.")
+
+
+        # Animation for the icon appearing/disappearing
+        self.check_animation = QPropertyAnimation(self, b"check_progress")
+        self.check_animation.setDuration(500)
+        self.check_animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        # Animation for the background glow
+        self.glow_animation = QPropertyAnimation(self, b"glow_opacity")
+        self.glow_animation.setDuration(2500)
+        self.glow_animation.setLoopCount(-1)
+        self.glow_animation.setStartValue(0.2)
+        self.glow_animation.setKeyValueAt(0.5, 0.7)
+        self.glow_animation.setEndValue(0.2)
+        self.glow_animation.setEasingCurve(QEasingCurve.Type.InOutSine)
+        self.glow_animation.start()
+        
+        # Breathing animation for the shield
+        self.breathe_animation = QPropertyAnimation(self, b"scale_factor")
+        self.breathe_animation.setDuration(5000)
+        self.breathe_animation.setLoopCount(-1)
+        self.breathe_animation.setStartValue(1.0)
+        self.breathe_animation.setKeyValueAt(0.5, 1.05)
+        self.breathe_animation.setEndValue(1.0)
+        self.breathe_animation.setEasingCurve(QEasingCurve.Type.InOutSine)
+        self.breathe_animation.start()
+
+    # --- Getter/Setter for check_progress ---
+    def get_check_progress(self):
+        return self._check_progress
+
+    def set_check_progress(self, value):
+        self._check_progress = value
+        self.update()
+
+    # --- Getter/Setter for glow_opacity ---
+    def get_glow_opacity(self):
+        return self._glow_opacity
+
+    def set_glow_opacity(self, value):
+        self._glow_opacity = value
+        self.update()
+
+    # --- Getter/Setter for scale_factor ---
+    def get_scale_factor(self):
+        return self._scale_factor
+
+    def set_scale_factor(self, value):
+        self._scale_factor = value
+        self.update()
+
+    # --- Qt Properties for Animation ---
+    check_progress = Property(float, get_check_progress, set_check_progress)
+    glow_opacity = Property(float, get_glow_opacity, set_glow_opacity)
+    scale_factor = Property(float, get_scale_factor, set_scale_factor)
+
+    def set_status(self, is_protected):
+        if self.is_protected != is_protected:
+            self.is_protected = is_protected
+            self.check_animation.setStartValue(0.0)
+            self.check_animation.setEndValue(1.0)
+            self.check_animation.start()
+            self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        side = min(self.width(), self.height())
+        painter.translate(self.width() / 2, self.height() / 2)
+        painter.scale(self._scale_factor, self._scale_factor)
+        painter.scale(side / 220.0, side / 220.0)
+
+        # Draw the outer glow
+        glow_color = QColor(0, 255, 127) if self.is_protected else QColor(255, 80, 80)
+        gradient = QRadialGradient(0, 0, 110)
+        glow_color.setAlphaF(self._glow_opacity)
+        gradient.setColorAt(0.5, glow_color)
+        glow_color.setAlphaF(0)
+        gradient.setColorAt(1.0, glow_color)
+        painter.setBrush(QBrush(gradient))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(-110, -110, 220, 220)
+
+        # Draw the main shield shape
+        path = QPainterPath()
+        path.moveTo(0, -90)
+        path.cubicTo(80, -80, 80, 0, 80, 0)
+        path.lineTo(80, 40)
+        path.quadTo(80, 90, 0, 100)
+        path.quadTo(-80, 90, -80, 40)
+        path.lineTo(-80, 0)
+        path.cubicTo(-80, -80, 0, -90, 0, -90)
+        
+        # Draw the user's PNG inside the shield if protected and available
+        if self.is_protected and self.hydra_pixmap and not self.hydra_pixmap.isNull():
+             # Fill shield with a gradient behind the image
+            shield_gradient = QLinearGradient(0, -90, 0, 100)
+            shield_gradient.setColorAt(0, QColor("#434C5E"))
+            shield_gradient.setColorAt(1, QColor("#3B4252"))
+            painter.fillPath(path, QBrush(shield_gradient))
+            
+            painter.setOpacity(self._check_progress)
+            # Define the rectangle to draw the pixmap in
+            pixmap_rect = QRect(-75, -85, 150, 150)
+            painter.drawPixmap(pixmap_rect, self.hydra_pixmap)
+            painter.setOpacity(1.0) # Reset opacity
+        else:
+            # Fallback to old behavior if image is not loaded or not protected
+            shield_gradient = QLinearGradient(0, -90, 0, 100)
+            shield_gradient.setColorAt(0, QColor("#4C566A"))
+            shield_gradient.setColorAt(1, QColor("#3B4252"))
+            painter.fillPath(path, QBrush(shield_gradient))
+
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        progress = self._check_progress
+
+        if not self.is_protected:
+            # Draw the original cross for the 'unprotected' status
+            painter.setPen(QPen(QColor("white"), 14, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            painter.drawLine(-35 * progress, -35 * progress, 35 * progress, 35 * progress)
+            painter.drawLine(35 * progress, -35 * progress, -35 * progress, 35 * progress)
+
+
 # --- Main Application Window ---
 class AntivirusApp(QWidget):
     def __init__(self):
         super().__init__()
         self.workers = []
+        self.log_outputs = []
+        self.animation_group = QParallelAnimationGroup()
         self.setup_ui()
-        self.apply_animations()
-
-    def update_analysis_ui_state(self, is_running):
-        """Updates the UI state based on whether analysis is running."""
-        if is_running:
-            self.analyze_file_button.setText("4. Analysis Running...")
-            self.analyze_file_button.setEnabled(False)
-            self.stop_analysis_button.setEnabled(True)
-            self.start_pulse_animation()
-        else:
-            self.analyze_file_button.setText("4. Analyze a File")
-            self.analyze_file_button.setEnabled(True)
-            self.stop_analysis_button.setEnabled(False)
-            self.stop_pulse_animation()
-
-    def start_pulse_animation(self):
-        """Start pulsing animation for analysis button"""
-        if hasattr(self, 'pulse_animation'):
-            self.pulse_animation.start()
-
-    def stop_pulse_animation(self):
-        """Stop pulsing animation"""
-        if hasattr(self, 'pulse_animation'):
-            self.pulse_animation.stop()
-
-    def apply_animations(self):
-        """Apply smooth animations to UI elements"""
-        self.pulse_animation = QPropertyAnimation(self.analyze_file_button, b"styleSheet")
-        self.pulse_animation.setDuration(1000)
-        self.pulse_animation.setLoopCount(-1)
-        
-        # Define keyframes for pulsing effect
-        running_style = """
-            QPushButton {
-                color: white;
-                font: bold 8px;
-                border: none;
-                border-radius: 6px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #FF6B6B, stop:1 #FF8E53);
-                padding: 15px;
-                min-height: 20px;
-            }
-        """
-        
-        running_style_bright = """
-            QPushButton {
-                color: white;
-                font: bold 8px;
-                border: none;
-                border-radius: 6px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #FF8E53, stop:1 #FF6B6B);
-                padding: 15px;
-                min-height: 20px;
-            }
-        """
-        
-        self.pulse_animation.setKeyValueAt(0, running_style)
-        self.pulse_animation.setKeyValueAt(0.5, running_style_bright)
-        self.pulse_animation.setKeyValueAt(1, running_style)
-
-    def append_output(self, text):
-        """Appends text to the output area and scrolls to the bottom."""
-        self.output_text.append(text)
-        self.output_text.verticalScrollBar().setValue(
-            self.output_text.verticalScrollBar().maximum()
-        )
+        self.apply_stylesheet()
 
     def start_worker(self, task_type, *args):
-        """Creates, configures, and starts a worker thread."""
         worker = Worker(task_type, *args)
-        worker.output_signal.connect(self.append_output)
-        worker.finished.connect(lambda w=worker: self.workers.remove(w))
-        worker.finished.connect(self.on_worker_finished)
+        worker.output_signal.connect(self.append_log_output)
+        worker.finished.connect(lambda w=worker: self.on_worker_finished(w))
         
         self.workers.append(worker)
         worker.start()
-        
-        if task_type == "analyze_file":
-            self.update_analysis_ui_state(True)
-        
-        return worker
+        self.append_log_output(f"[*] Task '{task_type}' started.")
+        self.shield_widget.set_status(False)
+        self.status_text.setText("System is busy...")
 
-    def on_worker_finished(self):
-        """Called when any worker thread finishes."""
-        analysis_running = any(
-            w.task_type == "analyze_file" and w.isRunning()
-            for w in self.workers
-        )
-        if not analysis_running:
-            self.update_analysis_ui_state(False)
+    def on_worker_finished(self, worker):
+        self.append_log_output(f"[+] Task '{worker.task_type}' finished.")
+        if worker in self.workers:
+            self.workers.remove(worker)
+        if not self.workers:
+            self.shield_widget.set_status(True)
+            self.status_text.setText("Ready for analysis!")
 
-    def stop_analysis(self):
-        """Stops all running analysis workers."""
-        stopped_count = 0
-        for worker in self.workers[:]:
-            if worker.task_type == "analyze_file" and worker.isRunning():
-                worker.stop_requested = True
-                worker.terminate()
-                worker.wait(5000)
-                if worker in self.workers:
-                    self.workers.remove(worker)
-                stopped_count += 1
-        
-        if stopped_count > 0:
-            self.append_output(f"[!] Stopped {stopped_count} analysis task(s)")
-        else:
-            self.append_output("[!] No analysis tasks were running")
-        
-        self.update_analysis_ui_state(False)
+    def append_log_output(self, text):
+        current_page_index = self.main_stack.currentIndex()
+        if 0 <= current_page_index < len(self.log_outputs):
+            log_widget = self.log_outputs[current_page_index]
+            if log_widget:
+                log_widget.append(text)
 
-    def create_advanced_button(self, text, color_start, color_end, shadow_color):
-        """Create an advanced styled button with gradient and shadow effects"""
-        button = QPushButton(text, self)
-        button.setCursor(Qt.PointingHandCursor)
-        
-        # Create shadow effect
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(15)
-        shadow.setXOffset(0)
-        shadow.setYOffset(5)
-        shadow.setColor(QColor(shadow_color))
-        button.setGraphicsEffect(shadow)
-        
-        # Advanced styling
-        button.setStyleSheet(f"""
-            QPushButton {{
-                color: white;
-                font: bold 8px;
-                border: none;
-                border-radius: 6px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {color_start}, stop:1 {color_end});
-                padding: 15px;
-                min-height: 20px;
-            }}
-            QPushButton:hover {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {color_end}, stop:1 {color_start});
-            }}
-            QPushButton:pressed {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {color_end}, stop:1 {color_start});
-            }}
-            QPushButton:disabled {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #555, stop:1 #444);
-                color: #888;
-            }}
-        """)
-        
-        return button
+    def switch_page_with_animation(self, index):
+        if self.animation_group.state() == QParallelAnimationGroup.State.Running:
+            return
 
-    def create_header_widget(self):
-        """Create the advanced header with branding"""
-        header_frame = QFrame()
-        header_frame.setStyleSheet("""
-            QFrame {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #667eea, stop:1 #764ba2);
-                border: none;
-                border-radius: 15px;
-                margin: 5px;
-            }
-        """)
+        current_widget = self.main_stack.currentWidget()
+        next_widget = self.main_stack.widget(index)
         
-        header_layout = QHBoxLayout(header_frame)
-        header_layout.setContentsMargins(30, 20, 30, 20)
-        
-        # Title section
-        title_label = QLabel("HYDRA DRAGON ANTIVIRUS")
-        title_label.setStyleSheet("""
-            QLabel {
-                color: white;
-                font: bold 20px;
-                background: transparent;
-                border: none;
-                margin: 0;
-                padding: 0;
-            }
-        """)
-        
-        subtitle_label = QLabel("Advanced Malware Analysis Suite")
-        subtitle_label.setStyleSheet("""
-            QLabel {
-                color: #e0e0e0;
-                font: 8px;
-                background: transparent;
-                border: none;
-                margin: 0;
-                padding: 0;
-            }
-        """)
-        
-        title_layout = QVBoxLayout()
-        title_layout.addWidget(title_label)
-        title_layout.addWidget(subtitle_label)
-        title_layout.setSpacing(5)
-        
-        header_layout.addLayout(title_layout)
-        header_layout.addStretch()
-        
-        return header_frame
+        if current_widget == next_widget:
+            return
 
-    def create_warning_widget(self):
-        """Create advanced warning message widget"""
-        warning_frame = QFrame()
-        warning_frame.setStyleSheet("""
-            QFrame {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #FF6B6B, stop:0.5 #FF8E53, stop:1 #FF6B6B);
-                border: 2px solid #FF4500;
-                border-radius: 15px;
-                margin: 5px;
-            }
-        """)
+        current_index = self.main_stack.currentIndex()
         
-        warning_layout = QVBoxLayout(warning_frame)
-        warning_layout.setContentsMargins(20, 15, 20, 15)
+        animation_duration = 400
+        easing_curve = QEasingCurve.Type.InOutCubic
+
+        next_widget.show()
+        next_widget.raise_()
         
-        warning_title = QLabel("CRITICAL SECURITY NOTICE")
-        warning_title.setStyleSheet("""
-            QLabel {
-                color: white;
-                font: bold 16px;
-                background: transparent;
-                border: none;
-                margin: 0;
-                padding: 0;
-            }
-        """)
+        slide_out_x = -self.main_stack.width() if index > current_index else self.main_stack.width()
+        current_pos_anim = QPropertyAnimation(current_widget, b"pos")
+        current_pos_anim.setDuration(animation_duration)
+        current_pos_anim.setEasingCurve(easing_curve)
+        current_pos_anim.setStartValue(QPoint(0, 0))
+        current_pos_anim.setEndValue(QPoint(slide_out_x, 0))
         
+        slide_in_x = self.main_stack.width() if index > current_index else -self.main_stack.width()
+        next_widget.move(slide_in_x, 0)
+        next_pos_anim = QPropertyAnimation(next_widget, b"pos")
+        next_pos_anim.setDuration(animation_duration)
+        next_pos_anim.setEasingCurve(easing_curve)
+        next_pos_anim.setStartValue(QPoint(slide_in_x, 0))
+        next_pos_anim.setEndValue(QPoint(0, 0))
+        
+        self.animation_group = QParallelAnimationGroup()
+        self.animation_group.addAnimation(current_pos_anim)
+        self.animation_group.addAnimation(next_pos_anim)
+        
+        self.animation_group.finished.connect(lambda: self.main_stack.setCurrentIndex(index))
+        self.animation_group.start()
+
+    def create_sidebar(self):
+        sidebar_frame = QFrame()
+        sidebar_frame.setObjectName("sidebar")
+        sidebar_layout = QVBoxLayout(sidebar_frame)
+        sidebar_layout.setContentsMargins(10, 20, 10, 20)
+        sidebar_layout.setSpacing(15)
+
+        logo_area = QHBoxLayout()
+        icon_widget = HydraIconWidget()
+        icon_widget.setFixedSize(30, 30)
+        logo_label = QLabel("HYDRA")
+        logo_label.setObjectName("logo")
+        logo_area.addWidget(icon_widget)
+        logo_area.addWidget(logo_label)
+        sidebar_layout.addLayout(logo_area)
+        sidebar_layout.addSpacing(20)
+
+        nav_buttons = [
+            "Status", "Update Definitions", "Generate Clean DB", 
+            "Analyze File", "Compare Logs", "Rootkit Scan", 
+            "Cleanup Environment", "About"
+        ]
+        self.nav_group = QButtonGroup(self)
+        self.nav_group.setExclusive(True)
+
+        for i, name in enumerate(nav_buttons):
+            button = QPushButton(name)
+            button.setCheckable(True)
+            button.setObjectName("nav_button")
+            button.clicked.connect(lambda checked, index=i: self.switch_page_with_animation(index))
+            sidebar_layout.addWidget(button)
+            self.nav_group.addButton(button, i)
+
+        self.nav_group.button(0).setChecked(True)
+        sidebar_layout.addStretch()
+        return sidebar_frame
+
+    def create_main_content(self):
+        self.main_stack = QStackedWidget()
+        self.main_stack.addWidget(self.create_status_page())
+        self.main_stack.addWidget(self.create_task_page("Update Definitions", "update_defs"))
+        self.main_stack.addWidget(self.create_task_page("Generate Clean DB", "generate_clean_db"))
+        self.main_stack.addWidget(self.create_analysis_page())
+        self.main_stack.addWidget(self.create_task_page("Compare Analysis Logs", "compare_logs"))
+        self.main_stack.addWidget(self.create_task_page("Rootkit Scan", "rootkit_scan"))
+        self.main_stack.addWidget(self.create_cleanup_page())
+        self.main_stack.addWidget(self.create_about_page())
+        return self.main_stack
+
+    def create_status_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(40, 40, 40, 40)
+        
+        main_area = QHBoxLayout()
+        self.shield_widget = ShieldWidget()
+        main_area.addWidget(self.shield_widget, 2)
+        
+        status_vbox = QVBoxLayout()
+        status_vbox.addStretch()
+        title = QLabel("System Status")
+        title.setObjectName("page_title")
+        self.status_text = QLabel("Ready for analysis!")
+        self.status_text.setObjectName("page_subtitle")
+        version_label = QLabel("HydraDragon Antivirus v0.1 (Beta 3)")
+        version_label.setObjectName("version_label")
+        defs_label = QLabel(get_latest_clamav_def_time())
+        defs_label.setObjectName("version_label")
+        
+        status_vbox.addWidget(title)
+        status_vbox.addWidget(self.status_text)
+        status_vbox.addSpacing(20)
+        status_vbox.addWidget(version_label)
+        status_vbox.addWidget(defs_label)
+        status_vbox.addStretch()
+        main_area.addLayout(status_vbox, 3)
+        
+        layout.addLayout(main_area)
+        self.log_outputs.append(None) 
+        return page
+
+    def create_task_page(self, title_text, task_name):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        title = QLabel(title_text)
+        title.setObjectName("page_title")
+        layout.addWidget(title)
+        button = QPushButton(f"Run {title_text}")
+        button.setObjectName("action_button")
+        button.clicked.connect(lambda: self.start_worker(task_name))
+        layout.addWidget(button)
+        log_output = QTextEdit(f"{title_text} logs will appear here...")
+        log_output.setObjectName("log_output")
+        layout.addWidget(log_output, 1)
+        self.log_outputs.append(log_output)
+        layout.addStretch()
+        return page
+        
+    def create_analysis_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        title = QLabel("Deep File Analysis")
+        title.setObjectName("page_title")
+        layout.addWidget(title)
+        warning_box = QGroupBox("Recommended Workflow")
+        warning_layout = QVBoxLayout(warning_box)
         warning_text = QLabel(
-            "IMPORTANT: Only run this application from a Virtual Machine.\n\n"
-            "Recommended Workflow:\n"
-            "1. Update Virus Definitions\n"
-            "2. Generate Clean DB (Process Dump x64)\n"
-            "3. Capture Analysis Logs\n"
-            "4. Analyze a File\n"
-            "5. Stop Analysis\n"
-            "6. Compare Analysis Logs\n"
-            "7. Rootkit Scan\n"
-            "8. Cleanup Environment\n\n"
-            "Return to a clean snapshot before starting a new analysis."
+            "<b>IMPORTANT:</b> Only run this application from a Virtual Machine.<br><br>"
+            "<b>Recommended Workflow:</b><br>"
+            "1. Update Virus Definitions<br>"
+            "2. Generate Clean DB (Process Dump x64)<br>"
+            "3. Capture Analysis Logs<br>"
+            "4. Analyze a File<br>"
+            "5. Stop Analysis<br>"
+            "6. Capture and Compare Analysis Logs<br>"
+            "7. Rootkit Scan<br>"
+            "8. Cleanup Environment<br><br>"
+            "<i>Return to a clean snapshot before starting a new analysis.</i>"
         )
         warning_text.setWordWrap(True)
-        warning_text.setStyleSheet("""
-            QLabel {
-                color: white;
-                font: 12px;
-                background: transparent;
-                border: none;
-                margin: 0;
-                padding: 0;
-                line-height: 1.3;
-            }
-        """)
-        
-        warning_layout.addWidget(warning_title)
+        warning_text.setObjectName("warning_text")
         warning_layout.addWidget(warning_text)
-        
-        return warning_frame
-
-    def create_control_panel(self):
-        """Create the advanced control panel with buttons"""
-        control_frame = QFrame()
-        control_frame.setStyleSheet("""
-            QFrame {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #2c3e50, stop:1 #3498db);
-                border: none;
-                border-radius: 15px;
-                margin: 5px;
-            }
-        """)
-        
-        control_layout = QVBoxLayout(control_frame)
-        control_layout.setContentsMargins(20, 20, 20, 20)
-        control_layout.setSpacing(12)
-        
-        # Control panel title
-        panel_title = QLabel("ANALYSIS CONTROL PANEL")
-        panel_title.setStyleSheet("""
-            QLabel {
-                color: white;
-                font: bold 14px;
-                background: transparent;
-                border: none;
-                margin: 0;
-                padding: 8px 0;
-            }
-        """)
-        panel_title.setAlignment(Qt.AlignCenter)
-        control_layout.addWidget(panel_title)
-        
-        # Create advanced buttons
-        self.update_defs_button = self.create_advanced_button(
-            "1. Update Definitions", "#4CAF50", "#45a049", "#2e7d32"
-        )
-        self.generate_db_button = self.create_advanced_button(
-            "2. Generate Clean DB", "#2196F3", "#1976D2", "#1565C0"
-        )
-        self.capture_button = self.create_advanced_button(
-            "3. Capture Analysis Logs", "#9C27B0", "#7B1FA2", "#4A148C"
-        )
-        self.analyze_file_button = self.create_advanced_button(
-            "4. Analyze a File", "#FF9800", "#F57C00", "#E65100"
-        )
-        self.stop_analysis_button = self.create_advanced_button(
-            "5. Stop Analysis", "#F44336", "#D32F2F", "#B71C1C"
-        )
-        self.diff_button = self.create_advanced_button(
-            "6. Compare Analysis Logs", "#009688", "#00796B", "#004D40"
-        )
-        self.rootkit_scan_button = self.create_advanced_button(
-            "7. Rootkit Scan", "#795548", "#5D4037", "#3E2723"
-        )
-        self.cleanup_button = self.create_advanced_button(
-            "8. Cleanup Environment", "#E91E63", "#C2185B", "#AD1457"
-        )
-        
-        # Initially disable stop button
-        self.stop_analysis_button.setEnabled(False)
-        
-        # Add buttons to layout
-        for button in [self.update_defs_button, self.generate_db_button, 
-                      self.capture_button, self.analyze_file_button,
-                      self.stop_analysis_button, self.diff_button,
-                      self.rootkit_scan_button, self.cleanup_button]:
-            control_layout.addWidget(button)
-        
-        return control_frame
-
-    def create_output_widget(self):
-        """Create advanced output display widget"""
-        output_frame = QFrame()
-        output_frame.setStyleSheet("""
-            QFrame {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #2c3e50, stop:1 #34495e);
-                border: 2px solid #3498db;
-                border-radius: 15px;
-                margin: 5px;
-            }
-        """)
-        
-        output_layout = QVBoxLayout(output_frame)
-        output_layout.setContentsMargins(20, 15, 20, 15)
-        
-        output_title = QLabel("ANALYSIS OUTPUT CONSOLE")
-        output_title.setStyleSheet("""
-            QLabel {
-                color: white;
-                font: bold 14px;
-                background: transparent;
-                border: none;
-                margin: 0;
-                padding: 8px 0;
-            }
-        """)
-        output_title.setAlignment(Qt.AlignCenter)
-        output_layout.addWidget(output_title)
-        
-        self.output_text = QTextEdit()
-        self.output_text.setReadOnly(True)
-        self.output_text.setStyleSheet("""
-            QTextEdit {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #1e1e1e, stop:1 #2a2a2a);
-                color: #00ff00;
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: 10px;
-                border: 2px solid #3498db;
-                border-radius: 8px;
-                padding: 8px;
-                selection-background-color: #3498db;
-                selection-color: white;
-            }
-            QScrollBar:vertical {
-                background: #34495e;
-                width: 10px;
-                border-radius: 7px;
-            }
-            QScrollBar::handle:vertical {
-                background: #3498db;
-                border-radius: 5px;
-                min-height: 10px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #2980b9;
-            }
-        """)
-        
-        output_layout.addWidget(self.output_text)
-        
-        return output_frame
-
-    def setup_ui(self):
-        """Sets up the advanced user interface."""
-        self.setWindowTitle("Hydra Dragon Antivirus - Advanced Security Suite")
-        self.setMinimumSize(700, 600)
-        self.resize(900, 700)
-        
-        # Main background
-        self.setStyleSheet("""
-            QWidget {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #2c3e50, stop:0.5 #3498db, stop:1 #2c3e50);
-            }
-        """)
-        
-        # Main layout
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(15, 15, 15, 15)
-        main_layout.setSpacing(15)
-        
-        # Create and add widgets
-        header_widget = self.create_header_widget()
-        warning_widget = self.create_warning_widget()
-        
-        # Create splitter for control panel and output
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setStyleSheet("""
-            QSplitter::handle {
-                background: #34495e;
-                width: 3px;
-            }
-            QSplitter::handle:hover {
-                background: #3498db;
-            }
-        """)
-        
-        control_panel = self.create_control_panel()
-        output_widget = self.create_output_widget()
-                
-        splitter.addWidget(control_panel)
-        splitter.addWidget(output_widget)
-        
-        # Add widgets to main layout
-        main_layout.addWidget(header_widget)
-        main_layout.addWidget(warning_widget)
-        main_layout.addWidget(splitter, 1)
-        
-        # Connect button signals
-        self.connect_button_signals()
-
-    def connect_button_signals(self):
-        """Connect all button signals to their respective handlers"""
-        self.update_defs_button.clicked.connect(self.update_definitions)
-        self.generate_db_button.clicked.connect(self.generate_clean_db)
-        self.capture_button.clicked.connect(self.capture_analysis_logs)
-        self.analyze_file_button.clicked.connect(self.analyze_file)
-        self.stop_analysis_button.clicked.connect(self.stop_analysis)
-        self.diff_button.clicked.connect(self.compare_analysis_logs)
-        self.rootkit_scan_button.clicked.connect(self.scan_for_rootkits)
-        self.cleanup_button.clicked.connect(self.cleanup_environment)
-
-    # Button handler methods
-    def capture_analysis_logs(self):
-        self.start_worker("capture_analysis_logs")
-
-    def compare_analysis_logs(self):
-        self.start_worker("compare_analysis_logs")
-
-    def update_definitions(self):
-        self.start_worker("update_defs")
-
-    def generate_clean_db(self):
-        self.start_worker("generate_clean_db")
+        layout.addWidget(warning_box)
+        button_layout = QHBoxLayout()
+        analyze_btn = QPushButton("Analyze File...")
+        analyze_btn.setObjectName("action_button")
+        analyze_btn.clicked.connect(self.analyze_file)
+        stop_btn = QPushButton("Stop Analysis")
+        stop_btn.setObjectName("action_button_danger")
+        stop_btn.clicked.connect(self.stop_analysis)
+        button_layout.addWidget(analyze_btn)
+        button_layout.addWidget(stop_btn)
+        layout.addLayout(button_layout)
+        log_output = QTextEdit("Analysis logs will appear here...")
+        log_output.setObjectName("log_output")
+        layout.addWidget(log_output, 1)
+        self.log_outputs.append(log_output)
+        return page
 
     def analyze_file(self):
-        file_dialog = QFileDialog(self)
-        file_dialog.setNameFilter("All Files (*)")
-        if file_dialog.exec_():
-            file_path = file_dialog.selectedFiles()[0]
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select a file to analyze", "", "All Files (*)")
+        if file_path:
             self.start_worker("analyze_file", file_path)
 
-    def scan_for_rootkits(self):
-        self.start_worker("rootkit_scan")
+    def stop_analysis(self):
+        for worker in self.workers:
+            if worker.isRunning():
+                worker.stop_requested = True
+        self.append_log_output("[!] Stop request sent to all running tasks.")
 
-    def cleanup_environment(self):
-        self.start_worker("cleanup_environment")
+    def create_cleanup_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        title = QLabel("System Cleanup & Reset")
+        title.setObjectName("page_title")
+        layout.addWidget(title)
+        cleanup_button = QPushButton("Perform Full Environment Cleanup")
+        cleanup_button.setObjectName("action_button_danger")
+        cleanup_button.clicked.connect(lambda: self.start_worker("cleanup_environment"))
+        layout.addWidget(cleanup_button)
+        log_output = QTextEdit("Cleanup process logs will appear here...")
+        log_output.setObjectName("log_output")
+        layout.addWidget(log_output, 1)
+        self.log_outputs.append(log_output)
+        layout.addStretch()
+        return page
+
+    def create_about_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(20)
+        title = QLabel("About HydraDragon")
+        title.setObjectName("page_title")
+        layout.addWidget(title)
+        about_text = QLabel(
+            "HydraDragon Antivirus is a tool designed for malware analysis and system security research. "
+            "It provides a sandboxed environment to safely analyze potential threats."
+        )
+        about_text.setWordWrap(True)
+        layout.addWidget(about_text)
+        github_button = QPushButton("View Project on GitHub")
+        github_button.setObjectName("action_button")
+        github_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus"))
+        layout.addWidget(github_button, 0, Qt.AlignmentFlag.AlignLeft)
+        layout.addStretch()
+        self.log_outputs.append(None)
+        return page
+
+    def setup_ui(self):
+        # --- Set Window Icon ---
+        # Determine the script directory robustly
+        script_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in locals() else os.getcwd()
+        assets_dir = os.path.join(script_dir, "assets")
+
+        # Set the window icon if the file exists
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+        else:
+            logging.warning(f"Icon file not found at: {icon_path}")
+
+        self.setWindowTitle("HydraDragon Antivirus v0.1 (Beta 3)")
+        self.setMinimumSize(1024, 768)
+        self.resize(1200, 800)
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        main_layout.addWidget(self.create_sidebar())
+        main_layout.addWidget(self.create_main_content(), 1)
+
+    def apply_stylesheet(self):
+        stylesheet = """
+            QWidget {
+                background-color: #2E3440;
+                color: #D8DEE9;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-size: 14px;
+            }
+            QTextEdit {
+                background-color: #3B4252;
+                border: 1px solid #4C566A;
+                border-radius: 5px;
+                padding: 8px;
+                color: #ECEFF4;
+                font-family: 'Consolas', 'Courier New', monospace;
+            }
+            #sidebar {
+                background-color: #3B4252;
+                max-width: 220px;
+            }
+            #logo {
+                color: #88C0D0;
+                font-size: 28px;
+                font-weight: bold;
+            }
+            #nav_button {
+                background-color: transparent;
+                border: none;
+                color: #ECEFF4;
+                padding: 12px;
+                text-align: left;
+                border-radius: 5px;
+            }
+            #nav_button:hover {
+                background-color: #434C5E;
+            }
+            #nav_button:checked {
+                background-color: #88C0D0;
+                color: #2E3440;
+                font-weight: bold;
+            }
+            #page_title {
+                font-size: 28px;
+                font-weight: 300;
+                color: #ECEFF4;
+                padding-bottom: 15px;
+            }
+            #page_subtitle {
+                font-size: 16px;
+                color: #A3BE8C;
+            }
+            #version_label {
+                font-size: 13px;
+                color: #81A1C1;
+            }
+            #action_button {
+                background-color: #5E81AC;
+                color: #ECEFF4;
+                border-radius: 8px;
+                padding: 12px 20px;
+                font-size: 14px;
+                font-weight: bold;
+                border: none;
+                max-width: 300px;
+            }
+            #action_button:hover {
+                background-color: #81A1C1;
+            }
+            #action_button_danger {
+                background-color: #BF616A;
+                color: #ECEFF4;
+                border-radius: 8px;
+                padding: 12px 20px;
+                font-size: 14px;
+                font-weight: bold;
+                border: none;
+            }
+            #action_button_danger:hover {
+                background-color: #d08770;
+            }
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #4C566A;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 0 5px;
+            }
+            #warning_text {
+                font-size: 13px;
+                line-height: 1.5;
+            }
+        """
+        self.setStyleSheet(stylesheet)
 
 # --- Worker Thread for Background Tasks ---
 class Worker(QThread):
