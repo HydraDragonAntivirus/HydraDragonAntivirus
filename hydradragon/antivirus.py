@@ -11408,7 +11408,6 @@ class AntivirusApp(QWidget):
                     stop:0 #FF6B6B, stop:1 #FF8E53);
                 padding: 15px;
                 min-height: 20px;
-                box-shadow: 0 8px 16px rgba(255, 107, 107, 0.3);
             }
         """
         
@@ -11422,7 +11421,6 @@ class AntivirusApp(QWidget):
                     stop:0 #FF8E53, stop:1 #FF6B6B);
                 padding: 15px;
                 min-height: 20px;
-                box-shadow: 0 8px 16px rgba(255, 142, 83, 0.5);
             }
         """
         
@@ -11504,17 +11502,14 @@ class AntivirusApp(QWidget):
                     stop:0 {color_start}, stop:1 {color_end});
                 padding: 15px;
                 min-height: 20px;
-                box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
             }}
             QPushButton:hover {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 {color_end}, stop:1 {color_start});
-                transform: translateY(-2px);
             }}
             QPushButton:pressed {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 {color_end}, stop:1 {color_start});
-                transform: translateY(1px);
             }}
             QPushButton:disabled {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
