@@ -1,147 +1,163 @@
 import os
+import sys
+import time
 import shutil
 import hashlib
 import pefile
+from pathlib import Path
+
 
 def is_pe_file(file_path):
     """
-    Check if the file at the specified path is a Portable Executable (PE) file.
-    
-    Parameters:
-        file_path (str): The path to the file to check.
-        
-    Returns:
-        bool: True if the file is a valid PE file, False otherwise.
+    Check if the file at the specified path is a valid Portable Executable (PE) file.
     """
-    if not os.path.exists(file_path):
-        return False
-
     try:
-        with open(file_path, 'rb') as file:
-            # Attempt to parse the file as a PE file
-            pefile.PE(data=file.read())
-            return True
+        pefile.PE(file_path, fast_load=True)
+        return True
     except pefile.PEFormatError:
         return False
-    except Exception as e:
-        print(f"Error occurred while checking if file is PE: {e}")
+    except Exception:
         return False
 
-def compute_md5(file_path, chunk_size=4096):
+
+def compute_md5(file_path, chunk_size=8192):
     """
-    Compute the MD5 hash of the specified file.
-    
-    Parameters:
-        file_path (str): The path to the file.
-        chunk_size (int): The chunk size for reading the file.
-        
-    Returns:
-        str or None: The MD5 hash as a hexadecimal string, or None if an error occurs.
+    Compute and return the MD5 hash of the given file.
     """
-    md5 = hashlib.md5()
+    hash_md5 = hashlib.md5()
     try:
         with open(file_path, 'rb') as f:
-            while chunk := f.read(chunk_size):
-                md5.update(chunk)
-        return md5.hexdigest()
-    except Exception as e:
-        print(f"Error computing MD5 for {file_path}: {e}")
+            for chunk in iter(lambda: f.read(chunk_size), b""):
+                hash_md5.update(chunk)
+        return hash_md5.hexdigest()
+    except Exception:
         return None
 
-def collect_pe_files(directory):
-    """
-    Recursively scan the specified directory (including subdirectories) for PE files.
-    
-    Parameters:
-        directory (str): The root directory to scan.
-    
-    Returns:
-        list: A list of file paths that are valid PE files.
-    """
-    pe_files = []
-    
-    if not os.path.isdir(directory):
-        print("The specified path is not a directory.")
-        return pe_files
 
-    # Walk through the directory tree
-    for root, _, files in os.walk(directory):
-        for name in files:
-            full_path = os.path.join(root, name)
-            if os.path.isfile(full_path) and is_pe_file(full_path):
-                pe_files.append(full_path)
-    
-    return pe_files
+def scan_directory(root_dir, max_size_mb=10):
+    """
+    Recursively scan the directory for unique PE files under a size threshold,
+    ignoring access-denied errors.
+    Returns a list of dicts with path, size(bytes), size_mb, md5.
+    """
+    max_size = max_size_mb * 1024 * 1024
+    found = []
+    seen_hashes = set()
+    total_scanned = 0
 
-def load_existing_hashes(destination_folder):
-    """
-    Scan the destination folder for existing files and return a set of their MD5 hashes.
-    
-    Parameters:
-        destination_folder (str): The folder where files have been copied.
-    
-    Returns:
-        set: A set of MD5 hash strings for files already in the destination.
-    """
-    hashes = set()
-    if os.path.isdir(destination_folder):
-        for entry in os.listdir(destination_folder):
-            full_path = os.path.join(destination_folder, entry)
-            if os.path.isfile(full_path):
-                file_hash = compute_md5(full_path)
-                if file_hash:
-                    hashes.add(file_hash)
-    return hashes
+    print(f"Scanning '{root_dir}' for PE files <= {max_size_mb}MB (ignoring access errors)...")
+    start = time.time()
 
-def copy_pe_files(pe_files, destination_folder):
+    for dirpath, dirs, files in os.walk(root_dir, onerror=lambda e: None):
+        # skip system or hidden directories
+        dirs[:] = [d for d in dirs if not d.startswith('$')]
+        for fname in files:
+            full = os.path.join(dirpath, fname)
+            total_scanned += 1
+            try:
+                size = os.path.getsize(full)
+            except (OSError, PermissionError):
+                continue
+
+            if size == 0 or size > max_size:
+                continue
+
+            if not is_pe_file(full):
+                continue
+
+            md5 = compute_md5(full)
+            if not md5 or md5 in seen_hashes:
+                continue
+
+            seen_hashes.add(md5)
+            entry = {
+                'path': full,
+                'size': size,
+                'size_mb': round(size / (1024*1024), 2),
+                'md5': md5
+            }
+            found.append(entry)
+            print(f"[FOUND] {full} ({entry['size_mb']} MB) MD5={md5}")
+
+    elapsed = time.time() - start
+    print(f"\nScan complete: {len(found)} unique PE files found in {total_scanned} files scanned ({elapsed:.2f}s)")
+    return found
+
+
+def save_results(found, out_file="pe_scan_results.txt"):
     """
-    Copy the PE files to the destination folder, skipping duplicates based on MD5 hash.
-    
-    Parameters:
-        pe_files (list): A list of file paths to be copied.
-        destination_folder (str): The path to the destination folder.
+    Save scan results to a text file.
     """
-    # Create the destination folder if it doesn't exist
-    if not os.path.exists(destination_folder):
-        os.makedirs(destination_folder)
-    
-    # Load MD5 hashes of files already in the destination folder
-    existing_hashes = load_existing_hashes(destination_folder)
-    
-    for file_path in pe_files:
-        file_hash = compute_md5(file_path)
-        if not file_hash:
+    try:
+        with open(out_file, 'w', encoding='utf-8') as f:
+            f.write("PE Files Found:\n")
+            f.write("="*40 + "\n")
+            for e in found:
+                f.write(f"Path: {e['path']}\nSize: {e['size_mb']} MB ({e['size']} bytes)\nMD5: {e['md5']}\n")
+                f.write("-"*20 + "\n")
+        print(f"Results saved to '{out_file}'")
+    except Exception as e:
+        print(f"Failed to save results: {e}")
+
+
+def copy_to_folder(found, dest):
+    """
+    Copy unique files to destination folder, skipping duplicates and ignoring access errors.
+    """
+    os.makedirs(dest, exist_ok=True)
+    existing = set()
+    for fp in Path(dest).rglob('*'):
+        if not fp.is_file():
             continue
+        h = compute_md5(str(fp))
+        if h:
+            existing.add(h)
 
-        if file_hash in existing_hashes:
-            print(f"Duplicate file skipped (MD5: {file_hash}): {file_path}")
+    count = 0
+    for e in found:
+        md5 = e['md5']
+        if md5 in existing:
+            print(f"Skipping duplicate in dest: {e['path']}")
             continue
-        
         try:
-            shutil.copy2(file_path, destination_folder)
-            print(f"Copied: {file_path} -> {destination_folder}")
-            existing_hashes.add(file_hash)
-        except Exception as e:
-            print(f"Failed to copy {file_path}: {e}")
+            shutil.copy2(e['path'], dest)
+            existing.add(md5)
+            count += 1
+            print(f"Copied: {e['path']} -> {dest}")
+        except (OSError, PermissionError) as ex:
+            continue
+        except Exception as ex:
+            print(f"Error copying {e['path']}: {ex}")
 
-if __name__ == "__main__":
-    # Prompt the user for the root directory to scan for PE files.
-    # Note: The destination folder will be created in the current working directory.
-    directory_path = input("Enter the directory path to scan for PE files: ").strip()
-    
-    # Recursively collect PE files in the provided directory and its subdirectories
-    found_pe_files = collect_pe_files(directory_path)
-    
-    if found_pe_files:
-        print("Found the following PE files:")
-        for pe_file in found_pe_files:
-            print(pe_file)
-        
-        # Define the destination folder in the current working directory
-        destination_subfolder = os.path.join(os.getcwd(), "collected_pe_files")
-        
-        # Copy unique PE files into the destination folder
-        copy_pe_files(found_pe_files, destination_subfolder)
-        print("Unique PE files have been copied into:", destination_subfolder)
+    print(f"\nCopied {count} new files to '{dest}'")
+
+
+def main():
+    root = input("Directory to scan for PE files: ").strip()
+    if not os.path.isdir(root):
+        print("Invalid directory.")
+        sys.exit(1)
+
+    max_mb = input("Max file size in MB [10]: ").strip() or "10"
+    try:
+        max_mb = int(max_mb)
+    except ValueError:
+        max_mb = 10
+
+    found = scan_directory(root, max_mb)
+    if not found:
+        sys.exit(0)
+
+    save_results(found)
+
+    # Use 'data2' as the destination folder
+    dest = os.path.join(os.getcwd(), "data2")
+    choice = input(f"Copy files to '{dest}'? (y/n): ").lower()
+    if choice in ('y','yes'):
+        copy_to_folder(found, dest)
     else:
-        print("No PE files found in the specified directory.")
+        print("Copy skipped.")
+
+
+if __name__ == '__main__':
+    main()
