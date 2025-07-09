@@ -11401,9 +11401,9 @@ class AntivirusApp(QWidget):
         running_style = """
             QPushButton {
                 color: white;
-                font: bold 14px;
+                font: bold 12px;
                 border: none;
-                border-radius: 15px;
+                border-radius: 10px;
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #FF6B6B, stop:1 #FF8E53);
                 padding: 15px;
