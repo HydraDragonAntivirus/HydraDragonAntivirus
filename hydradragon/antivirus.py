@@ -11415,9 +11415,9 @@ class AntivirusApp(QWidget):
         running_style_bright = """
             QPushButton {
                 color: white;
-                font: bold 14px;
+                font: bold 12px;
                 border: none;
-                border-radius: 15px;
+                border-radius: 10px;
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #FF8E53, stop:1 #FF6B6B);
                 padding: 15px;
@@ -11497,9 +11497,9 @@ class AntivirusApp(QWidget):
         button.setStyleSheet(f"""
             QPushButton {{
                 color: white;
-                font: bold 14px;
+                font: bold 12px;
                 border: none;
-                border-radius: 15px;
+                border-radius: 10px;
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 {color_start}, stop:1 {color_end});
                 padding: 15px;
@@ -11547,7 +11547,7 @@ class AntivirusApp(QWidget):
         title_label.setStyleSheet("""
             QLabel {
                 color: white;
-                font: bold 28px;
+                font: bold 24px;
                 background: transparent;
                 border: none;
                 margin: 0;
