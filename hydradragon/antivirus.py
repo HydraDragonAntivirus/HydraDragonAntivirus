@@ -11401,9 +11401,9 @@ class AntivirusApp(QWidget):
         running_style = """
             QPushButton {
                 color: white;
-                font: bold 12px;
+                font: bold 8px;
                 border: none;
-                border-radius: 10px;
+                border-radius: 6px;
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #FF6B6B, stop:1 #FF8E53);
                 padding: 15px;
@@ -11414,9 +11414,9 @@ class AntivirusApp(QWidget):
         running_style_bright = """
             QPushButton {
                 color: white;
-                font: bold 12px;
+                font: bold 8px;
                 border: none;
-                border-radius: 10px;
+                border-radius: 6px;
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #FF8E53, stop:1 #FF6B6B);
                 padding: 15px;
@@ -11495,9 +11495,9 @@ class AntivirusApp(QWidget):
         button.setStyleSheet(f"""
             QPushButton {{
                 color: white;
-                font: bold 12px;
+                font: bold 8px;
                 border: none;
-                border-radius: 10px;
+                border-radius: 6px;
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 {color_start}, stop:1 {color_end});
                 padding: 15px;
@@ -11553,7 +11553,7 @@ class AntivirusApp(QWidget):
         subtitle_label.setStyleSheet("""
             QLabel {
                 color: #e0e0e0;
-                font: 10px;
+                font: 8px;
                 background: transparent;
                 border: none;
                 margin: 0;
@@ -11652,11 +11652,11 @@ class AntivirusApp(QWidget):
         panel_title.setStyleSheet("""
             QLabel {
                 color: white;
-                font: bold 16px;
+                font: bold 14px;
                 background: transparent;
                 border: none;
                 margin: 0;
-                padding: 10px 0;
+                padding: 8px 0;
             }
         """)
         panel_title.setAlignment(Qt.AlignCenter)
@@ -11720,11 +11720,11 @@ class AntivirusApp(QWidget):
         output_title.setStyleSheet("""
             QLabel {
                 color: white;
-                font: bold 16px;
+                font: bold 14px;
                 background: transparent;
                 border: none;
                 margin: 0;
-                padding: 10px 0;
+                padding: 8px 0;
             }
         """)
         output_title.setAlignment(Qt.AlignCenter)
@@ -11738,22 +11738,22 @@ class AntivirusApp(QWidget):
                     stop:0 #1e1e1e, stop:1 #2a2a2a);
                 color: #00ff00;
                 font-family: 'Consolas', 'Courier New', monospace;
-                font-size: 12px;
+                font-size: 10px;
                 border: 2px solid #3498db;
-                border-radius: 10px;
-                padding: 10px;
+                border-radius: 8px;
+                padding: 8px;
                 selection-background-color: #3498db;
                 selection-color: white;
             }
             QScrollBar:vertical {
                 background: #34495e;
-                width: 15px;
+                width: 10px;
                 border-radius: 7px;
             }
             QScrollBar::handle:vertical {
                 background: #3498db;
-                border-radius: 7px;
-                min-height: 20px;
+                border-radius: 5px;
+                min-height: 10px;
             }
             QScrollBar::handle:vertical:hover {
                 background: #2980b9;
@@ -11804,7 +11804,6 @@ class AntivirusApp(QWidget):
                 
         splitter.addWidget(control_panel)
         splitter.addWidget(output_widget)
-        splitter.setSizes([400, 700])
         
         # Add widgets to main layout
         main_layout.addWidget(header_widget)
