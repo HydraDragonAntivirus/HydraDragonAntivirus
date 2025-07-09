@@ -12114,7 +12114,7 @@ class Worker(QThread):
                 time.sleep(1)
             
             # Delete (cleanup) the DefaultBox sandbox
-            cleanup_cmd = [sandboxie_path, "/delete_sandbox:DefaultBox"]
+            cleanup_cmd = [sandboxie_path, "delete_sandbox"]
             result = subprocess.run(cleanup_cmd, capture_output=True, text=True)
             if result.returncode != 0:
                 self.output_signal.emit(f"[!] Sandbox delete command failed: {result.stderr.strip()}")
