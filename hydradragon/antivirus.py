@@ -11773,8 +11773,8 @@ class AntivirusApp(QWidget):
     def setup_ui(self):
         """Sets up the advanced user interface."""
         self.setWindowTitle("Hydra Dragon Antivirus - Advanced Security Suite")
-        self.setMinimumSize(900, 800)
-        self.resize(1200, 900)
+        self.setMinimumSize(700, 600)
+        self.resize(900, 700)
         
         # Main background
         self.setStyleSheet("""
@@ -11807,10 +11807,7 @@ class AntivirusApp(QWidget):
         
         control_panel = self.create_control_panel()
         output_widget = self.create_output_widget()
-        
-        # Set fixed width for control panel
-        control_panel.setFixedWidth(400)
-        
+                
         splitter.addWidget(control_panel)
         splitter.addWidget(output_widget)
         splitter.setSizes([400, 700])
