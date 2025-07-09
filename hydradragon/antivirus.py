@@ -6938,7 +6938,7 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
             (lambda fp: fp.startswith(python_deobfuscated_sandboxie_dir), "It's an unobfuscated Python directory within Sandboxie."),
             (lambda fp: fp.startswith(pycdas_extracted_dir), "PyInstaller, .pyc reversed-engineered source code directory with pycdas.exe."),
             (lambda fp: fp.startswith(python_source_code_dir), "PyInstaller, .pyc reversed-engineered source code base directory."),
-            (lambda fp: fp.startswith(nuitka_source_code_dir), "Nuitka reversed-engineered Python source code directory.")
+            (lambda fp: fp.startswith(nuitka_source_code_dir), "Nuitka reversed-engineered Python source code directory."),
             (lambda fp: fp.startswith(html_extracted_dir), "This is the directory for HTML files of visited websites.")
         ]
 
@@ -11066,6 +11066,29 @@ def monitor_sandboxie_directory():
         logging.error(f"Error in monitor_sandboxie_directory: {ex}")
 
 
+def terminate_analysis_threads():
+    logging.info("Attempting to terminate analysis threads...")
+
+    for thread in analysis_threads:
+        if thread.is_alive():
+            func_name = thread_function_map.get(thread, "Unknown")
+            logging.info(f"Waiting for thread '{func_name}' to stop...")
+
+    # Passive waiting only; real termination must happen inside threads using stop_callback
+    timeout = 10  # seconds to wait for graceful shutdown
+    start_time = time.time()
+    while any(t.is_alive() for t in analysis_threads):
+        if time.time() - start_time > timeout:
+            logging.warning("Some threads did not finish within the timeout.")
+            break
+        time.sleep(0.5)
+
+    still_running = [thread_function_map.get(t, t.name) for t in analysis_threads if t.is_alive()]
+    if still_running:
+        logging.warning(f"The following threads are still running: {still_running}")
+    else:
+        logging.info("All analysis threads have been terminated gracefully.")
+
 def perform_sandbox_analysis(file_path, stop_callback=None):
     global main_file_path
     global monitor_message
@@ -11163,29 +11186,6 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
         error_message = f"An error occurred during sandbox analysis: {ex}"
         logging.error(error_message)
         return error_message
-
-def terminate_analysis_threads():
-    logging.info("Attempting to terminate analysis threads...")
-
-    for thread in analysis_threads:
-        if thread.is_alive():
-            func_name = thread_function_map.get(thread, "Unknown")
-            logging.info(f"Waiting for thread '{func_name}' to stop...")
-
-    # Passive waiting only; real termination must happen inside threads using stop_callback
-    timeout = 10  # seconds to wait for graceful shutdown
-    start_time = time.time()
-    while any(t.is_alive() for t in analysis_threads):
-        if time.time() - start_time > timeout:
-            logging.warning("Some threads did not finish within the timeout.")
-            break
-        time.sleep(0.5)
-
-    still_running = [thread_function_map.get(t, t.name) for t in analysis_threads if t.is_alive()]
-    if still_running:
-        logging.warning(f"The following threads are still running: {still_running}")
-    else:
-        logging.info("All analysis threads have been terminated gracefully.")
 
 def run_sandboxie_plugin_script():
     # build the inner python invocation
@@ -11357,6 +11357,17 @@ def parse_report(path):
 # --- Main Application Window ---
 class AntivirusApp(QWidget):
 
+    def update_analysis_ui_state(self, is_running):
+        """Updates the UI state based on whether analysis is running."""
+        if is_running:
+            self.analyze_file_button.setText("3. Analysis Running...")
+            self.analyze_file_button.setEnabled(False)
+            self.stop_analysis_button.setEnabled(True)
+        else:
+            self.analyze_file_button.setText("3. Analyze a File")
+            self.analyze_file_button.setEnabled(True)
+            self.stop_analysis_button.setEnabled(False)
+
     def _set_window_background(self):
         """Sets the dark theme for the main window."""
         self.setStyleSheet("QWidget { background-color: #1e1e1e; color: white; }")
@@ -11396,17 +11407,6 @@ class AntivirusApp(QWidget):
         )
         if not analysis_running:
             self.update_analysis_ui_state(False)
-
-    def update_analysis_ui_state(self, is_running):
-        """Updates the UI state based on whether analysis is running."""
-        if is_running:
-            self.analyze_file_button.setText("3. Analysis Running...")
-            self.analyze_file_button.setEnabled(False)
-            self.stop_analysis_button.setEnabled(True)
-        else:
-            self.analyze_file_button.setText("3. Analyze a File")
-            self.analyze_file_button.setEnabled(True)
-            self.stop_analysis_button.setEnabled(False)
 
     def stop_analysis(self):
         """Stops all running analysis workers."""
@@ -11868,6 +11868,24 @@ class Worker(QThread):
         except Exception as e:
             self.output_signal.emit(f"[!] Error restarting services: {str(e)}")
 
+    def recreate_directories(self):
+        """
+        Recreates all the managed directories after cleanup.
+        """
+        created_count = 0
+        for directory in MANAGED_DIRECTORIES:
+            try:
+                # Skip log_directory as it shouldn't be recreated in the normal workflow
+                if directory == log_directory:
+                    continue
+                    
+                os.makedirs(directory, exist_ok=True)
+                created_count += 1
+            except Exception as e:
+                self.output_signal.emit(f"[!] Error creating directory {directory}: {str(e)}")
+        
+        self.output_signal.emit(f"[+] Total directories recreated: {created_count}")
+
     def perform_cleanup(self):
         """
         Performs comprehensive cleanup of the environment.
@@ -11913,24 +11931,6 @@ class Worker(QThread):
             
         except Exception as e:
             self.output_signal.emit(f"[!] Error during cleanup: {str(e)}")
-
-    def recreate_directories(self):
-        """
-        Recreates all the managed directories after cleanup.
-        """
-        created_count = 0
-        for directory in MANAGED_DIRECTORIES:
-            try:
-                # Skip log_directory as it shouldn't be recreated in the normal workflow
-                if directory == log_directory:
-                    continue
-                    
-                os.makedirs(directory, exist_ok=True)
-                created_count += 1
-            except Exception as e:
-                self.output_signal.emit(f"[!] Error creating directory {directory}: {str(e)}")
-        
-        self.output_signal.emit(f"[+] Total directories recreated: {created_count}")
 
     def run(self):
         """The entry point for the thread."""
