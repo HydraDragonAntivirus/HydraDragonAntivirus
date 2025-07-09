@@ -94,15 +94,21 @@ import json
 logging.info(f"json module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QTextEdit, QLabel, QFileDialog
+
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, 
+                                QPushButton, QLabel, QTextEdit, QFileDialog, 
+                                QFrame, QScrollArea, QSizePolicy, QGraphicsDropShadowEffect,
+                                QProgressBar, QSplitter, QHeaderView, QTreeWidget, 
+                                QTreeWidgetItem, QTabWidget, QGroupBox, QApplication)
 logging.info(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, Signal, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup
 logging.info(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import (QFont, QPixmap, QIcon, QPainter, QBrush, QColor, 
+                           QLinearGradient, QPen, QPolygonF, QPainterPath)
 logging.info(f"PySide6.QtGui.QIcon module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -11356,21 +11362,73 @@ def parse_report(path):
 
 # --- Main Application Window ---
 class AntivirusApp(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.workers = []
+        self.setup_ui()
+        self.apply_animations()
 
     def update_analysis_ui_state(self, is_running):
         """Updates the UI state based on whether analysis is running."""
         if is_running:
-            self.analyze_file_button.setText("3. Analysis Running...")
+            self.analyze_file_button.setText("4. Analysis Running...")
             self.analyze_file_button.setEnabled(False)
             self.stop_analysis_button.setEnabled(True)
+            self.start_pulse_animation()
         else:
-            self.analyze_file_button.setText("3. Analyze a File")
+            self.analyze_file_button.setText("4. Analyze a File")
             self.analyze_file_button.setEnabled(True)
             self.stop_analysis_button.setEnabled(False)
+            self.stop_pulse_animation()
 
-    def _set_window_background(self):
-        """Sets the dark theme for the main window."""
-        self.setStyleSheet("QWidget { background-color: #1e1e1e; color: white; }")
+    def start_pulse_animation(self):
+        """Start pulsing animation for analysis button"""
+        if hasattr(self, 'pulse_animation'):
+            self.pulse_animation.start()
+
+    def stop_pulse_animation(self):
+        """Stop pulsing animation"""
+        if hasattr(self, 'pulse_animation'):
+            self.pulse_animation.stop()
+
+    def apply_animations(self):
+        """Apply smooth animations to UI elements"""
+        self.pulse_animation = QPropertyAnimation(self.analyze_file_button, b"styleSheet")
+        self.pulse_animation.setDuration(1000)
+        self.pulse_animation.setLoopCount(-1)
+        
+        # Define keyframes for pulsing effect
+        running_style = """
+            QPushButton {
+                color: white;
+                font: bold 14px;
+                border: none;
+                border-radius: 15px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #FF6B6B, stop:1 #FF8E53);
+                padding: 15px;
+                min-height: 20px;
+                box-shadow: 0 8px 16px rgba(255, 107, 107, 0.3);
+            }
+        """
+        
+        running_style_bright = """
+            QPushButton {
+                color: white;
+                font: bold 14px;
+                border: none;
+                border-radius: 15px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #FF8E53, stop:1 #FF6B6B);
+                padding: 15px;
+                min-height: 20px;
+                box-shadow: 0 8px 16px rgba(255, 142, 83, 0.5);
+            }
+        """
+        
+        self.pulse_animation.setKeyValueAt(0, running_style)
+        self.pulse_animation.setKeyValueAt(0.5, running_style_bright)
+        self.pulse_animation.setKeyValueAt(1, running_style)
 
     def append_output(self, text):
         """Appends text to the output area and scrolls to the bottom."""
@@ -11383,16 +11441,12 @@ class AntivirusApp(QWidget):
         """Creates, configures, and starts a worker thread."""
         worker = Worker(task_type, *args)
         worker.output_signal.connect(self.append_output)
-        # Use a lambda to remove the specific worker instance from the list upon completion
         worker.finished.connect(lambda w=worker: self.workers.remove(w))
-        
-        # Connect worker finished signal to update UI state
         worker.finished.connect(self.on_worker_finished)
         
-        self.workers.append(worker)  # Keep a strong reference
+        self.workers.append(worker)
         worker.start()
         
-        # Update UI state when analysis starts
         if task_type == "analyze_file":
             self.update_analysis_ui_state(True)
         
@@ -11400,7 +11454,6 @@ class AntivirusApp(QWidget):
 
     def on_worker_finished(self):
         """Called when any worker thread finishes."""
-        # Check if any analysis workers are still running
         analysis_running = any(
             w.task_type == "analyze_file" and w.isRunning()
             for w in self.workers
@@ -11411,11 +11464,11 @@ class AntivirusApp(QWidget):
     def stop_analysis(self):
         """Stops all running analysis workers."""
         stopped_count = 0
-        for worker in self.workers[:]:  # Create a copy to iterate over
+        for worker in self.workers[:]:
             if worker.task_type == "analyze_file" and worker.isRunning():
                 worker.stop_requested = True
-                worker.terminate()  # Force terminate if needed
-                worker.wait(5000)  # Wait up to 5 seconds for clean shutdown
+                worker.terminate()
+                worker.wait(5000)
                 if worker in self.workers:
                     self.workers.remove(worker)
                 stopped_count += 1
@@ -11427,8 +11480,361 @@ class AntivirusApp(QWidget):
         
         self.update_analysis_ui_state(False)
 
-    # --- Button Click Handlers ---
+    def create_advanced_button(self, text, color_start, color_end, shadow_color):
+        """Create an advanced styled button with gradient and shadow effects"""
+        button = QPushButton(text, self)
+        button.setCursor(Qt.PointingHandCursor)
+        
+        # Create shadow effect
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(15)
+        shadow.setXOffset(0)
+        shadow.setYOffset(5)
+        shadow.setColor(QColor(shadow_color))
+        button.setGraphicsEffect(shadow)
+        
+        # Advanced styling
+        button.setStyleSheet(f"""
+            QPushButton {{
+                color: white;
+                font: bold 14px;
+                border: none;
+                border-radius: 15px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {color_start}, stop:1 {color_end});
+                padding: 15px;
+                min-height: 20px;
+                box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {color_end}, stop:1 {color_start});
+                transform: translateY(-2px);
+            }}
+            QPushButton:pressed {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {color_end}, stop:1 {color_start});
+                transform: translateY(1px);
+            }}
+            QPushButton:disabled {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #555, stop:1 #444);
+                color: #888;
+            }}
+        """)
+        
+        return button
 
+    def create_header_widget(self):
+        """Create the advanced header with branding"""
+        header_frame = QFrame()
+        header_frame.setFixedHeight(120)
+        header_frame.setStyleSheet("""
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #667eea, stop:1 #764ba2);
+                border: none;
+                border-radius: 15px;
+                margin: 5px;
+            }
+        """)
+        
+        header_layout = QHBoxLayout(header_frame)
+        header_layout.setContentsMargins(30, 20, 30, 20)
+        
+        # Title section
+        title_label = QLabel("HYDRA DRAGON ANTIVIRUS")
+        title_label.setStyleSheet("""
+            QLabel {
+                color: white;
+                font: bold 28px;
+                background: transparent;
+                border: none;
+                margin: 0;
+                padding: 0;
+            }
+        """)
+        
+        subtitle_label = QLabel("Advanced Malware Analysis Suite")
+        subtitle_label.setStyleSheet("""
+            QLabel {
+                color: #e0e0e0;
+                font: 14px;
+                background: transparent;
+                border: none;
+                margin: 0;
+                padding: 0;
+            }
+        """)
+        
+        title_layout = QVBoxLayout()
+        title_layout.addWidget(title_label)
+        title_layout.addWidget(subtitle_label)
+        title_layout.setSpacing(5)
+        
+        header_layout.addLayout(title_layout)
+        header_layout.addStretch()
+        
+        return header_frame
+
+    def create_warning_widget(self):
+        """Create advanced warning message widget"""
+        warning_frame = QFrame()
+        warning_frame.setStyleSheet("""
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #FF6B6B, stop:0.5 #FF8E53, stop:1 #FF6B6B);
+                border: 2px solid #FF4500;
+                border-radius: 15px;
+                margin: 5px;
+            }
+        """)
+        
+        warning_layout = QVBoxLayout(warning_frame)
+        warning_layout.setContentsMargins(20, 15, 20, 15)
+        
+        warning_title = QLabel("CRITICAL SECURITY NOTICE")
+        warning_title.setStyleSheet("""
+            QLabel {
+                color: white;
+                font: bold 16px;
+                background: transparent;
+                border: none;
+                margin: 0;
+                padding: 0;
+            }
+        """)
+        
+        warning_text = QLabel(
+            "IMPORTANT: Only run this application from a Virtual Machine.\n\n"
+            "Recommended Workflow:\n"
+            "1. Update Virus Definitions\n"
+            "2. Generate Clean DB (Process Dump x64)\n"
+            "3. Capture Analysis Logs\n"
+            "4. Analyze a File\n"
+            "5. Stop Analysis\n"
+            "6. Compare Analysis Logs\n"
+            "7. Rootkit Scan\n"
+            "8. Cleanup Environment\n\n"
+            "Return to a clean snapshot before starting a new analysis."
+        )
+        warning_text.setWordWrap(True)
+        warning_text.setStyleSheet("""
+            QLabel {
+                color: white;
+                font: 12px;
+                background: transparent;
+                border: none;
+                margin: 0;
+                padding: 0;
+                line-height: 1.3;
+            }
+        """)
+        
+        warning_layout.addWidget(warning_title)
+        warning_layout.addWidget(warning_text)
+        
+        return warning_frame
+
+    def create_control_panel(self):
+        """Create the advanced control panel with buttons"""
+        control_frame = QFrame()
+        control_frame.setStyleSheet("""
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #2c3e50, stop:1 #3498db);
+                border: none;
+                border-radius: 15px;
+                margin: 5px;
+            }
+        """)
+        
+        control_layout = QVBoxLayout(control_frame)
+        control_layout.setContentsMargins(20, 20, 20, 20)
+        control_layout.setSpacing(12)
+        
+        # Control panel title
+        panel_title = QLabel("ANALYSIS CONTROL PANEL")
+        panel_title.setStyleSheet("""
+            QLabel {
+                color: white;
+                font: bold 16px;
+                background: transparent;
+                border: none;
+                margin: 0;
+                padding: 10px 0;
+            }
+        """)
+        panel_title.setAlignment(Qt.AlignCenter)
+        control_layout.addWidget(panel_title)
+        
+        # Create advanced buttons
+        self.update_defs_button = self.create_advanced_button(
+            "1. Update Definitions", "#4CAF50", "#45a049", "#2e7d32"
+        )
+        self.generate_db_button = self.create_advanced_button(
+            "2. Generate Clean DB", "#2196F3", "#1976D2", "#1565C0"
+        )
+        self.capture_button = self.create_advanced_button(
+            "3. Capture Analysis Logs", "#9C27B0", "#7B1FA2", "#4A148C"
+        )
+        self.analyze_file_button = self.create_advanced_button(
+            "4. Analyze a File", "#FF9800", "#F57C00", "#E65100"
+        )
+        self.stop_analysis_button = self.create_advanced_button(
+            "5. Stop Analysis", "#F44336", "#D32F2F", "#B71C1C"
+        )
+        self.diff_button = self.create_advanced_button(
+            "6. Compare Analysis Logs", "#009688", "#00796B", "#004D40"
+        )
+        self.rootkit_scan_button = self.create_advanced_button(
+            "7. Rootkit Scan", "#795548", "#5D4037", "#3E2723"
+        )
+        self.cleanup_button = self.create_advanced_button(
+            "8. Cleanup Environment", "#E91E63", "#C2185B", "#AD1457"
+        )
+        
+        # Initially disable stop button
+        self.stop_analysis_button.setEnabled(False)
+        
+        # Add buttons to layout
+        for button in [self.update_defs_button, self.generate_db_button, 
+                      self.capture_button, self.analyze_file_button,
+                      self.stop_analysis_button, self.diff_button,
+                      self.rootkit_scan_button, self.cleanup_button]:
+            control_layout.addWidget(button)
+        
+        return control_frame
+
+    def create_output_widget(self):
+        """Create advanced output display widget"""
+        output_frame = QFrame()
+        output_frame.setStyleSheet("""
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #2c3e50, stop:1 #34495e);
+                border: 2px solid #3498db;
+                border-radius: 15px;
+                margin: 5px;
+            }
+        """)
+        
+        output_layout = QVBoxLayout(output_frame)
+        output_layout.setContentsMargins(20, 15, 20, 15)
+        
+        output_title = QLabel("ANALYSIS OUTPUT CONSOLE")
+        output_title.setStyleSheet("""
+            QLabel {
+                color: white;
+                font: bold 16px;
+                background: transparent;
+                border: none;
+                margin: 0;
+                padding: 10px 0;
+            }
+        """)
+        output_title.setAlignment(Qt.AlignCenter)
+        output_layout.addWidget(output_title)
+        
+        self.output_text = QTextEdit()
+        self.output_text.setReadOnly(True)
+        self.output_text.setStyleSheet("""
+            QTextEdit {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #1e1e1e, stop:1 #2a2a2a);
+                color: #00ff00;
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: 12px;
+                border: 2px solid #3498db;
+                border-radius: 10px;
+                padding: 10px;
+                selection-background-color: #3498db;
+                selection-color: white;
+            }
+            QScrollBar:vertical {
+                background: #34495e;
+                width: 15px;
+                border-radius: 7px;
+            }
+            QScrollBar::handle:vertical {
+                background: #3498db;
+                border-radius: 7px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #2980b9;
+            }
+        """)
+        
+        output_layout.addWidget(self.output_text)
+        
+        return output_frame
+
+    def setup_ui(self):
+        """Sets up the advanced user interface."""
+        self.setWindowTitle("Hydra Dragon Antivirus - Advanced Security Suite")
+        self.setMinimumSize(900, 800)
+        self.resize(1200, 900)
+        
+        # Main background
+        self.setStyleSheet("""
+            QWidget {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #2c3e50, stop:0.5 #3498db, stop:1 #2c3e50);
+            }
+        """)
+        
+        # Main layout
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(15)
+        
+        # Create and add widgets
+        header_widget = self.create_header_widget()
+        warning_widget = self.create_warning_widget()
+        
+        # Create splitter for control panel and output
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setStyleSheet("""
+            QSplitter::handle {
+                background: #34495e;
+                width: 3px;
+            }
+            QSplitter::handle:hover {
+                background: #3498db;
+            }
+        """)
+        
+        control_panel = self.create_control_panel()
+        output_widget = self.create_output_widget()
+        
+        # Set fixed width for control panel
+        control_panel.setFixedWidth(400)
+        
+        splitter.addWidget(control_panel)
+        splitter.addWidget(output_widget)
+        splitter.setSizes([400, 700])
+        
+        # Add widgets to main layout
+        main_layout.addWidget(header_widget)
+        main_layout.addWidget(warning_widget)
+        main_layout.addWidget(splitter, 1)
+        
+        # Connect button signals
+        self.connect_button_signals()
+
+    def connect_button_signals(self):
+        """Connect all button signals to their respective handlers"""
+        self.update_defs_button.clicked.connect(self.update_definitions)
+        self.generate_db_button.clicked.connect(self.generate_clean_db)
+        self.capture_button.clicked.connect(self.capture_analysis_logs)
+        self.analyze_file_button.clicked.connect(self.analyze_file)
+        self.stop_analysis_button.clicked.connect(self.stop_analysis)
+        self.diff_button.clicked.connect(self.compare_analysis_logs)
+        self.rootkit_scan_button.clicked.connect(self.scan_for_rootkits)
+        self.cleanup_button.clicked.connect(self.cleanup_environment)
+
+    # Button handler methods
     def capture_analysis_logs(self):
         self.start_worker("capture_analysis_logs")
 
@@ -11449,194 +11855,10 @@ class AntivirusApp(QWidget):
             self.start_worker("analyze_file", file_path)
 
     def scan_for_rootkits(self):
-        """Handler for the new Rootkit Scan button."""
         self.start_worker("rootkit_scan")
 
     def cleanup_environment(self):
-        """Handler for the new Cleanup button."""
         self.start_worker("cleanup_environment")
-
-    def setup_ui(self):
-        """Sets up the main user interface."""
-        self.setWindowTitle("Hydra Dragon Antivirus")
-        self.setFixedSize(700, 800)
-        try:
-            if os.path.exists(icon_path):
-                self.setWindowIcon(QIcon(icon_path))
-        except Exception as e:
-            logging.error(f"Could not load icon: {e}")
-
-        self._set_window_background()
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(10)
-
-        # Updated Important Warning Message with Step 6
-        warning_text = (
-            "<b>IMPORTANT:</b> Only run this application from a Virtual Machine.<br><br>"
-            "<b>Recommended Workflow:</b><br>"
-            "1. Update Virus Definitions.<br>"
-            "2. Generate Clean DB (Process Dump x64).<br>"
-            "3. Capture Analysis Logs.<br>"
-            "4. Analyze a File.<br>"
-            "5. Stop Analysis.<br>"
-            "6. Compare Analysis Logs.<br>"
-            "7. Rootkit Scan.<br>"
-            "8. Cleanup Environment.<br><br>"
-            "<i>Return to a clean snapshot before starting a new analysis.</i>"
-        )
-        self.warning_label = QLabel(warning_text, self)
-        self.warning_label.setWordWrap(True)
-        self.warning_label.setStyleSheet("""
-            QLabel {
-                color: yellow;
-                font: 12px;
-                background-color: #333;
-                border: 1px solid #FF4500;
-                border-radius: 10px;
-                padding: 10px;
-            }
-        """)
-
-        # Buttons in order
-        self.update_defs_button   = QPushButton("1. Update Definitions", self)
-        self.generate_db_button   = QPushButton("2. Generate Clean DB", self)
-        self.capture_button       = QPushButton("3. Capture Analysis Logs", self)
-        self.analyze_file_button  = QPushButton("4. Analyze a File", self)
-        self.stop_analysis_button = QPushButton("5. Stop Analysis", self)
-        self.diff_button          = QPushButton("6. Compare Analysis Logs", self)
-        self.rootkit_scan_button       = QPushButton("7. Rootkit Scan", self)
-        self.cleanup_button       = QPushButton("8. Cleanup Environment", self)
-
-        # Initially disable stop button
-        self.stop_analysis_button.setEnabled(False)
-
-        # Text output area
-        self.output_text = QTextEdit(self)
-        self.output_text.setReadOnly(True)
-        self.output_text.setStyleSheet("""
-            QTextEdit {
-                background-color: #2a2a2a;
-                color: #f0f0f0;
-                font-family: Consolas, 'Courier New', monospace;
-                font-size: 13px;
-                border: 1px solid #444;
-                border-radius: 5px;
-            }
-        """)
-
-        # Button Styles
-        button_style = """
-            QPushButton {
-                color: white;
-                font: bold 14px;
-                border: none;
-                border-radius: 10px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #00BFFF, stop:1 #1E90FF);
-                padding: 10px;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #1E90FF, stop:1 #00BFFF);
-            }
-            QPushButton:pressed {
-                background-color: #1E90FF;
-            }
-            QPushButton:disabled {
-                background: #555;
-                color: #888;
-            }
-        """
-        
-        # Special style for cleanup button (red theme)
-        cleanup_button_style = """
-            QPushButton {
-                color: white;
-                font: bold 14px;
-                border: none;
-                border-radius: 10px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #FF4500, stop:1 #DC143C);
-                padding: 10px;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #DC143C, stop:1 #FF4500);
-            }
-            QPushButton:pressed {
-                background-color: #B22222;
-            }
-        """
-        
-        # Special style for stop button (orange theme)
-        stop_button_style = """
-            QPushButton {
-                color: white;
-                font: bold 14px;
-                border: none;
-                border-radius: 10px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #FFA500, stop:1 #FF8C00);
-                padding: 10px;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #FF8C00, stop:1 #FFA500);
-            }
-            QPushButton:pressed {
-                background-color: #FF7F00;
-            }
-            QPushButton:disabled {
-                background: #555;
-                color: #888;
-            }
-        """
-
-        # Apply styles
-        for btn in [
-            self.update_defs_button, self.generate_db_button,
-            self.capture_button, self.analyze_file_button,
-            self.diff_button, self.rootkit_scan_button
-        ]:
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setStyleSheet(button_style)
-
-        # Special styling for cleanup and stop buttons
-        self.cleanup_button.setCursor(Qt.PointingHandCursor)
-        self.cleanup_button.setStyleSheet(cleanup_button_style)
-        
-        self.stop_analysis_button.setCursor(Qt.PointingHandCursor)
-        self.stop_analysis_button.setStyleSheet(stop_button_style)
-
-        # Connect buttons to their functions
-        self.update_defs_button.clicked.connect(self.update_definitions)
-        self.generate_db_button.clicked.connect(self.generate_clean_db)
-        self.capture_button.clicked.connect(self.capture_analysis_logs)
-        self.diff_button.clicked.connect(self.compare_analysis_logs)
-        self.analyze_file_button.clicked.connect(self.analyze_file)
-        self.stop_analysis_button.clicked.connect(self.stop_analysis)
-        self.rootkit_scan_button.clicked.connect(self.scan_for_rootkits)
-        self.cleanup_button.clicked.connect(self.cleanup_environment)
-
-        # Layout Setup
-        layout.addWidget(self.warning_label)
-        layout.addWidget(self.update_defs_button)
-        layout.addWidget(self.generate_db_button)
-        layout.addWidget(self.capture_button)
-        layout.addWidget(self.analyze_file_button)
-        layout.addWidget(self.stop_analysis_button)
-        layout.addWidget(self.diff_button)
-        layout.addWidget(self.rootkit_scan_button)
-        layout.addWidget(self.cleanup_button)
-        layout.addWidget(self.output_text, 1) # The '1' makes the text edit expand
-
-    def __init__(self):
-        super().__init__()
-        # self.workers holds references to running QThreads to prevent them from being garbage collected
-        self.workers = []
-        self.setup_ui()
 
 # --- Worker Thread for Background Tasks ---
 class Worker(QThread):
