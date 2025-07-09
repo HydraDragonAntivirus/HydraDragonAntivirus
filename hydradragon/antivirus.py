@@ -66,6 +66,10 @@ import io
 logging.info(f"io module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import webbrowser
+logging.info(f"webbrowser module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 from uuid import uuid4 as uniquename
 logging.info(f"uuid.uuid4.uniquename loaded in {time.time() - start_time:.6f} seconds")
 
