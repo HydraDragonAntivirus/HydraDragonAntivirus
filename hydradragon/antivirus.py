@@ -11653,8 +11653,8 @@ class AntivirusApp(QWidget):
 
         nav_buttons = [
             "Status", "Update Definitions", "Generate Clean DB", 
-            "Analyze File", "Compare Logs", "Rootkit Scan", 
-            "Cleanup Environment", "About"
+            "Analyze File", "Capture Analysis Logs", "Compare Logs", 
+            "Rootkit Scan", "Cleanup Environment", "About"
         ]
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
@@ -11677,6 +11677,7 @@ class AntivirusApp(QWidget):
         self.main_stack.addWidget(self.create_task_page("Update Definitions", "update_defs"))
         self.main_stack.addWidget(self.create_task_page("Generate Clean DB", "generate_clean_db"))
         self.main_stack.addWidget(self.create_analysis_page())
+        self.main_stack.addWidget(self.create_task_page("Capture Analysis Logs", "capture_analysis_logs"))
         self.main_stack.addWidget(self.create_task_page("Compare Analysis Logs", "compare_logs"))
         self.main_stack.addWidget(self.create_task_page("Rootkit Scan", "rootkit_scan"))
         self.main_stack.addWidget(self.create_cleanup_page())
