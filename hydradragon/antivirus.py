@@ -1103,7 +1103,7 @@ class AdvancedInstallerReader:
                 self.footer_position = i + 0x48 - 12
                 break
         if self.footer_position is None:
-            raise Exception("ADVINSTSFX not found")
+            logging.error("ADVINSTSFX not found")
 
     def read_footer(self):
         if self.footer_position is None:
@@ -1140,7 +1140,7 @@ class AdvancedInstallerReader:
                         self.info_off = struct.unpack("<l", footer[16:20])[0] if len(footer) >= 20 else 0
                         file_off = struct.unpack("<l", footer[20:24])[0] if len(footer) >= 24 else 0
                     else:
-                        raise Exception("Footer too short to parse")
+                        logging.error("Footer too short to parse")
                     hexhash = b""
                     name = b""
 
@@ -11074,29 +11074,37 @@ def monitor_sandboxie_directory():
     except Exception as ex:
         logging.error(f"Error in monitor_sandboxie_directory: {ex}")
 
+def _async_raise(tid, exctype):
+    if not isinstance(exctype, type):
+        raise TypeError("Only types can be raised")
+    res = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+        ctypes.c_long(tid), ctypes.py_object(exctype)
+    )
+    if res == 0:
+        raise ValueError("Invalid thread ID")
+    elif res > 1:
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(tid), None)
+        raise SystemError("PyThreadState_SetAsyncExc failed")
 
-def terminate_analysis_threads():
-    logging.info("Attempting to terminate analysis threads...")
+def kill_thread_silently(thread):
+    _async_raise(thread.ident, SystemExit)
+
+def terminate_analysis_threads_immediately():
+    logging.info("Forcefully terminating all analysis threads...")
 
     for thread in analysis_threads:
         if thread.is_alive():
-            func_name = thread_function_map.get(thread, "Unknown")
-            logging.info(f"Waiting for thread '{func_name}' to stop...")
+            name = thread_function_map.get(thread, thread.name)
+            logging.info(f"Killing thread: {name}")
+            kill_thread_silently(thread)
 
-    # Passive waiting only; real termination must happen inside threads using stop_callback
-    timeout = 10  # seconds to wait for graceful shutdown
-    start_time = time.time()
-    while any(t.is_alive() for t in analysis_threads):
-        if time.time() - start_time > timeout:
-            logging.warning("Some threads did not finish within the timeout.")
-            break
-        time.sleep(0.5)
+    time.sleep(0.1)  # short delay to let threads exit
 
-    still_running = [thread_function_map.get(t, t.name) for t in analysis_threads if t.is_alive()]
-    if still_running:
-        logging.warning(f"The following threads are still running: {still_running}")
+    still_alive = [t.name for t in analysis_threads if t.is_alive()]
+    if still_alive:
+        logging.warning(f"Some threads are still running: {still_alive}")
     else:
-        logging.info("All analysis threads have been terminated gracefully.")
+        logging.info("All analysis threads have been terminated.")
 
 def perform_sandbox_analysis(file_path, stop_callback=None):
     global main_file_path
