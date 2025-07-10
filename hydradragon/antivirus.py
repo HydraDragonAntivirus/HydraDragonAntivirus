@@ -11189,9 +11189,9 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
         while any(thread.is_alive() for thread in analysis_threads):
             if stop_callback and stop_callback():
                 logging.info("Stop requested, terminating analysis threads...")
-                terminate_analysis_threads()
+                terminate_analysis_threads_immediately()
                 return "[!] Analysis stopped by user request"
-            time.sleep(1)  # Still needed to avoid CPU spinning
+            time.sleep(0.1)  # Still needed to avoid CPU spinning
 
         return "[+] Sandbox analysis completed successfully"
 

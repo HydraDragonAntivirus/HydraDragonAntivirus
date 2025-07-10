@@ -1888,181 +1888,181 @@ antivirus.py:11062:80: E501 line too long (93 > 79 characters)
 antivirus.py:11068:80: E501 line too long (113 > 79 characters)
 antivirus.py:11070:80: E501 line too long (80 > 79 characters)
 antivirus.py:11071:80: E501 line too long (93 > 79 characters)
-antivirus.py:11086:80: E501 line too long (91 > 79 characters)
-antivirus.py:11095:80: E501 line too long (98 > 79 characters)
-antivirus.py:11097:80: E501 line too long (84 > 79 characters)
-antivirus.py:11101:1: E302 expected 2 blank lines, found 1
-antivirus.py:11109:80: E501 line too long (103 > 79 characters)
-antivirus.py:11137:80: E501 line too long (81 > 79 characters)
-antivirus.py:11142:80: E501 line too long (94 > 79 characters)
-antivirus.py:11144:80: E501 line too long (85 > 79 characters)
-antivirus.py:11146:80: E501 line too long (104 > 79 characters)
-antivirus.py:11179:80: E501 line too long (123 > 79 characters)
-antivirus.py:11192:80: E501 line too long (86 > 79 characters)
-antivirus.py:11199:1: E302 expected 2 blank lines, found 1
-antivirus.py:11203:80: E501 line too long (87 > 79 characters)
-antivirus.py:11207:80: E501 line too long (86 > 79 characters)
-antivirus.py:11212:1: E302 expected 2 blank lines, found 1
-antivirus.py:11216:80: E501 line too long (81 > 79 characters)
-antivirus.py:11220:80: E501 line too long (86 > 79 characters)
-antivirus.py:11225:1: E302 expected 2 blank lines, found 1
-antivirus.py:11227:80: E501 line too long (129 > 79 characters)
-antivirus.py:11231:1: E302 expected 2 blank lines, found 1
-antivirus.py:11244:14: W291 trailing whitespace
-antivirus.py:11246:15: W291 trailing whitespace
-antivirus.py:11252:80: E501 line too long (90 > 79 characters)
-antivirus.py:11254:80: E501 line too long (89 > 79 characters)
-antivirus.py:11256:1: E302 expected 2 blank lines, found 1
-antivirus.py:11259:80: E501 line too long (85 > 79 characters)
-antivirus.py:11264:1: W293 blank line contains whitespace
-antivirus.py:11268:1: W293 blank line contains whitespace
-antivirus.py:11270:80: E501 line too long (81 > 79 characters)
-antivirus.py:11271:1: W293 blank line contains whitespace
-antivirus.py:11275:1: W293 blank line contains whitespace
-antivirus.py:11277:1: W293 blank line contains whitespace
-antivirus.py:11282:1: W293 blank line contains whitespace
-antivirus.py:11288:1: E305 expected 2 blank lines after class or function definition, found 1
-antivirus.py:11294:1: E302 expected 2 blank lines, found 1
-antivirus.py:11304:1: E302 expected 2 blank lines, found 1
-antivirus.py:11307:80: E501 line too long (82 > 79 characters)
-antivirus.py:11317:80: E501 line too long (86 > 79 characters)
-antivirus.py:11334:1: E302 expected 2 blank lines, found 1
-antivirus.py:11338:80: E501 line too long (84 > 79 characters)
-antivirus.py:11367:1: E302 expected 2 blank lines, found 1
-antivirus.py:11368:80: E501 line too long (80 > 79 characters)
-antivirus.py:11372:1: W293 blank line contains whitespace
-antivirus.py:11373:80: E501 line too long (184 > 79 characters)
-antivirus.py:11376:1: W293 blank line contains whitespace
-antivirus.py:11379:80: E501 line too long (92 > 79 characters)
-antivirus.py:11385:1: E302 expected 2 blank lines, found 1
-antivirus.py:11393:80: E501 line too long (88 > 79 characters)
-antivirus.py:11423:80: E501 line too long (82 > 79 characters)
-antivirus.py:11432:1: W293 blank line contains whitespace
-antivirus.py:11435:80: E501 line too long (106 > 79 characters)
-antivirus.py:11440:80: E501 line too long (96 > 79 characters)
-antivirus.py:11443:9: E303 too many blank lines (2)
-antivirus.py:11457:1: W293 blank line contains whitespace
-antivirus.py:11508:1: W293 blank line contains whitespace
-antivirus.py:11515:80: E501 line too long (86 > 79 characters)
-antivirus.py:11534:1: W293 blank line contains whitespace
-antivirus.py:11536:80: E501 line too long (86 > 79 characters)
-antivirus.py:11537:14: E114 indentation is not a multiple of 4 (comment)
-antivirus.py:11537:14: E117 over-indented (comment)
+antivirus.py:11077:1: E302 expected 2 blank lines, found 1
+antivirus.py:11089:1: E302 expected 2 blank lines, found 1
+antivirus.py:11092:1: E302 expected 2 blank lines, found 1
+antivirus.py:11109:1: E302 expected 2 blank lines, found 1
+antivirus.py:11117:80: E501 line too long (103 > 79 characters)
+antivirus.py:11145:80: E501 line too long (81 > 79 characters)
+antivirus.py:11150:80: E501 line too long (94 > 79 characters)
+antivirus.py:11152:80: E501 line too long (85 > 79 characters)
+antivirus.py:11154:80: E501 line too long (104 > 79 characters)
+antivirus.py:11187:80: E501 line too long (123 > 79 characters)
+antivirus.py:11200:80: E501 line too long (86 > 79 characters)
+antivirus.py:11207:1: E302 expected 2 blank lines, found 1
+antivirus.py:11211:80: E501 line too long (87 > 79 characters)
+antivirus.py:11215:80: E501 line too long (86 > 79 characters)
+antivirus.py:11220:1: E302 expected 2 blank lines, found 1
+antivirus.py:11224:80: E501 line too long (81 > 79 characters)
+antivirus.py:11228:80: E501 line too long (86 > 79 characters)
+antivirus.py:11233:1: E302 expected 2 blank lines, found 1
+antivirus.py:11235:80: E501 line too long (129 > 79 characters)
+antivirus.py:11239:1: E302 expected 2 blank lines, found 1
+antivirus.py:11252:14: W291 trailing whitespace
+antivirus.py:11254:15: W291 trailing whitespace
+antivirus.py:11260:80: E501 line too long (90 > 79 characters)
+antivirus.py:11262:80: E501 line too long (89 > 79 characters)
+antivirus.py:11264:1: E302 expected 2 blank lines, found 1
+antivirus.py:11267:80: E501 line too long (85 > 79 characters)
+antivirus.py:11272:1: W293 blank line contains whitespace
+antivirus.py:11276:1: W293 blank line contains whitespace
+antivirus.py:11278:80: E501 line too long (81 > 79 characters)
+antivirus.py:11279:1: W293 blank line contains whitespace
+antivirus.py:11283:1: W293 blank line contains whitespace
+antivirus.py:11285:1: W293 blank line contains whitespace
+antivirus.py:11290:1: W293 blank line contains whitespace
+antivirus.py:11296:1: E305 expected 2 blank lines after class or function definition, found 1
+antivirus.py:11302:1: E302 expected 2 blank lines, found 1
+antivirus.py:11312:1: E302 expected 2 blank lines, found 1
+antivirus.py:11315:80: E501 line too long (82 > 79 characters)
+antivirus.py:11325:80: E501 line too long (86 > 79 characters)
+antivirus.py:11342:1: E302 expected 2 blank lines, found 1
+antivirus.py:11346:80: E501 line too long (84 > 79 characters)
+antivirus.py:11375:1: E302 expected 2 blank lines, found 1
+antivirus.py:11376:80: E501 line too long (80 > 79 characters)
+antivirus.py:11380:1: W293 blank line contains whitespace
+antivirus.py:11381:80: E501 line too long (184 > 79 characters)
+antivirus.py:11384:1: W293 blank line contains whitespace
+antivirus.py:11387:80: E501 line too long (92 > 79 characters)
+antivirus.py:11393:1: E302 expected 2 blank lines, found 1
+antivirus.py:11401:80: E501 line too long (88 > 79 characters)
+antivirus.py:11431:80: E501 line too long (82 > 79 characters)
+antivirus.py:11440:1: W293 blank line contains whitespace
+antivirus.py:11443:80: E501 line too long (106 > 79 characters)
+antivirus.py:11448:80: E501 line too long (96 > 79 characters)
+antivirus.py:11451:9: E303 too many blank lines (2)
+antivirus.py:11465:1: W293 blank line contains whitespace
+antivirus.py:11516:1: W293 blank line contains whitespace
+antivirus.py:11523:80: E501 line too long (86 > 79 characters)
 antivirus.py:11542:1: W293 blank line contains whitespace
-antivirus.py:11547:36: E261 at least two spaces before inline comment
-antivirus.py:11560:80: E501 line too long (128 > 79 characters)
-antivirus.py:11561:80: E501 line too long (90 > 79 characters)
-antivirus.py:11562:80: E501 line too long (90 > 79 characters)
-antivirus.py:11579:1: W293 blank line contains whitespace
-antivirus.py:11602:80: E501 line too long (81 > 79 characters)
-antivirus.py:11607:1: W293 blank line contains whitespace
-antivirus.py:11612:1: W293 blank line contains whitespace
-antivirus.py:11618:1: W293 blank line contains whitespace
-antivirus.py:11619:80: E501 line too long (100 > 79 characters)
-antivirus.py:11625:1: W293 blank line contains whitespace
-antivirus.py:11626:80: E501 line too long (99 > 79 characters)
+antivirus.py:11544:80: E501 line too long (86 > 79 characters)
+antivirus.py:11545:14: E114 indentation is not a multiple of 4 (comment)
+antivirus.py:11545:14: E117 over-indented (comment)
+antivirus.py:11550:1: W293 blank line contains whitespace
+antivirus.py:11555:36: E261 at least two spaces before inline comment
+antivirus.py:11568:80: E501 line too long (128 > 79 characters)
+antivirus.py:11569:80: E501 line too long (90 > 79 characters)
+antivirus.py:11570:80: E501 line too long (90 > 79 characters)
+antivirus.py:11587:1: W293 blank line contains whitespace
+antivirus.py:11610:80: E501 line too long (81 > 79 characters)
+antivirus.py:11615:1: W293 blank line contains whitespace
+antivirus.py:11620:1: W293 blank line contains whitespace
+antivirus.py:11626:1: W293 blank line contains whitespace
+antivirus.py:11627:80: E501 line too long (100 > 79 characters)
 antivirus.py:11633:1: W293 blank line contains whitespace
-antivirus.py:11637:1: W293 blank line contains whitespace
-antivirus.py:11638:80: E501 line too long (93 > 79 characters)
-antivirus.py:11659:65: W291 trailing whitespace
-antivirus.py:11660:69: W291 trailing whitespace
-antivirus.py:11670:80: E501 line too long (99 > 79 characters)
-antivirus.py:11681:80: E501 line too long (93 > 79 characters)
-antivirus.py:11682:80: E501 line too long (98 > 79 characters)
-antivirus.py:11684:80: E501 line too long (106 > 79 characters)
-antivirus.py:11685:80: E501 line too long (97 > 79 characters)
-antivirus.py:11686:80: E501 line too long (88 > 79 characters)
-antivirus.py:11695:1: W293 blank line contains whitespace
-antivirus.py:11699:1: W293 blank line contains whitespace
-antivirus.py:11710:1: W293 blank line contains whitespace
+antivirus.py:11634:80: E501 line too long (99 > 79 characters)
+antivirus.py:11641:1: W293 blank line contains whitespace
+antivirus.py:11645:1: W293 blank line contains whitespace
+antivirus.py:11646:80: E501 line too long (93 > 79 characters)
+antivirus.py:11667:65: W291 trailing whitespace
+antivirus.py:11668:69: W291 trailing whitespace
+antivirus.py:11678:80: E501 line too long (99 > 79 characters)
+antivirus.py:11689:80: E501 line too long (93 > 79 characters)
+antivirus.py:11690:80: E501 line too long (98 > 79 characters)
+antivirus.py:11692:80: E501 line too long (106 > 79 characters)
+antivirus.py:11693:80: E501 line too long (97 > 79 characters)
+antivirus.py:11694:80: E501 line too long (88 > 79 characters)
+antivirus.py:11703:1: W293 blank line contains whitespace
+antivirus.py:11707:1: W293 blank line contains whitespace
 antivirus.py:11718:1: W293 blank line contains whitespace
-antivirus.py:11720:38: W291 trailing whitespace
-antivirus.py:11740:1: W293 blank line contains whitespace
-antivirus.py:11751:80: E501 line too long (89 > 79 characters)
-antivirus.py:11784:80: E501 line too long (105 > 79 characters)
-antivirus.py:11803:80: E501 line too long (88 > 79 characters)
-antivirus.py:11821:80: E501 line too long (106 > 79 characters)
-antivirus.py:11822:80: E501 line too long (86 > 79 characters)
-antivirus.py:11828:80: E501 line too long (126 > 79 characters)
-antivirus.py:11837:80: E501 line too long (106 > 79 characters)
-antivirus.py:11955:1: E302 expected 2 blank lines, found 1
-antivirus.py:11957:80: E501 line too long (81 > 79 characters)
-antivirus.py:11969:80: E501 line too long (98 > 79 characters)
-antivirus.py:11973:80: E501 line too long (105 > 79 characters)
-antivirus.py:11978:80: E501 line too long (95 > 79 characters)
-antivirus.py:11983:80: E501 line too long (96 > 79 characters)
-antivirus.py:11985:80: E501 line too long (107 > 79 characters)
-antivirus.py:11989:80: E501 line too long (96 > 79 characters)
-antivirus.py:11992:80: E501 line too long (90 > 79 characters)
-antivirus.py:11994:80: E501 line too long (91 > 79 characters)
-antivirus.py:11998:80: E501 line too long (82 > 79 characters)
-antivirus.py:12003:80: E501 line too long (81 > 79 characters)
-antivirus.py:12005:80: E501 line too long (92 > 79 characters)
-antivirus.py:12018:18: E111 indentation is not a multiple of 4
-antivirus.py:12018:18: E117 over-indented
-antivirus.py:12018:80: E501 line too long (121 > 79 characters)
-antivirus.py:12019:18: E111 indentation is not a multiple of 4
-antivirus.py:12023:80: E501 line too long (87 > 79 characters)
-antivirus.py:12027:22: E261 at least two spaces before inline comment
-antivirus.py:12032:80: E501 line too long (102 > 79 characters)
-antivirus.py:12033:80: E501 line too long (93 > 79 characters)
-antivirus.py:12034:80: E501 line too long (124 > 79 characters)
-antivirus.py:12037:80: E501 line too long (111 > 79 characters)
-antivirus.py:12040:80: E501 line too long (105 > 79 characters)
-antivirus.py:12042:80: E501 line too long (82 > 79 characters)
-antivirus.py:12044:80: E501 line too long (80 > 79 characters)
-antivirus.py:12050:1: W293 blank line contains whitespace
-antivirus.py:12052:1: W293 blank line contains whitespace
-antivirus.py:12056:1: W293 blank line contains whitespace
+antivirus.py:11726:1: W293 blank line contains whitespace
+antivirus.py:11728:38: W291 trailing whitespace
+antivirus.py:11748:1: W293 blank line contains whitespace
+antivirus.py:11759:80: E501 line too long (89 > 79 characters)
+antivirus.py:11792:80: E501 line too long (105 > 79 characters)
+antivirus.py:11811:80: E501 line too long (88 > 79 characters)
+antivirus.py:11829:80: E501 line too long (106 > 79 characters)
+antivirus.py:11830:80: E501 line too long (86 > 79 characters)
+antivirus.py:11836:80: E501 line too long (126 > 79 characters)
+antivirus.py:11845:80: E501 line too long (106 > 79 characters)
+antivirus.py:11963:1: E302 expected 2 blank lines, found 1
+antivirus.py:11965:80: E501 line too long (81 > 79 characters)
+antivirus.py:11977:80: E501 line too long (98 > 79 characters)
+antivirus.py:11981:80: E501 line too long (105 > 79 characters)
+antivirus.py:11986:80: E501 line too long (95 > 79 characters)
+antivirus.py:11991:80: E501 line too long (96 > 79 characters)
+antivirus.py:11993:80: E501 line too long (107 > 79 characters)
+antivirus.py:11997:80: E501 line too long (96 > 79 characters)
+antivirus.py:12000:80: E501 line too long (90 > 79 characters)
+antivirus.py:12002:80: E501 line too long (91 > 79 characters)
+antivirus.py:12006:80: E501 line too long (82 > 79 characters)
+antivirus.py:12011:80: E501 line too long (81 > 79 characters)
+antivirus.py:12013:80: E501 line too long (92 > 79 characters)
+antivirus.py:12026:18: E111 indentation is not a multiple of 4
+antivirus.py:12026:18: E117 over-indented
+antivirus.py:12026:80: E501 line too long (121 > 79 characters)
+antivirus.py:12027:18: E111 indentation is not a multiple of 4
+antivirus.py:12031:80: E501 line too long (87 > 79 characters)
+antivirus.py:12035:22: E261 at least two spaces before inline comment
+antivirus.py:12040:80: E501 line too long (102 > 79 characters)
+antivirus.py:12041:80: E501 line too long (93 > 79 characters)
+antivirus.py:12042:80: E501 line too long (124 > 79 characters)
+antivirus.py:12045:80: E501 line too long (111 > 79 characters)
+antivirus.py:12048:80: E501 line too long (105 > 79 characters)
+antivirus.py:12050:80: E501 line too long (82 > 79 characters)
+antivirus.py:12052:80: E501 line too long (80 > 79 characters)
+antivirus.py:12058:1: W293 blank line contains whitespace
 antivirus.py:12060:1: W293 blank line contains whitespace
 antivirus.py:12064:1: W293 blank line contains whitespace
-antivirus.py:12066:1: W293 blank line contains whitespace
-antivirus.py:12078:80: E501 line too long (88 > 79 characters)
-antivirus.py:12083:80: E501 line too long (112 > 79 characters)
-antivirus.py:12086:80: E501 line too long (80 > 79 characters)
-antivirus.py:12092:80: E501 line too long (105 > 79 characters)
-antivirus.py:12099:80: E501 line too long (101 > 79 characters)
-antivirus.py:12102:80: E501 line too long (112 > 79 characters)
-antivirus.py:12111:80: E501 line too long (107 > 79 characters)
-antivirus.py:12113:80: E501 line too long (87 > 79 characters)
-antivirus.py:12115:1: W293 blank line contains whitespace
-antivirus.py:12118:80: E501 line too long (80 > 79 characters)
-antivirus.py:12120:80: E501 line too long (102 > 79 characters)
-antivirus.py:12122:80: E501 line too long (89 > 79 characters)
+antivirus.py:12068:1: W293 blank line contains whitespace
+antivirus.py:12072:1: W293 blank line contains whitespace
+antivirus.py:12074:1: W293 blank line contains whitespace
+antivirus.py:12086:80: E501 line too long (88 > 79 characters)
+antivirus.py:12091:80: E501 line too long (112 > 79 characters)
+antivirus.py:12094:80: E501 line too long (80 > 79 characters)
+antivirus.py:12100:80: E501 line too long (105 > 79 characters)
+antivirus.py:12107:80: E501 line too long (101 > 79 characters)
+antivirus.py:12110:80: E501 line too long (112 > 79 characters)
+antivirus.py:12119:80: E501 line too long (107 > 79 characters)
+antivirus.py:12121:80: E501 line too long (87 > 79 characters)
 antivirus.py:12123:1: W293 blank line contains whitespace
-antivirus.py:12125:80: E501 line too long (95 > 79 characters)
-antivirus.py:12132:25: E271 multiple spaces after keyword
-antivirus.py:12136:80: E501 line too long (82 > 79 characters)
-antivirus.py:12139:80: E501 line too long (94 > 79 characters)
-antivirus.py:12140:1: W293 blank line contains whitespace
-antivirus.py:12141:80: E501 line too long (82 > 79 characters)
-antivirus.py:12154:80: E501 line too long (106 > 79 characters)
-antivirus.py:12155:80: E501 line too long (90 > 79 characters)
-antivirus.py:12157:1: W293 blank line contains whitespace
-antivirus.py:12161:80: E501 line too long (84 > 79 characters)
-antivirus.py:12162:1: W293 blank line contains whitespace
-antivirus.py:12175:1: W293 blank line contains whitespace
-antivirus.py:12180:1: W293 blank line contains whitespace
-antivirus.py:12191:80: E501 line too long (88 > 79 characters)
-antivirus.py:12194:1: W293 blank line contains whitespace
-antivirus.py:12198:80: E501 line too long (94 > 79 characters)
-antivirus.py:12199:1: W293 blank line contains whitespace
-antivirus.py:12200:80: E501 line too long (84 > 79 characters)
-antivirus.py:12207:80: E501 line too long (109 > 79 characters)
-antivirus.py:12208:1: W293 blank line contains whitespace
-antivirus.py:12209:80: E501 line too long (88 > 79 characters)
-antivirus.py:12210:1: W293 blank line contains whitespace
-antivirus.py:12212:80: E501 line too long (86 > 79 characters)
-antivirus.py:12215:1: W293 blank line contains whitespace
-antivirus.py:12217:80: E501 line too long (87 > 79 characters)
-antivirus.py:12220:1: W293 blank line contains whitespace
-antivirus.py:12222:80: E501 line too long (87 > 79 characters)
-antivirus.py:12225:1: W293 blank line contains whitespace
-antivirus.py:12237:1: W293 blank line contains whitespace
-antivirus.py:12239:80: E501 line too long (82 > 79 characters)
-antivirus.py:12241:1: W293 blank line contains whitespace
-antivirus.py:12242:80: E501 line too long (86 > 79 characters)
-antivirus.py:12244:1: W293 blank line contains whitespace
-antivirus.py:12266:80: E501 line too long (83 > 79 characters)
-antivirus.py:12271:1: E302 expected 2 blank lines, found 1
-antivirus.py:12277:1: E305 expected 2 blank lines after class or function definition, found 1
+antivirus.py:12126:80: E501 line too long (80 > 79 characters)
+antivirus.py:12128:80: E501 line too long (102 > 79 characters)
+antivirus.py:12130:80: E501 line too long (89 > 79 characters)
+antivirus.py:12131:1: W293 blank line contains whitespace
+antivirus.py:12133:80: E501 line too long (95 > 79 characters)
+antivirus.py:12140:25: E271 multiple spaces after keyword
+antivirus.py:12144:80: E501 line too long (82 > 79 characters)
+antivirus.py:12147:80: E501 line too long (94 > 79 characters)
+antivirus.py:12148:1: W293 blank line contains whitespace
+antivirus.py:12149:80: E501 line too long (82 > 79 characters)
+antivirus.py:12162:80: E501 line too long (106 > 79 characters)
+antivirus.py:12163:80: E501 line too long (90 > 79 characters)
+antivirus.py:12165:1: W293 blank line contains whitespace
+antivirus.py:12169:80: E501 line too long (84 > 79 characters)
+antivirus.py:12170:1: W293 blank line contains whitespace
+antivirus.py:12183:1: W293 blank line contains whitespace
+antivirus.py:12188:1: W293 blank line contains whitespace
+antivirus.py:12199:80: E501 line too long (88 > 79 characters)
+antivirus.py:12202:1: W293 blank line contains whitespace
+antivirus.py:12206:80: E501 line too long (94 > 79 characters)
+antivirus.py:12207:1: W293 blank line contains whitespace
+antivirus.py:12208:80: E501 line too long (84 > 79 characters)
+antivirus.py:12215:80: E501 line too long (109 > 79 characters)
+antivirus.py:12216:1: W293 blank line contains whitespace
+antivirus.py:12217:80: E501 line too long (88 > 79 characters)
+antivirus.py:12218:1: W293 blank line contains whitespace
+antivirus.py:12220:80: E501 line too long (86 > 79 characters)
+antivirus.py:12223:1: W293 blank line contains whitespace
+antivirus.py:12225:80: E501 line too long (87 > 79 characters)
+antivirus.py:12228:1: W293 blank line contains whitespace
+antivirus.py:12230:80: E501 line too long (87 > 79 characters)
+antivirus.py:12233:1: W293 blank line contains whitespace
+antivirus.py:12245:1: W293 blank line contains whitespace
+antivirus.py:12247:80: E501 line too long (82 > 79 characters)
+antivirus.py:12249:1: W293 blank line contains whitespace
+antivirus.py:12250:80: E501 line too long (86 > 79 characters)
+antivirus.py:12252:1: W293 blank line contains whitespace
+antivirus.py:12274:80: E501 line too long (83 > 79 characters)
+antivirus.py:12279:1: E302 expected 2 blank lines, found 1
+antivirus.py:12285:1: E305 expected 2 blank lines after class or function definition, found 1
