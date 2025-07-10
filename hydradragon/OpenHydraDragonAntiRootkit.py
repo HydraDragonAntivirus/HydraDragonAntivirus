@@ -748,7 +748,7 @@ class BootKitDetection:
 
 def run_enhanced_detection():
     results = {}
-    
+
     # Each block now calls the detection method, then immediately iterates and notifies.
     try:
         timing_anomalies = TimingBasedDetection.detect_hooking_via_timing()
@@ -802,7 +802,7 @@ def run_enhanced_detection():
         results['boot_anomalies'] = boot_anomalies
     except Exception as e:
         logging.error(f"Boot detection failed: {e}")
-        
+
     return results
 
 def generate_detailed_report(original_report, enhanced_results):
@@ -851,19 +851,19 @@ def generate_scan_report():
     for finding in process_scan_results.get("suspicious_processes", []):
          notify_user_for_rootkit(finding.get("exe"), finding.get("detection_name", "UnknownProcess"))
     report["process_scan"] = process_scan_results
-    
+
     autorun = scan_autorun_registry()
     for finding in autorun:
         notify_user_for_rootkit(finding.get("exe"), finding.get("detection_name", "UnknownAutorun"))
     if autorun:
         report["suspicious_autorun"] = autorun
-    
+
     acl = scan_registry_acl_parallel()
     for finding in acl:
         notify_user_for_rootkit(finding.get("subkey"), finding.get("detection_name", "UnknownACL"))
     if acl:
         report["registry_acl_issues"] = acl
-    
+
     report["scan_time"] = datetime.now().isoformat()
     return report
 

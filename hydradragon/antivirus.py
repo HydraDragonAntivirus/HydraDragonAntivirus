@@ -105,12 +105,12 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
 logging.info(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QThread, 
+from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QThread,
                             Signal, QPoint, QParallelAnimationGroup, Property, QRect)
 logging.info(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen, 
+from PySide6.QtGui import (QColor, QPainter, QBrush, QLinearGradient, QPen,
                            QPainterPath, QRadialGradient, QIcon, QPixmap)
 logging.info(f"PySide6.QtGui.QIcon module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -580,7 +580,7 @@ def _get_folder_path(csidl):
     """Get the path of a folder identified by a CSIDL value."""
     # Create a buffer to hold the return value from SHGetFolderPathW
     buf = ctypes.create_unicode_buffer(ctypes.wintypes.MAX_PATH)
-    
+
     # Return the path as a string
     SHGetFolderPathW(None, csidl, None, SHGFP_TYPE_CURRENT, buf)
     return str(buf.value)
@@ -769,7 +769,7 @@ def reset_flags():
     pyz_version_match = False
 reset_flags()
 
-# Cache of { file_path: last_md5 }  
+# Cache of { file_path: last_md5 }
 file_md5_cache: dict[str, str] = {}
 
 # Global cache: md5 -> (die_output, plain_text_flag)
@@ -1005,7 +1005,7 @@ except Exception as e:
 
 def get_unique_output_path(output_dir: Path, base_name) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     base_name = Path(base_name)  # <- convert here
 
     stem = sanitize_filename(base_name.stem)
@@ -1025,7 +1025,7 @@ def get_unique_output_path(output_dir: Path, base_name) -> Path:
     return candidate
 
 #inspired by https://aluigi.altervista.org/bms/advanced_installer.bms
-#with some additionaly reverse engeneering, quite heursitic (footer search, xor guessing etc) 
+#with some additionaly reverse engeneering, quite heursitic (footer search, xor guessing etc)
 #licence: public domain
 # https://gist.github.com/KasparNagu/9ee02cb62d81d9e4c7a833518a710d6e
 
@@ -1230,15 +1230,15 @@ class AdvancedInstallerReader:
 def advanced_installer_extractor(file_path):
         """
         Extract files from Advanced Installer archive.
-        
+
         Args:
             file_path (str): Path to the Advanced Installer file
-        
+
         Returns:
             list: List of extracted file paths
         """
         extracted_files = []
-        
+
         with AdvancedInstallerReader(file_path) as ar:
                 for f in ar.infolist():
                         logging.debug(f)
@@ -1255,9 +1255,9 @@ def advanced_installer_extractor(file_path):
                                                  break
                                          out.write(blk)
                         extracted_files.append(full_path)
-                
+
                 logging.debug(ar)
-        
+
         return extracted_files
 
 def analyze_file_with_die(file_path):
@@ -4440,8 +4440,8 @@ def scan_yara(file_path):
 def detect_etw_tampering_sandbox(moved_sandboxed_ntdll_path):
     """
     Compare the NtTraceEvent bytes in the sandboxed ntdll.dll file against the original
-    on-disk ntdll.dll in System32. 
-    Logs a warning if the sandboxed copy is tampered (bytes differ). 
+    on-disk ntdll.dll in System32.
+    Logs a warning if the sandboxed copy is tampered (bytes differ).
     Returns True if tampered, False otherwise.
     """
     try:
@@ -4835,7 +4835,7 @@ def check_valid_signature(file_path: str) -> dict:
     """
     try:
         result = verify_authenticode_signature(file_path)
-        
+
         if result == 0:
             is_valid = True
             status = "Valid"
@@ -4845,7 +4845,7 @@ def check_valid_signature(file_path: str) -> dict:
         else:
             is_valid = False
             status = "Invalid signature"
-            
+
         return {"is_valid": is_valid, "status": status}
     except Exception as ex:
         logging.error(f"[Signature] {file_path}: {ex}")
@@ -4889,11 +4889,11 @@ def contains_rlo_after_dot_with_extension_check(filename, fileTypes):
     """
     Check if the filename contains an RLO character after a dot AND has a known extension.
     This helps detect potential RLO attacks that try to disguise malicious files.
-    
+
     Args:
         filename (str): The filename to check
         fileTypes (set/list): Collection of known/allowed file extensions
-        
+
     Returns:
         bool: True if RLO found after dot AND file has known extension, False otherwise
     """
@@ -4920,12 +4920,12 @@ def detect_suspicious_filename_patterns(filename, fileTypes, max_spaces=10):
     - RLO (Right-to-Left Override) attacks
     - Excessive spaces to hide real extensions
     - Multiple extensions
-    
+
     Args:
         filename (str): The filename to check
         fileTypes (set/list): Collection of known/allowed file extensions
         max_spaces (int): Maximum allowed consecutive spaces
-        
+
     Returns:
         dict: Detection results with attack types found
     """
@@ -4936,7 +4936,7 @@ def detect_suspicious_filename_patterns(filename, fileTypes, max_spaces=10):
         'suspicious': False,
         'details': []
     }
-    
+
     try:
         # Check for RLO attack
         if ".\u202E" in filename:
@@ -4944,52 +4944,52 @@ def detect_suspicious_filename_patterns(filename, fileTypes, max_spaces=10):
             if ext in fileTypes:
                 results['rlo_attack'] = True
                 results['details'].append(f"RLO character found after dot with known extension '{ext}'")
-        
+
         # Check for excessive spaces (potential extension hiding)
         if '  ' in filename:  # Start with double space check
             space_count = 0
             max_consecutive_spaces = 0
-            
+
             for char in filename:
                 if char == ' ':
                     space_count += 1
                     max_consecutive_spaces = max(max_consecutive_spaces, space_count)
                 else:
                     space_count = 0
-            
+
             if max_consecutive_spaces > max_spaces:
                 results['excessive_spaces'] = True
                 results['details'].append(f"Excessive spaces detected: {max_consecutive_spaces} consecutive spaces")
-                
+
                 # Check if there's a hidden extension after the spaces
                 trimmed_filename = filename.rstrip()
                 if trimmed_filename != filename:
                     hidden_ext = os.path.splitext(trimmed_filename)[1].lower()
                     if hidden_ext in fileTypes:
                         results['details'].append(f"Potential hidden extension: '{hidden_ext}'")
-        
+
         # Check for multiple extensions (only flag if more than 4 extensions)
         parts = filename.split('.')
         if len(parts) > 5:  # More than 4 extensions (5 parts = filename + 4 extensions)
             extensions = ['.' + part.lower() for part in parts[1:]]
             known_extensions = [ext for ext in extensions if ext in fileTypes]
-            
+
             if known_extensions:  # Only flag if there are known extensions
                 results['multiple_extensions'] = True
                 results['details'].append(f"Excessive extensions detected ({len(parts)-1} extensions): {known_extensions}")
-        
+
         # Mark as suspicious if any attack detected
         results['suspicious'] = any([
             results['rlo_attack'],
             results['excessive_spaces'],
             results['multiple_extensions']
         ])
-        
+
         if results['suspicious']:
             logging.warning(f"SUSPICIOUS FILENAME DETECTED: {filename} - {results['details']}")
-        
+
         return results
-        
+
     except Exception as ex:
         logging.error(f"Error analyzing filename {filename}: {ex}")
         return results
@@ -6572,7 +6572,7 @@ class PyInstArchive:
         elif aes_mode == "cfb":
             # Pyinstaller < 4.0 uses AES in CFB mode
             cipher = AES.new(key, AES.MODE_CFB, iv)
-            return cipher.decrypt(ct[CRYPT_BLOCK_SIZE:])            
+            return cipher.decrypt(ct[CRYPT_BLOCK_SIZE:])
 
     def _extractPyz(self, name, one_dir):
         if one_dir == True:
@@ -6659,7 +6659,7 @@ class PyInstArchive:
                             logging.error("Failed to decrypt & decompress %s. Extracting as is.", filePath)
                             open(filePath + ".encrypted", "wb").write(data_copy)
                             continue
-                
+
                 self._writePyc(filePath, data)
 
 def extract_pyinstaller_archive(file_path):
@@ -7369,40 +7369,40 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
     """
     Decompile a .pyc file using Pylingual main function directly.
     Returns the combined decompiled source as a string if successful, else None.
-    
+
     Decompiles to the same folder as the .pyc file. If a file with the same name
     already exists, creates a separate folder for the output.
-    
+
     Args:
         pyc_path: Path to the .pyc file to decompile
-    
+
     Returns:
         Combined decompiled source code as string, or None if failed
     """
     try:
         pyc_file = Path(pyc_path)
-        
+
         # Check if the .pyc file exists
         if not pyc_file.exists():
             logging.error(f"[Pylingual] .pyc file does not exist: {pyc_path}")
             return None
-        
+
         # Check if the file is readable
         if not os.access(pyc_file, os.R_OK):
             logging.error(f"[Pylingual] .pyc file is not readable: {pyc_path}")
             return None
-        
+
         base_name = pyc_file.stem
         parent_dir = pyc_file.parent
-        
+
         # Check if parent directory is writable
         if not os.access(parent_dir, os.W_OK):
             logging.error(f"[Pylingual] Parent directory is not writable: {parent_dir}")
             return None
-        
+
         # Check if a .py file with the same name already exists
         potential_output_file = parent_dir / f"{base_name}.py"
-        
+
         if potential_output_file.exists():
             # File exists, create a separate folder
             output_path = parent_dir / f"decompiled_{base_name}"
@@ -7411,7 +7411,7 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
             # File doesn't exist, use the parent directory directly (no folder creation)
             output_path = parent_dir
             logging.info(f"[Pylingual] Decompiling directly to parent directory: {output_path}")
-        
+
         # Ensure output directory exists (but don't create unnecessary folders)
         if output_path != parent_dir:
             try:
@@ -7419,7 +7419,7 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
             except OSError as e:
                 logging.error(f"[Pylingual] Failed to create output directory {output_path}: {e}")
                 return None
-        
+
         # Call pylingual main function directly with parameters
         start_time = time.time()
         try:
@@ -7427,7 +7427,7 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
             logging.info(f"[Pylingual] Starting decompilation of {pyc_file}")
             logging.info(f"[Pylingual] Output directory: {output_path}")
             logging.info(f"[Pylingual] File size: {pyc_file.stat().st_size} bytes")
-            
+
             # Check if file is actually a valid .pyc file by reading magic number
             try:
                 with open(pyc_file, 'rb') as f:
@@ -7435,7 +7435,7 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
                     logging.info(f"[Pylingual] Magic number: {magic.hex()}")
             except Exception as magic_error:
                 logging.warning(f"[Pylingual] Could not read magic number: {magic_error}")
-            
+
             pylingual_main(
                 files=[str(pyc_file)],
                 out_dir=output_path,
@@ -7454,10 +7454,10 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
             import traceback
             logging.error(f"[Pylingual] Traceback: {traceback.format_exc()}")
             raise
-        
+
         # Find all generated .py files
         py_files = list(output_path.rglob("*.py"))
-        
+
         # If no files found in the expected location, try looking in subdirectories
         if not py_files and output_path == parent_dir:
             # Sometimes pylingual creates its own subdirectory
@@ -7465,7 +7465,7 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
             if possible_subdir.exists():
                 py_files = list(possible_subdir.rglob("*.py"))
                 logging.info(f"[Pylingual] Found files in subdirectory: {possible_subdir}")
-        
+
         if not py_files:
             logging.warning(f"[Pylingual] No .py files found in output for: {pyc_path}")
             # List all files in the output directory for debugging
@@ -7490,7 +7490,7 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
 
         logging.info(f"[Pylingual] Successfully decompiled {pyc_path} -> {output_path}")
         logging.info(f"[Pylingual] Generated {len(py_files)} Python files")
-        
+
         return combined_source
 
     except Exception as e:
@@ -9235,25 +9235,25 @@ def show_code_with_pylingual_pycdas(
                     logging.warning(f"Failed to read Pylingual file {file}: {read_ex}")
 
             logging.info(f"Pylingual decompilation completed. Found {len(pylingual_results)} Python files.")
-            
+
         except Exception as pylingual_ex:
             logging.error(f"Pylingual decompilation failed for {file_path}: {pylingual_ex}")
 
         # === pycdas Decompilation ===
         try:
             pycdas_output_path = run_pycdas_decompiler(file_path)
-            
+
             if pycdas_output_path and os.path.exists(pycdas_output_path):
                 # Read the decompiled file from pycdas
                 with open(pycdas_output_path, 'r', encoding='utf-8') as f:
                     content = f.read()
                     file_name = os.path.basename(pycdas_output_path)
                     pycdas_results[file_name] = content
-                
+
                 logging.info(f"pycdas decompilation completed. Output: {pycdas_output_path}")
             else:
                 logging.warning(f"pycdas decompilation failed or produced no output for {file_path}")
-                
+
         except Exception as pycdas_ex:
             logging.error(f"pycdas decompilation failed for {file_path}: {pycdas_ex}")
 
@@ -9315,21 +9315,21 @@ def scan_and_warn(file_path,
         # Normalize the original path
         norm_path = os.path.abspath(file_path)
 
-        # Compute a quick MD5 
-        md5 = compute_md5(norm_path) 
-  
-        # Initialize our seen-set once, on the function object 
-        if not hasattr(scan_and_warn, "_seen"): 
-            scan_and_warn._seen = set() 
-  
-        # If we've already scanned this exact (path, hash), skip immediately 
-        key = (norm_path.lower(), md5) 
-        if key in scan_and_warn._seen: 
-            logging.debug(f"Skipping duplicate scan for {norm_path} (hash={md5})") 
-            return False 
+        # Compute a quick MD5
+        md5 = compute_md5(norm_path)
 
-         # Mark it seen and proceed 
-        scan_and_warn._seen.add(key) 
+        # Initialize our seen-set once, on the function object
+        if not hasattr(scan_and_warn, "_seen"):
+            scan_and_warn._seen = set()
+
+        # If we've already scanned this exact (path, hash), skip immediately
+        key = (norm_path.lower(), md5)
+        if key in scan_and_warn._seen:
+            logging.debug(f"Skipping duplicate scan for {norm_path} (hash={md5})")
+            return False
+
+         # Mark it seen and proceed
+        scan_and_warn._seen.add(key)
 
         # SNAPSHOT the cache entry _once_ up front:
         initial_md5_in_cache = file_md5_cache.get(norm_path)
@@ -9421,7 +9421,7 @@ def scan_and_warn(file_path,
             extracted_files = advanced_installer_extractor(file_path)
             for extracted_file in extracted_files:
                 scan_and_warn(extracted_file)
-            
+
         if is_pe_file_from_output(die_output):
             logging.info(f"File {norm_path} is a valid PE file.")
             pe_file = True
@@ -9494,7 +9494,7 @@ def scan_and_warn(file_path,
                 logging.info(f"File {norm_path} is not a valid archive or extraction failed. Proceeding with scanning.")
             except Exception as extraction_error:
                 logging.error(f"Error during extraction of {norm_path}: {extraction_error}")
-           
+
             if is_enigma1_protector(die_output):
                 extracted_path = try_unpack_enigma1(norm_path)
                 if extracted_path:
@@ -10880,8 +10880,8 @@ class MonitorMessageCommandLine:
                 f.write(pre[:1_000_000])
             logging.info(f"Wrote preprocessed -> {pre_fn}")
             threading.Thread(
-                target=scan_and_warn, 
-                args=(pre_fn,), 
+                target=scan_and_warn,
+                args=(pre_fn,),
                 kwargs={'command_flag': True}
             ).start()
 
@@ -11012,8 +11012,8 @@ class MonitorMessageCommandLine:
                         f.write(cmd[:1_000_000])
                     logging.info(f"Wrote cmd -> {orig_fn}")
                     threading.Thread(
-                        target=scan_and_warn, 
-                        args=(orig_fn,), 
+                        target=scan_and_warn,
+                        args=(orig_fn,),
                         kwargs={'command_flag': True}
                     ).start()
 
@@ -11024,7 +11024,7 @@ class MonitorMessageCommandLine:
                             f.write(pre_cmd[:1_000_000])
                         logging.info(f"Wrote cmd pre -> {pre_fn}")
                         threading.Thread(
-                            target=scan_and_warn, 
+                            target=scan_and_warn,
                             args=(pre_fn,),
                             kwargs={'command_flag':True}
                         ).start()
@@ -11249,9 +11249,9 @@ def run_de4dot_in_sandbox(file_path):
         "/box:DefaultBox",
         "/elevate",
         de4dot_cex_x64_path,
-        "-r", 
+        "-r",
         file_path,
-        "-ro", 
+        "-ro",
         de4dot_extracted_dir
     ]
 
@@ -11269,25 +11269,25 @@ def run_analysis(file_path: str, stop_callback=None):
     """
     try:
         logging.info(f"Running analysis for: {file_path}")
-        
+
         # Check for stop request before starting
         if stop_callback and stop_callback():
             return "[!] Analysis stopped by user request"
-        
+
         # Perform the sandbox analysis with stop checking
         result = perform_sandbox_analysis(file_path, stop_callback=stop_callback)
-        
+
         # Check for stop request after analysis
         if stop_callback and stop_callback():
             return "[!] Analysis stopped by user request"
-        
+
         return result if result else "[+] Analysis completed successfully"
-        
+
     except Exception as ex:
         # Check if the exception was due to a stop request
         if stop_callback and stop_callback():
             return "[!] Analysis stopped by user request"
-        
+
         error_message = f"An error occurred during sandbox analysis: {ex}"
         logging.error(error_message)
         return error_message
@@ -11377,11 +11377,11 @@ def get_latest_clamav_def_time():
     try:
         if not os.path.isdir(clamav_database_directory_path):
             return "ClamAV DB Not Found"
-        
+
         files = [os.path.join(clamav_database_directory_path, f) for f in os.listdir(clamav_database_directory_path) if os.path.isfile(os.path.join(clamav_database_directory_path, f))]
         if not files:
             return "Definitions DB Empty"
-            
+
         latest_file = max(files, key=os.path.getmtime)
         mod_time = os.path.getmtime(latest_file)
         return f"Definitions: {datetime.fromtimestamp(mod_time).strftime('%Y-%m-%d %H:%M')}"
@@ -11437,7 +11437,7 @@ class ShieldWidget(QWidget):
         self._check_progress = 1.0
         self._scale_factor = 1.0
         self.setMinimumSize(250, 250)
-        
+
         # Load the hydra image for the protected state
         self.hydra_pixmap = None
         script_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in locals() else os.getcwd()
@@ -11462,7 +11462,7 @@ class ShieldWidget(QWidget):
         self.glow_animation.setEndValue(0.2)
         self.glow_animation.setEasingCurve(QEasingCurve.Type.InOutSine)
         self.glow_animation.start()
-        
+
         # Breathing animation for the shield
         self.breathe_animation = QPropertyAnimation(self, b"scale_factor")
         self.breathe_animation.setDuration(5000)
@@ -11513,7 +11513,7 @@ class ShieldWidget(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
+
         side = min(self.width(), self.height())
         painter.translate(self.width() / 2, self.height() / 2)
         painter.scale(self._scale_factor, self._scale_factor)
@@ -11539,7 +11539,7 @@ class ShieldWidget(QWidget):
         path.quadTo(-80, 90, -80, 40)
         path.lineTo(-80, 0)
         path.cubicTo(-80, -80, 0, -90, 0, -90)
-        
+
         # Draw the user's PNG inside the shield if protected and available
         if self.is_protected and self.hydra_pixmap and not self.hydra_pixmap.isNull():
              # Fill shield with a gradient behind the image
@@ -11547,7 +11547,7 @@ class ShieldWidget(QWidget):
             shield_gradient.setColorAt(0, QColor("#434C5E"))
             shield_gradient.setColorAt(1, QColor("#3B4252"))
             painter.fillPath(path, QBrush(shield_gradient))
-            
+
             painter.setOpacity(self._check_progress)
             # Define the rectangle to draw the pixmap in
             pixmap_rect = QRect(-75, -85, 150, 150)
@@ -11584,7 +11584,7 @@ class AntivirusApp(QWidget):
         worker = Worker(task_type, *args)
         worker.output_signal.connect(self.append_log_output)
         worker.finished.connect(lambda w=worker: self.on_worker_finished(w))
-        
+
         self.workers.append(worker)
         worker.start()
         self.append_log_output(f"[*] Task '{task_type}' started.")
@@ -11612,25 +11612,25 @@ class AntivirusApp(QWidget):
 
         current_widget = self.main_stack.currentWidget()
         next_widget = self.main_stack.widget(index)
-        
+
         if current_widget == next_widget:
             return
 
         current_index = self.main_stack.currentIndex()
-        
+
         animation_duration = 400
         easing_curve = QEasingCurve.Type.InOutCubic
 
         next_widget.show()
         next_widget.raise_()
-        
+
         slide_out_x = -self.main_stack.width() if index > current_index else self.main_stack.width()
         current_pos_anim = QPropertyAnimation(current_widget, b"pos")
         current_pos_anim.setDuration(animation_duration)
         current_pos_anim.setEasingCurve(easing_curve)
         current_pos_anim.setStartValue(QPoint(0, 0))
         current_pos_anim.setEndValue(QPoint(slide_out_x, 0))
-        
+
         slide_in_x = self.main_stack.width() if index > current_index else -self.main_stack.width()
         next_widget.move(slide_in_x, 0)
         next_pos_anim = QPropertyAnimation(next_widget, b"pos")
@@ -11638,11 +11638,11 @@ class AntivirusApp(QWidget):
         next_pos_anim.setEasingCurve(easing_curve)
         next_pos_anim.setStartValue(QPoint(slide_in_x, 0))
         next_pos_anim.setEndValue(QPoint(0, 0))
-        
+
         self.animation_group = QParallelAnimationGroup()
         self.animation_group.addAnimation(current_pos_anim)
         self.animation_group.addAnimation(next_pos_anim)
-        
+
         self.animation_group.finished.connect(lambda: self.main_stack.setCurrentIndex(index))
         self.animation_group.start()
 
@@ -11664,8 +11664,8 @@ class AntivirusApp(QWidget):
         sidebar_layout.addSpacing(20)
 
         nav_buttons = [
-            "Status", "Update Definitions", "Generate Clean DB", 
-            "Analyze File", "Capture Analysis Logs", "Compare Logs", 
+            "Status", "Update Definitions", "Generate Clean DB",
+            "Analyze File", "Capture Analysis Logs", "Compare Logs",
             "Rootkit Scan", "Cleanup Environment", "About"
         ]
         self.nav_group = QButtonGroup(self)
@@ -11700,11 +11700,11 @@ class AntivirusApp(QWidget):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(40, 40, 40, 40)
-        
+
         main_area = QHBoxLayout()
         self.shield_widget = ShieldWidget()
         main_area.addWidget(self.shield_widget, 2)
-        
+
         status_vbox = QVBoxLayout()
         status_vbox.addStretch()
         title = QLabel("System Status")
@@ -11715,7 +11715,7 @@ class AntivirusApp(QWidget):
         version_label.setObjectName("version_label")
         defs_label = QLabel(get_latest_clamav_def_time())
         defs_label.setObjectName("version_label")
-        
+
         status_vbox.addWidget(title)
         status_vbox.addWidget(self.status_text)
         status_vbox.addSpacing(20)
@@ -11723,9 +11723,9 @@ class AntivirusApp(QWidget):
         status_vbox.addWidget(defs_label)
         status_vbox.addStretch()
         main_area.addLayout(status_vbox, 3)
-        
+
         layout.addLayout(main_area)
-        self.log_outputs.append(None) 
+        self.log_outputs.append(None)
         return page
 
     def create_task_page(self, title_text, task_name):
@@ -11745,7 +11745,7 @@ class AntivirusApp(QWidget):
         self.log_outputs.append(log_output)
         layout.addStretch()
         return page
-        
+
     def create_analysis_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -12055,23 +12055,23 @@ class Worker(QThread):
         if self.stop_requested:
             self.output_signal.emit("[!] Analysis stopped by user request")
             return
-            
+
         self.output_signal.emit(f"[*] Starting analysis for: {file_path}")
-        
+
         # Create a stop callback function
         def check_stop():
             return self.stop_requested
-        
+
         try:
             # Call the modified run_analysis function with stop callback
             analysis_result = run_analysis(file_path, stop_callback=check_stop)
-            
+
             if self.stop_requested:
                 self.output_signal.emit("[!] Analysis was stopped by user")
                 return
-                
+
             self.output_signal.emit(analysis_result)
-            
+
         except Exception as e:
             if self.stop_requested:
                 self.output_signal.emit("[!] Analysis stopped by user request")
@@ -12120,7 +12120,7 @@ class Worker(QThread):
                 else:
                     self.output_signal.emit(f"[+] Command {' '.join(cmd)} successful.")
                 time.sleep(1)
-            
+
             # Delete (cleanup) the DefaultBox sandbox
             cleanup_cmd = [sandboxie_path, "delete_sandbox"]
             result = subprocess.run(cleanup_cmd, capture_output=True, text=True)
@@ -12128,7 +12128,7 @@ class Worker(QThread):
                 self.output_signal.emit(f"[!] Sandbox delete command failed: {result.stderr.strip()}")
             else:
                 self.output_signal.emit("[+] Sandbox 'DefaultBox' deleted successfully.")
-                
+
         except Exception as ex:
             self.output_signal.emit(f"[!] Full sandbox cleanup encountered an exception: {ex}")
 
@@ -12145,7 +12145,7 @@ class Worker(QThread):
                     cleaned_count += 1
             except Exception as e:
                 self.output_signal.emit(f"[!] Error cleaning directory {directory}: {str(e)}")
-        
+
         self.output_signal.emit(f"[+] Total directories cleaned: {cleaned_count}")
 
     def stop_snort(self):
@@ -12162,12 +12162,12 @@ class Worker(QThread):
                         self.output_signal.emit(f"[+] Terminated Snort process (PID: {proc.info['pid']})")
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
                     pass
-            
+
             # Clean up log folder
             if os.path.exists(log_folder):
                 os.remove(log_folder)
                 self.output_signal.emit(f"[+] Removed Snort log file: {log_folder}")
-                
+
         except Exception as e:
             self.output_signal.emit(f"[!] Error stopping Snort: {str(e)}")
 
@@ -12180,12 +12180,12 @@ class Worker(QThread):
             self.output_signal.emit("[*] Restarting ClamAV daemon...")
             restart_clamd_thread()
             self.output_signal.emit("[+] ClamAV daemon restarted.")
-            
+
             # Restart Snort
             self.output_signal.emit("[*] Starting Snort...")
             threading.Thread(target=run_snort).start()
             self.output_signal.emit("[+] Snort started.")
-            
+
         except Exception as e:
             self.output_signal.emit(f"[!] Error restarting services: {str(e)}")
 
@@ -12199,12 +12199,12 @@ class Worker(QThread):
                 # Skip log_directory as it shouldn't be recreated in the normal workflow
                 if directory == log_directory:
                     continue
-                    
+
                 os.makedirs(directory, exist_ok=True)
                 created_count += 1
             except Exception as e:
                 self.output_signal.emit(f"[!] Error creating directory {directory}: {str(e)}")
-        
+
         self.output_signal.emit(f"[+] Total directories recreated: {created_count}")
 
     def perform_cleanup(self):
@@ -12213,24 +12213,24 @@ class Worker(QThread):
         """
         try:
             global pre_analysis_log_path, post_analysis_log_path, pre_analysis_entries, post_analysis_entries
-            
+
             self.output_signal.emit("[*] Starting comprehensive environment cleanup...")
-            
+
             # Step 1: Stop Snort and cleanup logs
             self.output_signal.emit("[*] Step 1: Stopping Snort and cleaning logs...")
             self.stop_snort()
             self.stop_snort()
-            
+
             # Step 2: Cleanup Sandboxie
             self.output_signal.emit("[*] Step 2: Cleaning up Sandboxie environment...")
             self.full_cleanup_sandbox()
             self.full_cleanup_sandbox()
-            
+
             # Step 3: Clean up directories
             self.output_signal.emit("[*] Step 3: Cleaning up generated directories...")
             self.cleanup_directories()
             self.cleanup_directories()
-            
+
             # Step 4: Reset global variables
             self.output_signal.emit("[*] Step 4: Resetting analysis state...")
             pre_analysis_log_path = None
@@ -12242,14 +12242,14 @@ class Worker(QThread):
             # Step 5: Restart services
             self.output_signal.emit("[*] Step 5: Restarting services...")
             self.restart_services()
-            
+
             # Step 6: Recreate directories
             self.output_signal.emit("[*] Step 6: Recreating clean directories...")
             self.recreate_directories()
-            
+
             self.output_signal.emit("[+] Environment cleanup completed successfully!")
             self.output_signal.emit("[+] System is ready for new analysis.")
-            
+
         except Exception as e:
             self.output_signal.emit(f"[!] Error during cleanup: {str(e)}")
 
