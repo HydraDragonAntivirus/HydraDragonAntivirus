@@ -1400,9 +1400,9 @@ def is_elf_file_from_output(die_output):
     logging.info(f"DIE output does not indicate an ELF file: {die_output}")
     return False
 
-def is_enigma1_protector(die_output):
+def is_enigma1_virtual_box(die_output):
     """
-    Checks if DIE output indicates the Enigma protector.
+    Checks if DIE output indicates the Enigma Virutal Box.
     Returns True if 'Protector: Enigma' is found, else False.
     """
     if die_output and ".enigma1" in die_output:
@@ -9495,7 +9495,7 @@ def scan_and_warn(file_path,
             except Exception as extraction_error:
                 logging.error(f"Error during extraction of {norm_path}: {extraction_error}")
 
-            if is_enigma1_protector(die_output):
+            if is_enigma1_virtual_box(die_output):
                 extracted_path = try_unpack_enigma1(norm_path)
                 if extracted_path:
                     logging.info(f"Unpack succeeded. Files are in: {extracted_path}")
