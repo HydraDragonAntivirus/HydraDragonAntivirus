@@ -10182,38 +10182,135 @@ def check_startup_directories():
             logging.error(f"An error occurred while checking startup directories: {ex}")
 
 def check_hosts_file_for_blocked_antivirus():
+    """
+    Scan hosts_path for any entries that match one of your lists:
+      - IPv4 whitelist
+      - IPv6 whitelist
+      - Exact domain whitelist
+      - Mail-domain whitelist
+      - Subdomain whitelist
+      - Mail-subdomain whitelist
+      - Antivirus domain list
+
+    For each category that triggers, we call notify_user_hosts() with its
+    specific HEUR signature. Returns True if anything was flagged.
+    """
+    # Precompile antivirus regex
+    ant_patterns = [r'(?:^|\.)' + re.escape(d) + r'$'
+                    for d in antivirus_domains_data]
+    antivirus_re = re.compile('|'.join(ant_patterns), re.IGNORECASE)
+
+    # Buckets for each reason
+    flagged = {
+        'ipv4': set(),
+        'ipv6': set(),
+        'domain': set(),
+        'mail_domain': set(),
+        'sub_domain': set(),
+        'mail_sub_domain': set(),
+        'antivirus': set(),
+    }
+
     try:
         if not os.path.exists(hosts_path):
+            logging.error(f"Hosts file not found: {hosts_path}")
             return False
 
-        with open(hosts_path, 'r') as hosts_file:
-            hosts_content = hosts_file.read()
+        with open(hosts_path, 'r') as hf:
+            for raw in hf:
+                line = raw.strip()
+                if not line or line.startswith('#'):
+                    continue
 
-        blocked_domains = []
+                parts = re.split(r'\s+', line)
+                ip = parts[0]
+                hosts = parts[1:]
 
-        # Regular expression pattern to match domain or any subdomain
-        domain_patterns = [re.escape(domain) + r'\b' for domain in antivirus_domains_data]
-        pattern = r'\b(?:' + '|'.join(domain_patterns) + r')\b'
+                # IP-based buckets
+                if ip in ipv4_whitelist_data:
+                    flagged['ipv4'].update(hosts)
+                if ip in ipv6_whitelist_data:
+                    flagged['ipv6'].update(hosts)
 
-        # Find all matching domains/subdomains in hosts content
-        matches = re.findall(pattern, hosts_content, flags=re.IGNORECASE)
+                for host in hosts:
+                    # Exact domain
+                    if host in whitelist_domains_data:
+                        flagged['domain'].add(host)
+                        continue
+                    # Exact mail-domain
+                    if host in whitelist_domains_mail_data:
+                        flagged['mail_domain'].add(host)
+                        continue
+                    # Subdomain
+                    if any(host.endswith('.' + d) for d in whitelist_sub_domains_data):
+                        flagged['sub_domain'].add(host)
+                        continue
+                    # Mail subdomain
+                    if any(host.endswith('.' + d) for d in whitelist_mail_sub_domains_data):
+                        flagged['mail_sub_domain'].add(host)
+                        continue
+                    # Antivirus pattern
+                    if antivirus_re.search(host):
+                        flagged['antivirus'].add(host)
 
-        if matches:
-            blocked_domains = list(set(matches))  # Remove duplicates
+        any_flagged = False
 
-        if blocked_domains:
-            logging.warning(f"Malicious hosts file detected: {hosts_path}")
-            notify_user_hosts(hosts_path, "HEUR:Win32.Trojan.Hosts.Hijacker.DisableAV.gen")
-            return True
-        else:
-            logging.warning(f"Suspicious hosts file detected: {hosts_path}")
-            notify_user_hosts(hosts_path, "HEUR:Win32.Trojan.Hosts.Hijacker.gen")
-            return True
+        # Emit pre-bucket notifications
+        if flagged['ipv4']:
+            any_flagged = True
+            notify_user_hosts(
+                hosts_path,
+                "HEUR:Win32.Trojan.Hosts.WhiteIP.v4.gen",
+                details=list(flagged['ipv4'])
+            )
+        if flagged['ipv6']:
+            any_flagged = True
+            notify_user_hosts(
+                hosts_path,
+                "HEUR:Win32.Trojan.Hosts.WhiteIP.v6.gen",
+                details=list(flagged['ipv6'])
+            )
+        if flagged['domain']:
+            any_flagged = True
+            notify_user_hosts(
+                hosts_path,
+                "HEUR:Win32.Trojan.Hosts.WhiteDomain.gen",
+                details=list(flagged['domain'])
+            )
+        if flagged['mail_domain']:
+            any_flagged = True
+            notify_user_hosts(
+                hosts_path,
+                "HEUR:Win32.Trojan.Hosts.Hijacker.Mail.gen",
+                details=list(flagged['mail_domain'])
+            )
+        if flagged['sub_domain']:
+            any_flagged = True
+            notify_user_hosts(
+                hosts_path,
+                "HEUR:Win32.Trojan.Hosts.WhiteSubdomain.gen",
+                details=list(flagged['sub_domain'])
+            )
+        if flagged['mail_sub_domain']:
+            any_flagged = True
+            notify_user_hosts(
+                hosts_path,
+                "HEUR:Win32.Trojan.Hosts.Hijacker.MailSub.gen",
+                details=list(flagged['mail_sub_domain'])
+            )
+        if flagged['antivirus']:
+            any_flagged = True
+            notify_user_hosts(
+                hosts_path,
+                "HEUR:Win32.Trojan.Hosts.Hijacker.DisableAV.gen",
+                details=list(flagged['antivirus'])
+            )
+
+        return any_flagged
 
     except Exception as ex:
         logging.error(f"Error reading hosts file: {ex}")
-
-    return False
+        return False
 
 # Function to continuously monitor hosts file
 def monitor_hosts_file():
