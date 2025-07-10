@@ -9905,7 +9905,7 @@ def scan_and_warn(file_path,
         return False
 
 
-def analyze_process_memory(file_path: str, memory_dir: str) -> str:
+def analyze_process_memory(file_path: str) -> str:
     """Perform memory analysis on the specified process and extract files using pymem and pd64."""
     # Verify input path exists
     if not os.path.isfile(file_path):

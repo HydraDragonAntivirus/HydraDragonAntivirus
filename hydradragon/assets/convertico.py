@@ -2,7 +2,7 @@ import imageio
 from PIL import Image
 
 # Read the PNG file
-png_image_path = "HydraDragonAV.png"
+png_image_path = "HydraDragonAVLogo.png"
 image = imageio.imread(png_image_path)
 
 # Convert the image to a PIL Image object
