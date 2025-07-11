@@ -14,6 +14,7 @@ class PYCFile(EditableBytecode):
 
     def __init__(self, source, name_prefix=None):
         self.pyc_path = None
+        self.source = source
         source_tuple = (None, None, None, None, None, None, None)
         if isinstance(source, bytes):
             source = BytesIO(source)
@@ -46,24 +47,7 @@ class PYCFile(EditableBytecode):
         )
 
     def copy(self):
-        try:
-            copy = PYCFile(None)
-            EditableBytecode.__init__(copy, self.to_code(), self.opcode, self.version, self.name_prefix, False)
-        except IndexError:
-            copy = EditableBytecode.copy(self)
-
-        for attr in (
-            "version",
-            "timestamp",
-            "magic",
-            "code",
-            "ispypy",
-            "source_size",
-            "sip_hash",
-        ):
-            setattr(copy, attr, getattr(self, attr))
-
-        return copy
+        return PYCFile(self.source)
 
     def save(self, file, should_close=True, no_lnotab=False):
         """Saves the current recursive bytecode to the specified file."""

@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import networkx as nx
-from pylingual.control_flow_reconstruction.structure_control_flow import condense_basic_blocks
+from pylingual.control_flow_reconstruction.cfg import CFG
 from pylingual.editable_bytecode import EditableBytecode, Inst, PYCFile
-from pylingual.editable_bytecode.bytecode_patches import fix_indirect_jump, fix_unreachable, remove_extended_arg, remove_nop
+from pylingual.editable_bytecode.bytecode_patches import fix_indirect_jump, fix_unreachable, remove_extended_arg, remove_nop, replace_firstlno
 from pylingual.editable_bytecode.control_flow_graph import bytecode_to_control_flow_graph
 
 
@@ -115,10 +115,18 @@ class TestResult:
 
     success: bool
     message: str
-    name_a: str
-    name_b: str
+    bc_a: EditableBytecode | None
+    bc_b: EditableBytecode | None
     failed_line_number: int | None = None
     failed_offset: int | None = None
+
+    @property
+    def name_a(self) -> str:
+        return self.bc_a.name if self.bc_a is not None else "None"
+
+    @property
+    def name_b(self) -> str:
+        return self.bc_a.name if self.bc_a is not None else "None"
 
     def names(self):
         if self.name_a == self.name_b:
@@ -169,7 +177,7 @@ def matching_iter(pyc_a, pyc_b):
         i_b += 1
 
 
-def compare_pyc(pyc_path_a: Path, pyc_path_b: Path) -> list[TestResult]:
+def compare_pyc(pyc_a: PYCFile | Path, pyc_b: PYCFile | Path) -> list[TestResult]:
     """
     Tests the control flow of the two pyc files
     Should not be imported as it relies on TestResult class.
@@ -180,39 +188,39 @@ def compare_pyc(pyc_path_a: Path, pyc_path_b: Path) -> list[TestResult]:
     :param pyc_path_b: Second pyc to compare
     """
 
-    pyc_a = PYCFile(pyc_path_a)
-    pyc_b = PYCFile(pyc_path_b)
+    pyc_a = pyc_a.copy() if isinstance(pyc_a, PYCFile) else PYCFile(pyc_a)
+    pyc_b = pyc_b.copy() if isinstance(pyc_b, PYCFile) else PYCFile(pyc_b)
 
-    pyc_a.apply_patches([remove_extended_arg, remove_nop, fix_indirect_jump, fix_unreachable, remove_extended_arg])
-    pyc_b.apply_patches([remove_extended_arg, remove_nop, fix_indirect_jump, fix_unreachable, remove_extended_arg])
+    pyc_a.apply_patches([remove_extended_arg, remove_nop, fix_indirect_jump, fix_unreachable, remove_extended_arg, replace_firstlno])
+    pyc_b.apply_patches([remove_extended_arg, remove_nop, fix_indirect_jump, fix_unreachable, remove_extended_arg, replace_firstlno])
 
     results = []
 
     for bytecode_a, bytecode_b in matching_iter(pyc_a, pyc_b):
         if bytecode_a is None:
-            test_result = TestResult(False, "Extra bytecode", "None", bytecode_b.name)
+            test_result = TestResult(False, "Extra bytecode", None, bytecode_b)
             results.append(test_result)
             continue
         if bytecode_b is None:
-            test_result = TestResult(False, "Missing bytecode", bytecode_a.name, "None")
+            test_result = TestResult(False, "Missing bytecode", bytecode_a, None)
             results.append(test_result)
             continue
         cfg_a = bytecode_to_control_flow_graph(bytecode_a)
         cfg_b = bytecode_to_control_flow_graph(bytecode_b)
-        block_graph_a = condense_basic_blocks(cfg_a)
-        block_graph_b = condense_basic_blocks(cfg_b)
+        block_graph_a = CFG.from_graph(cfg_a, bytecode_a, False)
+        block_graph_b = CFG.from_graph(cfg_b, bytecode_b, False)
         if not is_control_flow_equivalent(block_graph_a, block_graph_b):
-            test_result = TestResult(False, "Different control flow", bytecode_a.name, bytecode_b.name)
+            test_result = TestResult(False, "Different control flow", bytecode_a, bytecode_b)
             results.append(test_result)
             continue
 
         bytecode_result = compare_bytecode(bytecode_a, bytecode_b)
         if not bytecode_result.result:
-            test_result = TestResult(False, "Different bytecode", bytecode_a.name, bytecode_b.name, bytecode_result.failed_line, bytecode_result.failed_offset)
+            test_result = TestResult(False, "Different bytecode", bytecode_a, bytecode_b, bytecode_result.failed_line, bytecode_result.failed_offset)
             results.append(test_result)
             continue
 
-        test_result = TestResult(True, "Equal", bytecode_a.name, bytecode_b.name)
+        test_result = TestResult(True, "Equal", bytecode_a, bytecode_b)
         results.append(test_result)
 
     return results

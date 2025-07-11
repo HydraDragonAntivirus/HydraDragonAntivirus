@@ -4,10 +4,11 @@ import ast
 import pathlib
 import re
 from copy import deepcopy
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Pattern
 
 from pylingual.utils.use_escape_sequences import use_escape_sequences
 from pylingual.utils.version import PythonVersion
+
 
 if TYPE_CHECKING:
     from pylingual.editable_bytecode import EditableBytecode
@@ -103,14 +104,28 @@ def restore_masked_source(file_path: pathlib.Path, masker: Masker, python_versio
 def format_source_replacement(mask_value: str) -> str:
     if mask_value is ...:
         return "..."
+    if mask_value == 9e999:  # infinity
+        return "9e999"
     if type(mask_value) in (int, float) and mask_value < 0:
         return f"({mask_value})"
     if type(mask_value) != str:
         return str(mask_value)
+    return mask_value
 
-    formatted_mask_value = use_escape_sequences(mask_value)
 
-    return formatted_mask_value
+re_rel_pattern = re.compile(r"^(\s*)(import|from)\s*(\d+)(.*)", re.MULTILINE)
+
+
+def unmask(source_line: str, replacements: dict, re_pattern: Pattern[str]):
+    def m(match):
+        s = match.span()
+        r = replacements[match.group()]
+        if s[0] == 0 or s[1] >= len(match.string) or match.string[s[0] - 1] not in "\"'{}" and match.string[s[1]] not in "\"'{}":
+            return r
+        return use_escape_sequences(r)
+
+    text = re_pattern.sub(m, source_line)
+    return re_rel_pattern.sub(lambda match: f"{match.group(1)}{match.group(2)} {'.' * int(match.group(3))}{match.group(4)}", text)
 
 
 def fix_jump_targets(disasm: str) -> str:
@@ -126,22 +141,12 @@ def fix_jump_targets(disasm: str) -> str:
     return result
 
 
-def restore_masked_source_text(text: str, masker: Masker, python_version: PythonVersion) -> str:
+def restore_masked_source_text(lines: list[str], masker: Masker) -> list[str]:
     """Creates a large regex of all the tokens and their respective values
     Replaces everything in file text in one pass."""
-    replacements = {re.escape(v): format_source_replacement(k) for k, v in masker.global_tab.items()}  # we use encode + decode so multiline strings get replaced correctly
+    replacements = {re.escape(v): format_source_replacement(k) for k, v in masker.global_tab.items()}
     re_pattern = re.compile("|".join(replacements.keys()))
-    result = re_pattern.sub(lambda match: replacements[match.group()], text)
-
-    # replace imports with a module starting with a number, with that number amount of dots for relative imports
-    re_rel_pattern = r"^(\s*)(import|from)\s*(\d+)(.*)"
-    result_rel_imports = re.sub(re_rel_pattern, lambda match: f"{match.group(1)}{match.group(2)} {'.' * int(match.group(3))}{match.group(4)}", result, 0, re.MULTILINE)
-
-    # normalize with parse+unparse to catch replacement errors and simplify whitespace
-    try:
-        return ast.unparse(ast.parse(result_rel_imports, feature_version=python_version.as_tuple()))
-    except (SyntaxError, IndentationError):
-        return result_rel_imports
+    return [unmask(x, replacements, re_pattern) for x in lines]
 
 
 # replace mask values to start at 0 and count up

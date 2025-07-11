@@ -1,18 +1,19 @@
 from typing import TYPE_CHECKING
 import click
 import logging
-import shutil
 import platform
 import subprocess
 import os
+import shutil
 from pathlib import Path
 
+from pylingual.equivalence_check import TestResult
 import pylingual.utils.ascii_art as ascii_art
 from pylingual.utils.generate_bytecode import CompileError
 from pylingual.utils.version import PythonVersion, supported_versions
 from pylingual.utils.tracked_list import TrackedList, SEGMENTATION_STEP, TRANSLATION_STEP, CFLOW_STEP, CORRECTION_STEP
 from pylingual.utils.lazy import lazy_import
-from pylingual.decompiler import DecompilerResult, decompile
+from pylingual.decompiler import decompile
 
 import rich
 from rich.align import Align
@@ -41,12 +42,12 @@ def print_header():
     console.rule()
 
 
-def print_result(file: str, result: DecompilerResult):
-    table = Table(title=f"Equivalence Results for {file}")
+def print_result(title: str, results: list[TestResult]):
+    table = Table(title=title)
     table.add_column("Code Object")
     table.add_column("Success")
     table.add_column("Message")
-    for r in result.equivalence_results:
+    for r in results:
         if isinstance(r, CompileError):
             continue
         table.add_row(r.names(), "Success" if r.success else "Failure", r.message, style="red" if not r.success else "")
@@ -78,8 +79,8 @@ def main(files: list[str], out_dir: Path | None, config_file: Path | None, versi
     if init_pyenv and (not install_pyenv() or not files):
         return
 
-    if out_dir is not None:
-        out_dir.mkdir(parents=True, exist_ok=True)
+    if out_dir:
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
 
     progress = Progress(
         TextColumn("[progress.description]{task.description}"),
@@ -98,10 +99,10 @@ def main(files: list[str], out_dir: Path | None, config_file: Path | None, versi
     TrackedList.init = init
     TrackedList.progress = lambda self, i: progress.advance(self.task.id, i)
     # the step is not done until the TrackedList is deleted
-    TrackedList.__del__ = lambda self: progress.advance(self.task.id, float("inf"))
+    TrackedList.__del__ = lambda self: progress.advance(self.task.id, 9e999)
 
     n = len(files)
-    with Live(Group(Rule(), status, progress), transient=True, console=console, refresh_per_second=12.5):
+    with Live(Group(Rule(), status, progress), transient=True, console=console, refresh_per_second=12.5) as live:
         transformers.logging.disable_default_handler()
         transformers.logging.add_handler(log_handler)
         progress.add_task(SEGMENTATION_STEP, start=False)
@@ -112,22 +113,28 @@ def main(files: list[str], out_dir: Path | None, config_file: Path | None, versi
             for task in progress.tasks:
                 progress.reset(task.id, start=False)
             pyc_path = Path(file)
-            log_handler.keywords = [file, pyc_path.name, pyc_path.with_suffix(".py").name]
+            log_handler.keywords = [file, pyc_path.name, pyc_path.with_suffix(".py").name, "decompiled_" + pyc_path.with_suffix(".py").name]
             status.update(f"Decompiling {pyc_path} ({i + 1} / {n})")
             if not pyc_path.exists():
                 raise FileNotFoundError(f"pyc file {pyc_path} does not exist")
 
             try:
                 result = decompile(
-                    file=pyc_path,
-                    out_dir=out_dir / f"decompiled_{pyc_path.stem}" if out_dir is not None else Path(f"decompiled_{pyc_path.stem}"),
+                    pyc=pyc_path,
+                    save_to=Path(f"{out_dir}/decompiled_{pyc_path.with_suffix('.py').name}" if out_dir else f"decompiled_{pyc_path.with_suffix('.py').name}"),
                     config_file=Path(config_file) if config_file else None,
                     version=version,
                     top_k=top_k,
                     trust_lnotab=trust_lnotab,
                 )
-                print_result(pyc_path.name, result)
+                pyc = result.original_pyc
+                print_result(f"Equivalence Results for {pyc.pyc_path.name if pyc.pyc_path else repr(pyc)}", result.equivalence_results)
             except Exception:
+                import pdb
+
+                live.stop()
+                if hasattr(pdb, "xpm"):
+                    pdb.xpm()  # type: ignore
                 logger.exception(f"Failed to decompile {pyc_path}")
             console.rule()
 

@@ -5,7 +5,7 @@ version_str = {f"{x[0]}{x[1]}": x for x in supported_tuples} | {f"{x[0]}.{x[1]}"
 class PythonVersion:
     major: int
     minor: int
-    _t: tuple
+    _t: tuple[int, int]
 
     @staticmethod
     def normalize(x) -> tuple[int, int] | None:
@@ -58,6 +58,9 @@ class PythonVersion:
     def __lt__(self, o):
         norm = PythonVersion.normalize(o)
         return norm is not None and self._t < norm
+
+    def __hash__(self):
+        return hash(self._t)
 
     def __getitem__(self, i):
         return self._t[i]

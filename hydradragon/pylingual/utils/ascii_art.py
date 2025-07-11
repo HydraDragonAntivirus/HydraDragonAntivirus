@@ -24,7 +24,7 @@ Yb,  88      `8b           88  ,dP                                              
 try:
     _version = importlib.metadata.version("pylingual")
 except PackageNotFoundError:
-    _version = "0.0.1"
+    _version = "0.1.0"
 
 PYLINGUAL_SUBHEADER = f"""
 The University of Texas at Dallas, Syssec Lab
