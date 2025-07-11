@@ -597,7 +597,9 @@ def get_sandboxie_log_folder():
 ntdll_path = os.path.join(system32_dir, "ntdll.dll")
 sandboxed_ntdll_path = os.path.join(sandbox_system32_directory, "ntdll.dll")
 drivers_path = os.path.join(system32_dir, "drivers")
+drivers_sandboxie_path = get_sandbox_path(drivers_sandboxie_path)
 hosts_path = f'{drivers_path}\\hosts'
+hosts_sandboxie_path = get_sandbox_path(hosts_path)
 HydraDragonAntivirus_sandboxie_path = get_sandbox_path(script_dir)
 sandboxie_log_folder = get_sandboxie_log_folder()
 homepage_change_path = f'{sandboxie_log_folder}\\DONTREMOVEHomePageChange.txt'
@@ -9440,6 +9442,18 @@ def scan_and_warn(file_path,
 
         logging.info(f"Deep scanning file: {norm_path}")
 
+        # Check if the file is a known rootkit file
+        if is_pe_file and file_name in known_rootkit_files:
+            file_directory = os.path.dirname(file_path)
+
+            if file_directory in hosts_sandboxie_path:
+                logging.warning(f"Detected potential rootkit file in sandboxed path: {norm_path}")
+                rootkit_thread = threading.Thread(
+                    target=notify_user_for_detected_rootkit,
+                    args=(norm_path, f"HEUR:Rootkit.{file_name}")
+                )
+                rootkit_thread.start()
+
         # Wrap norm_path in a Path once, up front
         wrap_norm_path = Path(norm_path)
 
@@ -9841,12 +9855,6 @@ def scan_and_warn(file_path,
                 real_time_scan_thread = threading.Thread(target=monitor_message.detect_malware, args=(norm_path,))
                 real_time_scan_thread.start()
 
-        # Check if the file is a known rootkit file
-        if file_name in known_rootkit_files:
-            logging.warning(f"Detected potential rootkit file: {norm_path}")
-            rootkit_thread = threading.Thread(target=notify_user_for_detected_rootkit, args=(norm_path, f"HEUR:Rootkit.{file_name}"))
-            rootkit_thread.start()
-
         # Process the file data including magic byte removal
         if not os.path.commonpath([norm_path, processed_dir]) == processed_dir:
             process_thread = threading.Thread(target=process_file_data, args=(norm_path, die_output))
@@ -10183,7 +10191,7 @@ def check_startup_directories():
 
 def check_hosts_file_for_blocked_antivirus():
     """
-    Scan hosts_path for any entries that match one of your lists:
+    Scan hosts_sandboxie_path for any entries that match one of your lists:
       - IPv4 whitelist
       - IPv6 whitelist
       - Exact domain whitelist
@@ -10212,11 +10220,11 @@ def check_hosts_file_for_blocked_antivirus():
     }
 
     try:
-        if not os.path.exists(hosts_path):
-            logging.error(f"Hosts file not found: {hosts_path}")
+        if not os.path.exists(hosts_sandboxie_path):
+            logging.error(f"Hosts file not found: {hosts_sandboxie_path}")
             return False
 
-        with open(hosts_path, 'r') as hf:
+        with open(hosts_sandboxie_path, 'r') as hf:
             for raw in hf:
                 line = raw.strip()
                 if not line or line.startswith('#'):
@@ -10259,49 +10267,49 @@ def check_hosts_file_for_blocked_antivirus():
         if flagged['ipv4']:
             any_flagged = True
             notify_user_hosts(
-                hosts_path,
+                hosts_sandboxie_path,
                 "HEUR:Win32.Trojan.Hosts.WhiteIP.v4.gen",
                 details=list(flagged['ipv4'])
             )
         if flagged['ipv6']:
             any_flagged = True
             notify_user_hosts(
-                hosts_path,
+                hosts_sandboxie_path,
                 "HEUR:Win32.Trojan.Hosts.WhiteIP.v6.gen",
                 details=list(flagged['ipv6'])
             )
         if flagged['domain']:
             any_flagged = True
             notify_user_hosts(
-                hosts_path,
+                hosts_sandboxie_path,
                 "HEUR:Win32.Trojan.Hosts.WhiteDomain.gen",
                 details=list(flagged['domain'])
             )
         if flagged['mail_domain']:
             any_flagged = True
             notify_user_hosts(
-                hosts_path,
+                hosts_sandboxie_path,
                 "HEUR:Win32.Trojan.Hosts.Hijacker.Mail.gen",
                 details=list(flagged['mail_domain'])
             )
         if flagged['sub_domain']:
             any_flagged = True
             notify_user_hosts(
-                hosts_path,
+                hosts_sandboxie_path,
                 "HEUR:Win32.Trojan.Hosts.WhiteSubdomain.gen",
                 details=list(flagged['sub_domain'])
             )
         if flagged['mail_sub_domain']:
             any_flagged = True
             notify_user_hosts(
-                hosts_path,
+                hosts_sandboxie_path,
                 "HEUR:Win32.Trojan.Hosts.Hijacker.MailSub.gen",
                 details=list(flagged['mail_sub_domain'])
             )
         if flagged['antivirus']:
             any_flagged = True
             notify_user_hosts(
-                hosts_path,
+                hosts_sandboxie_path,
                 "HEUR:Win32.Trojan.Hosts.Hijacker.DisableAV.gen",
                 details=list(flagged['antivirus'])
             )
