@@ -206,7 +206,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 **Are you using leaked YARA rules?**
 - No we don't but if you have proof please create issue we can remove it.
 
-**Why don't you use NictaSoft and GridinSoft cloud?**
+**Why don't you use NictaSoft, GridinSoft and Bitdefender cloud?**
 - It could significantly boost my antivirus. However, there are some problems. These services are not open source unless you pay. We're not only focused on detection, but also committed to maintaining open-source principles.
 
 **Other related repositories?**
