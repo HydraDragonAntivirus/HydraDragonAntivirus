@@ -79,6 +79,18 @@ DETECTIEASY_PATH = CWD / "detectiteasy" / "diec.exe"
 DIE_OUTPUT_DIR   = CWD / "die_outputs"
 REPORTS_DIR      = CWD / "reports"
 
+# Read antivirus process list from antivirusprocesslist.txt with try-except
+antivirus_process_list = []
+try:
+    if os.path.exists(ANTIVIRUS_PROCESS_LIST_PATH):
+        with open(ANTIVIRUS_PROCESS_LIST_PATH, 'r', encoding='utf-8', errors='ignore') as av_file:
+            antivirus_process_list = [line.strip() for line in av_file if line.strip()]
+except Exception as ex:
+    logging.info(f"Error reading {ANTIVIRUS_PROCESS_LIST_PATH}: {ex}")
+
+logging.info(f"Antivirus process list read from {ANTIVIRUS_PROCESS_LIST_PATH}: {antivirus_process_list}")
+
+
 SYSTEM_DIRS      = [
     r"C:\Windows\System32",
     r"C:\Windows\SysWOW64",
@@ -167,7 +179,7 @@ def verify_authenticode_signature(file_path: str) -> bool:
 def generate_detection_name(detection_type: str, details: str) -> str:
     """Generates a standardized detection name."""
     sanitized_details = ''.join(c for c in details if c.isalnum() or c in ('-', '_')).capitalize()
-    return f"HEUR:Win32.Susp.{detection_type}.{sanitized_details}.gen"
+    return f"HEUR:Win32.Susp.Rootkit.{detection_type}.{sanitized_details}.gen"
 
 def get_unique_output_path(output_dir: Path, base_name: Path) -> Path:
     candidate = output_dir / base_name.name
@@ -513,6 +525,76 @@ def scan_autorun_registry() -> list[dict]:
         except Exception:
             continue
     return out
+
+def scan_ifeo_antivirus_blocking() -> list[dict]:
+    """
+    Scan Image File Execution Options registry for antivirus process blocking.
+    Detects IFEO entries that may prevent antivirus software from running.
+    """
+    findings = []
+    
+    ifeo_key_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options"
+    
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, ifeo_key_path) as ifeo_key:
+            i = 0
+            while True:
+                try:
+                    # Get each subkey name (executable name)
+                    exe_name = winreg.EnumKey(ifeo_key, i)
+                    
+                    # Check if this executable name matches any antivirus process
+                    if exe_name.lower() in [av.lower() for av in antivirus_processes]:
+                        try:
+                            # Open the specific executable's IFEO subkey
+                            with winreg.OpenKey(ifeo_key, exe_name) as exe_key:
+                                # Check for suspicious values that could block execution
+                                suspicious_values = {}
+                                
+                                try:
+                                    # Check for Debugger value (most common blocking method)
+                                    debugger_value, _ = winreg.QueryValueEx(exe_key, "Debugger")
+                                    suspicious_values["Debugger"] = debugger_value
+                                except FileNotFoundError:
+                                    pass
+                                
+                                try:
+                                    # Check for DisableExceptionChainValidation
+                                    disable_exc_chain, _ = winreg.QueryValueEx(exe_key, "DisableExceptionChainValidation")
+                                    suspicious_values["DisableExceptionChainValidation"] = disable_exc_chain
+                                except FileNotFoundError:
+                                    pass
+                                
+                                try:
+                                    # Check for other suspicious values
+                                    disable_heap_coalesce, _ = winreg.QueryValueEx(exe_key, "DisableHeapCoalesce")
+                                    suspicious_values["DisableHeapCoalesce"] = disable_heap_coalesce
+                                except FileNotFoundError:
+                                    pass
+                                
+                                # If any suspicious values found, report it
+                                if suspicious_values:
+                                    findings.append({
+                                        "detection_name": generate_detection_name("FileBlocker", exe_name.replace('.exe', '')),
+                                        "blocked_process": exe_name,
+                                        "ifeo_path": f"{ifeo_key_path}\\{exe_name}",
+                                        "suspicious_values": suspicious_values,
+                                        "description": f"IFEO entry may be blocking antivirus process: {exe_name}",
+                                        "risk": "HIGH" if "Debugger" in suspicious_values else "MEDIUM"
+                                    })
+                                    
+                        except Exception as e:
+                            logging.debug(f"Error checking IFEO subkey {exe_name}: {e}")
+                    
+                    i += 1
+                except OSError:
+                    # No more subkeys
+                    break
+                    
+    except Exception as e:
+        logging.error(f"Error scanning IFEO registry: {e}")
+    
+    return findings
 
 # ========== ENHANCED DETECTION CLASSES ==========
 class TimingBasedDetection:
