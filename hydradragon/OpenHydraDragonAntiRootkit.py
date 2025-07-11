@@ -78,6 +78,7 @@ CWD              = Path(os.getcwd())
 DETECTIEASY_PATH = CWD / "detectiteasy" / "diec.exe"
 DIE_OUTPUT_DIR   = CWD / "die_outputs"
 REPORTS_DIR      = CWD / "reports"
+ANTIVIRUS_PROCESS_LIST_PATH = CWD / "antivirusprocesslist.txt"
 
 # Read antivirus process list from antivirusprocesslist.txt with try-except
 antivirus_process_list = []
@@ -945,6 +946,12 @@ def generate_scan_report():
         notify_user_for_rootkit(finding.get("subkey"), finding.get("detection_name", "UnknownACL"))
     if acl:
         report["registry_acl_issues"] = acl
+
+    ifeo_blocking = scan_ifeo_antivirus_blocking()
+    for finding in ifeo_blocking:
+        notify_user_for_rootkit(finding.get("blocked_process"), finding.get("detection_name", "UnknownIFEO"))
+    if ifeo_blocking:
+        report["ifeo_antivirus_blocking"] = ifeo_blocking
 
     report["scan_time"] = datetime.now().isoformat()
     return report
