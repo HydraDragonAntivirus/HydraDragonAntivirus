@@ -428,6 +428,8 @@ copied_sandbox_and_main_files_dir = os.path.join(script_dir, "copied_sandbox_and
 detectiteasy_console_path = os.path.join(detectiteasy_dir, "diec.exe")
 ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
 pycdas_path = os.path.join(script_dir, "pycdas.exe")
+ISx_installshield_extractor_path = os.path.join(script_dir, "ISx.exe")
+installshield_extracted_dir = os.path.join(script_dir, "installshield_extracted")
 pd64_path = os.path.join(script_dir, "pd64.exe")
 pd64_extracted_dir = os.path.join(script_dir, "pd64_extracted")
 deobfuscar_path = os.path.join(script_dir, "Deobfuscar-Standalone-Win64.exe")
@@ -647,7 +649,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [pd64_extracted_dir, enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir, processed_dir, python_source_code_dir, pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir]
+directories_to_scan = [pd64_extracted_dir, enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir, processed_dir, python_source_code_dir, pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir, upx_extracted_dir, installshield_extracted_dir]
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
@@ -749,7 +751,7 @@ MANAGED_DIRECTORIES = [
     debloat_dir, jar_extracted_dir, FernFlower_decompiled_dir, deteciteasy_plain_text_dir,
     python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pylingual_extracted_dir,
     pycdas_extracted_dir, copied_sandbox_and_main_files_dir, HiJackThis_logs_dir,
-    html_extracted_dir, log_directory
+    html_extracted_dir, log_directory, installshield_extracted_dir
 ]
 
 for make_directory in MANAGED_DIRECTORIES:
@@ -1373,6 +1375,14 @@ def is_advanced_installer_file_from_output(die_output):
         logging.info("DIE output indicates a Advanced Installer file.")
         return True
     logging.info(f"DIE output does not indicate a Advanced Installer file: {die_output}")
+    return False
+
+def is_installshield_file_from_output(die_output):
+    """Checks if DIE output indicates a Install Shield file."""
+    if die_output and ("InstallShield" in die_output):
+        logging.info("DIE output indicates a Install Shield file.")
+        return True
+    logging.info(f"DIE output does not indicate a Install Shield file: {die_output}")
     return False
 
 def is_nsis_from_output(die_output: str) -> bool:
@@ -6896,6 +6906,8 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: It's a Nuitka reversed-engineered Python source code directory.")
         elif file_path.startswith(html_extracted_dir):
             logging.info(f"{file_path}: This is the directory for HTML files of visited websites.")
+        elif file_path.startswith(installshield_extracted_dir):
+            logging.info(f"{file_path}: InstallShield extracted with ISx.")
         else:
             logging.warning(f"{file_path}: File does not match known directories.")
     except Exception as ex:
@@ -6950,7 +6962,8 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
             (lambda fp: fp.startswith(pycdas_extracted_dir), "PyInstaller, .pyc reversed-engineered source code directory with pycdas.exe."),
             (lambda fp: fp.startswith(python_source_code_dir), "PyInstaller, .pyc reversed-engineered source code base directory."),
             (lambda fp: fp.startswith(nuitka_source_code_dir), "Nuitka reversed-engineered Python source code directory."),
-            (lambda fp: fp.startswith(html_extracted_dir), "This is the directory for HTML files of visited websites.")
+            (lambda fp: fp.startswith(html_extracted_dir), "This is the directory for HTML files of visited websites."),
+            (lambda fp: fp.startswith(installshield_extracted_dir), "InstallShield extracted with ISx.")
         ]
 
         # 1) Find and log the first matching directory message, also save it for the prompt
@@ -8996,6 +9009,54 @@ def is_inno_setup_archive_from_output(die_output):
     logging.info(f"DIE output does not indicate an Inno Setup installer: {die_output!r}")
     return False
 
+def extract_installshield(file_path):
+    """
+    Unpacks an InstallShield file using ISx.exe.
+    Returns the path to the output directory, or None on failure.
+
+    :param file_path: Path to the InstallShield file (e.g., .cab, .exe)
+    :return: Path to the directory containing extracted files, or None if extraction failed.
+    """
+    try:
+        logging.info(f"Detected InstallShield file: {file_path}")
+
+        # create a unique subdirectory inside installshield-extracted_dir
+        base_name = os.path.splitext(os.path.basename(file_path))[0]
+        folder_number = 1
+        while True:
+            out_dir_name = f"{base_name}_extracted{'' if folder_number == 1 else f'_{folder_number}'}"
+            output_dir = os.path.join(installshield_extracted_dir, out_dir_name)
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+                break
+            folder_number += 1
+
+        # run ISx.exe: `ISx.exe <InstallShield file> [output dir]`
+        cmd = [
+            isx_path,
+            file_path,
+            output_dir
+        ]
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="ignore"
+        )
+
+        if result.returncode != 0:
+            logging.error(f"ISx extraction failed ({result.returncode}): {result.stderr.strip()}")
+            return None
+
+        logging.info(f"Files extracted to: {output_dir}")
+        return output_dir
+
+    except Exception as ex:
+        logging.error(f"Error extracting InstallShield file {file_path}: {ex}")
+        return None
+
 def extract_upx(file_path):
     """
     Unpacks a UPX-compressed executable using UPX.
@@ -9418,9 +9479,15 @@ def scan_and_warn(file_path,
                 )
                 return False
 
+        if is_installshield_file_from_output(die_output):
+            logging.info(f"File {norm_path} is a valid Install Shield file.")
+            extracted_installshield_files = extract_installshield(norm_path)
+            for extracted_installshield_file in extracted_installshield_files:
+                scan_and_warn(extracted_installshield_file)
+
         if is_advanced_installer_file_from_output(die_output):
             logging.info(f"File {norm_path} is a valid Advanced Installer file.")
-            extracted_files = advanced_installer_extractor(file_path)
+            extracted_files = advanced_installer_extractor(norm_path)
             for extracted_file in extracted_files:
                 scan_and_warn(extracted_file)
 
@@ -9444,7 +9511,7 @@ def scan_and_warn(file_path,
 
         # Check if the file is a known rootkit file
         if is_pe_file and file_name in known_rootkit_files:
-            file_directory = os.path.dirname(file_path)
+            file_directory = os.path.dirname(norm_path)
 
             if file_directory in hosts_sandboxie_path:
                 logging.warning(f"Detected potential rootkit file in sandboxed path: {norm_path}")
@@ -9573,11 +9640,11 @@ def scan_and_warn(file_path,
                         identifier = getattr(rule, "identifier", None)
                         if identifier and identifier not in excluded_rules:
                             logging.info(
-                                f"YARA rule '{identifier}' matched on {file_path}. Invoking CXFreeze decompiler."
+                                f"YARA rule '{identifier}' matched on {norm_path}. Invoking CXFreeze decompiler."
                             )
 
                             # Extract + decompile the CXFreeze __main__.pyc
-                            cx_freeze_main_pyc_path = decompile_cx_freeze(file_path)
+                            cx_freeze_main_pyc_path = decompile_cx_freeze(norm_path)
 
                             if cx_freeze_main_pyc_path:
                                 scan_and_warn(cx_freeze_main_pyc_path)
@@ -9588,7 +9655,7 @@ def scan_and_warn(file_path,
                                 logging.info(f"YARA rule '{identifier}' is excluded.")
                     # No matching (non-excluded) rule-continue into the normal .pyc logic below.
                 except Exception as e:
-                    logging.error(f"Error scanning {file_path} with cx_freeze_rule: {e}")
+                    logging.error(f"Error scanning {norm_path} with cx_freeze_rule: {e}")
             # ---------------------------------------------------------------------
 
             # Check if it's a .pyc file and decompile via Pylingual
@@ -9906,7 +9973,7 @@ def scan_and_warn(file_path,
                 attack_types.append("MultiExt")
 
             virus_name = f"HEUR:Susp.Name.{'+'.join(attack_types)}.gen"
-            notify_user_susp_name(file_path, virus_name)
+            notify_user_susp_name(norm_path, virus_name)
 
     except Exception as ex:
         logging.error(f"Error scanning file {norm_path}: {ex}")
