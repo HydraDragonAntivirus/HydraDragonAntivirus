@@ -11596,7 +11596,7 @@ class HydraIconWidget(QWidget):
             painter.drawPath(path)
 
 
-# --- Custom Shield Widget for Status (MODIFIED) ---
+# --- Custom Shield Widget for Status ---
 class ShieldWidget(QWidget):
     """A custom widget to draw an animated status shield with a glowing effect."""
     def __init__(self, parent=None):
