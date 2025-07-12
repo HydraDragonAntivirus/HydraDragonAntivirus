@@ -11964,7 +11964,7 @@ class AntivirusApp(QWidget):
         control_layout.addStretch()  # Push button to the left
         layout.addLayout(control_layout)
 
-        log_output = QTextEdit("Analysis logs will appear here...")
+        log_output = QTextEdit("Analysis logs will be saved in the logs folder.")
         log_output.setObjectName("log_output")
         layout.addWidget(log_output, 1)
         self.log_outputs.append(log_output)
