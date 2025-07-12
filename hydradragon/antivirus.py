@@ -599,7 +599,7 @@ def get_sandboxie_log_folder():
 ntdll_path = os.path.join(system32_dir, "ntdll.dll")
 sandboxed_ntdll_path = os.path.join(sandbox_system32_directory, "ntdll.dll")
 drivers_path = os.path.join(system32_dir, "drivers")
-drivers_sandboxie_path = get_sandbox_path(drivers_sandboxie_path)
+drivers_sandboxie_path = get_sandbox_path(drivers_path)
 hosts_path = f'{drivers_path}\\hosts'
 hosts_sandboxie_path = get_sandbox_path(hosts_path)
 HydraDragonAntivirus_sandboxie_path = get_sandbox_path(script_dir)
