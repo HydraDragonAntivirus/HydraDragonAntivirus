@@ -123130,15 +123130,7 @@ www-us.computershare.com
 www-uv100-com-tw.b.appier.net
 www-visaprepaid-verification.duckdns.org
 www-yodobash-com.lingerl1.tech
-www.coronavirus.udland.dk
-www.demo.covid.stacked.tk
-www.dev.coronavirus.udland.dk
-www.occovid19.ochealtginfo.com
-www.occovid19.ochealthifo.com
-www.shop.covid.antoinebarbare.me
-www.test.coronavirus.udland.dk
-www.www.covid.antoinebarbare.me
-www.yria-covid19.hchearts.com
+www.covid.antoinebarbare.me
 www0.easyx.cc
 www0.paperg.com
 www1-quantu-mirrorschooplacestilityponeocovidev.mkdjwg.cn
@@ -126061,6 +126053,7 @@ yrd.voltertug.live
 yrdd.myinvestoil.com
 yre.api.coinhive.com
 yre.valuez.top
+yria-covid19.hchearts.com
 yric.yangon.gov.mm
 yritysarkisto.sanoma.fi
 yrkowu8uq-h.quaesngsmarketing.net
