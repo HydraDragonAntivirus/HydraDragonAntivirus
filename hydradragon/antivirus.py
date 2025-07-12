@@ -11,7 +11,7 @@ main_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(main_dir)
 sys.path.insert(0, main_dir)
 
-# Set script directory
+# Set script directorybaka
 script_dir = os.getcwd()
 
 # Define log directories and files
@@ -339,11 +339,11 @@ logging.info(f"requests module loaded in {time.time() - start_time:.6f} seconds"
 
 start_time = time.time()
 from functools import wraps
-logging.info("functoools.wraps module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"functoools.wraps module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from xdis.unmarshal import load_code
-logging.info("xdis.unmarshal.load_code module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"xdis.unmarshal.load_code module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from GoStringUngarbler.gostringungarbler_lib import process_file_go
@@ -9033,7 +9033,7 @@ def extract_installshield(file_path):
 
         # run ISx.exe: `ISx.exe <InstallShield file> [output dir]`
         cmd = [
-            isx_path,
+            ISx_installshield_extractor_path,
             file_path,
             output_dir
         ]
@@ -9510,7 +9510,7 @@ def scan_and_warn(file_path,
         logging.info(f"Deep scanning file: {norm_path}")
 
         # Check if the file is a known rootkit file
-        if is_pe_file and file_name in known_rootkit_files:
+        if pe_file and file_name in known_rootkit_files:
             file_directory = os.path.dirname(norm_path)
 
             if file_directory in hosts_sandboxie_path:
@@ -10502,8 +10502,6 @@ def run_sandboxie_control():
         logging.error(f"Error running Sandboxie control: {ex.stderr}")
     except Exception as ex:
         logging.error(f"Unexpected error running Sandboxie control: {ex}")
-
-threading.Thread(target=run_sandboxie_control).start()
 
 # ----------------------------------------------------
 # Constants for Windows API calls
@@ -11944,6 +11942,8 @@ class AntivirusApp(QWidget):
         warning_text.setObjectName("warning_text")
         warning_layout.addWidget(warning_text)
         layout.addWidget(warning_box)
+
+        # First row of buttons
         button_layout = QHBoxLayout()
         analyze_btn = QPushButton("Analyze File...")
         analyze_btn.setObjectName("action_button")
@@ -11954,11 +11954,30 @@ class AntivirusApp(QWidget):
         button_layout.addWidget(analyze_btn)
         button_layout.addWidget(stop_btn)
         layout.addLayout(button_layout)
+
+        # Second row of buttons
+        control_layout = QHBoxLayout()
+        sandboxie_control_btn = QPushButton("Open Sandboxie Control")
+        sandboxie_control_btn.setObjectName("action_button")
+        sandboxie_control_btn.clicked.connect(self.open_sandboxie_control)
+        control_layout.addWidget(sandboxie_control_btn)
+        control_layout.addStretch()  # Push button to the left
+        layout.addLayout(control_layout)
+
         log_output = QTextEdit("Analysis logs will appear here...")
         log_output.setObjectName("log_output")
         layout.addWidget(log_output, 1)
         self.log_outputs.append(log_output)
         return page
+
+    def open_sandboxie_control(self):
+        """Opens the Sandboxie control window."""
+        try:
+            self.append_log_output("[*] Opening Sandboxie Control window...")
+            run_sandboxie_control()
+            self.append_log_output("[+] Sandboxie Control window opened successfully.")
+        except Exception as e:
+            self.append_log_output(f"[!] Error opening Sandboxie Control: {str(e)}")
 
     def analyze_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select a file to analyze", "", "All Files (*)")
@@ -12201,7 +12220,7 @@ class Worker(QThread):
             for file_path in clamav_file_paths:
                 if os.path.exists(file_path):
                     file_mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
-                    if (datetime.now() - file_mod_time) > timedelta(hours=6):
+                    if (datetime.now() - file_mod_time) > timedelta(hours=12):
                         updated = True
                         break
                 else: # If a definition file doesn't exist, we should update.
@@ -12379,9 +12398,105 @@ class Worker(QThread):
 
         self.output_signal.emit(f"[+] Total directories recreated: {created_count}")
 
+
+    def cleanup_logging_files(self):
+        """
+        Stops logging and removes/cleans up log files.
+        """
+        try:
+            # Get the main script directory
+            script_dir = os.getcwd()
+            log_directory = os.path.join(script_dir, "log")
+
+            # Define log file paths
+            stdout_console_log_file = os.path.join(log_directory, "antivirusconsolestdout.log")
+            stderr_console_log_file = os.path.join(log_directory, "antivirusconsolestderr.log")
+            application_log_file = os.path.join(log_directory, "antivirus.log")
+
+            # Close current stdout/stderr redirections
+            if hasattr(sys.stdout, 'close') and sys.stdout != sys.__stdout__:
+                sys.stdout.close()
+            if hasattr(sys.stderr, 'close') and sys.stderr != sys.__stderr__:
+                sys.stderr.close()
+
+            # Restore original stdout/stderr
+            sys.stdout = sys.__stdout__
+            sys.stderr = sys.__stderr__
+
+            # Stop the logging handlers
+            logging.shutdown()
+
+            # Remove log files if they exist
+            log_files = [stdout_console_log_file, stderr_console_log_file, application_log_file]
+
+            for log_file in log_files:
+                if os.path.exists(log_file):
+                    try:
+                        os.remove(log_file)
+                        self.output_signal.emit(f"[+] Removed log file: {log_file}")
+                    except (OSError, PermissionError) as e:
+                        self.output_signal.emit(f"[!] Could not remove {log_file}: {str(e)}")
+
+            # Optionally remove the entire log directory if empty
+            if os.path.exists(log_directory) and not os.listdir(log_directory):
+                try:
+                    os.rmdir(log_directory)
+                    self.output_signal.emit(f"[+] Removed empty log directory: {log_directory}")
+                except (OSError, PermissionError) as e:
+                    self.output_signal.emit(f"[!] Could not remove log directory: {str(e)}")
+
+            self.output_signal.emit("[+] Logging cleanup completed successfully!")
+
+        except Exception as e:
+            self.output_signal.emit(f"[!] Error during logging cleanup: {str(e)}")
+
+    def reinitialize_logging(self):
+        """
+        Reinitializes logging after cleanup.
+        """
+        try:
+            # Get the main script directory
+            script_dir = os.getcwd()
+            log_directory = os.path.join(script_dir, "log")
+
+            # Create log directory if it doesn't exist
+            if not os.path.exists(log_directory):
+                os.makedirs(log_directory)
+
+            # Define log file paths
+            stdout_console_log_file = os.path.join(log_directory, "antivirusconsolestdout.log")
+            stderr_console_log_file = os.path.join(log_directory, "antivirusconsolestderr.log")
+            application_log_file = os.path.join(log_directory, "antivirus.log")
+
+            # Configure logging for application log
+            logging.basicConfig(
+                filename=application_log_file,
+                level=logging.DEBUG,
+                format='%(asctime)s - %(levelname)s - %(message)s',
+                force=True  # This forces reconfiguration
+            )
+
+            # Redirect stdout to stdout console log
+            sys.stdout = open(stdout_console_log_file, "w", encoding="utf-8", errors="ignore")
+
+            # Redirect stderr to stderr console log
+            sys.stderr = open(stderr_console_log_file, "w", encoding="utf-8", errors="ignore")
+
+            # Log the reinitialization
+            from datetime import datetime
+            logging.info(
+                "Logging reinitialized at %s",
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            )
+
+            self.output_signal.emit("[+] Logging reinitialized successfully!")
+
+        except Exception as e:
+            self.output_signal.emit(f"[!] Error during logging reinitialization: {str(e)}")
+
     def perform_cleanup(self):
         """
-        Performs comprehensive cleanup of the environment.
+        Performs comprehensive cleanup of the environment including logging files.
         """
         try:
             global pre_analysis_log_path, post_analysis_log_path, pre_analysis_entries, post_analysis_entries
@@ -12403,20 +12518,25 @@ class Worker(QThread):
             self.cleanup_directories()
             self.cleanup_directories()
 
-            # Step 4: Reset global variables
-            self.output_signal.emit("[*] Step 4: Resetting analysis state...")
+            # Step 4: Stop and cleanup logging files
+            self.output_signal.emit("[*] Step 4: Stopping logging and cleaning log files...")
+            self.cleanup_logging_files()
+            self.reinitialize_logging()
+
+            # Step 5: Reset global variables
+            self.output_signal.emit("[*] Step 5: Resetting analysis state...")
             pre_analysis_log_path = None
             post_analysis_log_path = None
             pre_analysis_entries = None
             post_analysis_entries = None
             reset_flags()
 
-            # Step 5: Restart services
-            self.output_signal.emit("[*] Step 5: Restarting services...")
+            # Step 6: Restart services
+            self.output_signal.emit("[*] Step 6: Restarting services...")
             self.restart_services()
 
-            # Step 6: Recreate directories
-            self.output_signal.emit("[*] Step 6: Recreating clean directories...")
+            # Step 7: Recreate directories
+            self.output_signal.emit("[*] Step 7: Recreating clean directories...")
             self.recreate_directories()
 
             self.output_signal.emit("[+] Environment cleanup completed successfully!")
