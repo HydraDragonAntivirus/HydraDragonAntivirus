@@ -270,10 +270,6 @@ import binascii
 logging.info(f"binascii module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from transformers import AutoTokenizer, AutoModelForCausalLM
-logging.info(f"transformers.AutoTokenizer and AutoModelForCausalLM modules loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 from accelerate import Accelerator
 logging.info(f"accelerate.Accelerator module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -5947,12 +5943,30 @@ except Exception as ex:
 
 # Function to load Meta Llama-3.2-1B model and tokenizer
 def load_meta_llama_1b_model():
+    """
+    Function to load Meta Llama-3.2-1B model and tokenizer.
+    This is a resource-intensive operation.
+    """
+    # --- Hugging Face Transformers for Llama model (Optional Feature) ---
+    # This feature is experimental and requires significant RAM.
+    try:
+        from transformers import AutoTokenizer, AutoModelForCausalLM
+    except Exception as ex:
+        error_message = f"Error loading from transformers import AutoTokenizer, AutoModelForCausalLM: {ex}"
+        logging.error(error_message)
+        return None, None
+    
     try:
         message = "Attempting to load Llama-3.2-1B model and tokenizer..."
         logging.info(message)
 
+        # Load tokenizer and model from the local directory
         llama32_tokenizer = AutoTokenizer.from_pretrained(meta_llama_1b_dir, local_files_only=True)
-        llama32_model = AutoModelForCausalLM.from_pretrained(meta_llama_1b_dir, local_files_only=True)
+        llama32_model = AutoModelForCausalLM.from_pretrained(
+            meta_llama_1b_dir,
+            local_files_only=True,
+            # Optional: Add device_map="auto" if you have a GPU and want to use it
+        )
 
         success_message = "Llama-3.2-1B successfully loaded!"
         logging.info(success_message)
@@ -5961,10 +5975,11 @@ def load_meta_llama_1b_model():
     except Exception as ex:
         error_message = f"Error loading Llama-3.2-1B model or tokenizer: {ex}"
         logging.error(error_message)
-        sys.exit(1)
+        return None, None
 
-# Load the Meta Llama-3.2-1B model
-meta_llama_1b_model, meta_llama_1b_tokenizer = load_meta_llama_1b_model()
+# Initialize variables as None (empty)
+meta_llama_1b_model = None
+meta_llama_1b_tokenizer = None
 
 # List to keep track of existing project names
 existing_projects = []
@@ -6923,6 +6938,10 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
         file_path (str): The path to the file to be scanned.
         decompiled_flag (bool): If True, indicates that the file was decompiled by our tool.
     """
+    if not meta_llama_1b_model or not meta_llama_1b_tokenizer:
+        logging.warning("Llama model is not loaded. Cannot perform analysis.")
+        return "Llama model is not loaded. Cannot perform analysis."
+
     try:
         # List of directory conditions and their corresponding logging messages.
         # Note: For conditions that need an exact match (like the main file), a lambda is used accordingly.
@@ -11860,7 +11879,7 @@ class AntivirusApp(QWidget):
         self.main_stack.addWidget(self.create_task_page("Generate Clean DB", "generate_clean_db"))
         self.main_stack.addWidget(self.create_analysis_page())
         self.main_stack.addWidget(self.create_task_page("Capture Analysis Logs", "capture_analysis_logs"))
-        self.main_stack.addWidget(self.create_task_page("Compare Analysis Logs", "compare_logs"))
+        self.main_stack.addWidget(self.create_task_page("Compare Logs (Llama AI)", "compare_logs"))
         self.main_stack.addWidget(self.create_task_page("Rootkit Scan", "rootkit_scan"))
         self.main_stack.addWidget(self.create_cleanup_page())
         self.main_stack.addWidget(self.create_about_page())
@@ -11933,7 +11952,7 @@ class AntivirusApp(QWidget):
             "3. Capture Analysis Logs<br>"
             "4. Analyze a File<br>"
             "5. Stop Analysis<br>"
-            "6. Capture and Compare Analysis Logs<br>"
+            "6. Capture and Compare Analysis Logs (with Llama AI)<br>"
             "7. Rootkit Scan<br>"
             "8. Cleanup Environment<br><br>"
             "<i>Return to a clean snapshot before starting a new analysis.</i>"
@@ -12022,20 +12041,29 @@ class AntivirusApp(QWidget):
         )
         about_text.setWordWrap(True)
         layout.addWidget(about_text)
+
+        # Llama Model Loader Button
+        llama_load_button = QPushButton("Load Meta Llama AI Model (Requires >8GB RAM)")
+        llama_load_button.setObjectName("action_button")
+        llama_load_button.clicked.connect(lambda: self.start_worker("load_llama_model"))
+        layout.addWidget(llama_load_button, 0, Qt.AlignmentFlag.AlignLeft)
+
         github_button = QPushButton("View Project on GitHub")
         github_button.setObjectName("action_button")
         github_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus"))
         layout.addWidget(github_button, 0, Qt.AlignmentFlag.AlignLeft)
+        
+        # Log output for Llama model loading status
+        log_output = QTextEdit("Llama AI model status will appear here...")
+        log_output.setObjectName("log_output")
+        log_output.setReadOnly(True)
+        layout.addWidget(log_output, 1)
+        self.log_outputs.append(log_output)
+
         layout.addStretch()
-        self.log_outputs.append(None)
         return page
 
     def setup_ui(self):
-        # --- Set Window Icon ---
-        # Determine the script directory robustly
-        script_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in locals() else os.getcwd()
-        assets_dir = os.path.join(script_dir, "assets")
-
         # Set the window icon if the file exists
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
@@ -12053,100 +12081,23 @@ class AntivirusApp(QWidget):
 
     def apply_stylesheet(self):
         stylesheet = """
-            QWidget {
-                background-color: #2E3440;
-                color: #D8DEE9;
-                font-family: 'Segoe UI', Arial, sans-serif;
-                font-size: 14px;
-            }
-            QTextEdit {
-                background-color: #3B4252;
-                border: 1px solid #4C566A;
-                border-radius: 5px;
-                padding: 8px;
-                color: #ECEFF4;
-                font-family: 'Consolas', 'Courier New', monospace;
-            }
-            #sidebar {
-                background-color: #3B4252;
-                max-width: 220px;
-            }
-            #logo {
-                color: #88C0D0;
-                font-size: 28px;
-                font-weight: bold;
-            }
-            #nav_button {
-                background-color: transparent;
-                border: none;
-                color: #ECEFF4;
-                padding: 12px;
-                text-align: left;
-                border-radius: 5px;
-            }
-            #nav_button:hover {
-                background-color: #434C5E;
-            }
-            #nav_button:checked {
-                background-color: #88C0D0;
-                color: #2E3440;
-                font-weight: bold;
-            }
-            #page_title {
-                font-size: 28px;
-                font-weight: 300;
-                color: #ECEFF4;
-                padding-bottom: 15px;
-            }
-            #page_subtitle {
-                font-size: 16px;
-                color: #A3BE8C;
-            }
-            #version_label {
-                font-size: 13px;
-                color: #81A1C1;
-            }
-            #action_button {
-                background-color: #5E81AC;
-                color: #ECEFF4;
-                border-radius: 8px;
-                padding: 12px 20px;
-                font-size: 14px;
-                font-weight: bold;
-                border: none;
-                max-width: 300px;
-            }
-            #action_button:hover {
-                background-color: #81A1C1;
-            }
-            #action_button_danger {
-                background-color: #BF616A;
-                color: #ECEFF4;
-                border-radius: 8px;
-                padding: 12px 20px;
-                font-size: 14px;
-                font-weight: bold;
-                border: none;
-            }
-            #action_button_danger:hover {
-                background-color: #d08770;
-            }
-            QGroupBox {
-                font-weight: bold;
-                border: 1px solid #4C566A;
-                border-radius: 8px;
-                margin-top: 10px;
-                padding: 15px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 0 5px;
-            }
-            #warning_text {
-                font-size: 13px;
-                line-height: 1.5;
-            }
+            QWidget { background-color: #2E3440; color: #D8DEE9; font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; }
+            QTextEdit { background-color: #3B4252; border: 1px solid #4C566A; border-radius: 5px; padding: 8px; color: #ECEFF4; font-family: 'Consolas', 'Courier New', monospace; }
+            #sidebar { background-color: #3B4252; max-width: 220px; }
+            #logo { color: #88C0D0; font-size: 28px; font-weight: bold; }
+            #nav_button { background-color: transparent; border: none; color: #ECEFF4; padding: 12px; text-align: left; border-radius: 5px; }
+            #nav_button:hover { background-color: #434C5E; }
+            #nav_button:checked { background-color: #88C0D0; color: #2E3440; font-weight: bold; }
+            #page_title { font-size: 28px; font-weight: 300; color: #ECEFF4; padding-bottom: 15px; }
+            #page_subtitle { font-size: 16px; color: #A3BE8C; }
+            #version_label { font-size: 13px; color: #81A1C1; }
+            #action_button { background-color: #5E81AC; color: #ECEFF4; border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: bold; border: none; max-width: 350px; }
+            #action_button:hover { background-color: #81A1C1; }
+            #action_button_danger { background-color: #BF616A; color: #ECEFF4; border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: bold; border: none; }
+            #action_button_danger:hover { background-color: #d08770; }
+            QGroupBox { font-weight: bold; border: 1px solid #4C566A; border-radius: 8px; margin-top: 10px; padding: 15px; }
+            QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }
+            #warning_text { font-size: 13px; }
         """
         self.setStyleSheet(stylesheet)
 
