@@ -200,11 +200,11 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 
 **What are the minimum RAM and disk space requirements?**
 
-- Maximum Features (without Meta Llama 3.2–1B):
-- 4 GB of RAM is the minimum requirement because Meta Llama 3.2–1B is not being used.
+- Maximum Features (without Meta Llama 3.2-1B):
+- 4 GB of RAM is the minimum requirement because Meta Llama 3.2-1B is not being used.
 
-- Maximum Features (with Meta Llama 3.2–1B):
-- 8 GB of RAM is the minimum requirement because Meta Llama 3.2–1B is running locally. I strongly recommend at least 8 GB of RAM, 10 GB of free disk space, and a minimum of four processor cores.
+- Maximum Features (with Meta Llama 3.2-1B):
+- 8 GB of RAM is the minimum requirement because Meta Llama 3.2-1B is running locally. I strongly recommend at least 8 GB of RAM, 10 GB of free disk space, and a minimum of four processor cores.
 
 **Any sponsors or supporters?**
 - Yes, there are supporters for this project. Xcitium (Comodo) has expressed interest in supporting this project by providing malware samples, and Cisco Talos ClamAV community projects. But it's still a one man project.

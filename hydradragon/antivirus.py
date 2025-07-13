@@ -5946,31 +5946,37 @@ def load_meta_llama_1b_model():
     """
     Function to load Meta Llama-3.2-1B model and tokenizer.
     This is a resource-intensive operation.
+    Checks that the local folder exists before attempting to load.
     """
+    # Check if the local model directory exists
+    if not os.path.isdir(meta_llama_1b_dir):
+        logging.error(f"Meta Llama-3.2-1B directory not found: {meta_llama_1b_dir}")
+        return None, None
+
     # --- Hugging Face Transformers for Llama model (Optional Feature) ---
     # This feature is experimental and requires significant RAM.
     try:
         from transformers import AutoTokenizer, AutoModelForCausalLM
     except Exception as ex:
-        error_message = f"Error loading from transformers import AutoTokenizer, AutoModelForCausalLM: {ex}"
+        error_message = f"Error importing transformers: {ex}"
         logging.error(error_message)
         return None, None
     
     try:
-        message = "Attempting to load Llama-3.2-1B model and tokenizer..."
-        logging.info(message)
+        logging.info("Attempting to load Llama-3.2-1B model and tokenizer...")
 
         # Load tokenizer and model from the local directory
-        llama32_tokenizer = AutoTokenizer.from_pretrained(meta_llama_1b_dir, local_files_only=True)
+        llama32_tokenizer = AutoTokenizer.from_pretrained(
+            meta_llama_1b_dir,
+            local_files_only=True
+        )
         llama32_model = AutoModelForCausalLM.from_pretrained(
             meta_llama_1b_dir,
             local_files_only=True,
             # Optional: Add device_map="auto" if you have a GPU and want to use it
         )
 
-        success_message = "Llama-3.2-1B successfully loaded!"
-        logging.info(success_message)
-
+        logging.info("Llama-3.2-1B successfully loaded!")
         return llama32_model, llama32_tokenizer
     except Exception as ex:
         error_message = f"Error loading Llama-3.2-1B model or tokenizer: {ex}"
