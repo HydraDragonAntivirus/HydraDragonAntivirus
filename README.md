@@ -14,6 +14,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Pe header removed: https://www.virustotal.com/gui/file/9b7e921e971fe7523ba83a4599b4006ad214854eb043372129e4f5a68c5a427f
 - Original: https://www.virustotal.com/gui/file/1ef6c1a4dfdc39b63bfe650ca81ab89510de6c0d3d7c608ac5be80033e559326
 - What is the difference and why does YARA still flag it as malware? Because your YARA rule doesn't check for unknown file types and I only removed the pe header and went to detections 0. So this god mode rule will save this antivirus right now!
+- If you want Meta Llama 3.2-1B, you need to download it from the releases. We didn't include the optional feature to reduce size.
 
 ## Download Machine Learning Malware And Benign Database
 - **Malware Database:** [Download Link](https://drive.google.com/file/d/1QwdxdwX_nH-oF-5hVTkbTuFkrwUfR0-h)
@@ -193,13 +194,17 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 **Why does the antivirus.exe application take too long to run?**
 - Sometimes you may have to wait 5+ minutes (or less) the first time you run the programme as a lot of things load.
 
-**Supported Windows versions?**
+**Which Windows versions are supported?**
 - (Python 3.12 is required because spaCy does not yet have a stable release for Python 3.13.) Windows 10 64-bit and Windows 11 only (you can run ClamAV, but you can't run HydraDragonAntivirus on Windows 8.1 and it's not supported). If you want, I can create a 32-bit version for Windows 10 32-bit, but I faced some problems. ClamAV has limitations on 32-bit, so it's problematic. On Windows 8.1, ClamAV isn't supported because it's an outdated Windows version. You will get the `api-ms-win-crt-runtime-l1-1-0.dll` error. Even if you add this DLL, you will get another error: "Application failed to start properly (0xc000007b)." Then install this: [Microsoft VC Redist](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170). After running `%ProgramFiles%\ClamAV\freshclam.exe` and `clamd.exe` with `clamd --install`, the setup is complete, but you can't run HydraDragonAntivirus on Windows 8.1 because you get an ImportError on line nine due to PySide6.
-- If you still want support for Windows 7, you will need to manually downgrade to Python 3.8 and many tools. 32-bit support is possible. Although Windows XP support is possible through the One Core API, we don't recommend using illegal things.
+- If you still want support for Windows 7, you will need to manually downgrade to Python 3.8 and many tools. 32-bit support is possible. Although Windows XP support is possible through the One Core API.
 
-**Minimum RAM and space?**
+**What are the minimum RAM and disk space requirements?**
 
-- 8 GB of RAM is the minimum requirement because I am using Llama3.2-1B locally. I strongly recommend a minimum of 8 GB of RAM. A minimum of 10 GB of free disk space and four processors is also recommended.
+- Maximum Features (without Meta Llama 3.2–1B):
+- 4 GB of RAM is the minimum requirement because Meta Llama 3.2–1B is not being used.
+
+- Maximum Features (with Meta Llama 3.2–1B):
+- 8 GB of RAM is the minimum requirement because Meta Llama 3.2–1B is running locally. I strongly recommend at least 8 GB of RAM, 10 GB of free disk space, and a minimum of four processor cores.
 
 **Any sponsors or supporters?**
 - Yes, there are supporters for this project. Xcitium (Comodo) has expressed interest in supporting this project by providing malware samples, and Cisco Talos ClamAV community projects. But it's still a one man project.
