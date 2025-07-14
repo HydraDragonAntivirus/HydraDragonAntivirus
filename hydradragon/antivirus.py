@@ -10312,7 +10312,7 @@ def check_hosts_file_for_blocked_antivirus():
 
     try:
         if not os.path.exists(hosts_sandboxie_path):
-            logging.error(f"Hosts file not found: {hosts_sandboxie_path}")
+            # logging.error(f"Hosts file not found: {hosts_sandboxie_path}")
             return False
 
         with open(hosts_sandboxie_path, 'r') as hf:
@@ -10690,9 +10690,21 @@ def find_windows_with_text():
     user32.EnumWindows(EnumWindowsProc(enum_proc), None)
     return window_handles
 
+WinEventProcType = ctypes.WINFUNCTYPE(
+    None,             # Return type: void
+    wintypes.HWINEVENTHOOK,  # hWinEventHook
+    wintypes.DWORD,          # event
+    wintypes.HWND,           # hwnd
+    wintypes.LONG,           # idObject
+    wintypes.LONG,           # idChild
+    wintypes.DWORD,          # dwEventThread
+    wintypes.DWORD           # dwmsEventTime
+)
 
 class MonitorMessageCommandLine:
     def __init__(self):
+        self._hooks = []
+        self._event_proc_instance = WinEventProcType(self._win_event_proc)
         # Store monitored paths
         self.main_file_path = os.path.abspath(main_file_path)
         self.sandboxie_folder = os.path.abspath(sandboxie_folder)
@@ -10817,6 +10829,31 @@ class MonitorMessageCommandLine:
                 "process_function": self.process_detected_command_antivirus_search
                 }
             }
+
+    # -----------------------------------------------------------------------------
+    # 3) The actual WinEventProc callback.
+    #    It simply forwards into your `handle_event(...)` method.
+    # -----------------------------------------------------------------------------
+    def _win_event_proc(self,
+                        hWinEventHook,
+                        event,
+                        hwnd,
+                        idObject,
+                        idChild,
+                        dwEventThread,
+                        dwmsEventTime):
+        try:
+            self.handle_event(
+                hWinEventHook,
+                event,
+                hwnd,
+                idObject,
+                idChild,
+                dwEventThread,
+                dwmsEventTime
+            )
+        except Exception:
+            logging.exception("Exception in WinEventProc callback")
 
     def preprocess_text(self, text):
         return text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "")
@@ -11076,7 +11113,14 @@ class MonitorMessageCommandLine:
                 kwargs={'command_flag': True}
             ).start()
 
-    def handle_event(self, hWinEventHook, event, hwnd, idObject, idChild, dwEventThread, dwmsEventTime):
+    def handle_event(self,
+                     hWinEventHook,
+                     event,
+                     hwnd,
+                     idObject,
+                     idChild,
+                     dwEventThread,
+                     dwmsEventTime):
         """
         WinEvent callback that re-scans *all* windows and controls on every event,
         *regardless* of whether hwnd is non-zero.  Then falls back to AccessibleObjectFromEvent.
@@ -11117,12 +11161,14 @@ class MonitorMessageCommandLine:
                     f"idObject={idObject}, idChild={idChild}"
                 )
 
+    # -----------------------------------------------------------------------------
+    # 5) Install the hooks and pump messages
+    # -----------------------------------------------------------------------------
     def start_event_monitoring(self):
         """Install WinEvent hooks and spin up the message pump thread."""
-        # initialize COM for this thread
-        comtypes.CoInitialize()
+        comtypes.CoInitialize()  # must initialize COM on this thread
 
-        # hook dialog start, show, hide, name-change
+        # hook just the ranges you care about
         hooks = [
             (EVENT_SYSTEM_DIALOGSTART, EVENT_SYSTEM_DIALOGSTART),
             (EVENT_OBJECT_SHOW,        EVENT_OBJECT_SHOW),
@@ -11130,22 +11176,27 @@ class MonitorMessageCommandLine:
             (EVENT_OBJECT_NAMECHANGE,  EVENT_OBJECT_NAMECHANGE),
         ]
         for ev_min, ev_max in hooks:
-            hook = user32.SetWinEventHook(
-                EVENT_OBJECT_CREATE,
-                EVENT_OBJECT_NAMECHANGE,
+            h = user32.SetWinEventHook(
+                ev_min,
+                ev_max,
                 0,
-                self._win_event_proc,
+                self._event_proc_instance,  # our callable
                 0, 0,
                 WINEVENT_OUTOFCONTEXT
             )
-            self._hooks.append(hook)
+            if not h:
+                logging.error(f"Failed to set hook for events 0x{ev_min:04X}-0x{ev_max:04X}")
+            else:
+                self._hooks.append(h)
 
-        # pump messages so callbacks get delivered
-        threading.Thread(target=self._pump_messages).start()
-        logging.info("UIWatcher: WinEvent hooks installed (brute-force scanning).")
+        # spin up the pump in its own daemon thread
+        t = threading.Thread(target=self._pump_messages, daemon=True)
+        t.start()
+        logging.info("UIWatcher: WinEvent hooks installed.")
 
     @staticmethod
     def _pump_messages():
+        """Standard message pump so WinEvent callbacks get delivered."""
         msg = wintypes.MSG()
         while user32.GetMessageW(ctypes.byref(msg), 0, 0, 0) != 0:
             user32.TranslateMessage(ctypes.byref(msg))
@@ -11194,7 +11245,7 @@ class MonitorMessageCommandLine:
 
                     # skip if not from main executable or in the Sandboxie folder
                     if exe_path != main_path or exe_path.startswith(self.sandboxie_folder.lower()):
-                        logging.debug(f"Skipping command from excluded path: {exe_path}")
+                        # logging.debug(f"Skipping command from excluded path: {exe_path}")
                         continue
 
                     # now exe_path is the main executable and not excluded, so log and scan
@@ -11224,8 +11275,8 @@ class MonitorMessageCommandLine:
                 logging.exception(f"Command-line snapshot error:{ex}")
 
     def start_monitoring_threads(self):
-        threading.Thread(target=self.monitoring_window_text).start()
-        threading.Thread(target=self.monitoring_command_line).start()
+        threading.Thread(target=self.monitoring_window_text, daemon=True).start()
+        threading.Thread(target=self.monitoring_command_line, daemon=True).start(
 
 def monitor_sandboxie_directory():
     """
