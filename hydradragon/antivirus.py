@@ -10692,7 +10692,7 @@ def find_windows_with_text():
 
 WinEventProcType = ctypes.WINFUNCTYPE(
     None,             # Return type: void
-    wintypes.HWINEVENTHOOK,  # hWinEventHook
+    wintypes.HANDLE,  # hWinEventHook (HWINEVENTHOOK = HANDLE)
     wintypes.DWORD,          # event
     wintypes.HWND,           # hwnd
     wintypes.LONG,           # idObject
