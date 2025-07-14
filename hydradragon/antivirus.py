@@ -11276,7 +11276,7 @@ class MonitorMessageCommandLine:
 
     def start_monitoring_threads(self):
         threading.Thread(target=self.monitoring_window_text, daemon=True).start()
-        threading.Thread(target=self.monitoring_command_line, daemon=True).start(
+        threading.Thread(target=self.monitoring_command_line, daemon=True).start()
 
 def monitor_sandboxie_directory():
     """
