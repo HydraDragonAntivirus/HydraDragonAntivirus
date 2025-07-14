@@ -9274,7 +9274,8 @@ def decompile_cx_freeze(executable_path):
 
     return extracted_pyc_path
 
-executor = ThreadPoolExecutor(max_workers=1000)
+num_cores = os.cpu_count()  # returns the number of logical CPUs
+executor = ThreadPoolExecutor(max_workers=num_cores * 2)
 
 def run_in_thread(fn):
     @wraps(fn)
@@ -10693,10 +10694,9 @@ def find_windows_with_text():
 
 
 class MonitorMessageCommandLine:
-    def __init__(self, max_workers: int = 100):
-        self.max_workers = max_workers
-        self._win_event_proc = WinEventProcType(self.handle_event)
-        self._hooks = []
+    def __init__(self, max_workers: int = None):
+        if max_workers is None:
+            max_workers = (num_cores or 1) * 2
         # Store monitored paths
         self.main_file_path = os.path.abspath(main_file_path)
         self.sandboxie_folder = os.path.abspath(sandboxie_folder)

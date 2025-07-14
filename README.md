@@ -15,6 +15,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Original: https://www.virustotal.com/gui/file/1ef6c1a4dfdc39b63bfe650ca81ab89510de6c0d3d7c608ac5be80033e559326
 - What is the difference and why does YARA still flag it as malware? Because your YARA rule doesn't check for unknown file types and I only removed the pe header and went to detections 0. So this god mode rule will save this antivirus right now!
 - If you want Meta Llama 3.2-1B, you need to download it from the releases. We didn't include the optional feature to reduce size.
+- Meta Llama 3.2-1B Location: Copy the contents of meta-llama.7z to the following directory: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\meta-llama
 
 ## Download Machine Learning Malware And Benign Database
 - **Malware Database:** [Download Link](https://drive.google.com/file/d/1QwdxdwX_nH-oF-5hVTkbTuFkrwUfR0-h)
@@ -38,14 +39,14 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Setup file on release HydraDragonAntivirus.exe
 
 ## Logs
-- You must look warnining at logs. They usually contain malware detections. Log file in %ProgramFiles%\aHydraDragonAntivirus\hydradragonantivirus\log\antivirus.log and C:\Sandbox\yourusername\DefaultBox\drive\C\DONTREMOVEHydraDragonAntivirusLogs
+- You must look warnining at logs. They usually contain malware detections. Log file in %ProgramFiles%\aHydraDragonAntivirus\hydradragon\log\antivirus.log and C:\Sandbox\yourusername\DefaultBox\drive\C\DONTREMOVEHydraDragonAntivirusLogs
 
 ## Ghidra
-- Ghidra: %ProgramFiles%\aHydraDragonAntivirus\hydradragonantivirus\ghidra
-- Ghidra Run: %ProgramFiles%\aHydraDragonAntivirus\hydradragonantivirus\ghidra\ghidraRun.bat
-- Ghidra log: %ProgramFiles%\aHydraDragonAntivirus\hydradragonantivirus\ghidra_logs\analyze.log
-- Ghidra projects : %ProgramFiles%\aHydraDragonAntivirus\hydradragonantivirus\ghidra_projects
-- Ghidra scripts: %ProgramFiles%\aHydraDragonAntivirus\hydradragonantivirus\scripts
+- Ghidra: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\ghidra
+- Ghidra Run: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\ghidra\ghidraRun.bat
+- Ghidra log: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\ghidra_logs\analyze.log
+- Ghidra projects : %ProgramFiles%\aHydraDragonAntivirus\hydradragon\ghidra_projects
+- Ghidra scripts: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\scripts
  
  ## IMPORTANT
  - Any ghidra project will be removed after you restart the program. So be careful!
@@ -75,13 +76,13 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - You need to create a DefaultBox in Sandboxie by running it once with a random application.  Also, please clean the DefaultBox items each time you scan.
 
 **Note 2:** 
-- You must run ghidra before you run Hydra Dragon Antivirus. To run ghidra, simply open this file:  %ProgramFiles%\aHydraDragonAntivirus\hydradragonantivirus\ghidra\ghidraRun.bat
+- You must run ghidra before you run Hydra Dragon Antivirus. To run ghidra, simply open this file:  %ProgramFiles%\aHydraDragonAntivirus\hydradragon\ghidra\ghidraRun.bat
 
 **Note 3:**.
 - Allow Java on the Windows firewall, as it'll decompile the PE file.
 
 **Note 4:**
-- The update can take up to 5 minutes (10 seconds depending on your internet speed) or more, and will happen if you open this application after 6 hours, as it updates ClamAV definitions. Wait until you receive an update message. You can view freshclam.exe in the Task Manager under Hydra Dragon Antivirus. It will also restart ClamAV after definitions then give you a message. It's not well tested. If you find an issue, please create an issue. Antivirus software might be triggered by website signatures because they are not obfuscated, so exclude the `%ProgramFiles%\aHydraDragonAntivirus\hydradragonantivirus` folder. Please only use in a VM as you can only use this for deep analysis of a file. There is no fixed analysis time for a file.
+- The update can take up to 5 minutes (10 seconds depending on your internet speed) or more, and will happen if you open this application after 6 hours, as it updates ClamAV definitions. Wait until you receive an update message. You can view freshclam.exe in the Task Manager under Hydra Dragon Antivirus. It will also restart ClamAV after definitions then give you a message. It's not well tested. If you find an issue, please create an issue. Antivirus software might be triggered by website signatures because they are not obfuscated, so exclude the `%ProgramFiles%\aHydraDragonAntivirus\hydradragon` folder. Please only use in a VM as you can only use this for deep analysis of a file. There is no fixed analysis time for a file.
 
 **Note 5:**
 
@@ -120,7 +121,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - I have collected every malicious IP, domain from the Internet. So there must be big false positives, but I handle them.
 
 **Note 9:**
-- I added en_core_web_md manually to %ProgramFiles%\aHydraDragonAntivirus\hydradragonantivirus you can find the spacy path from codechecker\spacyfind.py but you need to rename en_core_web_md folder name which contains config.cfg for an example if version 3.7.1 then it contains a subfolder en_core_web_md.3.8.0 
+- I added en_core_web_md manually to %ProgramFiles%\aHydraDragonAntivirus\hydradragon you can find the spacy path from codechecker\spacyfind.py but you need to rename en_core_web_md folder name which contains config.cfg for an example if version 3.7.1 then it contains a subfolder en_core_web_md.3.8.0 
 - Also you need run "spacy download en_core_web_md"
 
 **Note 10:**
@@ -201,7 +202,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 **What are the minimum RAM and disk space requirements?**
 
 - Maximum Features (without Meta Llama 3.2-1B):
-- 4 GB of RAM is the minimum requirement because Meta Llama 3.2-1B is not being used.
+- 6 GB of RAM is the minimum requirement because Meta Llama 3.2-1B is not being used.
 
 - Maximum Features (with Meta Llama 3.2-1B):
 - 8 GB of RAM is the minimum requirement because Meta Llama 3.2-1B is running locally. I strongly recommend at least 8 GB of RAM, 10 GB of free disk space, and a minimum of four processor cores.
