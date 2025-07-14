@@ -1430,7 +1430,7 @@ def is_macho_file_from_output(die_output):
 
 def is_dotnet_file_from_output(die_output):
     """
-    Checks if DIE output indicates a .NET executable file.
+    Checks whether the DIE output indicates a .NET executable file.
 
     Returns:
       - False
@@ -1438,7 +1438,7 @@ def is_dotnet_file_from_output(die_output):
       - "Protector: Obfuscar" or "Protector: Obfuscar(<version>)"
         if it's protected with Obfuscar.
       - "Protector: <Name>" or "Protector: <Name>(<version>)"
-        for any other Protector: marker (full line captured).
+        for any other Protector marker (full line captured).
       - True
         if it's a .NET file and no protector is detected.
       - None
@@ -1450,7 +1450,7 @@ def is_dotnet_file_from_output(die_output):
 
     # 0) If it contains a C++ indicator, treat as non-.NET and return False
     if "C++" in die_output:
-        logging.info("DIE output indicates native C++; not a .NET assembly.")
+        logging.info("DIE output indicates native C++ with .NET.")
         return False
 
     # 1) Specific Obfuscar protector
@@ -1461,17 +1461,17 @@ def is_dotnet_file_from_output(die_output):
         logging.info(f"DIE output indicates a .NET assembly protected with {result}.")
         return result
 
-    # 2) Generic Protector marker – capture the full line
+    # 2) Generic Protector marker - capture the full line
     line_match = re.search(r'^Protector:.*$', die_output, re.MULTILINE)
     if line_match:
         marker = line_match.group(0).strip()
-        logging.info(f"DIE output indicates .NET assembly requires de4dot: {marker}.")
+        logging.info(f"DIE output indicates .NET assembly requiring de4dot: {marker}.")
         return marker
 
     # 3) .NET runtime indication (only if no protector found)
     if ".NET" in die_output:
-        logging.info("DIE output indicates a .NET executable without protection.")
-        return True
+        logging.info("DIE output indicates a .NET executable without protection; we'll still process it with de4dot.")
+        return "Probably No Protector"
 
     # 4) Nothing .NET/protector-related found
     logging.info(f"DIE output does not indicate a .NET executable or known protector: {die_output!r}")
@@ -9794,10 +9794,7 @@ def scan_and_warn(file_path,
             # Analyze the DIE output for .NET file information
             dotnet_result = is_dotnet_file_from_output(die_output)
 
-            if dotnet_result is True:
-                dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(norm_path,))
-                dotnet_thread.start()
-            elif isinstance(dotnet_result, str) and "Protector: Obfuscar" in dotnet_result and not flag_obfuscar:
+            if isinstance(dotnet_result, str) and "Protector: Obfuscar" in dotnet_result and not flag_obfuscar:
                 logging.info(f"The file is a .NET assembly protected with Obfuscar: {dotnet_result}")
                 deobfuscated_path = deobfuscate_with_obfuscar(norm_path, file_name)
                 if deobfuscated_path:
