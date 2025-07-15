@@ -1263,7 +1263,7 @@ def advanced_installer_extractor(file_path):
 def analyze_file_with_die(file_path):
     """
     Runs Detect It Easy (DIE) on the given file once and returns the DIE output (plain text).
-    The output is also saved to a unique .txt file.
+    The output is also saved to a unique .txt file and displayed to the user.
     """
     try:
         logging.info(f"Analyzing file: {file_path} using Detect It Easy...")
@@ -1285,17 +1285,29 @@ def analyze_file_with_die(file_path):
             txt_file.write(result.stdout)
 
         logging.info(f"Analysis result saved to {txt_output_path}")
+        
+        # Display the result using logging
+        if result.stdout.strip():
+            logging.info(f"{'='*60}")
+            logging.info(f"DIE Analysis Result for: {Path(file_path).name}")
+            logging.info(f"{'='*60}")
+            logging.info(result.stdout)
+            logging.info(f"{'='*60}")
+            logging.info(f"Result saved to: {txt_output_path}")
+        else:
+            logging.warning(f"No DIE output for {Path(file_path).name}")
+            if result.stderr:
+                logging.error(f"DIE stderr output: {result.stderr}")
+        
         return result.stdout
 
     except subprocess.SubprocessError as ex:
-        logging.error(
-            f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}"
-        )
+        error_msg = f"Error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}"
+        logging.error(error_msg)
         return None
     except Exception as ex:
-        logging.error(
-            f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}"
-        )
+        error_msg = f"General error in {inspect.currentframe().f_code.co_name} while running Detect It Easy for {file_path}: {ex}"
+        logging.error(error_msg)
         return None
 
 def get_die_output(path: str) -> Tuple[str, bool]:
@@ -1343,7 +1355,7 @@ def is_go_garble_from_output(die_output):
     if die_output and ("Compiler: Go(unknown)" in die_output):
         logging.info("DIE output indicates a garbled Go file.")
         return True
-    logging.info(f"DIE output does not indicate a garbled Go file: {die_output}")
+    # logging.debug(f"DIE output does not indicate a garbled Go file: {die_output}")
     return False
 
 def is_pyc_file_from_output(die_output):
@@ -1354,7 +1366,7 @@ def is_pyc_file_from_output(die_output):
     if die_output and "Python Compiled Module" in die_output:
         logging.info("DIE output indicates a Python compiled module.")
         return True
-    logging.info(f"DIE output does not indicate a Python compiled module: {die_output}")
+    # logging.debug(f"DIE output does not indicate a Python compiled module: {die_output}")
     return False
 
 def is_pe_file_from_output(die_output):
@@ -1362,7 +1374,7 @@ def is_pe_file_from_output(die_output):
     if die_output and ("PE32" in die_output or "PE64" in die_output):
         logging.info("DIE output indicates a PE file.")
         return True
-    logging.info(f"DIE output does not indicate a PE file: {die_output}")
+    # logging.debug(f"DIE output does not indicate a PE file: {die_output}")
     return False
 
 def is_advanced_installer_file_from_output(die_output):
@@ -1370,7 +1382,7 @@ def is_advanced_installer_file_from_output(die_output):
     if die_output and ("Advanced Installer" in die_output):
         logging.info("DIE output indicates a Advanced Installer file.")
         return True
-    logging.info(f"DIE output does not indicate a Advanced Installer file: {die_output}")
+    # logging.debug(f"DIE output does not indicate a Advanced Installer file: {die_output}")
     return False
 
 def is_installshield_file_from_output(die_output):
@@ -1378,7 +1390,7 @@ def is_installshield_file_from_output(die_output):
     if die_output and ("InstallShield" in die_output):
         logging.info("DIE output indicates a Install Shield file.")
         return True
-    logging.info(f"DIE output does not indicate a Install Shield file: {die_output}")
+    # logging.debug(f"DIE output does not indicate a Install Shield file: {die_output}")
     return False
 
 def is_nsis_from_output(die_output: str) -> bool:
@@ -1397,7 +1409,7 @@ def is_nsis_from_output(die_output: str) -> bool:
         logging.info("DIE output indicates an NSIS installer.")
         return True
 
-    logging.info(f"DIE output does not indicate an NSIS installer: {die_output!r}")
+    # logging.debug(f"DIE output does not indicate an NSIS installer: {die_output!r}")
     return False
 
 def is_elf_file_from_output(die_output):
@@ -1405,7 +1417,7 @@ def is_elf_file_from_output(die_output):
     if die_output and ("ELF32" in die_output or "ELF64" in die_output):
         logging.info("DIE output indicates an ELF file.")
         return True
-    logging.info(f"DIE output does not indicate an ELF file: {die_output}")
+    # logging.debug(f"DIE output does not indicate an ELF file: {die_output}")
     return False
 
 def is_enigma1_virtual_box(die_output):
@@ -1417,7 +1429,7 @@ def is_enigma1_virtual_box(die_output):
         logging.info("DIE output indicates Protector: Enigma.")
         return True
 
-    logging.info(f"DIE output does not indicate Protector: Enigma: {die_output}")
+    # logging.debug(f"DIE output does not indicate Protector: Enigma: {die_output}")
     return False
 
 def is_macho_file_from_output(die_output):
@@ -1425,7 +1437,7 @@ def is_macho_file_from_output(die_output):
     if die_output and "Mach-O" in die_output:
         logging.info("DIE output indicates a Mach-O file.")
         return True
-    logging.info(f"DIE output does not indicate a Mach-O file: {die_output}")
+    # logging.debug(f"DIE output does not indicate a Mach-O file: {die_output}")
     return False
 
 def is_dotnet_file_from_output(die_output):
@@ -1474,7 +1486,7 @@ def is_dotnet_file_from_output(die_output):
         return "Probably No Protector"
 
     # 4) Nothing .NET/protector-related found
-    logging.info(f"DIE output does not indicate a .NET executable or known protector: {die_output!r}")
+    # logging.debug(f"DIE output does not indicate a .NET executable or known protector: {die_output!r}")
     return None
 
 def is_file_fully_unknown(die_output: str) -> bool:
@@ -1498,7 +1510,7 @@ def is_file_fully_unknown(die_output: str) -> bool:
         logging.info("DIE output indicates an unknown file (ignoring extra errors).")
         return True
     else:
-        logging.info(f"DIE output does not indicate an unknown file: {die_output!r}")
+        # logging.debug(f"DIE output does not indicate an unknown file: {die_output!r}")
         return False
 
 def is_packer_upx_output(die_output):
@@ -1510,7 +1522,7 @@ def is_packer_upx_output(die_output):
         logging.info("DIE output indicates UPX packer.")
         return True
 
-    logging.info(f"DIE output does not indicate UPX packer: {die_output}")
+    # logging.debug(f"DIE output does not indicate UPX packer: {die_output}")
     return False
 
 def is_jar_file_from_output(die_output):
@@ -1518,7 +1530,7 @@ def is_jar_file_from_output(die_output):
     if die_output and "Virtual machine: JVM" in die_output:
         logging.info("DIE output indicates a JAR file.")
         return True
-    logging.info(f"DIE output does not indicate a JAR file: {die_output}")
+    # logging.debug(f"DIE output does not indicate a JAR file: {die_output}")
     return False
 
 def is_java_class_from_output(die_output):
@@ -1529,7 +1541,7 @@ def is_java_class_from_output(die_output):
     if die_output and "Format: Java Class " in die_output:
         logging.info("DIE output indicates a Java class file.")
         return True
-    logging.info(f"DIE output does not indicate a Java class file: {die_output}")
+    # logging.debug(f"DIE output does not indicate a Java class file: {die_output}")
     return False
 
 def debloat_pe_file(file_path):
@@ -5399,7 +5411,7 @@ def is_7z_file_from_output(die_output: str) -> bool:
         logging.info("DIE output indicates a 7z archive.")
         return True
 
-    logging.info(f"DIE output does not indicate a 7z archive: {die_output!r}")
+    # logging.debug(f"DIE output does not indicate a 7z archive: {die_output!r}")
     return False
 
 def scan_tar_file(file_path):
@@ -6093,7 +6105,7 @@ def is_nuitka_file_from_output(die_output):
         logging.info("DIE output indicates a Nuitka executable.")
         return "Nuitka"
     else:
-        logging.info(f"DIE output does not indicate a Nuitka executable. Output: {die_output}")
+        # logging.debug(f"DIE output does not indicate a Nuitka executable. Output: {die_output}")
         return None
 
 def clean_text(input_text):
@@ -6254,7 +6266,7 @@ def is_pyinstaller_archive_from_output(die_output):
         logging.info("DIE output indicates a PyInstaller archive.")
         return True
 
-    logging.info(f"DIE output does not indicate a PyInstaller archive: {die_output}")
+    # logging.debug(f"DIE output does not indicate a PyInstaller archive: {die_output}")
     return False
 
 def pycHeader2Magic(header):
@@ -9033,7 +9045,7 @@ def is_inno_setup_archive_from_output(die_output):
         logging.info("DIE output indicates an Inno Setup installer.")
         return True
 
-    logging.info(f"DIE output does not indicate an Inno Setup installer: {die_output!r}")
+    # logging.debug(f"DIE output does not indicate an Inno Setup installer: {die_output!r}")
     return False
 
 def extract_installshield(file_path):
