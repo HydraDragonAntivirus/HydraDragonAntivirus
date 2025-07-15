@@ -302,8 +302,8 @@ import macholib.mach_o
 logging.info(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from typing import Optional, Tuple, BinaryIO, Dict, Any, List, Set
-logging.info(f"typing, Optional, Tuple, BinaryIO, Dict and Any module loaded in {time.time() - start_time:.6f} seconds")
+from typing import Optional, Tuple, BinaryIO, Dict, Any, List, Set, Union
+logging.info(f"typing, Optional, Tuple, BinaryIO, Dict, Any, List, Set and Union module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import types
