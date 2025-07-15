@@ -12005,7 +12005,7 @@ class AntivirusApp(QWidget):
             "3. Capture Analysis Logs<br>"
             "4. Analyze a File<br>"
             "5. Stop Analysis<br>"
-            "6. Capture and Compare Analysis Logs (with Llama AI)<br>"
+            "6. Re-capture and Analyze Comparison Logs (with Llama AI)<br>"
             "7. Rootkit Scan<br>"
             "8. Cleanup Environment<br><br>"
             "<i>Return to a clean snapshot before starting a new analysis.</i>"
@@ -12178,7 +12178,7 @@ class Worker(QThread):
             path = run_and_copy_log(label="pre")
             pre_analysis_log_path = path
             pre_analysis_entries = parse_report(path)
-            self.output_signal.emit(f"[+] Pre-analysis log captured: {os.path.basename(path)}")
+            self.output_signal.emit(f"[+] Pre-analysis log captured. Don't forget to capture the post-analysis log.: {os.path.basename(path)}")
         elif post_analysis_log_path is None:
             path = run_and_copy_log(label="post")
             post_analysis_log_path = path
