@@ -1559,9 +1559,11 @@ def debloat_pe_file(file_path):
         pe_data = file_path.read_bytes()
         pe      = pefile.PE(data=pe_data, fast_load=True)
 
-        # Wrap logging.info so it accepts and ignores an 'end' kwarg
+        # Wrap logging.info so it accepts and ignores print-style kwargs
         def log_message(msg, *args, **kwargs):
-            kwargs.pop('end', None)      # drop any 'end' argument
+            # Remove print-style arguments that logging doesn't support
+            kwargs.pop('end', None)
+            kwargs.pop('flush', None)
             logging.info(msg, *args, **kwargs)
 
         # Debloat into our new directory
