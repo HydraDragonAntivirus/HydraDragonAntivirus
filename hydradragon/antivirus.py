@@ -11908,7 +11908,7 @@ class AntivirusApp(QWidget):
         nav_buttons = [
             "Status", "Update Definitions", "Generate Clean DB",
             "Analyze File", "Capture Analysis Logs", "Compare Logs",
-            "Rootkit Scan", "Cleanup Environment", "About"
+            "Rootkit Scan", "Cleanup Environment", "About & Load AI"
         ]
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
@@ -12002,10 +12002,10 @@ class AntivirusApp(QWidget):
             "<b>Recommended Workflow:</b><br>"
             "1. Update Virus Definitions<br>"
             "2. Generate Clean DB (Process Dump x64)<br>"
-            "3. Capture Analysis Logs<br>"
+            "3. Capture Pre-analysis Logs <br>"
             "4. Analyze a File<br>"
             "5. Stop Analysis<br>"
-            "6. Re-capture and Analyze Comparison Logs (with Llama AI)<br>"
+            "6. Capture Post-analysis Logs and Compare Results (with Llama AI)<br>"
             "7. Rootkit Scan<br>"
             "8. Cleanup Environment<br><br>"
             "<i>Return to a clean snapshot before starting a new analysis.</i>"
@@ -12106,6 +12106,12 @@ class AntivirusApp(QWidget):
         github_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus"))
         layout.addWidget(github_button, 0, Qt.AlignmentFlag.AlignLeft)
         
+        # Meta Llama Release Button
+        llama_release_button = QPushButton("View Meta Llama Release")
+        llama_release_button.setObjectName("action_button")
+        llama_release_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/releases/tag/MetaLlama"))
+        layout.addWidget(llama_release_button, 0, Qt.AlignmentFlag.AlignLeft)
+
         # Log output for Llama model loading status
         log_output = QTextEdit("Llama AI model status will appear here...")
         log_output.setObjectName("log_output")
