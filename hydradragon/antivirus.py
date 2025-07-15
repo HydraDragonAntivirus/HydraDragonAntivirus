@@ -10090,10 +10090,6 @@ def analyze_process_memory(
 
 
 def monitor_memory_changes(
-    sandboxie_folder: str,
-    main_file_path: str,
-    memory_dir: str,
-    pd64_extracted_dir: str,
     change_threshold_bytes: int = 0
 ):
     """
