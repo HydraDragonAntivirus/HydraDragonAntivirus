@@ -202,7 +202,7 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 **What are the minimum RAM and disk space requirements?**
 
 - Maximum Features (without Meta Llama 3.2-1B):
-- 6 GB of RAM is the minimum requirement because Meta Llama 3.2-1B is not being used.
+- A minimum of 6 GB of RAM is required if Meta Llama 3.2-1B is not used; however, 8 GB is highly recommended.
 
 - Maximum Features (with Meta Llama 3.2-1B):
 - 8 GB of RAM is the minimum requirement because Meta Llama 3.2-1B is running locally. I strongly recommend at least 8 GB of RAM, 10 GB of free disk space, and a minimum of four processor cores.
