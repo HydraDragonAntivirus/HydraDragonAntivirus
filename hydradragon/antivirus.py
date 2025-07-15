@@ -10004,90 +10004,111 @@ def scan_and_warn(file_path,
         return False
 
 
-def analyze_process_memory(file_path: str) -> str:
-    """Perform memory analysis on the specified process and extract files using pymem and pd64."""
-    # Verify input path exists
-    if not os.path.isfile(file_path):
-        logging.error(f"File not found: {file_path}")
-        return None
+def analyze_process_memory(
+    process_identifier: Union[int, str],
+    memory_dir: str,
+    pd64_extracted_dir: str
+) -> Optional[str]:
+    """
+    Perform memory analysis on a live process and extract files using pymem and pd64.
 
-    logging.info(f"Starting pymem attachment on: {file_path}")
+    :param process_identifier: Process ID (int) or process name (str) to attach to.
+    :param memory_dir: Directory where memory dumps and string output are saved.
+    :param pd64_extracted_dir: Directory where pd64 will extract embedded files.
+    :return: Path to the extracted ASCII strings text file, or None if an error occurred.
+    """
+    # Ensure output directories exist
+    os.makedirs(memory_dir, exist_ok=True)
+    os.makedirs(pd64_extracted_dir, exist_ok=True)
+
     try:
-        pm = pymem.Pymem(file_path)
+        # Attach to process
+        if isinstance(process_identifier, int):
+            pm = pymem.Pymem()
+            pm.open_process_from_id(process_identifier)
+            logging.info(f"Attached to process ID {process_identifier}")
+        else:
+            pm = pymem.Pymem(process_identifier)
+            logging.info(f"Attached to process by name: {process_identifier}")
 
         saved_dumps = []
         extracted_strings = []
 
+        for module in enum_process_modules(pm.process_handle):
+            base_addr = ctypes.cast(module, ctypes.POINTER(ctypes.c_void_p)).contents.value
+            module_info = get_module_info(pm.process_handle, base_addr)
+            try:
+                data = read_memory_data(pm, base_addr, module_info.SizeOfImage)
+                dump_filename = os.path.join(memory_dir, f"mem_{hex(base_addr)}.bin")
+                save_memory_data(dump_filename, data)
+                saved_dumps.append(dump_filename)
+
+                ascii_strings = extract_ascii_strings(data)
+                extracted_strings.append(f"Module {hex(base_addr)} Strings:")
+                extracted_strings.extend(ascii_strings)
+            except Exception as ex:
+                logging.warning(f"Error reading memory at {hex(base_addr)}: {ex}")
+
+    except Exception as ex:
+        logging.error(f"Failed to attach or enumerate modules: {ex}")
+        return None
+    finally:
         try:
-            for module in enum_process_modules(pm.process_handle):
-                base_addr = ctypes.cast(module, ctypes.POINTER(ctypes.c_void_p)).contents.value
-                module_info = get_module_info(pm.process_handle, base_addr)
+            pm.close_process()
+            logging.info("Released process handle")
+        except Exception:
+            pass
 
-                try:
-                    data = read_memory_data(pm, base_addr, module_info.SizeOfImage)
-                    # Save raw memory dump for this module
-                    os.makedirs(memory_dir, exist_ok=True)
-                    dump_filename = os.path.join(
-                        memory_dir,
-                        f"mem_{hex(base_addr)}.bin"
-                    )
-                    save_memory_data(dump_filename, data)
-                    saved_dumps.append(dump_filename)
+    # Save extracted ASCII strings to file
+    base_filename = "extracted_strings"
+    output_txt = os.path.join(memory_dir, f"{base_filename}.txt")
+    counter = 1
+    while os.path.exists(output_txt):
+        output_txt = os.path.join(memory_dir, f"{base_filename}_{counter}.txt")
+        counter += 1
+    save_extracted_strings(output_txt, extracted_strings)
+    logging.info(f"Strings analysis complete. Results saved in {output_txt}")
 
-                    ascii_strings = extract_ascii_strings(data)
-                    extracted_strings.append(f"Module {hex(base_addr)} Strings:")
-                    extracted_strings.extend(ascii_strings)
-                except Exception as ex:
-                    logging.warning(f"Error reading memory at {hex(base_addr)}: {ex}")
-        finally:
-            pm.close_process()  # Explicitly release the process handle
-            logging.info(f"Released process handle for: {file_path}")
-
-        # Save extracted ASCII strings
-        base_filename = "extracted_strings"
-        output_txt = os.path.join(memory_dir, f"{base_filename}.txt")
-        count = 1
-        while os.path.exists(output_txt):
-            output_txt = os.path.join(memory_dir, f"{base_filename}_{count}.txt")
-            count += 1
-        save_extracted_strings(output_txt, extracted_strings)
-        logging.info(f"Strings analysis complete. Results saved in {output_txt}")
-
-        # Use PD64 to extract embedded files from each memory dump
-        for dump in saved_dumps:
-            logging.info(f"Running pd64 on dump: {dump}")
-            subdir = os.path.join(pd64_extracted_dir, os.path.basename(dump))
-            os.makedirs(subdir, exist_ok=True)
-            if extract_with_pd64(dump, subdir):
-                # Scan all extracted files
+    # Run pd64 on each dump and scan outputs
+    for dump_path in saved_dumps:
+        logging.info(f"Running pd64 on dump: {dump_path}")
+        subdir = os.path.join(pd64_extracted_dir, os.path.basename(dump_path))
+        os.makedirs(subdir, exist_ok=True)
+        try:
+            if extract_with_pd64(dump_path, subdir):
                 for root, _, files in os.walk(subdir):
                     for fname in files:
                         full_path = os.path.join(root, fname)
                         logging.info(f"Scanning extracted file: {full_path}")
                         scan_and_warn(full_path)
             else:
-                logging.error(f"Skipping scan for dumps in {dump} due to extraction failure.")
+                logging.error(f"PD64 extraction failed for {dump_path}, skipping scan.")
+        except Exception as ex:
+            logging.error(f"Error during pd64 extraction or scanning for {dump_path}: {ex}")
 
-        return output_txt
-    except Exception as ex:
-        logging.error(f"An error occurred during analysis: {ex}")
-        return None
+    return output_txt
 
-def monitor_memory_changes(change_threshold_bytes=0):
+
+def monitor_memory_changes(
+    sandboxie_folder: str,
+    main_file_path: str,
+    memory_dir: str,
+    pd64_extracted_dir: str,
+    change_threshold_bytes: int = 0
+):
     """
-    Continuously monitor all processes for RSS memory changes.
+    Continuously monitor all processes for RSS memory changes and trigger analysis.
 
-    When a change greater than change_threshold_bytes is detected, attempt to
-    dump and analyze the process memory. Only scans dumps located within
-    the sandboxie_folder or matching the main_file_path.
-
-    :param change_threshold_bytes: Minimum number of bytes RSS must change
-                                   before triggering analysis.
+    :param sandboxie_folder: Directory path to restrict memory dumps to.
+    :param main_file_path: Exact file path to always allow analysis of.
+    :param memory_dir: Directory where memory dumps and string output are saved.
+    :param pd64_extracted_dir: Directory where pd64 will extract embedded files.
+    :param change_threshold_bytes: Minimum delta in RSS to trigger analysis.
     """
     last_rss = {}
 
     while True:
-        for proc in psutil.process_iter(['pid', 'memory_info']):
+        for proc in psutil.process_iter(['pid', 'memory_info', 'exe']):
             pid = proc.info['pid']
             try:
                 rss = proc.info['memory_info'].rss
@@ -10099,47 +10120,36 @@ def monitor_memory_changes(change_threshold_bytes=0):
                 last_rss[pid] = rss
                 logging.info(f"Memory change detected: PID={pid}, RSS={rss}")
 
-                # Only analyze processes where we can retrieve the executable path
                 try:
                     exe_path = proc.exe()
-                    logging.info(f"Executable path for PID {pid}: {exe_path}")
                 except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
                     logging.info(f"Skipping PID {pid}: cannot retrieve executable path ({e})")
                     continue
 
-                # At this point exe_path is guaranteed non-None
-                logging.info(f"Analyzing process executable: {exe_path}")
+                exe_lower = exe_path.lower()
+                sandbox_lower = sandboxie_folder.lower()
+                main_lower = main_file_path.lower()
+
+                # Only monitor processes within sandboxie_folder or matching main_file_path
+                if not exe_lower.startswith(sandbox_lower) and exe_lower != main_lower:
+                    logging.info(f"Executable {exe_path} is outside monitored dirs. Skipping.")
+                    continue
+
+                logging.info(f"Analyzing memory for: {exe_path}")
 
                 try:
-                    saved_file = analyze_process_memory(exe_path)
-                except Exception as e:
-                    logging.error(
-                        f"analyze_process_memory failed for {exe_path}: {e}"
+                    result_file = analyze_process_memory(
+                        exe_path, memory_dir, pd64_extracted_dir
                     )
+                except Exception as ex:
+                    logging.error(f"analyze_process_memory failed for {exe_path}: {ex}")
                     continue
 
-                if not saved_file:
+                if not result_file:
                     continue
 
-                # Normalize paths for comparison
-                sfp = str(saved_file).lower()
-                sandbox_path = sandboxie_folder.lower()
-                main_path = main_file_path.lower()
-
-                # Only proceed if dump is under Sandboxie or exactly the main file path
-                if sandbox_path not in sfp and sfp != main_path:
-                    logging.info(
-                        f"File {saved_file!r} is outside monitored dirs. Skipping."
-                    )
-                    continue
-
-                # OK—this dump is in the sandbox or is the main file: scan it
-                try:
-                    threading.Thread(target=scan_and_warn, args=(saved_file,)).start()
-                except Exception as scan_err:
-                    logging.error(
-                        f"scan_and_warn failed for {saved_file!r}: {scan_err}"
-                    )
+                # Spawn async scan on the resulting dump or strings file
+                threading.Thread(target=scan_and_warn, args=(result_file,), daemon=True).start()
 
 def monitor_saved_paths():
     """Continuously monitor all path lists in global path_lists and scan new items in threads."""
