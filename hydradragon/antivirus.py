@@ -1456,38 +1456,49 @@ def is_dotnet_file_from_output(die_output):
       - None
         if none of these markers are found.
     """
-    if not die_output:
-        logging.info("Empty DIE output; no .NET markers found.")
+    try:
+        if not die_output:
+            logging.info("Empty DIE output; no .NET markers found.")
+            return None
+
+        # 0) If it contains a C++ indicator, treat as non-.NET and return False
+        if "C++" in die_output:
+            logging.info("DIE output indicates native C++ with .NET.")
+            return False
+
+        # 1) Specific Obfuscar protector
+        obfuscar_match = re.search(r'Protector:\s*Obfuscar(?:\(([^)]+)\))?', die_output)
+        if obfuscar_match:
+            version = obfuscar_match.group(1)
+            result = f"Protector: Obfuscar({version})" if version else "Protector: Obfuscar"
+            logging.info(f"DIE output indicates a .NET assembly protected with {result}.")
+            return result
+
+        # 2) Generic Protector marker - capture the full line
+        line_match = re.search(r'^Protector:.*$', die_output, re.MULTILINE)
+        if line_match:
+            marker = line_match.group(0).strip()
+            logging.info(f"DIE output indicates .NET assembly requiring de4dot: {marker}.")
+            return marker
+
+        # 3) .NET runtime indication (only if no protector found)
+        if ".NET" in die_output:
+            logging.info("DIE output indicates a .NET executable without protection; we'll still process it with de4dot.")
+            return "Probably No Protector"
+
+        # 4) Nothing .NET/protector-related found
+        # logging.debug(f"DIE output does not indicate a .NET executable or known protector: {die_output!r}")
         return None
-
-    # 0) If it contains a C++ indicator, treat as non-.NET and return False
-    if "C++" in die_output:
-        logging.info("DIE output indicates native C++ with .NET.")
-        return False
-
-    # 1) Specific Obfuscar protector
-    obfuscar_match = re.search(r'Protector:\s*Obfuscar(?:\(([^)]+)\))?', die_output)
-    if obfuscar_match:
-        version = obfuscar_match.group(1)
-        result = f"Protector: Obfuscar({version})" if version else "Protector: Obfuscar"
-        logging.info(f"DIE output indicates a .NET assembly protected with {result}.")
-        return result
-
-    # 2) Generic Protector marker - capture the full line
-    line_match = re.search(r'^Protector:.*$', die_output, re.MULTILINE)
-    if line_match:
-        marker = line_match.group(0).strip()
-        logging.info(f"DIE output indicates .NET assembly requiring de4dot: {marker}.")
-        return marker
-
-    # 3) .NET runtime indication (only if no protector found)
-    if ".NET" in die_output:
-        logging.info("DIE output indicates a .NET executable without protection; we'll still process it with de4dot.")
-        return "Probably No Protector"
-
-    # 4) Nothing .NET/protector-related found
-    # logging.debug(f"DIE output does not indicate a .NET executable or known protector: {die_output!r}")
-    return None
+        
+    except re.error as e:
+        logging.error(f"Regular expression error in is_dotnet_file_from_output: {e}")
+        return None
+    except AttributeError as e:
+        logging.error(f"Attribute error in is_dotnet_file_from_output (possibly invalid die_output): {e}")
+        return None
+    except Exception as e:
+        logging.error(f"Unexpected error in is_dotnet_file_from_output: {e}")
+        return None
 
 def is_file_fully_unknown(die_output: str) -> bool:
     """
@@ -9803,8 +9814,6 @@ def scan_and_warn(file_path,
                 except Exception as ex:
                     logging.error(f"Error during debloating of {norm_path}: {ex}")
 
-            dotnet_result = False
-
             # Analyze the DIE output for .NET file information
             dotnet_result = is_dotnet_file_from_output(die_output)
 
@@ -9823,6 +9832,9 @@ def scan_and_warn(file_path,
             elif dotnet_result is not None and not flag_de4dot and not "Protector: Obfuscar" in dotnet_result:
                 de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(norm_path,))
                 de4dot_thread.start()
+                if "Probably No Protector" in dotnet_result:
+                    dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(norm_path,))
+                    dotnet_thread.start()
 
             if is_jar_file_from_output(die_output):
                 jar_extractor_paths = run_jar_extractor(norm_path, flag_fernflower)
