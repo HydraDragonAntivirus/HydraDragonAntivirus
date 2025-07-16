@@ -12763,6 +12763,70 @@ class Worker(QThread):
 
 # --- Main Application Window ---
 class AntivirusApp(QWidget):
+    def create_about_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(20)
+        title = QLabel("About HydraDragon")
+        title.setObjectName("page_title")
+        layout.addWidget(title)
+        about_text = QLabel(
+            "HydraDragon Antivirus is a tool designed for malware analysis and system security research. "
+            "It provides a sandboxed environment to safely analyze potential threats."
+        )
+        about_text.setWordWrap(True)
+        layout.addWidget(about_text)
+
+        # Llama Model Loader Button
+        llama_load_button = QPushButton("Load Meta Llama AI Model (Requires >8GB RAM)")
+        llama_load_button.setObjectName("action_button")
+        llama_load_button.clicked.connect(lambda: self.start_worker("load_meta_llama_1b_model"))
+        layout.addWidget(llama_load_button, 0, Qt.AlignmentFlag.AlignLeft)
+
+        github_button = QPushButton("View Project on GitHub")
+        github_button.setObjectName("action_button")
+        github_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus"))
+        layout.addWidget(github_button, 0, Qt.AlignmentFlag.AlignLeft)
+
+        # Meta Llama Release Button
+        llama_release_button = QPushButton("View Meta Llama Release")
+        llama_release_button.setObjectName("action_button")
+        llama_release_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/releases/tag/MetaLlama"))
+        layout.addWidget(llama_release_button, 0, Qt.AlignmentFlag.AlignLeft)
+
+        # Log output for Llama model loading status
+        log_output = QTextEdit("Llama AI model status will appear here...")
+        log_output.setObjectName("log_output")
+        log_output.setReadOnly(True)
+        layout.addWidget(log_output, 1)
+        self.log_outputs.append(log_output)
+
+        layout.addStretch()
+        return page
+
+    def apply_stylesheet(self):
+        stylesheet = """
+            QWidget { background-color: #2E3440; color: #D8DEE9; font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; }
+            QTextEdit { background-color: #3B4252; border: 1px solid #4C566A; border-radius: 5px; padding: 8px; color: #ECEFF4; font-family: 'Consolas', 'Courier New', monospace; }
+            #sidebar { background-color: #3B4252; max-width: 220px; }
+            #logo { color: #88C0D0; font-size: 28px; font-weight: bold; }
+            #nav_button { background-color: transparent; border: none; color: #ECEFF4; padding: 12px; text-align: left; border-radius: 5px; }
+            #nav_button:hover { background-color: #434C5E; }
+            #nav_button:checked { background-color: #88C0D0; color: #2E3440; font-weight: bold; }
+            #page_title { font-size: 28px; font-weight: 300; color: #ECEFF4; padding-bottom: 15px; }
+            #page_subtitle { font-size: 16px; color: #A3BE8C; }
+            #version_label { font-size: 13px; color: #81A1C1; }
+            #action_button { background-color: #5E81AC; color: #ECEFF4; border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: bold; border: none; max-width: 350px; }
+            #action_button:hover { background-color: #81A1C1; }
+            #action_button_danger { background-color: #BF616A; color: #ECEFF4; border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: bold; border: none; }
+            #action_button_danger:hover { background-color: #d08770; }
+            QGroupBox { font-weight: bold; border: 1px solid #4C566A; border-radius: 8px; margin-top: 10px; padding: 15px; }
+            QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }
+            #warning_text { font-size: 13px; }
+        """
+        self.setStyleSheet(stylesheet)
+
     def create_sidebar(self):
         sidebar_frame = QFrame()
         sidebar_frame.setObjectName("sidebar")
@@ -12800,29 +12864,23 @@ class AntivirusApp(QWidget):
         sidebar_layout.addStretch()
         return sidebar_frame
 
-    def setup_ui(self):
-        # Set the window icon if the file exists
-        if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
-        else:
-            logging.warning(f"Icon file not found at: {icon_path}")
-
-        self.setWindowTitle("HydraDragon Antivirus v0.1 (Beta 4)")
-        self.setMinimumSize(1024, 768)
-        self.resize(1200, 800)
-        main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-        main_layout.addWidget(self.create_sidebar())
-        main_layout.addWidget(self.create_main_content(), 1)
-
-    def __init__(self):
-        super().__init__()
-        self.workers = []
-        self.log_outputs = []
-        self.animation_group = QParallelAnimationGroup()
-        self.setup_ui()
-        self.apply_stylesheet()
+    def create_cleanup_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        title = QLabel("System Cleanup & Reset")
+        title.setObjectName("page_title")
+        layout.addWidget(title)
+        cleanup_button = QPushButton("Perform Full Environment Cleanup")
+        cleanup_button.setObjectName("action_button_danger")
+        cleanup_button.clicked.connect(lambda: self.start_worker("cleanup_environment"))
+        layout.addWidget(cleanup_button)
+        log_output = QTextEdit("Cleanup process logs will appear here...")
+        log_output.setObjectName("log_output")
+        layout.addWidget(log_output, 1)
+        self.log_outputs.append(log_output)
+        layout.addStretch()
+        return page
 
     def create_status_page(self):
         page = QWidget()
@@ -12855,6 +12913,44 @@ class AntivirusApp(QWidget):
         layout.addLayout(main_area)
         self.log_outputs.append(None)
         return page
+
+    def create_main_content(self):
+        self.main_stack = QStackedWidget()
+        self.main_stack.addWidget(self.create_status_page())
+        self.main_stack.addWidget(self.create_task_page("Update Definitions", "update_defs"))
+        self.main_stack.addWidget(self.create_task_page("Generate Clean DB", "generate_clean_db"))
+        self.main_stack.addWidget(self.create_analysis_page())
+        self.main_stack.addWidget(self.create_task_page("Capture Analysis Logs", "capture_analysis_logs"))
+        self.main_stack.addWidget(self.create_task_page("Compare Logs (Llama AI)", "compare_analysis_logs"))
+        self.main_stack.addWidget(self.create_task_page("Rootkit Scan", "rootkit_scan"))
+        self.main_stack.addWidget(self.create_hayabusa_page())
+        self.main_stack.addWidget(self.create_cleanup_page())
+        self.main_stack.addWidget(self.create_about_page())
+        return self.main_stack
+
+    def setup_ui(self):
+        # Set the window icon if the file exists
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+        else:
+            logging.warning(f"Icon file not found at: {icon_path}")
+
+        self.setWindowTitle("HydraDragon Antivirus v0.1 (Beta 4)")
+        self.setMinimumSize(1024, 768)
+        self.resize(1200, 800)
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        main_layout.addWidget(self.create_sidebar())
+        main_layout.addWidget(self.create_main_content(), 1)
+
+    def __init__(self):
+        super().__init__()
+        self.workers = []
+        self.log_outputs = []
+        self.animation_group = QParallelAnimationGroup()
+        self.setup_ui()
+        self.apply_stylesheet()
 
     def create_task_page(self, title_text, task_name):
         page = QWidget()
@@ -12935,17 +13031,6 @@ class AntivirusApp(QWidget):
             if log_widget:
                 log_widget.append(text)
 
-    def start_worker(self, task_type, *args):
-        worker = Worker(task_type, *args)
-        worker.output_signal.connect(self.append_log_output)
-        worker.finished.connect(lambda w=worker: self.on_worker_finished(w))
-
-        self.workers.append(worker)
-        worker.start()
-        self.append_log_output(f"[*] Task '{task_type}' started.")
-        self.shield_widget.set_status(False)
-        self.status_text.setText("System is busy...")
-
     def on_worker_finished(self, worker):
         self.append_log_output(f"[+] Task '{worker.task_type}' finished.")
         if worker in self.workers:
@@ -12994,19 +13079,6 @@ class AntivirusApp(QWidget):
         self.animation_group.finished.connect(lambda: self.main_stack.setCurrentIndex(index))
         self.animation_group.start()
 
-    def create_main_content(self):
-        self.main_stack = QStackedWidget()
-        self.main_stack.addWidget(self.create_status_page())
-        self.main_stack.addWidget(self.create_task_page("Update Definitions", "update_defs"))
-        self.main_stack.addWidget(self.create_task_page("Generate Clean DB", "generate_clean_db"))
-        self.main_stack.addWidget(self.create_analysis_page())
-        self.main_stack.addWidget(self.create_task_page("Capture Analysis Logs", "capture_analysis_logs"))
-        self.main_stack.addWidget(self.create_task_page("Compare Logs (Llama AI)", "compare_analysis_logs"))
-        self.main_stack.addWidget(self.create_task_page("Rootkit Scan", "rootkit_scan"))
-        self.main_stack.addWidget(self.create_hayabusa_page())
-        self.main_stack.addWidget(self.create_cleanup_page())
-        self.main_stack.addWidget(self.create_about_page())
-        return self.main_stack
 
     def open_sandboxie_control(self):
         """Opens the Sandboxie control window."""
@@ -13016,6 +13088,17 @@ class AntivirusApp(QWidget):
             self.append_log_output("[+] Sandboxie Control window opened successfully.")
         except Exception as e:
             self.append_log_output(f"[!] Error opening Sandboxie Control: {str(e)}")
+
+    def start_worker(self, task_type, *args):
+        worker = Worker(task_type, *args)
+        worker.output_signal.connect(self.append_log_output)
+        worker.finished.connect(lambda w=worker: self.on_worker_finished(w))
+
+        self.workers.append(worker)
+        worker.start()
+        self.append_log_output(f"[*] Task '{task_type}' started.")
+        self.shield_widget.set_status(False)
+        self.status_text.setText("System is busy...")
 
     def analyze_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select a file to analyze", "", "All Files (*)")
@@ -13027,88 +13110,6 @@ class AntivirusApp(QWidget):
             if worker.isRunning():
                 worker.stop_requested = True
         self.append_log_output("[!] Stop request sent to all running tasks.")
-
-    def create_cleanup_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(20, 20, 20, 20)
-        title = QLabel("System Cleanup & Reset")
-        title.setObjectName("page_title")
-        layout.addWidget(title)
-        cleanup_button = QPushButton("Perform Full Environment Cleanup")
-        cleanup_button.setObjectName("action_button_danger")
-        cleanup_button.clicked.connect(lambda: self.start_worker("cleanup_environment"))
-        layout.addWidget(cleanup_button)
-        log_output = QTextEdit("Cleanup process logs will appear here...")
-        log_output.setObjectName("log_output")
-        layout.addWidget(log_output, 1)
-        self.log_outputs.append(log_output)
-        layout.addStretch()
-        return page
-
-    def create_about_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(40, 40, 40, 40)
-        layout.setSpacing(20)
-        title = QLabel("About HydraDragon")
-        title.setObjectName("page_title")
-        layout.addWidget(title)
-        about_text = QLabel(
-            "HydraDragon Antivirus is a tool designed for malware analysis and system security research. "
-            "It provides a sandboxed environment to safely analyze potential threats."
-        )
-        about_text.setWordWrap(True)
-        layout.addWidget(about_text)
-
-        # Llama Model Loader Button
-        llama_load_button = QPushButton("Load Meta Llama AI Model (Requires >8GB RAM)")
-        llama_load_button.setObjectName("action_button")
-        llama_load_button.clicked.connect(lambda: self.start_worker("load_meta_llama_1b_model"))
-        layout.addWidget(llama_load_button, 0, Qt.AlignmentFlag.AlignLeft)
-
-        github_button = QPushButton("View Project on GitHub")
-        github_button.setObjectName("action_button")
-        github_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus"))
-        layout.addWidget(github_button, 0, Qt.AlignmentFlag.AlignLeft)
-
-        # Meta Llama Release Button
-        llama_release_button = QPushButton("View Meta Llama Release")
-        llama_release_button.setObjectName("action_button")
-        llama_release_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/releases/tag/MetaLlama"))
-        layout.addWidget(llama_release_button, 0, Qt.AlignmentFlag.AlignLeft)
-
-        # Log output for Llama model loading status
-        log_output = QTextEdit("Llama AI model status will appear here...")
-        log_output.setObjectName("log_output")
-        log_output.setReadOnly(True)
-        layout.addWidget(log_output, 1)
-        self.log_outputs.append(log_output)
-
-        layout.addStretch()
-        return page
-
-    def apply_stylesheet(self):
-        stylesheet = """
-            QWidget { background-color: #2E3440; color: #D8DEE9; font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; }
-            QTextEdit { background-color: #3B4252; border: 1px solid #4C566A; border-radius: 5px; padding: 8px; color: #ECEFF4; font-family: 'Consolas', 'Courier New', monospace; }
-            #sidebar { background-color: #3B4252; max-width: 220px; }
-            #logo { color: #88C0D0; font-size: 28px; font-weight: bold; }
-            #nav_button { background-color: transparent; border: none; color: #ECEFF4; padding: 12px; text-align: left; border-radius: 5px; }
-            #nav_button:hover { background-color: #434C5E; }
-            #nav_button:checked { background-color: #88C0D0; color: #2E3440; font-weight: bold; }
-            #page_title { font-size: 28px; font-weight: 300; color: #ECEFF4; padding-bottom: 15px; }
-            #page_subtitle { font-size: 16px; color: #A3BE8C; }
-            #version_label { font-size: 13px; color: #81A1C1; }
-            #action_button { background-color: #5E81AC; color: #ECEFF4; border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: bold; border: none; max-width: 350px; }
-            #action_button:hover { background-color: #81A1C1; }
-            #action_button_danger { background-color: #BF616A; color: #ECEFF4; border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: bold; border: none; }
-            #action_button_danger:hover { background-color: #d08770; }
-            QGroupBox { font-weight: bold; border: 1px solid #4C566A; border-radius: 8px; margin-top: 10px; padding: 15px; }
-            QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }
-            #warning_text { font-size: 13px; }
-        """
-        self.setStyleSheet(stylesheet)
 
 def main():
     app = QApplication(sys.argv)
