@@ -10297,10 +10297,6 @@ def monitor_memory_changes(
     """
     Continuously monitor all processes for RSS memory changes and trigger analysis.
 
-    :param sandboxie_folder: Directory path to restrict memory dumps to.
-    :param main_file_path: Exact file path to always allow analysis of.
-    :param memory_dir: Directory where memory dumps and string output are saved.
-    :param pd64_extracted_dir: Directory where pd64 will extract embedded files.
     :param change_threshold_bytes: Minimum delta in RSS to trigger analysis.
     """
     last_rss = {}
