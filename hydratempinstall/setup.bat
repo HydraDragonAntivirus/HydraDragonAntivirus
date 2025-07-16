@@ -4,7 +4,7 @@ setlocal enabledelayedexpansion
 set "HYDRADRAGON_PATH=%ProgramW6432%\HydraDragonAntivirus\hydradragon"
 set "HYDRADRAGON_ROOT_PATH=%ProgramW6432%\HydraDragonAntivirus"
 set "CLAMAV_DIR=%ProgramW6432%\ClamAV"
-set "SNORT_DIR=%SystemDrive%\Snort"
+set "SURICATA_DIR=%ProgramW6432%\Suricata"
 set "SBIE_INI=%ProgramW6432%\Sandboxie\SbieIni.exe"
 set "SBIE_SANDBOX=DefaultBox"
 set "INJECT_DLL=%HYDRADRAGON_PATH%\sandboxie_plugins\SbieHide\SbieHide.x64.dll"
@@ -17,19 +17,17 @@ if exist "%HYDRADRAGON_PATH%\clamavconfig" (
     echo clamavconfig directory not found.
 )
 
-rem 2. Copy hipsconfig
-if exist "%HYDRADRAGON_PATH%\hipsconfig" (
-    xcopy /Y "%HYDRADRAGON_PATH%\hipsconfig\*.*" "%SNORT_DIR%\etc\"
-    rmdir /s /q "%HYDRADRAGON_PATH%\hipsconfig"
+rem 2. Copy suricata.yaml from hipsconfig to suricata directory
+if exist "%HYDRADRAGON_PATH%\hipsconfig\suricata.yaml" (
+    copy /Y "%HYDRADRAGON_PATH%\hipsconfig\suricata.yaml" "%SURICATA_DIR%\suricata.yaml"
+    echo Copied suricata.yaml to %SURICATA_DIR%
 ) else (
-    echo hipsconfig directory not found.
+    echo suricata.yaml not found in hipsconfig directory.
 )
 
 rem 3. Copy hips rules
 if exist "%HYDRADRAGON_PATH%\hips" (
-    xcopy /Y "%HYDRADRAGON_PATH%\hips\snort2.9.rules" "%SNORT_DIR%\rules\"
-    xcopy /Y "%HYDRADRAGON_PATH%\hips\snort2.rules" "%SNORT_DIR%\rules\" 2>nul
-    xcopy /Y "%HYDRADRAGON_PATH%\hips\emergingthreats\*.*" "%SNORT_DIR%\rules\" /S /E /I
+    xcopy /Y "%HYDRADRAGON_PATH%\hips\emerging-all.rules" "%SURICATA_DIR%\rules\"
     rmdir /s /q "%HYDRADRAGON_PATH%\hips"
 ) else (
     echo hips directory not found.

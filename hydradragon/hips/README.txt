@@ -1,1 +1,1 @@
-The rules come from ditekshen, the Snort community and emergingthreats.
+The rules come from emergingthreats.

@@ -567,8 +567,8 @@ log_folder = os.path.join(suricata_folder, "log")
 # Suricata typically uses eve.json for structured logging
 eve_log_path = os.path.join(log_folder, "eve.json")
 fast_log_path = os.path.join(log_folder, "fast.log")  # Alternative fast log format
-suricata_config_path = os.path.join(suricata_folder, "etc", "suricata.yaml")
-suricata_exe_path = os.path.join(suricata_folder, "bin", "suricata.exe")
+suricata_config_path = os.path.join(suricata_folder, "suricata.yaml")
+suricata_exe_path = os.path.join(suricata_folder, "suricata.exe")
 
 sandboxie_dir = os.path.join(program_files, "Sandboxie")
 sandboxie_path = os.path.join(sandboxie_dir, "Start.exe")

@@ -13,7 +13,7 @@
 <img src="hydradragon/assets/HydraDragonAVGUI.png" width= 1080px>
 </p>
 
-Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my machine learning AI, Behaviour analysis, NLP-Based detection, website signatures, Ghidra and Snort etc.
+Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my machine learning AI, Behaviour analysis, NLP-Based detection, website signatures, Ghidra, Suricata, SIGMA etc.
 
 ## MEGA IMPORTANT
 - You have to set (manually of course) this part mega_optimization_with_anti_false_positive=True if you don't care about false positives and optimization. This setting is true because every antivirus on virustotal avoids false positives this way.
