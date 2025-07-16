@@ -1316,7 +1316,7 @@ def analyze_file_with_die(file_path):
             txt_file.write(result.stdout)
 
         logging.info(f"Analysis result saved to {txt_output_path}")
-        
+
         # Display the result using logging
         if result.stdout.strip():
             logging.info(f"{'='*60}")
@@ -1329,7 +1329,7 @@ def analyze_file_with_die(file_path):
             logging.warning(f"No DIE output for {Path(file_path).name}")
             if result.stderr:
                 logging.error(f"DIE stderr output: {result.stderr}")
-        
+
         return result.stdout
 
     except subprocess.SubprocessError as ex:
@@ -1520,7 +1520,7 @@ def is_dotnet_file_from_output(die_output):
         # 4) Nothing .NET/protector-related found
         # logging.debug(f"DIE output does not indicate a .NET executable or known protector: {die_output!r}")
         return None
-        
+
     except re.error as e:
         logging.error(f"Regular expression error in is_dotnet_file_from_output: {e}")
         return None
@@ -5949,23 +5949,23 @@ def activate_uefi_drive():
 def get_suricata_interfaces():
     """Get all available network interfaces for Suricata on Windows"""
     interfaces = []
-    
+
     # Get interfaces using WMI
     c = wmi.WMI()
     for adapter in c.Win32_NetworkAdapter():
         if adapter.NetConnectionStatus == 2 and adapter.NetConnectionID:  # Connected
             interfaces.append(adapter.NetConnectionID)
-    
+
     # Fallback to psutil if WMI didn't find anything
     if not interfaces:
         for interface_name in psutil.net_if_addrs().keys():
             if not interface_name.startswith('lo'):
                 interfaces.append(interface_name)
-    
+
     # Final fallback
     if not interfaces:
         interfaces = ['Ethernet']
-    
+
     logging.info(f"Found interfaces: {interfaces}")
     return interfaces
 
@@ -6045,6 +6045,7 @@ def monitor_suricata_log():
                     if priority is not None:
                         # Enhanced logging with signature and category info
                         full_line = f"[Priority: {priority}] [{category}] {signature} {src_ip} -> {dest_ip}"
+                        logging.debug(full_line)
                         process_alert_data(priority, src_ip, dest_ip)
 
             except Exception as ex:
@@ -8666,58 +8667,6 @@ def find_balanced_parens(s, start_idx):
 
 def pack_uint32(val):
     return struct.pack("<I", val)
-
-def write_pyc(code: types.CodeType, input_path: Path, output_dir: Path) -> None:
-    """
-    Write the given code object to a uniquely named .pyc file in the output directory,
-    avoiding overwriting the original file.
-
-    Args:
-        code: The code object to write.
-        input_path: The original .pyc file path (to avoid overwriting).
-        output_dir: Directory to save the new .pyc file.
-
-    Returns:
-        None
-    """
-    # Ensure input_path and output_dir are Path objects
-    input_path = Path(input_path)
-    output_dir = Path(output_dir)
-
-    # 1) Build a base Path for naming: same stem but extension ".pyc"
-    base = input_path.with_suffix(".pyc")
-
-    # 2) Get a unique candidate using get_unique_output_path
-    output_path = get_unique_output_path(output_dir, base)
-
-    # 3) If by any chance we got the same absolute file as input_path, tweak the stem
-    if output_path.resolve() == input_path.resolve():
-        # Append "_out" to input_path.stem, then re-run unique
-        new_base = input_path.with_name(f"{input_path.stem}_out.pyc")
-        output_path = get_unique_output_path(output_dir, new_base)
-
-    # 4) Build .pyc header + marshal.dumps(code)
-    pyc_data = bytearray()
-    pyc_data.extend(MAGIC_NUMBER)
-
-    if sys.version_info >= (3, 7):
-        # 3.7+: 4-byte bitfield (usually zero), then 4-byte timestamp, then 4-byte source-size.
-        pyc_data.extend(pack_uint32(0))                # Bitfield
-        pyc_data.extend(pack_uint32(int(time.time()))) # Timestamp
-        pyc_data.extend(pack_uint32(0))                # Source size (0 when unknown)
-    else:
-        # <3.7: just 4-byte timestamp, then marshaled code
-        pyc_data.extend(pack_uint32(int(time.time()))) # Timestamp
-
-    pyc_data.extend(marshal.dumps(code))
-
-    # 5) Write to the chosen output_path
-    try:
-        with output_path.open("wb") as f:
-            f.write(pyc_data)
-        logging.info(f"[+] .pyc written to: {output_path}")
-    except Exception as e:
-        logging.error(f"Failed to write .pyc to {output_path}: {e}")
 
 class PruneIfs(ast.NodeTransformer):
     """Prune if statements with constant conditions."""
@@ -11962,6 +11911,22 @@ class ShieldWidget(QWidget):
 
 # --- Main Application Window ---
 class AntivirusApp(QWidget):
+    def setup_ui(self):
+        # Set the window icon if the file exists
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+        else:
+            logging.warning(f"Icon file not found at: {icon_path}")
+
+        self.setWindowTitle("HydraDragon Antivirus v0.1 (Beta 4)")
+        self.setMinimumSize(1024, 768)
+        self.resize(1200, 800)
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        main_layout.addWidget(self.create_sidebar())
+        main_layout.addWidget(self.create_main_content(), 1)
+
     def __init__(self):
         super().__init__()
         self.workers = []
@@ -11969,123 +11934,6 @@ class AntivirusApp(QWidget):
         self.animation_group = QParallelAnimationGroup()
         self.setup_ui()
         self.apply_stylesheet()
-
-    def start_worker(self, task_type, *args):
-        worker = Worker(task_type, *args)
-        worker.output_signal.connect(self.append_log_output)
-        worker.finished.connect(lambda w=worker: self.on_worker_finished(w))
-
-        self.workers.append(worker)
-        worker.start()
-        self.append_log_output(f"[*] Task '{task_type}' started.")
-        self.shield_widget.set_status(False)
-        self.status_text.setText("System is busy...")
-
-    def on_worker_finished(self, worker):
-        self.append_log_output(f"[+] Task '{worker.task_type}' finished.")
-        if worker in self.workers:
-            self.workers.remove(worker)
-        if not self.workers:
-            self.shield_widget.set_status(True)
-            self.status_text.setText("Ready for analysis!")
-
-    def append_log_output(self, text):
-        current_page_index = self.main_stack.currentIndex()
-        if 0 <= current_page_index < len(self.log_outputs):
-            log_widget = self.log_outputs[current_page_index]
-            if log_widget:
-                log_widget.append(text)
-
-    def switch_page_with_animation(self, index):
-        if self.animation_group.state() == QParallelAnimationGroup.State.Running:
-            return
-
-        current_widget = self.main_stack.currentWidget()
-        next_widget = self.main_stack.widget(index)
-
-        if current_widget == next_widget:
-            return
-
-        current_index = self.main_stack.currentIndex()
-
-        animation_duration = 400
-        easing_curve = QEasingCurve.Type.InOutCubic
-
-        next_widget.show()
-        next_widget.raise_()
-
-        slide_out_x = -self.main_stack.width() if index > current_index else self.main_stack.width()
-        current_pos_anim = QPropertyAnimation(current_widget, b"pos")
-        current_pos_anim.setDuration(animation_duration)
-        current_pos_anim.setEasingCurve(easing_curve)
-        current_pos_anim.setStartValue(QPoint(0, 0))
-        current_pos_anim.setEndValue(QPoint(slide_out_x, 0))
-
-        slide_in_x = self.main_stack.width() if index > current_index else -self.main_stack.width()
-        next_widget.move(slide_in_x, 0)
-        next_pos_anim = QPropertyAnimation(next_widget, b"pos")
-        next_pos_anim.setDuration(animation_duration)
-        next_pos_anim.setEasingCurve(easing_curve)
-        next_pos_anim.setStartValue(QPoint(slide_in_x, 0))
-        next_pos_anim.setEndValue(QPoint(0, 0))
-
-        self.animation_group = QParallelAnimationGroup()
-        self.animation_group.addAnimation(current_pos_anim)
-        self.animation_group.addAnimation(next_pos_anim)
-
-        self.animation_group.finished.connect(lambda: self.main_stack.setCurrentIndex(index))
-        self.animation_group.start()
-
-    def create_sidebar(self):
-        sidebar_frame = QFrame()
-        sidebar_frame.setObjectName("sidebar")
-        sidebar_layout = QVBoxLayout(sidebar_frame)
-        sidebar_layout.setContentsMargins(10, 20, 10, 20)
-        sidebar_layout.setSpacing(15)
-
-        logo_area = QHBoxLayout()
-        icon_widget = HydraIconWidget()
-        icon_widget.setFixedSize(30, 30)
-        logo_label = QLabel("HYDRA")
-        logo_label.setObjectName("logo")
-        logo_area.addWidget(icon_widget)
-        logo_area.addWidget(logo_label)
-        sidebar_layout.addLayout(logo_area)
-        sidebar_layout.addSpacing(20)
-
-        nav_buttons = [
-            "Status", "Update Definitions", "Generate Clean DB",
-            "Analyze File", "Capture Analysis Logs", "Compare Logs",
-            "Rootkit Scan", "Hayabusa Analysis", "Cleanup Environment", "About & Load AI"  # ADDED HAYABUSA
-        ]
-        self.nav_group = QButtonGroup(self)
-        self.nav_group.setExclusive(True)
-
-        for i, name in enumerate(nav_buttons):
-            button = QPushButton(name)
-            button.setCheckable(True)
-            button.setObjectName("nav_button")
-            button.clicked.connect(lambda checked, index=i: self.switch_page_with_animation(index))
-            sidebar_layout.addWidget(button)
-            self.nav_group.addButton(button, i)
-
-        self.nav_group.button(0).setChecked(True)
-        sidebar_layout.addStretch()
-        return sidebar_frame
-
-    def create_main_content(self):
-        self.main_stack = QStackedWidget()
-        self.main_stack.addWidget(self.create_status_page())
-        self.main_stack.addWidget(self.create_task_page("Update Definitions", "update_defs"))
-        self.main_stack.addWidget(self.create_task_page("Generate Clean DB", "generate_clean_db"))
-        self.main_stack.addWidget(self.create_analysis_page())
-        self.main_stack.addWidget(self.create_task_page("Capture Analysis Logs", "capture_analysis_logs"))
-        self.main_stack.addWidget(self.create_task_page("Compare Logs (Llama AI)", "compare_analysis_logs"))
-        self.main_stack.addWidget(self.create_task_page("Rootkit Scan", "rootkit_scan"))
-        self.main_stack.addWidget(self.create_hayabusa_page())
-        self.main_stack.addWidget(self.create_cleanup_page())
-        self.main_stack.addWidget(self.create_about_page())
-        return self.main_stack
 
     def create_status_page(self):
         page = QWidget()
@@ -12191,6 +12039,123 @@ class AntivirusApp(QWidget):
         self.log_outputs.append(log_output)
         return page
 
+    def append_log_output(self, text):
+        current_page_index = self.main_stack.currentIndex()
+        if 0 <= current_page_index < len(self.log_outputs):
+            log_widget = self.log_outputs[current_page_index]
+            if log_widget:
+                log_widget.append(text)
+
+    def start_worker(self, task_type, *args):
+        worker = Worker(task_type, *args)
+        worker.output_signal.connect(self.append_log_output)
+        worker.finished.connect(lambda w=worker: self.on_worker_finished(w))
+
+        self.workers.append(worker)
+        worker.start()
+        self.append_log_output(f"[*] Task '{task_type}' started.")
+        self.shield_widget.set_status(False)
+        self.status_text.setText("System is busy...")
+
+    def on_worker_finished(self, worker):
+        self.append_log_output(f"[+] Task '{worker.task_type}' finished.")
+        if worker in self.workers:
+            self.workers.remove(worker)
+        if not self.workers:
+            self.shield_widget.set_status(True)
+            self.status_text.setText("Ready for analysis!")
+
+    def switch_page_with_animation(self, index):
+        if self.animation_group.state() == QParallelAnimationGroup.State.Running:
+            return
+
+        current_widget = self.main_stack.currentWidget()
+        next_widget = self.main_stack.widget(index)
+
+        if current_widget == next_widget:
+            return
+
+        current_index = self.main_stack.currentIndex()
+
+        animation_duration = 400
+        easing_curve = QEasingCurve.Type.InOutCubic
+
+        next_widget.show()
+        next_widget.raise_()
+
+        slide_out_x = -self.main_stack.width() if index > current_index else self.main_stack.width()
+        current_pos_anim = QPropertyAnimation(current_widget, b"pos")
+        current_pos_anim.setDuration(animation_duration)
+        current_pos_anim.setEasingCurve(easing_curve)
+        current_pos_anim.setStartValue(QPoint(0, 0))
+        current_pos_anim.setEndValue(QPoint(slide_out_x, 0))
+
+        slide_in_x = self.main_stack.width() if index > current_index else -self.main_stack.width()
+        next_widget.move(slide_in_x, 0)
+        next_pos_anim = QPropertyAnimation(next_widget, b"pos")
+        next_pos_anim.setDuration(animation_duration)
+        next_pos_anim.setEasingCurve(easing_curve)
+        next_pos_anim.setStartValue(QPoint(slide_in_x, 0))
+        next_pos_anim.setEndValue(QPoint(0, 0))
+
+        self.animation_group = QParallelAnimationGroup()
+        self.animation_group.addAnimation(current_pos_anim)
+        self.animation_group.addAnimation(next_pos_anim)
+
+        self.animation_group.finished.connect(lambda: self.main_stack.setCurrentIndex(index))
+        self.animation_group.start()
+
+    def create_sidebar(self):
+        sidebar_frame = QFrame()
+        sidebar_frame.setObjectName("sidebar")
+        sidebar_layout = QVBoxLayout(sidebar_frame)
+        sidebar_layout.setContentsMargins(10, 20, 10, 20)
+        sidebar_layout.setSpacing(15)
+
+        logo_area = QHBoxLayout()
+        icon_widget = HydraIconWidget()
+        icon_widget.setFixedSize(30, 30)
+        logo_label = QLabel("HYDRA")
+        logo_label.setObjectName("logo")
+        logo_area.addWidget(icon_widget)
+        logo_area.addWidget(logo_label)
+        sidebar_layout.addLayout(logo_area)
+        sidebar_layout.addSpacing(20)
+
+        nav_buttons = [
+            "Status", "Update Definitions", "Generate Clean DB",
+            "Analyze File", "Capture Analysis Logs", "Compare Logs",
+            "Rootkit Scan", "Hayabusa Analysis", "Cleanup Environment", "About & Load AI"  # ADDED HAYABUSA
+        ]
+        self.nav_group = QButtonGroup(self)
+        self.nav_group.setExclusive(True)
+
+        for i, name in enumerate(nav_buttons):
+            button = QPushButton(name)
+            button.setCheckable(True)
+            button.setObjectName("nav_button")
+            button.clicked.connect(lambda checked, index=i: self.switch_page_with_animation(index))
+            sidebar_layout.addWidget(button)
+            self.nav_group.addButton(button, i)
+
+        self.nav_group.button(0).setChecked(True)
+        sidebar_layout.addStretch()
+        return sidebar_frame
+
+    def create_main_content(self):
+        self.main_stack = QStackedWidget()
+        self.main_stack.addWidget(self.create_status_page())
+        self.main_stack.addWidget(self.create_task_page("Update Definitions", "update_defs"))
+        self.main_stack.addWidget(self.create_task_page("Generate Clean DB", "generate_clean_db"))
+        self.main_stack.addWidget(self.create_analysis_page())
+        self.main_stack.addWidget(self.create_task_page("Capture Analysis Logs", "capture_analysis_logs"))
+        self.main_stack.addWidget(self.create_task_page("Compare Logs (Llama AI)", "compare_analysis_logs"))
+        self.main_stack.addWidget(self.create_task_page("Rootkit Scan", "rootkit_scan"))
+        self.main_stack.addWidget(self.create_hayabusa_page())
+        self.main_stack.addWidget(self.create_cleanup_page())
+        self.main_stack.addWidget(self.create_about_page())
+        return self.main_stack
+
     def open_sandboxie_control(self):
         """Opens the Sandboxie control window."""
         try:
@@ -12254,7 +12219,7 @@ class AntivirusApp(QWidget):
         github_button.setObjectName("action_button")
         github_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus"))
         layout.addWidget(github_button, 0, Qt.AlignmentFlag.AlignLeft)
-        
+
         # Meta Llama Release Button
         llama_release_button = QPushButton("View Meta Llama Release")
         llama_release_button.setObjectName("action_button")
@@ -12270,22 +12235,6 @@ class AntivirusApp(QWidget):
 
         layout.addStretch()
         return page
-
-    def setup_ui(self):
-        # Set the window icon if the file exists
-        if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
-        else:
-            logging.warning(f"Icon file not found at: {icon_path}")
-
-        self.setWindowTitle("HydraDragon Antivirus v0.1 (Beta 4)")
-        self.setMinimumSize(1024, 768)
-        self.resize(1200, 800)
-        main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-        main_layout.addWidget(self.create_sidebar())
-        main_layout.addWidget(self.create_main_content(), 1)
 
     def apply_stylesheet(self):
         stylesheet = """
@@ -12903,7 +12852,7 @@ class Worker(QThread):
             result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(hayabusa_path))
 
             if result.returncode == 0:
-                self.output_signal.emit(f"[+] Hayabusa timeline analysis completed successfully!")
+                self.output_signal.emit("[+] Hayabusa timeline analysis completed successfully!")
                 self.output_signal.emit(f"[+] Output saved to: {output_file}")
 
                 # Show basic statistics if available
@@ -12973,7 +12922,7 @@ class Worker(QThread):
             result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(hayabusa_path))
 
             if result.returncode == 0:
-                self.output_signal.emit(f"[+] Hayabusa search completed successfully!")
+                self.output_signal.emit("[+] Hayabusa search completed successfully!")
                 self.output_signal.emit(f"[+] Results saved to: {output_file}")
 
                 # Show search results summary
@@ -13041,7 +12990,7 @@ class Worker(QThread):
             result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(hayabusa_path))
 
             if result.returncode == 0:
-                self.output_signal.emit(f"[+] Hayabusa logon summary completed successfully!")
+                self.output_signal.emit("[+] Hayabusa logon summary completed successfully!")
                 self.output_signal.emit(f"[+] Results saved to: {output_file}")
 
                 # Show logon summary
