@@ -12383,13 +12383,33 @@ class Worker(QThread):
 
             # Run the update-rules command
             cmd = [hayabusa_path, "update-rules"]
-            result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(hayabusa_path))
+            self.output_signal.emit(f"[*] Running command: {' '.join(cmd)}")
 
-            if result.returncode == 0:
+            # Use Popen for real-time output with colors
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                universal_newlines=True,
+                cwd=os.path.dirname(hayabusa_path),
+                bufsize=1
+            )
+
+            # Read output in real-time
+            while True:
+                output = process.stdout.readline()
+                if output == '' and process.poll() is not None:
+                    break
+                if output:
+                    self.output_signal.emit(output.rstrip())
+
+            rc = process.poll()
+
+            if rc == 0:
                 self.output_signal.emit("[+] Hayabusa rules updated successfully!")
-                self.output_signal.emit(f"Output: {result.stdout}")
             else:
-                self.output_signal.emit(f"[!] Failed to update Hayabusa rules. Error: {result.stderr}")
+                self.output_signal.emit(f"[!] Failed to update Hayabusa rules. Return code: {rc}")
 
         except Exception as e:
             self.output_signal.emit(f"[!] Error updating Hayabusa rules: {str(e)}")
@@ -12419,15 +12439,33 @@ class Worker(QThread):
                 output_file = os.path.join(output_dir, f"hayabusa_timeline_{timestamp}.csv")
                 cmd = [hayabusa_path, "csv-timeline", "-d", evtx_logs_path, "-o", output_file]
 
-            # Add quiet mode and other useful flags
-            cmd.extend(["-q", "--no-color", "--profile", "standard"])
+            # Add profile but keep colors and progress
+            cmd.extend(["--profile", "standard"])
 
             self.output_signal.emit(f"[*] Running command: {' '.join(cmd)}")
 
-            # Run Hayabusa
-            result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(hayabusa_path))
+            # Use Popen for real-time output
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                universal_newlines=True,
+                cwd=os.path.dirname(hayabusa_path),
+                bufsize=1
+            )
 
-            if result.returncode == 0:
+            # Read output in real-time
+            while True:
+                output = process.stdout.readline()
+                if output == '' and process.poll() is not None:
+                    break
+                if output:
+                    self.output_signal.emit(output.rstrip())
+
+            rc = process.poll()
+
+            if rc == 0:
                 self.output_signal.emit("[+] Hayabusa timeline analysis completed successfully!")
                 self.output_signal.emit(f"[+] Output saved to: {output_file}")
 
@@ -12446,10 +12484,8 @@ class Worker(QThread):
                                 self.output_signal.emit(f"[+] Total events in timeline: {line_count - 1:,}")
                     except Exception as e:
                         self.output_signal.emit(f"[!] Could not count events: {str(e)}")
-                if result.stdout:
-                    self.output_signal.emit(f"Output: {result.stdout}")
             else:
-                self.output_signal.emit(f"[!] Hayabusa timeline analysis failed. Error: {result.stderr}")
+                self.output_signal.emit(f"[!] Hayabusa timeline analysis failed. Return code: {rc}")
         except Exception as e:
             self.output_signal.emit(f"[!] Error running Hayabusa timeline: {str(e)}")
 
@@ -12473,18 +12509,40 @@ class Worker(QThread):
 
             # Build search command
             cmd = [hayabusa_path, "search", "-d", evtx_logs_path, "-o", output_file]
+
             # Add keywords or regex
             if regex:
                 cmd.extend(["-r", keywords])
             else:
                 cmd.extend(["-k", keywords])
-            cmd.extend(["-q", "--no-color"])
-            self.output_signal.emit(f"[*] Running command: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(hayabusa_path))
 
-            if result.returncode == 0:
+            self.output_signal.emit(f"[*] Running command: {' '.join(cmd)}")
+
+            # Use Popen for real-time output
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                universal_newlines=True,
+                cwd=os.path.dirname(hayabusa_path),
+                bufsize=1
+            )
+
+            # Read output in real-time
+            while True:
+                output = process.stdout.readline()
+                if output == '' and process.poll() is not None:
+                    break
+                if output:
+                    self.output_signal.emit(output.rstrip())
+
+            rc = process.poll()
+
+            if rc == 0:
                 self.output_signal.emit("[+] Hayabusa search completed successfully!")
                 self.output_signal.emit(f"[+] Results saved to: {output_file}")
+
                 # Show search results summary
                 if os.path.exists(output_file):
                     try:
@@ -12503,10 +12561,8 @@ class Worker(QThread):
                                 self.output_signal.emit("[*] No matching events found")
                     except Exception as e:
                         self.output_signal.emit(f"[!] Could not read results: {str(e)}")
-                if result.stdout:
-                    self.output_signal.emit(f"Output: {result.stdout}")
             else:
-                self.output_signal.emit(f"[!] Hayabusa search failed. Error: {result.stderr}")
+                self.output_signal.emit(f"[!] Hayabusa search failed. Return code: {rc}")
         except Exception as e:
             self.output_signal.emit(f"[!] Error running Hayabusa search: {str(e)}")
 
@@ -12516,6 +12572,7 @@ class Worker(QThread):
         """
         try:
             self.output_signal.emit("[*] Generating logon summary with Hayabusa...")
+
             # Check if Hayabusa executable exists
             if not os.path.exists(hayabusa_path):
                 self.output_signal.emit(f"[!] Hayabusa executable not found at: {hayabusa_path}")
@@ -12526,27 +12583,50 @@ class Worker(QThread):
             output_dir = os.path.join(log_directory, f"hayabusa_logon_{timestamp}")
             os.makedirs(output_dir, exist_ok=True)
             output_file = os.path.join(output_dir, f"logon_summary_{timestamp}.csv")
-            cmd = [hayabusa_path, "logon-summary", "-d", evtx_logs_path, "-o", output_file, "-q", "--no-color"]
-            self.output_signal.emit(f"[*] Running command: {' '.join(cmd)}")
-            # Run Hayabusa logon summary
-            result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(hayabusa_path))
 
-            if result.returncode == 0:
+            cmd = [hayabusa_path, "logon-summary", "-d", evtx_logs_path, "-o", output_file]
+
+            self.output_signal.emit(f"[*] Running command: {' '.join(cmd)}")
+
+            # Use Popen for real-time output
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                universal_newlines=True,
+                cwd=os.path.dirname(hayabusa_path),
+                bufsize=1
+            )
+
+            # Read output in real-time
+            while True:
+                output = process.stdout.readline()
+                if output == '' and process.poll() is not None:
+                    break
+                if output:
+                    self.output_signal.emit(output.rstrip())
+
+            rc = process.poll()
+
+            if rc == 0:
                 self.output_signal.emit("[+] Hayabusa logon summary completed successfully!")
                 self.output_signal.emit(f"[+] Results saved to: {output_file}")
+
                 # Show logon summary
                 if os.path.exists(output_file):
                     try:
                         with open(output_file, 'r', encoding='utf-8') as f:
                             content = f.read()
-                            self.output_signal.emit("[*] Logon Summary:")
-                            self.output_signal.emit(content)
+                            if content.strip():
+                                self.output_signal.emit("[*] Logon Summary:")
+                                self.output_signal.emit(content)
+                            else:
+                                self.output_signal.emit("[*] No logon data found")
                     except Exception as e:
                         self.output_signal.emit(f"[!] Could not read logon summary: {str(e)}")
-                if result.stdout:
-                    self.output_signal.emit(f"Output: {result.stdout}")
             else:
-                self.output_signal.emit(f"[!] Hayabusa logon summary failed. Error: {result.stderr}")
+                self.output_signal.emit(f"[!] Hayabusa logon summary failed. Return code: {rc}")
         except Exception as e:
             self.output_signal.emit(f"[!] Error running Hayabusa logon summary: {str(e)}")
 
@@ -12576,23 +12656,49 @@ class Worker(QThread):
 
             for metric_type, output_filename in metrics_commands:
                 output_file = os.path.join(output_dir, output_filename)
-                cmd = [hayabusa_path, metric_type, "-d", evtx_logs_path, "-o", output_file, "-q", "--no-color"]
+                cmd = [hayabusa_path, metric_type, "-d", evtx_logs_path, "-o", output_file]
+
                 self.output_signal.emit(f"[*] Running {metric_type} analysis...")
-                # Run Hayabusa metrics
-                result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(hayabusa_path))
-                if result.returncode == 0:
+                self.output_signal.emit(f"[*] Command: {' '.join(cmd)}")
+
+                # Use Popen for real-time output
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    universal_newlines=True,
+                    cwd=os.path.dirname(hayabusa_path),
+                    bufsize=1
+                )
+
+                # Read output in real-time
+                while True:
+                    output = process.stdout.readline()
+                    if output == '' and process.poll() is not None:
+                        break
+                    if output:
+                        self.output_signal.emit(f"  {output.rstrip()}")
+
+                rc = process.poll()
+
+                if rc == 0:
                     self.output_signal.emit(f"[+] {metric_type} completed successfully!")
                     self.output_signal.emit(f"[+] Results saved to: {output_file}")
+
                     # Show brief summary of results
                     if os.path.exists(output_file):
                         try:
                             with open(output_file, 'r', encoding='utf-8') as f:
                                 lines = f.readlines()
-                                self.output_signal.emit(f"[+] Generated {len(lines) - 1} {metric_type} entries" if len(lines) > 1 else f"[*] No {metric_type} data found")
+                                if len(lines) > 1:
+                                    self.output_signal.emit(f"[+] Generated {len(lines) - 1} {metric_type} entries")
+                                else:
+                                    self.output_signal.emit(f"[*] No {metric_type} data found")
                         except Exception as e:
                             self.output_signal.emit(f"[!] Could not read {metric_type} results: {str(e)}")
                 else:
-                    self.output_signal.emit(f"[!] {metric_type} failed. Error: {result.stderr}")
+                    self.output_signal.emit(f"[!] {metric_type} failed. Return code: {rc}")
         except Exception as e:
             self.output_signal.emit(f"[!] Error running Hayabusa metrics: {str(e)}")
 
