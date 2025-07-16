@@ -12125,7 +12125,7 @@ class AntivirusApp(QWidget):
         self.main_stack.addWidget(self.create_task_page("Generate Clean DB", "generate_clean_db"))
         self.main_stack.addWidget(self.create_analysis_page())
         self.main_stack.addWidget(self.create_task_page("Capture Analysis Logs", "capture_analysis_logs"))
-        self.main_stack.addWidget(self.create_task_page("Compare Logs (Llama AI)", "compare_logs"))
+        self.main_stack.addWidget(self.create_task_page("Compare Logs (Llama AI)", "compare_analysis_logs"))
         self.main_stack.addWidget(self.create_task_page("Rootkit Scan", "rootkit_scan"))
         self.main_stack.addWidget(self.create_hayabusa_page())
         self.main_stack.addWidget(self.create_cleanup_page())
@@ -13187,7 +13187,8 @@ class Worker(QThread):
                 self.perform_rootkit_scan()
             elif self.task_type == "cleanup_environment":
                 self.perform_cleanup()
-            # NEW HAYABUSA TASKS
+            elif self.task_type == "load_meta_llama_1b_model":
+                self.load_meta_llama_1b_model()
             elif self.task_type == "update_hayabusa_rules":
                 self.update_hayabusa_rules()
             elif self.task_type == "hayabusa_timeline_csv":
