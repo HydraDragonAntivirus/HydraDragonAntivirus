@@ -6646,6 +6646,17 @@ class PyInstArchive:
             # 8 byte header for 2.x, 3.0-3.2
             return data[8:]
 
+    def _getCryptoKey(self):
+        if self.cryptoKey:
+            return self.cryptoKey
+
+        if not self.cryptoKeyFileData:
+            return None
+
+        co = load_code(self.cryptoKeyFileData, pycHeader2Magic(self.pycMagic))
+        self.cryptoKey = co.co_consts[0]
+        return self.cryptoKey
+
     def _tryDecrypt(self, ct, aes_mode):
         CRYPT_BLOCK_SIZE = 16
 
@@ -6754,6 +6765,12 @@ class PyInstArchive:
 
                 self._writePyc(filePath, data)
 
+    def _fixBarePycs(self):
+        for pycFile in self.barePycList:
+            with open(pycFile, "r+b") as pycFile:
+                # Overwrite the first four bytes
+                pycFile.write(self.pycMagic)
+
     def extractFiles(self, one_dir):
         logging.info("Beginning extraction...please standby")
         extractionDir = pyinstaller_extracted_dir
@@ -6838,23 +6855,6 @@ class PyInstArchive:
 
         # Fix bare pyc's if any
         self._fixBarePycs()
-
-    def _fixBarePycs(self):
-        for pycFile in self.barePycList:
-            with open(pycFile, "r+b") as pycFile:
-                # Overwrite the first four bytes
-                pycFile.write(self.pycMagic)
-
-    def _getCryptoKey(self):
-        if self.cryptoKey:
-            return self.cryptoKey
-
-        if not self.cryptoKeyFileData:
-            return None
-
-        co = load_code(self.cryptoKeyFileData, pycHeader2Magic(self.pycMagic))
-        self.cryptoKey = co.co_consts[0]
-        return self.cryptoKey
 
 def extract_pyinstaller_archive(file_path):
     try:
@@ -10927,6 +10927,18 @@ class MonitorMessageCommandLine:
                 }
             }
 
+    def get_unique_filename(self, base_name):
+        """Generate a unique filename by appending a number if necessary."""
+        counter = 1
+        unique_name = os.path.join(commandlineandmessage_dir, f"{base_name}.txt")
+        while os.path.exists(unique_name):
+            unique_name = os.path.join(commandlineandmessage_dir, f"{base_name}_{counter}.txt")
+            counter += 1
+        return unique_name
+
+    def preprocess_text(self, text):
+        return text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "")
+
     def process_window_text(self, hwnd, text, path):
         """
         Process text from a window - this contains the original logic.
@@ -11034,9 +11046,6 @@ class MonitorMessageCommandLine:
             )
         except Exception:
             logging.exception("Exception in WinEventProc callback")
-
-    def preprocess_text(self, text):
-        return text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "")
 
     def capture_command_lines(self):
         command_lines = []
@@ -11248,15 +11257,6 @@ class MonitorMessageCommandLine:
             logging.error(f"Error handling file {file_path}: {ex}")
 
         return None  # Indicate an error occurred
-
-    def get_unique_filename(self, base_name):
-        """Generate a unique filename by appending a number if necessary."""
-        counter = 1
-        unique_name = os.path.join(commandlineandmessage_dir, f"{base_name}.txt")
-        while os.path.exists(unique_name):
-            unique_name = os.path.join(commandlineandmessage_dir, f"{base_name}_{counter}.txt")
-            counter += 1
-        return unique_name
 
     # -----------------------------------------------------------------------------
     # 5) Install the hooks and pump messages
