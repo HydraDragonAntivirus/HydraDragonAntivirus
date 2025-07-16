@@ -560,7 +560,7 @@ def parse_suricata_alert(json_line):
 alert_regex = re.compile(r'\[Priority: (\d+)].*?\{(?:UDP|TCP)} (\d+\.\d+\.\d+\.\d+):\d+ -> (\d+\.\d+\.\d+\.\d+):\d+')
 
 # Suricata base folder path
-suricata_folder = os.path.join(system_drive, "Suricata")
+suricata_folder = os.path.join(program_files, "Suricata")
 
 # File paths and configurations
 log_folder = os.path.join(suricata_folder, "log")
@@ -5946,69 +5946,28 @@ def activate_uefi_drive():
         logging.error(f"Error mounting UEFI drive: {ex}")
 
 
-# Suricata command construction
-# Suricata uses different interface specification
 def get_suricata_interfaces():
-    """Get all available network interfaces for Suricata"""
+    """Get all available network interfaces for Suricata on Windows"""
     interfaces = []
-
-    try:
-        # Method 1: Use psutil to get all network interfaces
+    
+    # Get interfaces using WMI
+    c = wmi.WMI()
+    for adapter in c.Win32_NetworkAdapter():
+        if adapter.NetConnectionStatus == 2 and adapter.NetConnectionID:  # Connected
+            interfaces.append(adapter.NetConnectionID)
+    
+    # Fallback to psutil if WMI didn't find anything
+    if not interfaces:
         for interface_name in psutil.net_if_addrs().keys():
-            # Skip loopback and virtual interfaces
-            if not interface_name.startswith(('lo', 'Loopback', 'vEthernet')):
+            if not interface_name.startswith('lo'):
                 interfaces.append(interface_name)
-
-        # Method 2: Try to get interfaces from Suricata directly
-        try:
-            result = subprocess.run([suricata_exe_path, "--list-interfaces"],
-                                    capture_output=True, text=True, timeout=10)
-            if result.returncode == 0:
-                # Parse Suricata interface output
-                for line in result.stdout.split('\n'):
-                    if 'dev:' in line or 'interface:' in line:
-                        # Extract interface name from Suricata output
-                        interface = line.split(':')[-1].strip()
-                        if interface and interface not in interfaces:
-                            interfaces.append(interface)
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
-            pass
-
-        # Method 3: Windows specific - get from ipconfig if on Windows
-        if os.name == 'nt':
-            try:
-                result = subprocess.run(['ipconfig', '/all'],
-                                        capture_output=True, text=True, timeout=10)
-                # This is a fallback - you might need to adjust parsing
-                pass
-            except:
-                pass
-
-        # Method 4: Linux/Unix specific - get from /sys/class/net
-        if os.name == 'posix':
-            try:
-                net_path = '/sys/class/net'
-                if os.path.exists(net_path):
-                    for interface in os.listdir(net_path):
-                        if interface != 'lo' and interface not in interfaces:
-                            interfaces.append(interface)
-            except:
-                pass
-
-        # If no interfaces found, try common interface names
-        if not interfaces:
-            common_interfaces = ['eth0', 'eth1', 'wlan0', 'ens33', 'enp0s3']
-            for iface in common_interfaces:
-                if iface in psutil.net_if_addrs():
-                    interfaces.append(iface)
-
-        logging.info(f"Detected interfaces: {interfaces}")
-        return interfaces if interfaces else ['eth0']  # Fallback
-
-    except Exception as e:
-        logging.error(f"Error detecting interfaces: {e}")
-        return ['eth0']  # Fallback interface
-
+    
+    # Final fallback
+    if not interfaces:
+        interfaces = ['Ethernet']
+    
+    logging.info(f"Found interfaces: {interfaces}")
+    return interfaces
 
 # Suricata command
 interfaces = get_suricata_interfaces()
