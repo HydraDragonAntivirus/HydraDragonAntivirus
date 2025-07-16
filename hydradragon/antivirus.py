@@ -12056,7 +12056,7 @@ class Worker(QThread):
                     self.output_signal.emit("[+] Virus definitions updated successfully and ClamAV restarted.")
                     self.output_signal.emit(f"Output:\n{result.stdout}")
                 else:
-                    self.output_signal.emit(f"[!] Failed to update definitions. Error:\n{result.stderr}")
+                    self.output_signal.emit(f"[!] Failed to update ClamAV definitions. Error:\n{result.stderr}")
             else:
                 self.output_signal.emit("[*] Definitions are already up-to-date.")
         except Exception as e:
@@ -12393,7 +12393,9 @@ class Worker(QThread):
                 text=True,
                 universal_newlines=True,
                 cwd=os.path.dirname(hayabusa_path),
-                bufsize=1
+                bufsize=1,
+                encoding='utf-8',
+                errors='ignore'
             )
 
             # Read output in real-time
@@ -12452,7 +12454,9 @@ class Worker(QThread):
                 text=True,
                 universal_newlines=True,
                 cwd=os.path.dirname(hayabusa_path),
-                bufsize=1
+                bufsize=1,
+                encoding='utf-8',
+                errors='ignore'
             )
 
             # Read output in real-time
@@ -12476,7 +12480,7 @@ class Worker(QThread):
 
                     # Count lines for CSV or events for JSON
                     try:
-                        with open(output_file, 'r', encoding='utf-8') as f:
+                        with open(output_file, 'r', encoding='utf-8', errors='ignore') as f:
                             line_count = sum(1 for _ in f)
                             if output_format.lower() == "json":
                                 self.output_signal.emit(f"[+] Total events analyzed: {line_count:,}")
@@ -12526,7 +12530,9 @@ class Worker(QThread):
                 text=True,
                 universal_newlines=True,
                 cwd=os.path.dirname(hayabusa_path),
-                bufsize=1
+                bufsize=1,
+                encoding='utf-8',
+                errors='ignore'
             )
 
             # Read output in real-time
@@ -12546,7 +12552,7 @@ class Worker(QThread):
                 # Show search results summary
                 if os.path.exists(output_file):
                     try:
-                        with open(output_file, 'r', encoding='utf-8') as f:
+                        with open(output_file, 'r', encoding='utf-8', errors='ignore') as f:
                             lines = f.readlines()
                             if len(lines) > 1:  # More than just header
                                 result_count = len(lines) - 1
@@ -12596,7 +12602,9 @@ class Worker(QThread):
                 text=True,
                 universal_newlines=True,
                 cwd=os.path.dirname(hayabusa_path),
-                bufsize=1
+                bufsize=1,
+                encoding='utf-8',
+                errors='ignore'
             )
 
             # Read output in real-time
@@ -12616,7 +12624,7 @@ class Worker(QThread):
                 # Show logon summary
                 if os.path.exists(output_file):
                     try:
-                        with open(output_file, 'r', encoding='utf-8') as f:
+                        with open(output_file, 'r', encoding='utf-8', errors='ignore') as f:
                             content = f.read()
                             if content.strip():
                                 self.output_signal.emit("[*] Logon Summary:")
@@ -12669,7 +12677,9 @@ class Worker(QThread):
                     text=True,
                     universal_newlines=True,
                     cwd=os.path.dirname(hayabusa_path),
-                    bufsize=1
+                    bufsize=1,
+                    encoding='utf-8',
+                    errors='ignore'
                 )
 
                 # Read output in real-time
@@ -12689,7 +12699,7 @@ class Worker(QThread):
                     # Show brief summary of results
                     if os.path.exists(output_file):
                         try:
-                            with open(output_file, 'r', encoding='utf-8') as f:
+                            with open(output_file, 'r', encoding='utf-8', errors='ignore') as f:
                                 lines = f.readlines()
                                 if len(lines) > 1:
                                     self.output_signal.emit(f"[+] Generated {len(lines) - 1} {metric_type} entries")
@@ -12908,14 +12918,15 @@ class AntivirusApp(QWidget):
         warning_text = QLabel(
             "<b>IMPORTANT:</b> Only run this application from a Virtual Machine.<br><br>"
             "<b>Recommended Workflow:</b><br>"
-            "1. Update Virus Definitions<br>"
+            "1. Update ClamAV and Hayabusa Virus Definitions<br>"
             "2. Generate Clean DB (Process Dump x64)<br>"
-            "3. Capture Pre-analysis Logs <br>"
+            "3. Capture Pre-analysis Logs<br>"
             "4. Analyze a File<br>"
             "5. Stop Analysis<br>"
             "6. Capture Post-analysis Logs and Compare Results (with Llama AI)<br>"
             "7. Rootkit Scan<br>"
-            "8. Cleanup Environment<br><br>"
+            "8. Hayabusa SIGMA SIEM CSV-timeline Scan<br>"
+            "9. Cleanup Environment<br><br>"
             "<i>Return to a clean snapshot before starting a new analysis.</i>"
         )
         warning_text.setWordWrap(True)
@@ -13058,7 +13069,7 @@ class AntivirusApp(QWidget):
     def create_main_content(self):
         self.main_stack = QStackedWidget()
         self.main_stack.addWidget(self.create_status_page())
-        self.main_stack.addWidget(self.create_task_page("Update Definitions", "update_defs"))
+        self.main_stack.addWidget(self.create_task_page("Update ClamAV Definitions", "update_defs"))
         self.main_stack.addWidget(self.create_task_page("Generate Clean DB", "generate_clean_db"))
         self.main_stack.addWidget(self.create_analysis_page())
         self.main_stack.addWidget(self.create_task_page("Capture Analysis Logs", "capture_analysis_logs"))
@@ -13085,7 +13096,7 @@ class AntivirusApp(QWidget):
         sidebar_layout.addLayout(logo_area)
         sidebar_layout.addSpacing(20)
         nav_buttons = [
-            "Status", "Update Definitions", "Generate Clean DB",
+            "Status", "Update ClamAV Definitions", "Generate Clean DB",
             "Analyze File", "Capture Analysis Logs", "Compare Logs",
             "Rootkit Scan", "Hayabusa Analysis", "Cleanup Environment", "About & Load AI"
         ]
