@@ -5956,13 +5956,13 @@ def get_suricata_interfaces():
     try:
         # Initialize COM for this thread
         pythoncom.CoInitialize()
-        
+
         # Get interfaces using WMI
         c = wmi.WMI()
         for adapter in c.Win32_NetworkAdapter():
             if adapter.NetConnectionStatus == 2 and adapter.NetConnectionID:  # Connected
                 interfaces.append(adapter.NetConnectionID)
-                
+
     except Exception as e:
         logging.warning(f"WMI interface detection failed: {e}")
     finally:
@@ -12721,7 +12721,7 @@ class Worker(QThread):
                 "analyze_file": lambda: self.analyze_file_worker(*self.args),
                 "hayabusa_search": lambda: self.run_hayabusa_search(*self.args)
             }
-            
+
             task_function = task_mapping.get(self.task_type)
             if task_function:
                 task_function()
@@ -12739,7 +12739,7 @@ class AntivirusApp(QWidget):
         self.workers = []
         self.log_outputs = []
         self.animation_group = QParallelAnimationGroup()
-        
+
         self.apply_stylesheet()
         self.setup_ui()
 
@@ -12828,7 +12828,7 @@ class AntivirusApp(QWidget):
         current_widget = self.main_stack.currentWidget()
         next_widget = self.main_stack.widget(index)
         current_index = self.main_stack.currentIndex()
-        
+
         slide_out_x = -self.main_stack.width() if index > current_index else self.main_stack.width()
         slide_in_x = -slide_out_x
 
