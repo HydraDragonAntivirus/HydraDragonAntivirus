@@ -12044,7 +12044,7 @@ class Worker(QThread):
         except Exception as e:
             self.output_signal.emit(f"[!] Error updating definitions: {str(e)}")
 
-    def analyze_file(self, file_path):
+    def analyze_file_worker(self, file_path):
         if self.stop_requested:
             self.output_signal.emit("[!] Analysis stopped by user request")
             return
@@ -12594,7 +12594,7 @@ class Worker(QThread):
                 "hayabusa_timeline_json": lambda: self.run_hayabusa_timeline("json"),
                 "hayabusa_logon_summary": self.run_hayabusa_logon_summary,
                 "hayabusa_metrics": self.run_hayabusa_metrics,
-                "analyze_file": lambda: self.analyze_file(*self.args),
+                "analyze_file": lambda: self.analyze_file_worker(*self.args),
                 "hayabusa_search": lambda: self.run_hayabusa_search(*self.args)
             }
             
