@@ -11922,7 +11922,8 @@ class Worker(QThread):
         self.args = args
         self.stop_requested = False
 
-    # Function to load Meta Llama-3.2-1B model and tokenizer
+    # --- Task-Specific Methods (Called by run()) ---
+
     def load_meta_llama_1b_model(self):
         """
         Function to load Meta Llama-3.2-1B model and tokenizer.
@@ -12205,7 +12206,6 @@ class Worker(QThread):
 
         self.output_signal.emit(f"[+] Total directories recreated: {created_count}")
 
-
     def cleanup_logging_files(self):
         """
         Stops logging and removes/cleans up log files.
@@ -12351,94 +12351,6 @@ class Worker(QThread):
         except Exception as e:
             self.output_signal.emit(f"[!] Error during cleanup: {str(e)}")
 
-    def create_hayabusa_page(self):
-        """
-        Creates the Hayabusa analysis page with various Windows event log analysis options.
-        """
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(20, 20, 20, 20)
-
-        title = QLabel("Hayabusa Event Log Analysis")
-        title.setObjectName("page_title")
-        layout.addWidget(title)
-
-        # Info box
-        info_box = QGroupBox("About Hayabusa")
-        info_layout = QVBoxLayout(info_box)
-        info_text = QLabel(
-            "Hayabusa is a Windows event log fast forensics timeline generator and threat hunting tool. "
-            "It can create DFIR timelines, search for specific events, and generate various security metrics."
-        )
-        info_text.setWordWrap(True)
-        info_text.setObjectName("warning_text")
-        info_layout.addWidget(info_text)
-        layout.addWidget(info_box)
-
-        # Update rules button
-        update_rules_btn = QPushButton("Update Hayabusa Rules Database")
-        update_rules_btn.setObjectName("action_button")
-        update_rules_btn.clicked.connect(lambda: self.start_worker("update_hayabusa_rules"))
-        layout.addWidget(update_rules_btn)
-
-        # Timeline analysis buttons
-        timeline_layout = QHBoxLayout()
-        csv_timeline_btn = QPushButton("Generate CSV Timeline")
-        csv_timeline_btn.setObjectName("action_button")
-        csv_timeline_btn.clicked.connect(lambda: self.start_worker("hayabusa_timeline_csv"))
-
-        json_timeline_btn = QPushButton("Generate JSON Timeline")
-        json_timeline_btn.setObjectName("action_button")
-        json_timeline_btn.clicked.connect(lambda: self.start_worker("hayabusa_timeline_json"))
-
-        timeline_layout.addWidget(csv_timeline_btn)
-        timeline_layout.addWidget(json_timeline_btn)
-        layout.addLayout(timeline_layout)
-
-        # Search functionality
-        search_layout = QHBoxLayout()
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Enter keywords to search in event logs...")
-        search_btn = QPushButton("Search Events")
-        search_btn.setObjectName("action_button")
-        search_btn.clicked.connect(self.perform_hayabusa_search)
-
-        search_layout.addWidget(self.search_input)
-        search_layout.addWidget(search_btn)
-        layout.addLayout(search_layout)
-
-        # Analysis buttons
-        analysis_layout = QHBoxLayout()
-        logon_summary_btn = QPushButton("Logon Summary")
-        logon_summary_btn.setObjectName("action_button")
-        logon_summary_btn.clicked.connect(lambda: self.start_worker("hayabusa_logon_summary"))
-
-        metrics_btn = QPushButton("System Metrics")
-        metrics_btn.setObjectName("action_button")
-        metrics_btn.clicked.connect(lambda: self.start_worker("hayabusa_metrics"))
-
-        analysis_layout.addWidget(logon_summary_btn)
-        analysis_layout.addWidget(metrics_btn)
-        layout.addLayout(analysis_layout)
-
-        # Log output
-        log_output = QTextEdit("Hayabusa analysis results will appear here...")
-        log_output.setObjectName("log_output")
-        layout.addWidget(log_output, 1)
-        self.log_outputs.append(log_output)
-
-        return page
-
-    def perform_hayabusa_search(self):
-        """
-        Performs a search using the text from the search input field.
-        """
-        keywords = self.search_input.text().strip()
-        if keywords:
-            self.start_worker("hayabusa_search", keywords, False)  # False for keyword search, True for regex
-        else:
-            self.append_log_output("[!] Please enter search keywords first.")
-
     def update_hayabusa_rules(self):
         """
         Updates Hayabusa rules to the latest version from the GitHub repository.
@@ -12489,10 +12401,6 @@ class Worker(QThread):
                 output_file = os.path.join(output_dir, f"hayabusa_timeline_{timestamp}.csv")
                 cmd = [hayabusa_path, "csv-timeline", "-d", evtx_logs_path, "-o", output_file]
 
-            # Add rules path if it exists
-            # if os.path.exists(hayabusa_rules_path):
-            #    cmd.extend(["-r", hayabusa_rules_path])
-
             # Add quiet mode and other useful flags
             cmd.extend(["-q", "--no-color", "--profile", "standard"])
 
@@ -12513,21 +12421,17 @@ class Worker(QThread):
                     # Count lines for CSV or events for JSON
                     try:
                         with open(output_file, 'r', encoding='utf-8') as f:
+                            line_count = sum(1 for _ in f)
                             if output_format.lower() == "json":
-                                line_count = sum(1 for _ in f)
                                 self.output_signal.emit(f"[+] Total events analyzed: {line_count:,}")
                             else:
-                                line_count = sum(1 for _ in f) - 1  # Subtract header
-                                self.output_signal.emit(f"[+] Total events in timeline: {line_count:,}")
+                                self.output_signal.emit(f"[+] Total events in timeline: {line_count - 1:,}")
                     except Exception as e:
                         self.output_signal.emit(f"[!] Could not count events: {str(e)}")
-
                 if result.stdout:
                     self.output_signal.emit(f"Output: {result.stdout}")
-
             else:
                 self.output_signal.emit(f"[!] Hayabusa timeline analysis failed. Error: {result.stderr}")
-
         except Exception as e:
             self.output_signal.emit(f"[!] Error running Hayabusa timeline: {str(e)}")
 
@@ -12547,34 +12451,22 @@ class Worker(QThread):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_dir = os.path.join(log_directory, f"hayabusa_search_{timestamp}")
             os.makedirs(output_dir, exist_ok=True)
-
             output_file = os.path.join(output_dir, f"hayabusa_search_{timestamp}.csv")
 
             # Build search command
             cmd = [hayabusa_path, "search", "-d", evtx_logs_path, "-o", output_file]
-
             # Add keywords or regex
             if regex:
                 cmd.extend(["-r", keywords])
             else:
                 cmd.extend(["-k", keywords])
-
-            # Add rules path if it exists
-            # if os.path.exists(hayabusa_rules_path):
-            #    cmd.extend(["-R", hayabusa_rules_path])
-
-            # Add other useful flags
             cmd.extend(["-q", "--no-color"])
-
             self.output_signal.emit(f"[*] Running command: {' '.join(cmd)}")
-
-            # Run Hayabusa search
             result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(hayabusa_path))
 
             if result.returncode == 0:
                 self.output_signal.emit("[+] Hayabusa search completed successfully!")
                 self.output_signal.emit(f"[+] Results saved to: {output_file}")
-
                 # Show search results summary
                 if os.path.exists(output_file):
                     try:
@@ -12583,8 +12475,6 @@ class Worker(QThread):
                             if len(lines) > 1:  # More than just header
                                 result_count = len(lines) - 1
                                 self.output_signal.emit(f"[+] Found {result_count} matching events")
-
-                                # Show first few results
                                 self.output_signal.emit("[*] Sample results:")
                                 for i, line in enumerate(lines[:6]):  # Header + 5 results
                                     self.output_signal.emit(f"  {line.strip()}")
@@ -12595,13 +12485,10 @@ class Worker(QThread):
                                 self.output_signal.emit("[*] No matching events found")
                     except Exception as e:
                         self.output_signal.emit(f"[!] Could not read results: {str(e)}")
-
                 if result.stdout:
                     self.output_signal.emit(f"Output: {result.stdout}")
-
             else:
                 self.output_signal.emit(f"[!] Hayabusa search failed. Error: {result.stderr}")
-
         except Exception as e:
             self.output_signal.emit(f"[!] Error running Hayabusa search: {str(e)}")
 
@@ -12611,7 +12498,6 @@ class Worker(QThread):
         """
         try:
             self.output_signal.emit("[*] Generating logon summary with Hayabusa...")
-
             # Check if Hayabusa executable exists
             if not os.path.exists(hayabusa_path):
                 self.output_signal.emit(f"[!] Hayabusa executable not found at: {hayabusa_path}")
@@ -12621,28 +12507,15 @@ class Worker(QThread):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_dir = os.path.join(log_directory, f"hayabusa_logon_{timestamp}")
             os.makedirs(output_dir, exist_ok=True)
-
             output_file = os.path.join(output_dir, f"logon_summary_{timestamp}.csv")
-
-            # Build logon summary command
-            cmd = [hayabusa_path, "logon-summary", "-d", evtx_logs_path, "-o", output_file]
-
-            # Add rules path if it exists
-            # if os.path.exists(hayabusa_rules_path):
-            #    cmd.extend(["-r", hayabusa_rules_path])
-
-            # Add other useful flags
-            cmd.extend(["-q", "--no-color"])
-
+            cmd = [hayabusa_path, "logon-summary", "-d", evtx_logs_path, "-o", output_file, "-q", "--no-color"]
             self.output_signal.emit(f"[*] Running command: {' '.join(cmd)}")
-
             # Run Hayabusa logon summary
             result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(hayabusa_path))
 
             if result.returncode == 0:
                 self.output_signal.emit("[+] Hayabusa logon summary completed successfully!")
                 self.output_signal.emit(f"[+] Results saved to: {output_file}")
-
                 # Show logon summary
                 if os.path.exists(output_file):
                     try:
@@ -12652,13 +12525,10 @@ class Worker(QThread):
                             self.output_signal.emit(content)
                     except Exception as e:
                         self.output_signal.emit(f"[!] Could not read logon summary: {str(e)}")
-
                 if result.stdout:
                     self.output_signal.emit(f"Output: {result.stdout}")
-
             else:
                 self.output_signal.emit(f"[!] Hayabusa logon summary failed. Error: {result.stderr}")
-
         except Exception as e:
             self.output_signal.emit(f"[!] Error running Hayabusa logon summary: {str(e)}")
 
@@ -12688,122 +12558,66 @@ class Worker(QThread):
 
             for metric_type, output_filename in metrics_commands:
                 output_file = os.path.join(output_dir, output_filename)
-                cmd = [hayabusa_path, metric_type, "-d", evtx_logs_path, "-o", output_file]
-
-                # Add rules path if it exists
-                # if os.path.exists(hayabusa_rules_path):
-                #    cmd.extend(["-r", hayabusa_rules_path])
-
-                # Add other useful flags
-                cmd.extend(["-q", "--no-color"])
-
+                cmd = [hayabusa_path, metric_type, "-d", evtx_logs_path, "-o", output_file, "-q", "--no-color"]
                 self.output_signal.emit(f"[*] Running {metric_type} analysis...")
-
                 # Run Hayabusa metrics
                 result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(hayabusa_path))
-
                 if result.returncode == 0:
                     self.output_signal.emit(f"[+] {metric_type} completed successfully!")
                     self.output_signal.emit(f"[+] Results saved to: {output_file}")
-
                     # Show brief summary of results
                     if os.path.exists(output_file):
                         try:
                             with open(output_file, 'r', encoding='utf-8') as f:
                                 lines = f.readlines()
-                                if len(lines) > 1:
-                                    self.output_signal.emit(f"[+] Generated {len(lines) - 1} {metric_type} entries")
-                                else:
-                                    self.output_signal.emit(f"[*] No {metric_type} data found")
+                                self.output_signal.emit(f"[+] Generated {len(lines) - 1} {metric_type} entries" if len(lines) > 1 else f"[*] No {metric_type} data found")
                         except Exception as e:
                             self.output_signal.emit(f"[!] Could not read {metric_type} results: {str(e)}")
-
                 else:
                     self.output_signal.emit(f"[!] {metric_type} failed. Error: {result.stderr}")
-
         except Exception as e:
             self.output_signal.emit(f"[!] Error running Hayabusa metrics: {str(e)}")
 
     def run(self):
         """The entry point for the thread."""
         try:
-            if self.task_type == "capture_analysis_logs":
-                self.capture_analysis_logs()
-            elif self.task_type == "compare_analysis_logs":
-                self.compare_analysis_logs()
-            elif self.task_type == "update_defs":
-                self.update_definitions()
-            elif self.task_type == "generate_clean_db":
-                self.generate_clean_db()
-            elif self.task_type == "analyze_file":
-                self.analyze_file(*self.args)
-            elif self.task_type == "rootkit_scan":
-                self.perform_rootkit_scan()
-            elif self.task_type == "cleanup_environment":
-                self.perform_cleanup()
-            elif self.task_type == "load_meta_llama_1b_model":
-                self.load_meta_llama_1b_model()
-            elif self.task_type == "update_hayabusa_rules":
-                self.update_hayabusa_rules()
-            elif self.task_type == "hayabusa_timeline_csv":
-                self.run_hayabusa_timeline("csv")
-            elif self.task_type == "hayabusa_timeline_json":
-                self.run_hayabusa_timeline("json")
-            elif self.task_type == "hayabusa_search":
-                self.run_hayabusa_search(*self.args)
-            elif self.task_type == "hayabusa_logon_summary":
-                self.run_hayabusa_logon_summary()
-            elif self.task_type == "hayabusa_metrics":
-                self.run_hayabusa_metrics()
+            task_mapping = {
+                "capture_analysis_logs": self.capture_analysis_logs,
+                "compare_analysis_logs": self.compare_analysis_logs,
+                "update_defs": self.update_definitions,
+                "generate_clean_db": self.generate_clean_db,
+                "rootkit_scan": self.perform_rootkit_scan,
+                "cleanup_environment": self.perform_cleanup,
+                "load_meta_llama_1b_model": self.load_meta_llama_1b_model,
+                "update_hayabusa_rules": self.update_hayabusa_rules,
+                "hayabusa_timeline_csv": lambda: self.run_hayabusa_timeline("csv"),
+                "hayabusa_timeline_json": lambda: self.run_hayabusa_timeline("json"),
+                "hayabusa_logon_summary": self.run_hayabusa_logon_summary,
+                "hayabusa_metrics": self.run_hayabusa_metrics,
+                "analyze_file": lambda: self.analyze_file(*self.args),
+                "hayabusa_search": lambda: self.run_hayabusa_search(*self.args)
+            }
+            
+            task_function = task_mapping.get(self.task_type)
+            if task_function:
+                task_function()
             else:
                 self.output_signal.emit(f"[!] Unknown task type: {self.task_type}")
         except Exception as e:
             if not self.stop_requested:
                 self.output_signal.emit(f"[!] Worker thread error: {str(e)}")
 
+
 # --- Main Application Window ---
 class AntivirusApp(QWidget):
-    def create_about_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(40, 40, 40, 40)
-        layout.setSpacing(20)
-        title = QLabel("About HydraDragon")
-        title.setObjectName("page_title")
-        layout.addWidget(title)
-        about_text = QLabel(
-            "HydraDragon Antivirus is a tool designed for malware analysis and system security research. "
-            "It provides a sandboxed environment to safely analyze potential threats."
-        )
-        about_text.setWordWrap(True)
-        layout.addWidget(about_text)
-
-        # Llama Model Loader Button
-        llama_load_button = QPushButton("Load Meta Llama AI Model (Requires >8GB RAM)")
-        llama_load_button.setObjectName("action_button")
-        llama_load_button.clicked.connect(lambda: self.start_worker("load_meta_llama_1b_model"))
-        layout.addWidget(llama_load_button, 0, Qt.AlignmentFlag.AlignLeft)
-
-        github_button = QPushButton("View Project on GitHub")
-        github_button.setObjectName("action_button")
-        github_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus"))
-        layout.addWidget(github_button, 0, Qt.AlignmentFlag.AlignLeft)
-
-        # Meta Llama Release Button
-        llama_release_button = QPushButton("View Meta Llama Release")
-        llama_release_button.setObjectName("action_button")
-        llama_release_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/releases/tag/MetaLlama"))
-        layout.addWidget(llama_release_button, 0, Qt.AlignmentFlag.AlignLeft)
-
-        # Log output for Llama model loading status
-        log_output = QTextEdit("Llama AI model status will appear here...")
-        log_output.setObjectName("log_output")
-        log_output.setReadOnly(True)
-        layout.addWidget(log_output, 1)
-        self.log_outputs.append(log_output)
-
-        layout.addStretch()
-        return page
+    def __init__(self):
+        super().__init__()
+        self.workers = []
+        self.log_outputs = []
+        self.animation_group = QParallelAnimationGroup()
+        
+        self.apply_stylesheet()
+        self.setup_ui()
 
     def apply_stylesheet(self):
         stylesheet = """
@@ -12827,70 +12641,98 @@ class AntivirusApp(QWidget):
         """
         self.setStyleSheet(stylesheet)
 
-    def create_sidebar(self):
-        sidebar_frame = QFrame()
-        sidebar_frame.setObjectName("sidebar")
-        sidebar_layout = QVBoxLayout(sidebar_frame)
-        sidebar_layout.setContentsMargins(10, 20, 10, 20)
-        sidebar_layout.setSpacing(15)
+    def append_log_output(self, text):
+        current_page_index = self.main_stack.currentIndex()
+        if 0 <= current_page_index < len(self.log_outputs):
+            log_widget = self.log_outputs[current_page_index]
+            if log_widget:
+                log_widget.append(text)
 
-        logo_area = QHBoxLayout()
-        icon_widget = HydraIconWidget()
-        icon_widget.setFixedSize(30, 30)
-        logo_label = QLabel("HYDRA")
-        logo_label.setObjectName("logo")
-        logo_area.addWidget(icon_widget)
-        logo_area.addWidget(logo_label)
-        sidebar_layout.addLayout(logo_area)
-        sidebar_layout.addSpacing(20)
+    def on_worker_finished(self, worker):
+        self.append_log_output(f"[+] Task '{worker.task_type}' finished.")
+        if worker in self.workers:
+            self.workers.remove(worker)
+        if not self.workers:
+            self.shield_widget.set_status(True)
+            self.status_text.setText("Ready for analysis!")
 
-        nav_buttons = [
-            "Status", "Update Definitions", "Generate Clean DB",
-            "Analyze File", "Capture Analysis Logs", "Compare Logs",
-            "Rootkit Scan", "Hayabusa Analysis", "Cleanup Environment", "About & Load AI"  # ADDED HAYABUSA
-        ]
-        self.nav_group = QButtonGroup(self)
-        self.nav_group.setExclusive(True)
+    def start_worker(self, task_type, *args):
+        worker = Worker(task_type, *args)
+        worker.output_signal.connect(self.append_log_output)
+        worker.finished.connect(lambda w=worker: self.on_worker_finished(w))
 
-        for i, name in enumerate(nav_buttons):
-            button = QPushButton(name)
-            button.setCheckable(True)
-            button.setObjectName("nav_button")
-            button.clicked.connect(lambda checked, index=i: self.switch_page_with_animation(index))
-            sidebar_layout.addWidget(button)
-            self.nav_group.addButton(button, i)
+        self.workers.append(worker)
+        worker.start()
+        self.append_log_output(f"[*] Task '{task_type}' started.")
+        self.shield_widget.set_status(False)
+        self.status_text.setText("System is busy...")
 
-        self.nav_group.button(0).setChecked(True)
-        sidebar_layout.addStretch()
-        return sidebar_frame
+    def stop_analysis(self):
+        for worker in self.workers:
+            if worker.isRunning():
+                worker.stop_requested = True
+        self.append_log_output("[!] Stop request sent to all running tasks.")
 
-    def create_cleanup_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(20, 20, 20, 20)
-        title = QLabel("System Cleanup & Reset")
-        title.setObjectName("page_title")
-        layout.addWidget(title)
-        cleanup_button = QPushButton("Perform Full Environment Cleanup")
-        cleanup_button.setObjectName("action_button_danger")
-        cleanup_button.clicked.connect(lambda: self.start_worker("cleanup_environment"))
-        layout.addWidget(cleanup_button)
-        log_output = QTextEdit("Cleanup process logs will appear here...")
-        log_output.setObjectName("log_output")
-        layout.addWidget(log_output, 1)
-        self.log_outputs.append(log_output)
-        layout.addStretch()
-        return page
+    def open_sandboxie_control(self):
+        """Opens the Sandboxie control window."""
+        try:
+            self.append_log_output("[*] Opening Sandboxie Control window...")
+            run_sandboxie_control()
+            self.append_log_output("[+] Sandboxie Control window opened successfully.")
+        except Exception as e:
+            self.append_log_output(f"[!] Error opening Sandboxie Control: {str(e)}")
+
+    def analyze_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select a file to analyze", "", "All Files (*)")
+        if file_path:
+            self.start_worker("analyze_file", file_path)
+
+    def perform_hayabusa_search(self):
+        """
+        Performs a search using the text from the search input field.
+        """
+        keywords = self.search_input.text().strip()
+        if keywords:
+            self.start_worker("hayabusa_search", keywords, False)  # False for keyword search
+        else:
+            self.append_log_output("[!] Please enter search keywords first.")
+
+    def switch_page_with_animation(self, index):
+        if self.animation_group.state() == QParallelAnimationGroup.State.Running or self.main_stack.currentIndex() == index:
+            return
+
+        current_widget = self.main_stack.currentWidget()
+        next_widget = self.main_stack.widget(index)
+        current_index = self.main_stack.currentIndex()
+        
+        slide_out_x = -self.main_stack.width() if index > current_index else self.main_stack.width()
+        slide_in_x = -slide_out_x
+
+        next_widget.move(slide_in_x, 0)
+        next_widget.show()
+        next_widget.raise_()
+
+        current_pos_anim = QPropertyAnimation(current_widget, b"pos")
+        current_pos_anim.setEndValue(QPoint(slide_out_x, 0))
+        next_pos_anim = QPropertyAnimation(next_widget, b"pos")
+        next_pos_anim.setEndValue(QPoint(0, 0))
+
+        self.animation_group = QParallelAnimationGroup()
+        for anim in [current_pos_anim, next_pos_anim]:
+            anim.setDuration(400)
+            anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+            self.animation_group.addAnimation(anim)
+
+        self.animation_group.finished.connect(lambda: self.main_stack.setCurrentIndex(index))
+        self.animation_group.start()
 
     def create_status_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(40, 40, 40, 40)
-
         main_area = QHBoxLayout()
         self.shield_widget = ShieldWidget()
         main_area.addWidget(self.shield_widget, 2)
-
         status_vbox = QVBoxLayout()
         status_vbox.addStretch()
         title = QLabel("System Status")
@@ -12901,7 +12743,6 @@ class AntivirusApp(QWidget):
         version_label.setObjectName("version_label")
         defs_label = QLabel(get_latest_clamav_def_time())
         defs_label.setObjectName("version_label")
-
         status_vbox.addWidget(title)
         status_vbox.addWidget(self.status_text)
         status_vbox.addSpacing(20)
@@ -12909,48 +12750,9 @@ class AntivirusApp(QWidget):
         status_vbox.addWidget(defs_label)
         status_vbox.addStretch()
         main_area.addLayout(status_vbox, 3)
-
         layout.addLayout(main_area)
-        self.log_outputs.append(None)
+        self.log_outputs.append(None) # No log output on status page
         return page
-
-    def create_main_content(self):
-        self.main_stack = QStackedWidget()
-        self.main_stack.addWidget(self.create_status_page())
-        self.main_stack.addWidget(self.create_task_page("Update Definitions", "update_defs"))
-        self.main_stack.addWidget(self.create_task_page("Generate Clean DB", "generate_clean_db"))
-        self.main_stack.addWidget(self.create_analysis_page())
-        self.main_stack.addWidget(self.create_task_page("Capture Analysis Logs", "capture_analysis_logs"))
-        self.main_stack.addWidget(self.create_task_page("Compare Logs (Llama AI)", "compare_analysis_logs"))
-        self.main_stack.addWidget(self.create_task_page("Rootkit Scan", "rootkit_scan"))
-        self.main_stack.addWidget(self.create_hayabusa_page())
-        self.main_stack.addWidget(self.create_cleanup_page())
-        self.main_stack.addWidget(self.create_about_page())
-        return self.main_stack
-
-    def setup_ui(self):
-        # Set the window icon if the file exists
-        if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
-        else:
-            logging.warning(f"Icon file not found at: {icon_path}")
-
-        self.setWindowTitle("HydraDragon Antivirus v0.1 (Beta 4)")
-        self.setMinimumSize(1024, 768)
-        self.resize(1200, 800)
-        main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-        main_layout.addWidget(self.create_sidebar())
-        main_layout.addWidget(self.create_main_content(), 1)
-
-    def __init__(self):
-        super().__init__()
-        self.workers = []
-        self.log_outputs = []
-        self.animation_group = QParallelAnimationGroup()
-        self.setup_ui()
-        self.apply_stylesheet()
 
     def create_task_page(self, title_text, task_name):
         page = QWidget()
@@ -12996,7 +12798,6 @@ class AntivirusApp(QWidget):
         warning_text.setObjectName("warning_text")
         warning_layout.addWidget(warning_text)
         layout.addWidget(warning_box)
-
         # First row of buttons
         button_layout = QHBoxLayout()
         analyze_btn = QPushButton("Analyze File...")
@@ -13008,7 +12809,6 @@ class AntivirusApp(QWidget):
         button_layout.addWidget(analyze_btn)
         button_layout.addWidget(stop_btn)
         layout.addLayout(button_layout)
-
         # Second row of buttons
         control_layout = QHBoxLayout()
         sandboxie_control_btn = QPushButton("Open Sandboxie Control")
@@ -13017,99 +12817,180 @@ class AntivirusApp(QWidget):
         control_layout.addWidget(sandboxie_control_btn)
         control_layout.addStretch()  # Push button to the left
         layout.addLayout(control_layout)
-
         log_output = QTextEdit("Analysis logs will be saved in the logs folder.")
         log_output.setObjectName("log_output")
         layout.addWidget(log_output, 1)
         self.log_outputs.append(log_output)
         return page
 
-    def append_log_output(self, text):
-        current_page_index = self.main_stack.currentIndex()
-        if 0 <= current_page_index < len(self.log_outputs):
-            log_widget = self.log_outputs[current_page_index]
-            if log_widget:
-                log_widget.append(text)
+    def create_hayabusa_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        title = QLabel("Hayabusa Event Log Analysis")
+        title.setObjectName("page_title")
+        layout.addWidget(title)
+        info_box = QGroupBox("About Hayabusa")
+        info_layout = QVBoxLayout(info_box)
+        info_text = QLabel(
+            "Hayabusa is a Windows event log fast forensics timeline generator and threat hunting tool. "
+            "It can create DFIR timelines, search for specific events, and generate various security metrics."
+        )
+        info_text.setWordWrap(True)
+        info_text.setObjectName("warning_text")
+        info_layout.addWidget(info_text)
+        layout.addWidget(info_box)
+        update_rules_btn = QPushButton("Update Hayabusa Rules Database")
+        update_rules_btn.setObjectName("action_button")
+        update_rules_btn.clicked.connect(lambda: self.start_worker("update_hayabusa_rules"))
+        layout.addWidget(update_rules_btn)
+        timeline_layout = QHBoxLayout()
+        csv_timeline_btn = QPushButton("Generate CSV Timeline")
+        csv_timeline_btn.setObjectName("action_button")
+        csv_timeline_btn.clicked.connect(lambda: self.start_worker("hayabusa_timeline_csv"))
+        json_timeline_btn = QPushButton("Generate JSON Timeline")
+        json_timeline_btn.setObjectName("action_button")
+        json_timeline_btn.clicked.connect(lambda: self.start_worker("hayabusa_timeline_json"))
+        timeline_layout.addWidget(csv_timeline_btn)
+        timeline_layout.addWidget(json_timeline_btn)
+        layout.addLayout(timeline_layout)
+        search_layout = QHBoxLayout()
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Enter keywords to search in event logs...")
+        search_btn = QPushButton("Search Events")
+        search_btn.setObjectName("action_button")
+        search_btn.clicked.connect(self.perform_hayabusa_search)
+        search_layout.addWidget(self.search_input)
+        search_layout.addWidget(search_btn)
+        layout.addLayout(search_layout)
+        analysis_layout = QHBoxLayout()
+        logon_summary_btn = QPushButton("Logon Summary")
+        logon_summary_btn.setObjectName("action_button")
+        logon_summary_btn.clicked.connect(lambda: self.start_worker("hayabusa_logon_summary"))
+        metrics_btn = QPushButton("System Metrics")
+        metrics_btn.setObjectName("action_button")
+        metrics_btn.clicked.connect(lambda: self.start_worker("hayabusa_metrics"))
+        analysis_layout.addWidget(logon_summary_btn)
+        analysis_layout.addWidget(metrics_btn)
+        layout.addLayout(analysis_layout)
+        log_output = QTextEdit("Hayabusa analysis results will appear here...")
+        log_output.setObjectName("log_output")
+        layout.addWidget(log_output, 1)
+        self.log_outputs.append(log_output)
+        return page
 
-    def on_worker_finished(self, worker):
-        self.append_log_output(f"[+] Task '{worker.task_type}' finished.")
-        if worker in self.workers:
-            self.workers.remove(worker)
-        if not self.workers:
-            self.shield_widget.set_status(True)
-            self.status_text.setText("Ready for analysis!")
+    def create_cleanup_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        title = QLabel("System Cleanup & Reset")
+        title.setObjectName("page_title")
+        layout.addWidget(title)
+        cleanup_button = QPushButton("Perform Full Environment Cleanup")
+        cleanup_button.setObjectName("action_button_danger")
+        cleanup_button.clicked.connect(lambda: self.start_worker("cleanup_environment"))
+        layout.addWidget(cleanup_button)
+        log_output = QTextEdit("Cleanup process logs will appear here...")
+        log_output.setObjectName("log_output")
+        layout.addWidget(log_output, 1)
+        self.log_outputs.append(log_output)
+        layout.addStretch()
+        return page
 
-    def switch_page_with_animation(self, index):
-        if self.animation_group.state() == QParallelAnimationGroup.State.Running:
-            return
+    def create_about_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(20)
+        title = QLabel("About HydraDragon")
+        title.setObjectName("page_title")
+        layout.addWidget(title)
+        about_text = QLabel(
+            "HydraDragon Antivirus is a tool designed for malware analysis and system security research. "
+            "It provides a sandboxed environment to safely analyze potential threats."
+        )
+        about_text.setWordWrap(True)
+        layout.addWidget(about_text)
+        llama_load_button = QPushButton("Load Meta Llama AI Model (Requires >8GB RAM)")
+        llama_load_button.setObjectName("action_button")
+        llama_load_button.clicked.connect(lambda: self.start_worker("load_meta_llama_1b_model"))
+        layout.addWidget(llama_load_button, 0, Qt.AlignmentFlag.AlignLeft)
+        github_button = QPushButton("View Project on GitHub")
+        github_button.setObjectName("action_button")
+        github_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus"))
+        layout.addWidget(github_button, 0, Qt.AlignmentFlag.AlignLeft)
+        llama_release_button = QPushButton("View Meta Llama Release")
+        llama_release_button.setObjectName("action_button")
+        llama_release_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/releases/tag/MetaLlama"))
+        layout.addWidget(llama_release_button, 0, Qt.AlignmentFlag.AlignLeft)
+        log_output = QTextEdit("Llama AI model status will appear here...")
+        log_output.setObjectName("log_output")
+        log_output.setReadOnly(True)
+        layout.addWidget(log_output, 1)
+        self.log_outputs.append(log_output)
+        layout.addStretch()
+        return page
 
-        current_widget = self.main_stack.currentWidget()
-        next_widget = self.main_stack.widget(index)
+    def create_main_content(self):
+        self.main_stack = QStackedWidget()
+        self.main_stack.addWidget(self.create_status_page())
+        self.main_stack.addWidget(self.create_task_page("Update Definitions", "update_defs"))
+        self.main_stack.addWidget(self.create_task_page("Generate Clean DB", "generate_clean_db"))
+        self.main_stack.addWidget(self.create_analysis_page())
+        self.main_stack.addWidget(self.create_task_page("Capture Analysis Logs", "capture_analysis_logs"))
+        self.main_stack.addWidget(self.create_task_page("Compare Logs (Llama AI)", "compare_analysis_logs"))
+        self.main_stack.addWidget(self.create_task_page("Rootkit Scan", "rootkit_scan"))
+        self.main_stack.addWidget(self.create_hayabusa_page())
+        self.main_stack.addWidget(self.create_cleanup_page())
+        self.main_stack.addWidget(self.create_about_page())
+        return self.main_stack
 
-        if current_widget == next_widget:
-            return
+    def create_sidebar(self):
+        sidebar_frame = QFrame()
+        sidebar_frame.setObjectName("sidebar")
+        sidebar_layout = QVBoxLayout(sidebar_frame)
+        sidebar_layout.setContentsMargins(10, 20, 10, 20)
+        sidebar_layout.setSpacing(15)
+        logo_area = QHBoxLayout()
+        icon_widget = HydraIconWidget()
+        icon_widget.setFixedSize(30, 30)
+        logo_label = QLabel("HYDRA")
+        logo_label.setObjectName("logo")
+        logo_area.addWidget(icon_widget)
+        logo_area.addWidget(logo_label)
+        sidebar_layout.addLayout(logo_area)
+        sidebar_layout.addSpacing(20)
+        nav_buttons = [
+            "Status", "Update Definitions", "Generate Clean DB",
+            "Analyze File", "Capture Analysis Logs", "Compare Logs",
+            "Rootkit Scan", "Hayabusa Analysis", "Cleanup Environment", "About & Load AI"
+        ]
+        self.nav_group = QButtonGroup(self)
+        self.nav_group.setExclusive(True)
+        for i, name in enumerate(nav_buttons):
+            button = QPushButton(name)
+            button.setCheckable(True)
+            button.setObjectName("nav_button")
+            button.clicked.connect(lambda checked, index=i: self.switch_page_with_animation(index))
+            sidebar_layout.addWidget(button)
+            self.nav_group.addButton(button, i)
+        self.nav_group.button(0).setChecked(True)
+        sidebar_layout.addStretch()
+        return sidebar_frame
 
-        current_index = self.main_stack.currentIndex()
-
-        animation_duration = 400
-        easing_curve = QEasingCurve.Type.InOutCubic
-
-        next_widget.show()
-        next_widget.raise_()
-
-        slide_out_x = -self.main_stack.width() if index > current_index else self.main_stack.width()
-        current_pos_anim = QPropertyAnimation(current_widget, b"pos")
-        current_pos_anim.setDuration(animation_duration)
-        current_pos_anim.setEasingCurve(easing_curve)
-        current_pos_anim.setStartValue(QPoint(0, 0))
-        current_pos_anim.setEndValue(QPoint(slide_out_x, 0))
-
-        slide_in_x = self.main_stack.width() if index > current_index else -self.main_stack.width()
-        next_widget.move(slide_in_x, 0)
-        next_pos_anim = QPropertyAnimation(next_widget, b"pos")
-        next_pos_anim.setDuration(animation_duration)
-        next_pos_anim.setEasingCurve(easing_curve)
-        next_pos_anim.setStartValue(QPoint(slide_in_x, 0))
-        next_pos_anim.setEndValue(QPoint(0, 0))
-
-        self.animation_group = QParallelAnimationGroup()
-        self.animation_group.addAnimation(current_pos_anim)
-        self.animation_group.addAnimation(next_pos_anim)
-
-        self.animation_group.finished.connect(lambda: self.main_stack.setCurrentIndex(index))
-        self.animation_group.start()
-
-
-    def open_sandboxie_control(self):
-        """Opens the Sandboxie control window."""
-        try:
-            self.append_log_output("[*] Opening Sandboxie Control window...")
-            run_sandboxie_control()
-            self.append_log_output("[+] Sandboxie Control window opened successfully.")
-        except Exception as e:
-            self.append_log_output(f"[!] Error opening Sandboxie Control: {str(e)}")
-
-    def start_worker(self, task_type, *args):
-        worker = Worker(task_type, *args)
-        worker.output_signal.connect(self.append_log_output)
-        worker.finished.connect(lambda w=worker: self.on_worker_finished(w))
-
-        self.workers.append(worker)
-        worker.start()
-        self.append_log_output(f"[*] Task '{task_type}' started.")
-        self.shield_widget.set_status(False)
-        self.status_text.setText("System is busy...")
-
-    def analyze_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select a file to analyze", "", "All Files (*)")
-        if file_path:
-            self.start_worker("analyze_file", file_path)
-
-    def stop_analysis(self):
-        for worker in self.workers:
-            if worker.isRunning():
-                worker.stop_requested = True
-        self.append_log_output("[!] Stop request sent to all running tasks.")
+    def setup_ui(self):
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+        else:
+            logging.warning(f"Icon file not found at: {icon_path}")
+        self.setWindowTitle("HydraDragon Antivirus v0.1 (Beta 4)")
+        self.setMinimumSize(1024, 768)
+        self.resize(1200, 800)
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        main_layout.addWidget(self.create_sidebar())
+        main_layout.addWidget(self.create_main_content(), 1)
 
 def main():
     app = QApplication(sys.argv)
