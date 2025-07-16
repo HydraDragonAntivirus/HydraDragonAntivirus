@@ -12388,8 +12388,7 @@ class Worker(QThread):
             # Use Popen with terminal popup for real-time output
             process = subprocess.Popen(
                 cmd,
-                cwd=os.path.dirname(hayabusa_path),
-                creationflags=subprocess.CREATE_NEW_CONSOLE
+                cwd=os.path.dirname(hayabusa_path)
             )
 
             # Wait for process to complete and get return code
@@ -12436,8 +12435,7 @@ class Worker(QThread):
             # Use Popen with terminal popup for real-time output
             process = subprocess.Popen(
                 cmd,
-                cwd=os.path.dirname(hayabusa_path),
-                creationflags=subprocess.CREATE_NEW_CONSOLE
+                cwd=os.path.dirname(hayabusa_path)
             )
 
             # Wait for process to complete and get return code
@@ -12499,8 +12497,7 @@ class Worker(QThread):
             # Use Popen with terminal popup for real-time output
             process = subprocess.Popen(
                 cmd,
-                cwd=os.path.dirname(hayabusa_path),
-                creationflags=subprocess.CREATE_NEW_CONSOLE
+                cwd=os.path.dirname(hayabusa_path)
             )
 
             # Wait for process to complete and get return code
@@ -12558,8 +12555,7 @@ class Worker(QThread):
             # Use Popen with terminal popup for real-time output
             process = subprocess.Popen(
                 cmd,
-                cwd=os.path.dirname(hayabusa_path),
-                creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
+                cwd=os.path.dirname(hayabusa_path)
             )
 
             # Wait for process to complete and get return code
@@ -12620,8 +12616,7 @@ class Worker(QThread):
                 # Use Popen with terminal popup for real-time output
                 process = subprocess.Popen(
                     cmd,
-                    cwd=os.path.dirname(hayabusa_path),
-                    creationflags=subprocess.CREATE_NEW_CONSOLE
+                    cwd=os.path.dirname(hayabusa_path)
                 )
 
                 # Wait for process to complete and get return code
