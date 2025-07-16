@@ -302,6 +302,10 @@ import macholib.mach_o
 logging.info(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import pythoncom
+logging.info(f"pythoncom module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 from typing import Optional, Tuple, BinaryIO, Dict, Any, List, Set, Union
 logging.info(f"typing, Optional, Tuple, BinaryIO, Dict, Any, List, Set and Union module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -5945,22 +5949,37 @@ def activate_uefi_drive():
     except subprocess.CalledProcessError as ex:
         logging.error(f"Error mounting UEFI drive: {ex}")
 
-
 def get_suricata_interfaces():
     """Get all available network interfaces for Suricata on Windows"""
     interfaces = []
 
-    # Get interfaces using WMI
-    c = wmi.WMI()
-    for adapter in c.Win32_NetworkAdapter():
-        if adapter.NetConnectionStatus == 2 and adapter.NetConnectionID:  # Connected
-            interfaces.append(adapter.NetConnectionID)
+    try:
+        # Initialize COM for this thread
+        pythoncom.CoInitialize()
+        
+        # Get interfaces using WMI
+        c = wmi.WMI()
+        for adapter in c.Win32_NetworkAdapter():
+            if adapter.NetConnectionStatus == 2 and adapter.NetConnectionID:  # Connected
+                interfaces.append(adapter.NetConnectionID)
+                
+    except Exception as e:
+        logging.warning(f"WMI interface detection failed: {e}")
+    finally:
+        # Clean up COM
+        try:
+            pythoncom.CoUninitialize()
+        except:
+            pass
 
     # Fallback to psutil if WMI didn't find anything
     if not interfaces:
-        for interface_name in psutil.net_if_addrs().keys():
-            if not interface_name.startswith('lo'):
-                interfaces.append(interface_name)
+        try:
+            for interface_name in psutil.net_if_addrs().keys():
+                if not interface_name.startswith('lo'):
+                    interfaces.append(interface_name)
+        except Exception as e:
+            logging.warning(f"psutil interface detection failed: {e}")
 
     # Final fallback
     if not interfaces:
@@ -5969,7 +5988,7 @@ def get_suricata_interfaces():
     logging.info(f"Found interfaces: {interfaces}")
     return interfaces
 
-# Suricata command
+# Get initial interfaces
 interfaces = get_suricata_interfaces()
 interface_args = []
 
@@ -5980,13 +5999,13 @@ for interface in interfaces:
 # Log which interfaces we're using
 logging.info(f"Configuring Suricata with interfaces: {interfaces}")
 
+# Build initial Suricata command
 suricata_command = [
-                       suricata_exe_path,
-                       "-c", suricata_config_path,
-                       "-l", log_folder,  # Log directory
-                       "--init-errors-fatal"  # Stop on configuration errors
-                   ] + interface_args
-
+    suricata_exe_path,
+    "-c", suricata_config_path,
+    "-l", log_folder,  # Log directory
+    "--init-errors-fatal"  # Stop on configuration errors
+] + interface_args
 
 def run_suricata():
     """Run Suricata IDS"""
@@ -6000,11 +6019,11 @@ def run_suricata():
             current_interface_args.extend(["-i", interface])
 
         current_suricata_command = [
-                                       suricata_exe_path,
-                                       "-c", suricata_config_path,
-                                       "-l", log_folder,
-                                       "--init-errors-fatal"
-                                   ] + current_interface_args
+            suricata_exe_path,
+            "-c", suricata_config_path,
+            "-l", log_folder,
+            "--init-errors-fatal"
+        ] + current_interface_args
 
         logging.info(f"Starting Suricata with command: {' '.join(current_suricata_command)}")
 
@@ -6018,7 +6037,6 @@ def run_suricata():
 
     except Exception as ex:
         logging.error(f"Failed to run Suricata: {ex}")
-
 
 # Start Suricata in a separate thread
 threading.Thread(target=run_suricata).start()
