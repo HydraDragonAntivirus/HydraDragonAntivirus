@@ -12763,6 +12763,43 @@ class Worker(QThread):
 
 # --- Main Application Window ---
 class AntivirusApp(QWidget):
+    def create_sidebar(self):
+        sidebar_frame = QFrame()
+        sidebar_frame.setObjectName("sidebar")
+        sidebar_layout = QVBoxLayout(sidebar_frame)
+        sidebar_layout.setContentsMargins(10, 20, 10, 20)
+        sidebar_layout.setSpacing(15)
+
+        logo_area = QHBoxLayout()
+        icon_widget = HydraIconWidget()
+        icon_widget.setFixedSize(30, 30)
+        logo_label = QLabel("HYDRA")
+        logo_label.setObjectName("logo")
+        logo_area.addWidget(icon_widget)
+        logo_area.addWidget(logo_label)
+        sidebar_layout.addLayout(logo_area)
+        sidebar_layout.addSpacing(20)
+
+        nav_buttons = [
+            "Status", "Update Definitions", "Generate Clean DB",
+            "Analyze File", "Capture Analysis Logs", "Compare Logs",
+            "Rootkit Scan", "Hayabusa Analysis", "Cleanup Environment", "About & Load AI"  # ADDED HAYABUSA
+        ]
+        self.nav_group = QButtonGroup(self)
+        self.nav_group.setExclusive(True)
+
+        for i, name in enumerate(nav_buttons):
+            button = QPushButton(name)
+            button.setCheckable(True)
+            button.setObjectName("nav_button")
+            button.clicked.connect(lambda checked, index=i: self.switch_page_with_animation(index))
+            sidebar_layout.addWidget(button)
+            self.nav_group.addButton(button, i)
+
+        self.nav_group.button(0).setChecked(True)
+        sidebar_layout.addStretch()
+        return sidebar_frame
+
     def setup_ui(self):
         # Set the window icon if the file exists
         if os.path.exists(icon_path):
@@ -12956,43 +12993,6 @@ class AntivirusApp(QWidget):
 
         self.animation_group.finished.connect(lambda: self.main_stack.setCurrentIndex(index))
         self.animation_group.start()
-
-    def create_sidebar(self):
-        sidebar_frame = QFrame()
-        sidebar_frame.setObjectName("sidebar")
-        sidebar_layout = QVBoxLayout(sidebar_frame)
-        sidebar_layout.setContentsMargins(10, 20, 10, 20)
-        sidebar_layout.setSpacing(15)
-
-        logo_area = QHBoxLayout()
-        icon_widget = HydraIconWidget()
-        icon_widget.setFixedSize(30, 30)
-        logo_label = QLabel("HYDRA")
-        logo_label.setObjectName("logo")
-        logo_area.addWidget(icon_widget)
-        logo_area.addWidget(logo_label)
-        sidebar_layout.addLayout(logo_area)
-        sidebar_layout.addSpacing(20)
-
-        nav_buttons = [
-            "Status", "Update Definitions", "Generate Clean DB",
-            "Analyze File", "Capture Analysis Logs", "Compare Logs",
-            "Rootkit Scan", "Hayabusa Analysis", "Cleanup Environment", "About & Load AI"  # ADDED HAYABUSA
-        ]
-        self.nav_group = QButtonGroup(self)
-        self.nav_group.setExclusive(True)
-
-        for i, name in enumerate(nav_buttons):
-            button = QPushButton(name)
-            button.setCheckable(True)
-            button.setObjectName("nav_button")
-            button.clicked.connect(lambda checked, index=i: self.switch_page_with_animation(index))
-            sidebar_layout.addWidget(button)
-            self.nav_group.addButton(button, i)
-
-        self.nav_group.button(0).setChecked(True)
-        sidebar_layout.addStretch()
-        return sidebar_frame
 
     def create_main_content(self):
         self.main_stack = QStackedWidget()
