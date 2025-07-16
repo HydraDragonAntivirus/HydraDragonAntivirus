@@ -12385,28 +12385,15 @@ class Worker(QThread):
             cmd = [hayabusa_path, "update-rules"]
             self.output_signal.emit(f"[*] Running command: {' '.join(cmd)}")
 
-            # Use Popen for real-time output with colors
+            # Use Popen with terminal popup for real-time output
             process = subprocess.Popen(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                universal_newlines=True,
                 cwd=os.path.dirname(hayabusa_path),
-                bufsize=1,
-                encoding='utf-8',
-                errors='ignore'
+                creationflags=subprocess.CREATE_NEW_CONSOLE
             )
 
-            # Read output in real-time
-            while True:
-                output = process.stdout.readline()
-                if output == '' and process.poll() is not None:
-                    break
-                if output:
-                    self.output_signal.emit(output.rstrip())
-
-            rc = process.poll()
+            # Wait for process to complete and get return code
+            rc = process.wait()
 
             if rc == 0:
                 self.output_signal.emit("[+] Hayabusa rules updated successfully!")
@@ -12446,28 +12433,15 @@ class Worker(QThread):
 
             self.output_signal.emit(f"[*] Running command: {' '.join(cmd)}")
 
-            # Use Popen for real-time output
+            # Use Popen with terminal popup for real-time output
             process = subprocess.Popen(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                universal_newlines=True,
                 cwd=os.path.dirname(hayabusa_path),
-                bufsize=1,
-                encoding='utf-8',
-                errors='ignore'
+                creationflags=subprocess.CREATE_NEW_CONSOLE
             )
 
-            # Read output in real-time
-            while True:
-                output = process.stdout.readline()
-                if output == '' and process.poll() is not None:
-                    break
-                if output:
-                    self.output_signal.emit(output.rstrip())
-
-            rc = process.poll()
+            # Wait for process to complete and get return code
+            rc = process.wait()
 
             if rc == 0:
                 self.output_signal.emit("[+] Hayabusa timeline analysis completed successfully!")
@@ -12522,28 +12496,15 @@ class Worker(QThread):
 
             self.output_signal.emit(f"[*] Running command: {' '.join(cmd)}")
 
-            # Use Popen for real-time output
+            # Use Popen with terminal popup for real-time output
             process = subprocess.Popen(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                universal_newlines=True,
                 cwd=os.path.dirname(hayabusa_path),
-                bufsize=1,
-                encoding='utf-8',
-                errors='ignore'
+                creationflags=subprocess.CREATE_NEW_CONSOLE
             )
 
-            # Read output in real-time
-            while True:
-                output = process.stdout.readline()
-                if output == '' and process.poll() is not None:
-                    break
-                if output:
-                    self.output_signal.emit(output.rstrip())
-
-            rc = process.poll()
+            # Wait for process to complete and get return code
+            rc = process.wait()
 
             if rc == 0:
                 self.output_signal.emit("[+] Hayabusa search completed successfully!")
@@ -12594,28 +12555,15 @@ class Worker(QThread):
 
             self.output_signal.emit(f"[*] Running command: {' '.join(cmd)}")
 
-            # Use Popen for real-time output
+            # Use Popen with terminal popup for real-time output
             process = subprocess.Popen(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                universal_newlines=True,
                 cwd=os.path.dirname(hayabusa_path),
-                bufsize=1,
-                encoding='utf-8',
-                errors='ignore'
+                creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
             )
 
-            # Read output in real-time
-            while True:
-                output = process.stdout.readline()
-                if output == '' and process.poll() is not None:
-                    break
-                if output:
-                    self.output_signal.emit(output.rstrip())
-
-            rc = process.poll()
+            # Wait for process to complete and get return code
+            rc = process.wait()
 
             if rc == 0:
                 self.output_signal.emit("[+] Hayabusa logon summary completed successfully!")
@@ -12669,28 +12617,15 @@ class Worker(QThread):
                 self.output_signal.emit(f"[*] Running {metric_type} analysis...")
                 self.output_signal.emit(f"[*] Command: {' '.join(cmd)}")
 
-                # Use Popen for real-time output
+                # Use Popen with terminal popup for real-time output
                 process = subprocess.Popen(
                     cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    universal_newlines=True,
                     cwd=os.path.dirname(hayabusa_path),
-                    bufsize=1,
-                    encoding='utf-8',
-                    errors='ignore'
+                    creationflags=subprocess.CREATE_NEW_CONSOLE
                 )
 
-                # Read output in real-time
-                while True:
-                    output = process.stdout.readline()
-                    if output == '' and process.poll() is not None:
-                        break
-                    if output:
-                        self.output_signal.emit(f"  {output.rstrip()}")
-
-                rc = process.poll()
+                # Wait for process to complete and get return code
+                rc = process.wait()
 
                 if rc == 0:
                     self.output_signal.emit(f"[+] {metric_type} completed successfully!")
