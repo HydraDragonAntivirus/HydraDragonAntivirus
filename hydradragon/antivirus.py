@@ -100,7 +100,7 @@ logging.info(f"json module loaded in {time.time() - start_time:.6f} seconds")
 start_time = time.time()
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                                QPushButton, QLabel, QTextEdit, QFileDialog,
-                               QFrame, QStackedWidget,
+                               QFrame, QStackedWidget, QLineEdit,
                                QApplication, QButtonGroup, QGroupBox)
 logging.info(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f} seconds")
 
@@ -366,6 +366,8 @@ device = accelerator.device
 python_path = sys.executable
 
 # Define the paths
+hayabusa_dir = os.path.join(script_dir, "hayabusa")
+hayabusa_path = os.path.join(hayabusa_dir, "hayabusa-3.3.0-win-x64.exe")
 reports_dir = os.path.join(script_dir, "reports")
 scan_report_path = os.path.join(reports_dir, "scan_report.json")
 enigma_extracted_dir = os.path.join(script_dir, "enigma_extracted")
@@ -517,9 +519,6 @@ scanned_domains_general = []
 scanned_ipv4_addresses_general = []
 scanned_ipv6_addresses_general = []
 
-# Regex for Snort alerts
-alert_regex = re.compile(r'\[Priority: (\d+)].*?\{(?:UDP|TCP)} (\d+\.\d+\.\d+\.\d+):\d+ -> (\d+\.\d+\.\d+\.\d+):\d+')
-
 # Resolve system drive path
 system_drive = os.getenv("SystemDrive", "C:") + os.sep
 # Resolve Program Files directory via environment (fallback to standard path)
@@ -529,18 +528,51 @@ system_root = os.getenv("SystemRoot", os.path.join(system_drive, "Windows"))
 # Fallback to %SystemRoot%\System32 if %System32% is not set
 system32_dir = os.getenv("System32", os.path.join(system_root, "System32"))
 
-# Snort base folder path
-snort_folder = os.path.join(system_drive, "Snort")
+# Windows event logs
+evtx_logs_path = os.path.join(system32_dir, "winevt\\Logs")
+
+
+# Regex for Suricata EVE JSON alerts (assuming EVE JSON format)
+# This will parse the JSON structure instead of text-based alerts
+def parse_suricata_alert(json_line):
+    """Parse Suricata EVE JSON alert format"""
+    try:
+        alert_data = json.loads(json_line)
+        if alert_data.get('event_type') == 'alert':
+            # Suricata uses severity levels, convert to priority (lower number = higher priority)
+            severity = alert_data.get('alert', {}).get('severity', 3)
+            priority = severity  # Use severity as priority directly
+
+            src_ip = alert_data.get('src_ip', '')
+            dest_ip = alert_data.get('dest_ip', '')
+
+            # Additional data that might be useful
+            signature = alert_data.get('alert', {}).get('signature', '')
+            category = alert_data.get('alert', {}).get('category', '')
+
+            return priority, src_ip, dest_ip, signature, category
+    except (json.JSONDecodeError, KeyError) as ex:
+        logging.debug(f"Error parsing JSON alert: {ex}")
+        return None, None, None, None, None
+    return None, None, None, None, None
+
+# Alternative regex for fast.log format if not using EVE JSON
+alert_regex = re.compile(r'\[Priority: (\d+)].*?\{(?:UDP|TCP)} (\d+\.\d+\.\d+\.\d+):\d+ -> (\d+\.\d+\.\d+\.\d+):\d+')
+
+# Suricata base folder path
+suricata_folder = os.path.join(system_drive, "Suricata")
 
 # File paths and configurations
-log_folder = os.path.join(snort_folder, "log")
-log_path = os.path.join(log_folder, "alert.ids")
-snort_config_path = os.path.join(snort_folder, "etc", "snort.conf")
-snort_exe_path = os.path.join(snort_folder, "bin", "snort.exe")
+log_folder = os.path.join(suricata_folder, "log")
+# Suricata typically uses eve.json for structured logging
+eve_log_path = os.path.join(log_folder, "eve.json")
+fast_log_path = os.path.join(log_folder, "fast.log")  # Alternative fast log format
+suricata_config_path = os.path.join(suricata_folder, "etc", "suricata.yaml")
+suricata_exe_path = os.path.join(suricata_folder, "bin", "suricata.exe")
+
 sandboxie_dir = os.path.join(program_files, "Sandboxie")
 sandboxie_path = os.path.join(sandboxie_dir, "Start.exe")
 sandboxie_control_path = os.path.join(sandboxie_dir, "SbieCtrl.exe")
-device_args = [f"-i {i}" for i in range(1, 26)]  # Fixed device arguments
 username = os.getlogin()
 sandboxie_folder = os.path.join(system_drive, "Sandbox", username, "DefaultBox")
 main_drive_path = os.path.join(sandboxie_folder, "drive", system_drive.strip(":"))
@@ -635,7 +667,6 @@ uefi_paths = [
     rf'{sandboxie_folder}\drive\X\EFI\Microsoft\Boot\memtest.efi',
     rf'{sandboxie_folder}\drive\X\EFI\Boot\bootx64.efi'
 ]
-snort_command = [snort_exe_path] + device_args + ["-c", snort_config_path, "-A", "fast"]
 
 # Custom flags for directory changes
 FILE_NOTIFY_CHANGE_LAST_ACCESS = 0x00000020
@@ -2573,7 +2604,7 @@ def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=N
 
 def notify_user_for_hips(ip_address=None, dst_ip_address=None):
     notification = Notify()
-    notification.title = "Malicious Activity Detected"
+    notification.title = "Malicious Network Activity Detected"
 
     if ip_address and dst_ip_address:
         notification_message = f"Malicious activity detected:\nSource: {ip_address}\nDestination: {dst_ip_address}"
@@ -5813,7 +5844,9 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
         except Exception as ex:
             logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {ex}")
 
+
 def process_alert(line):
+    """Process alert from fast.log format"""
     try:
         match = alert_regex.search(line)
         if match:
@@ -5821,13 +5854,15 @@ def process_alert(line):
                 priority = int(match.group(1))
                 src_ip = match.group(2)
                 dst_ip = match.group(3)
+
                 # Check if the source IP is in the IPv4 whitelist
                 if src_ip in ipv4_whitelist_data:
                     logging.info(f"Source IP {src_ip} is in the whitelist. Ignoring alert.")
                     return False
 
                 if priority == 1:
-                    logging.warning(f"Malicious activity detected: {line.strip()} | Source: {src_ip} -> Destination: {dst_ip} | Priority: {priority}")
+                    logging.warning(
+                        f"Malicious activity detected: {line.strip()} | Source: {src_ip} -> Destination: {dst_ip} | Priority: {priority}")
                     try:
                         notify_user_for_hips(ip_address=src_ip, dst_ip_address=dst_ip)
                     except Exception as ex:
@@ -5844,6 +5879,38 @@ def process_alert(line):
                 logging.error(f"Error processing alert details: {ex}")
     except Exception as ex:
         logging.error(f"Error matching alert regex: {ex}")
+
+
+def process_alert_data(priority, src_ip, dest_ip):
+    """Process parsed alert data from EVE JSON format"""
+    try:
+        # Check if the source IP is in the IPv4 whitelist
+        if src_ip in ipv4_whitelist_data:
+            logging.info(f"Source IP {src_ip} is in the whitelist. Ignoring alert.")
+            return False
+
+        # Create a formatted line for logging (similar to fast.log format)
+        formatted_line = f"[Priority: {priority}] {src_ip} -> {dest_ip}"
+
+        if priority == 1:
+            logging.warning(
+                f"Malicious activity detected: {formatted_line} | Source: {src_ip} -> Destination: {dest_ip} | Priority: {priority}")
+            try:
+                notify_user_for_hips(ip_address=src_ip, dst_ip_address=dest_ip)
+            except Exception as ex:
+                logging.error(f"Error notifying user for HIPS (malicious): {ex}")
+            convert_ip_to_file(src_ip, dest_ip, formatted_line, "Malicious")
+            return True
+        elif priority == 2:
+            convert_ip_to_file(src_ip, dest_ip, formatted_line, "Suspicious")
+            return True
+        elif priority == 3:
+            convert_ip_to_file(src_ip, dest_ip, formatted_line, "Info")
+            return True
+
+    except Exception as ex:
+        logging.error(f"Error processing alert data: {ex}")
+        return False
 
 def clean_directory():
     """
@@ -5868,20 +5935,6 @@ def clean_directory():
         except Exception as ex:
             logging.error(f"Failed to delete '{file_path}'. Reason: {ex}")
 
-def run_snort():
-    try:
-        clean_directory()
-        # Run snort without capturing output
-        subprocess.run(snort_command, check=True, encoding="utf-8", errors="ignore")
-
-        logging.info("Snort completed analysis.")
-
-    except subprocess.CalledProcessError as ex:
-        logging.error(f"Snort encountered an error: {ex}")
-
-    except Exception as ex:
-        logging.error(f"Failed to run Snort: {ex}")
-
 def activate_uefi_drive():
     # Check if the platform is Windows
     mount_command = 'mountvol X: /S'  # Command to mount UEFI drive
@@ -5892,7 +5945,172 @@ def activate_uefi_drive():
     except subprocess.CalledProcessError as ex:
         logging.error(f"Error mounting UEFI drive: {ex}")
 
-threading.Thread(target=run_snort).start()
+
+# Suricata command construction
+# Suricata uses different interface specification
+def get_suricata_interfaces():
+    """Get all available network interfaces for Suricata"""
+    interfaces = []
+
+    try:
+        # Method 1: Use psutil to get all network interfaces
+        for interface_name in psutil.net_if_addrs().keys():
+            # Skip loopback and virtual interfaces
+            if not interface_name.startswith(('lo', 'Loopback', 'vEthernet')):
+                interfaces.append(interface_name)
+
+        # Method 2: Try to get interfaces from Suricata directly
+        try:
+            result = subprocess.run([suricata_exe_path, "--list-interfaces"],
+                                    capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                # Parse Suricata interface output
+                for line in result.stdout.split('\n'):
+                    if 'dev:' in line or 'interface:' in line:
+                        # Extract interface name from Suricata output
+                        interface = line.split(':')[-1].strip()
+                        if interface and interface not in interfaces:
+                            interfaces.append(interface)
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+            pass
+
+        # Method 3: Windows specific - get from ipconfig if on Windows
+        if os.name == 'nt':
+            try:
+                result = subprocess.run(['ipconfig', '/all'],
+                                        capture_output=True, text=True, timeout=10)
+                # This is a fallback - you might need to adjust parsing
+                pass
+            except:
+                pass
+
+        # Method 4: Linux/Unix specific - get from /sys/class/net
+        if os.name == 'posix':
+            try:
+                net_path = '/sys/class/net'
+                if os.path.exists(net_path):
+                    for interface in os.listdir(net_path):
+                        if interface != 'lo' and interface not in interfaces:
+                            interfaces.append(interface)
+            except:
+                pass
+
+        # If no interfaces found, try common interface names
+        if not interfaces:
+            common_interfaces = ['eth0', 'eth1', 'wlan0', 'ens33', 'enp0s3']
+            for iface in common_interfaces:
+                if iface in psutil.net_if_addrs():
+                    interfaces.append(iface)
+
+        logging.info(f"Detected interfaces: {interfaces}")
+        return interfaces if interfaces else ['eth0']  # Fallback
+
+    except Exception as e:
+        logging.error(f"Error detecting interfaces: {e}")
+        return ['eth0']  # Fallback interface
+
+
+# Suricata command
+interfaces = get_suricata_interfaces()
+interface_args = []
+
+# Add all detected interfaces to the command
+for interface in interfaces:
+    interface_args.extend(["-i", interface])
+
+# Log which interfaces we're using
+logging.info(f"Configuring Suricata with interfaces: {interfaces}")
+
+suricata_command = [
+                       suricata_exe_path,
+                       "-c", suricata_config_path,
+                       "-l", log_folder,  # Log directory
+                       "--init-errors-fatal"  # Stop on configuration errors
+                   ] + interface_args
+
+
+def run_suricata():
+    """Run Suricata IDS"""
+    try:
+        clean_directory()
+
+        # Get fresh interface list each time
+        current_interfaces = get_suricata_interfaces()
+        current_interface_args = []
+        for interface in current_interfaces:
+            current_interface_args.extend(["-i", interface])
+
+        current_suricata_command = [
+                                       suricata_exe_path,
+                                       "-c", suricata_config_path,
+                                       "-l", log_folder,
+                                       "--init-errors-fatal"
+                                   ] + current_interface_args
+
+        logging.info(f"Starting Suricata with command: {' '.join(current_suricata_command)}")
+
+        # Run Suricata without capturing output
+        subprocess.run(current_suricata_command, check=True, encoding="utf-8", errors="ignore")
+
+        logging.info("Suricata completed analysis.")
+
+    except subprocess.CalledProcessError as ex:
+        logging.error(f"Suricata encountered an error: {ex}")
+
+    except Exception as ex:
+        logging.error(f"Failed to run Suricata: {ex}")
+
+
+# Start Suricata in a separate thread
+threading.Thread(target=run_suricata).start()
+
+
+def monitor_suricata_log():
+    """Monitor Suricata EVE JSON log file"""
+    log_path = eve_log_path  # Use EVE JSON by default
+
+    if not os.path.exists(log_path):
+        open(log_path, 'w').close()  # Create an empty file if it doesn't exist
+
+    with open(log_path, 'r') as log_file:
+        log_file.seek(0, os.SEEK_END)  # Move to the end of the file
+        while True:
+            try:
+                line = log_file.readline()
+                if not line:
+                    continue
+
+                # Process EVE JSON format
+                if line.strip():
+                    priority, src_ip, dest_ip, signature, category = parse_suricata_alert(line)
+                    if priority is not None:
+                        # Enhanced logging with signature and category info
+                        full_line = f"[Priority: {priority}] [{category}] {signature} {src_ip} -> {dest_ip}"
+                        process_alert_data(priority, src_ip, dest_ip)
+
+            except Exception as ex:
+                logging.info(f"Error processing line: {ex}")
+
+def monitor_suricata_fast_log():
+    """Monitor Suricata fast.log"""
+    if not os.path.exists(fast_log_path):
+        open(fast_log_path, 'w').close()
+
+    with open(fast_log_path, 'r') as log_file:
+        log_file.seek(0, os.SEEK_END)
+        while True:
+            try:
+                line = log_file.readline()
+                if not line:
+                    continue
+                process_alert(line)  # Use existing process_alert function
+            except Exception as ex:
+                logging.info(f"Error processing line: {ex}")
+
+
+# Start monitoring in a separate thread
+threading.Thread(target=monitor_suricata_log).start()
+
 restart_clamd_thread()
 clean_directories()
 activate_uefi_drive() # Call the UEFI function
@@ -5965,48 +6183,6 @@ try:
     logging.info("YARA-X cx_freeze Rules Definitions loaded!")
 except Exception as ex:
     logging.error(f"Error loading YARA-X rules: {ex}")
-
-# Function to load Meta Llama-3.2-1B model and tokenizer
-def load_meta_llama_1b_model():
-    """
-    Function to load Meta Llama-3.2-1B model and tokenizer.
-    This is a resource-intensive operation.
-    Checks that the local folder exists before attempting to load.
-    """
-    # Check if the local model directory exists
-    if not os.path.isdir(meta_llama_1b_dir):
-        logging.error(f"Meta Llama-3.2-1B directory not found: {meta_llama_1b_dir}")
-        return None, None
-
-    # --- Hugging Face Transformers for Llama model (Optional Feature) ---
-    # This feature is experimental and requires significant RAM.
-    try:
-        from transformers import AutoTokenizer, AutoModelForCausalLM
-    except Exception as ex:
-        error_message = f"Error importing transformers: {ex}"
-        logging.error(error_message)
-        return None, None
-    
-    try:
-        logging.info("Attempting to load Llama-3.2-1B model and tokenizer...")
-
-        # Load tokenizer and model from the local directory
-        llama32_tokenizer = AutoTokenizer.from_pretrained(
-            meta_llama_1b_dir,
-            local_files_only=True
-        )
-        llama32_model = AutoModelForCausalLM.from_pretrained(
-            meta_llama_1b_dir,
-            local_files_only=True,
-            # Optional: Add device_map="auto" if you have a GPU and want to use it
-        )
-
-        logging.info("Llama-3.2-1B successfully loaded!")
-        return llama32_model, llama32_tokenizer
-    except Exception as ex:
-        error_message = f"Error loading Llama-3.2-1B model or tokenizer: {ex}"
-        logging.error(error_message)
-        return None, None
 
 # Initialize variables as None (empty)
 meta_llama_1b_model = None
@@ -10253,21 +10429,6 @@ def monitor_directories():
 def start_monitoring_sandbox():
     threading.Thread(target=monitor_directories).start()
 
-def monitor_snort_log():
-    if not os.path.exists(log_path):
-        open(log_path, 'w').close()  # Create an empty file if it doesn't exist
-
-    with open(log_path, 'r') as log_file:
-        log_file.seek(0, os.SEEK_END)  # Move to the end of the file
-        while True:
-            try:
-                line = log_file.readline()
-                if not line:
-                    continue
-                process_alert(line)
-            except Exception as ex:
-                logging.info(f"Error processing line: {ex}")
-
 def check_startup_directories():
     """Monitor startup directories for new files and handle them."""
     # Define the paths to check
@@ -11434,7 +11595,7 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
             (scan_and_warn, (main_dest,)),
             (monitor_memory_changes,),
             (run_sandboxie_plugin,),
-            (monitor_snort_log,),
+            (monitor_suricata_log,),
             (web_protection_observer.begin_observing,),
             (monitor_directories_with_watchdog,),
             (start_monitoring_sandbox,),
@@ -11940,7 +12101,7 @@ class AntivirusApp(QWidget):
         nav_buttons = [
             "Status", "Update Definitions", "Generate Clean DB",
             "Analyze File", "Capture Analysis Logs", "Compare Logs",
-            "Rootkit Scan", "Cleanup Environment", "About & Load AI"
+            "Rootkit Scan", "Hayabusa Analysis", "Cleanup Environment", "About & Load AI"  # ADDED HAYABUSA
         ]
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
@@ -11966,6 +12127,7 @@ class AntivirusApp(QWidget):
         self.main_stack.addWidget(self.create_task_page("Capture Analysis Logs", "capture_analysis_logs"))
         self.main_stack.addWidget(self.create_task_page("Compare Logs (Llama AI)", "compare_logs"))
         self.main_stack.addWidget(self.create_task_page("Rootkit Scan", "rootkit_scan"))
+        self.main_stack.addWidget(self.create_hayabusa_page())
         self.main_stack.addWidget(self.create_cleanup_page())
         self.main_stack.addWidget(self.create_about_page())
         return self.main_stack
@@ -11985,7 +12147,7 @@ class AntivirusApp(QWidget):
         title.setObjectName("page_title")
         self.status_text = QLabel("Ready for analysis!")
         self.status_text.setObjectName("page_subtitle")
-        version_label = QLabel("HydraDragon Antivirus v0.1 (Beta 3.2)")
+        version_label = QLabel("HydraDragon Antivirus v0.1 (Beta 4)")
         version_label.setObjectName("version_label")
         defs_label = QLabel(get_latest_clamav_def_time())
         defs_label.setObjectName("version_label")
@@ -12130,7 +12292,7 @@ class AntivirusApp(QWidget):
         # Llama Model Loader Button
         llama_load_button = QPushButton("Load Meta Llama AI Model (Requires >8GB RAM)")
         llama_load_button.setObjectName("action_button")
-        llama_load_button.clicked.connect(lambda: self.start_worker("load_llama_model"))
+        llama_load_button.clicked.connect(lambda: self.start_worker("load_meta_llama_1b_model"))
         layout.addWidget(llama_load_button, 0, Qt.AlignmentFlag.AlignLeft)
 
         github_button = QPushButton("View Project on GitHub")
@@ -12161,7 +12323,7 @@ class AntivirusApp(QWidget):
         else:
             logging.warning(f"Icon file not found at: {icon_path}")
 
-        self.setWindowTitle("HydraDragon Antivirus v0.1 (Beta 3.2)")
+        self.setWindowTitle("HydraDragon Antivirus v0.1 (Beta 4)")
         self.setMinimumSize(1024, 768)
         self.resize(1200, 800)
         main_layout = QHBoxLayout(self)
@@ -12204,6 +12366,48 @@ class Worker(QThread):
         self.task_type = task_type
         self.args = args
         self.stop_requested = False
+
+    # Function to load Meta Llama-3.2-1B model and tokenizer
+    def load_meta_llama_1b_model(self):
+        """
+        Function to load Meta Llama-3.2-1B model and tokenizer.
+        This is a resource-intensive operation.
+        Checks that the local folder exists before attempting to load.
+        """
+        # Check if the local model directory exists
+        if not os.path.isdir(meta_llama_1b_dir):
+            logging.error(f"Meta Llama-3.2-1B directory not found: {meta_llama_1b_dir}")
+            return None, None
+
+        # --- Hugging Face Transformers for Llama model (Optional Feature) ---
+        # This feature is experimental and requires significant RAM.
+        try:
+            from transformers import AutoTokenizer, AutoModelForCausalLM
+        except Exception as ex:
+            error_message = f"Error importing transformers: {ex}"
+            logging.error(error_message)
+            return None, None
+
+        try:
+            logging.info("Attempting to load Llama-3.2-1B model and tokenizer...")
+
+            # Load tokenizer and model from the local directory
+            llama32_tokenizer = AutoTokenizer.from_pretrained(
+                meta_llama_1b_dir,
+                local_files_only=True
+            )
+            llama32_model = AutoModelForCausalLM.from_pretrained(
+                meta_llama_1b_dir,
+                local_files_only=True,
+                # Optional: Add device_map="auto" if you have a GPU and want to use it
+            )
+
+            logging.info("Llama-3.2-1B successfully loaded!")
+            return llama32_model, llama32_tokenizer
+        except Exception as ex:
+            error_message = f"Error loading Llama-3.2-1B model or tokenizer: {ex}"
+            logging.error(error_message)
+            return None, None
 
     def generate_clean_db(self):
         success = run_pd64_db_gen()
@@ -12381,32 +12585,39 @@ class Worker(QThread):
 
         self.output_signal.emit(f"[+] Total directories cleaned: {cleaned_count}")
 
-    def stop_snort(self):
+    def stop_suricata(self):
         """
-        Stops Snort processes and cleans up log files.
+        Stops Suricata processes and cleans up log files.
         """
         try:
-            # Kill all snort processes
+            # Kill all suricata processes
             for proc in psutil.process_iter(['pid', 'name']):
                 try:
-                    if 'snort' in proc.info['name'].lower():
+                    if 'suricata' in proc.info['name'].lower():
                         proc.terminate()
                         proc.wait(timeout=5)
-                        self.output_signal.emit(f"[+] Terminated Snort process (PID: {proc.info['pid']})")
+                        self.output_signal.emit(f"[+] Terminated Suricata process (PID: {proc.info['pid']})")
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
                     pass
 
-            # Clean up log folder
-            if os.path.exists(log_folder):
-                os.remove(log_folder)
-                self.output_signal.emit(f"[+] Removed Snort log file: {log_folder}")
+            # Clean up log files (not the entire folder)
+            log_files = [eve_log_path, fast_log_path]
+            for log_file in log_files:
+                if os.path.exists(log_file):
+                    os.remove(log_file)
+                    self.output_signal.emit(f"[+] Removed Suricata log file: {log_file}")
 
         except Exception as e:
-            self.output_signal.emit(f"[!] Error stopping Snort: {str(e)}")
+            self.output_signal.emit(f"[!] Error stopping Suricata: {str(e)}")
+
+        # Restart Suricata
+        self.output_signal.emit("[*] Starting Suricata...")
+        threading.Thread(target=run_suricata).start()
+        self.output_signal.emit("[+] Suricata started.")
 
     def restart_services(self):
         """
-        Restarts ClamAV and Snort services.
+        Restarts ClamAV and Suricata services.
         """
         try:
             # Restart ClamAV
@@ -12414,10 +12625,9 @@ class Worker(QThread):
             restart_clamd_thread()
             self.output_signal.emit("[+] ClamAV daemon restarted.")
 
-            # Restart Snort
-            self.output_signal.emit("[*] Starting Snort...")
-            threading.Thread(target=run_snort).start()
-            self.output_signal.emit("[+] Snort started.")
+            # Stop Suricata and cleanup logs
+            self.output_signal.emit("[*] Step 1: Stopping Suricata and cleaning logs...")
+            self.stop_suricata()
 
         except Exception as e:
             self.output_signal.emit(f"[!] Error restarting services: {str(e)}")
@@ -12546,9 +12756,8 @@ class Worker(QThread):
             self.output_signal.emit("[*] Starting comprehensive environment cleanup...")
 
             # Step 1: Stop Snort and cleanup logs
-            self.output_signal.emit("[*] Step 1: Stopping Snort and cleaning logs...")
-            self.stop_snort()
-            self.stop_snort()
+            self.output_signal.emit("[*] Step 1: Stopping Suricata and cleaning logs...")
+            self.stop_suricata()
 
             # Step 2: Cleanup Sandboxie
             self.output_signal.emit("[*] Step 2: Cleaning up Sandboxie environment...")
@@ -12587,6 +12796,380 @@ class Worker(QThread):
         except Exception as e:
             self.output_signal.emit(f"[!] Error during cleanup: {str(e)}")
 
+    # Add this method to your AntivirusApp class to create the Hayabusa page
+    def create_hayabusa_page(self):
+        """
+        Creates the Hayabusa analysis page with various Windows event log analysis options.
+        """
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        title = QLabel("Hayabusa Event Log Analysis")
+        title.setObjectName("page_title")
+        layout.addWidget(title)
+
+        # Info box
+        info_box = QGroupBox("About Hayabusa")
+        info_layout = QVBoxLayout(info_box)
+        info_text = QLabel(
+            "Hayabusa is a Windows event log fast forensics timeline generator and threat hunting tool. "
+            "It can create DFIR timelines, search for specific events, and generate various security metrics."
+        )
+        info_text.setWordWrap(True)
+        info_text.setObjectName("warning_text")
+        info_layout.addWidget(info_text)
+        layout.addWidget(info_box)
+
+        # Update rules button
+        update_rules_btn = QPushButton("Update Hayabusa Rules Database")
+        update_rules_btn.setObjectName("action_button")
+        update_rules_btn.clicked.connect(lambda: self.start_worker("update_hayabusa_rules"))
+        layout.addWidget(update_rules_btn)
+
+        # Timeline analysis buttons
+        timeline_layout = QHBoxLayout()
+        csv_timeline_btn = QPushButton("Generate CSV Timeline")
+        csv_timeline_btn.setObjectName("action_button")
+        csv_timeline_btn.clicked.connect(lambda: self.start_worker("hayabusa_timeline_csv"))
+
+        json_timeline_btn = QPushButton("Generate JSON Timeline")
+        json_timeline_btn.setObjectName("action_button")
+        json_timeline_btn.clicked.connect(lambda: self.start_worker("hayabusa_timeline_json"))
+
+        timeline_layout.addWidget(csv_timeline_btn)
+        timeline_layout.addWidget(json_timeline_btn)
+        layout.addLayout(timeline_layout)
+
+        # Search functionality
+        search_layout = QHBoxLayout()
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Enter keywords to search in event logs...")
+        search_btn = QPushButton("Search Events")
+        search_btn.setObjectName("action_button")
+        search_btn.clicked.connect(self.perform_hayabusa_search)
+
+        search_layout.addWidget(self.search_input)
+        search_layout.addWidget(search_btn)
+        layout.addLayout(search_layout)
+
+        # Analysis buttons
+        analysis_layout = QHBoxLayout()
+        logon_summary_btn = QPushButton("Logon Summary")
+        logon_summary_btn.setObjectName("action_button")
+        logon_summary_btn.clicked.connect(lambda: self.start_worker("hayabusa_logon_summary"))
+
+        metrics_btn = QPushButton("System Metrics")
+        metrics_btn.setObjectName("action_button")
+        metrics_btn.clicked.connect(lambda: self.start_worker("hayabusa_metrics"))
+
+        analysis_layout.addWidget(logon_summary_btn)
+        analysis_layout.addWidget(metrics_btn)
+        layout.addLayout(analysis_layout)
+
+        # Log output
+        log_output = QTextEdit("Hayabusa analysis results will appear here...")
+        log_output.setObjectName("log_output")
+        layout.addWidget(log_output, 1)
+        self.log_outputs.append(log_output)
+
+        return page
+
+    def perform_hayabusa_search(self):
+        """
+        Performs a search using the text from the search input field.
+        """
+        keywords = self.search_input.text().strip()
+        if keywords:
+            self.start_worker("hayabusa_search", keywords, False)  # False for keyword search, True for regex
+        else:
+            self.append_log_output("[!] Please enter search keywords first.")
+
+    def update_hayabusa_rules(self):
+        """
+        Updates Hayabusa rules to the latest version from the GitHub repository.
+        """
+        try:
+            self.output_signal.emit("[*] Updating Hayabusa rules...")
+
+            # Check if Hayabusa executable exists
+            if not os.path.exists(hayabusa_path):
+                self.output_signal.emit(f"[!] Hayabusa executable not found at: {hayabusa_path}")
+                return
+
+            # Run the update-rules command
+            cmd = [hayabusa_path, "update-rules"]
+            result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(hayabusa_path))
+
+            if result.returncode == 0:
+                self.output_signal.emit("[+] Hayabusa rules updated successfully!")
+                self.output_signal.emit(f"Output: {result.stdout}")
+            else:
+                self.output_signal.emit(f"[!] Failed to update Hayabusa rules. Error: {result.stderr}")
+
+        except Exception as e:
+            self.output_signal.emit(f"[!] Error updating Hayabusa rules: {str(e)}")
+
+    def run_hayabusa_timeline(self, output_format="csv"):
+        """
+        Creates a DFIR timeline using Hayabusa for event log analysis.
+        """
+        try:
+            self.output_signal.emit("[*] Starting Hayabusa timeline analysis...")
+
+            # Check if Hayabusa executable exists
+            if not os.path.exists(hayabusa_path):
+                self.output_signal.emit(f"[!] Hayabusa executable not found at: {hayabusa_path}")
+                return
+
+            # Create output directory
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_dir = os.path.join(log_directory, f"hayabusa_analysis_{timestamp}")
+            os.makedirs(output_dir, exist_ok=True)
+
+            # Set output file based on format
+            if output_format.lower() == "json":
+                output_file = os.path.join(output_dir, f"hayabusa_timeline_{timestamp}.jsonl")
+                cmd = [hayabusa_path, "json-timeline", "-d", evtx_logs_path, "-o", output_file]
+            else:
+                output_file = os.path.join(output_dir, f"hayabusa_timeline_{timestamp}.csv")
+                cmd = [hayabusa_path, "csv-timeline", "-d", evtx_logs_path, "-o", output_file]
+
+            # Add rules path if it exists
+            # if os.path.exists(hayabusa_rules_path):
+            #    cmd.extend(["-r", hayabusa_rules_path])
+
+            # Add quiet mode and other useful flags
+            cmd.extend(["-q", "--no-color", "--profile", "standard"])
+
+            self.output_signal.emit(f"[*] Running command: {' '.join(cmd)}")
+
+            # Run Hayabusa
+            result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(hayabusa_path))
+
+            if result.returncode == 0:
+                self.output_signal.emit(f"[+] Hayabusa timeline analysis completed successfully!")
+                self.output_signal.emit(f"[+] Output saved to: {output_file}")
+
+                # Show basic statistics if available
+                if os.path.exists(output_file):
+                    file_size = os.path.getsize(output_file)
+                    self.output_signal.emit(f"[+] Timeline file size: {file_size:,} bytes")
+
+                    # Count lines for CSV or events for JSON
+                    try:
+                        with open(output_file, 'r', encoding='utf-8') as f:
+                            if output_format.lower() == "json":
+                                line_count = sum(1 for _ in f)
+                                self.output_signal.emit(f"[+] Total events analyzed: {line_count:,}")
+                            else:
+                                line_count = sum(1 for _ in f) - 1  # Subtract header
+                                self.output_signal.emit(f"[+] Total events in timeline: {line_count:,}")
+                    except Exception as e:
+                        self.output_signal.emit(f"[!] Could not count events: {str(e)}")
+
+                if result.stdout:
+                    self.output_signal.emit(f"Output: {result.stdout}")
+
+            else:
+                self.output_signal.emit(f"[!] Hayabusa timeline analysis failed. Error: {result.stderr}")
+
+        except Exception as e:
+            self.output_signal.emit(f"[!] Error running Hayabusa timeline: {str(e)}")
+
+    def run_hayabusa_search(self, keywords, regex=False):
+        """
+        Search Windows event logs using Hayabusa for specific keywords or patterns.
+        """
+        try:
+            self.output_signal.emit(f"[*] Searching event logs with Hayabusa for: {keywords}")
+
+            # Check if Hayabusa executable exists
+            if not os.path.exists(hayabusa_path):
+                self.output_signal.emit(f"[!] Hayabusa executable not found at: {hayabusa_path}")
+                return
+
+            # Create output directory
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_dir = os.path.join(log_directory, f"hayabusa_search_{timestamp}")
+            os.makedirs(output_dir, exist_ok=True)
+
+            output_file = os.path.join(output_dir, f"hayabusa_search_{timestamp}.csv")
+
+            # Build search command
+            cmd = [hayabusa_path, "search", "-d", evtx_logs_path, "-o", output_file]
+
+            # Add keywords or regex
+            if regex:
+                cmd.extend(["-r", keywords])
+            else:
+                cmd.extend(["-k", keywords])
+
+            # Add rules path if it exists
+            # if os.path.exists(hayabusa_rules_path):
+            #    cmd.extend(["-R", hayabusa_rules_path])
+
+            # Add other useful flags
+            cmd.extend(["-q", "--no-color"])
+
+            self.output_signal.emit(f"[*] Running command: {' '.join(cmd)}")
+
+            # Run Hayabusa search
+            result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(hayabusa_path))
+
+            if result.returncode == 0:
+                self.output_signal.emit(f"[+] Hayabusa search completed successfully!")
+                self.output_signal.emit(f"[+] Results saved to: {output_file}")
+
+                # Show search results summary
+                if os.path.exists(output_file):
+                    try:
+                        with open(output_file, 'r', encoding='utf-8') as f:
+                            lines = f.readlines()
+                            if len(lines) > 1:  # More than just header
+                                result_count = len(lines) - 1
+                                self.output_signal.emit(f"[+] Found {result_count} matching events")
+
+                                # Show first few results
+                                self.output_signal.emit("[*] Sample results:")
+                                for i, line in enumerate(lines[:6]):  # Header + 5 results
+                                    self.output_signal.emit(f"  {line.strip()}")
+                                    if i == 5:
+                                        self.output_signal.emit("  ...")
+                                        break
+                            else:
+                                self.output_signal.emit("[*] No matching events found")
+                    except Exception as e:
+                        self.output_signal.emit(f"[!] Could not read results: {str(e)}")
+
+                if result.stdout:
+                    self.output_signal.emit(f"Output: {result.stdout}")
+
+            else:
+                self.output_signal.emit(f"[!] Hayabusa search failed. Error: {result.stderr}")
+
+        except Exception as e:
+            self.output_signal.emit(f"[!] Error running Hayabusa search: {str(e)}")
+
+    def run_hayabusa_logon_summary(self):
+        """
+        Generate a logon summary report using Hayabusa.
+        """
+        try:
+            self.output_signal.emit("[*] Generating logon summary with Hayabusa...")
+
+            # Check if Hayabusa executable exists
+            if not os.path.exists(hayabusa_path):
+                self.output_signal.emit(f"[!] Hayabusa executable not found at: {hayabusa_path}")
+                return
+
+            # Create output directory
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_dir = os.path.join(log_directory, f"hayabusa_logon_{timestamp}")
+            os.makedirs(output_dir, exist_ok=True)
+
+            output_file = os.path.join(output_dir, f"logon_summary_{timestamp}.csv")
+
+            # Build logon summary command
+            cmd = [hayabusa_path, "logon-summary", "-d", evtx_logs_path, "-o", output_file]
+
+            # Add rules path if it exists
+            # if os.path.exists(hayabusa_rules_path):
+            #    cmd.extend(["-r", hayabusa_rules_path])
+
+            # Add other useful flags
+            cmd.extend(["-q", "--no-color"])
+
+            self.output_signal.emit(f"[*] Running command: {' '.join(cmd)}")
+
+            # Run Hayabusa logon summary
+            result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(hayabusa_path))
+
+            if result.returncode == 0:
+                self.output_signal.emit(f"[+] Hayabusa logon summary completed successfully!")
+                self.output_signal.emit(f"[+] Results saved to: {output_file}")
+
+                # Show logon summary
+                if os.path.exists(output_file):
+                    try:
+                        with open(output_file, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                            self.output_signal.emit("[*] Logon Summary:")
+                            self.output_signal.emit(content)
+                    except Exception as e:
+                        self.output_signal.emit(f"[!] Could not read logon summary: {str(e)}")
+
+                if result.stdout:
+                    self.output_signal.emit(f"Output: {result.stdout}")
+
+            else:
+                self.output_signal.emit(f"[!] Hayabusa logon summary failed. Error: {result.stderr}")
+
+        except Exception as e:
+            self.output_signal.emit(f"[!] Error running Hayabusa logon summary: {str(e)}")
+
+    def run_hayabusa_metrics(self):
+        """
+        Generate various metrics using Hayabusa (log metrics, EID metrics, etc.).
+        """
+        try:
+            self.output_signal.emit("[*] Generating system metrics with Hayabusa...")
+
+            # Check if Hayabusa executable exists
+            if not os.path.exists(hayabusa_path):
+                self.output_signal.emit(f"[!] Hayabusa executable not found at: {hayabusa_path}")
+                return
+
+            # Create output directory
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_dir = os.path.join(log_directory, f"hayabusa_metrics_{timestamp}")
+            os.makedirs(output_dir, exist_ok=True)
+
+            # Run different metrics commands
+            metrics_commands = [
+                ("log-metrics", "log_metrics.csv"),
+                ("eid-metrics", "eid_metrics.csv"),
+                ("computer-metrics", "computer_metrics.csv")
+            ]
+
+            for metric_type, output_filename in metrics_commands:
+                output_file = os.path.join(output_dir, output_filename)
+                cmd = [hayabusa_path, metric_type, "-d", evtx_logs_path, "-o", output_file]
+
+                # Add rules path if it exists
+                # if os.path.exists(hayabusa_rules_path):
+                #    cmd.extend(["-r", hayabusa_rules_path])
+
+                # Add other useful flags
+                cmd.extend(["-q", "--no-color"])
+
+                self.output_signal.emit(f"[*] Running {metric_type} analysis...")
+
+                # Run Hayabusa metrics
+                result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(hayabusa_path))
+
+                if result.returncode == 0:
+                    self.output_signal.emit(f"[+] {metric_type} completed successfully!")
+                    self.output_signal.emit(f"[+] Results saved to: {output_file}")
+
+                    # Show brief summary of results
+                    if os.path.exists(output_file):
+                        try:
+                            with open(output_file, 'r', encoding='utf-8') as f:
+                                lines = f.readlines()
+                                if len(lines) > 1:
+                                    self.output_signal.emit(f"[+] Generated {len(lines) - 1} {metric_type} entries")
+                                else:
+                                    self.output_signal.emit(f"[*] No {metric_type} data found")
+                        except Exception as e:
+                            self.output_signal.emit(f"[!] Could not read {metric_type} results: {str(e)}")
+
+                else:
+                    self.output_signal.emit(f"[!] {metric_type} failed. Error: {result.stderr}")
+
+        except Exception as e:
+            self.output_signal.emit(f"[!] Error running Hayabusa metrics: {str(e)}")
+
     def run(self):
         """The entry point for the thread."""
         try:
@@ -12604,6 +13187,19 @@ class Worker(QThread):
                 self.perform_rootkit_scan()
             elif self.task_type == "cleanup_environment":
                 self.perform_cleanup()
+            # NEW HAYABUSA TASKS
+            elif self.task_type == "update_hayabusa_rules":
+                self.update_hayabusa_rules()
+            elif self.task_type == "hayabusa_timeline_csv":
+                self.run_hayabusa_timeline("csv")
+            elif self.task_type == "hayabusa_timeline_json":
+                self.run_hayabusa_timeline("json")
+            elif self.task_type == "hayabusa_search":
+                self.run_hayabusa_search(*self.args)
+            elif self.task_type == "hayabusa_logon_summary":
+                self.run_hayabusa_logon_summary()
+            elif self.task_type == "hayabusa_metrics":
+                self.run_hayabusa_metrics()
             else:
                 self.output_signal.emit(f"[!] Unknown task type: {self.task_type}")
         except Exception as e:

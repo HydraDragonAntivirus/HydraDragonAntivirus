@@ -1,0 +1,6 @@
+level,colorcode
+emergency,ff0000
+critical,ff0000
+high,ffc100
+medium,ffff00
+low,00ff00

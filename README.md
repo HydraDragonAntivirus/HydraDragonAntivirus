@@ -4,6 +4,12 @@
 <img src="hydradragon/assets/HydraDragonAntivirus.png" width=400px>
 </p>
 <p align="center">
+<img src="hydradragon/assets/hayabusa.png" width=1110px>
+</p>
+<p align="center">
+<img src="hydradragon/assets/Sigma_0.3.png" width=385px>
+</p>
+<p align="center">
 <img src="hydradragon/assets/HydraDragonAVGUI.png" width= 1080px>
 </p>
 
@@ -48,6 +54,9 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
 - Ghidra projects : %ProgramFiles%\aHydraDragonAntivirus\hydradragon\ghidra_projects
 - Ghidra scripts: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\scripts
  
+ # Sigma-HQ - Hayabusa
+ - https://github.com/Yamato-Security/hayabusa
+
  ## IMPORTANT
  - Any ghidra project will be removed after you restart the program. So be careful!
  - Don't forget to clean up commandlineandmessages, HiJackThis_logs, zip_extracted, etc. dirs, sandboxie dirs before analysis. Or take a snapshot before you running the program.
