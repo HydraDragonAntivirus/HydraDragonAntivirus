@@ -6620,108 +6620,6 @@ class PyInstArchive:
         with open(nm, "wb") as f:
             f.write(data)
 
-    def extractFiles(self, one_dir):
-        logging.info("Beginning extraction...please standby")
-        extractionDir = pyinstaller_extracted_dir
-        if not os.path.exists(extractionDir):
-            os.mkdir(extractionDir)
-
-        os.chdir(extractionDir)
-
-        for entry in self.tocList:
-            self.fPtr.seek(entry.position, os.SEEK_SET)
-            data = self.fPtr.read(entry.cmprsdDataSize)
-
-            if entry.cmprsFlag == 1:
-                data = zlib.decompress(data)
-                # Malware may tamper with the uncompressed size
-                # Comment out the assertion in such a case
-                assert len(data) == entry.uncmprsdDataSize  # Sanity Check
-
-            if entry.typeCmprsData == b"d" or entry.typeCmprsData == b"o":
-                # d -> ARCHIVE_ITEM_DEPENDENCY
-                # o -> ARCHIVE_ITEM_RUNTIME_OPTION
-                # These are runtime options, not files
-                continue
-
-            basePath = os.path.dirname(entry.name)
-            if basePath != "":
-                # Check if path exists, create if not
-                if not os.path.exists(basePath):
-                    os.makedirs(basePath)
-
-            if entry.typeCmprsData == b"s":
-                # s -> ARCHIVE_ITEM_PYSOURCE
-                # Entry point are expected to be python scripts
-                logging.info("Possible entry point: %s.pyc", entry.name)
-
-                if self.pycMagic == b"\0" * 4:
-                    # if we don't have the pyc header yet, fix them in a later pass
-                    self.barePycList.append(entry.name + ".pyc")
-                self._writePyc(entry.name + ".pyc", data)
-
-            elif entry.typeCmprsData == b"M" or entry.typeCmprsData == b"m":
-                # M -> ARCHIVE_ITEM_PYPACKAGE
-                # m -> ARCHIVE_ITEM_PYMODULE
-                # packages and modules are pyc files with their header intact
-
-                # From PyInstaller 5.3 and above pyc headers are no longer stored
-                # https://github.com/pyinstaller/pyinstaller/commit/a97fdf
-                if data[2:4] == b"\r\n":
-                    # < pyinstaller 5.3
-                    if self.pycMagic == b"\0" * 4:
-                        self.pycMagic = data[0:4]
-                    self._writeRawData(entry.name + ".pyc", data)
-
-                    if entry.name.endswith("_crypto_key"):
-                        logging.info(
-                            "Detected _crypto_key file, saving key for automatic decryption"
-                        )
-                        # This is a pyc file with a header (8,12, or 16 bytes)
-                        # Extract the code object after the header
-                        self.cryptoKeyFileData = self._extractCryptoKeyObject(data)
-
-                else:
-                    # >= pyinstaller 5.3
-                    if self.pycMagic == b"\0" * 4:
-                        # if we don't have the pyc header yet, fix them in a later pass
-                        self.barePycList.append(entry.name + ".pyc")
-
-                    self._writePyc(entry.name + ".pyc", data)
-
-                    if entry.name.endswith("_crypto_key"):
-                        logging.info(
-                            "Detected _crypto_key file, saving key for automatic decryption"
-                        )
-                        # This is a plain code object without a header
-                        self.cryptoKeyFileData = data
-
-            else:
-                self._writeRawData(entry.name, data)
-
-                if entry.typeCmprsData == b"z" or entry.typeCmprsData == b"Z":
-                    self._extractPyz(entry.name, one_dir)
-
-        # Fix bare pyc's if any
-        self._fixBarePycs()
-
-    def _fixBarePycs(self):
-        for pycFile in self.barePycList:
-            with open(pycFile, "r+b") as pycFile:
-                # Overwrite the first four bytes
-                pycFile.write(self.pycMagic)
-
-    def _extractCryptoKeyObject(self, data):
-        if self.pymaj >= 3 and self.pymin >= 7:
-            # 16 byte header for 3.7 and above
-            return data[16:]
-        elif self.pymaj >= 3 and self.pymin >= 3:
-            # 12 byte header for 3.3-3.6
-            return data[12:]
-        else:
-            # 8 byte header for 2.x, 3.0-3.2
-            return data[8:]
-
     def _writePyc(self, filename, data):
         with open(filename, "wb") as pycFile:
             pycFile.write(self.pycMagic)  # pyc magic
@@ -6737,16 +6635,16 @@ class PyInstArchive:
 
             pycFile.write(data)
 
-    def _getCryptoKey(self):
-        if self.cryptoKey:
-            return self.cryptoKey
-
-        if not self.cryptoKeyFileData:
-            return None
-
-        co = load_code(self.cryptoKeyFileData, pycHeader2Magic(self.pycMagic))
-        self.cryptoKey = co.co_consts[0]
-        return self.cryptoKey
+    def _extractCryptoKeyObject(self, data):
+        if self.pymaj >= 3 and self.pymin >= 7:
+            # 16 byte header for 3.7 and above
+            return data[16:]
+        elif self.pymaj >= 3 and self.pymin >= 3:
+            # 12 byte header for 3.3-3.6
+            return data[12:]
+        else:
+            # 8 byte header for 2.x, 3.0-3.2
+            return data[8:]
 
     def _tryDecrypt(self, ct, aes_mode):
         CRYPT_BLOCK_SIZE = 16
@@ -6855,6 +6753,108 @@ class PyInstArchive:
                             continue
 
                 self._writePyc(filePath, data)
+
+    def extractFiles(self, one_dir):
+        logging.info("Beginning extraction...please standby")
+        extractionDir = pyinstaller_extracted_dir
+        if not os.path.exists(extractionDir):
+            os.mkdir(extractionDir)
+
+        os.chdir(extractionDir)
+
+        for entry in self.tocList:
+            self.fPtr.seek(entry.position, os.SEEK_SET)
+            data = self.fPtr.read(entry.cmprsdDataSize)
+
+            if entry.cmprsFlag == 1:
+                data = zlib.decompress(data)
+                # Malware may tamper with the uncompressed size
+                # Comment out the assertion in such a case
+                assert len(data) == entry.uncmprsdDataSize  # Sanity Check
+
+            if entry.typeCmprsData == b"d" or entry.typeCmprsData == b"o":
+                # d -> ARCHIVE_ITEM_DEPENDENCY
+                # o -> ARCHIVE_ITEM_RUNTIME_OPTION
+                # These are runtime options, not files
+                continue
+
+            basePath = os.path.dirname(entry.name)
+            if basePath != "":
+                # Check if path exists, create if not
+                if not os.path.exists(basePath):
+                    os.makedirs(basePath)
+
+            if entry.typeCmprsData == b"s":
+                # s -> ARCHIVE_ITEM_PYSOURCE
+                # Entry point are expected to be python scripts
+                logging.info("Possible entry point: %s.pyc", entry.name)
+
+                if self.pycMagic == b"\0" * 4:
+                    # if we don't have the pyc header yet, fix them in a later pass
+                    self.barePycList.append(entry.name + ".pyc")
+                self._writePyc(entry.name + ".pyc", data)
+
+            elif entry.typeCmprsData == b"M" or entry.typeCmprsData == b"m":
+                # M -> ARCHIVE_ITEM_PYPACKAGE
+                # m -> ARCHIVE_ITEM_PYMODULE
+                # packages and modules are pyc files with their header intact
+
+                # From PyInstaller 5.3 and above pyc headers are no longer stored
+                # https://github.com/pyinstaller/pyinstaller/commit/a97fdf
+                if data[2:4] == b"\r\n":
+                    # < pyinstaller 5.3
+                    if self.pycMagic == b"\0" * 4:
+                        self.pycMagic = data[0:4]
+                    self._writeRawData(entry.name + ".pyc", data)
+
+                    if entry.name.endswith("_crypto_key"):
+                        logging.info(
+                            "Detected _crypto_key file, saving key for automatic decryption"
+                        )
+                        # This is a pyc file with a header (8,12, or 16 bytes)
+                        # Extract the code object after the header
+                        self.cryptoKeyFileData = self._extractCryptoKeyObject(data)
+
+                else:
+                    # >= pyinstaller 5.3
+                    if self.pycMagic == b"\0" * 4:
+                        # if we don't have the pyc header yet, fix them in a later pass
+                        self.barePycList.append(entry.name + ".pyc")
+
+                    self._writePyc(entry.name + ".pyc", data)
+
+                    if entry.name.endswith("_crypto_key"):
+                        logging.info(
+                            "Detected _crypto_key file, saving key for automatic decryption"
+                        )
+                        # This is a plain code object without a header
+                        self.cryptoKeyFileData = data
+
+            else:
+                self._writeRawData(entry.name, data)
+
+                if entry.typeCmprsData == b"z" or entry.typeCmprsData == b"Z":
+                    self._extractPyz(entry.name, one_dir)
+
+        # Fix bare pyc's if any
+        self._fixBarePycs()
+
+    def _fixBarePycs(self):
+        for pycFile in self.barePycList:
+            with open(pycFile, "r+b") as pycFile:
+                # Overwrite the first four bytes
+                pycFile.write(self.pycMagic)
+
+    def _getCryptoKey(self):
+        if self.cryptoKey:
+            return self.cryptoKey
+
+        if not self.cryptoKeyFileData:
+            return None
+
+        co = load_code(self.cryptoKeyFileData, pycHeader2Magic(self.pycMagic))
+        self.cryptoKey = co.co_consts[0]
+        return self.cryptoKey
 
 def extract_pyinstaller_archive(file_path):
     try:
@@ -10927,6 +10927,89 @@ class MonitorMessageCommandLine:
                 }
             }
 
+    def process_window_text(self, hwnd, text, path):
+        """
+        Process text from a window - this contains the original logic.
+        """
+        # If there is no text then return
+        if not text:
+            return
+
+        # Log the incoming parameters and full text
+        logging.info(f"Processing window - hwnd={hwnd}, path={path}, text={text}")
+
+        # write original text
+        orig_fn = self.get_unique_filename(f"original_{hwnd}")
+        with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
+            f.write(text[:1_000_000])
+        logging.info(f"Wrote original -> {orig_fn}")
+        threading.Thread(
+            target=scan_and_warn,
+            args=(orig_fn,),
+            kwargs={'command_flag': True}
+        ).start()
+
+        # write preprocessed text
+        pre = self.preprocess_text(text)
+        if pre:
+            pre_fn = self.get_unique_filename(f"preprocessed_{hwnd}")
+            with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
+                f.write(pre[:1_000_000])
+            logging.info(f"Wrote preprocessed -> {pre_fn}")
+            threading.Thread(
+                target=scan_and_warn,
+                args=(pre_fn,),
+                kwargs={'command_flag': True}
+            ).start()
+
+    def handle_event(self,
+                     hWinEventHook,
+                     event,
+                     hwnd,
+                     idObject,
+                     idChild,
+                     dwEventThread,
+                     dwmsEventTime):
+        """
+        WinEvent callback that re-scans *all* windows and controls on every event,
+        *regardless* of whether hwnd is non-zero.  Then falls back to AccessibleObjectFromEvent.
+        """
+        logging.debug(f"WinEvent: event=0x{event:04X} hwnd={hwnd} obj={idObject} child={idChild}")
+
+        # --- 1) Brute-force scan of *all* top-level windows & their text, on every event
+        try:
+            all_entries = find_windows_with_text()
+            for h, txt, p in all_entries:
+                self.process_window_text(h, txt, p)
+        except Exception:
+            logging.error("Error during brute-force window enumeration")
+
+        # --- 2) COM fallback for non-HWND UI elements
+        if idObject != Accessibility.OBJID_WINDOW:
+            try:
+                CoInitialize()
+                pacc = ctypes.POINTER(Accessibility.IAccessible)()
+                varChild = VARIANT()
+
+                hr = Accessibility.AccessibleObjectFromEvent(
+                    hwnd, idObject, idChild,
+                    ctypes.byref(pacc), ctypes.byref(varChild)
+                )
+                if hr != 0 or not pacc:
+                    logging.error(f"AccessibleObjectFromEvent failed: HRESULT=0x{hr:08X}")
+                    return
+
+                name = pacc.get_accName(varChild)
+                if name:
+                    context = f"obj={idObject}, child={idChild}"
+                    self.process_window_text(hwnd or 0, name, context)
+
+            except Exception:
+                logging.error(
+                    f"Error retrieving AccessibleObject for hwnd={hwnd}, "
+                    f"idObject={idObject}, idChild={idChild}"
+                )
+
     # -----------------------------------------------------------------------------
     # 3) The actual WinEventProc callback.
     #    It simply forwards into your `handle_event(...)` method.
@@ -11174,89 +11257,6 @@ class MonitorMessageCommandLine:
             unique_name = os.path.join(commandlineandmessage_dir, f"{base_name}_{counter}.txt")
             counter += 1
         return unique_name
-
-    def process_window_text(self, hwnd, text, path):
-        """
-        Process text from a window - this contains the original logic.
-        """
-        # If there is no text then return
-        if not text:
-            return
-
-        # Log the incoming parameters and full text
-        logging.info(f"Processing window - hwnd={hwnd}, path={path}, text={text}")
-
-        # write original text
-        orig_fn = self.get_unique_filename(f"original_{hwnd}")
-        with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
-            f.write(text[:1_000_000])
-        logging.info(f"Wrote original -> {orig_fn}")
-        threading.Thread(
-            target=scan_and_warn,
-            args=(orig_fn,),
-            kwargs={'command_flag': True}
-        ).start()
-
-        # write preprocessed text
-        pre = self.preprocess_text(text)
-        if pre:
-            pre_fn = self.get_unique_filename(f"preprocessed_{hwnd}")
-            with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
-                f.write(pre[:1_000_000])
-            logging.info(f"Wrote preprocessed -> {pre_fn}")
-            threading.Thread(
-                target=scan_and_warn,
-                args=(pre_fn,),
-                kwargs={'command_flag': True}
-            ).start()
-
-    def handle_event(self,
-                     hWinEventHook,
-                     event,
-                     hwnd,
-                     idObject,
-                     idChild,
-                     dwEventThread,
-                     dwmsEventTime):
-        """
-        WinEvent callback that re-scans *all* windows and controls on every event,
-        *regardless* of whether hwnd is non-zero.  Then falls back to AccessibleObjectFromEvent.
-        """
-        logging.debug(f"WinEvent: event=0x{event:04X} hwnd={hwnd} obj={idObject} child={idChild}")
-
-        # --- 1) Brute-force scan of *all* top-level windows & their text, on every event
-        try:
-            all_entries = find_windows_with_text()
-            for h, txt, p in all_entries:
-                self.process_window_text(h, txt, p)
-        except Exception:
-            logging.error("Error during brute-force window enumeration")
-
-        # --- 2) COM fallback for non-HWND UI elements
-        if idObject != Accessibility.OBJID_WINDOW:
-            try:
-                CoInitialize()
-                pacc = ctypes.POINTER(Accessibility.IAccessible)()
-                varChild = VARIANT()
-
-                hr = Accessibility.AccessibleObjectFromEvent(
-                    hwnd, idObject, idChild,
-                    ctypes.byref(pacc), ctypes.byref(varChild)
-                )
-                if hr != 0 or not pacc:
-                    logging.error(f"AccessibleObjectFromEvent failed: HRESULT=0x{hr:08X}")
-                    return
-
-                name = pacc.get_accName(varChild)
-                if name:
-                    context = f"obj={idObject}, child={idChild}"
-                    self.process_window_text(hwnd or 0, name, context)
-
-            except Exception:
-                logging.error(
-                    f"Error retrieving AccessibleObject for hwnd={hwnd}, "
-                    f"idObject={idObject}, idChild={idChild}"
-                )
 
     # -----------------------------------------------------------------------------
     # 5) Install the hooks and pump messages
@@ -11909,355 +11909,6 @@ class ShieldWidget(QWidget):
             painter.drawLine(35 * progress, -35 * progress, -35 * progress, 35 * progress)
 
 
-# --- Main Application Window ---
-class AntivirusApp(QWidget):
-    def setup_ui(self):
-        # Set the window icon if the file exists
-        if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
-        else:
-            logging.warning(f"Icon file not found at: {icon_path}")
-
-        self.setWindowTitle("HydraDragon Antivirus v0.1 (Beta 4)")
-        self.setMinimumSize(1024, 768)
-        self.resize(1200, 800)
-        main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-        main_layout.addWidget(self.create_sidebar())
-        main_layout.addWidget(self.create_main_content(), 1)
-
-    def __init__(self):
-        super().__init__()
-        self.workers = []
-        self.log_outputs = []
-        self.animation_group = QParallelAnimationGroup()
-        self.setup_ui()
-        self.apply_stylesheet()
-
-    def create_status_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(40, 40, 40, 40)
-
-        main_area = QHBoxLayout()
-        self.shield_widget = ShieldWidget()
-        main_area.addWidget(self.shield_widget, 2)
-
-        status_vbox = QVBoxLayout()
-        status_vbox.addStretch()
-        title = QLabel("System Status")
-        title.setObjectName("page_title")
-        self.status_text = QLabel("Ready for analysis!")
-        self.status_text.setObjectName("page_subtitle")
-        version_label = QLabel("HydraDragon Antivirus v0.1 (Beta 4)")
-        version_label.setObjectName("version_label")
-        defs_label = QLabel(get_latest_clamav_def_time())
-        defs_label.setObjectName("version_label")
-
-        status_vbox.addWidget(title)
-        status_vbox.addWidget(self.status_text)
-        status_vbox.addSpacing(20)
-        status_vbox.addWidget(version_label)
-        status_vbox.addWidget(defs_label)
-        status_vbox.addStretch()
-        main_area.addLayout(status_vbox, 3)
-
-        layout.addLayout(main_area)
-        self.log_outputs.append(None)
-        return page
-
-    def create_task_page(self, title_text, task_name):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(20, 20, 20, 20)
-        title = QLabel(title_text)
-        title.setObjectName("page_title")
-        layout.addWidget(title)
-        button = QPushButton(f"Run {title_text}")
-        button.setObjectName("action_button")
-        button.clicked.connect(lambda: self.start_worker(task_name))
-        layout.addWidget(button)
-        log_output = QTextEdit(f"{title_text} logs will appear here...")
-        log_output.setObjectName("log_output")
-        layout.addWidget(log_output, 1)
-        self.log_outputs.append(log_output)
-        layout.addStretch()
-        return page
-
-    def create_analysis_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(20, 20, 20, 20)
-        title = QLabel("Deep File Analysis")
-        title.setObjectName("page_title")
-        layout.addWidget(title)
-        warning_box = QGroupBox("Recommended Workflow")
-        warning_layout = QVBoxLayout(warning_box)
-        warning_text = QLabel(
-            "<b>IMPORTANT:</b> Only run this application from a Virtual Machine.<br><br>"
-            "<b>Recommended Workflow:</b><br>"
-            "1. Update Virus Definitions<br>"
-            "2. Generate Clean DB (Process Dump x64)<br>"
-            "3. Capture Pre-analysis Logs <br>"
-            "4. Analyze a File<br>"
-            "5. Stop Analysis<br>"
-            "6. Capture Post-analysis Logs and Compare Results (with Llama AI)<br>"
-            "7. Rootkit Scan<br>"
-            "8. Cleanup Environment<br><br>"
-            "<i>Return to a clean snapshot before starting a new analysis.</i>"
-        )
-        warning_text.setWordWrap(True)
-        warning_text.setObjectName("warning_text")
-        warning_layout.addWidget(warning_text)
-        layout.addWidget(warning_box)
-
-        # First row of buttons
-        button_layout = QHBoxLayout()
-        analyze_btn = QPushButton("Analyze File...")
-        analyze_btn.setObjectName("action_button")
-        analyze_btn.clicked.connect(self.analyze_file)
-        stop_btn = QPushButton("Stop Analysis")
-        stop_btn.setObjectName("action_button_danger")
-        stop_btn.clicked.connect(self.stop_analysis)
-        button_layout.addWidget(analyze_btn)
-        button_layout.addWidget(stop_btn)
-        layout.addLayout(button_layout)
-
-        # Second row of buttons
-        control_layout = QHBoxLayout()
-        sandboxie_control_btn = QPushButton("Open Sandboxie Control")
-        sandboxie_control_btn.setObjectName("action_button")
-        sandboxie_control_btn.clicked.connect(self.open_sandboxie_control)
-        control_layout.addWidget(sandboxie_control_btn)
-        control_layout.addStretch()  # Push button to the left
-        layout.addLayout(control_layout)
-
-        log_output = QTextEdit("Analysis logs will be saved in the logs folder.")
-        log_output.setObjectName("log_output")
-        layout.addWidget(log_output, 1)
-        self.log_outputs.append(log_output)
-        return page
-
-    def append_log_output(self, text):
-        current_page_index = self.main_stack.currentIndex()
-        if 0 <= current_page_index < len(self.log_outputs):
-            log_widget = self.log_outputs[current_page_index]
-            if log_widget:
-                log_widget.append(text)
-
-    def start_worker(self, task_type, *args):
-        worker = Worker(task_type, *args)
-        worker.output_signal.connect(self.append_log_output)
-        worker.finished.connect(lambda w=worker: self.on_worker_finished(w))
-
-        self.workers.append(worker)
-        worker.start()
-        self.append_log_output(f"[*] Task '{task_type}' started.")
-        self.shield_widget.set_status(False)
-        self.status_text.setText("System is busy...")
-
-    def on_worker_finished(self, worker):
-        self.append_log_output(f"[+] Task '{worker.task_type}' finished.")
-        if worker in self.workers:
-            self.workers.remove(worker)
-        if not self.workers:
-            self.shield_widget.set_status(True)
-            self.status_text.setText("Ready for analysis!")
-
-    def switch_page_with_animation(self, index):
-        if self.animation_group.state() == QParallelAnimationGroup.State.Running:
-            return
-
-        current_widget = self.main_stack.currentWidget()
-        next_widget = self.main_stack.widget(index)
-
-        if current_widget == next_widget:
-            return
-
-        current_index = self.main_stack.currentIndex()
-
-        animation_duration = 400
-        easing_curve = QEasingCurve.Type.InOutCubic
-
-        next_widget.show()
-        next_widget.raise_()
-
-        slide_out_x = -self.main_stack.width() if index > current_index else self.main_stack.width()
-        current_pos_anim = QPropertyAnimation(current_widget, b"pos")
-        current_pos_anim.setDuration(animation_duration)
-        current_pos_anim.setEasingCurve(easing_curve)
-        current_pos_anim.setStartValue(QPoint(0, 0))
-        current_pos_anim.setEndValue(QPoint(slide_out_x, 0))
-
-        slide_in_x = self.main_stack.width() if index > current_index else -self.main_stack.width()
-        next_widget.move(slide_in_x, 0)
-        next_pos_anim = QPropertyAnimation(next_widget, b"pos")
-        next_pos_anim.setDuration(animation_duration)
-        next_pos_anim.setEasingCurve(easing_curve)
-        next_pos_anim.setStartValue(QPoint(slide_in_x, 0))
-        next_pos_anim.setEndValue(QPoint(0, 0))
-
-        self.animation_group = QParallelAnimationGroup()
-        self.animation_group.addAnimation(current_pos_anim)
-        self.animation_group.addAnimation(next_pos_anim)
-
-        self.animation_group.finished.connect(lambda: self.main_stack.setCurrentIndex(index))
-        self.animation_group.start()
-
-    def create_sidebar(self):
-        sidebar_frame = QFrame()
-        sidebar_frame.setObjectName("sidebar")
-        sidebar_layout = QVBoxLayout(sidebar_frame)
-        sidebar_layout.setContentsMargins(10, 20, 10, 20)
-        sidebar_layout.setSpacing(15)
-
-        logo_area = QHBoxLayout()
-        icon_widget = HydraIconWidget()
-        icon_widget.setFixedSize(30, 30)
-        logo_label = QLabel("HYDRA")
-        logo_label.setObjectName("logo")
-        logo_area.addWidget(icon_widget)
-        logo_area.addWidget(logo_label)
-        sidebar_layout.addLayout(logo_area)
-        sidebar_layout.addSpacing(20)
-
-        nav_buttons = [
-            "Status", "Update Definitions", "Generate Clean DB",
-            "Analyze File", "Capture Analysis Logs", "Compare Logs",
-            "Rootkit Scan", "Hayabusa Analysis", "Cleanup Environment", "About & Load AI"  # ADDED HAYABUSA
-        ]
-        self.nav_group = QButtonGroup(self)
-        self.nav_group.setExclusive(True)
-
-        for i, name in enumerate(nav_buttons):
-            button = QPushButton(name)
-            button.setCheckable(True)
-            button.setObjectName("nav_button")
-            button.clicked.connect(lambda checked, index=i: self.switch_page_with_animation(index))
-            sidebar_layout.addWidget(button)
-            self.nav_group.addButton(button, i)
-
-        self.nav_group.button(0).setChecked(True)
-        sidebar_layout.addStretch()
-        return sidebar_frame
-
-    def create_main_content(self):
-        self.main_stack = QStackedWidget()
-        self.main_stack.addWidget(self.create_status_page())
-        self.main_stack.addWidget(self.create_task_page("Update Definitions", "update_defs"))
-        self.main_stack.addWidget(self.create_task_page("Generate Clean DB", "generate_clean_db"))
-        self.main_stack.addWidget(self.create_analysis_page())
-        self.main_stack.addWidget(self.create_task_page("Capture Analysis Logs", "capture_analysis_logs"))
-        self.main_stack.addWidget(self.create_task_page("Compare Logs (Llama AI)", "compare_analysis_logs"))
-        self.main_stack.addWidget(self.create_task_page("Rootkit Scan", "rootkit_scan"))
-        self.main_stack.addWidget(self.create_hayabusa_page())
-        self.main_stack.addWidget(self.create_cleanup_page())
-        self.main_stack.addWidget(self.create_about_page())
-        return self.main_stack
-
-    def open_sandboxie_control(self):
-        """Opens the Sandboxie control window."""
-        try:
-            self.append_log_output("[*] Opening Sandboxie Control window...")
-            run_sandboxie_control()
-            self.append_log_output("[+] Sandboxie Control window opened successfully.")
-        except Exception as e:
-            self.append_log_output(f"[!] Error opening Sandboxie Control: {str(e)}")
-
-    def analyze_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select a file to analyze", "", "All Files (*)")
-        if file_path:
-            self.start_worker("analyze_file", file_path)
-
-    def stop_analysis(self):
-        for worker in self.workers:
-            if worker.isRunning():
-                worker.stop_requested = True
-        self.append_log_output("[!] Stop request sent to all running tasks.")
-
-    def create_cleanup_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(20, 20, 20, 20)
-        title = QLabel("System Cleanup & Reset")
-        title.setObjectName("page_title")
-        layout.addWidget(title)
-        cleanup_button = QPushButton("Perform Full Environment Cleanup")
-        cleanup_button.setObjectName("action_button_danger")
-        cleanup_button.clicked.connect(lambda: self.start_worker("cleanup_environment"))
-        layout.addWidget(cleanup_button)
-        log_output = QTextEdit("Cleanup process logs will appear here...")
-        log_output.setObjectName("log_output")
-        layout.addWidget(log_output, 1)
-        self.log_outputs.append(log_output)
-        layout.addStretch()
-        return page
-
-    def create_about_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(40, 40, 40, 40)
-        layout.setSpacing(20)
-        title = QLabel("About HydraDragon")
-        title.setObjectName("page_title")
-        layout.addWidget(title)
-        about_text = QLabel(
-            "HydraDragon Antivirus is a tool designed for malware analysis and system security research. "
-            "It provides a sandboxed environment to safely analyze potential threats."
-        )
-        about_text.setWordWrap(True)
-        layout.addWidget(about_text)
-
-        # Llama Model Loader Button
-        llama_load_button = QPushButton("Load Meta Llama AI Model (Requires >8GB RAM)")
-        llama_load_button.setObjectName("action_button")
-        llama_load_button.clicked.connect(lambda: self.start_worker("load_meta_llama_1b_model"))
-        layout.addWidget(llama_load_button, 0, Qt.AlignmentFlag.AlignLeft)
-
-        github_button = QPushButton("View Project on GitHub")
-        github_button.setObjectName("action_button")
-        github_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus"))
-        layout.addWidget(github_button, 0, Qt.AlignmentFlag.AlignLeft)
-
-        # Meta Llama Release Button
-        llama_release_button = QPushButton("View Meta Llama Release")
-        llama_release_button.setObjectName("action_button")
-        llama_release_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/releases/tag/MetaLlama"))
-        layout.addWidget(llama_release_button, 0, Qt.AlignmentFlag.AlignLeft)
-
-        # Log output for Llama model loading status
-        log_output = QTextEdit("Llama AI model status will appear here...")
-        log_output.setObjectName("log_output")
-        log_output.setReadOnly(True)
-        layout.addWidget(log_output, 1)
-        self.log_outputs.append(log_output)
-
-        layout.addStretch()
-        return page
-
-    def apply_stylesheet(self):
-        stylesheet = """
-            QWidget { background-color: #2E3440; color: #D8DEE9; font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; }
-            QTextEdit { background-color: #3B4252; border: 1px solid #4C566A; border-radius: 5px; padding: 8px; color: #ECEFF4; font-family: 'Consolas', 'Courier New', monospace; }
-            #sidebar { background-color: #3B4252; max-width: 220px; }
-            #logo { color: #88C0D0; font-size: 28px; font-weight: bold; }
-            #nav_button { background-color: transparent; border: none; color: #ECEFF4; padding: 12px; text-align: left; border-radius: 5px; }
-            #nav_button:hover { background-color: #434C5E; }
-            #nav_button:checked { background-color: #88C0D0; color: #2E3440; font-weight: bold; }
-            #page_title { font-size: 28px; font-weight: 300; color: #ECEFF4; padding-bottom: 15px; }
-            #page_subtitle { font-size: 16px; color: #A3BE8C; }
-            #version_label { font-size: 13px; color: #81A1C1; }
-            #action_button { background-color: #5E81AC; color: #ECEFF4; border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: bold; border: none; max-width: 350px; }
-            #action_button:hover { background-color: #81A1C1; }
-            #action_button_danger { background-color: #BF616A; color: #ECEFF4; border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: bold; border: none; }
-            #action_button_danger:hover { background-color: #d08770; }
-            QGroupBox { font-weight: bold; border: 1px solid #4C566A; border-radius: 8px; margin-top: 10px; padding: 15px; }
-            QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }
-            #warning_text { font-size: 13px; }
-        """
-        self.setStyleSheet(stylesheet)
-
 # --- Worker Thread for Background Tasks ---
 class Worker(QThread):
     """
@@ -12700,7 +12351,6 @@ class Worker(QThread):
         except Exception as e:
             self.output_signal.emit(f"[!] Error during cleanup: {str(e)}")
 
-    # Add this method to your AntivirusApp class to create the Hayabusa page
     def create_hayabusa_page(self):
         """
         Creates the Hayabusa analysis page with various Windows event log analysis options.
@@ -13110,6 +12760,355 @@ class Worker(QThread):
         except Exception as e:
             if not self.stop_requested:
                 self.output_signal.emit(f"[!] Worker thread error: {str(e)}")
+
+# --- Main Application Window ---
+class AntivirusApp(QWidget):
+    def setup_ui(self):
+        # Set the window icon if the file exists
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+        else:
+            logging.warning(f"Icon file not found at: {icon_path}")
+
+        self.setWindowTitle("HydraDragon Antivirus v0.1 (Beta 4)")
+        self.setMinimumSize(1024, 768)
+        self.resize(1200, 800)
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        main_layout.addWidget(self.create_sidebar())
+        main_layout.addWidget(self.create_main_content(), 1)
+
+    def __init__(self):
+        super().__init__()
+        self.workers = []
+        self.log_outputs = []
+        self.animation_group = QParallelAnimationGroup()
+        self.setup_ui()
+        self.apply_stylesheet()
+
+    def create_status_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(40, 40, 40, 40)
+
+        main_area = QHBoxLayout()
+        self.shield_widget = ShieldWidget()
+        main_area.addWidget(self.shield_widget, 2)
+
+        status_vbox = QVBoxLayout()
+        status_vbox.addStretch()
+        title = QLabel("System Status")
+        title.setObjectName("page_title")
+        self.status_text = QLabel("Ready for analysis!")
+        self.status_text.setObjectName("page_subtitle")
+        version_label = QLabel("HydraDragon Antivirus v0.1 (Beta 4)")
+        version_label.setObjectName("version_label")
+        defs_label = QLabel(get_latest_clamav_def_time())
+        defs_label.setObjectName("version_label")
+
+        status_vbox.addWidget(title)
+        status_vbox.addWidget(self.status_text)
+        status_vbox.addSpacing(20)
+        status_vbox.addWidget(version_label)
+        status_vbox.addWidget(defs_label)
+        status_vbox.addStretch()
+        main_area.addLayout(status_vbox, 3)
+
+        layout.addLayout(main_area)
+        self.log_outputs.append(None)
+        return page
+
+    def create_task_page(self, title_text, task_name):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        title = QLabel(title_text)
+        title.setObjectName("page_title")
+        layout.addWidget(title)
+        button = QPushButton(f"Run {title_text}")
+        button.setObjectName("action_button")
+        button.clicked.connect(lambda: self.start_worker(task_name))
+        layout.addWidget(button)
+        log_output = QTextEdit(f"{title_text} logs will appear here...")
+        log_output.setObjectName("log_output")
+        layout.addWidget(log_output, 1)
+        self.log_outputs.append(log_output)
+        layout.addStretch()
+        return page
+
+    def create_analysis_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        title = QLabel("Deep File Analysis")
+        title.setObjectName("page_title")
+        layout.addWidget(title)
+        warning_box = QGroupBox("Recommended Workflow")
+        warning_layout = QVBoxLayout(warning_box)
+        warning_text = QLabel(
+            "<b>IMPORTANT:</b> Only run this application from a Virtual Machine.<br><br>"
+            "<b>Recommended Workflow:</b><br>"
+            "1. Update Virus Definitions<br>"
+            "2. Generate Clean DB (Process Dump x64)<br>"
+            "3. Capture Pre-analysis Logs <br>"
+            "4. Analyze a File<br>"
+            "5. Stop Analysis<br>"
+            "6. Capture Post-analysis Logs and Compare Results (with Llama AI)<br>"
+            "7. Rootkit Scan<br>"
+            "8. Cleanup Environment<br><br>"
+            "<i>Return to a clean snapshot before starting a new analysis.</i>"
+        )
+        warning_text.setWordWrap(True)
+        warning_text.setObjectName("warning_text")
+        warning_layout.addWidget(warning_text)
+        layout.addWidget(warning_box)
+
+        # First row of buttons
+        button_layout = QHBoxLayout()
+        analyze_btn = QPushButton("Analyze File...")
+        analyze_btn.setObjectName("action_button")
+        analyze_btn.clicked.connect(self.analyze_file)
+        stop_btn = QPushButton("Stop Analysis")
+        stop_btn.setObjectName("action_button_danger")
+        stop_btn.clicked.connect(self.stop_analysis)
+        button_layout.addWidget(analyze_btn)
+        button_layout.addWidget(stop_btn)
+        layout.addLayout(button_layout)
+
+        # Second row of buttons
+        control_layout = QHBoxLayout()
+        sandboxie_control_btn = QPushButton("Open Sandboxie Control")
+        sandboxie_control_btn.setObjectName("action_button")
+        sandboxie_control_btn.clicked.connect(self.open_sandboxie_control)
+        control_layout.addWidget(sandboxie_control_btn)
+        control_layout.addStretch()  # Push button to the left
+        layout.addLayout(control_layout)
+
+        log_output = QTextEdit("Analysis logs will be saved in the logs folder.")
+        log_output.setObjectName("log_output")
+        layout.addWidget(log_output, 1)
+        self.log_outputs.append(log_output)
+        return page
+
+    def append_log_output(self, text):
+        current_page_index = self.main_stack.currentIndex()
+        if 0 <= current_page_index < len(self.log_outputs):
+            log_widget = self.log_outputs[current_page_index]
+            if log_widget:
+                log_widget.append(text)
+
+    def start_worker(self, task_type, *args):
+        worker = Worker(task_type, *args)
+        worker.output_signal.connect(self.append_log_output)
+        worker.finished.connect(lambda w=worker: self.on_worker_finished(w))
+
+        self.workers.append(worker)
+        worker.start()
+        self.append_log_output(f"[*] Task '{task_type}' started.")
+        self.shield_widget.set_status(False)
+        self.status_text.setText("System is busy...")
+
+    def on_worker_finished(self, worker):
+        self.append_log_output(f"[+] Task '{worker.task_type}' finished.")
+        if worker in self.workers:
+            self.workers.remove(worker)
+        if not self.workers:
+            self.shield_widget.set_status(True)
+            self.status_text.setText("Ready for analysis!")
+
+    def switch_page_with_animation(self, index):
+        if self.animation_group.state() == QParallelAnimationGroup.State.Running:
+            return
+
+        current_widget = self.main_stack.currentWidget()
+        next_widget = self.main_stack.widget(index)
+
+        if current_widget == next_widget:
+            return
+
+        current_index = self.main_stack.currentIndex()
+
+        animation_duration = 400
+        easing_curve = QEasingCurve.Type.InOutCubic
+
+        next_widget.show()
+        next_widget.raise_()
+
+        slide_out_x = -self.main_stack.width() if index > current_index else self.main_stack.width()
+        current_pos_anim = QPropertyAnimation(current_widget, b"pos")
+        current_pos_anim.setDuration(animation_duration)
+        current_pos_anim.setEasingCurve(easing_curve)
+        current_pos_anim.setStartValue(QPoint(0, 0))
+        current_pos_anim.setEndValue(QPoint(slide_out_x, 0))
+
+        slide_in_x = self.main_stack.width() if index > current_index else -self.main_stack.width()
+        next_widget.move(slide_in_x, 0)
+        next_pos_anim = QPropertyAnimation(next_widget, b"pos")
+        next_pos_anim.setDuration(animation_duration)
+        next_pos_anim.setEasingCurve(easing_curve)
+        next_pos_anim.setStartValue(QPoint(slide_in_x, 0))
+        next_pos_anim.setEndValue(QPoint(0, 0))
+
+        self.animation_group = QParallelAnimationGroup()
+        self.animation_group.addAnimation(current_pos_anim)
+        self.animation_group.addAnimation(next_pos_anim)
+
+        self.animation_group.finished.connect(lambda: self.main_stack.setCurrentIndex(index))
+        self.animation_group.start()
+
+    def create_sidebar(self):
+        sidebar_frame = QFrame()
+        sidebar_frame.setObjectName("sidebar")
+        sidebar_layout = QVBoxLayout(sidebar_frame)
+        sidebar_layout.setContentsMargins(10, 20, 10, 20)
+        sidebar_layout.setSpacing(15)
+
+        logo_area = QHBoxLayout()
+        icon_widget = HydraIconWidget()
+        icon_widget.setFixedSize(30, 30)
+        logo_label = QLabel("HYDRA")
+        logo_label.setObjectName("logo")
+        logo_area.addWidget(icon_widget)
+        logo_area.addWidget(logo_label)
+        sidebar_layout.addLayout(logo_area)
+        sidebar_layout.addSpacing(20)
+
+        nav_buttons = [
+            "Status", "Update Definitions", "Generate Clean DB",
+            "Analyze File", "Capture Analysis Logs", "Compare Logs",
+            "Rootkit Scan", "Hayabusa Analysis", "Cleanup Environment", "About & Load AI"  # ADDED HAYABUSA
+        ]
+        self.nav_group = QButtonGroup(self)
+        self.nav_group.setExclusive(True)
+
+        for i, name in enumerate(nav_buttons):
+            button = QPushButton(name)
+            button.setCheckable(True)
+            button.setObjectName("nav_button")
+            button.clicked.connect(lambda checked, index=i: self.switch_page_with_animation(index))
+            sidebar_layout.addWidget(button)
+            self.nav_group.addButton(button, i)
+
+        self.nav_group.button(0).setChecked(True)
+        sidebar_layout.addStretch()
+        return sidebar_frame
+
+    def create_main_content(self):
+        self.main_stack = QStackedWidget()
+        self.main_stack.addWidget(self.create_status_page())
+        self.main_stack.addWidget(self.create_task_page("Update Definitions", "update_defs"))
+        self.main_stack.addWidget(self.create_task_page("Generate Clean DB", "generate_clean_db"))
+        self.main_stack.addWidget(self.create_analysis_page())
+        self.main_stack.addWidget(self.create_task_page("Capture Analysis Logs", "capture_analysis_logs"))
+        self.main_stack.addWidget(self.create_task_page("Compare Logs (Llama AI)", "compare_analysis_logs"))
+        self.main_stack.addWidget(self.create_task_page("Rootkit Scan", "rootkit_scan"))
+        self.main_stack.addWidget(self.create_hayabusa_page())
+        self.main_stack.addWidget(self.create_cleanup_page())
+        self.main_stack.addWidget(self.create_about_page())
+        return self.main_stack
+
+    def open_sandboxie_control(self):
+        """Opens the Sandboxie control window."""
+        try:
+            self.append_log_output("[*] Opening Sandboxie Control window...")
+            run_sandboxie_control()
+            self.append_log_output("[+] Sandboxie Control window opened successfully.")
+        except Exception as e:
+            self.append_log_output(f"[!] Error opening Sandboxie Control: {str(e)}")
+
+    def analyze_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select a file to analyze", "", "All Files (*)")
+        if file_path:
+            self.start_worker("analyze_file", file_path)
+
+    def stop_analysis(self):
+        for worker in self.workers:
+            if worker.isRunning():
+                worker.stop_requested = True
+        self.append_log_output("[!] Stop request sent to all running tasks.")
+
+    def create_cleanup_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        title = QLabel("System Cleanup & Reset")
+        title.setObjectName("page_title")
+        layout.addWidget(title)
+        cleanup_button = QPushButton("Perform Full Environment Cleanup")
+        cleanup_button.setObjectName("action_button_danger")
+        cleanup_button.clicked.connect(lambda: self.start_worker("cleanup_environment"))
+        layout.addWidget(cleanup_button)
+        log_output = QTextEdit("Cleanup process logs will appear here...")
+        log_output.setObjectName("log_output")
+        layout.addWidget(log_output, 1)
+        self.log_outputs.append(log_output)
+        layout.addStretch()
+        return page
+
+    def create_about_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(20)
+        title = QLabel("About HydraDragon")
+        title.setObjectName("page_title")
+        layout.addWidget(title)
+        about_text = QLabel(
+            "HydraDragon Antivirus is a tool designed for malware analysis and system security research. "
+            "It provides a sandboxed environment to safely analyze potential threats."
+        )
+        about_text.setWordWrap(True)
+        layout.addWidget(about_text)
+
+        # Llama Model Loader Button
+        llama_load_button = QPushButton("Load Meta Llama AI Model (Requires >8GB RAM)")
+        llama_load_button.setObjectName("action_button")
+        llama_load_button.clicked.connect(lambda: self.start_worker("load_meta_llama_1b_model"))
+        layout.addWidget(llama_load_button, 0, Qt.AlignmentFlag.AlignLeft)
+
+        github_button = QPushButton("View Project on GitHub")
+        github_button.setObjectName("action_button")
+        github_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus"))
+        layout.addWidget(github_button, 0, Qt.AlignmentFlag.AlignLeft)
+
+        # Meta Llama Release Button
+        llama_release_button = QPushButton("View Meta Llama Release")
+        llama_release_button.setObjectName("action_button")
+        llama_release_button.clicked.connect(lambda: webbrowser.open("https://github.com/HydraDragonAntivirus/HydraDragonAntivirus/releases/tag/MetaLlama"))
+        layout.addWidget(llama_release_button, 0, Qt.AlignmentFlag.AlignLeft)
+
+        # Log output for Llama model loading status
+        log_output = QTextEdit("Llama AI model status will appear here...")
+        log_output.setObjectName("log_output")
+        log_output.setReadOnly(True)
+        layout.addWidget(log_output, 1)
+        self.log_outputs.append(log_output)
+
+        layout.addStretch()
+        return page
+
+    def apply_stylesheet(self):
+        stylesheet = """
+            QWidget { background-color: #2E3440; color: #D8DEE9; font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; }
+            QTextEdit { background-color: #3B4252; border: 1px solid #4C566A; border-radius: 5px; padding: 8px; color: #ECEFF4; font-family: 'Consolas', 'Courier New', monospace; }
+            #sidebar { background-color: #3B4252; max-width: 220px; }
+            #logo { color: #88C0D0; font-size: 28px; font-weight: bold; }
+            #nav_button { background-color: transparent; border: none; color: #ECEFF4; padding: 12px; text-align: left; border-radius: 5px; }
+            #nav_button:hover { background-color: #434C5E; }
+            #nav_button:checked { background-color: #88C0D0; color: #2E3440; font-weight: bold; }
+            #page_title { font-size: 28px; font-weight: 300; color: #ECEFF4; padding-bottom: 15px; }
+            #page_subtitle { font-size: 16px; color: #A3BE8C; }
+            #version_label { font-size: 13px; color: #81A1C1; }
+            #action_button { background-color: #5E81AC; color: #ECEFF4; border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: bold; border: none; max-width: 350px; }
+            #action_button:hover { background-color: #81A1C1; }
+            #action_button_danger { background-color: #BF616A; color: #ECEFF4; border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: bold; border: none; }
+            #action_button_danger:hover { background-color: #d08770; }
+            QGroupBox { font-weight: bold; border: 1px solid #4C566A; border-radius: 8px; margin-top: 10px; padding: 15px; }
+            QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }
+            #warning_text { font-size: 13px; }
+        """
+        self.setStyleSheet(stylesheet)
 
 def main():
     app = QApplication(sys.argv)
