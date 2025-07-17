@@ -2608,7 +2608,7 @@ def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=N
 
 def notify_user_for_hips(ip_address=None, dst_ip_address=None):
     notification = Notify()
-    notification.title = "Malicious Network Activity Detected"
+    notification.title = "(Not Verified) Malicious Network Activity Detected"
 
     if ip_address and dst_ip_address:
         notification_message = f"Malicious activity detected:\nSource: {ip_address}\nDestination: {dst_ip_address}"
@@ -2629,7 +2629,7 @@ def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
     Function to send notification for detected HIPS file.
     """
     notification = Notify()
-    notification.title = "Web Malware Alert For File"
+    notification.title = "(Verified) Web Malware Alert For File"
     notification_message = f"{status} file detected by Web related Message: {file_path}\nSource IP: {src_ip}\nAlert Line: {alert_line}"
     notification.message = notification_message
     notification.send()
@@ -5848,68 +5848,55 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
         except Exception as ex:
             logging.error(f"Unexpected error while processing process {proc.info.get('pid')}: {ex}")
 
-
-def process_alert(line):
-    """Process alert from fast.log format"""
-    try:
-        match = alert_regex.search(line)
-        if match:
-            try:
-                priority = int(match.group(1))
-                src_ip = match.group(2)
-                dst_ip = match.group(3)
-
-                # Check if the source IP is in the IPv4 whitelist
-                if src_ip in ipv4_whitelist_data:
-                    logging.info(f"Source IP {src_ip} is in the whitelist. Ignoring alert.")
-                    return False
-
-                if priority == 1:
-                    logging.warning(
-                        f"Malicious activity detected: {line.strip()} | Source: {src_ip} -> Destination: {dst_ip} | Priority: {priority}")
-                    try:
-                        notify_user_for_hips(ip_address=src_ip, dst_ip_address=dst_ip)
-                    except Exception as ex:
-                        logging.error(f"Error notifying user for HIPS (malicious): {ex}")
-                    convert_ip_to_file(src_ip, dst_ip, line.strip(), "Malicious")
-                    return True
-                elif priority == 2:
-                    convert_ip_to_file(src_ip, dst_ip, line.strip(), "Suspicious")
-                    return True
-                elif priority == 3:
-                    convert_ip_to_file(src_ip, dst_ip, line.strip(), "Info")
-                    return True
-            except Exception as ex:
-                logging.error(f"Error processing alert details: {ex}")
-    except Exception as ex:
-        logging.error(f"Error matching alert regex: {ex}")
-
-
 def process_alert_data(priority, src_ip, dest_ip):
     """Process parsed alert data from EVE JSON format"""
     try:
-        # Check if the source IP is in the IPv4 whitelist
-        if src_ip in ipv4_whitelist_data:
+        # Check if the source IP is in the IPv4 or IPv6 whitelist
+        if src_ip in ipv4_whitelist_data or src_ip in ipv6_whitelist_data:
             logging.info(f"Source IP {src_ip} is in the whitelist. Ignoring alert.")
             return False
 
+        # Determine threat type based on signature lists
+        threat_type = "Unknown Threat Detected"
+        
+        # Check IPv4 signatures
+        if src_ip in ipv4_addresses_signatures_data:
+            threat_type = "General Threat"
+        elif src_ip in ipv4_addresses_spam_signatures_data:
+            threat_type = "Spam"
+        elif src_ip in ipv4_addresses_bruteforce_signatures_data:
+            threat_type = "Brute Force"
+        elif src_ip in ipv4_addresses_phishing_active_signatures_data:
+            threat_type = "Active Phishing"
+        elif src_ip in ipv4_addresses_phishing_inactive_signatures_data:
+            threat_type = "Inactive Phishing"
+        elif src_ip in ipv4_addresses_ddos_signatures_data:
+            threat_type = "DDoS"
+        # Check IPv6 signatures
+        elif src_ip in ipv6_addresses_signatures_data:
+            threat_type = "General Threat"
+        elif src_ip in ipv6_addresses_spam_signatures_data:
+            threat_type = "Spam"
+        elif src_ip in ipv6_addresses_ddos_signatures_data:
+            threat_type = "DDoS"
+
         # Create a formatted line for logging (similar to fast.log format)
-        formatted_line = f"[Priority: {priority}] {src_ip} -> {dest_ip}"
+        formatted_line = f"[Priority: {priority}] {src_ip} -> {dest_ip} | Threat Type: {threat_type}"
 
         if priority == 1:
             logging.warning(
-                f"Malicious activity detected: {formatted_line} | Source: {src_ip} -> Destination: {dest_ip} | Priority: {priority}")
+                f"Malicious activity detected: {formatted_line} | Source: {src_ip} -> Destination: {dest_ip} | Priority: {priority} | Threat: {threat_type}")
             try:
                 notify_user_for_hips(ip_address=src_ip, dst_ip_address=dest_ip)
             except Exception as ex:
                 logging.error(f"Error notifying user for HIPS (malicious): {ex}")
-            convert_ip_to_file(src_ip, dest_ip, formatted_line, "Malicious")
+            convert_ip_to_file(src_ip, dest_ip, formatted_line, f"Malicious - {threat_type}")
             return True
         elif priority == 2:
-            convert_ip_to_file(src_ip, dest_ip, formatted_line, "Suspicious")
+            convert_ip_to_file(src_ip, dest_ip, formatted_line, f"Suspicious - {threat_type}")
             return True
         elif priority == 3:
-            convert_ip_to_file(src_ip, dest_ip, formatted_line, "Info")
+            convert_ip_to_file(src_ip, dest_ip, formatted_line, f"Info - {threat_type}")
             return True
 
     except Exception as ex:
@@ -6068,23 +6055,6 @@ def monitor_suricata_log():
 
             except Exception as ex:
                 logging.info(f"Error processing line: {ex}")
-
-def monitor_suricata_fast_log():
-    """Monitor Suricata fast.log"""
-    if not os.path.exists(fast_log_path):
-        open(fast_log_path, 'w').close()
-
-    with open(fast_log_path, 'r') as log_file:
-        log_file.seek(0, os.SEEK_END)
-        while True:
-            try:
-                line = log_file.readline()
-                if not line:
-                    continue
-                process_alert(line)  # Use existing process_alert function
-            except Exception as ex:
-                logging.info(f"Error processing line: {ex}")
-
 
 # Start monitoring in a separate thread
 threading.Thread(target=monitor_suricata_log).start()
