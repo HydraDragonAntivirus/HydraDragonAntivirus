@@ -230,6 +230,20 @@ tests = ["cloudpickle ; platform_python_implementation == \"CPython\"", "hypothe
 tests-mypy = ["mypy (>=1.11.1) ; platform_python_implementation == \"CPython\" and python_version >= \"3.10\"", "pytest-mypy-plugins ; platform_python_implementation == \"CPython\" and python_version >= \"3.10\""]
 
 [[package]]
+name = "autoit-ripper"
+version = "1.1.2"
+description = "Extract AutoIt scripts embedded in PE binaries"
+optional = false
+python-versions = ">=3.6"
+groups = ["main"]
+files = [
+    {file = "autoit-ripper-1.1.2.tar.gz", hash = "sha256:f811d60e47957b0a11520687967e53ca86a3a42bc98a8c02882d9d158ca9d4c0"},
+]
+
+[package.dependencies]
+pefile = "*"
+
+[[package]]
 name = "base32-crockford"
 version = "0.3.0"
 description = "A Python implementation of Douglas Crockford's base32 encoding scheme"
@@ -5573,4 +5587,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.13"
-content-hash = "96d927ed17f54ad80055631daba873a40daceb802b6423cdb53de53cb9726e96"
+content-hash = "9061e2bc0a733d0f4b9c6ac8a44df2665b3b005d854efede54fe73357e3fb2d8"

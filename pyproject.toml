@@ -45,6 +45,7 @@ dependencies = [
     "lief>=0.16.6,<0.17.0",
     "scapy>=2.6.1,<3.0.0",
     "spacy>=3.8.7,<4.0.0",
+    "autoit-ripper",
 
     # Pylingual reverse-engineering dependencies
     "asttokens",

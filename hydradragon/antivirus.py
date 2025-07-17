@@ -432,6 +432,7 @@ ilspycmd_path = os.path.join(script_dir, "ilspycmd.exe")
 pycdas_path = os.path.join(script_dir, "pycdas.exe")
 ISx_installshield_extractor_path = os.path.join(script_dir, "ISx.exe")
 installshield_extracted_dir = os.path.join(script_dir, "installshield_extracted")
+autoit_extracted_dir = os.path.join(script_dir, "autoit_extracted")
 pd64_path = os.path.join(script_dir, "pd64.exe")
 pd64_extracted_dir = os.path.join(script_dir, "pd64_extracted")
 deobfuscar_path = os.path.join(script_dir, "Deobfuscar-Standalone-Win64.exe")
@@ -680,7 +681,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [pd64_extracted_dir, enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir, processed_dir, python_source_code_dir, pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir, upx_extracted_dir, installshield_extracted_dir]
+directories_to_scan = [pd64_extracted_dir, enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir, processed_dir, python_source_code_dir, pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir, upx_extracted_dir, installshield_extracted_dir, autoit_extracted_dir]
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
@@ -782,7 +783,7 @@ MANAGED_DIRECTORIES = [
     debloat_dir, jar_extracted_dir, FernFlower_decompiled_dir, deteciteasy_plain_text_dir,
     python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pylingual_extracted_dir,
     pycdas_extracted_dir, copied_sandbox_and_main_files_dir, HiJackThis_logs_dir,
-    html_extracted_dir, log_directory, installshield_extracted_dir
+    html_extracted_dir, log_directory, installshield_extracted_dir, autoit_extracted_dir
 ]
 
 for make_directory in MANAGED_DIRECTORIES:
@@ -1390,7 +1391,6 @@ def is_go_garble_from_output(die_output):
     if die_output and ("Compiler: Go(unknown)" in die_output):
         logging.info("DIE output indicates a garbled Go file.")
         return True
-    # logging.debug(f"DIE output does not indicate a garbled Go file: {die_output}")
     return False
 
 def is_pyc_file_from_output(die_output):
@@ -1401,7 +1401,6 @@ def is_pyc_file_from_output(die_output):
     if die_output and "Python Compiled Module" in die_output:
         logging.info("DIE output indicates a Python compiled module.")
         return True
-    # logging.debug(f"DIE output does not indicate a Python compiled module: {die_output}")
     return False
 
 def is_pe_file_from_output(die_output):
@@ -1409,7 +1408,6 @@ def is_pe_file_from_output(die_output):
     if die_output and ("PE32" in die_output or "PE64" in die_output):
         logging.info("DIE output indicates a PE file.")
         return True
-    # logging.debug(f"DIE output does not indicate a PE file: {die_output}")
     return False
 
 def is_advanced_installer_file_from_output(die_output):
@@ -1417,7 +1415,13 @@ def is_advanced_installer_file_from_output(die_output):
     if die_output and ("Advanced Installer" in die_output):
         logging.info("DIE output indicates a Advanced Installer file.")
         return True
-    # logging.debug(f"DIE output does not indicate a Advanced Installer file: {die_output}")
+    return False
+    
+def is_autoit_file_from_output(die_output):
+    """Checks if DIE output indicates a AutoIt file."""
+    if die_output and ("AutoIt" in die_output):
+        logging.info("DIE output indicates a AutoIt file.")
+        return True
     return False
 
 def is_installshield_file_from_output(die_output):
@@ -1425,7 +1429,6 @@ def is_installshield_file_from_output(die_output):
     if die_output and ("InstallShield" in die_output):
         logging.info("DIE output indicates a Install Shield file.")
         return True
-    # logging.debug(f"DIE output does not indicate a Install Shield file: {die_output}")
     return False
 
 def is_nsis_from_output(die_output: str) -> bool:
@@ -1444,7 +1447,6 @@ def is_nsis_from_output(die_output: str) -> bool:
         logging.info("DIE output indicates an NSIS installer.")
         return True
 
-    # logging.debug(f"DIE output does not indicate an NSIS installer: {die_output!r}")
     return False
 
 def is_elf_file_from_output(die_output):
@@ -1452,7 +1454,6 @@ def is_elf_file_from_output(die_output):
     if die_output and ("ELF32" in die_output or "ELF64" in die_output):
         logging.info("DIE output indicates an ELF file.")
         return True
-    # logging.debug(f"DIE output does not indicate an ELF file: {die_output}")
     return False
 
 def is_enigma1_virtual_box(die_output):
@@ -1464,7 +1465,6 @@ def is_enigma1_virtual_box(die_output):
         logging.info("DIE output indicates Protector: Enigma.")
         return True
 
-    # logging.debug(f"DIE output does not indicate Protector: Enigma: {die_output}")
     return False
 
 def is_macho_file_from_output(die_output):
@@ -1472,7 +1472,6 @@ def is_macho_file_from_output(die_output):
     if die_output and "Mach-O" in die_output:
         logging.info("DIE output indicates a Mach-O file.")
         return True
-    # logging.debug(f"DIE output does not indicate a Mach-O file: {die_output}")
     return False
 
 def is_dotnet_file_from_output(die_output):
@@ -1522,7 +1521,6 @@ def is_dotnet_file_from_output(die_output):
             return "Probably No Protector"
 
         # 4) Nothing .NET/protector-related found
-        # logging.debug(f"DIE output does not indicate a .NET executable or known protector: {die_output!r}")
         return None
 
     except re.error as e:
@@ -1556,7 +1554,6 @@ def is_file_fully_unknown(die_output: str) -> bool:
         logging.info("DIE output indicates an unknown file (ignoring extra errors).")
         return True
     else:
-        # logging.debug(f"DIE output does not indicate an unknown file: {die_output!r}")
         return False
 
 def is_packer_upx_output(die_output):
@@ -1568,7 +1565,6 @@ def is_packer_upx_output(die_output):
         logging.info("DIE output indicates UPX packer.")
         return True
 
-    # logging.debug(f"DIE output does not indicate UPX packer: {die_output}")
     return False
 
 def is_jar_file_from_output(die_output):
@@ -1576,7 +1572,6 @@ def is_jar_file_from_output(die_output):
     if die_output and "Virtual machine: JVM" in die_output:
         logging.info("DIE output indicates a JAR file.")
         return True
-    # logging.debug(f"DIE output does not indicate a JAR file: {die_output}")
     return False
 
 def is_java_class_from_output(die_output):
@@ -1587,7 +1582,6 @@ def is_java_class_from_output(die_output):
     if die_output and "Format: Java Class " in die_output:
         logging.info("DIE output indicates a Java class file.")
         return True
-    # logging.debug(f"DIE output does not indicate a Java class file: {die_output}")
     return False
 
 def debloat_pe_file(file_path):
@@ -5457,7 +5451,6 @@ def is_7z_file_from_output(die_output: str) -> bool:
         logging.info("DIE output indicates a 7z archive.")
         return True
 
-    # logging.debug(f"DIE output does not indicate a 7z archive: {die_output!r}")
     return False
 
 def scan_tar_file(file_path):
@@ -6240,7 +6233,6 @@ def is_nuitka_file_from_output(die_output):
         logging.info("DIE output indicates a Nuitka executable.")
         return "Nuitka"
     else:
-        # logging.debug(f"DIE output does not indicate a Nuitka executable. Output: {die_output}")
         return None
 
 def clean_text(input_text):
@@ -6401,7 +6393,6 @@ def is_pyinstaller_archive_from_output(die_output):
         logging.info("DIE output indicates a PyInstaller archive.")
         return True
 
-    # logging.debug(f"DIE output does not indicate a PyInstaller archive: {die_output}")
     return False
 
 def pycHeader2Magic(header):
@@ -7078,6 +7069,8 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: This is the directory for HTML files of visited websites.")
         elif file_path.startswith(installshield_extracted_dir):
             logging.info(f"{file_path}: InstallShield extracted with ISx.")
+        elif file_path.startswith(autoit_extracted_dir):
+            logging.info(f"{file_path}: AutoIt extracted with AutoIt-Ripper.")
         else:
             logging.warning(f"{file_path}: File does not match known directories.")
     except Exception as ex:
@@ -7137,7 +7130,8 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
             (lambda fp: fp.startswith(python_source_code_dir), "PyInstaller, .pyc reversed-engineered source code base directory."),
             (lambda fp: fp.startswith(nuitka_source_code_dir), "Nuitka reversed-engineered Python source code directory."),
             (lambda fp: fp.startswith(html_extracted_dir), "This is the directory for HTML files of visited websites."),
-            (lambda fp: fp.startswith(installshield_extracted_dir), "InstallShield extracted with ISx.")
+            (lambda fp: fp.startswith(installshield_extracted_dir), "InstallShield extracted with ISx."),
+            (lambda fp: fp.startswith(autoit_extracted_dir), "AutoIt extracted with AutoIt-Ripper.")
         ]
 
         # 1) Find and log the first matching directory message, also save it for the prompt
@@ -9128,7 +9122,6 @@ def is_inno_setup_archive_from_output(die_output):
         logging.info("DIE output indicates an Inno Setup installer.")
         return True
 
-    # logging.debug(f"DIE output does not indicate an Inno Setup installer: {die_output!r}")
     return False
 
 def extract_installshield(file_path):
@@ -9177,6 +9170,55 @@ def extract_installshield(file_path):
 
     except Exception as ex:
         logging.error(f"Error extracting InstallShield file {file_path}: {ex}")
+        return None
+
+def extract_autoit(file_path):
+    """
+    Extracts AutoIt scripts from PE binaries using autoit-ripper.
+    Returns the path to the output directory, or None on failure.
+    
+    :param file_path: Path to the PE binary file (e.g., .exe)
+    :return: Path to the directory containing extracted files, or None if extraction failed.
+    """
+    try:
+        logging.info(f"Detected AutoIt binary: {file_path}")
+        
+        # Create a unique subdirectory inside autoit_extracted_dir
+        base_name = os.path.splitext(os.path.basename(file_path))[0]
+        folder_number = 1
+        while True:
+            out_dir_name = f"{base_name}_extracted{'' if folder_number == 1 else f'_{folder_number}'}"
+            output_dir = os.path.join(autoit_extracted_dir, out_dir_name)
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+                break
+            folder_number += 1
+        
+        # Run autoit-ripper: `autoit-ripper <binary> <output_dir>`
+        cmd = [
+            "autoit-ripper",
+            file_path,
+            output_dir
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="ignore"
+        )
+        
+        if result.returncode != 0:
+            logging.error(f"autoit-ripper extraction failed ({result.returncode}): {result.stderr.strip()}")
+            return None
+        
+        logging.info(f"AutoIt scripts extracted to: {output_dir}")
+        return output_dir
+        
+    except Exception as ex:
+        logging.error(f"Error extracting AutoIt binary {file_path}: {ex}")
         return None
 
 def extract_upx(file_path):
@@ -9602,6 +9644,12 @@ def scan_and_warn(file_path,
                     f"Stopped analysis; unknown data detected in {norm_path}"
                 )
                 return False
+
+        if is_autoit_file_from_output(die_output):
+            logging.info(f"File {norm_path} is a valid AutoIt file.")
+            extracted_autoit_files = extract_autoit(norm_path)
+            for extracted_autoit_file in extracted_autoit_files:
+                scan_and_warn(extracted_autoit_file)
 
         if is_installshield_file_from_output(die_output):
             logging.info(f"File {norm_path} is a valid Install Shield file.")
@@ -10397,7 +10445,6 @@ def check_hosts_file_for_blocked_antivirus():
 
     try:
         if not os.path.exists(hosts_sandboxie_path):
-            # logging.error(f"Hosts file not found: {hosts_sandboxie_path}")
             return False
 
         with open(hosts_sandboxie_path, 'r') as hf:
@@ -11330,7 +11377,6 @@ class MonitorMessageCommandLine:
 
                     # skip if not from main executable or in the Sandboxie folder
                     if exe_path != main_path or exe_path.startswith(self.sandboxie_folder.lower()):
-                        # logging.debug(f"Skipping command from excluded path: {exe_path}")
                         continue
 
                     # now exe_path is the main executable and not excluded, so log and scan
