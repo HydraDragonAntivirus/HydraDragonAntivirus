@@ -2,88 +2,65 @@ Invalid Domains and Subdomains Report
 =====================================
 
 
-AbuseDomains.txt:
-  - 0--foodwarez.da.ru: Double hyphens only allowed in IDNA labels
-  - 126419-deu-storno-sicherheit-konto_identity.sicherheitssystem-sicherheitshilfe.ga: Contains invalid characters
-  - 156166-de-storno-sicherheit-konto_identity.vorbeugung-sicher.gq: Contains invalid characters
-  - 190_0_166_124.3g.solunet.com.ar: Contains invalid characters
-  - 190_0_166_97.3g.solunet.com.ar: Contains invalid characters
-  - 190_0_167_200.3g.solunet.com.ar: Contains invalid characters
-  - 190_0_167_222.3g.solunet.com.ar: Contains invalid characters
-  - 190_0_167_223.3g.solunet.com.ar: Contains invalid characters
-  - 190_0_167_224.3g.solunet.com.ar: Contains invalid characters
-  - 190_0_167_225.3g.solunet.com.ar: Contains invalid characters
-  - 190_0_167_232.3g.solunet.com.ar: Contains invalid characters
-  - 190_0_167_233.3g.solunet.com.ar: Contains invalid characters
-  - 190_0_167_237.3g.solunet.com.ar: Contains invalid characters
-  - 190_0_167_238.3g.solunet.com.ar: Contains invalid characters
-  - 190_0_167_241.3g.solunet.com.ar: Contains invalid characters
-  - 190_0_167_245.3g.solunet.com.ar: Contains invalid characters
-  - 190_0_167_246.3g.solunet.com.ar: Contains invalid characters
-  - 190_0_167_249.3g.solunet.com.ar: Contains invalid characters
-  - 190_0_168_12.3g.solunet.com.ar: Contains invalid characters
-  - 190_0_168_8.3g.solunet.com.ar: Contains invalid characters
+MalwareDomains.txt:
+  - pm: Missing TLD
+  - pmenboeqhyrpvomq.: Missing TLD
+  - p27dokhpz2n7n: Missing TLD
+  - 974gfbjhb23hbfkyfaby: Missing TLD
+  - p27dokhp: Missing TLD
+  - godpore2: Missing TLD
+  - alsgus132: Missing TLD
+  - wpywztop: Missing TLD
+  - 123adsfsa14: Missing TLD
+  - darkdnsasd1234: Missing TLD
+  - ustabiradam: Missing TLD
+  - http: Missing TLD
+  - adwords-gooogle-co--uk.fectmoney.com: Double hyphens only allowed in IDNA labels
+  - 661785--nutzung-sicher-nachweis.sicherheitsabwehr-pro.tk: Double hyphens only allowed in IDNA labels
+  - usaa.com-inet--logon-logon-logon-logon.communiqsoft.com: Double hyphens only allowed in IDNA labels
+  - usaa.com-inet--logonnnn.communiqsoft.com: Double hyphens only allowed in IDNA labels
   - 433348--gast-angabe-account.vorkehrung-sicherheitssystem.ml: Double hyphens only allowed in IDNA labels
   - 496812--gast-sicher-account.vorkehrung-sicherheitssystem.ml: Double hyphens only allowed in IDNA labels
-  - 521073--verbraucher-mitteilung-account.sicher-vorbeugung.tk: Double hyphens only allowed in IDNA labels
-  - 540591--nutzung-angabe-validierung.sicherheitshilfe-schutz.gq: Double hyphens only allowed in IDNA labels
-  - 583702415_1.bookonline.com.cn: Contains invalid characters
-  - 633393--gast-kenntnis-benutzer.vorkehrung-sicherheitssystem.cf: Double hyphens only allowed in IDNA labels
-  - 696291--verbraucher-sicherheit-account.sicherheitsabfrage-sicher.gq: Double hyphens only allowed in IDNA labels
   - 700135--nutzung-sicher-validierung.vorkehrung-sicherheitssystem.ml: Double hyphens only allowed in IDNA labels
+  - 633393--gast-kenntnis-benutzer.vorkehrung-sicherheitssystem.cf: Double hyphens only allowed in IDNA labels
+  - 540591--nutzung-angabe-validierung.sicherheitshilfe-schutz.gq: Double hyphens only allowed in IDNA labels
+  - apple--virus--alert.info: Double hyphens only allowed in IDNA labels
+  - 927697--storno-sicher-konto_identity.sicherheitsvorbeugung-schutz.cf: Contains invalid characters
+  - 126419-deu-storno-sicherheit-konto_identity.sicherheitssystem-sicherheitshilfe.ga: Contains invalid characters
+  - 962583-deutschland-nutzung-mitteilung-konto_identity.sicher-sicherheitsabfrage.ml: Contains invalid characters
+  - 156166-de-storno-sicherheit-konto_identity.vorbeugung-sicher.gq: Contains invalid characters
+  - 521073--verbraucher-mitteilung-account.sicher-vorbeugung.tk: Double hyphens only allowed in IDNA labels
+  - 696291--verbraucher-sicherheit-account.sicherheitsabfrage-sicher.gq: Double hyphens only allowed in IDNA labels
   - 774982-de-verbraucher-sicherheit-konto_identity.vorbeugung-sicher.gq: Contains invalid characters
-  - 7979-69504_159.c.adprotect.net: Contains invalid characters
   - 804460-germany-verbraucher-mitteilung-konto_identity.sicher-vorbeugung.tk: Contains invalid characters
   - 893186-deutschland-storno-mitteilung-konto_identity.vorbeugung-sicher.gq: Contains invalid characters
-  - 927697--storno-sicher-konto_identity.sicherheitsvorbeugung-schutz.cf: Contains invalid characters
-  - 962583-deutschland-nutzung-mitteilung-konto_identity.sicher-sicherheitsabfrage.ml: Contains invalid characters
-  - a--e.com: Double hyphens only allowed in IDNA labels
-  - adult--shemalewarez.da.ru: Double hyphens only allowed in IDNA labels
-  - adwords-gooogle-co--uk.fectmoney.com: Double hyphens only allowed in IDNA labels
-  - als_reiki.ourtoolbar.com: Contains invalid characters
-  - anonymous--br.blogspot.com: Double hyphens only allowed in IDNA labels
-  - any--onet-pl.vhost.accelerator.dreamlab.pl: Double hyphens only allowed in IDNA labels
-  - apple.com--validation.systems: Double hyphens only allowed in IDNA labels
-  - black_hat_hacker.webobo.biz: Contains invalid characters
-  - black_hat_hacker.webobo.com: Contains invalid characters
-  - buycocaine--crack--stri.hi5.com: Double hyphens only allowed in IDNA labels
-  - crank------dvd-rip.crack.serial.keygen.warezfactor.com: Double hyphens only allowed in IDNA labels
-  - edrsct_yahoo_group.myforumtoolbar.com: Contains invalid characters
-  - facebook.com-------mobile---read---new--terms--224874725.peraltek.com: Double hyphens only allowed in IDNA labels
-  - facebook.com-------mobile---read---new--terms--340590087.peraltek.com: Double hyphens only allowed in IDNA labels
-  - facebook.com-------validate----credentials----new-tos--19182121.enkaemlak.com: Double hyphens only allowed in IDNA labels
-  - fb.com--------validate---account----step1.yudumay.com: Double hyphens only allowed in IDNA labels
-  - flashplayer_macro.kit.net: Contains invalid characters
-  - free_toolbar.mystoretoolbar.com: Contains invalid characters
-  - h_t_t_p_s.signin.ebay.co.uk.3s3s.org: Contains invalid characters
-  - hack_center.top-100.pl: Contains invalid characters
-  - hackers_claw_eng.queroumforum.com: Contains invalid characters
-  - idm-crack--patch-5.19-gratuit.ojolink.fr: Double hyphens only allowed in IDNA labels
-  - jhr_anquan.bookonline.com.cn: Contains invalid characters
-  - login.microsoftonline.r--0.us: Double hyphens only allowed in IDNA labels
-  - m.facebook.com-----------------secured----account---confirmation.rel360.com: Double hyphens only allowed in IDNA labels
+  - apple-customer--support.info: Double hyphens only allowed in IDNA labels
+  - supporlimitedaccount--serve.com: Double hyphens only allowed in IDNA labels
+  - m.facebook.com------------validate-account.bintangjb.com: Double hyphens only allowed in IDNA labels
   - m.facebook.com-----------------securelogin---confirm.giftcardisrael.com: Double hyphens only allowed in IDNA labels
   - m.facebook.com----------------securelogin----acount-confirm.aggly.com: Double hyphens only allowed in IDNA labels
-  - m.facebook.com------------step1-----confirm.pfcgl.org: Double hyphens only allowed in IDNA labels
-  - m.facebook.com------------terms-of-service-agree.madkoffee.com: Double hyphens only allowed in IDNA labels
-  - m.facebook.com------------validate---account.disos.xyz: Double hyphens only allowed in IDNA labels
-  - m.facebook.com------------validate-account.bintangjb.com: Double hyphens only allowed in IDNA labels
-  - m.facebook.com----------accept--our--new--tos--today-asaasans.theatticinbuffalo.com: Double hyphens only allowed in IDNA labels
-  - m.facebook.com---------acc--activation---j12n12p.dooduangsod.com: Double hyphens only allowed in IDNA labels
-  - m.facebook.com---------configure----step1.kruegerpics.com: Double hyphens only allowed in IDNA labels
-  - m.facebook.com---------step1---confirm.shawarplas.com: Double hyphens only allowed in IDNA labels
+  - fb.com--------validate---account----step1.yudumay.com: Double hyphens only allowed in IDNA labels
   - m.facebook.com--------confirm.aznet1.net: Double hyphens only allowed in IDNA labels
   - m.facebook.com------login---step1.akuevi.net: Double hyphens only allowed in IDNA labels
+  - m.facebook.com---------step1---confirm.shawarplas.com: Double hyphens only allowed in IDNA labels
+  - m.facebook.com---------configure----step1.kruegerpics.com: Double hyphens only allowed in IDNA labels
+  - m.facebook.com------------step1-----confirm.pfcgl.org: Double hyphens only allowed in IDNA labels
   - m.facebook.com-----securelogin---confirm.md2559.com: Double hyphens only allowed in IDNA labels
-  - online--gambling.com: Double hyphens only allowed in IDNA labels
-  - p_third.advertmedias.com: Contains invalid characters
-  - root--servers.org: Double hyphens only allowed in IDNA labels
-  - santas_crack_house.blogspot.fr: Contains invalid characters
-  - supporlimitedaccount--serve.com: Double hyphens only allowed in IDNA labels
-  - systemhacking----malware---------virusinformationdetect.xyz: Double hyphens only allowed in IDNA labels
-  - www.flashplayer_macro.kit.net: Contains invalid characters
-  - www.root--servers.org: Double hyphens only allowed in IDNA labels
-  - z--xxxwarez-thumbs.da.ru: Double hyphens only allowed in IDNA labels
+  - m.facebook.com------------terms-of-service-agree.madkoffee.com: Double hyphens only allowed in IDNA labels
+  - m.facebook.com------------validate---account.disos.xyz: Double hyphens only allowed in IDNA labels
+  - apple.com--validation.systems: Double hyphens only allowed in IDNA labels
+  - m.facebook.com------------------validate.fb-stalker.club: Double hyphens only allowed in IDNA labels
+  - m.facebook.com-----------------secured----account---confirmation.rel360.com: Double hyphens only allowed in IDNA labels
+  - m.facebook.com---------acc--activation---j12n12p.dooduangsod.com: Double hyphens only allowed in IDNA labels
+  - login.microsoftonline.r--0.us: Double hyphens only allowed in IDNA labels
+  - myaccount.intl.paypal.com-----------------------ssl.spacegames.ro: Double hyphens only allowed in IDNA labels
+  - adn3mx9u38nm9i9n3m-82unx3-xn283najsx3-asjdnx-82mxsj--2.go-abc4you-time4you.men: Double hyphens only allowed in IDNA labels
+  - m.facebook.com----------accept--our--new--tos--today-asaasans.theatticinbuffalo.com: Double hyphens only allowed in IDNA labels
+  - facebook.com-------validate----credentials----new-tos--19182121.enkaemlak.com: Double hyphens only allowed in IDNA labels
+  - facebook.com-------mobile---read---new--terms--224874725.peraltek.com: Double hyphens only allowed in IDNA labels
+  - facebook.com-------mobile---read---new--terms--340590087.peraltek.com: Double hyphens only allowed in IDNA labels
+  - amazo_n.de-vorgangsnummer-secure-b2.bid: Contains invalid characters
+  - verifyapp-secureautcom: Missing TLD
   - security-facebook--issues.com: Double hyphens only allowed in IDNA labels
   - bireysel--ziraatbank.com: Double hyphens only allowed in IDNA labels
   - bireysel-subemm--mobil.com: Double hyphens only allowed in IDNA labels
@@ -115,50 +92,57 @@ AbuseDomains.txt:
   - cr-mufg--jp-card.top: Double hyphens only allowed in IDNA labels
   - cr-mufg-jp--card.xyz: Double hyphens only allowed in IDNA labels
   - payypal--support.000webhostapp.com: Double hyphens only allowed in IDNA labels
+  - error: too many connections: Missing TLD
   - wells_fargo.com.secure.unlock.checking-unlock.website: Contains invalid characters
   - ells_fargo.com.confirm.text.or-activewf.top: Contains invalid characters
   - auth--bank-sms.va-unlock.xyz: Double hyphens only allowed in IDNA labels
-  - 119_51377620.ampnetwork.net: Contains invalid characters
-  - 3_d.live60.ru: Contains invalid characters
-  - 5star_babes.ucgalleries.com: Contains invalid characters
-  - beautifull_amateurs.ucgalleries.com: Contains invalid characters
-  - cp_ha_lb2.widdit.com: Contains invalid characters
-  - download--free.ucoz.com: Double hyphens only allowed in IDNA labels
-  - envisioners_gallerys.ucgalleries.com: Contains invalid characters
-  - i_com-es_ares.adalasneedodirdop.com: Contains invalid characters
-  - i_es_atube-catcher.ocnicitnievaeriale.com: Contains invalid characters
-  - lady_cream_-chaturbate.sexesporn.com: Contains invalid characters
-  - microsoft_office.en.downloadastro.com: Contains invalid characters
-  - nude_twink.ucgalleries.com: Contains invalid characters
-  - n_update.app-pronto.com: Contains invalid characters
-  - o--c.de: Double hyphens only allowed in IDNA labels
-  - perfumy_alice.republika.pl: Contains invalid characters
-  - pp4_09_10_2s.republika.pl: Contains invalid characters
-  - sex--girls.com: Double hyphens only allowed in IDNA labels
-  - star--co.net: Double hyphens only allowed in IDNA labels
-  - virus--search.openmediasoft.com: Double hyphens only allowed in IDNA labels
-  - www.be: Missing TLD
-  - www.com: Missing TLD
-  - www.i_com-es_ares.adalasneedodirdop.com: Contains invalid characters
-  - www.i_es_atube-catcher.ocnicitnievaeriale.com: Contains invalid characters
-  - www.lady_cream_-chaturbate.sexesporn.com: Contains invalid characters
-  - www.microsoft_office.en.downloadastro.com: Contains invalid characters
-  - www.pharma--partners.com: Double hyphens only allowed in IDNA labels
-  - www.sex--girls.com: Double hyphens only allowed in IDNA labels
-  - www.star--co.net: Double hyphens only allowed in IDNA labels
-  - zsz_szyn.republika.pl: Contains invalid characters
-  - gv_tvsport.myhitapps1.online: Contains invalid characters
-  - www.gv_tvsport.myhitapps1.online: Contains invalid characters
-  - google--analytics.com: Double hyphens only allowed in IDNA labels
-  - psi_test.farseasty.com: Contains invalid characters
-  - www.psi_test.farseasty.com: Contains invalid characters
-  - hot--tuna.blogspot.com: Double hyphens only allowed in IDNA labels
-  - www.hot--tuna.blogspot.com: Double hyphens only allowed in IDNA labels
-  - i_es_atube-catcher.tenreflapseacocal.site: Contains invalid characters
-  - www.bireysel-sube--giris-tr.com: Double hyphens only allowed in IDNA labels
-  - www.i_es_atube-catcher.tenreflapseacocal.site: Contains invalid characters
-  - android--pro.blogspot.com: Double hyphens only allowed in IDNA labels
-  - online---shop.atwebpages.com: Double hyphens only allowed in IDNA labels
-  - www.android--pro.blogspot.com: Double hyphens only allowed in IDNA labels
-  - i_com-es_ares.opucoemoy.site: Contains invalid characters
-  - www.i_com-es_ares.opucoemoy.site: Contains invalid characters
+  - echo "# zeus tracker has been discontinued on jul 8th, 2019";: Contains invalid characters
+  - exit();: Contains invalid characters
+  - 351102--verbraucher-angabe-nachweis.hilfeservice-sicherheitssystem.cf: Double hyphens only allowed in IDNA labels
+  - 947508--nutzung-angabe-account.vorbeugung-sicher.ga: Double hyphens only allowed in IDNA labels
+  - 722234--prob-sicher-benutzer.info-zahlungsservices.ga: Double hyphens only allowed in IDNA labels
+  - 361728--prob-angabe-benutzer.sicherheitshilfe-schutz.tk: Double hyphens only allowed in IDNA labels
+  - 496045--nutzung-angabe-nachweis.sicherheitsvorbeugung-sicherheitsabwehr.gq: Double hyphens only allowed in IDNA labels
+  - 780059--prob-kenntnis-benutzer.sicherheitssystem-hilfeservice.tk: Double hyphens only allowed in IDNA labels
+  - 417610--verbraucher-kenntnis-validierung.vorbeugung-sicher.ga: Double hyphens only allowed in IDNA labels
+  - 610116--gast-sicher-account.sicher-vorbeugung.gq: Double hyphens only allowed in IDNA labels
+  - update-the--account.com: Double hyphens only allowed in IDNA labels
+  - m.facebook.com--------------securelogin-----------viewaccount.pillsaga.com: Double hyphens only allowed in IDNA labels
+  - m.facebook.com---validate.pillsaga.com: Double hyphens only allowed in IDNA labels
+  - m.facebook.com------------securelogin-account.checkntake.com: Double hyphens only allowed in IDNA labels
+  - revalidate-password-drmk--help.sitey.me: Double hyphens only allowed in IDNA labels
+  - m.facebook.com----account-confirm-step1-----verify.arzoonbar.com: Double hyphens only allowed in IDNA labels
+  - m.facebook.com--------securelogin---activate.thedepuydtagency.com: Double hyphens only allowed in IDNA labels
+  - m.facebook.com------------login----accountvalidation.globe-hk.com: Double hyphens only allowed in IDNA labels
+  - m.facebook.com------account---validate--step1.ipmsnz.com: Double hyphens only allowed in IDNA labels
+  - m.facebook.com----------verify-details-----step1---confirm.e-learning.ly: Double hyphens only allowed in IDNA labels
+  - www--i.cloud: Double hyphens only allowed in IDNA labels
+  - m.facebook.com--------login-----confirm-account.siamrack.net: Double hyphens only allowed in IDNA labels
+  - m.facebook.com------------step1-----acc---verify.digi-worx.com: Double hyphens only allowed in IDNA labels
+  - m.facebook.com----------------faceb00k.com---------account--------login.pubandgifts.com: Double hyphens only allowed in IDNA labels
+  - m.facebook.com------new-terms-of-service-----read.udruga-ozana.hr: Double hyphens only allowed in IDNA labels
+  - login.comcast.net-----------step1---read.webalpha.net: Double hyphens only allowed in IDNA labels
+  - m.facebook.com---------securelogin.ipmsnz.com: Double hyphens only allowed in IDNA labels
+  - m.facebook.com-----------secured-------confirm---------591024334.completeafrica.com: Double hyphens only allowed in IDNA labels
+  - m.facebook.com-----------secured-------confirm---------738198222.completeafrica.com: Double hyphens only allowed in IDNA labels
+  - m.facebook.com----notification---read--new--terms--304486169.vido.land: Double hyphens only allowed in IDNA labels
+  - m.facebook.com----notification---read--new--terms--848957470.vido.land: Double hyphens only allowed in IDNA labels
+  - m.facebook.com----notification---read--new--terms--919993101.vido.land: Double hyphens only allowed in IDNA labels
+  - m.facebook.com----notification---read--new--terms--114078952.vido.land: Double hyphens only allowed in IDNA labels
+  - m.facebook.com----notification---read--new--terms--185645598.vido.land: Double hyphens only allowed in IDNA labels
+  - gulf--up.com: Double hyphens only allowed in IDNA labels
+  - xfinity.com--------phone--confirmation---service-11601574.antiochian.org.nz: Double hyphens only allowed in IDNA labels
+  - xfinity.com--------phone--confirmation---service-90188710.antiochian.org.nz: Double hyphens only allowed in IDNA labels
+  - xfinity.com--------phone--confirmation---service-923038.antiochian.org.nz: Double hyphens only allowed in IDNA labels
+  - xfinity.com--------phone--confirmation---service-25269717.antiochian.org.nz: Double hyphens only allowed in IDNA labels
+  - jqdownload: Missing TLD
+  - qdiwudnqiwndqcom: Missing TLD
+  - thevampire_vvv.byethost32.com: Contains invalid characters
+  - eurasiacl--kr.com: Double hyphens only allowed in IDNA labels
+  - aws--vn.com: Double hyphens only allowed in IDNA labels
+  - astro--pacific.com: Double hyphens only allowed in IDNA labels
+  - world--hand.com: Double hyphens only allowed in IDNA labels
+  - future--seafood.com: Double hyphens only allowed in IDNA labels
+  - mito--cn.com: Double hyphens only allowed in IDNA labels
+  - everest--sh.com: Double hyphens only allowed in IDNA labels
+  - arctech--vn.com: Double hyphens only allowed in IDNA labels

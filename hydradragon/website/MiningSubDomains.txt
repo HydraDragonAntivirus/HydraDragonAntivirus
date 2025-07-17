@@ -55,10 +55,8 @@
 526d.uunice.com
 526dimg.uunice.com
 543874163.ddns.net
-58749.admaster.com.cn
 64.mymyxmra.ru
 6vhao.kkcaicai.com
-79t2.admaster.com.cn
 801.tianya.cn
 803.tianya.cn
 809.ok365.com
@@ -67,10 +65,6 @@
 818.ok365.com
 846.move7.com
 85.214.154.160
-8b4pea.c.admaster.com.cn
-8b6dfa.v.admaster.com.cn
-8chzga.v.admaster.com.cn
-8dcyqu.c.admaster.com.cn
 930.dragonparking.com
 a-ad.adwo.com
 a.adk2x.com
@@ -445,7 +439,6 @@ api.collusion.tech
 api.cpu.baidu.com
 api.cryptoguiminer.com
 api.cryptokitties.co
-api.cryptopia.co.nz
 api.demo.cryptokitties.co
 api.domob.cn
 api.doumob.com
@@ -556,7 +549,6 @@ apps2.cointraffic.io
 appsupdate.sinaapp.com
 apptv.w.inmobi.com
 appwall.api.airpush.com
-ard.yahoo.co.jp
 arest.web.id
 aries.mzres.com
 ark.letv.com
@@ -617,7 +609,6 @@ auto.hashcoins.com
 autobild.adsame.com
 autoconfig.btcnos.com
 autodiscover.btcnos.com
-autodiscover.cryptopia.co.nz
 autodiscover.gridcoin.co
 autodiscover.uclick.in
 avatar.pr0gramm.com
@@ -659,7 +650,6 @@ bbr1.mbkpool.info
 bbr2.mbkpool.info
 bbs.haobtc.com
 bc.crypto-daio.co.uk
-bc.geocities.yahoo.co.jp
 bce.baidu.com
 bch-bitcore2.trezor.io
 bch.minertopia.org
@@ -845,7 +835,6 @@ c-adash.m.taobao.com
 c-hzgt2.getui.com
 c.28487.net
 c.35kds.com
-c.admaster.com.cn
 c.admob.com
 c.adsco.re
 c.alimama.com
@@ -955,7 +944,6 @@ cdn.taboolasyndication.com
 cdn.vamaker.com
 cdn.viaxmr.com
 cdn0.mobmore.com
-cdn1.cryptopia.co.nz
 cdn1.minestat.biz
 cdn1.pebx.pl
 cdn1.res.nx5.com
@@ -1012,7 +1000,6 @@ cl.he9630.com
 cleaner.baidu.com
 cleopatra.cryptomininggame.com
 click.a-ads.com
-click.admaster.com.cn
 click.bes.baidu.com
 click.hm.baidu.com
 click.jebe.renren.com
@@ -1487,7 +1474,6 @@ doc.coinone.co.kr
 docs.expanse.tech
 doge.coinspool.co
 doge.coinsprofit.com
-doge.cryptopia.co.nz
 doge.hash-to-coins.com
 doge.majorminers.com
 doge.netcodepool.org
@@ -1885,7 +1871,6 @@ fexclick.baidu.com
 fhdb.faucethub.io
 fi.uax.io
 fibre.xpool.ca
-file.ipinyou.com.cn
 files.a-ads.com
 files.cointraffic.io
 files.fortrader.ru
@@ -2379,7 +2364,6 @@ intranet2.cryptomininggame.com
 intu.minerhills.com
 intu.peermine.com
 investors.evocagroup.com
-iohanes.balamand.edu.lb
 ios.nastyfans.org
 ip.uax.io
 ipbc.labbinarymining.com
@@ -2582,8 +2566,6 @@ legacy.xpool.ca
 lenny.dnsd.me
 lenny.xtrapool.com
 letv.allyes.com
-letv.axp.admaster.com.cn
-letv.cm.admaster.com.cn
 letv.m.cn.miaozhen.com
 lhr.nbminer.com
 lhr3.nbminer.com
@@ -2652,10 +2634,8 @@ lot.hash-to-coins.com
 lp1.hashflare.io
 lp2.hashflare.io
 lp3.hashflare.io
-lt.cryptopia.co.nz
 ltc-bitcore3.trezor.io
 ltc.coinat.com
-ltc.cryptopia.co.nz
 ltc.ghash.io
 ltc.poolmining.org
 ltz.ehashcoins.org
@@ -2860,7 +2840,6 @@ mine.xpool.ca
 mine.zarabotaibitok.ru
 mine1.alimabi.cn
 mine1.ppxxmr.com
-minecraft.cryptopia.co.nz
 minefast.coincadence.com
 minefast2.coincadence.com
 miner.cinemafacil.com
@@ -2868,8 +2847,6 @@ miner.oozing.co
 miner.ppxxmr.com
 miner2.sighash.info
 minero.posthash.org
-mineshaft.cryptopia.co.nz
-mineshaft1.cryptopia.co.nz
 minfo.wps.cn
 mini.cpc.sogou.com
 mini.jijiplayer.com
@@ -3044,7 +3021,6 @@ n.a.mosenni.com
 n.cur.lv
 n.domob.cn
 n.miningexpress.com
-n1.cryptopia.co.nz
 n1.pool.einfach-iota.de
 na.luckpool.net
 name.cur.lv
@@ -3165,8 +3141,6 @@ nodes.bitcoin-russia.ru
 nodes.einfach-iota.de
 nodes.p2pmine.com
 nodes.viaxmr.com
-nodes1.cryptopia.co.nz
-nodes2.cryptopia.co.nz
 nodez.minertopia.org
 nomp.freeyy.me
 nop.xpanama.net
@@ -3613,10 +3587,7 @@ poolapi.ellaism.org
 poolchange.ppxxmr.com
 poolclr.my-zarinsk.ru
 pools.arhash.xyz
-pools.cryptopia.co.nz
 pools.tugae2.com
-pools1.cryptopia.co.nz
-pools2.cryptopia.co.nz
 pooltest.graft.network
 pop.code.mytanwan.com
 pop.pools.triplehexxx.net
@@ -3633,15 +3604,12 @@ power.wemineltc.com
 pp.uax.io
 ppdata.idlebuddy.com
 pps.mining-pool.io
-pptv.adx.admaster.com.cn
-pptv.cm.admaster.com.cn
 ppurifier.game.xiaomi.com
 ppxvip1.ppxxmr.com
 pr.adxxx.com
 pr.da.netease.com
 prc.rjje4.com
 pre.api.tw06.xlmc.sandai.net
-prelive.cryptopia.co.nz
 premios-fsm.com.mx
 preorder.trezor.io
 preprod.hitbtc.com
@@ -3776,7 +3744,6 @@ rcmd.pop.ijinshan.com
 rcp.c.appier.net
 rcv.mobad.ijinshan.com
 rcv.union-wifi.com
-rd.ane.yahoo.co.jp
 rd.da.netease.com
 rd.e.sogou.com
 rd.miner.center
@@ -3850,9 +3817,7 @@ rs.sinajs.cn
 rt.gsspat.jp
 rtas.videocc.net
 rtax.criteo.com
-rtb.admaster.com.cn
 rtb.adview.cn
-ru.cryptopia.co.nz
 ru.moriaxmr.com
 rub.pxl.ace.advertising.com
 rubicon-match.dotomi.com
@@ -4320,7 +4285,6 @@ smc.hash-to-coins.com
 smcreative.allyes.com
 smeru.or.id
 sms-api.uax.io
-smt.admaster.com.cn
 smtp.cocozuma.net
 smtp.lightninghash.com
 smtp.miningmania.net
@@ -4336,7 +4300,6 @@ snowgem.minerspool.cc
 sobartop.baidu.com
 soft.data.weather.360.cn
 sohu.wrating.com
-sohutv.cm.admaster.com.cn
 sohutv.m.cn.miaozhen.com
 soil.litepool.ru
 soil.pool.sexy
@@ -4931,7 +4894,6 @@ utp.ucweb.com
 uuidapi.yunos.com
 uusee.adsame.com
 uxip.meizu.com
-v.admaster.com.cn
 v.domob.cn
 v.oq68.com
 v.smtcdns.net
@@ -4978,19 +4940,16 @@ valf.atm.youku.com
 validator.btcprivate.pro
 valp.atm.youku.com
 valt.atm.youku.com
-vamaker.cm.admaster.com.cn
 vanhoctuoitre.com.vn
 vape.dnb.io
 varasto.kippo.eu
 vatrack.hinet.net
-vbaof.admaster.com.cn
 vdapprecv.app.cntvwb.cn
 vdcci.adsame.com
 vega.minexmr.org
 verge.blake2s.com
 verge.n-engine.com
 vert.leetpools.net
-vhunantv.admaster.com.cn
 vi0.mzy2014.com
 vi1.ku6img.net
 vi1.mzy2014.com
@@ -5004,7 +4963,6 @@ video.ymapp.com
 video2.stream.vidzi.tv
 videopush.baidu.com
 videos.vidto.me
-view.admaster.com.cn
 vigil.crypto-daio.co.uk
 vip.51.la
 vip.cfcnet.top
@@ -5021,7 +4979,6 @@ vivicariolano.portaldoholanda.com.br
 vivo.n-engine.com
 vjoz.lu.sogou.com
 vkcdnservice.appspot.com
-vletv.admaster.com.cn
 vloixegknwlv.netcodepool.org
 vm.makeding.com
 vnode1.pool.sexy
@@ -5038,13 +4995,11 @@ vpsace2.lightninghash.com
 vpsace3.lightninghash.com
 vpsnode1.lightninghash.com
 vpsnode2.lightninghash.com
-vqq.admaster.com.cn
 vs19.gzcu.u3.ucweb.com
 vs2.gzcu.u3.ucweb.com
 vs7.gzcu.u3.ucweb.com
 vs8.gzct.u3.ucweb.com
 vs8.gzcu.u3.ucweb.com
-vsohu.admaster.com.cn
 vt.ipinyou.com
 vtc.coinsprofit.com
 vtc.crunchpool.com
@@ -5160,7 +5115,6 @@ wiki.trezor.io
 wildcarddns.monerominers.net
 wisem-cm.cn.miaozhen.com
 wisemah.com.au
-wisemedia.cm.admaster.com.cn
 wisepush.video.baidu.com
 witkom.sbhmn-miner.com
 witzenberg.gov.za
@@ -5515,7 +5469,6 @@ xmr.5b6b7b.ru
 xmr.748pz.net
 xmr.alimabi.cn
 xmr.bepooh.com
-xmr.btgirl.com.cn
 xmr.chinaenter.cn
 xmr.coinlab.biz
 xmr.collusion.tech
@@ -5584,7 +5537,6 @@ xtl.crypto-coins.club
 xtl.minerhills.com
 xtl.soyminero.es
 xtruh.uranus.sogou.com
-xunlei.adx.admaster.com.cn
 xvg.rapidpools.com
 xx11m.monerpool.org
 xx11mv2.monerpool.org
@@ -5600,7 +5552,6 @@ y.xinghao89.com
 yac.majorminers.com
 yacc.dnb.io
 yads.c.yimg.jp
-yads.yahoo.co.jp
 yam.adsbro.com
 yaolan.adsame.com
 yee.js.cn
