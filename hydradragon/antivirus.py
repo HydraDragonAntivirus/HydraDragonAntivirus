@@ -576,10 +576,10 @@ alert_regex = re.compile(r'\[Priority: (\d+)].*?\{(?:UDP|TCP)} (\d+\.\d+\.\d+\.\
 suricata_folder = os.path.join(program_files, "Suricata")
 
 # File paths and configurations
-log_folder = os.path.join(suricata_folder, "log")
+suricata_log_dir = os.path.join(suricata_folder, "log")
 # Suricata typically uses eve.json for structured logging
-eve_log_path = os.path.join(log_folder, "eve.json")
-fast_log_path = os.path.join(log_folder, "fast.log")  # Alternative fast log format
+eve_log_path = os.path.join(suricata_log_dir, "eve.json")
+fast_log_path = os.path.join(suricata_log_dir, "fast.log")  # Alternative fast log format
 suricata_config_path = os.path.join(suricata_folder, "suricata.yaml")
 suricata_exe_path = os.path.join(suricata_folder, "suricata.exe")
 
@@ -791,7 +791,7 @@ MANAGED_DIRECTORIES = [
     debloat_dir, jar_extracted_dir, FernFlower_decompiled_dir, deteciteasy_plain_text_dir,
     python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pylingual_extracted_dir,
     pycdas_extracted_dir, copied_sandbox_and_main_files_dir, HiJackThis_logs_dir,
-    html_extracted_dir, log_directory, installshield_extracted_dir, autoit_extracted_dir, log_folder
+    html_extracted_dir, log_directory, installshield_extracted_dir, autoit_extracted_dir
 ]
 
 for make_directory in MANAGED_DIRECTORIES:
@@ -5948,7 +5948,7 @@ def get_suricata_interfaces():
 
     # Final fallback
     if not interfaces:
-        interfaces = ['Ethernet']
+        interfaces = ['Ethernet0']
 
     logging.info(f"Found interfaces: {interfaces}")
     return interfaces
@@ -5964,6 +5964,13 @@ def install_suricata_service():
 
 def start_suricata_service(service_name="Suricata"):
     try:
+        if os.path.exists(suricata_log_dir):
+            try:
+                shutil.rmtree(suricata_log_dir)
+                logging.info(f"Suricata Log directory '{suricata_log_dir}' removed.")
+            except Exception as ex:
+                logging.error(f"Failed to remove Suricata log directory '{suricata_log_dir}': {ex}")
+        
         if service_exists(service_name):
             if not is_service_running(service_name):
                 win32serviceutil.StartService(service_name)
