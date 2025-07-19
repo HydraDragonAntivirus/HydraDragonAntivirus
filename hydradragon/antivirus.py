@@ -155,9 +155,8 @@ import win32file
 logging.info(f"win32file module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import win32service
-logging.info(f"win32service module loaded in {time.time() - start_time:.6f} seconds")
-
+import win32con
+logging.info(f"win32con module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import win32service
