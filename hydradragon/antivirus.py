@@ -5891,15 +5891,38 @@ def run_suricata():
     Run Suricata as a process using command line.
     """
     try:
+        # Validate paths exist
+        if not os.path.exists(suricata_exe_path):
+            logging.error(f"Suricata executable not found at: {suricata_exe_path}")
+            return False
+            
+        if not os.path.exists(suricata_config_path):
+            logging.error(f"Suricata config not found at: {suricata_config_path}")
+            return False
+        
+        # Check if executable has proper permissions
+        if not os.access(suricata_exe_path, os.X_OK):
+            logging.error(f"Suricata executable is not executable: {suricata_exe_path}")
+            return False
+        
+        # Check if config file is readable
+        if not os.access(suricata_config_path, os.R_OK):
+            logging.error(f"Suricata config is not readable: {suricata_config_path}")
+            return False
+        
         # Check if Suricata is already running
         if is_suricata_running():
             logging.info("Suricata process is already running.")
-            return
-          
+            return True
+
+        # Log the paths being used
+        logging.info(f"Using Suricata executable: {suricata_exe_path}")
+        logging.info(f"Using Suricata config: {suricata_config_path}")
+                   
         # Build the Suricata command
         suricata_cmd = [
-            suricata_exe_path,
-            "-c", suricata_config_path,
+            f'"{suricata_exe_path}"',  # Wrap path in quotes
+            "-c", f'"{suricata_config_path}"',  # Wrap config path in quotes too
             "--windivert-forward", "true"
         ]
         
@@ -5910,16 +5933,42 @@ def run_suricata():
             suricata_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            shell=True  # Add shell=True when using quoted paths
         )
         
         logging.info(f"Suricata started with PID: {process.pid}")
         
-    except FileNotFoundError:
-        logging.error("Suricata executable not found.")
+        # Wait a moment to check if process started successfully
+        import time
+        time.sleep(1)
+        
+        # Check if process is still running
+        if process.poll() is None:
+            logging.info("Suricata process is running successfully")
+            return True
+        else:
+            # Process exited, get error output
+            stdout, stderr = process.communicate()
+            logging.error(f"Suricata process exited with code: {process.returncode}")
+            if stdout:
+                logging.error(f"Suricata stdout: {stdout.decode('utf-8', errors='ignore')}")
+            if stderr:
+                logging.error(f"Suricata stderr: {stderr.decode('utf-8', errors='ignore')}")
+            return False
+             
+    except FileNotFoundError as ex:
+        logging.error(f"Suricata executable not found: {ex}")
+        return False
+    except PermissionError as ex:
+        logging.error(f"Permission denied when starting Suricata: {ex}")
+        return False
     except subprocess.SubprocessError as ex:
         logging.error(f"Failed to start Suricata process: {ex}")
+        return False
     except Exception as ex:
-        logging.error(f"Failed to run Suricata: {ex}")
+        logging.error(f"Unexpected error when running Suricata: {ex}")
+        logging.exception("Full traceback:")
+        return False
 
 def is_suricata_running():
     """
@@ -5946,9 +5995,22 @@ def stop_suricata():
     except psutil.Error as ex:
         logging.error(f"Failed to stop Suricata: {ex}")
 
-# Start Suricata in a separate thread
-threading.Thread(target=run_suricata).start()
+def suricata_callback():
+    try:
+        success = run_suricata()
+        if success:
+            # Wait a moment and double-check
+            time.sleep(1)
+            if is_suricata_running():
+                self.output_signal.emit("[+] Suricata started successfully.")
+            else:
+                self.output_signal.emit("[!] Suricata may have failed to start properly.")
+        else:
+            self.output_signal.emit("[-] Failed to start Suricata.")
+    except Exception as ex:
+        self.output_signal.emit(f"[-] Error: {ex}")
 
+threading.Thread(target=suricata_callback, daemon=True).start()
 
 def monitor_suricata_log():
     """Monitor Suricata EVE JSON log file"""
@@ -12088,7 +12150,7 @@ class Worker(QThread):
         Removes all the managed directories and their contents.
         """
         cleaned_count = 0
-        for directory in  MANAGED_DIRECTORIES:
+        for directory in MANAGED_DIRECTORIES:
             try:
                 if os.path.exists(directory):
                     shutil.rmtree(directory)
@@ -12099,10 +12161,26 @@ class Worker(QThread):
 
         self.output_signal.emit(f"[+] Total directories cleaned: {cleaned_count}")
 
+    def restart_suricata(self):
+        """Restart Suricata with proper status reporting"""
         # Restart Suricata
         self.output_signal.emit("[*] Starting Suricata...")
-        threading.Thread(target=run_suricata).start()
-        self.output_signal.emit("[+] Suricata started.")
+        
+        def run_suricata_with_status():
+            try:
+                success = run_suricata()
+                if success:
+                    time.sleep(1)  # Brief wait for startup
+                    if is_suricata_running():
+                        self.output_signal.emit("[+] Suricata started successfully.")
+                    else:
+                        self.output_signal.emit("[!] Suricata startup uncertain - check logs.")
+                else:
+                    self.output_signal.emit("[-] Failed to start Suricata - check logs.")
+            except Exception as ex:
+                self.output_signal.emit(f"[-] Suricata startup error: {ex}")
+
+        threading.Thread(target=run_suricata_with_status, daemon=True).start()
 
     def restart_services(self):
         """
@@ -12117,6 +12195,9 @@ class Worker(QThread):
             # Stop Suricata and cleanup logs
             self.output_signal.emit("[*] Step 1: Stopping Suricata and cleaning logs...")
             stop_suricata_service()
+
+            # Restart Suricata with proper status reporting
+            self.restart_suricata()
 
         except Exception as e:
             self.output_signal.emit(f"[!] Error restarting services: {str(e)}")
