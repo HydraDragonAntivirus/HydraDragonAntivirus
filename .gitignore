@@ -69,7 +69,6 @@ hydradragon/yara/yarac64.exe
 
 # Detect-It-Easy
 hydradragon/detectiteasy
-hydradragon/OpenHydraDragonRules/antirootkit/detectiteasy
 # Code checker
 functionordercheck.py
 w291emptycheck.py
