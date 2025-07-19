@@ -159,14 +159,6 @@ import win32con
 logging.info(f"win32con module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import win32service
-logging.info(f"win32service module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-import win32serviceutil
-logging.info(f"win32serviceutil module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 import wmi
 logging.info(f"wmi module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -5953,119 +5945,78 @@ def get_suricata_interfaces():
     logging.info(f"Found interfaces: {interfaces}")
     return interfaces
 
-# Install Suricata as a Windows service
-def install_suricata_service():
-   params = [
-       suricata_exe_path,
-       '--service-install'
-   ]
-   subprocess.run(params, check=True)
-   logging.info("Suricata service installed.")
-
-def start_suricata_service(service_name="Suricata"):
-    try:
-        if os.path.exists(suricata_log_dir):
-            try:
-                shutil.rmtree(suricata_log_dir)
-                logging.info(f"Suricata Log directory '{suricata_log_dir}' removed.")
-            except Exception as ex:
-                logging.error(f"Failed to remove Suricata log directory '{suricata_log_dir}': {ex}")
-        
-        if service_exists(service_name):
-            if not is_service_running(service_name):
-                win32serviceutil.StartService(service_name)
-                logging.info(f"Service '{service_name}' started.")
-            else:
-                logging.info(f"Service '{service_name}' is already running.")
-        else:
-            logging.info(f"Service '{service_name}' does not exist.")
-    except win32service.error as ex:
-        logging.error(f"Windows service error: {ex}")
-    except Exception as ex:
-        logging.error(f"Failed to start Suricata service: {ex}")
-
-def stop_suricata_service(service_name="Suricata"):
-    try:
-        if service_exists(service_name):
-            if is_service_running(service_name):
-                win32serviceutil.StopService(service_name)
-                logging.info(f"Service '{service_name}' stopped.")
-            else:
-                logging.info(f"Service '{service_name}' is not running.")
-        else:
-            logging.info(f"Service '{service_name}' does not exist.")
-    except win32service.error as ex:
-        logging.error(f"Windows service error: {ex}")
-    except Exception as ex:
-        logging.error(f"Failed to stop Suricata service: {ex}")
-
-def service_exists(service_name):
-   """Check if a Windows service exists."""
-   try:
-       win32serviceutil.QueryServiceStatus(service_name)
-       return True
-   except win32service.error:
-       return False
-
-def is_service_running(service_name):
-   """Check if a Windows service is running."""
-   try:
-       status = win32serviceutil.QueryServiceStatus(service_name)[1]
-       return status == win32service.SERVICE_RUNNING
-   except win32service.error:
-       return False
-
-def update_suricata_config(interface_list):
-   """Update suricata.yaml with the correct interfaces."""
-   try:
-       with open(suricata_config_path, 'r') as f:
-           config_content = f.read()
-       
-       # Replace the af-packet interface section
-       interface_config = "af-packet:\n"
-       for iface in interface_list:
-           interface_config += f"  - interface: {iface}\n"
-       
-       # Find and replace the af-packet section
-       import re
-       pattern = r'af-packet:\s*\n(\s*-\s*interface:.*\n)*'
-       config_content = re.sub(pattern, interface_config, config_content, flags=re.MULTILINE)
-       
-       with open(suricata_config_path, 'w') as f:
-           f.write(config_content)
-       
-       logging.info(f"Updated suricata.yaml with interfaces: {', '.join(interface_list)}")
-       
-   except Exception as ex:
-       logging.error(f"Failed to update suricata config: {ex}")
-
 def run_suricata():
-   """
-   Run Suricata as a service.
-   """
-   try:
-       interface_list = get_suricata_interfaces()
-       
-       # Update suricata.yaml with interfaces
-       update_suricata_config(interface_list)
-       
-       # Check if service exists and is running
-       if service_exists("Suricata"):
-           if is_service_running("Suricata"):
-               logging.info("Suricata service is already running.")
-               return
-           else:
-               logging.info("Suricata service exists but not running. Starting...")
-               win32serviceutil.StartService("Suricata")
-       else:
-           logging.info("Suricata service does not exist. Installing...")
-           install_suricata_service()
-           start_suricata_service()
-           
-   except win32service.error as ex:
-       logging.error(f"Windows service error: {ex}")
-   except Exception as ex:
-       logging.error(f"Failed to run Suricata: {ex}")
+    """
+    Run Suricata as a process using command line.
+    """
+    try:
+        # Check if Suricata is already running
+        if is_suricata_running():
+            logging.info("Suricata process is already running.")
+            return
+        
+        # Get interface list (assuming this function exists)
+        interface_list = get_suricata_interfaces()
+        
+        # Build the Suricata command
+        suricata_cmd = [
+            "suricata",
+            "-c", "suricata.yaml",
+            "--windivert-forward", "true"
+        ]
+        
+        # Add interfaces if available
+        if interface_list:
+            for interface in interface_list:
+                suricata_cmd.extend(["-i", interface])
+        
+        logging.info(f"Starting Suricata with command: {' '.join(suricata_cmd)}")
+        
+        # Start Suricata process
+        process = subprocess.Popen(
+            suricata_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            creationflags=subprocess.CREATE_NEW_CONSOLE  # Optional: run in new console
+        )
+        
+        logging.info(f"Suricata started with PID: {process.pid}")
+        
+        # Optionally, you can store the process ID for later management
+        with open("suricata.pid", "w") as pid_file:
+            pid_file.write(str(process.pid))
+        
+    except FileNotFoundError:
+        logging.error("Suricata executable not found. Make sure Suricata is installed and in PATH.")
+    except subprocess.SubprocessError as ex:
+        logging.error(f"Failed to start Suricata process: {ex}")
+    except Exception as ex:
+        logging.error(f"Failed to run Suricata: {ex}")
+
+def is_suricata_running():
+    """
+    Check if Suricata process is already running.
+    """
+    try:
+        for proc in psutil.process_iter(['pid', 'name']):
+            if proc.info['name'] and 'suricata' in proc.info['name'].lower():
+                return True
+    except psutil.Error:
+        pass
+    return False
+
+def stop_suricata():
+    """
+    Stop running Suricata processes.
+    """
+    try:
+        for proc in psutil.process_iter(['pid', 'name']):
+            if proc.info['name'] and 'suricata' in proc.info['name'].lower():
+                logging.info(f"Terminating Suricata process with PID: {proc.info['pid']}")
+                proc.terminate()
+                proc.wait(timeout=10)  # Wait up to 10 seconds for graceful termination
+    except psutil.Error as ex:
+        logging.error(f"Failed to stop Suricata: {ex}")
 
 # Start Suricata in a separate thread
 threading.Thread(target=run_suricata).start()
