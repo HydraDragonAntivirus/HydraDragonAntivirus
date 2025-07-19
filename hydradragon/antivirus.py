@@ -6026,7 +6026,6 @@ def run_suricata(service_name="Suricata"):
     Run Suricata: either as a service or directly in the foreground.
     """
     try:
-        ensure_log_dir()
         interface_list = get_suricata_interfaces()
         
         # Check if service exists and is running
