@@ -5935,7 +5935,7 @@ def run_suricata():
                    
         # Build the Suricata command
         suricata_cmd = [
-            suricata_exe_path,  # Wrap path in quotes
+            suricata_exe_path,
             "-c", f'"{suricata_config_path}"',  # Wrap config path in quotes too
             "--windivert-forward", "true"
         ]
