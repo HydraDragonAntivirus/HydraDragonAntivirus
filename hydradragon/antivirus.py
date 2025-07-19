@@ -9762,8 +9762,6 @@ def scan_and_warn(file_path,
                     threading.Thread(target=scan_and_warn, args=(upx_unpacked,)).start()
                 else:
                     logging.error(f"Failed to unpack {norm_path}")
-            else:
-                logging.info(f"Skipping non-UPX file: {norm_path}")
 
             if is_nsis_from_output(die_output):
                 nsis_flag= True
