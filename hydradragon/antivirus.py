@@ -13044,7 +13044,7 @@ class AntivirusApp(QWidget):
         nav_buttons = [
             "Status", "Update ClamAV Definitions", "Generate Clean DB",
             "Analyze File", "Capture Analysis Logs", "Compare Logs",
-            "Rootkit Scan", "Hayabusa Analysis", "Cleanup Environment", "About & Load AI"
+            "Rootkit Scan", "Hayabusa Analysis", "Cleanup Environment", "About And Load AI"
         ]
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
