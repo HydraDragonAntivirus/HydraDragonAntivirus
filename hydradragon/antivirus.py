@@ -571,8 +571,6 @@ suricata_folder = os.path.join(program_files, "Suricata")
 suricata_log_dir = os.path.join(suricata_folder, "log")
 # Suricata typically uses eve.json for structured logging
 eve_log_path = os.path.join(suricata_log_dir, "eve.json")
-fast_log_path = os.path.join(suricata_log_dir, "fast.log")  # Alternative fast log format
-suricata_config_path = os.path.join(suricata_folder, "suricata.yaml")
 suricata_exe_path = os.path.join(suricata_folder, "suricata.exe")
 
 sandboxie_dir = os.path.join(program_files, "Sandboxie")
@@ -5899,7 +5897,7 @@ def run_suricata():
           
         # Build the Suricata command
         suricata_cmd = [
-            suricate_exe_path,
+            suricata_exe_path,
             "-c", "suricata.yaml",
             "--windivert-forward", "true"
         ]
