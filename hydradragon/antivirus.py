@@ -155,8 +155,17 @@ import win32file
 logging.info(f"win32file module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import win32con
-logging.info(f"win32con module loaded in {time.time() - start_time:.6f} seconds")
+import win32service
+logging.info(f"win32service module loaded in {time.time() - start_time:.6f} seconds")
+
+
+start_time = time.time()
+import win32service
+logging.info(f"win32service module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import win32serviceutil
+logging.info(f"win32serviceutil module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import wmi
@@ -5979,44 +5988,87 @@ for interface in interfaces:
 # Log which interfaces we're using
 logging.info(f"Configuring Suricata with interfaces: {interfaces}")
 
-# Build initial Suricata command
-suricata_command = [
-    suricata_exe_path,
-    "-c", suricata_config_path,
-    "-l", log_folder,  # Log directory
-    "--init-errors-fatal"  # Stop on configuration errors
-] + interface_args
+# Install Suricata as a Windows service
+def install_suricata_service(interface_list):
+    params = [
+        suricata_exe_path,
+        '--service-install'
+    ]
+    subprocess.run(params, check=True)
 
-def run_suricata():
-    """Run Suricata IDS"""
-    try:
-        clean_directory()
+    # Build service parameters
+    service_params = [
+        suricata_exe_path,
+        '--service-change-params',
+        f"-c {suricata_config_path} -l {log_folder} --init-errors-fatal"
+    ]
+    # Add each interface
+    for iface in interface_list:
+        service_params.extend(['-i', iface])
 
-        # Get fresh interface list each time
-        current_interfaces = get_suricata_interfaces()
-        current_interface_args = []
-        for interface in current_interfaces:
-            current_interface_args.extend(["-i", interface])
+    subprocess.run(service_params, check=True)
+    logging.info("Suricata service installed with parameters: %s", ' '.join(service_params))
 
-        current_suricata_command = [
-            suricata_exe_path,
-            "-c", suricata_config_path,
-            "-l", log_folder,
-            "--init-errors-fatal"
-        ] + current_interface_args
+# Start the Suricata service
+def start_suricata_service():
+    subprocess.run(['net', 'start', 'suricata'], check=True)
+    logging.info("Suricata service started.")
 
-        logging.info(f"Starting Suricata with command: {' '.join(current_suricata_command)}")
+# Stop the Suricata service
+def stop_suricata_service():
+    subprocess.run(['net', 'stop', 'suricata'], check=True)
+    logging.info("Suricata service stopped.")
 
-        # Run Suricata without capturing output
-        subprocess.run(current_suricata_command, check=True, encoding="utf-8", errors="ignore")
+    # Clean up log files (not the entire folder)
+    log_files = [eve_log_path, fast_log_path]
+        for log_file in log_files:
+            if os.path.exists(log_file):
+                os.remove(log_file)
+                self.output_signal.emit(f"[+] Removed Suricata log file: {log_file}")
 
-        logging.info("Suricata completed analysis.")
+def service_exists(service_name):
+   """Check if a Windows service exists."""
+   try:
+       win32serviceutil.QueryServiceStatus(service_name)
+       return True
+   except win32service.error:
+       return False
 
-    except subprocess.CalledProcessError as ex:
-        logging.error(f"Suricata encountered an error: {ex}")
+def is_service_running(service_name):
+   """Check if a Windows service is running."""
+   try:
+       status = win32serviceutil.QueryServiceStatus(service_name)[1]
+       return status == win32service.SERVICE_RUNNING
+   except win32service.error:
+       return False
 
-    except Exception as ex:
-        logging.error(f"Failed to run Suricata: {ex}")
+def run_suricata(service_name="Suricata"):
+   """
+   Run Suricata: either as a service or directly in the foreground.
+   """
+   try:
+       ensure_log_dir()
+       interface_list = get_suricata_interfaces()
+       
+       # Check if service exists and is running
+       if service_exists(service_name):
+           if is_service_running(service_name):
+               logging.info(f"Service '{service_name}' is already running.")
+               return
+           else:
+               logging.info(f"Service '{service_name}' exists but not running. Starting...")
+               win32serviceutil.StartService(service_name)
+       else:
+           logging.info(f"Service '{service_name}' does not exist. Installing...")
+           install_suricata_service(interface_list)
+           start_suricata_service()
+           
+   except subprocess.CalledProcessError as ex:
+       logging.error(f"Suricata encountered an error: {ex}")
+   except win32service.error as ex:
+       logging.error(f"Windows service error: {ex}")
+   except Exception as ex:
+       logging.error(f"Failed to run Suricata: {ex}")
 
 # Start Suricata in a separate thread
 threading.Thread(target=run_suricata).start()
@@ -12171,31 +12223,6 @@ class Worker(QThread):
 
         self.output_signal.emit(f"[+] Total directories cleaned: {cleaned_count}")
 
-    def stop_suricata(self):
-        """
-        Stops Suricata processes and cleans up log files.
-        """
-        try:
-            # Kill all suricata processes
-            for proc in psutil.process_iter(['pid', 'name']):
-                try:
-                    if 'suricata' in proc.info['name'].lower():
-                        proc.terminate()
-                        proc.wait(timeout=5)
-                        self.output_signal.emit(f"[+] Terminated Suricata process (PID: {proc.info['pid']})")
-                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
-                    pass
-
-            # Clean up log files (not the entire folder)
-            log_files = [eve_log_path, fast_log_path]
-            for log_file in log_files:
-                if os.path.exists(log_file):
-                    os.remove(log_file)
-                    self.output_signal.emit(f"[+] Removed Suricata log file: {log_file}")
-
-        except Exception as e:
-            self.output_signal.emit(f"[!] Error stopping Suricata: {str(e)}")
-
         # Restart Suricata
         self.output_signal.emit("[*] Starting Suricata...")
         threading.Thread(target=run_suricata).start()
@@ -12213,7 +12240,7 @@ class Worker(QThread):
 
             # Stop Suricata and cleanup logs
             self.output_signal.emit("[*] Step 1: Stopping Suricata and cleaning logs...")
-            self.stop_suricata()
+            stop_suricata_service()
 
         except Exception as e:
             self.output_signal.emit(f"[!] Error restarting services: {str(e)}")
@@ -12342,7 +12369,7 @@ class Worker(QThread):
 
             # Step 1: Stop Snort and cleanup logs
             self.output_signal.emit("[*] Step 1: Stopping Suricata and cleaning logs...")
-            self.stop_suricata()
+            stop_suricata_service()
 
             # Step 2: Cleanup Sandboxie
             self.output_signal.emit("[*] Step 2: Cleaning up Sandboxie environment...")
