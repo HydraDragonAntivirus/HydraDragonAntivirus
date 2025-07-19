@@ -788,8 +788,18 @@ MANAGED_DIRECTORIES = [
 
 for make_directory in MANAGED_DIRECTORIES:
     if os.path.exists(make_directory):
-        shutil.rmtree(make_directory)
-    os.makedirs(make_directory)
+        try:
+            shutil.rmtree(make_directory)
+            logging.info(f"Removed directory: {make_directory}")
+        except Exception as e:
+            logging.error(f"Failed to remove directory '{make_directory}': {e}")
+            continue  # Skip creating the directory if removal failed
+
+    try:
+        os.makedirs(make_directory)
+        logging.info(f"Created directory: {make_directory}")
+    except Exception as e:
+        logging.error(f"Failed to create directory '{make_directory}': {e}")
 
 # Sandboxie folders
 os.makedirs(sandboxie_folder, exist_ok=True)
