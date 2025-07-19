@@ -5953,37 +5953,14 @@ def get_suricata_interfaces():
     logging.info(f"Found interfaces: {interfaces}")
     return interfaces
 
-# Get initial interfaces
-interfaces = get_suricata_interfaces()
-interface_args = []
-
-# Add all detected interfaces to the command
-for interface in interfaces:
-    interface_args.extend(["-i", interface])
-
-# Log which interfaces we're using
-logging.info(f"Configuring Suricata with interfaces: {interfaces}")
-
 # Install Suricata as a Windows service
-def install_suricata_service(interface_list):
-    params = [
-        suricata_exe_path,
-        '--service-install'
-    ]
-    subprocess.run(params, check=True)
-
-    # Build service parameters
-    service_params = [
-        suricata_exe_path,
-        '--service-change-params',
-        f"-c {suricata_config_path} -l {log_folder} --init-errors-fatal"
-    ]
-    # Add each interface
-    for iface in interface_list:
-        service_params.extend(['-i', iface])
-
-    subprocess.run(service_params, check=True)
-    logging.info("Suricata service installed with parameters: %s", ' '.join(service_params))
+def install_suricata_service():
+   params = [
+       suricata_exe_path,
+       '--service-install'
+   ]
+   subprocess.run(params, check=True)
+   logging.info("Suricata service installed.")
 
 # Start the Suricata service
 def start_suricata_service():
@@ -6065,7 +6042,7 @@ def run_suricata():
                win32serviceutil.StartService("Suricata")
        else:
            logging.info("Suricata service does not exist. Installing...")
-           install_suricata_service(interface_list)
+           install_suricata_service()
            start_suricata_service()
            
    except win32service.error as ex:
