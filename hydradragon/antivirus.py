@@ -4914,36 +4914,6 @@ def check_valid_signature(file_path: str) -> dict:
         logging.error(f"[Signature] {file_path}: {ex}")
         return {"is_valid": False, "status": str(ex)}
 
-def clean_directories():
-    try:
-        # Clean decompile directory if it exists, otherwise create it
-        if os.path.isdir(decompiled_dir):
-            shutil.rmtree(decompiled_dir)
-            logging.info(f"Successfully cleaned the decompile folder at: {decompiled_dir}")
-        else:
-            logging.info(f"Decompile folder does not exist at: {decompiled_dir}")
-        os.makedirs(decompiled_dir, exist_ok=True)
-        logging.info(f"Created the decompile folder at: {decompiled_dir}")
-
-        # Clean ghidra_projects directory if it exists, otherwise create it
-        if os.path.isdir(ghidra_projects_dir):
-            shutil.rmtree(ghidra_projects_dir)
-            logging.info(f"Successfully cleaned the ghidra_projects folder at: {ghidra_projects_dir}")
-        else:
-            logging.info(f"Ghidra projects folder does not exist at: {ghidra_projects_dir}")
-        os.makedirs(ghidra_projects_dir, exist_ok=True)
-        logging.info(f"Created the ghidra_projects folder at: {ghidra_projects_dir}")
-
-        # Check if ghidra_logs directory exists, create if not
-        if not os.path.isdir(ghidra_logs_dir):
-            os.makedirs(ghidra_logs_dir, exist_ok=True)
-            logging.info(f"Created the ghidra_logs folder at: {ghidra_logs_dir}")
-        else:
-            logging.info(f"Ghidra logs folder exists at: {ghidra_logs_dir}")
-
-    except Exception as ex:
-        logging.error(f"An error occurred while cleaning the directories: {ex}")
-
 def is_encrypted(zip_info):
     """Check if a ZIP entry is encrypted."""
     return zip_info.flag_bits & 0x1 != 0
@@ -6055,7 +6025,6 @@ def monitor_suricata_log():
                 logging.info(f"Error processing line: {ex}")
 
 restart_clamd_thread()
-clean_directories()
 activate_uefi_drive() # Call the UEFI function
 load_website_data()
 load_antivirus_list()
