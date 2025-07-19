@@ -787,7 +787,8 @@ MANAGED_DIRECTORIES = [
 ]
 
 for make_directory in MANAGED_DIRECTORIES:
-  if not os.path.exists(make_directory):
+    if os.path.exists(make_directory):
+        shutil.rmtree(make_directory)
     os.makedirs(make_directory)
 
 # Sandboxie folders
