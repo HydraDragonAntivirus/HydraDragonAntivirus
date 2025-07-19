@@ -791,7 +791,7 @@ MANAGED_DIRECTORIES = [
     debloat_dir, jar_extracted_dir, FernFlower_decompiled_dir, deteciteasy_plain_text_dir,
     python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pylingual_extracted_dir,
     pycdas_extracted_dir, copied_sandbox_and_main_files_dir, HiJackThis_logs_dir,
-    html_extracted_dir, log_directory, installshield_extracted_dir, autoit_extracted_dir
+    html_extracted_dir, log_directory, installshield_extracted_dir, autoit_extracted_dir, log_folder
 ]
 
 for make_directory in MANAGED_DIRECTORIES:
@@ -5904,29 +5904,6 @@ def process_alert_data(priority, src_ip, dest_ip):
         logging.error(f"Error processing alert data: {ex}")
         return False
 
-def clean_directory():
-    """
-    Remove all files, symlinks, and subdirectories under the given log_folder.
-    If the folder does not exist, logs a warning and does nothing.
-    """
-    # Only proceed if the directory exists
-    if not os.path.exists(log_folder):
-        logging.info(f"Directory '{log_folder}' does not exist. Skipping cleanup.")
-        return
-
-    # Iterate through all entries in the directory
-    for filename in os.listdir(log_folder):
-        file_path = os.path.join(log_folder, filename)
-        try:
-            # Remove files or symlinks
-            if os.path.isfile(file_path) or os.path.islink(file_path):
-                os.unlink(file_path)
-            # Remove directories
-            elif os.path.isdir(file_path):
-                shutil.rmtree(file_path)
-        except Exception as ex:
-            logging.error(f"Failed to delete '{file_path}'. Reason: {ex}")
-
 def activate_uefi_drive():
     # Check if the platform is Windows
     mount_command = 'mountvol X: /S'  # Command to mount UEFI drive
@@ -6023,14 +6000,6 @@ def stop_suricata_service(service_name="Suricata"):
                logging.info(f"Service '{service_name}' is not running.")
        else:
            logging.info(f"Service '{service_name}' does not exist.")
-       
-       # Clean up log files (not the entire folder)
-       log_files = [eve_log_path, fast_log_path]
-       for log_file in log_files:
-           if os.path.exists(log_file):
-               os.remove(log_file)
-               logging.info(f"[+] Removed Suricata log file: {log_file}")
-               
    except win32service.error as ex:
        logging.error(f"Windows service error: {ex}")
    except Exception as ex:
@@ -6057,7 +6026,6 @@ def run_suricata(service_name="Suricata"):
    Run Suricata: either as a service or directly in the foreground.
    """
    try:
-       ensure_log_dir()
        interface_list = get_suricata_interfaces()
        
        # Check if service exists and is running
