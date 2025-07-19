@@ -6081,9 +6081,6 @@ def monitor_suricata_log():
             except Exception as ex:
                 logging.info(f"Error processing line: {ex}")
 
-# Start monitoring in a separate thread
-threading.Thread(target=monitor_suricata_log).start()
-
 restart_clamd_thread()
 clean_directories()
 activate_uefi_drive() # Call the UEFI function
