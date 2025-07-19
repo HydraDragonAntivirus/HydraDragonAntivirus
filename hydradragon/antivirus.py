@@ -5910,6 +5910,21 @@ def run_suricata():
             logging.error(f"Suricata config is not readable: {suricata_config_path}")
             return False
         
+        # Ensure log directory exists
+        suricata_log_dir = os.path.join(suricata_folder, "log")
+        if not os.path.exists(suricata_log_dir):
+            try:
+                os.makedirs(suricata_log_dir, exist_ok=True)
+                logging.info(f"Created Suricata log directory: {suricata_log_dir}")
+            except OSError as e:
+                logging.error(f"Failed to create log directory {suricata_log_dir}: {e}")
+                return False
+        
+        # Verify log directory is writable
+        if not os.access(suricata_log_dir, os.W_OK):
+            logging.error(f"Suricata log directory is not writable: {suricata_log_dir}")
+            return False
+                 
         # Check if Suricata is already running
         if is_suricata_running():
             logging.info("Suricata process is already running.")
