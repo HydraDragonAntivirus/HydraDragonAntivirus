@@ -5962,25 +5962,35 @@ def install_suricata_service():
    subprocess.run(params, check=True)
    logging.info("Suricata service installed.")
 
-# Start the Suricata service
-def start_suricata_service():
-    subprocess.run(['net', 'start', 'suricata'], check=True)
-    logging.info("Suricata service started.")
+def start_suricata_service(service_name="Suricata"):
+    try:
+        if service_exists(service_name):
+            if not is_service_running(service_name):
+                win32serviceutil.StartService(service_name)
+                logging.info(f"Service '{service_name}' started.")
+            else:
+                logging.info(f"Service '{service_name}' is already running.")
+        else:
+            logging.info(f"Service '{service_name}' does not exist.")
+    except win32service.error as ex:
+        logging.error(f"Windows service error: {ex}")
+    except Exception as ex:
+        logging.error(f"Failed to start Suricata service: {ex}")
 
 def stop_suricata_service(service_name="Suricata"):
-   try:
-       if service_exists(service_name):
-           if is_service_running(service_name):
-               win32serviceutil.StopService(service_name)
-               logging.info(f"Service '{service_name}' stopped.")
-           else:
-               logging.info(f"Service '{service_name}' is not running.")
-       else:
-           logging.info(f"Service '{service_name}' does not exist.")
-   except win32service.error as ex:
-       logging.error(f"Windows service error: {ex}")
-   except Exception as ex:
-       logging.error(f"Failed to stop Suricata service: {ex}")
+    try:
+        if service_exists(service_name):
+            if is_service_running(service_name):
+                win32serviceutil.StopService(service_name)
+                logging.info(f"Service '{service_name}' stopped.")
+            else:
+                logging.info(f"Service '{service_name}' is not running.")
+        else:
+            logging.info(f"Service '{service_name}' does not exist.")
+    except win32service.error as ex:
+        logging.error(f"Windows service error: {ex}")
+    except Exception as ex:
+        logging.error(f"Failed to stop Suricata service: {ex}")
 
 def service_exists(service_name):
    """Check if a Windows service exists."""
