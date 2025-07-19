@@ -25,7 +25,15 @@ if exist "%HYDRADRAGON_PATH%\hipsconfig\suricata.yaml" (
     echo suricata.yaml not found in hipsconfig directory.
 )
 
-rem 3. Copy hips rules
+rem 3. Copy threshold.config from hipsconfig to suricata directory
+if exist "%HYDRADRAGON_PATH%\hipsconfig\threshold.config" (
+    copy /Y "%HYDRADRAGON_PATH%\hipsconfig\threshold.config" "%SURICATA_DIR%\threshold.config"
+    echo Copied threshold.config to %SURICATA_DIR%
+) else (
+    echo threshold.config not found in hipsconfig directory.
+)
+
+rem 4. Copy hips rules
 if exist "%HYDRADRAGON_PATH%\hips" (
     xcopy /Y "%HYDRADRAGON_PATH%\hips\emerging-all.rules" "%SURICATA_DIR%\rules\"
     rmdir /s /q "%HYDRADRAGON_PATH%\hips"
@@ -33,7 +41,7 @@ if exist "%HYDRADRAGON_PATH%\hips" (
     echo hips directory not found.
 )
 
-rem 4. Copy database
+rem 5. Copy database
 if exist "%HYDRADRAGON_PATH%\database" (
     xcopy /Y "%HYDRADRAGON_PATH%\database\*.*" "%CLAMAV_DIR%\database\"
     rmdir /s /q "%HYDRADRAGON_PATH%\database"
@@ -41,7 +49,7 @@ if exist "%HYDRADRAGON_PATH%\database" (
     echo database directory not found.
 )
 
-rem 5. Update ClamAV virus definitions
+rem 6. Update ClamAV virus definitions
 echo Updating ClamAV virus definitions...
 "%CLAMAV_DIR%\freshclam.exe"
 if %errorlevel% equ 0 (
@@ -50,7 +58,7 @@ if %errorlevel% equ 0 (
     echo Failed to update ClamAV virus definitions.
 )
 
-rem 6. Install clamd service
+rem 7. Install clamd service
 echo Installing clamd service...
 "%CLAMAV_DIR%\clamd.exe" --install
 if %errorlevel% equ 0 (
@@ -59,7 +67,7 @@ if %errorlevel% equ 0 (
     echo Failed to install clamd service.
 )
 
-rem 7. Upgrade pip
+rem 8. Upgrade pip
 echo Upgrading pip...
 py.exe -3.12 -m pip install --upgrade pip
 if %errorlevel% equ 0 (
@@ -68,7 +76,7 @@ if %errorlevel% equ 0 (
     echo Failed to upgrade pip.
 )
 
-rem 8. Create Python virtual environment inside HydraDragonAntivirus folder
+rem 9. Create Python virtual environment inside HydraDragonAntivirus folder
 echo Creating Python virtual environment...
 
 cd /d "%HYDRADRAGON_ROOT_PATH%"
@@ -83,7 +91,7 @@ if %errorlevel% neq 0 (
     goto :end
 )
 
-rem 9. Activate virtual environment
+rem 10. Activate virtual environment
 echo Activating virtual environment...
 call "venv\Scripts\activate.bat"
 if %errorlevel% neq 0 (
@@ -91,7 +99,7 @@ if %errorlevel% neq 0 (
     goto :end
 )
 
-rem 10. Install Poetry in the activated virtual environment
+rem 11. Install Poetry in the activated virtual environment
 echo Installing Poetry in virtual environment...
 pip install poetry
 if %errorlevel% neq 0 (
@@ -100,7 +108,7 @@ if %errorlevel% neq 0 (
 )
 echo Poetry installed successfully.
 
-rem 11. Install dependencies with Poetry (if pyproject.toml exists)
+rem 12. Install dependencies with Poetry (if pyproject.toml exists)
 if exist "pyproject.toml" (
     echo Installing project dependencies with Poetry...
     poetry install
@@ -113,7 +121,7 @@ if exist "pyproject.toml" (
     echo No pyproject.toml found, skipping Poetry dependency installation.
 )
 
-rem 12. Install spaCy English medium model
+rem 13. Install spaCy English medium model
 echo Installing spaCy 'en_core_web_md' model...
 python -m spacy download en_core_web_md
 if %errorlevel% equ 0 (
@@ -122,7 +130,7 @@ if %errorlevel% equ 0 (
     echo Failed to install spaCy model 'en_core_web_md'.
 )
 
-rem 13. Configure Sandboxie if available
+rem 14. Configure Sandboxie if available
 if not exist "%SBIE_INI%" (
     echo WARNING: %SBIE_INI% not found. Skipping Sandboxie configuration.
     goto :end
