@@ -6057,10 +6057,14 @@ threading.Thread(target=run_suricata).start()
 def monitor_suricata_log():
     """Monitor Suricata EVE JSON log file"""
     log_path = eve_log_path  # Use EVE JSON by default
-
-    if not os.path.exists(log_path):
-        open(log_path, 'w').close()  # Create an empty file if it doesn't exist
-
+     
+    # Wait for the file to exist instead of creating it
+    while not os.path.exists(log_path):
+        logging.info(f"Waiting for log file to be created: {log_path}")
+        time.sleep(1)  # Wait 5 seconds before checking again
+    
+    logging.info(f"Log file found: {log_path}")
+    
     with open(log_path, 'r') as log_file:
         log_file.seek(0, os.SEEK_END)  # Move to the end of the file
         while True:
