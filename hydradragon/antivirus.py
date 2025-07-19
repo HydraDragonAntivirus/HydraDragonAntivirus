@@ -5947,7 +5947,6 @@ def run_suricata():
             suricata_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            shell=True  # Add shell=True when using quoted paths
         )
         
         logging.info(f"Suricata started with PID: {process.pid}")
