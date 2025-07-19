@@ -5921,7 +5921,7 @@ def run_suricata():
                    
         # Build the Suricata command
         suricata_cmd = [
-            f'"{suricata_exe_path}"',  # Wrap path in quotes
+            suricata_exe_path,  # Wrap path in quotes
             "-c", f'"{suricata_config_path}"',  # Wrap config path in quotes too
             "--windivert-forward", "true"
         ]
@@ -5996,19 +5996,20 @@ def stop_suricata():
         logging.error(f"Failed to stop Suricata: {ex}")
 
 def suricata_callback():
+    """Start Suricata and verify it's running properly."""
     try:
         success = run_suricata()
         if success:
             # Wait a moment and double-check
             time.sleep(1)
             if is_suricata_running():
-                self.output_signal.emit("[+] Suricata started successfully.")
+                logging.info("Suricata started successfully.")
             else:
-                self.output_signal.emit("[!] Suricata may have failed to start properly.")
+                logging.error("Suricata may have failed to start properly.")
         else:
-            self.output_signal.emit("[-] Failed to start Suricata.")
+            logging.error("Failed to start Suricata.")
     except Exception as ex:
-        self.output_signal.emit(f"[-] Error: {ex}")
+        logging.error("Error starting Suricata: %s", ex)
 
 threading.Thread(target=suricata_callback, daemon=True).start()
 
