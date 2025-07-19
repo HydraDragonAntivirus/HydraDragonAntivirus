@@ -5887,45 +5887,6 @@ def activate_uefi_drive():
     except subprocess.CalledProcessError as ex:
         logging.error(f"Error mounting UEFI drive: {ex}")
 
-def get_suricata_interfaces():
-    """Get all available network interfaces for Suricata on Windows"""
-    interfaces = []
-
-    try:
-        # Initialize COM for this thread
-        pythoncom.CoInitialize()
-
-        # Get interfaces using WMI
-        c = wmi.WMI()
-        for adapter in c.Win32_NetworkAdapter():
-            if adapter.NetConnectionStatus == 2 and adapter.NetConnectionID:  # Connected
-                interfaces.append(adapter.NetConnectionID)
-
-    except Exception as e:
-        logging.warning(f"WMI interface detection failed: {e}")
-    finally:
-        # Clean up COM
-        try:
-            pythoncom.CoUninitialize()
-        except:
-            pass
-
-    # Fallback to psutil if WMI didn't find anything
-    if not interfaces:
-        try:
-            for interface_name in psutil.net_if_addrs().keys():
-                if not interface_name.startswith('lo'):
-                    interfaces.append(interface_name)
-        except Exception as e:
-            logging.warning(f"psutil interface detection failed: {e}")
-
-    # Final fallback
-    if not interfaces:
-        interfaces = ['Ethernet0']
-
-    logging.info(f"Found interfaces: {interfaces}")
-    return interfaces
-
 def run_suricata():
     """
     Run Suricata as a process using command line.
@@ -5935,21 +5896,13 @@ def run_suricata():
         if is_suricata_running():
             logging.info("Suricata process is already running.")
             return
-        
-        # Get interface list (assuming this function exists)
-        interface_list = get_suricata_interfaces()
-        
+          
         # Build the Suricata command
         suricata_cmd = [
-            "suricata",
+            suricate_exe_path,
             "-c", "suricata.yaml",
             "--windivert-forward", "true"
         ]
-        
-        # Add interfaces if available
-        if interface_list:
-            for interface in interface_list:
-                suricata_cmd.extend(["-i", interface])
         
         logging.info(f"Starting Suricata with command: {' '.join(suricata_cmd)}")
         
@@ -5958,17 +5911,12 @@ def run_suricata():
             suricata_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            creationflags=subprocess.CREATE_NEW_CONSOLE  # Optional: run in new console
         )
         
         logging.info(f"Suricata started with PID: {process.pid}")
         
-        # Optionally, you can store the process ID for later management
-        with open("suricata.pid", "w") as pid_file:
-            pid_file.write(str(process.pid))
-        
     except FileNotFoundError:
-        logging.error("Suricata executable not found. Make sure Suricata is installed and in PATH.")
+        logging.error("Suricata executable not found.")
     except subprocess.SubprocessError as ex:
         logging.error(f"Failed to start Suricata process: {ex}")
     except Exception as ex:
