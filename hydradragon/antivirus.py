@@ -9988,8 +9988,6 @@ def scan_and_warn(file_path,
                         logging.warning("No Nuitka files were extracted for scanning.")
                 except Exception as ex:
                     logging.error(f"Error checking or extracting Nuitka content from {norm_path}: {ex}")
-            else:
-                logging.info(f"No Nuitka executable detected in {norm_path}")
 
             # Check if the file is a PyInstaller archive
             if is_pyinstaller_archive_from_output(die_output):
