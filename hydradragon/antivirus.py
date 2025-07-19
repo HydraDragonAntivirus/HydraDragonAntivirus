@@ -6022,31 +6022,68 @@ def is_service_running(service_name):
        return False
 
 def run_suricata(service_name="Suricata"):
-   """
-   Run Suricata: either as a service or directly in the foreground.
-   """
-   try:
-       interface_list = get_suricata_interfaces()
-       
-       # Check if service exists and is running
-       if service_exists(service_name):
-           if is_service_running(service_name):
-               logging.info(f"Service '{service_name}' is already running.")
-               return
-           else:
-               logging.info(f"Service '{service_name}' exists but not running. Starting...")
-               win32serviceutil.StartService(service_name)
-       else:
-           logging.info(f"Service '{service_name}' does not exist. Installing...")
-           install_suricata_service(interface_list)
-           start_suricata_service()
-           
-   except subprocess.CalledProcessError as ex:
-       logging.error(f"Suricata encountered an error: {ex}")
-   except win32service.error as ex:
-       logging.error(f"Windows service error: {ex}")
-   except Exception as ex:
-       logging.error(f"Failed to run Suricata: {ex}")
+    """
+    Run Suricata: either as a service or directly in the foreground.
+    """
+    try:
+        ensure_log_dir()
+        interface_list = get_suricata_interfaces()
+        
+        # Check if service exists and is running
+        if service_exists(service_name):
+            if is_service_running(service_name):
+                logging.info(f"Service '{service_name}' is already running.")
+                return
+            else:
+                logging.info(f"Service '{service_name}' exists but not running. Starting...")
+                try:
+                    win32serviceutil.StartService(service_name)
+                    # Wait a moment and check if it actually started
+                    time.sleep(2)
+                    if is_service_running(service_name):
+                        logging.info(f"Service '{service_name}' started successfully.")
+                        return
+                    else:
+                        logging.warning(f"Service '{service_name}' failed to start. Running in foreground mode instead.")
+                        # Fall through to foreground execution
+                except win32service.error as ex:
+                    logging.error(f"Failed to start service: {ex}. Running in foreground mode instead.")
+                    # Fall through to foreground execution
+        else:
+            logging.info(f"Service '{service_name}' does not exist. Installing...")
+            try:
+                install_suricata_service(interface_list)
+                start_suricata_service()
+                time.sleep(2)
+                if is_service_running(service_name):
+                    logging.info(f"Service '{service_name}' installed and started successfully.")
+                    return
+                else:
+                    logging.warning(f"Service '{service_name}' installed but failed to start. Running in foreground mode instead.")
+                    # Fall through to foreground execution
+            except Exception as ex:
+                logging.error(f"Failed to install/start service: {ex}. Running in foreground mode instead.")
+                # Fall through to foreground execution
+        
+        # Foreground execution as fallback
+        logging.info("Running Suricata in foreground mode...")
+        cmd = [
+            suricata_exe_path,
+            '-c', suricata_config_path,
+            '-l', log_folder,
+            '--init-errors-fatal'
+        ]
+        for iface in interface_list:
+            cmd.extend(['-i', iface])
+        
+        logging.info(f"Starting Suricata with command: {' '.join(cmd)}")
+        subprocess.run(cmd, check=True)
+        logging.info("Suricata completed analysis.")
+            
+    except subprocess.CalledProcessError as ex:
+        logging.error(f"Suricata encountered an error: {ex}")
+    except Exception as ex:
+        logging.error(f"Failed to run Suricata: {ex}")
 
 # Start Suricata in a separate thread
 threading.Thread(target=run_suricata).start()
