@@ -783,7 +783,7 @@ MANAGED_DIRECTORIES = [
     debloat_dir, jar_extracted_dir, FernFlower_decompiled_dir, deteciteasy_plain_text_dir,
     python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pylingual_extracted_dir,
     pycdas_extracted_dir, copied_sandbox_and_main_files_dir, HiJackThis_logs_dir,
-    html_extracted_dir, log_directory, installshield_extracted_dir, autoit_extracted_dir
+    html_extracted_dir, installshield_extracted_dir, autoit_extracted_dir
 ]
 
 for make_directory in MANAGED_DIRECTORIES:
