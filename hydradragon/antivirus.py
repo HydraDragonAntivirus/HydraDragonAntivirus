@@ -565,14 +565,14 @@ def parse_suricata_alert(json_line):
 alert_regex = re.compile(r'\[Priority: (\d+)].*?\{(?:UDP|TCP)} (\d+\.\d+\.\d+\.\d+):\d+ -> (\d+\.\d+\.\d+\.\d+):\d+')
 
 # Suricata base folder path
-suricata_folder = os.path.join(program_files, "Suricata")
+suricata_dir = os.path.join(program_files, "Suricata")
 
 # File paths and configurations
-suricata_log_dir = os.path.join(suricata_folder, "log")
+suricata_log_dir = os.path.join(suricata_dir, "log")
 # Suricata typically uses eve.json for structured logging
 eve_log_path = os.path.join(suricata_log_dir, "eve.json")
-suricata_config_path = os.path.join(suricata_folder, "suricata.yaml")
-suricata_exe_path = os.path.join(suricata_folder, "suricata.exe")
+suricata_config_path = os.path.join(suricata_dir, "suricata.yaml")
+suricata_exe_path = os.path.join(suricata_dir, "suricata.exe")
 
 sandboxie_dir = os.path.join(program_files, "Sandboxie")
 sandboxie_path = os.path.join(sandboxie_dir, "Start.exe")
@@ -5911,7 +5911,6 @@ def run_suricata():
             return False
         
         # Ensure log directory exists
-        suricata_log_dir = os.path.join(suricata_folder, "log")
         if not os.path.exists(suricata_log_dir):
             try:
                 os.makedirs(suricata_log_dir, exist_ok=True)
