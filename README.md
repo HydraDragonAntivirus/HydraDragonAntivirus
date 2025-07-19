@@ -58,9 +58,9 @@ Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my m
  - https://github.com/Yamato-Security/hayabusa
 
  ## IMPORTANT
- - Any ghidra project will be removed after you restart the program. So be careful!
- - Don't forget to clean up commandlineandmessages, HiJackThis_logs, zip_extracted, etc. dirs, sandboxie dirs before analysis. Or take a snapshot before you running the program.
- - You have to restart the program after the analysis.
+- Any logs will be removed when you restart the programme. So be careful!
+- Don't forget to clean up commandlineandmessages, HiJackThis_logs, zip_extracted, etc. dirs, sandboxie dirs before analysis. Or take a snapshot before you running the program.
+- You have to restart the program after the analysis.
 - Please don't share your IP in the logs.
 - Make sure that the ClamAV database is installed without problems.
 - We strongly recommend that you take a snapshot and then go back when you have finished your work.
