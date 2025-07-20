@@ -9718,6 +9718,34 @@ def scan_and_warn(file_path,
             logging.info(f"File {norm_path} is a valid PE file.")
             pe_file = True
 
+        # Check if the file is a known rootkit file
+        if pe_file and file_name in known_rootkit_files:
+            file_directory = os.path.dirname(norm_path)
+
+            if file_directory in hosts_sandboxie_path:
+                logging.warning(f"Detected potential rootkit file in sandboxed path: {norm_path}")
+                rootkit_thread = threading.Thread(
+                    target=notify_user_for_detected_rootkit,
+                    args=(norm_path, f"HEUR:Rootkit.{file_name}")
+                )
+                rootkit_thread.start()
+
+        # Analyze the DIE output for .NET file information
+        dotnet_result = is_dotnet_file_from_output(die_output)
+
+        # Convert file path to directory path
+        if os.path.isfile(norm_path):
+            input_dir = os.path.dirname(norm_path)
+        else:
+            input_dir = norm_path
+
+        elif dotnet_result is not None and not flag_de4dot and not "Protector: Obfuscar" in dotnet_result:
+            de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(norm_path,))
+            de4dot_thread.start()
+            if "Probably No Protector" in dotnet_result:
+                dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(norm_path,))
+                dotnet_thread.start()
+
         if not is_first_pass and perform_special_scan and pe_file:
                 worm_alert(norm_path)
                 return True
@@ -9731,18 +9759,6 @@ def scan_and_warn(file_path,
             file_md5_cache[norm_path] = md5
 
         logging.info(f"Deep scanning file: {norm_path}")
-
-        # Check if the file is a known rootkit file
-        if pe_file and file_name in known_rootkit_files:
-            file_directory = os.path.dirname(norm_path)
-
-            if file_directory in hosts_sandboxie_path:
-                logging.warning(f"Detected potential rootkit file in sandboxed path: {norm_path}")
-                rootkit_thread = threading.Thread(
-                    target=notify_user_for_detected_rootkit,
-                    args=(norm_path, f"HEUR:Rootkit.{file_name}")
-                )
-                rootkit_thread.start()
 
         # Wrap norm_path in a Path once, up front
         wrap_norm_path = Path(norm_path)
@@ -9983,9 +9999,6 @@ def scan_and_warn(file_path,
                 except Exception as ex:
                     logging.error(f"Error during debloating of {norm_path}: {ex}")
 
-            # Analyze the DIE output for .NET file information
-            dotnet_result = is_dotnet_file_from_output(die_output)
-
             if isinstance(dotnet_result, str) and "Protector: Obfuscar" in dotnet_result and not flag_obfuscar:
                 logging.info(f"The file is a .NET assembly protected with Obfuscar: {dotnet_result}")
                 deobfuscated_path = deobfuscate_with_obfuscar(norm_path, file_name)
@@ -9997,13 +10010,6 @@ def scan_and_warn(file_path,
                     ).start()
                 else:
                     logging.warning("Deobfuscation failed or unpacked file not found.")
-
-            elif dotnet_result is not None and not flag_de4dot and not "Protector: Obfuscar" in dotnet_result:
-                de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(norm_path,))
-                de4dot_thread.start()
-                if "Probably No Protector" in dotnet_result:
-                    dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(norm_path,))
-                    dotnet_thread.start()
 
             if is_jar_file_from_output(die_output):
                 jar_extractor_paths = run_jar_extractor(norm_path, flag_fernflower)
@@ -11662,7 +11668,13 @@ def run_de4dot_in_sandbox(file_path):
     Extracts all files into de4dot_extracted_dir via -ro.
     Uses -r for recursive processing.
     """
-
+    
+    # Convert file path to directory path
+    if os.path.isfile(file_path):
+        input_dir = os.path.dirname(file_path)
+    else:
+        input_dir = file_path
+    
     # de4dot-x64.exe -r <input_dir> -ro <output_dir>
     cmd = [
         sandboxie_path,
@@ -11670,16 +11682,16 @@ def run_de4dot_in_sandbox(file_path):
         "/elevate",
         de4dot_cex_x64_path,
         "-r",
-        file_path,
+        input_dir,
         "-ro",
         de4dot_extracted_dir
     ]
 
     try:
         subprocess.run(cmd, check=True, encoding="utf-8", errors="ignore")
-        logging.info(f"de4dot extraction succeeded for {file_path} in sandbox DefaultBox")
+        logging.info(f"de4dot extraction succeeded for {input_dir} in sandbox DefaultBox")
     except subprocess.CalledProcessError as ex:
-        logging.error(f"Failed to run de4dot on {file_path} in sandbox DefaultBox: {ex}")
+        logging.error(f"Failed to run de4dot on {input_dir} in sandbox DefaultBox: {ex}")
 
 def run_analysis(file_path: str, stop_callback=None):
     """
