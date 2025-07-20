@@ -10047,15 +10047,7 @@ def scan_and_warn(file_path,
 
             # Check if the file is a PyInstaller archive
             if is_pyinstaller_archive_from_output(die_output):
-                # Determine whether to treat it as ELF or EXE
-                if is_elf_file_from_output(die_output):
-                    type_hint = "elf"
-                else:
-                    type_hint = "exe"
-
-                logging.info(f"File {norm_path} is a PyInstaller archive. Will treat as '{type_hint}'.")
-                extracted_files_pyinstaller, main_decompiled_output = extract_and_return_pyinstaller(norm_path,
-                                                                                                     file_type=type_hint)
+                extracted_files_pyinstaller, main_decompiled_output = extract_and_return_pyinstaller(norm_path)
 
                 # Scan the main decompiled output (if it exists)
                 if main_decompiled_output:
@@ -10952,8 +10944,8 @@ class MonitorMessageCommandLine:
             },
             "xmrig": {
                 "patterns": [
-                    # 'xmrig', # Due to its shortness, it is disabled.
-                    'xmrig.exe',
+                    # 'xmrig', # Due to it's shortness, it's disabled.
+                    # 'xmrig.exe', Due to it's shortness it's disabled.
                     'start xmrig',
                     'xmrig --help',
                     'xmrig --version',
