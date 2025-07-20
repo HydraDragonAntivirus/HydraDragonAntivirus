@@ -9735,12 +9735,16 @@ def scan_and_warn(file_path,
         else:
             input_dir = norm_path
 
-        if dotnet_result is not None and not flag_de4dot and not "Protector: Obfuscar" in dotnet_result:
-            de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(input_dir,))
-            de4dot_thread.start()
-            if "Probably No Protector" in dotnet_result:
-                dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(input_dir,))
-                dotnet_thread.start()
+        normalized_input = os.path.abspath(input_dir).lower()
+
+        if normalized_input.startswith(normalized_sandbox):
+            if dotnet_result is not None and not flag_de4dot and "Protector: Obfuscar" not in dotnet_result:
+                de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(input_dir,))
+                de4dot_thread.start()
+
+                if "Probably No Protector" in dotnet_result:
+                    dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(input_dir,))
+                    dotnet_thread.start()
 
         if not is_first_pass and perform_special_scan and pe_file:
                 worm_alert(norm_path)
