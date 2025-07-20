@@ -12745,8 +12745,8 @@ class AntivirusApp(QWidget):
         stylesheet = """
             QWidget { background-color: #2E3440; color: #D8DEE9; font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; }
             QTextEdit { background-color: #3B4252; border: 1px solid #4C566A; border-radius: 5px; padding: 8px; color: #ECEFF4; font-family: 'Consolas', 'Courier New', monospace; }
-            #sidebar { background-color: #3B4252; max-width: 220px; }
-            #logo { color: #2E3440; font-size: 28px; font-weight: bold; }
+            #sidebar { background-color: #2E3440; max-width: 220px; }
+            #logo { color: #88C0D0; font-size: 28px; font-weight: bold; }
             #nav_button { background-color: transparent; border: none; color: #ECEFF4; padding: 12px; text-align: left; border-radius: 5px; }
             #nav_button:hover { background-color: #434C5E; }
             #nav_button:checked { background-color: #88C0D0; color: #2E3440; font-weight: bold; }
