@@ -1445,7 +1445,7 @@ def is_advanced_installer_file_from_output(die_output):
         logging.info("DIE output indicates a Advanced Installer file.")
         return True
     return False
-    
+
 def is_autoit_file_from_output(die_output):
     """Checks if DIE output indicates a AutoIt file."""
     if die_output and ("AutoIt" in die_output):
@@ -3933,13 +3933,13 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
 def restart_clamd_native():
     """Restart ClamAV using native Windows service management (no subprocess calls)."""
     service_name = 'clamd'
-    
+
     try:
         # Check if service exists
         if not service_exists(service_name):
             logging.error(f"Service '{service_name}' does not exist on this system.")
             return False
-        
+
         # Stop service if running
         if is_service_running(service_name):
             logging.info("Stopping ClamAV...")
@@ -3951,12 +3951,12 @@ def restart_clamd_native():
                 return False
         else:
             logging.info("ClamAV service is not running, skipping stop step.")
-        
+
         # Start service
         logging.info("Starting ClamAV...")
         try:
             win32serviceutil.StartService(service_name)
-            
+
             # Verify service is running
             if is_service_running(service_name):
                 logging.info("ClamAV started successfully.")
@@ -3964,11 +3964,11 @@ def restart_clamd_native():
             else:
                 logging.error("Service start command succeeded but service is not running.")
                 return False
-                
+
         except Exception as ex:
             logging.error(f"Failed to start ClamAV: {ex}")
             return False
-            
+
     except Exception as ex:
         logging.error(f"An error occurred while restarting ClamAV: {ex}")
         return False
@@ -5874,7 +5874,7 @@ def process_alert_data(priority, src_ip, dest_ip):
 
         # Determine threat type based on signature lists
         threat_type = "Unknown Threat Detected"
-        
+
         # Check IPv4 signatures
         if src_ip in ipv4_addresses_signatures_data:
             threat_type = "General Threat"
@@ -5950,21 +5950,21 @@ def run_suricata():
         if not os.path.exists(suricata_exe_path):
             logging.error(f"Suricata executable not found at: {suricata_exe_path}")
             return False
-            
+
         if not os.path.exists(suricata_config_path):
             logging.error(f"Suricata config not found at: {suricata_config_path}")
             return False
-        
+
         # Check if executable has proper permissions
         if not os.access(suricata_exe_path, os.X_OK):
             logging.error(f"Suricata executable is not executable: {suricata_exe_path}")
             return False
-        
+
         # Check if config file is readable
         if not os.access(suricata_config_path, os.R_OK):
             logging.error(f"Suricata config is not readable: {suricata_config_path}")
             return False
-        
+
         # Ensure log directory exists
         if not os.path.exists(suricata_log_dir):
             try:
@@ -5973,12 +5973,12 @@ def run_suricata():
             except OSError as e:
                 logging.error(f"Failed to create log directory {suricata_log_dir}: {e}")
                 return False
-        
+
         # Verify log directory is writable
         if not os.access(suricata_log_dir, os.W_OK):
             logging.error(f"Suricata log directory is not writable: {suricata_log_dir}")
             return False
-                 
+
         # Check if Suricata is already running
         if is_suricata_running():
             logging.info("Suricata process is already running.")
@@ -5987,29 +5987,29 @@ def run_suricata():
         # Log the paths being used
         logging.info(f"Using Suricata executable: {suricata_exe_path}")
         logging.info(f"Using Suricata config: {suricata_config_path}")
-                   
+
         # Build the Suricata command
         suricata_cmd = [
             suricata_exe_path,
             "-c", suricata_config_path,
             "--windivert-forward", "true"
         ]
-        
+
         logging.info(f"Starting Suricata with command: {' '.join(suricata_cmd)}")
-        
+
         # Start Suricata process
         process = subprocess.Popen(
             suricata_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        
+
         logging.info(f"Suricata started with PID: {process.pid}")
-        
+
         # Wait a moment to check if process started successfully
         import time
         time.sleep(1)
-        
+
         # Check if process is still running
         if process.poll() is None:
             logging.info("Suricata process is running successfully")
@@ -6023,7 +6023,7 @@ def run_suricata():
             if stderr:
                 logging.error(f"Suricata stderr: {stderr.decode('utf-8', errors='ignore')}")
             return False
-             
+
     except FileNotFoundError as ex:
         logging.error(f"Suricata executable not found: {ex}")
         return False
@@ -6072,14 +6072,14 @@ threading.Thread(target=suricata_callback, daemon=True).start()
 def monitor_suricata_log():
     """Monitor Suricata EVE JSON log file"""
     log_path = eve_log_path  # Use EVE JSON by default
-     
+
     # Wait for the file to exist instead of creating it
     while not os.path.exists(log_path):
         logging.info(f"Waiting for log file to be created: {log_path}")
         time.sleep(1)  # Wait 5 seconds before checking again
-    
+
     logging.info(f"Log file found: {log_path}")
-    
+
     with open(log_path, 'r') as log_file:
         log_file.seek(0, os.SEEK_END)  # Move to the end of the file
         while True:
@@ -9223,13 +9223,13 @@ def extract_autoit(file_path):
     """
     Extracts AutoIt scripts from PE binaries using autoit-ripper.
     Returns the path to the output directory, or None on failure.
-    
+
     :param file_path: Path to the PE binary file (e.g., .exe)
     :return: Path to the directory containing extracted files, or None if extraction failed.
     """
     try:
         logging.info(f"Detected AutoIt binary: {file_path}")
-        
+
         # Create a unique subdirectory inside autoit_extracted_dir
         base_name = os.path.splitext(os.path.basename(file_path))[0]
         folder_number = 1
@@ -9240,14 +9240,14 @@ def extract_autoit(file_path):
                 os.makedirs(output_dir)
                 break
             folder_number += 1
-        
+
         # Run autoit-ripper: `autoit-ripper <binary> <output_dir>`
         cmd = [
             "autoit-ripper",
             file_path,
             output_dir
         ]
-        
+
         result = subprocess.run(
             cmd,
             stdout=subprocess.PIPE,
@@ -9256,14 +9256,14 @@ def extract_autoit(file_path):
             encoding="utf-8",
             errors="ignore"
         )
-        
+
         if result.returncode != 0:
             logging.error(f"autoit-ripper extraction failed ({result.returncode}): {result.stderr.strip()}")
             return None
-        
+
         logging.info(f"AutoIt scripts extracted to: {output_dir}")
         return output_dir
-        
+
     except Exception as ex:
         logging.error(f"Error extracting AutoIt binary {file_path}: {ex}")
         return None
@@ -11664,13 +11664,13 @@ def run_de4dot_in_sandbox(file_path):
     Extracts all files into de4dot_extracted_dir via -ro.
     Uses -r for recursive processing.
     """
-    
+
     # Convert file path to directory path
     if os.path.isfile(file_path):
         input_dir = os.path.dirname(file_path)
     else:
         input_dir = file_path
-    
+
     # de4dot-x64.exe -r <input_dir> -ro <output_dir>
     cmd = [
         sandboxie_path,
@@ -12234,7 +12234,7 @@ class Worker(QThread):
         """Restart Suricata with proper status reporting"""
         # Restart Suricata
         self.output_signal.emit("[*] Starting Suricata...")
-        
+
         def run_suricata_with_status():
             try:
                 success = run_suricata()
