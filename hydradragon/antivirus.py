@@ -6901,9 +6901,7 @@ def extract_pyinstaller_archive(file_path):
             return None
 
         # Parse the Table of Contents (TOC) from the archive
-        if not archive.parseTOC():
-            logging.error(f"Failed to parse TOC from {file_path}.")
-            return None
+        archive.parseTOC()
 
         # Extract files to the specified pyinstaller_extracted_dir
         extraction_dir = archive.extractFiles(one_dir=True)
