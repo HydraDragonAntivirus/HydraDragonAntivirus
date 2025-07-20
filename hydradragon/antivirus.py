@@ -6211,10 +6211,14 @@ except Exception as ex:
 try:
     # Load excluded rules from text file
     with open(excluded_rules_path, "r") as excluded_file:
-        excluded_rules = excluded_file.read()
-        logging.info("YARA Excluded Rules Definitions loaded!")
+        excluded_rules = [line.strip() for line in excluded_file if line.strip()]
+        logging.info(f"YARA Excluded Rules loaded: {len(excluded_rules)} rules")
+except FileNotFoundError:
+    logging.error(f"Excluded rules file not found: {excluded_rules_path}")
+    excluded_rules = []
 except Exception as ex:
     logging.error(f"Error loading excluded rules: {ex}")
+    excluded_rules = []
 
 try:
     # Load the precompiled yarGen rules from the .yrc file
