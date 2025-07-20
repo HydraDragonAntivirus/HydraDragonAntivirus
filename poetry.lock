@@ -5334,22 +5334,22 @@ files = [
 
 [[package]]
 name = "yara-x"
-version = "1.3.0"
+version = "1.4.0"
 description = "Python bindings for YARA-X"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "yara_x-1.3.0-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:689cf4ffe0956088552147af58c20c17110c9d55f0f7a7963ecedfc836c4df84"},
-    {file = "yara_x-1.3.0-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:b69f70480386a27765fdaa7d52ce44a7226305e8e37c431ac5476405a8f6e5cd"},
-    {file = "yara_x-1.3.0-cp38-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:5f04832de7996430c8c28c5caf53a55eb90e43dcfa467baf4669de2e93d1047b"},
-    {file = "yara_x-1.3.0-cp38-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:ed2b2a08b4a8f39d2377716033414fd697c12a4ba36d57c4ecb253ac0e3fc078"},
-    {file = "yara_x-1.3.0-cp38-abi3-win_amd64.whl", hash = "sha256:e1ffa7a3466e21ed33948f1ba8ddd5506ff44e94750aff663fa4c56f6c348362"},
-    {file = "yara_x-1.3.0-pp310-pypy310_pp73-macosx_10_15_x86_64.whl", hash = "sha256:cb663a7c338fb284f75658d0b8182ffd8df7dd92baa088cf4d3d8ecbf7c0c906"},
-    {file = "yara_x-1.3.0-pp310-pypy310_pp73-macosx_11_0_arm64.whl", hash = "sha256:1ae7074a4254fe338c043c207e7c4fff8314d1d47367f93c02ec17219697bd2f"},
-    {file = "yara_x-1.3.0-pp310-pypy310_pp73-manylinux_2_28_aarch64.whl", hash = "sha256:a4d67a0c1c96969dc1db29ab1ebb1871cbb76fc9513478cf56191b633600f5d5"},
-    {file = "yara_x-1.3.0-pp310-pypy310_pp73-manylinux_2_28_x86_64.whl", hash = "sha256:f7fd5aa526529fe57cde202a78e5b5dfd623c5fa776a7737ba2c6104bfd15c9e"},
-    {file = "yara_x-1.3.0-pp310-pypy310_pp73-win_amd64.whl", hash = "sha256:8da886170abf11032dfb28ff7491f14ddb6b04da7f617ad63decb988b323df6d"},
+    {file = "yara_x-1.4.0-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:e3fa22678db8cba799d85744ffbceee361d53f032d363420dd9c9ead58730ca2"},
+    {file = "yara_x-1.4.0-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:f66fcd9e981929be6c262a0eb1930fe46e643529f48910699a2aa7975ad3334f"},
+    {file = "yara_x-1.4.0-cp38-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:5e7529a330f81adf261384712f6d226cb2304c2935f7c05bc3c5b9a75f21421e"},
+    {file = "yara_x-1.4.0-cp38-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:b2dc9048534fb2d4e13e4753a0eba91656efc0374380cd142f2e94873eec63d9"},
+    {file = "yara_x-1.4.0-cp38-abi3-win_amd64.whl", hash = "sha256:c7eda00e054bcfbc310304ddd048cb06dc1070c5513b04f022909935db346f0f"},
+    {file = "yara_x-1.4.0-pp310-pypy310_pp73-macosx_10_15_x86_64.whl", hash = "sha256:637a9cc2fe775331652746436fb2c9a7a177a0608c34b06c1211d73ac2f17499"},
+    {file = "yara_x-1.4.0-pp310-pypy310_pp73-macosx_11_0_arm64.whl", hash = "sha256:e95e99da87d38f75ce2b17abb8a62d529041562c5af5d852d9c8d73fe0da9714"},
+    {file = "yara_x-1.4.0-pp310-pypy310_pp73-manylinux_2_28_aarch64.whl", hash = "sha256:beb2d97427314105e307f66d76fbf15ef4da00841cf35f253cb01fcd48500f3f"},
+    {file = "yara_x-1.4.0-pp310-pypy310_pp73-manylinux_2_28_x86_64.whl", hash = "sha256:ba880dca64df189d8fe89265150003646048957875e4f30290e7f00aeb67088f"},
+    {file = "yara_x-1.4.0-pp310-pypy310_pp73-win_amd64.whl", hash = "sha256:24e12c4c28bbe21a4c2bc2aa4727971fda8283aa335476d743769b4be0d852a6"},
 ]
 
 [[package]]
@@ -5587,4 +5587,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.13"
-content-hash = "9061e2bc0a733d0f4b9c6ac8a44df2665b3b005d854efede54fe73357e3fb2d8"
+content-hash = "5f365da6d48c2fdd1c83a6ee955c00a31eb507fd6a4c0bb50fbfd1ef962a8e8e"
