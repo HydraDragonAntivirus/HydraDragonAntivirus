@@ -1761,3 +1761,5 @@ Permissions_Modification
 IsPacked_ren
 RegExp2
 Evasion
+RegExp1
+SUSP_DLL_All_LowerCase_Exports
