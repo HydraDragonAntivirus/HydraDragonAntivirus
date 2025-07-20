@@ -4027,7 +4027,6 @@ class RealTimeWebProtectionHandler:
         """
         # Early exit if entity_value is empty or None
         if not entity_value:
-            logging.info(f"handle_detection called with empty entity_value for type '{entity_type}'. Skipping.")
             return
 
         file_path = self.map_domain_ip_to_file(entity_value)
