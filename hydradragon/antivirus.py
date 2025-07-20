@@ -310,10 +310,6 @@ import macholib.mach_o
 logging.info(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import pythoncom
-logging.info(f"pythoncom module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 from typing import Optional, Tuple, BinaryIO, Dict, Any, List, Set, Union
 logging.info(f"typing, Optional, Tuple, BinaryIO, Dict, Any, List, Set and Union module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -9739,11 +9735,11 @@ def scan_and_warn(file_path,
         else:
             input_dir = norm_path
 
-        elif dotnet_result is not None and not flag_de4dot and not "Protector: Obfuscar" in dotnet_result:
-            de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(norm_path,))
+        if dotnet_result is not None and not flag_de4dot and not "Protector: Obfuscar" in dotnet_result:
+            de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(input_dir,))
             de4dot_thread.start()
             if "Probably No Protector" in dotnet_result:
-                dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(norm_path,))
+                dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(input_dir,))
                 dotnet_thread.start()
 
         if not is_first_pass and perform_special_scan and pe_file:
@@ -12267,7 +12263,7 @@ class Worker(QThread):
 
             # Stop Suricata and cleanup logs
             self.output_signal.emit("[*] Step 1: Stopping Suricata and cleaning logs...")
-            stop_suricata_service()
+            stop_suricata()
 
             # Restart Suricata with proper status reporting
             self.restart_suricata()
@@ -12399,7 +12395,7 @@ class Worker(QThread):
 
             # Step 1: Stop Snort and cleanup logs
             self.output_signal.emit("[*] Step 1: Stopping Suricata and cleaning logs...")
-            stop_suricata_service()
+            stop_suricata()
 
             # Step 2: Cleanup Sandboxie
             self.output_signal.emit("[*] Step 2: Cleaning up Sandboxie environment...")
