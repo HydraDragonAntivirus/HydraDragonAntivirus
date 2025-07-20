@@ -159,6 +159,14 @@ import win32con
 logging.info(f"win32con module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import win32service
+logging.info(f"win32service module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import win32serviceutil
+logging.info(f"win32serviceutil module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import wmi
 logging.info(f"wmi module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -536,6 +544,21 @@ system32_dir = os.getenv("System32", os.path.join(system_root, "System32"))
 # Windows event logs
 evtx_logs_path = os.path.join(system32_dir, "winevt\\Logs")
 
+def service_exists(service_name):
+   """Check if a Windows service exists."""
+   try:
+       win32serviceutil.QueryServiceStatus(service_name)
+       return True
+   except win32service.error:
+       return False
+
+def is_service_running(service_name):
+   """Check if a Windows service is running."""
+   try:
+       status = win32serviceutil.QueryServiceStatus(service_name)[1]
+       return status == win32service.SERVICE_RUNNING
+   except win32service.error:
+       return False
 
 # Regex for Suricata EVE JSON alerts (assuming EVE JSON format)
 # This will parse the JSON structure instead of text-based alerts
@@ -3911,30 +3934,54 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
         logging.error(f"An error occurred while scanning file {file_path}: {ex}")
         return False, malware_definition, 0
 
-def restart_clamd_thread():
+def restart_clamd_native():
+    """Restart ClamAV using native Windows service management (no subprocess calls)."""
+    service_name = 'clamd'
+    
     try:
-        threading.Thread(target=restart_clamd).start()
-    except Exception as ex:
-        logging.error(f"Error starting clamd restart thread: {ex}")
-
-def restart_clamd():
-    try:
-        logging.info("Stopping ClamAV...")
-        stop_result = subprocess.run(["net", "stop", 'clamd'], capture_output=True, text=True, encoding="utf-8", errors="ignore")
-        if stop_result.returncode != 0:
-                logging.error("Failed to stop ClamAV.")
-
-        logging.info("Starting ClamAV...")
-        start_result = subprocess.run(["net", "start", 'clamd'], capture_output=True, text=True, encoding="utf-8", errors="ignore")
-        if start_result.returncode == 0:
-            logging.info("ClamAV restarted successfully.")
-            return True
-        else:
-            logging.error("Failed to start ClamAV.")
+        # Check if service exists
+        if not service_exists(service_name):
+            logging.error(f"Service '{service_name}' does not exist on this system.")
             return False
+        
+        # Stop service if running
+        if is_service_running(service_name):
+            logging.info("Stopping ClamAV...")
+            try:
+                win32serviceutil.StopService(service_name)
+                logging.info("ClamAV stopped successfully.")
+            except Exception as ex:
+                logging.error(f"Failed to stop ClamAV: {ex}")
+                return False
+        else:
+            logging.info("ClamAV service is not running, skipping stop step.")
+        
+        # Start service
+        logging.info("Starting ClamAV...")
+        try:
+            win32serviceutil.StartService(service_name)
+            
+            # Verify service is running
+            if is_service_running(service_name):
+                logging.info("ClamAV started successfully.")
+                return True
+            else:
+                logging.error("Service start command succeeded but service is not running.")
+                return False
+                
+        except Exception as ex:
+            logging.error(f"Failed to start ClamAV: {ex}")
+            return False
+            
     except Exception as ex:
         logging.error(f"An error occurred while restarting ClamAV: {ex}")
         return False
+
+def restart_clamd_thread():
+    try:
+        threading.Thread(target=restart_clamd_native).start()
+    except Exception as ex:
+        logging.error(f"Error starting clamd restart thread: {ex}")
 
 def scan_file_with_clamd(file_path):
     """Scan file using clamd."""
@@ -5936,7 +5983,7 @@ def run_suricata():
         # Build the Suricata command
         suricata_cmd = [
             suricata_exe_path,
-            "-c", f'"{suricata_config_path}"',  # Wrap config path in quotes too
+            "-c", suricata_config_path,
             "--windivert-forward", "true"
         ]
         
