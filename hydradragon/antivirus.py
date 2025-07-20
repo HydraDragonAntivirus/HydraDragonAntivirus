@@ -5929,6 +5929,18 @@ def activate_uefi_drive():
     except subprocess.CalledProcessError as ex:
         logging.error(f"Error mounting UEFI drive: {ex}")
 
+def is_suricata_running():
+    """
+    Check if Suricata process is already running.
+    """
+    try:
+        for proc in psutil.process_iter(['pid', 'name']):
+            if proc.info['name'] and 'suricata' in proc.info['name'].lower():
+                return True
+    except psutil.Error:
+        pass
+    return False
+
 def run_suricata():
     """
     Run Suricata as a process using command line.
@@ -6025,18 +6037,6 @@ def run_suricata():
         logging.error(f"Unexpected error when running Suricata: {ex}")
         logging.exception("Full traceback:")
         return False
-
-def is_suricata_running():
-    """
-    Check if Suricata process is already running.
-    """
-    try:
-        for proc in psutil.process_iter(['pid', 'name']):
-            if proc.info['name'] and 'suricata' in proc.info['name'].lower():
-                return True
-    except psutil.Error:
-        pass
-    return False
 
 def stop_suricata():
     """
