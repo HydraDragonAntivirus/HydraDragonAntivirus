@@ -4464,92 +4464,181 @@ web_protection_observer = RealTimeWebProtectionObserver()
 
 def scan_yara(file_path):
     matched_rules = []
+    matched_results = []
 
     try:
         if not os.path.exists(file_path):
             logging.error(f"File not found during YARA scan: {file_path}")
-            return None
 
+            return None, None
         with open(file_path, 'rb') as yara_file:
             data_content = yara_file.read()
 
-            # compiled_rule
-            try:
-                if compiled_rule:
-                    matches = compiled_rule.match(data=data_content)
-                    for match in matches or []:
-                        if match.rule not in excluded_rules:
-                            matched_rules.append(match.rule)
-                        else:
-                            logging.info(f"Rule {match.rule} is excluded from compiled_rule.")
-                else:
-                    logging.error("compiled_rule is not defined.")
-            except Exception as e:
-                logging.error(f"Error scanning with compiled_rule: {e}")
+        # Helper function to extract detailed match info
+        def extract_match_details(match, rule_source):
+            match_info = {
+                'rule_name': match.rule,
+                'rule_source': rule_source,
+                'strings': [],
+                'tags': getattr(match, 'tags', []),
+                'meta': getattr(match, 'meta', {}),
+                'namespace': getattr(match, 'namespace', None)
+            }
 
-            # yarGen_rule
-            try:
-                if yarGen_rule:
-                    matches = yarGen_rule.match(data=data_content)
-                    for match in matches or []:
-                        if match.rule not in excluded_rules:
-                            matched_rules.append(match.rule)
-                        else:
-                            logging.info(f"Rule {match.rule} is excluded from yarGen_rule.")
-                else:
-                    logging.error("yarGen_rule is not defined.")
-            except Exception as e:
-                logging.error(f"Error scanning with yarGen_rule: {e}")
+            # Extract string matches with offsets
+            if hasattr(match, 'strings'):
+                for string_match in match.strings:
+                    string_info = {
+                        'identifier': string_match.identifier,
+                        'instances': []
+                    }
 
-            # icewater_rule
-            try:
-                if icewater_rule:
-                    matches = icewater_rule.match(data=data_content)
-                    for match in matches or []:
-                        if match.rule not in excluded_rules:
-                            matched_rules.append(match.rule)
-                        else:
-                            logging.info(f"Rule {match.rule} is excluded from icewater_rule.")
-                else:
-                    logging.error("icewater_rule is not defined.")
-            except Exception as e:
-                logging.error(f"Error scanning with icewater_rule: {e}")
+                    for instance in string_match.instances:
+                        instance_info = {
+                            'offset': instance.offset,
+                            'length': instance.length,
+                            'matched_data': data_content[instance.offset:instance.offset + instance.length]
+                        }
+                        # Convert bytes to hex for binary data, or decode as text if possible
+                        try:
+                            instance_info['matched_text'] = instance_info['matched_data'].decode('utf-8', errors='ignore')
+                        except:
+                            instance_info['matched_text'] = None
 
-            # valhalla_rule
-            try:
-                if valhalla_rule:
-                    matches = valhalla_rule.match(data=data_content)
-                    for match in matches or []:
-                        if match.rule not in excluded_rules:
-                            matched_rules.append(match.rule)
-                        else:
-                            logging.info(f"Rule {match.rule} is excluded from valhalla_rule.")
-                else:
-                    logging.error("valhalla_rule is not defined.")
-            except Exception as e:
-                logging.error(f"Error scanning with valhalla_rule: {e}")
+                        instance_info['matched_hex'] = instance_info['matched_data'].hex()
+                        string_info['instances'].append(instance_info)
 
-            # yaraxtr_rule (YARA-X)
-            try:
-                if yaraxtr_rule:
-                    scanner = yara_x.Scanner(rules=yaraxtr_rule)
-                    results = scanner.scan(data=data_content)
-                    for rule in getattr(results, 'matching_rules', []) or []:
-                        identifier = getattr(rule, 'identifier', None)
-                        if identifier and identifier not in excluded_rules:
-                            matched_rules.append(identifier)
-                        else:
-                            logging.info(f"Rule {identifier} is excluded from yaraxtr_rule.")
-                else:
-                    logging.error("yaraxtr_rule is not defined.")
-            except Exception as e:
-                logging.error(f"Error scanning with yaraxtr_rule: {e}")
+                    match_info['strings'].append(string_info)
 
-        return matched_rules if matched_rules else None
+            return match_info
+
+        # Helper function for YARA-X matches
+        def extract_yarax_match_details(rule, rule_source):
+            match_info = {
+                'rule_name': getattr(rule, 'identifier', 'Unknown'),
+                'rule_source': rule_source,
+                'strings': [],
+                'tags': getattr(rule, 'tags', []),
+                'meta': getattr(rule, 'metadata', {}),
+                'namespace': getattr(rule, 'namespace', None)
+            }
+
+            # YARA-X has different structure - adapt as needed based on your version
+            if hasattr(rule, 'patterns'):
+                for pattern in rule.patterns:
+                    string_info = {
+                        'identifier': getattr(pattern, 'identifier', 'Unknown'),
+                        'instances': []
+                    }
+
+                    if hasattr(pattern, 'matches'):
+                        for match in pattern.matches:
+                            instance_info = {
+                                'offset': getattr(match, 'offset', 0),
+                                'length': getattr(match, 'length', 0)
+                            }
+                            if instance_info['offset'] and instance_info['length']:
+                                instance_info['matched_data'] = data_content[instance_info['offset']:instance_info['offset'] + instance_info['length']]
+                                try:
+                                    instance_info['matched_text'] = instance_info['matched_data'].decode('utf-8', errors='ignore')
+                                except:
+                                    instance_info['matched_text'] = None
+                                instance_info['matched_hex'] = instance_info['matched_data'].hex()
+
+                            string_info['instances'].append(instance_info)
+
+                    match_info['strings'].append(string_info)
+
+            return match_info
+
+        # compiled_rule
+        try:
+            if compiled_rule:
+                matches = compiled_rule.match(data=data_content)
+                for match in matches or []:
+                    if match.rule not in excluded_rules:
+                        matched_rules.append(match.rule)
+                        match_details = extract_match_details(match, 'compiled_rule')
+                        matched_results.append(match_details)
+                    else:
+                        logging.info(f"Rule {match.rule} is excluded from compiled_rule.")
+            else:
+                logging.error("compiled_rule is not defined.")
+        except Exception as e:
+            logging.error(f"Error scanning with compiled_rule: {e}")
+
+        # yarGen_rule
+        try:
+            if yarGen_rule:
+                matches = yarGen_rule.match(data=data_content)
+                for match in matches or []:
+                    if match.rule not in excluded_rules:
+                        matched_rules.append(match.rule)
+                        match_details = extract_match_details(match, 'yarGen_rule')
+                        matched_results.append(match_details)
+                    else:
+                        logging.info(f"Rule {match.rule} is excluded from yarGen_rule.")
+            else:
+                logging.error("yarGen_rule is not defined.")
+        except Exception as e:
+            logging.error(f"Error scanning with yarGen_rule: {e}")
+
+        # icewater_rule
+        try:
+            if icewater_rule:
+                matches = icewater_rule.match(data=data_content)
+                for match in matches or []:
+                    if match.rule not in excluded_rules:
+                        matched_rules.append(match.rule)
+                        match_details = extract_match_details(match, 'icewater_rule')
+                        matched_results.append(match_details)
+                    else:
+                        logging.info(f"Rule {match.rule} is excluded from icewater_rule.")
+            else:
+                logging.error("icewater_rule is not defined.")
+        except Exception as e:
+            logging.error(f"Error scanning with icewater_rule: {e}")
+
+        # valhalla_rule
+        try:
+            if valhalla_rule:
+                matches = valhalla_rule.match(data=data_content)
+                for match in matches or []:
+                    if match.rule not in excluded_rules:
+                        matched_rules.append(match.rule)
+                        match_details = extract_match_details(match, 'valhalla_rule')
+                        matched_results.append(match_details)
+                    else:
+                        logging.info(f"Rule {match.rule} is excluded from valhalla_rule.")
+            else:
+                logging.error("valhalla_rule is not defined.")
+        except Exception as e:
+            logging.error(f"Error scanning with valhalla_rule: {e}")
+
+        # yaraxtr_rule (YARA-X)
+        try:
+            if yaraxtr_rule:
+                scanner = yara_x.Scanner(rules=yaraxtr_rule)
+                results = scanner.scan(data=data_content)
+                for rule in getattr(results, 'matching_rules', []) or []:
+                    identifier = getattr(rule, 'identifier', None)
+                    if identifier and identifier not in excluded_rules:
+                        matched_rules.append(identifier)
+                        match_details = extract_yarax_match_details(rule, 'yaraxtr_rule')
+                        matched_results.append(match_details)
+                    else:
+                        logging.info(f"Rule {identifier} is excluded from yaraxtr_rule.")
+            else:
+                logging.error("yaraxtr_rule is not defined.")
+        except Exception as e:
+            logging.error(f"Error scanning with yaraxtr_rule: {e}")
+
+        return (matched_rules if matched_rules else None,
+                matched_results if matched_results else None)
 
     except Exception as ex:
         logging.error(f"An error occurred during YARA scan: {ex}")
-        return None
+        return None, None
 
 def detect_etw_tampering_sandbox(moved_sandboxed_ntdll_path):
     """
@@ -5748,12 +5837,12 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
 
         # Scan with YARA
         try:
-            yara_result = scan_yara(file_path)
-            if yara_result is not None and yara_result not in ("Clean", ""):
+            yara_match, yara_result = scan_yara(file_path)
+            if yara_match is not None and yara_match not in ("Clean", ""):
                 if signature_check["is_valid"]:
-                    yara_result = "SIG." + yara_result
-                logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_result}")
-                return True, yara_result, "YARA"
+                    yara_match = "SIG." + yara_match
+                logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}")
+                return True, yara_match, "YARA"
             logging.info(f"Scanned file with YARA: {file_path} - No viruses detected")
         except Exception as ex:
             logging.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {ex}")
@@ -12127,6 +12216,7 @@ class Worker(QThread):
             self.output_signal.emit(f"[!] Error updating definitions: {str(e)}")
 
     def analyze_file_worker(self, file_path):
+        # Check for stop request before starting
         if self.stop_requested:
             self.output_signal.emit("[!] Analysis stopped by user request")
             return
@@ -12141,6 +12231,8 @@ class Worker(QThread):
             # Call the modified run_analysis function with stop callback
             analysis_result = run_analysis(file_path, stop_callback=check_stop)
 
+
+            # Check for stop request after analysis completes
             if self.stop_requested:
                 self.output_signal.emit("[!] Analysis was stopped by user")
                 return
