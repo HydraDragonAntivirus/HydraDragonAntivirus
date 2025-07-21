@@ -4475,12 +4475,12 @@ def scan_yara(file_path):
     try:
         if not os.path.exists(file_path):
             logging.error(f"File not found during YARA scan: {file_path}")
-
             return None, None
+            
         with open(file_path, 'rb') as yara_file:
             data_content = yara_file.read()
 
-        # Helper function to extract detailed match info
+        # Helper function to extract detailed match info for regular YARA
         def extract_match_details(match, rule_source):
             match_info = {
                 'rule_name': match.rule,
@@ -4518,46 +4518,47 @@ def scan_yara(file_path):
 
             return match_info
 
-        # Helper function for YARA-X matches
+        # Fixed helper function for YARA-X matches
         def extract_yarax_match_details(rule, rule_source):
             match_info = {
-                'rule_name': getattr(rule, 'identifier', 'Unknown'),
+                'rule_name': rule.identifier,
                 'rule_source': rule_source,
                 'strings': [],
-                'tags': getattr(rule, 'tags', []),
-                'meta': getattr(rule, 'metadata', {}),
-                'namespace': getattr(rule, 'namespace', None)
+                'tags': list(rule.tags) if hasattr(rule, 'tags') else [],
+                'meta': dict(rule.metadata) if hasattr(rule, 'metadata') else {},
+                'namespace': rule.namespace if hasattr(rule, 'namespace') else None
             }
 
-            # YARA-X has different structure - adapt as needed based on your version
+            # YARA-X string pattern extraction
             if hasattr(rule, 'patterns'):
                 for pattern in rule.patterns:
                     string_info = {
-                        'identifier': getattr(pattern, 'identifier', 'Unknown'),
+                        'identifier': pattern.identifier,
                         'instances': []
                     }
 
-                    if hasattr(pattern, 'matches'):
-                        for match in pattern.matches:
-                            instance_info = {
-                                'offset': getattr(match, 'offset', 0),
-                                'length': getattr(match, 'length', 0)
-                            }
-                            if instance_info['offset'] and instance_info['length']:
-                                instance_info['matched_data'] = data_content[instance_info['offset']:instance_info['offset'] + instance_info['length']]
-                                try:
-                                    instance_info['matched_text'] = instance_info['matched_data'].decode('utf-8', errors='ignore')
-                                except:
-                                    instance_info['matched_text'] = None
-                                instance_info['matched_hex'] = instance_info['matched_data'].hex()
-
-                            string_info['instances'].append(instance_info)
+                    # Get matches for this pattern
+                    for match in pattern.matches:
+                        instance_info = {
+                            'offset': match.offset,
+                            'length': match.length,
+                            'matched_data': data_content[match.offset:match.offset + match.length]
+                        }
+                        
+                        # Convert bytes to text/hex
+                        try:
+                            instance_info['matched_text'] = instance_info['matched_data'].decode('utf-8', errors='ignore')
+                        except:
+                            instance_info['matched_text'] = None
+                            
+                        instance_info['matched_hex'] = instance_info['matched_data'].hex()
+                        string_info['instances'].append(instance_info)
 
                     match_info['strings'].append(string_info)
 
             return match_info
 
-        # compiled_rule
+        # compiled_rule (regular YARA)
         try:
             if compiled_rule:
                 matches = compiled_rule.match(data=data_content)
@@ -4573,7 +4574,7 @@ def scan_yara(file_path):
         except Exception as e:
             logging.error(f"Error scanning with compiled_rule: {e}")
 
-        # yarGen_rule
+        # yarGen_rule (regular YARA)
         try:
             if yarGen_rule:
                 matches = yarGen_rule.match(data=data_content)
@@ -4589,7 +4590,7 @@ def scan_yara(file_path):
         except Exception as e:
             logging.error(f"Error scanning with yarGen_rule: {e}")
 
-        # icewater_rule
+        # icewater_rule (regular YARA)
         try:
             if icewater_rule:
                 matches = icewater_rule.match(data=data_content)
@@ -4605,7 +4606,7 @@ def scan_yara(file_path):
         except Exception as e:
             logging.error(f"Error scanning with icewater_rule: {e}")
 
-        # valhalla_rule
+        # valhalla_rule (regular YARA)
         try:
             if valhalla_rule:
                 matches = valhalla_rule.match(data=data_content)
@@ -4621,19 +4622,20 @@ def scan_yara(file_path):
         except Exception as e:
             logging.error(f"Error scanning with valhalla_rule: {e}")
 
-        # yaraxtr_rule (YARA-X)
+        # yaraxtr_rule (YARA-X) - FIXED VERSION
         try:
             if yaraxtr_rule:
                 scanner = yara_x.Scanner(rules=yaraxtr_rule)
-                results = scanner.scan(data=data_content)
-                for rule in getattr(results, 'matching_rules', []) or []:
-                    identifier = getattr(rule, 'identifier', None)
-                    if identifier and identifier not in excluded_rules:
-                        matched_rules.append(identifier)
+                scan_results = scanner.scan(data_content)
+                
+                # Iterate through matching rules
+                for rule in scan_results.matching_rules:
+                    if rule.identifier not in excluded_rules:
+                        matched_rules.append(rule.identifier)
                         match_details = extract_yarax_match_details(rule, 'yaraxtr_rule')
                         matched_results.append(match_details)
                     else:
-                        logging.info(f"Rule {identifier} is excluded from yaraxtr_rule.")
+                        logging.info(f"Rule {rule.identifier} is excluded from yaraxtr_rule.")
             else:
                 logging.error("yaraxtr_rule is not defined.")
         except Exception as e:
