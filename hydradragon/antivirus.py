@@ -484,7 +484,6 @@ whitelist_mail_sub_domains_path = os.path.join(website_rules_dir, "WhiteListSubD
 urlhaus_path = os.path.join(website_rules_dir, "urlhaus.txt")
 antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
 yaraxtr_yrc_path = os.path.join(yara_dir, "yaraxtr.yrc")
-cx_freeze_yrc_path = os.path.join(yara_dir, "cx_freeze.yrc")
 compiled_rule_path = os.path.join(yara_dir, "compiled_rule.yrc")
 yarGen_rule_path = os.path.join(yara_dir, "machinelearning.yrc")
 icewater_rule_path = os.path.join(yara_dir, "icewater.yrc")
@@ -1436,6 +1435,13 @@ def is_pe_file_from_output(die_output):
     """Checks if DIE output indicates a PE (Portable Executable) file."""
     if die_output and ("PE32" in die_output or "PE64" in die_output):
         logging.info("DIE output indicates a PE file.")
+        return True
+    return False
+
+def is_cx_freeze_file_from_output(die_output):
+    """Checks if DIE output indicates a cx_Freeze file."""
+    if die_output and ("Packer: cx_Freeze(5.x+)" in die_output):
+        logging.info("DIE output indicates a cx_Freeze file.")
         return True
     return False
 
@@ -5927,7 +5933,6 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
 
                             # Only proceed with files in the Sandboxie folder or the main file path
                             if sandboxie_folder.lower() not in file_path.lower() and file_path.lower() != main_file_path.lower():
-                                logging.info(f"File {file_path} is not located in the monitored directories. Skipping...")
                                 continue
 
                             signature_info = check_valid_signature(file_path)
@@ -6253,14 +6258,6 @@ try:
     with open(yaraxtr_yrc_path, 'rb') as yara_x_f:
         yaraxtr_rule = yara_x.Rules.deserialize_from(yara_x_f)
     logging.info("YARA-X yaraxtr Rules Definitions loaded!")
-except Exception as ex:
-    logging.error(f"Error loading YARA-X rules: {ex}")
-
-try:
-    # Load the precompiled cx_freeze rule from the .yrc file using yara_x
-    with open(cx_freeze_yrc_path, 'rb') as yara_x_cx_freeze:
-        cx_freeze_rule = yara_x.Rules.deserialize_from(yara_x_cx_freeze)
-    logging.info("YARA-X cx_freeze Rules Definitions loaded!")
 except Exception as ex:
     logging.error(f"Error loading YARA-X rules: {ex}")
 
@@ -9512,7 +9509,7 @@ def _copy_to_dest(file_path, dest_root):
 
 def decompile_cx_freeze(executable_path):
     """
-    Extracts <exe_name>__main__.pyc from a CX_Freeze library.zip using pyzipper,
+    Extracts <exe_name>__main__.pyc from a cx_Freeze library.zip using pyzipper,
     and returns the path to the extracted .pyc file.
     """
     exe_name = os.path.splitext(os.path.basename(executable_path))[0]
@@ -9956,34 +9953,15 @@ def scan_and_warn(file_path,
                     # Scan the extracted strings file
                     threading.Thread(target=scan_and_warn, args=(string_output_path,)).start()
 
-            # ------------- Step A: YARA check for CXFreeze -------------
-            if cx_freeze_rule:
+            # ----- cx_Freeze detection -----
+            if is_cx_freeze_file_from_output(die_output):
                 try:
-                    # Run YARA-X over the raw bytes
-                    scanner = yara_x.Scanner(rules=cx_freeze_rule)
-                    results = scanner.scan(data=data_content)
-
-                    for rule in getattr(results, "matching_rules", []) or []:
-                        identifier = getattr(rule, "identifier", None)
-                        if identifier and identifier not in excluded_rules:
-                            logging.info(
-                                f"YARA rule '{identifier}' matched on {norm_path}. Invoking CXFreeze decompiler."
-                            )
-
-                            # Extract + decompile the CXFreeze __main__.pyc
-                            cx_freeze_main_pyc_path = decompile_cx_freeze(norm_path)
-
-                            if cx_freeze_main_pyc_path:
-                                scan_and_warn(cx_freeze_main_pyc_path)
-                            # Once a non-excluded YARA rule triggered CXFreeze decompilation, skip the rest.
-                            return
-                        else:
-                            if identifier:
-                                logging.info(f"YARA rule '{identifier}' is excluded.")
-                    # No matching (non-excluded) rule-continue into the normal .pyc logic below.
+                    logging.info(f"Invoking cx_Freeze decompiler on {normalized_path}")
+                    cx_main_pyc = decompile_cx_freeze(normalized_path)
+                    if cx_main_pyc:
+                        scan_and_warn(cx_main_pyc)
                 except Exception as e:
-                    logging.error(f"Error scanning {norm_path} with cx_freeze_rule: {e}")
-            # ---------------------------------------------------------------------
+                    logging.error(f"Error decompiling cx_Freeze stub at {normalized_path}: {e}")
 
             # Check if it's a .pyc file and decompile via Pylingual
             if is_pyc_file_from_output(die_output):
