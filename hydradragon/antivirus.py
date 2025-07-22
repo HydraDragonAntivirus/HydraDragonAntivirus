@@ -11380,14 +11380,10 @@ class MonitorMessageCommandLine:
                     details["process_function"](file_content, file_path)
                     logging.warning(f"Detected malware message for '{category}' in {file_path}.")
 
-                # Check command patterns only for files named cmd_*.txt
-                if "command" in details:
-                    if basename.startswith("cmd_") and basename.endswith(".txt"):
-                        if self.calculate_similarity_text(file_content, details["command"]) > 0.92:
-                            details["process_function"](file_content, file_path)
-                            logging.warning(f"Detected malware command for '{category}' in {file_path}.")
-                    else:
-                        logging.info(f"Skipping command checks for {file_path}: filename does not match cmd_*.txt")
+                # Check command patterns
+                if "command" in details and if self.calculate_similarity_text(file_content, details["command"]) > 0.92:
+                    details["process_function"](file_content, file_path)
+                    logging.warning(f"Detected malware command for '{category}' in {file_path}.")
 
             # Ransomware keyword distance check
             if self.contains_keywords_within_max_distance(file_content, max_distance=10):
@@ -12198,34 +12194,35 @@ class Worker(QThread):
             self.output_signal.emit(f"[!] Error updating definitions: {str(e)}")
 
     def analyze_file_worker(self, file_path):
-        # Check for stop request before starting
+        """Launches run_analysis in a thread with stop support."""
+
         if self.stop_requested:
             self.output_signal.emit("[!] Analysis stopped by user request")
             return
 
         self.output_signal.emit(f"[*] Starting analysis for: {file_path}")
 
-        # Create a stop callback function
         def check_stop():
             return self.stop_requested
 
-        try:
-            # Call the modified run_analysis function with stop callback
-            analysis_result = run_analysis(file_path, stop_callback=check_stop)
+        def analysis_thread():
+            try:
+                analysis_result = run_analysis(file_path, stop_callback=check_stop)
 
+                if self.stop_requested:
+                    self.output_signal.emit("[!] Analysis was stopped by user")
+                    return
 
-            # Check for stop request after analysis completes
-            if self.stop_requested:
-                self.output_signal.emit("[!] Analysis was stopped by user")
-                return
+                self.output_signal.emit(analysis_result)
 
-            self.output_signal.emit(analysis_result)
+            except Exception as e:
+                if self.stop_requested:
+                    self.output_signal.emit("[!] Analysis stopped by user request")
+                else:
+                    self.output_signal.emit(f"[!] Error during analysis: {str(e)}")
 
-        except Exception as e:
-            if self.stop_requested:
-                self.output_signal.emit("[!] Analysis stopped by user request")
-            else:
-                self.output_signal.emit(f"[!] Error during analysis: {str(e)}")
+        # Start the thread
+        threading.Thread(target=analysis_thread, daemon=True).start()
 
     def perform_rootkit_scan(self):
         """
@@ -12870,13 +12867,14 @@ class AntivirusApp(QWidget):
         self.append_log_output("[!] Stop request sent to all running tasks.")
 
     def open_sandboxie_control(self):
-        """Opens the Sandboxie control window."""
-        try:
-            self.append_log_output("[*] Opening Sandboxie Control window...")
+        """Starts run_sandboxie_control in a thread."""
+        self.append_log_output("[*] Opening Sandboxie Control window...")
+
+        def run_thread():
             run_sandboxie_control()
             self.append_log_output("[+] Sandboxie Control window opened successfully.")
-        except Exception as e:
-            self.append_log_output(f"[!] Error opening Sandboxie Control: {str(e)}")
+
+        threading.Thread(target=run_thread, daemon=True).start()
 
     def analyze_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select a file to analyze", "", "All Files (*)")
