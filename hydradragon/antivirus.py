@@ -11381,7 +11381,7 @@ class MonitorMessageCommandLine:
                     logging.warning(f"Detected malware message for '{category}' in {file_path}.")
 
                 # Check command patterns
-                if "command" in details and if self.calculate_similarity_text(file_content, details["command"]) > 0.92:
+                if "command" in details and self.calculate_similarity_text(file_content, details["command"]) > 0.92:
                     details["process_function"](file_content, file_path)
                     logging.warning(f"Detected malware command for '{category}' in {file_path}.")
 
