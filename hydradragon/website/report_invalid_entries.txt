@@ -1,0 +1,184 @@
+Invalid Entries Report - 2025-07-22 15:51:20
+============================================================
+The following entries were ignored due to validation errors.
+
+- Source: IPv6Malware.csv
+  Entry : '2001::9d38:6ab8:180b:212c:9a7b:8519'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:17e3:ca3c::17e3:ca3c'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:1b7c:2923::1b7c:2923'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:1b7c:2c25::1b7c:2c25'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:1bfe:6024::1bfe:6024'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:3a90:8a15::3a90:8a15'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:5778:54ab::5778:54ab'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:5fb5:ad61::5fb5:ad61'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:5fd7:e00f::5fd7:e00f'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:674d:f6ea::674d:f6ea'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:676d:654b::676d:654b'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:676d:672b::676d:672b'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:67e7:ac92::67e7:ac92'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:68f4:4af2::68f4:4af2'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:6bbd:1c7b::6bbd:1c7b'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:766b:2ad3::766b:2ad3'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:77bc:f670::77bc:f670'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:77bc:f68e::77bc:f68e'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:80c7:14b9::80c7:14b9'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:80c7:7c89::80c7:7c89'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:80c7:ed07::80c7:ed07'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:80c7:ff5c::80c7:ff5c'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:8f6e:bf80::8f6e:bf80'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:982a:be61::982a:be61'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:9f41:a8a::9f41:a8a'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:9fdf:394b::9fdf:394b'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:a5e8:b005::a5e8:b005'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:a758:af29::a758:af29'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:a758:af2a::a758:af2a'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:a758:af2e::a758:af2e'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:a7ac:538b::a7ac:538b'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:b280:61b5::b280:61b5'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:b4d6:ee45::b4d6:ee45'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:bca6:bff7::bca6:bff7'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:c226:1710::c226:1710'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:c6b4:87d6::c6b4:87d6'
+  Reason: Invalid format
+
+- Source: IPv6Malware.csv
+  Entry : '2002:d853:3405::d853:3405'
+  Reason: Invalid format
+
+- Source: IPv6Spam.csv
+  Entry : '2002:509:6208::'
+  Reason: Invalid format
+
+- Source: IPv6Spam.csv
+  Entry : '2002:2e00:985a::'
+  Reason: Invalid format
+
+- Source: IPv6Spam.csv
+  Entry : '2002:57ce:a933:1::'
+  Reason: Invalid format
+
+- Source: IPv6Spam.csv
+  Entry : '2002:6bb2:6a70::'
+  Reason: Invalid format
+
+- Source: IPv6Spam.csv
+  Entry : '2002:9854:4854::'
+  Reason: Invalid format
+
+- Source: IPv6Spam.csv
+  Entry : '2002:afb0:8990::'
+  Reason: Invalid format
+
+- Source: IPv6Spam.csv
+  Entry : '2002:b447:3886::'
+  Reason: Invalid format
+
+- Source: IPv6Spam.csv
+  Entry : '2002:d3f1:acc8::'
+  Reason: Invalid format
+

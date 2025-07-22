@@ -55,8 +55,9 @@ __pycache__/
 /build
 
 # Big website files
-hydradragon/website/IPv4Malware.txt
-hydradragon/website/MalwareSubDomains.txt
+hydradragon/website/IPv4Malware.csv
+hydradragon/website/MalwareSubDomains.csv
+hydradragon/website/MalwareDomains.csv
 # Website cleaned
 hydradragon/website/cleaned
 # Big Yara Rule files

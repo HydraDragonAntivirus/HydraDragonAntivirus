@@ -1,7 +1,7 @@
 import os
 
-# Get the current working directory
-directory = os.getcwd()
+# Get the current cleaned directory
+directory = "cleaned"
 
 # Iterate through files in the current directory
 for filename in os.listdir(directory):

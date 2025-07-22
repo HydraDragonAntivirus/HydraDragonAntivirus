@@ -452,35 +452,37 @@ excluded_rules_dir = os.path.join(script_dir, "excluded")
 excluded_rules_path = os.path.join(excluded_rules_dir, "excluded_rules.txt")
 html_extracted_dir = os.path.join(script_dir, "html_extracted")
 website_rules_dir = os.path.join(script_dir, "website")
+# Email last 365 days
+spam_email_365_path = os.path.join(website_rules_dir, "listed_email_365.txt")
 # Define all website file paths
-ipv4_addresses_path = os.path.join(website_rules_dir, "IPv4Malware.txt")
-ipv4_addresses_spam_path = os.path.join(website_rules_dir, "IPv4Spam.txt")
-ipv4_addresses_bruteforce_path = os.path.join(website_rules_dir, "IPv4BruteForce.txt")
-ipv4_addresses_phishing_active_path = os.path.join(website_rules_dir, "IPv4PhishingActive.txt")
-ipv4_addresses_phishing_inactive_path = os.path.join(website_rules_dir, "IPv4PhishingInActive.txt")
-ipv4_whitelist_path = os.path.join(website_rules_dir, "IPv4Whitelist.txt")
-ipv6_addresses_path = os.path.join(website_rules_dir, "IPv6Malware.txt")
-ipv6_addresses_spam_path = os.path.join(website_rules_dir, "IPv6Spam.txt")
-ipv4_addresses_ddos_path = os.path.join(website_rules_dir, "IPv4DDoS.txt")
-ipv6_addresses_ddos_path = os.path.join(website_rules_dir, "IPv6DDoS.txt")
-ipv6_whitelist_path = os.path.join(website_rules_dir, "IPv6Whitelist.txt")
-malware_domains_path = os.path.join(website_rules_dir, "MalwareDomains.txt")
-malware_domains_mail_path = os.path.join(website_rules_dir, "MalwareDomainsMail.txt")
-phishing_domains_path = os.path.join(website_rules_dir, "PhishingDomains.txt")
-abuse_domains_path = os.path.join(website_rules_dir, "AbuseDomains.txt")
-mining_domains_path = os.path.join(website_rules_dir, "MiningDomains.txt")
-spam_domains_path = os.path.join(website_rules_dir, "SpamDomains.txt")
-whitelist_domains_path = os.path.join(website_rules_dir, "WhiteListDomains.txt")
-whitelist_domains_mail_path = os.path.join(website_rules_dir, "WhiteListDomainsMail.txt")
+ipv4_addresses_path = os.path.join(website_rules_dir, "IPv4Malware.csv")
+ipv4_addresses_spam_path = os.path.join(website_rules_dir, "IPv4Spam.csv")
+ipv4_addresses_bruteforce_path = os.path.join(website_rules_dir, "IPv4BruteForce.csv")
+ipv4_addresses_phishing_active_path = os.path.join(website_rules_dir, "IPv4PhishingActive.csv")
+ipv4_addresses_phishing_inactive_path = os.path.join(website_rules_dir, "IPv4PhishingInActive.csv")
+ipv4_whitelist_path = os.path.join(website_rules_dir, "IPv4Whitelist.csv")
+ipv6_addresses_path = os.path.join(website_rules_dir, "IPv6Malware.csv")
+ipv6_addresses_spam_path = os.path.join(website_rules_dir, "IPv6Spam.csv")
+ipv4_addresses_ddos_path = os.path.join(website_rules_dir, "IPv4DDoS.csv")
+ipv6_addresses_ddos_path = os.path.join(website_rules_dir, "IPv6DDoS.csv")
+ipv6_whitelist_path = os.path.join(website_rules_dir, "IPv6Whitelist.csv")
+malware_domains_path = os.path.join(website_rules_dir, "MalwareDomains.csv")
+malware_domains_mail_path = os.path.join(website_rules_dir, "MalwareDomainsMail.csv")
+phishing_domains_path = os.path.join(website_rules_dir, "PhishingDomains.csv")
+abuse_domains_path = os.path.join(website_rules_dir, "AbuseDomains.csv")
+mining_domains_path = os.path.join(website_rules_dir, "MiningDomains.csv")
+spam_domains_path = os.path.join(website_rules_dir, "SpamDomains.csv")
+whitelist_domains_path = os.path.join(website_rules_dir, "WhiteListDomains.csv")
+whitelist_domains_mail_path = os.path.join(website_rules_dir, "WhiteListDomainsMail.csv")
 # Define corresponding subdomain files
-malware_sub_domains_path = os.path.join(website_rules_dir, "MalwareSubDomains.txt")
-malware_mail_sub_domains_path = os.path.join(website_rules_dir, "MalwareSubDomainsMail.txt")
-phishing_sub_domains_path = os.path.join(website_rules_dir, "PhishingSubDomains.txt")
-abuse_sub_domains_path = os.path.join(website_rules_dir, "AbuseSubDomains.txt")
-mining_sub_domains_path = os.path.join(website_rules_dir, "MiningSubDomains.txt")
-spam_sub_domains_path = os.path.join(website_rules_dir, "SpamSubDomains.txt")
-whitelist_sub_domains_path = os.path.join(website_rules_dir, "WhiteListSubDomains.txt")
-whitelist_mail_sub_domains_path = os.path.join(website_rules_dir, "WhiteListSubDomainsMail.txt")
+malware_sub_domains_path = os.path.join(website_rules_dir, "MalwareSubDomains.csv")
+malware_mail_sub_domains_path = os.path.join(website_rules_dir, "MalwareSubDomainsMail.csv")
+phishing_sub_domains_path = os.path.join(website_rules_dir, "PhishingSubDomains.csv")
+abuse_sub_domains_path = os.path.join(website_rules_dir, "AbuseSubDomains.csv")
+mining_sub_domains_path = os.path.join(website_rules_dir, "MiningSubDomains.csv")
+spam_sub_domains_path = os.path.join(website_rules_dir, "SpamSubDomains.csv")
+whitelist_sub_domains_path = os.path.join(website_rules_dir, "WhiteListSubDomains.csv")
+whitelist_mail_sub_domains_path = os.path.join(website_rules_dir, "WhiteListSubDomainsMail.csv")
 urlhaus_path = os.path.join(website_rules_dir, "urlhaus.txt")
 antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
 yaraxtr_yrc_path = os.path.join(yara_dir, "yaraxtr.yrc")
@@ -2686,258 +2688,140 @@ def load_digital_signatures(file_path, description="Digital signatures"):
         return []
 
 def load_website_data():
-    global ipv4_addresses_signatures_data, ipv4_addresses_spam_signatures_data, ipv4_whitelist_data, ipv4_addresses_bruteforce_signatures_data, ipv4_addresses_phishing_active_signatures_data, ipv4_addresses_phishing_inactive_signatures_data, ipv6_addresses_signatures_data, ipv6_addresses_spam_signatures_data, ipv6_addresses_ddos_signatures_data, ipv4_addresses_ddos_signatures_data, ipv6_whitelist_data, urlhaus_data, malware_domains_data, malware_domains_mail_data, phishing_domains_data, abuse_domains_data, mining_domains_data, spam_domains_data, whitelist_domains_data, whitelist_domains_mail_data, malware_sub_domains_data, malware_mail_sub_domains_data, phishing_sub_domains_data, abuse_sub_domains_data, mining_sub_domains_data, spam_sub_domains_data, whitelist_sub_domains_data, whitelist_mail_sub_domains_data
+    global ipv4_addresses_signatures_data, ipv4_addresses_spam_signatures_data, ipv4_whitelist_data, ipv4_addresses_bruteforce_signatures_data, ipv4_addresses_phishing_active_signatures_data, ipv4_addresses_phishing_inactive_signatures_data, ipv6_addresses_signatures_data, ipv6_addresses_spam_signatures_data, ipv6_addresses_ddos_signatures_data, ipv4_addresses_ddos_signatures_data, ipv6_whitelist_data, urlhaus_data, malware_domains_data, malware_domains_mail_data, phishing_domains_data, abuse_domains_data, mining_domains_data, spam_domains_data, whitelist_domains_data, whitelist_domains_mail_data, malware_sub_domains_data, malware_mail_sub_domains_data, phishing_sub_domains_data, abuse_sub_domains_data, mining_sub_domains_data, spam_sub_domains_data, whitelist_sub_domains_data, whitelist_mail_sub_domains_data, spam_email_365_data
 
-    try:
-        # Load IPv4 Malicious addresses
-        with open(ipv4_addresses_path, 'r') as ip_malicious_file:
-            ipv4_addresses_signatures_data = ip_malicious_file.read().splitlines()
-        logging.info("Malicious IPv4 Addresses loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading malicious IPv4 Addresses: {ex}")
+    def load_csv_data(file_path, data_name):
+        """Helper function to load CSV data with IP/Domain,Reference format"""
+        try:
+            data = []
+            with open(file_path, 'r', encoding='utf-8') as file:
+                csv_reader = csv.reader(file)
+                for row in csv_reader:
+                    if len(row) >= 2:  # Ensure we have both columns
+                        # Store as dictionary with 'address' and 'reference' keys
+                        data.append({
+                            'address': row[0].strip(),
+                            'reference': row[1].strip()
+                        })
+                    elif len(row) == 1:  # Handle cases with only IP/Domain
+                        data.append({
+                            'address': row[0].strip(),
+                            'reference': ''
+                        })
+            logging.info(f"{data_name} loaded successfully! ({len(data)} entries)")
+            return data
+        except Exception as ex:
+            logging.error(f"Error loading {data_name}: {ex}")
+            return []
 
-    try:
-        # Load IPv4 Spam addresses
-        with open(ipv4_addresses_spam_path, 'r') as ip_spam_file:
-            ipv4_addresses_spam_signatures_data = ip_spam_file.read().splitlines()
-        logging.info("Spam IPv4 Addresses loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading spam IPv4 Addresses: {ex}")
+    # Load IPv4 Malicious addresses
+    ipv4_addresses_signatures_data = load_csv_data(ipv4_addresses_path, "Malicious IPv4 Addresses")
 
-    try:
-        # Load IPv6 Spam addresses
-        with open(ipv6_addresses_spam_path, 'r') as ipv6_spam_file:
-            ipv6_addresses_spam_signatures_data = ipv6_spam_file.read().splitlines()
-        logging.info("IPv6 Spam Addresses loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading IPv6 spam Addresses: {ex}")
+    # Load IPv4 Spam addresses
+    ipv4_addresses_spam_signatures_data = load_csv_data(ipv4_addresses_spam_path, "Spam IPv4 Addresses")
 
-    try:
-        # Load BruteForce IPv4 addresses
-        with open(ipv4_addresses_bruteforce_path, 'r') as ip_bruteforce_file:
-            ipv4_addresses_bruteforce_signatures_data = ip_bruteforce_file.read().splitlines()
-        logging.info("Malicious IPv4 Addresses loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading malicious IPv4 Addresses: {ex}")
+    # Load IPv6 Spam addresses
+    ipv6_addresses_spam_signatures_data = load_csv_data(ipv6_addresses_spam_path, "IPv6 Spam Addresses")
 
-    try:
-        # Load phishing active IPv4 addresses
-        with open(ipv4_addresses_phishing_active_path, 'r') as ip_phishing_active_file:
-            ipv4_addresses_phishing_active_signatures_data = ip_phishing_active_file.read().splitlines()
-        logging.info("Active phishing IPv4 Addresses loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading active phishing IPv4 Addresses: {ex}")
+    # Load BruteForce IPv4 addresses
+    ipv4_addresses_bruteforce_signatures_data = load_csv_data(ipv4_addresses_bruteforce_path, "BruteForce IPv4 Addresses")
 
-    try:
-        # Load phishing inactive IPv4 addresses
-        with open(ipv4_addresses_phishing_inactive_path, 'r') as ip_phishing_inactive_file:
-            ipv4_addresses_phishing_inactive_signatures_data = ip_phishing_inactive_file.read().splitlines()
-        logging.info("Inactive phishing IPv4 Addresses loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading inactive phishing IPv4 Addresses: {ex}")
+    # Load phishing active IPv4 addresses
+    ipv4_addresses_phishing_active_signatures_data = load_csv_data(ipv4_addresses_phishing_active_path, "Active Phishing IPv4 Addresses")
 
-    try:
-        # Load IPv4 whitelist
-        with open(ipv4_whitelist_path, 'r') as whitelist_file:
-            ipv4_whitelist_data = whitelist_file.read().splitlines()
-        logging.info("IPv4 Whitelist loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading IPv4 Whitelist: {ex}")
+    # Load phishing inactive IPv4 addresses
+    ipv4_addresses_phishing_inactive_signatures_data = load_csv_data(ipv4_addresses_phishing_inactive_path, "Inactive Phishing IPv4 Addresses")
 
-    try:
-        # Load IPv6 Malicious addresses
-        with open(ipv6_addresses_path, 'r') as ipv6_malicious_file:
-            ipv6_addresses_signatures_data = ipv6_malicious_file.read().splitlines()
-        logging.info("IPv6 Malicious Addresses loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading IPv6 Malicious Addresses: {ex}")
+    # Load IPv4 whitelist
+    ipv4_whitelist_data = load_csv_data(ipv4_whitelist_path, "IPv4 Whitelist")
 
-    try:
-        # Load IPv6 DDoS addresses
-        with open(ipv6_addresses_ddos_path, 'r') as ipv6_ddos_file:
-            ipv6_addresses_ddos_signatures_data = ipv6_ddos_file.read().splitlines()
-        logging.info("IPv6 DDoS Addresses loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading IPv6 DDoS Addresses: {ex}")
+    # Load IPv6 Malicious addresses
+    ipv6_addresses_signatures_data = load_csv_data(ipv6_addresses_path, "IPv6 Malicious Addresses")
 
-    try:
-        # Load IPv4 DDoS addresses
-        with open(ipv4_addresses_ddos_path, 'r') as ipv4_ddos_file:
-            ipv4_addresses_ddos_signatures_data = ipv4_ddos_file.read().splitlines()
-        logging.info("IPv4 DDoS Addresses loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading IPv4 DDoS Addresses: {ex}")
+    # Load IPv6 DDoS addresses
+    ipv6_addresses_ddos_signatures_data = load_csv_data(ipv6_addresses_ddos_path, "IPv6 DDoS Addresses")
 
-    try:
-        # Load IPv6 whitelist
-        with open(ipv6_whitelist_path, 'r') as whitelist_file:
-            ipv6_whitelist_data = whitelist_file.read().splitlines()
-        logging.info("IPv6 Whitelist loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading IPv6 Whitelist: {ex}")
-        ipv6_whitelist_data = []
+    # Load IPv4 DDoS addresses
+    ipv4_addresses_ddos_signatures_data = load_csv_data(ipv4_addresses_ddos_path, "IPv4 DDoS Addresses")
 
+    # Load IPv6 whitelist
+    ipv6_whitelist_data = load_csv_data(ipv6_whitelist_path, "IPv6 Whitelist")
+
+    # Load URLhaus data (keeping original format as it's already CSV with DictReader)
     try:
-        # Load URLhaus data
         urlhaus_data = []
-        with open(urlhaus_path, 'r') as urlhaus_file:
+        with open(urlhaus_path, 'r', encoding='utf-8') as urlhaus_file:
             reader = csv.DictReader(urlhaus_file)
             for row in reader:
                 urlhaus_data.append(row)
-        logging.info("URLhaus data loaded successfully!")
+        logging.info(f"URLhaus data loaded successfully! ({len(urlhaus_data)} entries)")
     except Exception as ex:
         logging.error(f"Error loading URLhaus data: {ex}")
+        urlhaus_data = []
 
+    # Load malware domains
+    malware_domains_data = load_csv_data(malware_domains_path, "Malware Domains")
+
+    # Load malware domains email
+    malware_domains_mail_data = load_csv_data(malware_domains_mail_path, "Malware Email Domains")
+
+    # Load phishing domains
+    phishing_domains_data = load_csv_data(phishing_domains_path, "Phishing Domains")
+
+    # Load abuse domains
+    abuse_domains_data = load_csv_data(abuse_domains_path, "Abuse Domains")
+
+    # Load mining domains
+    mining_domains_data = load_csv_data(mining_domains_path, "Mining Domains")
+
+    # Load spam domains
+    spam_domains_data = load_csv_data(spam_domains_path, "Spam Domains")
+
+    # Load whitelist domains
+    whitelist_domains_data = load_csv_data(whitelist_domains_path, "Whitelist Domains")
+
+    # Load whitelist mail domains
+    whitelist_domains_mail_data = load_csv_data(whitelist_domains_mail_path, "Whitelist Mail Domains")
+
+    # Load Malware subdomains
+    malware_sub_domains_data = load_csv_data(malware_sub_domains_path, "Malware Subdomains")
+
+    # Load Malware mail subdomains
+    malware_mail_sub_domains_data = load_csv_data(malware_mail_sub_domains_path, "Malware Mail Subdomains")
+
+    # Load Phishing subdomains
+    phishing_sub_domains_data = load_csv_data(phishing_sub_domains_path, "Phishing Subdomains")
+
+    # Load Abuse subdomains
+    abuse_sub_domains_data = load_csv_data(abuse_sub_domains_path, "Abuse Subdomains")
+
+    # Load Mining subdomains
+    mining_sub_domains_data = load_csv_data(mining_sub_domains_path, "Mining Subdomains")
+
+    # Load Spam subdomains
+    spam_sub_domains_data = load_csv_data(spam_sub_domains_path, "Spam Subdomains")
+
+    # Load Whitelist subdomains
+    whitelist_sub_domains_data = load_csv_data(whitelist_sub_domains_path, "Whitelist Subdomains")
+
+    # Load Whitelist mail subdomains
+    whitelist_mail_sub_domains_data = load_csv_data(whitelist_mail_sub_domains_path, "Whitelist Mail Subdomains")
+
+    # Load Spam Email 365 data (simple text file, one word per line)
     try:
-        # Load malware domains
-        with open(malware_domains_path, 'r') as domains_file:
-            malware_domains_data = domains_file.read().splitlines()
-        logging.info("Malware domains loaded successfully!")
+        with open(spam_email_365_path, 'r', encoding='utf-8') as file:
+            spam_email_365_data = [line.strip() for line in file.readlines() if line.strip()]
+        logging.info(f"Spam Email 365 data loaded successfully! ({len(spam_email_365_data)} entries)")
     except Exception as ex:
-        logging.error(f"Error loading Malware domains: {ex}")
-        malware_domains_data = []
+        logging.error(f"Error loading Spam Email 365 data: {ex}")
+        spam_email_365_data = []
 
-    try:
-        # Load malware domains email path
-        with open(malware_domains_mail_path, 'r') as mail_domains_file:
-            malware_domains_mail_data = mail_domains_file.read().splitlines()
-        logging.info("Malware email domains loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading Malware email domains: {ex}")
-        malware_domains_mail_data = []
-
-    try:
-        # Load phishing domains
-        with open(phishing_domains_path, 'r') as domains_file:
-            phishing_domains_data = domains_file.read().splitlines()
-        logging.info("Phishing domains loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading Phishing domains: {ex}")
-        phishing_domains_data = []
-
-    try:
-        # Load abuse domains
-        with open(abuse_domains_path, 'r') as domains_file:
-            abuse_domains_data = domains_file.read().splitlines()
-        logging.info("Abuse domains loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading Abuse domains: {ex}")
-        abuse_domains_data = []
-
-    try:
-        # Load mining domains
-        with open(mining_domains_path, 'r') as domains_file:
-            mining_domains_data = domains_file.read().splitlines()
-        logging.info("Mining domains loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading Mining domains: {ex}")
-        mining_domains_data = []
-
-    try:
-        # Load spam domains
-        with open(spam_domains_path, 'r') as domains_file:
-            spam_domains_data = domains_file.read().splitlines()
-        logging.info("Spam domains loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading Spam domains: {ex}")
-        spam_domains_data = []
-
-    try:
-        # Load whitelist domains
-        with open(whitelist_domains_path, 'r') as domains_file:
-            whitelist_domains_data = domains_file.read().splitlines()
-        logging.info("Whitelist domains loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading Whitelist domains: {ex}")
-        whitelist_domains_data = []
-
-    try:
-        # Load whitelist mail domains
-        with open(whitelist_domains_mail_path, 'r') as domains_file:
-            whitelist_domains_mail_data = domains_file.read().splitlines()
-        logging.info("Whitelist mail domains loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading Whitelist mail domains: {ex}")
-        whitelist_domains_mail_data = []
-
-    try:
-        # Load Malware subdomains
-        with open(malware_sub_domains_path, 'r') as file:
-            malware_sub_domains_data = file.read().splitlines()
-        logging.info("Malware subdomains loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading Malware subdomains: {ex}")
-        malware_sub_domains_data = []
-
-    try:
-        # Load Malware mail subdomains
-        with open(malware_mail_sub_domains_path, 'r') as file:
-            malware_mail_sub_domains_data = file.read().splitlines()
-        logging.info("Malware mail subdomains loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading Malware mail subdomains: {ex}")
-        malware_mail_sub_domains_data = []
-
-    try:
-        # Load Phishing subdomains
-        with open(phishing_sub_domains_path, 'r') as file:
-            phishing_sub_domains_data = file.read().splitlines()
-        logging.info("Phishing subdomains loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading Phishing subdomains: {ex}")
-        phishing_sub_domains_data = []
-
-    try:
-        # Load Abuse subdomains
-        with open(abuse_sub_domains_path, 'r') as file:
-            abuse_sub_domains_data = file.read().splitlines()
-        logging.info("Abuse subdomains loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading Abuse subdomains: {ex}")
-        abuse_sub_domains_data = []
-
-    try:
-        # Load Mining subdomains
-        with open(mining_sub_domains_path, 'r') as file:
-            mining_sub_domains_data = file.read().splitlines()
-        logging.info("Mining subdomains loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading Mining subdomains: {ex}")
-        mining_sub_domains_data = []
-
-    try:
-        # Load Spam subdomains
-        with open(spam_sub_domains_path, 'r') as file:
-            spam_sub_domains_data = file.read().splitlines()
-        logging.info("Spam subdomains loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading Spam subdomains: {ex}")
-        spam_sub_domains_data = []
-
-    try:
-        # Load Whitelist subdomains
-        with open(whitelist_sub_domains_path, 'r') as file:
-            whitelist_sub_domains_data = file.read().splitlines()
-        logging.info("Whitelist subdomains loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading Whitelist subdomains: {ex}")
-        whitelist_sub_domains_data = []
-
-    try:
-        # Load Whitelist mail subdomains
-        with open(whitelist_mail_sub_domains_path, 'r') as file:
-            whitelist_mail_sub_domains_data = file.read().splitlines()
-        logging.info("Whitelist mail subdomains loaded successfully!")
-    except Exception as ex:
-        logging.error(f"Error loading Whitelist mail subdomains: {ex}")
-        whitelist_mail_sub_domains_data = []
-
-    logging.info("All domain and ip address files loaded successfully!")
+    logging.info("All domain and IP address CSV files loaded successfully!")
 
 # --------------------------------------------------------------------------
 # Check for Discord webhook URLs (including Canary)
 def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=None, nsis_flag=False,
-                            nuitka_flag=False, pyc_flag=False, pyc_meta_llama_flag=False, dotnet_flag=False):
+                            nuitka_flag=False, pyc_flag=False, dotnet_flag=False):
     """
     Scan the decompiled code for Discord webhook URLs, Discord Canary webhook URLs or Telegram bot links.
     For every detection, log a warning and immediately notify the user with an explicit unique heuristic
@@ -2970,10 +2854,7 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.NSIS')
         elif pyc_flag or pyc_meta_llama_flag:
             logging.warning(f"Discord webhook URL detected in Python Compilled Module file: {file_path} - Matches: {discord_webhook_matches}")
-            if pyc_meta_llama_flag:
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.PYC.MetaLlama')
-            else:
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.PYC.Python')
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.PYC.Python')
         else:
             logging.warning(f"Discord webhook URL detected in decompiled code: {discord_webhook_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook')
@@ -2993,10 +2874,7 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.NSIS')
         elif pyc_flag or pyc_meta_llama_flag:
             logging.warning(f"Discord Canary webhook URL detected in Python Compilled Module file:{file_path} - Matches: {discord_canary_webhook_matches}")
-            if pyc_meta_llama_flag:
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.PYC.Python.MetaLlama')
-            else:
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.PYC.Python')
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.PYC.Python')
         else:
             logging.warning(f"Discord Canary webhook URL detected in decompiled code: {discord_canary_webhook_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook')
@@ -3019,14 +2897,10 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
             logging.warning(
                 f"Discord CDN attachment URL detected in NSIS script compiled file (.nsi): {file_path} - Matches: {cdn_attachment_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.CDNAttachment.NSIS')
-        elif pyc_flag or pyc_meta_llama_flag:
+        elif pyc_flag:
             logging.warning(
                 f"Discord CDN attachment URL detected in Python Compilled Module file: {file_path} - Matches: {cdn_attachment_matches}")
-            if pyc_meta_llama_flag:
-                notify_user_for_malicious_source_code(file_path,
-                                                      'HEUR:Win32.Discord.CDNAttachment.PYC.Python.MetaLlama')
-            else:
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.CDNAttachment.PYC.Python')
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.CDNAttachment.PYC.Python')
         else:
             logging.warning(f"Discord CDN attachment URL detected in decompiled code: {cdn_attachment_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.CDNAttachment')
@@ -3047,17 +2921,23 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.NSIS')
         elif pyc_flag or pyc_meta_llama_flag:
             logging.warning(f"Telegram bot detected in Python Compilled Module file: {file_path} - Matches: {telegram_token_matches}")
-            if pyc_meta_llama_flag:
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.PYC.Python.MetaLlama')
-            else:
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.PYC.Python')
+            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.PYC.Python')
         else:
             logging.info(f"Telegram bot link detected in decompiled code: {telegram_token_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot')
 
 # --------------------------------------------------------------------------
-# Generalized scan for domains
-def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyc_flag=False, pyc_meta_llama_flag=False, homepage_flag=""):
+# Helper function to check if domain/IP exists in CSV data with reference support
+def check_in_csv_data(target, csv_data):
+    """Check if target exists in CSV data and return reference if found"""
+    for entry in csv_data:
+        if entry['address'] == target:
+            return True, entry['reference']
+    return False, None
+
+# --------------------------------------------------------------------------
+# Generalized scan for domains (CSV format with reference support)
+def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyc_flag=False, homepage_flag=""):
     try:
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
@@ -3082,299 +2962,274 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
         if subdomain:
             logging.info(f"Subdomain: {subdomain}")
 
+        # Helper function to check if domain is in CSV data
+        def is_domain_in_data(domain, data_list):
+            for entry in data_list:
+                if entry['address'] == domain:
+                    return True, entry['reference']
+            return False, ""
+
+        # Whitelist checks
         whitelist_checks = [
-            (full_domain in whitelist_domains_data, "domain"),
-            (full_domain in whitelist_domains_mail_data, "mail domain"),
-            (full_domain in whitelist_sub_domains_data, "subdomain"),
-            (full_domain in whitelist_mail_sub_domains_data, "mail subdomain")
+            (whitelist_domains_data, "domain"),
+            (whitelist_domains_mail_data, "mail domain"),
+            (whitelist_sub_domains_data, "subdomain"),
+            (whitelist_mail_sub_domains_data, "mail subdomain")
         ]
-        for is_whitelisted, whitelist_type in whitelist_checks:
+        
+        for data_list, whitelist_type in whitelist_checks:
+            is_whitelisted, reference = is_domain_in_data(full_domain, data_list)
             if is_whitelisted:
-                logging.info(f"Domain {full_domain} is whitelisted ({whitelist_type}).")
+                logging.info(f"Domain {full_domain} is whitelisted ({whitelist_type}). Reference: {reference}")
                 return
 
         if subdomain:
-            if full_domain in spam_sub_domains_data:
-                if dotnet_flag:
-                    logging.warning(f"Spam subdomain detected in .NET source code: {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.DotNET.Spam.SubDomain")
-                elif nuitka_flag:
-                    logging.warning(f"Spam subdomain detected in Nuitka compiled file: {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Nuitka.Spam.SubDomain")
-                elif nsis_flag:
-                    logging.warning(f"Spam subdomain detected in NSIS script compiled file (.nsi): {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.NSIS.Spam.SubDomain")
-                elif pyc_flag or pyc_meta_llama_flag:
-                    logging.warning(f"Spam subdomain detected in Python compiled file: {full_domain}")
-                    if pyc_meta_llama_flag:
-                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.MetaLlama.Spam.SubDomain")
+            # Subdomain threat checks
+            threat_checks = [
+                (spam_sub_domains_data, "Spam", "Spam.SubDomain"),
+                (mining_sub_domains_data, "Mining", "Mining.SubDomain"),
+                (abuse_sub_domains_data, "Abuse", "Abuse.SubDomain"),
+                (phishing_sub_domains_data, "Phishing", "Phishing.SubDomain"),
+                (malware_mail_sub_domains_data, "Malware.Mail", "Malware.Mail.SubDomain"),
+                (malware_sub_domains_data, "Malware", "Malware.SubDomain")
+            ]
+            
+            for data_list, threat_name, signature_suffix in threat_checks:
+                is_threat, reference = is_domain_in_data(full_domain, data_list)
+                if is_threat:
+                    logging.warning(f"{threat_name} subdomain detected: {full_domain} (Reference: {reference})")
+                    
+                    if dotnet_flag:
+                        notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.DotNET.{signature_suffix}")
+                    elif nuitka_flag:
+                        notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.Nuitka.{signature_suffix}")
+                    elif nsis_flag:
+                        notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.NSIS.{signature_suffix}")
+                    elif pyc_flag:
+                        notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.PYC.Python.{signature_suffix}")
                     else:
-                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.Spam.SubDomain")
-                else:
-                    logging.warning(f"Spam subdomain detected: {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Spam.SubDomain")
-                if homepage_flag:
-                    notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.Adware.{homepage_flag}.Spam.HomePage.gen")
-                return
-
-            if full_domain in mining_sub_domains_data:
-                if dotnet_flag:
-                    logging.warning(f"Mining subdomain detected in .NET source code: {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.DotNET.Mining.SubDomain")
-                elif nuitka_flag:
-                    logging.warning(f"Mining subdomain detected in Nuitka compiled file: {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Nuitka.Mining.SubDomain")
-                elif nsis_flag:
-                    logging.warning(f"Mining subdomain detected in NSIS script compiled file (.nsi): {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.NSIS.Mining.SubDomain")
-                elif pyc_flag or pyc_meta_llama_flag:
-                    logging.warning(f"Mining subdomain detected in Python compiled file: {full_domain}")
-                    if pyc_meta_llama_flag:
-                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.MetaLlama.Mining.SubDomain")
-                    else:
-                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.Mining.SubDomain")
-                else:
-                    logging.warning(f"Mining subdomain detected: {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Mining.SubDomain")
-                if homepage_flag:
-                    notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.Adware.{homepage_flag}.Mining.HomePage.gen")
-                return
-
-            if full_domain in abuse_sub_domains_data:
-                if dotnet_flag:
-                    logging.warning(f"Abuse subdomain detected in .NET source code: {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.DotNET.Abuse.SubDomain")
-                elif nuitka_flag:
-                    logging.warning(f"Abuse subdomain detected in Nuitka compiled file: {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Nuitka.Abuse.SubDomain")
-                elif nsis_flag:
-                    logging.warning(f"Abuse subdomain detected in NSIS script compiled file (.nsi): {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.NSIS.Abuse.SubDomain")
-                elif pyc_flag or pyc_meta_llama_flag:
-                    logging.warning(f"Abuse subdomain detected in Python compiled file: {full_domain}")
-                    if pyc_meta_llama_flag:
-                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.MetaLlama.Abuse.SubDomain")
-                    else:
-                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.Abuse.SubDomain")
-                else:
-                    logging.warning(f"Abuse subdomain detected: {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Abuse.SubDomain")
-                if homepage_flag:
-                    notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.Adware.{homepage_flag}.Abuse.HomePage.gen")
-                return
-
-            if full_domain in phishing_sub_domains_data:
-                if dotnet_flag:
-                    logging.warning(f"Phishing subdomain detected in .NET source code: {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.DotNET.Phishing.SubDomain")
-                elif nuitka_flag:
-                    logging.warning(f"Phishing subdomain detected in Nuitka compiled file: {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Nuitka.Phishing.SubDomain")
-                elif nsis_flag:
-                    logging.warning(f"Phishing subdomain detected in NSIS script compiled file (.nsi): {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.NSIS.Phishing.SubDomain")
-                elif pyc_flag or pyc_meta_llama_flag:
-                    logging.warning(f"Phishing subdomain detected in Python compiled file: {full_domain}")
-                    if pyc_meta_llama_flag:
-                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.MetaLlama.Phishing.SubDomain")
-                    else:
-                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.Phishing.SubDomain")
-                else:
-                    logging.warning(f"Phishing subdomain detected: {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Phishing.SubDomain")
-                if homepage_flag:
-                    notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.Adware.{homepage_flag}.Phishing.HomePage.gen")
-                return
-
-            if full_domain in malware_mail_sub_domains_data:
-                if dotnet_flag:
-                    logging.warning(f"Malware mail subdomain detected in .NET source code: {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.DotNET.Malware.Mail.SubDomain")
-                elif nuitka_flag:
-                    logging.warning(f"Malware mail subdomain detected in Nuitka compiled file: {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Nuitka.Malware.Mail.SubDomain")
-                elif nsis_flag:
-                    logging.warning(f"Malware mail subdomain detected in NSIS script compiled file (.nsi): {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.NSIS.Malware.Mail.SubDomain")
-                elif pyc_flag or pyc_meta_llama_flag:
-                    logging.warning(f"Malware mail subdomain detected in Python compiled file: {full_domain}")
-                    if pyc_meta_llama_flag:
-                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.MetaLlama.Malware.Mail.SubDomain")
-                    else:
-                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.Malware.Mail.SubDomain")
-                else:
-                    logging.warning(f"Malware mail subdomain detected: {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Malware.Mail.SubDomain")
-                if homepage_flag:
-                    notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.Adware.{homepage_flag}.Malware.HomePage.gen")
-                return
-
-            if full_domain in malware_sub_domains_data:
-                if dotnet_flag:
-                    logging.warning(f"Malware subdomain detected in .NET source code: {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.DotNET.Malware.SubDomain")
-                elif nuitka_flag:
-                    logging.warning(f"Malware subdomain detected in Nuitka compiled file: {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Nuitka.Malware.SubDomain")
-                elif nsis_flag:
-                    logging.warning(f"Malware subdomain detected in NSIS script compiled file (.nsi): {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.NSIS.Malware.SubDomain")
-                elif pyc_flag or pyc_meta_llama_flag:
-                    logging.warning(f"Malware subdomain detected in Python compiled file: {full_domain}")
-                    if pyc_meta_llama_flag:
-                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.MetaLlama.Malware.SubDomain")
-                    else:
-                        notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.PYC.Python.Malware.SubDomain")
-                else:
-                    logging.warning(f"Malware subdomain detected: {full_domain}")
-                    notify_user_for_malicious_source_code(full_domain, "HEUR:Win32.Malware.SubDomain")
-                if homepage_flag:
-                    notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.Adware.{homepage_flag}.Malware.HomePage.gen")
-                return
+                        notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.{signature_suffix}")
+                    
+                    if homepage_flag:
+                        notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.Adware.{homepage_flag}.{threat_name}.HomePage.gen")
+                    return
 
         # Main domain threat checks
-        if full_domain in spam_domains_data or main_domain in spam_domains_data:
-            if dotnet_flag:
-                logging.warning(f"Spam domain detected in .NET source code: {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.DotNET.Spam.Domain")
-            elif nuitka_flag:
-                logging.warning(f"Spam domain detected in Nuitka compiled file: {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Nuitka.Spam.Domain")
-            elif nsis_flag:
-                logging.warning(f"Spam domain detected in NSIS script compiled file (.nsi): {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.NSIS.Spam.Domain")
-            elif pyc_flag or pyc_meta_llama_flag:
-                logging.warning(f"Spam domain detected in Python compiled file: {main_domain}")
-                if pyc_meta_llama_flag:
-                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.MetaLlama.Spam.Domain")
+        main_threat_checks = [
+            (spam_domains_data, "Spam", "Spam.Domain"),
+            (mining_domains_data, "Mining", "Mining.Domain"),
+            (abuse_domains_data, "Abuse", "Abuse.Domain"),
+            (phishing_domains_data, "Phishing", "Phishing.Domain"),
+            (malware_domains_mail_data, "Malware.Mail", "Malware.Mail.Domain"),
+            (malware_domains_data, "Malware", "Malware.Domain")
+        ]
+        
+        for data_list, threat_name, signature_suffix in main_threat_checks:
+            # Check both full domain and main domain
+            is_full_threat, full_ref = is_domain_in_data(full_domain, data_list)
+            is_main_threat, main_ref = is_domain_in_data(main_domain, data_list)
+            
+            if is_full_threat or is_main_threat:
+                reference = full_ref if is_full_threat else main_ref
+                domain_to_report = full_domain if is_full_threat else main_domain
+                
+                logging.warning(f"{threat_name} domain detected: {domain_to_report} (Reference: {reference})")
+                
+                if dotnet_flag:
+                    notify_user_for_malicious_source_code(domain_to_report, f"HEUR:Win32.DotNET.{signature_suffix}")
+                elif nuitka_flag:
+                    notify_user_for_malicious_source_code(domain_to_report, f"HEUR:Win32.Nuitka.{signature_suffix}")
+                elif nsis_flag:
+                    notify_user_for_malicious_source_code(domain_to_report, f"HEUR:Win32.NSIS.{signature_suffix}")
+                elif pyc_flag:
+                    notify_user_for_malicious_source_code(domain_to_report, f"HEUR:Win32.PYC.Python.{signature_suffix}")
                 else:
-                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.Spam.Domain")
-            else:
-                logging.warning(f"Spam domain detected: {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Spam.Domain")
-            if homepage_flag:
-                notify_user_for_malicious_source_code(main_domain, f"HEUR:Win32.Adware.{homepage_flag}.Spam.HomePage.gen")
-            return
-
-        if full_domain in mining_domains_data or main_domain in mining_domains_data:
-            if dotnet_flag:
-                logging.warning(f"Mining domain detected in .NET source code: {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.DotNET.Mining.Domain")
-            elif nuitka_flag:
-                logging.warning(f"Mining domain detected in Nuitka compiled file: {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Nuitka.Mining.Domain")
-            elif nsis_flag:
-                logging.warning(f"Mining domain detected in NSIS script compiled file (.nsi): {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.NSIS.Mining.Domain")
-            elif pyc_flag or pyc_meta_llama_flag:
-                logging.warning(f"Mining domain detected in Python compiled file: {main_domain}")
-                if pyc_meta_llama_flag:
-                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.MetaLlama.Mining.Domain")
-                else:
-                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.Mining.Domain")
-            else:
-                logging.warning(f"Mining domain detected: {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Mining.Domain")
-            if homepage_flag:
-                notify_user_for_malicious_source_code(main_domain, f"HEUR:Win32.Adware.{homepage_flag}.Mining.HomePage.gen")
-            return
-
-        if full_domain in abuse_domains_data or main_domain in abuse_domains_data:
-            if dotnet_flag:
-                logging.warning(f"Abuse domain detected in .NET source code: {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.DotNET.Abuse.Domain")
-            elif nuitka_flag:
-                logging.warning(f"Abuse domain detected in Nuitka compiled file: {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Nuitka.Abuse.Domain")
-            elif nsis_flag:
-                logging.warning(f"Abuse domain detected in NSIS script compiled file (.nsi): {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.NSIS.Abuse.Domain")
-            elif pyc_flag or pyc_meta_llama_flag:
-                logging.warning(f"Abuse domain detected in Python compiled file: {main_domain}")
-                if pyc_meta_llama_flag:
-                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.MetaLlama.Abuse.Domain")
-                else:
-                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.Abuse.Domain")
-            else:
-                logging.warning(f"Abuse domain detected: {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Abuse.Domain")
-            if homepage_flag:
-                notify_user_for_malicious_source_code(main_domain, f"HEUR:Win32.Adware.{homepage_flag}.Abuse.HomePage.gen")
-            return
-
-        if full_domain in phishing_domains_data or main_domain in phishing_domains_data:
-            if dotnet_flag:
-                logging.warning(f"Phishing domain detected in .NET source code: {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.DotNET.Phishing.Domain")
-            elif nuitka_flag:
-                logging.warning(f"Phishing domain detected in Nuitka compiled file: {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Nuitka.Phishing.Domain")
-            elif nsis_flag:
-                logging.warning(f"Phishing domain detected in NSIS script compiled file (.nsi): {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.NSIS.Phishing.Domain")
-            elif pyc_flag or pyc_meta_llama_flag:
-                logging.warning(f"Phishing domain detected in Python compiled file: {main_domain}")
-                if pyc_meta_llama_flag:
-                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.MetaLlama.Phishing.Domain")
-                else:
-                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.Phishing.Domain")
-            else:
-                logging.warning(f"Phishing domain detected: {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Phishing.Domain")
-            if homepage_flag:
-                notify_user_for_malicious_source_code(main_domain, f"HEUR:Win32.Adware.{homepage_flag}.Phishing.HomePage.gen")
-            return
-
-        if full_domain in malware_domains_mail_data or main_domain in malware_domains_mail_data:
-            if dotnet_flag:
-                logging.warning(f"Malware mail domain detected in .NET source code: {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.DotNET.Malware.Mail.Domain")
-            elif nuitka_flag:
-                logging.warning(f"Malware mail domain detected in Nuitka compiled file: {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Nuitka.Malware.Mail.Domain")
-            elif nsis_flag:
-                logging.warning(f"Malware mail domain detected in NSIS script compiled file (.nsi): {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.NSIS.Malware.Mail.Domain")
-            elif pyc_flag or pyc_meta_llama_flag:
-                logging.warning(f"Malware mail domain detected in Python compiled file: {main_domain}")
-                if pyc_meta_llama_flag:
-                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.MetaLlama.Malware.Mail.Domain")
-                else:
-                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.Malware.Mail.Domain")
-            else:
-                logging.warning(f"Malware mail domain detected: {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Malware.Mail.Domain")
-            if homepage_flag:
-                notify_user_for_malicious_source_code(main_domain, f"HEUR:Win32.Adware.{homepage_flag}.Malware.HomePage.gen")
-            return
-
-        if full_domain in malware_domains_data or main_domain in malware_domains_data:
-            if dotnet_flag:
-                logging.warning(f"Malware domain detected in .NET source code: {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.DotNET.Malware.Domain")
-            elif nuitka_flag:
-                logging.warning(f"Malware domain detected in Nuitka compiled file: {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Nuitka.Malware.Domain")
-            elif nsis_flag:
-                logging.warning(f"Malware domain detected in NSIS script compiled file (.nsi): {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.NSIS.Malware.Domain")
-            elif pyc_flag or pyc_meta_llama_flag:
-                logging.warning(f"Malware domain detected in Python compiled file: {main_domain}")
-                if pyc_meta_llama_flag:
-                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.MetaLlama.Malware.Domain")
-                else:
-                    notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.PYC.Python.Malware.Domain")
-            else:
-                logging.warning(f"Malware domain detected: {main_domain}")
-                notify_user_for_malicious_source_code(main_domain, "HEUR:Win32.Malware.Domain")
-            if homepage_flag:
-                notify_user_for_malicious_source_code(main_domain, f"HEUR:Win32.Adware.{homepage_flag}.Malware.HomePage.gen")
-            return
+                    notify_user_for_malicious_source_code(domain_to_report, f"HEUR:Win32.{signature_suffix}")
+                
+                if homepage_flag:
+                    notify_user_for_malicious_source_code(domain_to_report, f"HEUR:Win32.Adware.{homepage_flag}.{threat_name}.HomePage.gen")
+                return
 
         logging.info(f"Domain {full_domain} passed all checks.")
 
     except Exception as ex:
         logging.error(f"Error scanning domain {url}: {ex}")
+
+
+# --------------------------------------------------------------------------
+# Generalized scan for IP addresses (CSV format with reference support)
+def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyc_flag=False, homepage_flag=""):
+    try:
+        # Check if the IP address is valid
+        if is_valid_ip(ip_address):
+            message = f"Skipping non valid IP address: {ip_address}"
+            logging.info(message)
+            return
+
+        # Check if the IP address has already been scanned
+        if ip_address in scanned_ipv4_addresses_general or ip_address in scanned_ipv6_addresses_general:
+            message = f"IP address {ip_address} has already been scanned."
+            logging.info(message)
+            return
+
+        # Helper function to check if IP is in CSV data
+        def is_ip_in_data(ip, data_list):
+            for entry in data_list:
+                if entry['address'] == ip:
+                    return True, entry['reference']
+            return False, ""
+
+        # Process IPv6 addresses
+        if re.match(IPv6_pattern, ip_address):
+            scanned_ipv6_addresses_general.append(ip_address)
+            message = f"Scanning IPv6 address: {ip_address}"
+            logging.info(message)
+
+            # IPv6 whitelist check
+            is_whitelisted, reference = is_ip_in_data(ip_address, ipv6_whitelist_data)
+            if is_whitelisted:
+                logging.info(f"IPv6 address {ip_address} is whitelisted. Reference: {reference}")
+                return
+
+            # IPv6 threat checks
+            ipv6_threat_checks = [
+                (ipv6_addresses_ddos_signatures_data, "DDoS", "DDoS.IPv6"),
+                (ipv6_addresses_spam_signatures_data, "Spam", "Spam.IPv6"),
+                (ipv6_addresses_signatures_data, "Malware", "Malware.IPv6")
+            ]
+            
+            for data_list, threat_name, signature_suffix in ipv6_threat_checks:
+                is_threat, reference = is_ip_in_data(ip_address, data_list)
+                if is_threat:
+                    logging.warning(f"{threat_name} IPv6 address detected: {ip_address} (Reference: {reference})")
+                    
+                    if dotnet_flag:
+                        notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.DotNET.{signature_suffix}')
+                    elif nuitka_flag:
+                        notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.Nuitka.{signature_suffix}')
+                    elif nsis_flag:
+                        notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.NSIS.{signature_suffix}')
+                    elif pyc_flag:
+                        notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.PYC.Python.{signature_suffix}')
+                    else:
+                        notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.{signature_suffix}')
+                    
+                    if homepage_flag:
+                        if threat_name == "DDoS":
+                            notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.DDoS.HomePage.gen")
+                        elif threat_name == "Spam":
+                            notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.Spam.HomePage.gen")
+                        else:
+                            notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.Malware.HomePage.gen")
+                    return
+            
+            logging.info(f"Unknown IPv6 address detected: {ip_address}")
+
+        # Process IPv4 addresses
+        elif re.match(IPv4_pattern, ip_address):
+            scanned_ipv4_addresses_general.append(ip_address)
+            message = f"Scanning IPv4 address: {ip_address}"
+            logging.info(message)
+
+            # IPv4 whitelist check
+            is_whitelisted, reference = is_ip_in_data(ip_address, ipv4_whitelist_data)
+            if is_whitelisted:
+                logging.info(f"IPv4 address {ip_address} is whitelisted. Reference: {reference}")
+                return
+
+            # IPv4 threat checks
+            ipv4_threat_checks = [
+                (ipv4_addresses_phishing_active_signatures_data, "PhishingActive", "PhishingActive.IPv4", "Phishing"),
+                (ipv4_addresses_ddos_signatures_data, "DDoS", "DDoS.IPv4", "DDoS"),
+                (ipv4_addresses_phishing_inactive_signatures_data, "PhishingInactive", "PhishingInactive.IPv4", "Phishing"),
+                (ipv4_addresses_bruteforce_signatures_data, "BruteForce", "BruteForce.IPv4", "BruteForce"),
+                (ipv4_addresses_spam_signatures_data, "Spam", "Spam.IPv4", "Spam"),
+                (ipv4_addresses_signatures_data, "Malware", "Malware.IPv4", "Malware")
+            ]
+            
+            for data_list, threat_name, signature_suffix, homepage_threat in ipv4_threat_checks:
+                is_threat, reference = is_ip_in_data(ip_address, data_list)
+                if is_threat:
+                    if threat_name == "PhishingActive":
+                        logging.warning(f"IPv4 address {ip_address} detected as an active phishing threat. (Reference: {reference})")
+                    elif threat_name == "PhishingInactive":
+                        logging.warning(f"IPv4 address {ip_address} detected as an inactive phishing threat. (Reference: {reference})")
+                    elif threat_name == "DDoS":
+                        logging.warning(f"IPv4 address {ip_address} detected as a potential DDoS threat. (Reference: {reference})")
+                    elif threat_name == "BruteForce":
+                        logging.warning(f"IPv4 address {ip_address} detected as a potential BruteForce threat. (Reference: {reference})")
+                    else:
+                        logging.warning(f"{threat_name} IPv4 address detected: {ip_address} (Reference: {reference})")
+                    
+                    if dotnet_flag:
+                        notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.DotNET.{signature_suffix}')
+                    elif nuitka_flag:
+                        notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.Nuitka.{signature_suffix}')
+                    elif nsis_flag:
+                        notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.NSIS.{signature_suffix}')
+                    elif pyc_flag:
+                        notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.PYC.Python.{signature_suffix}')
+                    else:
+                        notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.{signature_suffix}')
+                    
+                    if homepage_flag:
+                        notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.{homepage_threat}.HomePage.gen")
+                    return
+            
+            logging.info(f"Unknown IPv4 address detected: {ip_address}")
+        else:
+            logging.debug(f"Invalid IP address format detected: {ip_address}")
+
+    except Exception as ex:
+        logging.error(f"Error scanning IP address {ip_address}: {ex}")
+
+
+# --------------------------------------------------------------------------
+# Spam Email 365 Scanner
+def scan_spam_email_365_general(email_content, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyc_flag=False, homepage_flag=""):
+    """
+    Scans email content for spam keywords from StopForum Spam Database spam database
+    """
+    try:
+        if not email_content:
+            logging.info("No email content provided for spam scanning.")
+            return False
+
+        # Convert email content to lowercase for case-insensitive matching
+        email_content_lower = email_content.lower()
+        detected_spam_words = []
+
+        # Check for spam keywords
+        for spam_word in spam_email_365_data:
+            if spam_word.lower() in email_content_lower:
+                detected_spam_words.append(spam_word)
+
+        if detected_spam_words:
+            logging.warning(f"Spam email detected! Found {len(detected_spam_words)} spam indicators: {', '.join(detected_spam_words[:5])}")  # Show first 5 words
+            
+            # Generate appropriate signature based on context
+            if dotnet_flag:
+                notify_user_for_malicious_source_code("Email Content", "HEUR:Win32.DotNET.Spam.Email.365d")
+            elif nuitka_flag:
+                notify_user_for_malicious_source_code("Email Content", "HEUR:Win32.Nuitka.Spam.Email.365d")
+            elif nsis_flag:
+                notify_user_for_malicious_source_code("Email Content", "HEUR:Win32.NSIS.Spam.Email.365d")
+            elif pyc_flag:
+                notify_user_for_malicious_source_code("Email Content", "HEUR:Win32.PYC.Python.Spam.Email.365d")
+            else:
+                notify_user_for_malicious_source_code("Email Content", "HEUR:Win32.Spam.Email365d")
+            
+            if homepage_flag:
+                notify_user_for_malicious_source_code("Email Content", f"HEUR:Win32.Adware.{homepage_flag}.Spam.Email.365d.gen")
+            
+            return True
+        else:
+            logging.info("Email content passed spam check - no spam indicators found.")
+            return False
+
+    except Exception as ex:
+        logging.error(f"Error scanning email content for spam: {ex}")
+        return False
 
 # --------------------------------------------------------------------------
 # Generalized scan for URLs
@@ -3482,226 +3337,19 @@ def fetch_html(url, return_file_path=False):
         logging.error(f"Unexpected error fetching HTML content from {url}: {e}")
         return ("", None) if return_file_path else ""
 
-# --------------------------------------------------------------------------
-# Generalized scan for IP addresses
-def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyc_flag=False, pyc_meta_llama_flag=False, homepage_flag=""):
-    try:
-        # Check if the IP address is valid
-        if is_valid_ip(ip_address):
-            message = f"Skipping non valid IP address: {ip_address}"
-            logging.info(message)
-            return
-
-        # Check if the IP address has already been scanned
-        if ip_address in scanned_ipv4_addresses_general or ip_address in scanned_ipv6_addresses_general:
-            message = f"IP address {ip_address} has already been scanned."
-            logging.info(message)
-            return
-
-        # Process IPv6 addresses
-        if re.match(IPv6_pattern, ip_address):
-            scanned_ipv6_addresses_general.append(ip_address)
-            message = f"Scanning IPv6 address: {ip_address}"
-            logging.info(message)
-
-            if ip_address in ipv6_whitelist_data:
-                logging.info(f"IPv6 address {ip_address} is whitelisted.")
-                return
-            elif ip_address in ipv6_addresses_ddos_signatures_data:
-                logging.warning(f"DDoS IPv6 address detected: {ip_address}")
-                if dotnet_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.DDoS.IPv6')
-                elif nuitka_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.DDoS.IPv6')
-                elif nsis_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.DDoS.IPv6')
-                elif pyc_flag or pyc_meta_llama_flag:
-                    logging.warning(f"DDoS IPv6 address detected: {ip_address}")
-                    if pyc_meta_llama_flag:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.MetaLlama.DDoS.IPv6')
-                    else:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.DDoS.IPv6')
-                else:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DDoS.IPv6')
-                if homepage_flag:
-                    notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.DDoS.HomePage.gen")
-            elif ip_address in ipv6_addresses_spam_signatures_data:
-                logging.warning(f"Spam IPv6 address detected: {ip_address}")
-                if dotnet_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.Spam.IPv6')
-                elif nuitka_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Spam.IPv6')
-                elif nsis_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.Spam.IPv6')
-                elif pyc_flag or pyc_meta_llama_flag:
-                    logging.warning(f"Spam IPv6 address detected: {ip_address}")
-                    if pyc_meta_llama_flag:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.MetaLlama.Spam.IPv6')
-                    else:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.Spam.IPv6')
-                else:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Spam.IPv6')
-                if homepage_flag:
-                    notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.Spam.HomePage.gen")
-            elif ip_address in ipv6_addresses_signatures_data:
-                logging.warning(f"Malicious IPv6 address detected: {ip_address}")
-                if dotnet_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.Malware.IPv6')
-                elif nuitka_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Malware.IPv6')
-                elif nsis_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.Malware.IPv6')
-                elif pyc_flag or pyc_meta_llama_flag:
-                    logging.warning(f"Malicious IPv6 address detected: {ip_address}")
-                    if pyc_meta_llama_flag:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.MetaLlama.Malware.IPv6')
-                    else:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.Malware.IPv6')
-                else:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Malware.IPv6')
-                if homepage_flag:
-                    notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.Malware.HomePage.gen")
-            else:
-                logging.info(f"Unknown IPv6 address detected: {ip_address}")
-
-        # Process IPv4 addresses
-        elif re.match(IPv4_pattern, ip_address):
-            scanned_ipv4_addresses_general.append(ip_address)
-            message = f"Scanning IPv4 address: {ip_address}"
-            logging.info(message)
-
-            # Check if the IPv4 address is whitelisted
-            if ip_address in ipv4_whitelist_data:
-                logging.info(f"IPv4 address {ip_address} is whitelisted.")
-                return
-            # Detailed Active phishing threat signature check for IPv4
-            elif ip_address in ipv4_addresses_phishing_active_signatures_data:
-                logging.warning(f"IPv4 address {ip_address} detected as an active phishing threat.")
-                if dotnet_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.PhishingActive.IPv4')
-                elif nuitka_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.PhishingActive.IPv4')
-                elif nsis_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.PhishingActive.IPv4')
-                elif pyc_flag or pyc_meta_llama_flag:
-                    logging.warning(f"IPv4 address {ip_address} detected as an active phishing threat.")
-                    if pyc_meta_llama_flag:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.MetaLlama.PhishingActive.IPv4')
-                    else:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.PhishingActive.IPv4')
-                else:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PhishingActive.IPv4')
-                if homepage_flag:
-                    notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.Phishing.HomePage.gen")
-            elif ip_address in ipv4_addresses_ddos_signatures_data:
-                logging.warning(f"IPv4 address {ip_address} detected as a potential DDoS threat.")
-                if dotnet_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.DDoS.IPv4')
-                elif nuitka_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.DDoS.IPv4')
-                elif nsis_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.DDoS.IPv4')
-                elif pyc_flag or pyc_meta_llama_flag:
-                    logging.warning(f"IPv4 address {ip_address} detected as a potential DDoS threat.")
-                    if pyc_meta_llama_flag:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.MetaLlama.DDoS.IPv4')
-                    else:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.DDoS.IPv4')
-                else:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DDoS.IPv4')
-                if homepage_flag:
-                    notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.DDoS.HomePage.gen")
-            elif ip_address in ipv4_addresses_phishing_inactive_signatures_data:
-                logging.warning(f"IPv4 address {ip_address} detected as an inactive phishing threat.")
-                if dotnet_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.PhishingInactive.IPv4')
-                elif nuitka_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.PhishingInactive.IPv4')
-                elif nsis_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.PhishingInactive.IPv4')
-                elif pyc_flag or pyc_meta_llama_flag:
-                    logging.warning(f"IPv4 address {ip_address} detected as an inactive phishing threat.")
-                    if pyc_meta_llama_flag:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.MetaLlama.PhishingInactive.IPv4')
-                    else:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.PhishingInactive.IPv4')
-                else:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PhishingInactive.IPv4')
-                if homepage_flag:
-                    notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.Phishing.HomePage.gen")
-            elif ip_address in ipv4_addresses_bruteforce_signatures_data:
-                logging.warning(f"IPv4 address {ip_address} detected as a potential BruteForce threat.")
-                if dotnet_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.BruteForce.IPv4')
-                elif nuitka_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.BruteForce.IPv4')
-                elif nsis_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.BruteForce.IPv4')
-                elif pyc_flag or pyc_meta_llama_flag:
-                    logging.warning(f"IPv4 address {ip_address} detected as a potential BruteForce threat.")
-                    if pyc_meta_llama_flag:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.MetaLlama.BruteForce.IPv4')
-                    else:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.BruteForce.IPv4')
-                else:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.BruteForce.IPv4')
-                if homepage_flag:
-                    notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.BruteForce.HomePage.gen")
-            elif ip_address in ipv4_addresses_spam_signatures_data:
-                logging.warning(f"Spam IPv4 address detected: {ip_address}")
-                if dotnet_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.Spam.IPv4')
-                elif nuitka_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Spam.IPv4')
-                elif nsis_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.Spam.IPv4')
-                elif pyc_flag or pyc_meta_llama_flag:
-                    logging.warning(f"Spam IPv4 address detected: {ip_address}")
-                    if pyc_meta_llama_flag:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.MetaLlama.Spam.IPv4')
-                    else:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.Spam.IPv4')
-                else:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Spam.IPv4')
-                if homepage_flag:
-                    notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.Spam.HomePage.gen")
-            elif ip_address in ipv4_addresses_signatures_data:
-                logging.warning(f"Malicious IPv4 address detected: {ip_address}")
-                if dotnet_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.DotNET.Malware.IPv4')
-                elif nuitka_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Nuitka.Malware.IPv4')
-                elif nsis_flag:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.NSIS.Malware.IPv4')
-                elif pyc_flag or pyc_meta_llama_flag:
-                    logging.warning(f"Malicious IPv4 address detected: {ip_address}")
-                    if pyc_meta_llama_flag:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.MetaLlama.Malware.IPv4')
-                    else:
-                        notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.PYC.Python.Malware.IPv4')
-                else:
-                    notify_user_for_malicious_source_code(ip_address, 'HEUR:Win32.Malware.IPv4')
-                if homepage_flag:
-                    notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.Malware.HomePage.gen")
-            else:
-                logging.info(f"Unknown IPv4 address detected: {ip_address}")
-        else:
-            logging.debug(f"Invalid IP address format detected: {ip_address}")
-
-    except Exception as ex:
-        logging.error(f"Error scanning IP address {ip_address}: {ex}")
-
-def scan_html_content(html_content, html_content_file_path, dotnet_flag=False, nuitka_flag=False, pyc_flag=False, nsis_flag=False, pyc_meta_llama_flag=False):
+def scan_html_content(html_content, html_content_file_path, dotnet_flag=False, nuitka_flag=False, pyc_flag=False, nsis_flag=False, homepage_flag=""):
     """Scan extracted HTML content for any potential threats."""
     contains_discord_or_telegram_code(html_content, html_content_file_path, None,
                           dotnet_flag, nuitka_flag,
-                          pyc_flag, nsis_flag, pyc_meta_llama_flag)
+                          pyc_flag, nsis_flag, homepage_flag)
     urls = set(re.findall(r'https?://[^\s/$.?#]\S*', html_content))
     for url in urls:
         scan_url_general(url, dotnet_flag, nuitka_flag,
-                          pyc_flag, nsis_flag, pyc_meta_llama_flag)
+                          pyc_flag, nsis_flag)
         scan_domain_general(url, dotnet_flag, nuitka_flag,
-                            pyc_flag, nsis_flag, pyc_meta_llama_flag)
+                            pyc_flag, nsis_flag, homepage_flag)
+        scan_spam_email_365_general(url, dotnet_flag, nuitka_flag,
+                            pyc_flag, nsis_flag, homepage_flag)
     ipv4_addresses = set(re.findall(
         r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'
         r'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)',
@@ -3709,20 +3357,19 @@ def scan_html_content(html_content, html_content_file_path, dotnet_flag=False, n
     ))
     for ip in ipv4_addresses:
         scan_ip_address_general(ip, dotnet_flag, nuitka_flag,
-                                pyc_flag, nsis_flag ,pyc_meta_llama_flag)
+                                pyc_flag, nsis_flag, homepage_flag)
     ipv6_addresses = set(re.findall(
         r'([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}',
         html_content
     ))
     for ip in ipv6_addresses:
         scan_ip_address_general(ip, dotnet_flag, nuitka_flag,
-                                pyc_flag, nsis_flag, pyc_meta_llama_flag)
+                                pyc_flag, nsis_flag, homepage_flag)
 
 # --------------------------------------------------------------------------
 # Main scanner: combine all individual scans and pass the flags along
 def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
-                          dotnet_flag=False, nuitka_flag=False, pyc_flag=False, pyc_meta_llama_flag=False, nsis_flag=False,
-                          homepage_flag=""):
+                          dotnet_flag=False, nuitka_flag=False, pyc_flag=False, nsis_flag=False, homepage_flag=""):
     """
     Scan the decompiled code for Discord-related URLs (via contains_discord_or_telegram_code),
     general URLs, domains, and IP addresses. The provided flags are passed along
@@ -3733,7 +3380,7 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
     # Call the Discord/Telegram scanner
     contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path,
                             dotnet_flag, nuitka_flag,
-                            pyc_flag, nsis_flag ,pyc_meta_llama_flag)
+                            pyc_flag, nsis_flag)
 
     # Extract URLs from the decompiled code
     urls = set(re.findall(r'https?://[^\s/$.?#]\S*', decompiled_code))
@@ -3741,16 +3388,16 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
         html_content, html_content_file_path = fetch_html(url, return_file_path=True)
         contains_discord_or_telegram_code(html_content, file_path, cs_file_path,
                               dotnet_flag, nuitka_flag,
-                              pyc_flag, nsis_flag ,pyc_meta_llama_flag)
+                              pyc_flag, nsis_flag)
         # Pass the homepage flag string into the scanning functions
         scan_url_general(url, dotnet_flag, nuitka_flag,
-                          pyc_flag, nsis_flag, pyc_meta_llama_flag,
-                          homepage_flag)
+                          pyc_flag, nsis_flag, homepage_flag)
         scan_domain_general(url, dotnet_flag, nuitka_flag,
-                            pyc_flag, nsis_flag, pyc_meta_llama_flag,
-                            homepage_flag)
+                            pyc_flag, nsis_flag, homepage_flag)
+        scan_spam_email_365_general(url, dotnet_flag, nuitka_flag,
+                            pyc_flag, nsis_flag, homepage_flag)
         scan_html_content(html_content, html_content_file_path, dotnet_flag, nuitka_flag,
-                          pyc_flag, nsis_flag, pyc_meta_llama_flag)
+                          pyc_flag, nsis_flag, homepage_flag)
 
     ipv4_addresses = set(re.findall(
         r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'
@@ -3759,8 +3406,7 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
     ))
     for ip in ipv4_addresses:
         scan_ip_address_general(ip, dotnet_flag, nuitka_flag,
-                                pyc_flag, nsis_flag, pyc_meta_llama_flag,
-                                homepage_flag)
+                                pyc_flag, nsis_flag, homepage_flag)
 
     ipv6_addresses = set(re.findall(
         r'([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}',
@@ -3768,8 +3414,7 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
     ))
     for ip in ipv6_addresses:
         scan_ip_address_general(ip, dotnet_flag, nuitka_flag,
-                                pyc_flag, nsis_flag ,pyc_meta_llama_flag,
-                                homepage_flag)
+                                pyc_flag, nsis_flag, homepage_flag)
 
 # Load Psapi.dll and define the filter flag
 _psapi = ctypes.WinDLL('Psapi.dll')
@@ -4015,7 +3660,9 @@ def is_related_to_critical_paths(file_path):
 
 
 # --- The RealTimeWebProtectionHandler Class ---
+
 class RealTimeWebProtectionHandler:
+
     def __init__(self):
         self.scanned_domains = []
         self.scanned_ipv4_addresses = []
@@ -4026,7 +3673,21 @@ class RealTimeWebProtectionHandler:
     def map_domain_ip_to_file(self, entity):
         return self.domain_ip_to_file_map.get(entity)
 
-    def handle_detection(self, entity_type, entity_value, detection_type=None):
+    # Helper function to check if domain is in CSV data
+    def is_domain_in_data(self, domain, data_list):
+        for entry in data_list:
+            if entry['address'] == domain:
+                return True, entry['reference']
+        return False, ""
+
+    # Helper function to check if IP is in CSV data
+    def is_ip_in_data(self, ip, data_list):
+        for entry in data_list:
+            if entry['address'] == ip:
+                return True, entry['reference']
+        return False, ""
+
+    def handle_detection(self, entity_type, entity_value, detection_type=None, reference=""):
         """
         Handle a detection event for a given entity (domain, IP, URL).
         Only notify if there is a non-empty entity value and it maps to a file or critical path.
@@ -4042,7 +3703,8 @@ class RealTimeWebProtectionHandler:
             'ipv6_address': None,
             'url': None,
             'file_path': None,
-            'detection_type': detection_type
+            'detection_type': detection_type,
+            'reference': reference
         }
 
         try:
@@ -4052,6 +3714,8 @@ class RealTimeWebProtectionHandler:
                 message = f"{entity_type.capitalize()} {entity_value} is related to a critical path: {file_path}"
                 if detection_type:
                     message = f"{detection_type} {message}"
+                if reference:
+                    message += f" Reference: {reference}"
                 logging.warning(message)
                 logging.info(message)
 
@@ -4074,6 +3738,8 @@ class RealTimeWebProtectionHandler:
                     )
                 if detection_type:
                     message = f"{detection_type} {message}"
+                if reference:
+                    message += f" Reference: {reference}"
                 logging.info(message)
 
             # Only notify if there's meaningful data (ignore detection_type alone)
@@ -4152,85 +3818,42 @@ class RealTimeWebProtectionHandler:
             parts = domain.split(".")
             main_domain = domain if len(parts) < 3 else ".".join(parts[-2:])
 
-            # Check against spam subdomains
-            if main_domain in spam_sub_domains_data:
-                self.handle_detection('subdomain', main_domain, 'SPAM SUBDOMAIN')
-                return
+            # Define whitelist checks with their respective types
+            whitelist_checks = [
+                (whitelist_sub_domains_data, "subdomain"),
+                (whitelist_mail_sub_domains_data, "mail subdomain"),
+                (whitelist_domains_data, "domain"),
+                (whitelist_domains_mail_data, "mail domain")
+            ]
 
-            # Check against mining subdomains
-            if main_domain in mining_sub_domains_data:
-                self.handle_detection('subdomain', main_domain, 'MINING SUBDOMAIN')
-                return
+            # Check whitelists first
+            for data_list, whitelist_type in whitelist_checks:
+                is_whitelisted, reference = self.is_domain_in_data(main_domain, data_list)
+                if is_whitelisted:
+                    logging.info(f"Domain {main_domain} is whitelisted ({whitelist_type}). Reference: {reference}")
+                    return
 
-            # Check against abuse subdomains
-            if main_domain in abuse_sub_domains_data:
-                self.handle_detection('subdomain', main_domain, 'ABUSE SUBDOMAIN')
-                return
+            # Check against threat lists with address-reference structure
+            threat_checks = [
+                (spam_sub_domains_data, 'subdomain', 'SPAM SUBDOMAIN'),
+                (mining_sub_domains_data, 'subdomain', 'MINING SUBDOMAIN'),
+                (abuse_sub_domains_data, 'subdomain', 'ABUSE SUBDOMAIN'),
+                (phishing_sub_domains_data, 'subdomain', 'PHISHING SUBDOMAIN'),
+                (malware_sub_domains_data, 'subdomain', 'MALWARE SUBDOMAIN'),
+                (malware_mail_sub_domains_data, 'subdomain', 'MALWARE MAIL SUBDOMAIN'),
+                (spam_domains_data, 'domain', 'SPAM'),
+                (mining_domains_data, 'domain', 'MINING'),
+                (abuse_domains_data, 'domain', 'ABUSE'),
+                (phishing_domains_data, 'domain', 'PHISHING'),
+                (malware_domains_data, 'domain', 'MALWARE'),
+                (malware_domains_mail_data, 'domain', 'MALWARE MAIL')
+            ]
 
-            # Check against phishing subdomains
-            if main_domain in phishing_sub_domains_data:
-                self.handle_detection('subdomain', main_domain, 'PHISHING SUBDOMAIN')
-                return
-
-            # Check against malware subdomains
-            if main_domain in malware_sub_domains_data:
-                self.handle_detection('subdomain', main_domain, 'MALWARE SUBDOMAIN')
-                return
-
-            # Check against whitelist subdomains
-            if main_domain in whitelist_sub_domains_data:
-                logging.info(f"Domain {main_domain} is whitelisted (subdomain)")
-                return
-
-            # Check against malware mail subdomains
-            if main_domain in malware_mail_sub_domains_data:
-                self.handle_detection('subdomain', main_domain, 'MALWARE MAIL SUBDOMAIN')
-                return
-
-            # Check against whitelist mail subdomains
-            if main_domain in whitelist_mail_sub_domains_data:
-                logging.info(f"Domain {main_domain} is whitelisted (mail subdomain)")
-                return
-
-            # Check against spam domains
-            if main_domain in spam_domains_data:
-                self.handle_detection('domain', main_domain, 'SPAM')
-                return
-
-            # Check against mining domains
-            if main_domain in mining_domains_data:
-                self.handle_detection('domain', main_domain, 'MINING')
-                return
-
-            # Check against abuse domains
-            if main_domain in abuse_domains_data:
-                self.handle_detection('domain', main_domain, 'ABUSE')
-                return
-
-            # Check against phishing domains
-            if main_domain in phishing_domains_data:
-                self.handle_detection('domain', main_domain, 'PHISHING')
-                return
-
-            # Check against malware domains
-            if main_domain in malware_domains_data:
-                self.handle_detection('domain', main_domain, 'MALWARE')
-                return
-
-            # Check against malware domains in mail data
-            if main_domain in malware_domains_mail_data:
-                self.handle_detection('domain', main_domain, 'MALWARE MAIL')
-                return
-
-            # Check if domain is whitelisted
-            if main_domain in whitelist_domains_data:
-                logging.info(f"Domain {main_domain} is whitelisted")
-                return
-
-            # Check if domain is whitelisted in mail data
-            if main_domain in whitelist_domains_mail_data:
-                logging.info(f"Domain {main_domain} is whitelisted (mail)")
-                return
+            for data_list, entity_type_check, detection_type_check in threat_checks:
+                is_threat, reference = self.is_domain_in_data(main_domain, data_list)
+                if is_threat:
+                    self.handle_detection(entity_type_check, main_domain, detection_type_check, reference)
+                    return
 
             # fetch & parse HTML
             full_url = f"http://{domain}"
@@ -4247,56 +3870,60 @@ class RealTimeWebProtectionHandler:
         elif kind in ('ipv4', 'ipv6'):
             ip_address = entity_value
             # valid ip check
-            if is_valid_ip(ip_address):
+            if not is_valid_ip(ip_address):
                 logging.info(f"Skipping non valid IP address: {ip_address}")
                 return
 
             # signatures
             if kind == 'ipv6':
                 logging.info(f"Scanning IPv6 address: {ip_address}")
-                if ip_address in ipv6_addresses_ddos_signatures_data:
-                    self.handle_detection('ipv6_address', ip_address, 'DDOS')
+                
+                # Check whitelist first
+                is_whitelisted, reference = self.is_ip_in_data(ip_address, ipv6_whitelist_data)
+                if is_whitelisted:
+                    logging.info(f"IPv6 address {ip_address} is whitelisted. Reference: {reference}")
+                    return
 
-                # Check against IPv6 Malware signatures
-                elif ip_address in ipv6_addresses_spam_signatures_data:
-                    self.handle_detection('ipv6_address', ip_address, 'SPAM')
+                # Check threat lists
+                threat_checks = [
+                    (ipv6_addresses_ddos_signatures_data, 'DDOS'),
+                    (ipv6_addresses_spam_signatures_data, 'SPAM'),
+                    (ipv6_addresses_signatures_data, 'MALWARE')
+                ]
 
-                # Check against IPv6 Malware signatures
-                elif ip_address in ipv6_addresses_signatures_data:
-                    self.handle_detection('ipv6_address', ip_address, 'MALWARE')
+                for data_list, detection_type_check in threat_checks:
+                    is_threat, reference = self.is_ip_in_data(ip_address, data_list)
+                    if is_threat:
+                        self.handle_detection('ipv6_address', ip_address, detection_type_check, reference)
+                        return
 
-                # Check if it is in the IPv6 whitelist
-                elif ip_address in ipv6_whitelist_data:
-                    logging.info(f"IPv6 address {ip_address} is whitelisted")
-                else:
-                    logging.info(f"Unknown IPv6 address detected: {ip_address}")
+                logging.info(f"Unknown IPv6 address detected: {ip_address}")
 
             else:  # ipv4
                 logging.info(f"Scanning IPv4 address: {ip_address}")
-                if ip_address in ipv4_addresses_phishing_active_signatures_data:
-                    self.handle_detection('ipv4_address', ip_address, 'PHISHING_ACTIVE')
+                
+                # Check whitelist first
+                is_whitelisted, reference = self.is_ip_in_data(ip_address, ipv4_whitelist_data)
+                if is_whitelisted:
+                    logging.info(f"IPv4 address {ip_address} is whitelisted. Reference: {reference}")
+                    return
 
-                # Check against inactive phishing signatures
-                if ip_address in ipv4_addresses_phishing_inactive_signatures_data:
-                    self.handle_detection('ipv4_address', ip_address, 'PHISHING_INACTIVE')
+                # Check threat lists
+                threat_checks = [
+                    (ipv4_addresses_phishing_active_signatures_data, 'PHISHING_ACTIVE'),
+                    (ipv4_addresses_phishing_inactive_signatures_data, 'PHISHING_INACTIVE'),
+                    (ipv4_addresses_bruteforce_signatures_data, 'BRUTEFORCE'),
+                    (ipv4_addresses_spam_signatures_data, 'SPAM'),
+                    (ipv4_addresses_signatures_data, 'MALWARE')
+                ]
 
-                # Check against IPv4 BruteForce signatures
-                if ip_address in ipv4_addresses_bruteforce_signatures_data:
-                    self.handle_detection('ipv4_address', ip_address, 'BRUTEFORCE')
+                for data_list, detection_type_check in threat_checks:
+                    is_threat, reference = self.is_ip_in_data(ip_address, data_list)
+                    if is_threat:
+                        self.handle_detection('ipv4_address', ip_address, detection_type_check, reference)
+                        return
 
-                # Check against IPv4 Malware signatures
-                if ip_address in ipv4_addresses_spam_signatures_data:
-                    self.handle_detection('ipv4_address', ip_address, 'SPAM')
-
-                # Check against IPv4 Malware signatures
-                if ip_address in ipv4_addresses_signatures_data:
-                    self.handle_detection('ipv4_address', ip_address, 'MALWARE')
-
-                # Check if it is in the IPv4 whitelist
-                elif ip_address in ipv4_whitelist_data:
-                    logging.info(f"IPv4 address {ip_address} is whitelisted")
-                else:
-                    logging.info(f"Unknown IPv4 address detected: {ip_address}")
+                logging.info(f"Unknown IPv4 address detected: {ip_address}")
 
             # fetch & parse
             full_url = f"http://{ip_address}"
