@@ -4476,7 +4476,7 @@ def scan_yara(file_path):
         if not os.path.exists(file_path):
             logging.error(f"File not found during YARA scan: {file_path}")
             return None, None
-            
+
         with open(file_path, 'rb') as yara_file:
             data_content = yara_file.read()
 
@@ -4544,13 +4544,13 @@ def scan_yara(file_path):
                             'length': match.length,
                             'matched_data': data_content[match.offset:match.offset + match.length]
                         }
-                        
+
                         # Convert bytes to text/hex
                         try:
                             instance_info['matched_text'] = instance_info['matched_data'].decode('utf-8', errors='ignore')
                         except:
                             instance_info['matched_text'] = None
-                            
+
                         instance_info['matched_hex'] = instance_info['matched_data'].hex()
                         string_info['instances'].append(instance_info)
 
@@ -4627,7 +4627,7 @@ def scan_yara(file_path):
             if yaraxtr_rule:
                 scanner = yara_x.Scanner(rules=yaraxtr_rule)
                 scan_results = scanner.scan(data_content)
-                
+
                 # Iterate through matching rules
                 for rule in scan_results.matching_rules:
                     if rule.identifier not in excluded_rules:
