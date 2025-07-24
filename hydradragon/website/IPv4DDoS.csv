@@ -1,4 +1,4 @@
-item,reference
+entry,reference
 1.12.246.6,Unknown
 1.25.18.18,Unknown
 1.34.6.132,Unknown
@@ -1384,7 +1384,6 @@ item,reference
 45.148.10.79,Unknown
 45.148.10.90,Unknown
 45.148.10.166,Unknown
-45.148.10.186,Unknown
 45.148.10.187,Unknown
 45.148.10.196,Unknown
 45.151.99.14,Unknown
@@ -2715,7 +2714,6 @@ item,reference
 66.208.206.2,Unknown
 66.212.129.2,Unknown
 66.240.192.138,Unknown
-66.240.205.34,Unknown
 66.240.219.146,Unknown
 66.240.223.202,Unknown
 66.240.236.116,Unknown
@@ -2803,7 +2801,6 @@ item,reference
 71.6.147.254,Unknown
 71.6.158.166,Unknown
 71.6.165.200,Unknown
-71.6.167.142,Unknown
 71.6.199.23,Unknown
 71.12.241.225,Unknown
 71.53.134.179,Unknown
@@ -2979,7 +2976,6 @@ item,reference
 80.72.176.178,Unknown
 80.82.70.133,Unknown
 80.82.77.33,Unknown
-80.82.77.139,Unknown
 80.82.77.202,Unknown
 80.85.84.75,Unknown
 80.85.245.37,Unknown
@@ -3364,7 +3360,6 @@ item,reference
 92.27.144.155,Unknown
 92.38.29.31,Unknown
 92.48.77.96,Unknown
-92.53.96.4,Unknown
 92.53.96.22,Unknown
 92.53.96.37,Unknown
 92.53.96.101,Unknown
@@ -3754,7 +3749,6 @@ item,reference
 101.255.32.42,Unknown
 102.23.122.235,Unknown
 102.23.254.237,Unknown
-102.53.15.17,Unknown
 102.90.16.90,Unknown
 102.90.63.146,Unknown
 102.129.223.92,Unknown
@@ -5256,7 +5250,6 @@ item,reference
 121.63.17.55,Unknown
 121.66.63.186,Unknown
 121.78.119.104,Unknown
-121.121.71.113,Unknown
 121.122.119.22,Unknown
 121.123.6.162,Unknown
 121.129.12.130,Unknown
@@ -6049,7 +6042,6 @@ item,reference
 141.98.11.128,Unknown
 141.98.11.205,Unknown
 141.98.198.120,Unknown
-141.105.87.18,Unknown
 141.255.166.90,Unknown
 142.4.1.40,Unknown
 142.4.19.199,Unknown
@@ -7229,7 +7221,6 @@ item,reference
 176.113.115.14,Unknown
 176.113.115.15,Unknown
 176.113.115.16,Unknown
-176.113.115.17,Unknown
 176.113.115.36,Unknown
 176.113.115.40,Unknown
 176.113.115.137,Unknown
@@ -9171,7 +9162,6 @@ item,reference
 208.109.243.208,Unknown
 208.109.246.133,Unknown
 209.6.145.236,Unknown
-209.16.67.24,Unknown
 209.17.114.78,Unknown
 209.23.9.19,Unknown
 209.38.33.11,Unknown
@@ -9187,7 +9177,6 @@ item,reference
 209.58.184.129,Unknown
 209.97.150.192,Unknown
 209.97.173.167,Unknown
-209.141.33.208,Unknown
 209.141.52.5,Unknown
 209.141.55.86,Unknown
 209.141.60.238,Unknown
@@ -9480,7 +9469,6 @@ item,reference
 218.92.0.143,Unknown
 218.92.0.145,Unknown
 218.92.0.147,Unknown
-218.92.0.148,Unknown
 218.92.0.149,Unknown
 218.92.0.150,Unknown
 218.92.0.151,Unknown
@@ -9530,7 +9518,6 @@ item,reference
 218.92.0.211,Unknown
 218.92.0.212,Unknown
 218.92.0.213,Unknown
-218.92.0.215,Unknown
 218.92.0.216,Unknown
 218.92.0.217,Unknown
 218.92.0.218,Unknown

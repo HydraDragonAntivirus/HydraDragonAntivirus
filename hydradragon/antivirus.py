@@ -460,29 +460,29 @@ ipv4_addresses_spam_path = os.path.join(website_rules_dir, "IPv4Spam.csv")
 ipv4_addresses_bruteforce_path = os.path.join(website_rules_dir, "IPv4BruteForce.csv")
 ipv4_addresses_phishing_active_path = os.path.join(website_rules_dir, "IPv4PhishingActive.csv")
 ipv4_addresses_phishing_inactive_path = os.path.join(website_rules_dir, "IPv4PhishingInActive.csv")
-ipv4_whitelist_path = os.path.join(website_rules_dir, "IPv4Whitelist.csv")
+ipv4_whitelist_path = os.path.join(website_rules_dir, "WhitelistIPv4.csv")
 ipv6_addresses_path = os.path.join(website_rules_dir, "IPv6Malware.csv")
 ipv6_addresses_spam_path = os.path.join(website_rules_dir, "IPv6Spam.csv")
 ipv4_addresses_ddos_path = os.path.join(website_rules_dir, "IPv4DDoS.csv")
 ipv6_addresses_ddos_path = os.path.join(website_rules_dir, "IPv6DDoS.csv")
-ipv6_whitelist_path = os.path.join(website_rules_dir, "IPv6Whitelist.csv")
+ipv6_whitelist_path = os.path.join(website_rules_dir, "WhiteListIPv6.csv")
 malware_domains_path = os.path.join(website_rules_dir, "MalwareDomains.csv")
-malware_domains_mail_path = os.path.join(website_rules_dir, "MalwareDomainsMail.csv")
+malware_domains_mail_path = os.path.join(website_rules_dir, "MaliciousMailDomains.csv")
 phishing_domains_path = os.path.join(website_rules_dir, "PhishingDomains.csv")
 abuse_domains_path = os.path.join(website_rules_dir, "AbuseDomains.csv")
 mining_domains_path = os.path.join(website_rules_dir, "MiningDomains.csv")
 spam_domains_path = os.path.join(website_rules_dir, "SpamDomains.csv")
 whitelist_domains_path = os.path.join(website_rules_dir, "WhiteListDomains.csv")
-whitelist_domains_mail_path = os.path.join(website_rules_dir, "WhiteListDomainsMail.csv")
+whitelist_domains_mail_path = os.path.join(website_rules_dir, "BenignMailDomains.csv")
 # Define corresponding subdomain files
 malware_sub_domains_path = os.path.join(website_rules_dir, "MalwareSubDomains.csv")
-malware_mail_sub_domains_path = os.path.join(website_rules_dir, "MalwareSubDomainsMail.csv")
+malware_mail_sub_domains_path = os.path.join(website_rules_dir, "MaliciousMailSubDomains.csv")
 phishing_sub_domains_path = os.path.join(website_rules_dir, "PhishingSubDomains.csv")
 abuse_sub_domains_path = os.path.join(website_rules_dir, "AbuseSubDomains.csv")
 mining_sub_domains_path = os.path.join(website_rules_dir, "MiningSubDomains.csv")
 spam_sub_domains_path = os.path.join(website_rules_dir, "SpamSubDomains.csv")
 whitelist_sub_domains_path = os.path.join(website_rules_dir, "WhiteListSubDomains.csv")
-whitelist_mail_sub_domains_path = os.path.join(website_rules_dir, "WhiteListSubDomainsMail.csv")
+whitelist_mail_sub_domains_path = os.path.join(website_rules_dir, "BenignMailSubDomains.csv")
 urlhaus_path = os.path.join(website_rules_dir, "urlhaus.txt")
 antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
 yaraxtr_yrc_path = os.path.join(yara_dir, "yaraxtr.yrc")
@@ -1433,12 +1433,38 @@ def is_pyc_file_from_output(die_output):
         return True
     return False
 
-def is_pe_file_from_output(die_output):
-    """Checks if DIE output indicates a PE (Portable Executable) file."""
+def is_pe_file_from_output(die_output: str, file_path: str) -> bool:
+    """
+    Checks if DIE output or pefile validation indicates a PE (Portable Executable) file.
+    
+    Args:
+        die_output: The output string from DIE (Detect It Easy).
+        file_path: The path to the suspected PE file.
+    
+    Returns:
+        True if the file appears to be a PE file, False otherwise.
+    """
+    # Check DIE output first
     if die_output and ("PE32" in die_output or "PE64" in die_output):
         logging.info("DIE output indicates a PE file.")
+
+        # Cross-validate using pefile
+        try:
+            pe = pefile.PE(file_path, fast_load=True)
+            logging.info("pefile successfully parsed the file as PE.")
+            return True
+        except pefile.PEFormatError:
+            logging.warning("DIE said PE, but pefile couldn't parse it. Possibly corrupted.")
+            return False
+
+    # If DIE doesn't say PE, try pefile directly
+    try:
+        pe = pefile.PE(file_path, fast_load=True)
+        logging.info("pefile detected a PE file even though DIE did not.")
         return True
-    return False
+    except pefile.PEFormatError:
+        logging.debug("File is not a valid PE according to both DIE and pefile.")
+        return False
 
 def is_cx_freeze_file_from_output(die_output):
     """Checks if DIE output indicates a cx_Freeze file."""
@@ -1876,6 +1902,8 @@ def process_file_data(file_path, die_output):
     except Exception as ex:
         logging.error(f"Error processing file {file_path}: {ex}")
 
+# --- PE Analysis and Feature Extraction Functions (NEWLY UPDATED) ---
+
 def extract_infos(file_path, rank=None):
     """Extract information about file"""
     file_name = os.path.basename(file_path)
@@ -1965,8 +1993,8 @@ def analyze_dos_stub(pe) -> Dict[str, Any]:
 
         return dos_stub
     except Exception as ex:
-          logging.error(f"Error analyzing DOS stub: {ex}")
-          return {}
+        logging.error(f"Error analyzing DOS stub: {ex}")
+        return {}
 
 def analyze_certificates(pe) -> Dict[str, Any]:
     """Analyze security certificates."""
@@ -1978,15 +2006,16 @@ def analyze_certificates(pe) -> Dict[str, Any]:
 
             # Extract certificate attributes if available
             if hasattr(pe, 'VS_FIXEDFILEINFO'):
+                info = pe.VS_FIXEDFILEINFO[0] # VS_FIXEDFILEINFO is a list
                 cert_info['fixed_file_info'] = {
-                    'signature': pe.VS_FIXEDFILEINFO.Signature,
-                    'struct_version': pe.VS_FIXEDFILEINFO.StrucVersion,
-                    'file_version': f"{pe.VS_FIXEDFILEINFO.FileVersionMS >> 16}.{pe.VS_FIXEDFILEINFO.FileVersionMS & 0xFFFF}.{pe.VS_FIXEDFILEINFO.FileVersionLS >> 16}.{pe.VS_FIXEDFILEINFO.FileVersionLS & 0xFFFF}",
-                    'product_version': f"{pe.VS_FIXEDFILEINFO.ProductVersionMS >> 16}.{pe.VS_FIXEDFILEINFO.ProductVersionMS & 0xFFFF}.{pe.VS_FIXEDFILEINFO.ProductVersionLS >> 16}.{pe.VS_FIXEDFILEINFO.ProductVersionLS & 0xFFFF}",
-                    'file_flags': pe.VS_FIXEDFILEINFO.FileFlags,
-                    'file_os': pe.VS_FIXEDFILEINFO.FileOS,
-                    'file_type': pe.VS_FIXEDFILEINFO.FileType,
-                    'file_subtype': pe.VS_FIXEDFILEINFO.FileSubtype,
+                    'signature': info.Signature,
+                    'struct_version': info.StrucVersion,
+                    'file_version': f"{info.FileVersionMS >> 16}.{info.FileVersionMS & 0xFFFF}.{info.FileVersionLS >> 16}.{info.FileVersionLS & 0xFFFF}",
+                    'product_version': f"{info.ProductVersionMS >> 16}.{info.ProductVersionMS & 0xFFFF}.{info.ProductVersionLS >> 16}.{info.ProductVersionLS & 0xFFFF}",
+                    'file_flags': info.FileFlags,
+                    'file_os': info.FileOS,
+                    'file_type': info.FileType,
+                    'file_subtype': info.FileSubtype,
                 }
 
         return cert_info
@@ -2043,9 +2072,9 @@ def analyze_load_config(pe) -> Dict[str, Any]:
                 'critical_section_default_timeout': config.CriticalSectionDefaultTimeout,
                 'decommit_free_block_threshold': config.DeCommitFreeBlockThreshold,
                 'decommit_total_free_threshold': config.DeCommitTotalFreeThreshold,
-                'security_cookie': config.SecurityCookie,
-                'se_handler_table': config.SEHandlerTable,
-                'se_handler_count': config.SEHandlerCount
+                'security_cookie': getattr(config, 'SecurityCookie', None), # Use getattr for safety
+                'se_handler_table': getattr(config, 'SEHandlerTable', None),
+                'se_handler_count': getattr(config, 'SEHandlerCount', None)
             }
 
         return load_config
@@ -2092,9 +2121,12 @@ def analyze_overlay(pe, file_path: str) -> Dict[str, Any]:
             'size': 0,
             'entropy': 0.0
         }
+        
+        # Use pefile's recommended method for overlay
+        end_of_pe = pe.get_overlay_data_start_offset()
+        if end_of_pe is None:
+            return overlay_info # No overlay
 
-        last_section = max(pe.sections, key=lambda s: s.PointerToRawData + s.SizeOfRawData)
-        end_of_pe = last_section.PointerToRawData + last_section.SizeOfRawData
         file_size = os.path.getsize(file_path)
 
         if file_size > end_of_pe:
@@ -2265,7 +2297,7 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
     """
     try:
         # Load the PE file
-        pe = pefile.PE(file_path)
+        pe = pefile.PE(file_path, fast_load=True)
 
         # Extract features
         numeric_features = {
@@ -2336,7 +2368,7 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
                     'codepage': getattr(getattr(resource_lang, 'data', None), 'CodePage', None),
                 }
                 for resource_type in
-                (pe.DIRECTORY_ENTRY_RESOURCE.entries if hasattr(pe.DIRECTORY_ENTRY_RESOURCE, 'entries') else [])
+                (pe.DIRECTORY_ENTRY_RESOURCE.entries if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE') and hasattr(pe.DIRECTORY_ENTRY_RESOURCE, 'entries') else [])
                 for resource_id in (resource_type.directory.entries if hasattr(resource_type, 'directory') else [])
                 for resource_lang in (resource_id.directory.entries if hasattr(resource_id, 'directory') else [])
                 if hasattr(resource_lang, 'data')
@@ -2375,23 +2407,41 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
             # Overlay
             'overlay': analyze_overlay(pe, file_path),  # Overlay analysis here
         }
-
+        pe.close()
         # Add numeric tag if provided
         if rank is not None:
             numeric_features['numeric_tag'] = rank
 
         return numeric_features
 
+    except pefile.PEFormatError:
+        logging.warning(f"File is not a valid PE format: {file_path}")
+        return None
     except Exception as ex:
         logging.error(f"Error extracting numeric features from {file_path}: {str(ex)}", exc_info=True)
         return None
 
-def calculate_similarity(features1, features2):
-    """Calculate similarity between two dictionaries of features"""
-    common_keys = set(features1.keys()) & set(features2.keys())
-    matching_keys = sum(1 for key in common_keys if features1[key] == features2[key])
-    similarity = matching_keys / max(len(features1), len(features2))
-    return similarity
+def calculate_vector_similarity(vec1: List[float], vec2: List[float]) -> float:
+    """Calculates similarity between two numeric vectors using cosine similarity."""
+    if not vec1 or not vec2 or len(vec1) != len(vec2):
+        return 0.0
+
+    # Convert to numpy arrays for vector operations
+    vec1 = np.array(vec1, dtype=np.float64)
+    vec2 = np.array(vec2, dtype=np.float64)
+
+    # Calculate cosine similarity
+    dot_product = np.dot(vec1, vec2)
+    norm_vec1 = np.linalg.norm(vec1)
+    norm_vec2 = np.linalg.norm(vec2)
+
+    if norm_vec1 == 0 or norm_vec2 == 0:
+        return 1.0 if norm_vec1 == norm_vec2 else 0.0
+
+    # The result of dot_product / (norm_vec1 * norm_vec2) is between -1 and 1.
+    # We scale it to be in the [0, 1] range for easier interpretation.
+    cosine_similarity = dot_product / (norm_vec1 * norm_vec2)
+    return (cosine_similarity + 1) / 2
 
 def notify_user(file_path, virus_name, engine_detected):
     notification = Notify()
@@ -3523,63 +3573,55 @@ def extract_with_pd64(dump_path: str, output_dir: str) -> bool:
 
 def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     """Scan a file for malicious activity using machine learning definitions loaded from JSON."""
-
-    # Default assignment of malware_definition before starting the process
-    malware_definition = "Unknown"  # Assume unknown until checked
+    malware_definition = "Unknown"
     logging.info(f"Starting machine learning scan for file: {file_path}")
 
     try:
         pe = pefile.PE(file_path)
-        if not pe:
-            logging.warning(f"File {file_path} is not a valid PE file. Returning default value 'Unknown'.")
-            return False, malware_definition, 0
-
-        logging.info(f"File {file_path} is a valid PE file, proceeding with feature extraction.")
-        file_info = extract_infos(file_path)
-        file_numeric_features = extract_numeric_features(file_path)
-
-        is_malicious_ml = False
-        nearest_malicious_similarity = 0
-        nearest_benign_similarity = 0
-
-        logging.info(f"File information: {file_info}")
-
-        # Check malicious definitions
-        for ml_feats, info in zip(malicious_numeric_features, malicious_file_names):
-            rank = info['numeric_tag']
-            similarity = calculate_similarity(file_numeric_features, ml_feats)
-            nearest_malicious_similarity = max(nearest_malicious_similarity, similarity)
-            if similarity >= threshold:
-                is_malicious_ml = True
-                malware_definition = info['file_name']
-                logging.warning(f"Malicious activity detected in {file_path}. Definition: {malware_definition}, similarity: {similarity}, rank: {rank}")
-
-        # If not malicious, check benign
-        if not is_malicious_ml:
-            for ml_feats, info in zip(benign_numeric_features, benign_file_names):
-                similarity = calculate_similarity(file_numeric_features, ml_feats)
-                nearest_benign_similarity = max(nearest_benign_similarity, similarity)
-                benign_definition = info['file_name']
-
-            if nearest_benign_similarity >= 0.93:
-                malware_definition = "Benign"
-                logging.info(f"File {file_path} is classified as benign ({benign_definition}) with similarity: {nearest_benign_similarity}")
-            else:
-                malware_definition = "Unknown"
-                logging.info(f"File {file_path} is classified as unknown with similarity: {nearest_benign_similarity}")
-
-        # Return result
-        if is_malicious_ml:
-            return False, malware_definition, nearest_malicious_similarity
-        else:
-            return False, malware_definition, nearest_benign_similarity
-
+        pe.close()
     except pefile.PEFormatError:
-        logging.error(f"Error: {file_path} does not have a valid PE format.")
+        logging.warning(f"File {file_path} is not a valid PE file. Returning default value 'Unknown'.")
         return False, malware_definition, 0
-    except Exception as ex:
-        logging.error(f"An error occurred while scanning file {file_path}: {ex}")
-        return False, malware_definition, 0
+
+    logging.info(f"File {file_path} is a valid PE file, proceeding with feature extraction.")
+    
+    file_numeric_features = extract_numeric_worm_features(file_path)
+    if not file_numeric_features:
+        return False, "Feature-Extraction-Failed", 0
+
+    is_malicious_ml = False
+    nearest_malicious_similarity = 0
+    nearest_benign_similarity = 0
+
+    # Check malicious definitions
+    for ml_feats, info in zip(malicious_numeric_features, malicious_file_names):
+        similarity = calculate_vector_similarity(file_numeric_features, ml_feats)
+        nearest_malicious_similarity = max(nearest_malicious_similarity, similarity)
+        if similarity >= threshold:
+            is_malicious_ml = True
+            malware_definition = info.get('file_name', 'Unknown')
+            rank = info.get('numeric_tag', 'N/A')
+            logging.warning(f"Malicious activity detected in {file_path}. Definition: {malware_definition}, similarity: {similarity}, rank: {rank}")
+
+    # If not malicious, check benign
+    if not is_malicious_ml:
+        for ml_feats, info in zip(benign_numeric_features, benign_file_names):
+            similarity = calculate_vector_similarity(file_numeric_features, ml_feats)
+            nearest_benign_similarity = max(nearest_benign_similarity, similarity)
+            benign_definition = info.get('file_name', 'Unknown')
+
+        if nearest_benign_similarity >= 0.93:
+            malware_definition = "Benign"
+            logging.info(f"File {file_path} is classified as benign ({benign_definition}) with similarity: {nearest_benign_similarity}")
+        else:
+            malware_definition = "Unknown"
+            logging.info(f"File {file_path} is classified as unknown with similarity: {nearest_benign_similarity}")
+
+    # Return result
+    if is_malicious_ml:
+        return True, malware_definition, nearest_malicious_similarity
+    else:
+        return False, malware_definition, nearest_benign_similarity
 
 def restart_clamd_native():
     """Restart ClamAV using native Windows service management (no subprocess calls)."""
@@ -5258,20 +5300,6 @@ worm_alerted_files = []
 worm_detected_count = {}
 worm_file_paths = []
 
-def calculate_similarity_worm(features1, features2):
-    """
-    Calculate similarity between two dictionaries of features for worm detection.
-    Adjusted threshold for worm detection.
-    """
-    try:
-        common_keys = set(features1.keys()) & set(features2.keys())
-        matching_keys = sum(1 for key in common_keys if features1[key] == features2[key])
-        similarity = matching_keys / max(len(features1), len(features2)) if max(len(features1), len(features2)) > 0 else 0
-        return similarity
-    except Exception as ex:
-        logging.error(f"Error calculating similarity: {ex}")
-        return 0  # Return a default value in case of an error
-
 def extract_numeric_worm_features(file_path: str) -> Optional[Dict[str, Any]]:
     """
     Extract numeric features of a file using pefile for worm detection.
@@ -5286,35 +5314,38 @@ def extract_numeric_worm_features(file_path: str) -> Optional[Dict[str, Any]]:
 
     return res
 
-def check_worm_similarity(file_path, features_current):
+def check_worm_similarity(file_path: str, features_current: List[float]) -> bool:
     """
     Check similarity between the main file, collected files, and the current file for worm detection.
     """
+    global main_file_path, worm_file_paths
     worm_detected = False
 
     try:
         # Compare with the main file if available and distinct from the current file
         if main_file_path and main_file_path != file_path:
             features_main = extract_numeric_worm_features(main_file_path)
-            similarity_main = calculate_similarity_worm(features_current, features_main)
-            if similarity_main > 0.86:
-                logging.warning(
-                    f"Main file '{main_file_path}' is potentially spreading the worm to '{file_path}' "
-                    f"with similarity score: {similarity_main:.2f}"
-                )
-                worm_detected = True
+            if features_main:
+                similarity_main = calculate_vector_similarity(features_current, features_main)
+                if similarity_main > 0.86:
+                    logging.warning(
+                        f"Main file '{main_file_path}' is potentially spreading the worm to '{file_path}' "
+                        f"with similarity score: {similarity_main:.2f}"
+                    )
+                    worm_detected = True
 
         # Compare with each collected file in the file paths
         for collected_file_path in worm_file_paths:
             if collected_file_path != file_path:
                 features_collected = extract_numeric_worm_features(collected_file_path)
-                similarity_collected = calculate_similarity_worm(features_current, features_collected)
-                if similarity_collected > 0.86:
-                    logging.warning(
-                        f"Worm has potentially spread to '{collected_file_path}' "
-                        f"from '{file_path}' with similarity score: {similarity_collected:.2f}"
-                    )
-                    worm_detected = True
+                if features_collected:
+                    similarity_collected = calculate_vector_similarity(features_current, features_collected)
+                    if similarity_collected > 0.86:
+                        logging.warning(
+                            f"Worm has potentially spread to '{collected_file_path}' "
+                            f"from '{file_path}' with similarity score: {similarity_collected:.2f}"
+                        )
+                        worm_detected = True
 
     except FileNotFoundError as fnf_error:
         logging.error(f"File not found: {fnf_error}")
@@ -5829,16 +5860,91 @@ antivirus_signatures = load_digital_signatures(digital_signatures_list_antivirus
 goodsign_signatures = load_digital_signatures(digital_signatures_list_antivirus_path, "UnHackMe digital signatures")
 
 # Load ML definitions
+
+def load_ml_definitions(filepath: str) -> bool:
+    global malicious_numeric_features, malicious_file_names, benign_numeric_features, benign_file_names
+
+    if not os.path.exists(filepath):
+        logging.error(f"Machine learning definitions file not found: {filepath}. ML scanning will be disabled.")
+        return False
+
+    try:
+        with open(filepath, 'r', encoding='utf-8-sig') as results_file:
+            ml_defs = json.load(results_file)
+
+        # Malicious section
+        malicious_entries = ml_defs.get("malicious", [])
+        malicious_numeric_features = []
+        malicious_file_names = []
+        for entry in malicious_entries:
+            numeric = [
+                float(entry.get("SizeOfOptionalHeader", 0)),
+                float(entry.get("MajorLinkerVersion", 0)),
+                float(entry.get("MinorLinkerVersion", 0)),
+                float(entry.get("SizeOfCode", 0)),
+                float(entry.get("SizeOfInitializedData", 0)),
+                float(entry.get("SizeOfUninitializedData", 0)),
+                float(entry.get("AddressOfEntryPoint", 0)),
+                float(entry.get("ImageBase", 0)),
+                float(entry.get("Subsystem", 0)),
+                float(entry.get("DllCharacteristics", 0)),
+                float(entry.get("SizeOfStackReserve", 0)),
+                float(entry.get("SizeOfHeapReserve", 0)),
+                float(entry.get("CheckSum", 0)),
+                float(entry.get("NumberOfRvaAndSizes", 0)),
+                float(entry.get("SizeOfImage", 0)),
+                float(len(entry.get("imports", []))),
+                float(len(entry.get("exports", []))),
+                float(len(entry.get("resources", []))),
+                float(int(entry.get("overlay", {}).get("exists", False))),
+            ]
+            malicious_numeric_features.append(numeric)
+            filename = entry.get("file_info", {}).get("filename", "unknown")
+            malicious_file_names.append(filename)
+
+        # Benign section
+        benign_entries = ml_defs.get("benign", [])
+        benign_numeric_features = []
+        benign_file_names = []
+        for entry in benign_entries:
+            numeric = [
+                float(entry.get("SizeOfOptionalHeader", 0)),
+                float(entry.get("MajorLinkerVersion", 0)),
+                float(entry.get("MinorLinkerVersion", 0)),
+                float(entry.get("SizeOfCode", 0)),
+                float(entry.get("SizeOfInitializedData", 0)),
+                float(entry.get("SizeOfUninitializedData", 0)),
+                float(entry.get("AddressOfEntryPoint", 0)),
+                float(entry.get("ImageBase", 0)),
+                float(entry.get("Subsystem", 0)),
+                float(entry.get("DllCharacteristics", 0)),
+                float(entry.get("SizeOfStackReserve", 0)),
+                float(entry.get("SizeOfHeapReserve", 0)),
+                float(entry.get("CheckSum", 0)),
+                float(entry.get("NumberOfRvaAndSizes", 0)),
+                float(entry.get("SizeOfImage", 0)),
+                float(len(entry.get("imports", []))),
+                float(len(entry.get("exports", []))),
+                float(len(entry.get("resources", []))),
+                float(int(entry.get("overlay", {}).get("exists", False))),
+            ]
+            benign_numeric_features.append(numeric)
+            filename = entry.get("file_info", {}).get("filename", "unknown")
+            benign_file_names.append(filename)
+
+        logging.info(f"[!] Loaded {len(malicious_numeric_features)} malicious and {len(benign_numeric_features)} benign ML definitions.")
+        return True
+
+    except (json.JSONDecodeError, IOError) as e:
+        logging.error(f"Failed to load or parse ML definitions from {filepath}: {e}. ML scanning will be disabled.")
+        return False
+
 try:
-    with open(machine_learning_results_json, 'r') as results_file:
-        ml_defs = json.load(results_file)
-        malicious_numeric_features = ml_defs.get('malicious_numeric_features', [])
-        malicious_file_names = ml_defs.get('malicious_file_names', [])
-        benign_numeric_features = ml_defs.get('benign_numeric_features', [])
-        benign_file_names = ml_defs.get('benign_file_names', [])
-        logging.info("Machine Learning Definitions loaded!")
+    success = load_ml_definitions(machine_learning_results_json)
+    if not success:
+        logging.warning("ML definitions could not be loaded properly.")
 except Exception as ex:
-    logging.error(f"Error loading ML definitions from {machine_learning_results_json}: {ex}")
+    logging.exception(f"Unexpected error while loading ML definitions: {ex}")
 
 try:
     # Load excluded rules from text file

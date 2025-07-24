@@ -1,4 +1,4 @@
-item,reference
+entry,reference
 2001:250:3401:4170::,Unknown
 2001:268:723b:4ad2::,Unknown
 2001:268:7366:4720::,Unknown
@@ -5949,14 +5949,6 @@ item,reference
 2001:b400:e48f:1cce::,Unknown
 2001:b400:e703:52fd::,Unknown
 2001:b400:e73d:692d::,Unknown
-2002:509:6208::,Unknown
-2002:2e00:985a::,Unknown
-2002:57ce:a933:1::,Unknown
-2002:6bb2:6a70::,Unknown
-2002:9854:4854::,Unknown
-2002:afb0:8990::,Unknown
-2002:b447:3886::,Unknown
-2002:d3f1:acc8::,Unknown
 2003:6:3145:6315::,Unknown
 2003:6:51fe:10f7::,Unknown
 2003:a:228:c800::,Unknown
@@ -36641,7 +36633,6 @@ item,reference
 2603:3:6106:c240::,Unknown
 2603:3:6107:4b20::,Unknown
 2603:3:6107:d3b0::,Unknown
-2603:3:610a:5050::,Unknown
 2603:3:610b:760::,Unknown
 2603:3:610e:b060::,Unknown
 2603:3:610e:e160::,Unknown
@@ -37381,7 +37372,6 @@ item,reference
 2607:5300:60:9e08::,Unknown
 2607:5300:60:ca5a::,Unknown
 2607:5300:60:caba::,Unknown
-2607:5300:61:785::,Unknown
 2607:5300:120:f1a::,Unknown
 2607:5300:201:3100::,Unknown
 2607:5300:203:9c9c::,Unknown
@@ -43134,7 +43124,6 @@ item,reference
 2a0b:f4c0:16c:14::,Unknown
 2a0b:f4c0:16c:15::,Unknown
 2a0b:f4c0:16c:16::,Unknown
-2a0b:f4c2::,Unknown
 2a0b:f4c2:1::,Unknown
 2a0b:f4c2:2::,Unknown
 2a0b:f4c2:3::,Unknown
