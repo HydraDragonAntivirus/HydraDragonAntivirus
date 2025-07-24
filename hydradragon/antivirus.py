@@ -302,12 +302,20 @@ from elftools.elf.elffile import ELFFile
 logging.info(f"elftools.elf.elffile, ELFFile module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+from elftools.common.exceptions import ELFError
+logging.info(f"elftools.common.exceptions, ELFFError module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import macholib.MachO
 logging.info(f"macholib.MachO module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import macholib.mach_o
 logging.info(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from macholib.mach_o import MachOError
+logging.info(f"macholib.mach_o.MachOError module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from typing import Optional, Tuple, BinaryIO, Dict, Any, List, Set, Union
@@ -1455,7 +1463,7 @@ def is_pe_file_from_output(die_output: str, file_path: str) -> bool:
             return True
         except pefile.PEFormatError:
             logging.warning("DIE said PE, but pefile couldn't parse it. Possibly corrupted.")
-            return False
+            return "Broken Executable"
 
     # If DIE doesn't say PE, try pefile directly
     try:
@@ -1512,12 +1520,45 @@ def is_nsis_from_output(die_output: str) -> bool:
 
     return False
 
-def is_elf_file_from_output(die_output):
-    """Checks if DIE output indicates an ELF file."""
+def is_elf_file_from_output(die_output: str, file_path: str) -> bool:
+    """
+    Checks if DIE output or ELF validation indicates an ELF file.
+    
+    Args:
+        die_output: The output string from DIE (Detect It Easy).
+        file_path: The path to the suspected ELF file.
+    
+    Returns:
+        True if the file appears to be an ELF file, 
+        "Broken Executable" if DIE detects ELF but parsing fails,
+        False otherwise.
+    """
+    # Check DIE output first
     if die_output and ("ELF32" in die_output or "ELF64" in die_output):
         logging.info("DIE output indicates an ELF file.")
-        return True
-    return False
+        
+        # Cross-validate using pyelftools
+        try:
+            with open(file_path, 'rb') as f:
+                elf_file = ELFFile(f)
+                # Basic validation - check if we can read the header
+                header = elf_file.header
+                logging.info(f"ELF file successfully parsed. Architecture: {header['e_machine']}")
+                return True
+        except (ELFError, IOError, ValueError) as e:
+            logging.warning(f"DIE said ELF, but pyelftools couldn't parse it: {e}. Possibly corrupted.")
+            return "Broken Executable"
+    
+    # If DIE doesn't say ELF, try pyelftools directly
+    try:
+        with open(file_path, 'rb') as f:
+            elf_file = ELFFile(f)
+            header = elf_file.header
+            logging.info("pyelftools detected an ELF file even though DIE did not.")
+            return True
+    except (ELFError, IOError, ValueError):
+        logging.debug("File is not a valid ELF according to both DIE and pyelftools.")
+        return False
 
 def is_enigma1_virtual_box(die_output):
     """
@@ -1530,12 +1571,48 @@ def is_enigma1_virtual_box(die_output):
 
     return False
 
-def is_macho_file_from_output(die_output):
-    """Checks if DIE output indicates a Mach-O file."""
+def is_macho_file_from_output(die_output: str, file_path: str) -> bool:
+    """
+    Checks if DIE output or macholib validation indicates a Mach-O file.
+    
+    Args:
+        die_output: The output string from DIE (Detect It Easy).
+        file_path: The path to the suspected Mach-O file.
+    
+    Returns:
+        True if the file appears to be a Mach-O file,
+        "Broken Executable" if DIE detects Mach-O but parsing fails,
+        False otherwise.
+    """
+    # Check DIE output first
     if die_output and "Mach-O" in die_output:
         logging.info("DIE output indicates a Mach-O file.")
-        return True
-    return False
+        
+        # Cross-validate using macholib
+        try:
+            macho = MachO(file_path)
+            # Basic validation - check if we can access the headers
+            for header in macho.headers:
+                logging.info(f"Mach-O file successfully parsed. CPU type: {header.header.cputype}")
+            return True
+        except (MachOError, IOError, ValueError, struct.error) as e:
+            logging.warning(f"DIE said Mach-O, but macholib couldn't parse it: {e}. Possibly corrupted.")
+            return "Broken Executable"
+    
+    # If DIE doesn't say Mach-O, try macholib directly
+    try:
+        macho = MachO(file_path)
+        # Verify we can read at least one header
+        headers = list(macho.headers)
+        if headers:
+            logging.info("macholib detected a Mach-O file even though DIE did not.")
+            return True
+        else:
+            logging.debug("macholib found no valid headers in the file.")
+            return False
+    except (MachOError, IOError, ValueError, struct.error):
+        logging.debug("File is not a valid Mach-O according to both DIE and macholib.")
+        return False
 
 def is_dotnet_file_from_output(die_output):
     """
@@ -4910,11 +4987,11 @@ class NuitkaExtractor:
         """Detect the executable file type using Detect It Easy methods"""
         die_output = get_die_output_binary(self.filepath)
 
-        if is_pe_file_from_output(die_output):
+        if is_pe_file_from_output(die_output, self.filepath):
             return FileType.PE
-        if is_elf_file_from_output(die_output):
+        if is_elf_file_from_output(die_output, self.filepath):
             return FileType.ELF
-        if is_macho_file_from_output(die_output):
+        if is_macho_file_from_output(die_output, self.filepath):
             return FileType.MACHO
         return FileType.UNKNOWN
 
@@ -9512,6 +9589,27 @@ def scan_and_warn(file_path,
                 )
                 return False
 
+        pefile_result = is_pe_file_from_output(die_output, norm_Path)
+
+        if pefile_result:
+            logging.info(f"The file {norm_path} is a valid PE file.")
+            pe_file = true
+        elif pefile_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
+            logging.info(f"The file {norm_path} is a broken PE file. Skipping scan...")
+            return False
+
+        elf_result = is_elf_file_from_output(die_output, norm_path)
+
+        if elf_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
+            logging.info(f"The file {norm_path} is a broken ELF file. Skipping scan...")
+            return False
+ 
+        macho_result = is_macho_file_from_output(die_output, norm_path)
+
+        if macho_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
+            logging.info(f"The file {norm_path} is a broken Mach-0 file. Skipping scan...")
+            return False
+
         if is_autoit_file_from_output(die_output):
             logging.info(f"File {norm_path} is a valid AutoIt file.")
             extracted_autoit_files = extract_autoit(norm_path)
@@ -9529,10 +9627,6 @@ def scan_and_warn(file_path,
             extracted_files = advanced_installer_extractor(norm_path)
             for extracted_file in extracted_files:
                 scan_and_warn(extracted_file)
-
-        if is_pe_file_from_output(die_output):
-            logging.info(f"File {norm_path} is a valid PE file.")
-            pe_file = True
 
         # Check if the file is a known rootkit file
         if pe_file and file_name in known_rootkit_files:
@@ -10238,7 +10332,7 @@ def check_startup_directories():
                         file_path = os.path.join(directory, file)
                         if os.path.isfile(file_path) and file_path not in alerted_files:
                             die_output = get_die_output_binary(file_path)
-                            if file_path.endswith('.wll') and is_pe_file_from_output(die_output):
+                            if file_path.endswith('.wll') and is_pe_file_from_output(die_output, file_path):
                                 malware_type = "HEUR:Win32.Startup.DLLwithWLL.gen.Malware"
                                 message = f"Confirmed DLL malware detected: {file_path}\nVirus: {malware_type}"
                             ext = Path(file_path).suffix.lower()
