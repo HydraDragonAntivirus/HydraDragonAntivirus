@@ -1440,11 +1440,11 @@ def is_pyc_file_from_output(die_output):
 def is_pe_file_from_output(die_output: str, file_path: str) -> bool:
     """
     Checks if DIE output or pefile validation indicates a PE (Portable Executable) file.
-    
+
     Args:
         die_output: The output string from DIE (Detect It Easy).
         file_path: The path to the suspected PE file.
-    
+
     Returns:
         True if the file appears to be a PE file, False otherwise.
     """
@@ -1519,20 +1519,20 @@ def is_nsis_from_output(die_output: str) -> bool:
 def is_elf_file_from_output(die_output: str, file_path: str) -> bool:
     """
     Checks if DIE output or ELF validation indicates an ELF file.
-    
+
     Args:
         die_output: The output string from DIE (Detect It Easy).
         file_path: The path to the suspected ELF file.
-    
+
     Returns:
-        True if the file appears to be an ELF file, 
+        True if the file appears to be an ELF file,
         "Broken Executable" if DIE detects ELF but parsing fails,
         False otherwise.
     """
     # Check DIE output first
     if die_output and ("ELF32" in die_output or "ELF64" in die_output):
         logging.info("DIE output indicates an ELF file.")
-        
+
         # Cross-validate using pyelftools
         try:
             with open(file_path, 'rb') as f:
@@ -1544,7 +1544,7 @@ def is_elf_file_from_output(die_output: str, file_path: str) -> bool:
         except (ELFError, IOError, ValueError) as e:
             logging.warning(f"DIE said ELF, but pyelftools couldn't parse it: {e}. Possibly corrupted.")
             return "Broken Executable"
-    
+
     # If DIE doesn't say ELF, try pyelftools directly
     try:
         with open(file_path, 'rb') as f:
@@ -1570,11 +1570,11 @@ def is_enigma1_virtual_box(die_output):
 def is_macho_file_from_output(die_output: str, file_path: str) -> bool:
     """
     Checks if DIE output or macholib validation indicates a Mach-O file.
-    
+
     Args:
         die_output: The output string from DIE (Detect It Easy).
         file_path: The path to the suspected Mach-O file.
-    
+
     Returns:
         True if the file appears to be a Mach-O file,
         "Broken Executable" if DIE detects Mach-O but parsing fails,
@@ -1583,7 +1583,7 @@ def is_macho_file_from_output(die_output: str, file_path: str) -> bool:
     # Check DIE output first
     if die_output and "Mach-O" in die_output:
         logging.info("DIE output indicates a Mach-O file.")
-        
+
         # Cross-validate using macholib
         try:
             macho = macholib.MachO.MachO(file_path)
@@ -1594,7 +1594,7 @@ def is_macho_file_from_output(die_output: str, file_path: str) -> bool:
         except (IOError, ValueError, struct.error, IndexError, Exception) as e:
             logging.warning(f"DIE said Mach-O, but macholib couldn't parse it: {e}. Possibly corrupted.")
             return "Broken Executable"
-    
+
     # If DIE doesn't say Mach-O, try macholib directly
     try:
         macho = macholib.MachO.MachO(file_path)
@@ -2194,7 +2194,7 @@ def analyze_overlay(pe, file_path: str) -> Dict[str, Any]:
             'size': 0,
             'entropy': 0.0
         }
-        
+
         # Use pefile's recommended method for overlay
         end_of_pe = pe.get_overlay_data_start_offset()
         if end_of_pe is None:
@@ -3099,7 +3099,7 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
             (whitelist_sub_domains_data, "subdomain"),
             (whitelist_mail_sub_domains_data, "mail subdomain")
         ]
-        
+
         for data_list, whitelist_type in whitelist_checks:
             is_whitelisted, reference = is_domain_in_data(full_domain, data_list)
             if is_whitelisted:
@@ -3116,12 +3116,12 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
                 (malware_mail_sub_domains_data, "Malware.Mail", "Malware.Mail.SubDomain"),
                 (malware_sub_domains_data, "Malware", "Malware.SubDomain")
             ]
-            
+
             for data_list, threat_name, signature_suffix in threat_checks:
                 is_threat, reference = is_domain_in_data(full_domain, data_list)
                 if is_threat:
                     logging.warning(f"{threat_name} subdomain detected: {full_domain} (Reference: {reference})")
-                    
+
                     if dotnet_flag:
                         notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.DotNET.{signature_suffix}")
                     elif nuitka_flag:
@@ -3132,7 +3132,7 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
                         notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.PYC.Python.{signature_suffix}")
                     else:
                         notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.{signature_suffix}")
-                    
+
                     if homepage_flag:
                         notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.Adware.{homepage_flag}.{threat_name}.HomePage.gen")
                     return
@@ -3146,18 +3146,18 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
             (malware_domains_mail_data, "Malware.Mail", "Malware.Mail.Domain"),
             (malware_domains_data, "Malware", "Malware.Domain")
         ]
-        
+
         for data_list, threat_name, signature_suffix in main_threat_checks:
             # Check both full domain and main domain
             is_full_threat, full_ref = is_domain_in_data(full_domain, data_list)
             is_main_threat, main_ref = is_domain_in_data(main_domain, data_list)
-            
+
             if is_full_threat or is_main_threat:
                 reference = full_ref if is_full_threat else main_ref
                 domain_to_report = full_domain if is_full_threat else main_domain
-                
+
                 logging.warning(f"{threat_name} domain detected: {domain_to_report} (Reference: {reference})")
-                
+
                 if dotnet_flag:
                     notify_user_for_malicious_source_code(domain_to_report, f"HEUR:Win32.DotNET.{signature_suffix}")
                 elif nuitka_flag:
@@ -3168,7 +3168,7 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
                     notify_user_for_malicious_source_code(domain_to_report, f"HEUR:Win32.PYC.Python.{signature_suffix}")
                 else:
                     notify_user_for_malicious_source_code(domain_to_report, f"HEUR:Win32.{signature_suffix}")
-                
+
                 if homepage_flag:
                     notify_user_for_malicious_source_code(domain_to_report, f"HEUR:Win32.Adware.{homepage_flag}.{threat_name}.HomePage.gen")
                 return
@@ -3220,12 +3220,12 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
                 (ipv6_addresses_spam_signatures_data, "Spam", "Spam.IPv6"),
                 (ipv6_addresses_signatures_data, "Malware", "Malware.IPv6")
             ]
-            
+
             for data_list, threat_name, signature_suffix in ipv6_threat_checks:
                 is_threat, reference = is_ip_in_data(ip_address, data_list)
                 if is_threat:
                     logging.warning(f"{threat_name} IPv6 address detected: {ip_address} (Reference: {reference})")
-                    
+
                     if dotnet_flag:
                         notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.DotNET.{signature_suffix}')
                     elif nuitka_flag:
@@ -3236,7 +3236,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
                         notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.PYC.Python.{signature_suffix}')
                     else:
                         notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.{signature_suffix}')
-                    
+
                     if homepage_flag:
                         if threat_name == "DDoS":
                             notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.DDoS.HomePage.gen")
@@ -3245,7 +3245,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
                         else:
                             notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.Malware.HomePage.gen")
                     return
-            
+
             logging.info(f"Unknown IPv6 address detected: {ip_address}")
 
         # Process IPv4 addresses
@@ -3269,7 +3269,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
                 (ipv4_addresses_spam_signatures_data, "Spam", "Spam.IPv4", "Spam"),
                 (ipv4_addresses_signatures_data, "Malware", "Malware.IPv4", "Malware")
             ]
-            
+
             for data_list, threat_name, signature_suffix, homepage_threat in ipv4_threat_checks:
                 is_threat, reference = is_ip_in_data(ip_address, data_list)
                 if is_threat:
@@ -3283,7 +3283,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
                         logging.warning(f"IPv4 address {ip_address} detected as a potential BruteForce threat. (Reference: {reference})")
                     else:
                         logging.warning(f"{threat_name} IPv4 address detected: {ip_address} (Reference: {reference})")
-                    
+
                     if dotnet_flag:
                         notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.DotNET.{signature_suffix}')
                     elif nuitka_flag:
@@ -3294,11 +3294,11 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
                         notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.PYC.Python.{signature_suffix}')
                     else:
                         notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.{signature_suffix}')
-                    
+
                     if homepage_flag:
                         notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.{homepage_threat}.HomePage.gen")
                     return
-            
+
             logging.info(f"Unknown IPv4 address detected: {ip_address}")
         else:
             logging.debug(f"Invalid IP address format detected: {ip_address}")
@@ -3329,7 +3329,7 @@ def scan_spam_email_365_general(email_content, dotnet_flag=False, nsis_flag=Fals
 
         if detected_spam_words:
             logging.warning(f"Spam email detected! Found {len(detected_spam_words)} spam indicators: {', '.join(detected_spam_words[:5])}")  # Show first 5 words
-            
+
             # Generate appropriate signature based on context
             if dotnet_flag:
                 notify_user_for_malicious_source_code("Email Content", "HEUR:Win32.DotNET.Spam.Email.365d")
@@ -3341,10 +3341,10 @@ def scan_spam_email_365_general(email_content, dotnet_flag=False, nsis_flag=Fals
                 notify_user_for_malicious_source_code("Email Content", "HEUR:Win32.PYC.Python.Spam.Email.365d")
             else:
                 notify_user_for_malicious_source_code("Email Content", "HEUR:Win32.Spam.Email365d")
-            
+
             if homepage_flag:
                 notify_user_for_malicious_source_code("Email Content", f"HEUR:Win32.Adware.{homepage_flag}.Spam.Email.365d.gen")
-            
+
             return True
         else:
             logging.info("Email content passed spam check - no spam indicators found.")
@@ -3654,7 +3654,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
         return False, malware_definition, 0
 
     logging.info(f"File {file_path} is a valid PE file, proceeding with feature extraction.")
-    
+
     file_numeric_features = extract_numeric_worm_features(file_path)
     if not file_numeric_features:
         return False, "Feature-Extraction-Failed", 0
@@ -3989,7 +3989,7 @@ class RealTimeWebProtectionHandler:
             # signatures
             if kind == 'ipv6':
                 logging.info(f"Scanning IPv6 address: {ip_address}")
-                
+
                 # Check whitelist first
                 is_whitelisted, reference = self.is_ip_in_data(ip_address, ipv6_whitelist_data)
                 if is_whitelisted:
@@ -4013,7 +4013,7 @@ class RealTimeWebProtectionHandler:
 
             else:  # ipv4
                 logging.info(f"Scanning IPv4 address: {ip_address}")
-                
+
                 # Check whitelist first
                 is_whitelisted, reference = self.is_ip_in_data(ip_address, ipv4_whitelist_data)
                 if is_whitelisted:
@@ -9596,7 +9596,7 @@ def scan_and_warn(file_path,
         if elf_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
             logging.info(f"The file {norm_path} is a broken ELF file. Skipping scan...")
             return False
- 
+
         macho_result = is_macho_file_from_output(die_output, norm_path)
 
         if macho_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
@@ -10649,20 +10649,22 @@ def get_process_path(hwnd):
 # ----------------------------------------------------
 # Helper functions for enumeration
 # ----------------------------------------------------
+
 def get_window_text(hwnd):
     """Retrieve the text of a window; always returns a string."""
-    # figure out how many characters we need (plus terminating null)
-    length = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) + 1
+    # Use GetWindowTextLengthW and GetWindowTextW for window titles
+    length = user32.GetWindowTextLengthW(hwnd) + 1
     buf = ctypes.create_unicode_buffer(length)
-    # actually pull the text into our buffer
-    user32.SendMessageW(hwnd, WM_GETTEXT, length, ctypes.byref(buf))
-    # buf.value is always a str (possibly empty)
+    user32.GetWindowTextW(hwnd, buf, length)
     return buf.value or ""
 
 def get_control_text(hwnd):
+    """Retrieve text from a control using SendMessageW."""
+    # Fix: Add missing wParam and lParam parameters (0, 0)
     length = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) + 1
     buf = ctypes.create_unicode_buffer(length)
-    user32.SendMessageW(hwnd, WM_GETTEXT, length, ctypes.byref(buf))
+    # Fix: Pass buffer directly, not ctypes.byref(buf)
+    user32.SendMessageW(hwnd, WM_GETTEXT, length, buf)
     return buf.value or ""
 
 def find_child_windows(parent_hwnd):
@@ -10671,6 +10673,7 @@ def find_child_windows(parent_hwnd):
     def _enum_proc(hwnd, lParam):
         child_windows.append(hwnd)
         return True
+
     EnumChildProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
     user32.EnumChildWindows(parent_hwnd, EnumChildProc(_enum_proc), None)
     return child_windows
