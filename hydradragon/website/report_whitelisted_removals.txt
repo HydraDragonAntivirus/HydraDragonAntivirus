@@ -1,36 +1,624 @@
-Whitelisted Removals Report - 2025-07-24 15:48
+Whitelisted Removals Report - 2025-07-24 17:36
 ============================================================
 The following entries were removed from blocklists because they are on a whitelist.
 
-- Source     : MalwareSubDomains.csv
-  Entry      : apple.com-care-macbook.live
-  Reference  : github.com/T145/black-mirror(Malware)
+- Source     : IPv4Malware.csv
+  Entry      : 5.8.18.30
+  Reference  : Unknown
 
-- Source     : MalwareSubDomains.csv
-  Entry      : apple.com-clean-up-macbook.services
-  Reference  : github.com/T145/black-mirror(Malware)
+- Source     : IPv4Malware.csv
+  Entry      : 23.129.64.133
+  Reference  : Unknown
 
-- Source     : MalwareSubDomains.csv
-  Entry      : apple.com-macbook-fast-system.live
-  Reference  : github.com/T145/black-mirror(Malware)
+- Source     : IPv4Malware.csv
+  Entry      : 23.129.64.139
+  Reference  : Unknown
 
-- Source     : MalwareSubDomains.csv
-  Entry      : apple.com-repairing-macbook.live
-  Reference  : github.com/T145/black-mirror(Malware)
+- Source     : IPv4Malware.csv
+  Entry      : 23.129.64.147
+  Reference  : Unknown
 
-- Source     : MalwareSubDomains.csv
-  Entry      : apple.com-scan-macbook.live
-  Reference  : github.com/T145/black-mirror(Malware)
+- Source     : IPv4Malware.csv
+  Entry      : 23.129.64.150
+  Reference  : Unknown
 
-- Source     : MalwareSubDomains.csv
-  Entry      : apple.com-system-repair.live
-  Reference  : github.com/T145/black-mirror(Malware)
+- Source     : IPv4Malware.csv
+  Entry      : 23.129.64.151
+  Reference  : Unknown
 
-- Source     : MalwareSubDomains.csv
-  Entry      : apple.com-system-speed.live
-  Reference  : github.com/T145/black-mirror(Malware)
+- Source     : IPv4Malware.csv
+  Entry      : 23.129.64.152
+  Reference  : Unknown
 
-- Source     : MalwareSubDomains.csv
-  Entry      : microsoft.com-clean-windows.live
-  Reference  : github.com/T145/black-mirror(Malware)
+- Source     : IPv4Malware.csv
+  Entry      : 23.129.64.153
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 23.129.64.154
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 23.129.64.155
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 23.129.64.156
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 23.129.64.157
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 23.129.64.158
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 23.129.64.159
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 23.129.64.160
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 23.129.64.161
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 23.129.64.162
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 23.129.64.163
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 23.129.64.165
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 23.137.253.76
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 31.40.213.200
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 37.114.50.18
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 37.228.129.5
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 37.228.129.128
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 38.97.116.245
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 38.102.84.190
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 38.135.24.30
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 38.135.24.31
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 38.135.24.32
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 38.135.24.33
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 38.135.24.72
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 45.80.158.103
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 45.88.186.89
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 45.88.186.92
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 45.94.31.91
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 45.94.31.92
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 45.95.169.110
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 45.95.169.252
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 45.138.16.161
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 45.148.10.111
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 45.154.98.33
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 51.83.180.208
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 54.38.241.237
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 58.9.110.19
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 62.171.137.169
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 62.171.142.119
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 64.94.85.248
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 66.94.111.228
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 70.134.248.71
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 72.5.43.62
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 77.48.28.204
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 80.94.92.99
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 80.94.92.135
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 82.153.138.241
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 83.22.1.60
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 83.228.94.69
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 84.144.111.86
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 85.204.116.100
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 89.221.219.123
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 91.196.223.244
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 93.90.74.28
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 94.140.9.182
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 96.9.125.211
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 101.99.92.179
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 102.211.56.200
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 104.254.90.195
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 107.172.51.206
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 124.198.131.136
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 124.198.131.223
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 139.162.162.238
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 142.93.232.88
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 144.126.133.74
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 145.220.0.15
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 149.102.153.38
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 149.202.79.101
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 152.53.106.19
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 154.53.58.161
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 158.248.34.141
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 159.203.24.145
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 159.223.170.89
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 162.210.173.6
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 162.220.14.78
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 163.172.66.95
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 167.71.52.174
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 171.25.193.131
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 178.162.175.5
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 185.16.39.76
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 185.67.82.114
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 185.104.120.10
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 185.104.120.30
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 185.104.120.40
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 185.121.12.68
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 185.163.204.17
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 185.218.127.190
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 185.227.68.78
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 185.241.208.64
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 185.246.128.157
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 185.246.188.115
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 185.250.39.4
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 185.250.39.5
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 185.250.39.6
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 185.250.39.8
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 185.250.39.9
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 185.250.39.11
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 193.32.162.104
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 193.160.246.202
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 193.168.143.107
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 194.107.160.27
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 194.107.160.33
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 194.107.160.49
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 194.107.160.51
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 194.107.160.53
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 194.107.160.63
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 194.113.38.5
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 194.163.172.26
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 198.98.60.59
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 198.98.61.60
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 199.188.100.165
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 206.166.251.193
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 208.109.214.243
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 209.141.41.25
+  Reference  : Unknown
+
+- Source     : IPv4Malware.csv
+  Entry      : 216.238.72.199
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 23.129.64.130
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 23.129.64.131
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 23.129.64.132
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 23.129.64.134
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 23.129.64.135
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 23.129.64.136
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 23.129.64.137
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 23.129.64.138
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 23.129.64.140
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 23.129.64.141
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 23.129.64.142
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 23.129.64.143
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 23.129.64.144
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 23.129.64.145
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 23.129.64.146
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 23.129.64.148
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 23.129.64.149
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 37.19.196.67
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 45.9.148.50
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 45.61.188.15
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 45.141.215.200
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 46.38.243.210
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 51.91.18.151
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 91.196.223.172
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 91.196.223.212
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 91.196.223.222
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 91.219.237.39
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 146.19.88.105
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 156.146.62.151
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 176.58.89.182
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 185.220.101.180
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 188.214.104.21
+  Reference  : Unknown
+
+- Source     : IPv4Spam.csv
+  Entry      : 194.110.247.121
+  Reference  : Unknown
 

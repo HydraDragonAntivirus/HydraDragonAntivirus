@@ -1,4 +1,4 @@
-Invalid Entries Report - 2025-07-24 15:48
+Invalid Entries Report - 2025-07-25 13:44
 ============================================================
 The following entries were ignored due to validation errors.
 
@@ -7,6 +7,10 @@ The following entries were ignored due to validation errors.
   Reason: Domain must have at least a TLD (e.g., 'example.com')
 
 - Source: MalwareDomains.csv
+  Entry : 'entry'
+  Reason: Domain must have at least a TLD (e.g., 'example.com')
+
+- Source: WhiteListIPv4.csv
   Entry : 'entry'
   Reason: Domain must have at least a TLD (e.g., 'example.com')
 
