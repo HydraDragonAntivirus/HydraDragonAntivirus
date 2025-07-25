@@ -314,10 +314,6 @@ import macholib.mach_o
 logging.info(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from macholib.mach_o import MachOError
-logging.info(f"macholib.mach_o.MachOError module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 from typing import Optional, Tuple, BinaryIO, Dict, Any, List, Set, Union
 logging.info(f"typing, Optional, Tuple, BinaryIO, Dict, Any, List, Set and Union module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -1590,18 +1586,18 @@ def is_macho_file_from_output(die_output: str, file_path: str) -> bool:
         
         # Cross-validate using macholib
         try:
-            macho = MachO(file_path)
+            macho = macholib.MachO.MachO(file_path)
             # Basic validation - check if we can access the headers
             for header in macho.headers:
                 logging.info(f"Mach-O file successfully parsed. CPU type: {header.header.cputype}")
             return True
-        except (MachOError, IOError, ValueError, struct.error) as e:
+        except (IOError, ValueError, struct.error, IndexError, Exception) as e:
             logging.warning(f"DIE said Mach-O, but macholib couldn't parse it: {e}. Possibly corrupted.")
             return "Broken Executable"
     
     # If DIE doesn't say Mach-O, try macholib directly
     try:
-        macho = MachO(file_path)
+        macho = macholib.MachO.MachO(file_path)
         # Verify we can read at least one header
         headers = list(macho.headers)
         if headers:
@@ -1610,7 +1606,7 @@ def is_macho_file_from_output(die_output: str, file_path: str) -> bool:
         else:
             logging.debug("macholib found no valid headers in the file.")
             return False
-    except (MachOError, IOError, ValueError, struct.error):
+    except (IOError, ValueError, struct.error, IndexError, Exception):
         logging.debug("File is not a valid Mach-O according to both DIE and macholib.")
         return False
 
@@ -2979,7 +2975,7 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
         elif nsis_flag:
             logging.warning(f"Discord webhook URL detected in NSIS script compiled file (.nsi): {file_path} - Matches: {discord_webhook_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.NSIS')
-        elif pyc_flag or pyc_meta_llama_flag:
+        elif pyc_flag:
             logging.warning(f"Discord webhook URL detected in Python Compilled Module file: {file_path} - Matches: {discord_webhook_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.PYC.Python')
         else:
@@ -2999,7 +2995,7 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
         elif nsis_flag:
             logging.warning(f"Discord Canary webhook URL detected in NSIS script compiled file (.nsi): {file_path} - Matches: {discord_canary_webhook_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.NSIS')
-        elif pyc_flag or pyc_meta_llama_flag:
+        elif pyc_flag:
             logging.warning(f"Discord Canary webhook URL detected in Python Compilled Module file:{file_path} - Matches: {discord_canary_webhook_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.PYC.Python')
         else:
@@ -3046,7 +3042,7 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
         elif nsis_flag:
             logging.warning(f"Telegram bot detected in NSIS script compiled file (.nsi): {file_path} - Matches: {telegram_token_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.NSIS')
-        elif pyc_flag or pyc_meta_llama_flag:
+        elif pyc_flag:
             logging.warning(f"Telegram bot detected in Python Compilled Module file: {file_path} - Matches: {telegram_token_matches}")
             notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.PYC.Python')
         else:
@@ -3360,7 +3356,7 @@ def scan_spam_email_365_general(email_content, dotnet_flag=False, nsis_flag=Fals
 
 # --------------------------------------------------------------------------
 # Generalized scan for URLs
-def scan_url_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyc_flag=False, pyc_meta_llama_flag=False, homepage_flag=""):
+def scan_url_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyc_flag=False, homepage_flag=""):
     try:
         if url in scanned_urls_general:
             logging.info(f"URL {url} has already been scanned.")
@@ -3391,12 +3387,9 @@ def scan_url_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=False,
                     notify_user_for_malicious_source_code(url, 'HEUR:Win32.Nuitka.URLhaus.Match')
                 elif nsis_flag:
                     notify_user_for_malicious_source_code(url, 'HEUR:Win32.NSIS.URLhaus.Match')
-                elif pyc_flag or pyc_meta_llama_flag:
+                elif pyc_flag:
                     logging.warning(f"URL {url} matches the URLhaus signatures.")
-                    if pyc_meta_llama_flag:
-                        notify_user_for_malicious_source_code(url, 'HEUR:Win32.PYC.Python.MetaLlama.URLhaus.Match')
-                    else:
-                        notify_user_for_malicious_source_code(url, 'HEUR:Win32.PYC.Python.URLhaus.Match')
+                    notify_user_for_malicious_source_code(url, 'HEUR:Win32.PYC.Python.URLhaus.Match')
                 else:
                     notify_user_for_malicious_source_code(url, 'HEUR:Win32.URLhaus.Match')
                 # Use the homepage_flag string to append a browser tag to the virus signature.
@@ -9589,11 +9582,11 @@ def scan_and_warn(file_path,
                 )
                 return False
 
-        pefile_result = is_pe_file_from_output(die_output, norm_Path)
+        pefile_result = is_pe_file_from_output(die_output, norm_path)
 
         if pefile_result:
             logging.info(f"The file {norm_path} is a valid PE file.")
-            pe_file = true
+            pe_file = True
         elif pefile_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
             logging.info(f"The file {norm_path} is a broken PE file. Skipping scan...")
             return False
