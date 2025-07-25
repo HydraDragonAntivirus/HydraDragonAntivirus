@@ -4368,7 +4368,7 @@ def scan_yara(file_path):
         except Exception as e:
             logging.error(f"Error scanning with valhalla_rule: {e}")
 
-        # yaraxtr_rule (YARA-X) - FIXED VERSION
+        # yaraxtr_rule (YARA-X)
         try:
             if yaraxtr_rule:
                 scanner = yara_x.Scanner(rules=yaraxtr_rule)
