@@ -10748,32 +10748,47 @@ def find_descendant_windows(root_hwnd):
 
 def find_windows_with_text():
     """
-    Enhanced: Recursively enumerate all windows and controls,
-    retrieving text via WM_GETTEXT or UI Automation fallback.
+    Find all windows with text - no filtering, checks everything.
+    Uses multiple text extraction methods including UI Automation.
     """
     window_handles = []
-
-    def scan_hwnd(hwnd):
+    
+    def get_any_text(hwnd):
+        """Try multiple methods to get text from a window handle."""
         # 1) Standard window text
-        raw = get_window_text(hwnd).strip()
-        # 2) Control text
-        if not raw:
-            raw = get_control_text(hwnd).strip()
-        # 3) Fallback to UI Automation
-        if not raw:
-            raw = get_uia_text(hwnd).strip()
-        if raw:
-            window_handles.append((hwnd, raw, get_process_path(hwnd)))
-
-    # Enumerate top-level windows and scan recursively
-    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
-    def enum_proc(hwnd, lParam):
-        scan_hwnd(hwnd)
-        for desc in find_descendant_windows(hwnd):
-            scan_hwnd(desc)
+        text = get_window_text(hwnd).strip()
+        if text:
+            return text
+        
+        # 2) Control text via SendMessage
+        text = get_control_text(hwnd).strip() 
+        if text:
+            return text
+            
+        # 3) UI Automation fallback
+        text = get_uia_text(hwnd).strip()
+        if text:
+            return text
+            
+        return ""
+    
+    def enum_windows_callback(hwnd, lParam):
+        # Check the main window text using all methods
+        window_text = get_any_text(hwnd)
+        if window_text:
+            window_handles.append((hwnd, window_text, get_process_path(hwnd)))
+        
+        # Always check all child windows (no early break)
+        for child in find_child_windows(hwnd):
+            control_text = get_any_text(child)
+            if control_text:
+                window_handles.append((child, control_text, get_process_path(child)))
+        
         return True
 
-    user32.EnumWindows(EnumWindowsProc(enum_proc), None)
+    # Enumerate ALL windows (no visibility check)
+    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+    ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
     return window_handles
 
 WinEventProcType = ctypes.WINFUNCTYPE(
