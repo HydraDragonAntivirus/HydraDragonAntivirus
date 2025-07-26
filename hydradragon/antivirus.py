@@ -3068,7 +3068,7 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
             logging.info(f"Subdomain: {subdomain}")
 
         # Helper function to check if domain is in CSV data
-        def is_domain_in_data(domain, data_list):
+        def is_domain_in_data_general(domain, data_list):
             for entry in data_list:
                 if entry['address'] == domain:
                     return True, entry['reference']
@@ -3083,7 +3083,7 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
         ]
 
         for data_list, whitelist_type in whitelist_checks:
-            is_whitelisted, reference = is_domain_in_data(full_domain, data_list)
+            is_whitelisted, reference = is_domain_in_data_general(full_domain, data_list)
             if is_whitelisted:
                 logging.info(f"Domain {full_domain} is whitelisted ({whitelist_type}). Reference: {reference}")
                 return
@@ -3100,7 +3100,7 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
             ]
 
             for data_list, threat_name, signature_suffix in threat_checks:
-                is_threat, reference = is_domain_in_data(full_domain, data_list)
+                is_threat, reference = is_domain_in_data_general(full_domain, data_list)
                 if is_threat:
                     logging.warning(f"{threat_name} subdomain detected: {full_domain} (Reference: {reference})")
 
@@ -3131,8 +3131,8 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
 
         for data_list, threat_name, signature_suffix in main_threat_checks:
             # Check both full domain and main domain
-            is_full_threat, full_ref = is_domain_in_data(full_domain, data_list)
-            is_main_threat, main_ref = is_domain_in_data(main_domain, data_list)
+            is_full_threat, full_ref = is_domain_in_data_general(full_domain, data_list)
+            is_main_threat, main_ref = is_domain_in_data_general(main_domain, data_list)
 
             if is_full_threat or is_main_threat:
                 reference = full_ref if is_full_threat else main_ref
@@ -3178,7 +3178,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
             return
 
         # Helper function to check if IP is in CSV data
-        def is_ip_in_data(ip, data_list):
+        def is_ip_in_data_general(ip, data_list):
             for entry in data_list:
                 if entry['address'] == ip:
                     return True, entry['reference']
@@ -3191,7 +3191,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
             logging.info(message)
 
             # IPv6 whitelist check
-            is_whitelisted, reference = is_ip_in_data(ip_address, ipv6_whitelist_data)
+            is_whitelisted, reference = is_ip_in_data_general(ip_address, ipv6_whitelist_data)
             if is_whitelisted:
                 logging.info(f"IPv6 address {ip_address} is whitelisted. Reference: {reference}")
                 return
@@ -3204,7 +3204,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
             ]
 
             for data_list, threat_name, signature_suffix in ipv6_threat_checks:
-                is_threat, reference = is_ip_in_data(ip_address, data_list)
+                is_threat, reference = is_ip_in_data_general(ip_address, data_list)
                 if is_threat:
                     logging.warning(f"{threat_name} IPv6 address detected: {ip_address} (Reference: {reference})")
 
@@ -3237,7 +3237,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
             logging.info(message)
 
             # IPv4 whitelist check
-            is_whitelisted, reference = is_ip_in_data(ip_address, ipv4_whitelist_data)
+            is_whitelisted, reference = is_ip_in_data_general(ip_address, ipv4_whitelist_data)
             if is_whitelisted:
                 logging.info(f"IPv4 address {ip_address} is whitelisted. Reference: {reference}")
                 return
@@ -3253,7 +3253,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
             ]
 
             for data_list, threat_name, signature_suffix, homepage_threat in ipv4_threat_checks:
-                is_threat, reference = is_ip_in_data(ip_address, data_list)
+                is_threat, reference = is_ip_in_data_general(ip_address, data_list)
                 if is_threat:
                     if threat_name == "PhishingActive":
                         logging.warning(f"IPv4 address {ip_address} detected as an active phishing threat. (Reference: {reference})")
@@ -3637,7 +3637,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
 
     logging.info(f"File {file_path} is a valid PE file, proceeding with feature extraction.")
 
-    file_numeric_features = extract_numeric_worm_features(file_path)
+    file_numeric_features = extract_numeric_features(file_path)
     if not file_numeric_features:
         return False, "Feature-Extraction-Failed", 0
 
@@ -3649,10 +3649,10 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     for ml_feats, info in zip(malicious_numeric_features, malicious_file_names):
         similarity = calculate_vector_similarity(file_numeric_features, ml_feats)
         nearest_malicious_similarity = max(nearest_malicious_similarity, similarity)
-        
+
         if similarity >= threshold:
             is_malicious_ml = True
-            
+
             # Handle both string and dict cases
             if isinstance(info, dict):
                 malware_definition = info.get('file_name', 'Unknown')
@@ -3663,7 +3663,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
             else:
                 malware_definition = str(info)
                 rank = 'N/A'
-                
+
             logging.warning(f"Malicious activity detected in {file_path}. Definition: {malware_definition}, similarity: {similarity}, rank: {rank}")
 
     # If not malicious, check benign
@@ -3671,7 +3671,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
         for ml_feats, info in zip(benign_numeric_features, benign_file_names):
             similarity = calculate_vector_similarity(file_numeric_features, ml_feats)
             nearest_benign_similarity = max(nearest_benign_similarity, similarity)
-            
+
             # Handle both string and dict cases
             if isinstance(info, dict):
                 benign_definition = info.get('file_name', 'Unknown')
@@ -3679,7 +3679,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
                 benign_definition = info
             else:
                 benign_definition = str(info)
-        
+
         if nearest_benign_similarity >= 0.93:
             malware_definition = "Benign"
             logging.info(f"File {file_path} is classified as benign ({benign_definition}) with similarity: {nearest_benign_similarity}")
@@ -10717,33 +10717,33 @@ def find_windows_with_text():
     Uses multiple text extraction methods including UI Automation.
     """
     window_handles = []
-    
+
     def get_any_text(hwnd):
         """Try multiple methods to get text from a window handle."""
         # 1) Standard window text
         text = get_window_text(hwnd).strip()
         if text:
             return text
-        
+
         # 2) Control text via SendMessage
-        text = get_control_text(hwnd).strip() 
+        text = get_control_text(hwnd).strip()
         if text:
             return text
-            
+
         # 3) UI Automation fallback
         text = get_uia_text(hwnd).strip()
         if text:
             return text
-            
+
         return ""
-    
+
     def enum_windows_callback(hwnd, lParam):
         try:
             # Check the main window text using all methods
             window_text = get_any_text(hwnd)
             if window_text:
                 window_handles.append((hwnd, window_text, get_process_path(hwnd)))
-            
+
             # Always check all child windows and descendants
             descendants = find_descendant_windows(hwnd)
             for child in descendants:
@@ -10752,7 +10752,7 @@ def find_windows_with_text():
                     window_handles.append((child, control_text, get_process_path(child)))
         except Exception:
             pass  # Continue enumeration even if there's an error
-        
+
         return True
 
     # Enumerate ALL windows (no visibility check)
@@ -10761,7 +10761,7 @@ def find_windows_with_text():
         user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
     except Exception as e:
         logging.error(f"Error during window enumeration: {e}")
-    
+
     return window_handles
 
 # WinEvent callback signature
@@ -10935,7 +10935,7 @@ class MonitorMessageCommandLine:
             with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
                 f.write(text[:1_000_000])  # Limit to 1MB
             logging.debug(f"Wrote original -> {orig_fn}")
-            
+
             # Scan original text in separate thread
             threading.Thread(
                 target=self.scan_and_warn,
@@ -10951,7 +10951,7 @@ class MonitorMessageCommandLine:
                 with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
                     f.write(pre[:1_000_000])  # Limit to 1MB
                 logging.debug(f"Wrote preprocessed -> {pre_fn}")
-                
+
                 # Scan preprocessed text in separate thread
                 threading.Thread(
                     target=self.scan_and_warn,
@@ -10959,10 +10959,10 @@ class MonitorMessageCommandLine:
                     kwargs={'command_flag': True},
                     daemon=True
                 ).start()
-        
+
         except Exception as e:
             logging.error(f"Error processing window text for hwnd {hwnd}: {e}")
-    
+
     def handle_event(self,
                      hWinEventHook,
                      event,
@@ -10981,7 +10981,7 @@ class MonitorMessageCommandLine:
         try:
             all_entries = find_windows_with_text()
             logging.debug(f"Event scan found {len(all_entries)} windows/controls")
-            
+
             for h, txt, p in all_entries:
                 # Process in thread pool to avoid blocking the event handler
                 threading.Thread(
@@ -10989,10 +10989,10 @@ class MonitorMessageCommandLine:
                     args=(h, txt, p),
                     daemon=True
                 ).start()
-                
+
         except Exception as e:
             logging.error(f"Error during brute-force window enumeration: {e}")
-    
+
     def _win_event_proc(self,
                         hWinEventHook,
                         event,
@@ -11017,13 +11017,13 @@ class MonitorMessageCommandLine:
             )
         except Exception as e:
             logging.error(f"Exception in WinEventProc callback: {e}")
-    
+
     def start_event_monitoring(self):
         """Install WinEvent hooks and spin up the message pump thread."""
         try:
             # Initialize COM on this thread
             ole32.CoInitialize(None)
-            
+
             # Hook the events we care about
             hooks = [
                 (EVENT_SYSTEM_DIALOGSTART, EVENT_SYSTEM_DIALOGSTART),
@@ -11032,7 +11032,7 @@ class MonitorMessageCommandLine:
                 (EVENT_OBJECT_NAMECHANGE, EVENT_OBJECT_NAMECHANGE),
                 (EVENT_OBJECT_CREATE, EVENT_OBJECT_CREATE),
             ]
-            
+
             for ev_min, ev_max in hooks:
                 h = user32.SetWinEventHook(
                     ev_min,
@@ -11047,22 +11047,22 @@ class MonitorMessageCommandLine:
                 else:
                     self._hooks.append(h)
                     logging.debug(f"Installed hook for events 0x{ev_min:04X}-0x{ev_max:04X}")
-            
+
             logging.info(f"AntivirusDetector: Installed {len(self._hooks)} WinEvent hooks")
-            
+
             # Spin up the message pump in its own daemon thread
             pump_thread = threading.Thread(target=self._pump_messages, daemon=True)
             pump_thread.start()
             logging.info("AntivirusDetector: Message pump started")
-            
+
         except Exception as e:
             logging.error(f"Error starting event monitoring: {e}")
-    
+
     def _pump_messages(self):
         """Standard message pump so WinEvent callbacks get delivered."""
         logging.info("Starting Windows message pump...")
         msg = wintypes.MSG()
-        
+
         try:
             while self._running:
                 bRet = user32.GetMessageW(ctypes.byref(msg), 0, 0, 0)
@@ -11076,7 +11076,7 @@ class MonitorMessageCommandLine:
                     user32.DispatchMessageW(ctypes.byref(msg))
         except Exception as e:
             logging.error(f"Message pump error: {e}")
-    
+
     def monitoring_window_text(self):
         """
         Main monitoring loop.
@@ -11084,7 +11084,7 @@ class MonitorMessageCommandLine:
         """
         logging.info("Started window/control monitoring loop")
         self._running = True
-        
+
         # Start event monitoring in its own thread
         event_thread = threading.Thread(
             target=self.start_event_monitoring,
@@ -11092,7 +11092,7 @@ class MonitorMessageCommandLine:
             daemon=True
         )
         event_thread.start()
-        
+
         # Use a thread pool to process windows concurrently
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             try:
@@ -11101,7 +11101,7 @@ class MonitorMessageCommandLine:
                         # Periodic enumeration of all windows
                         windows = find_windows_with_text()
                         logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
-                        
+
                         # Submit all window processing tasks to thread pool
                         futures = []
                         for hwnd, text, path in windows:
@@ -11112,14 +11112,14 @@ class MonitorMessageCommandLine:
                                 path
                             )
                             futures.append(future)
-                        
+
                         # Wait for completion with timeout
                         for future in futures:
                             try:
                                 future.result(timeout=2.0)  # 2 second timeout per task
                             except Exception as e:
                                 logging.debug(f"Task execution error: {e}")
-                        
+
                         # Clean up detected windows set periodically
                         if len(self._detected_windows) > 500:
                             valid_windows = set()
@@ -11129,13 +11129,13 @@ class MonitorMessageCommandLine:
                                     valid_windows.add(window_id)
                             self._detected_windows = valid_windows
                             logging.debug("Cleaned up detected windows set")
-                        
+
                         time.sleep(3)  # Scan every 3 seconds
-                        
+
                     except Exception as e:
                         logging.error(f"Window/control enumeration error: {e}")
                         time.sleep(1)
-                        
+
             except KeyboardInterrupt:
                 logging.info("Monitoring stopped by user")
             finally:
