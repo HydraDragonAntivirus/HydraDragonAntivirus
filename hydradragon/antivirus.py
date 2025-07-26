@@ -3667,10 +3667,21 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     for ml_feats, info in zip(malicious_numeric_features, malicious_file_names):
         similarity = calculate_vector_similarity(file_numeric_features, ml_feats)
         nearest_malicious_similarity = max(nearest_malicious_similarity, similarity)
+        
         if similarity >= threshold:
             is_malicious_ml = True
-            malware_definition = info.get('file_name', 'Unknown')
-            rank = info.get('numeric_tag', 'N/A')
+            
+            # Handle both string and dict cases
+            if isinstance(info, dict):
+                malware_definition = info.get('file_name', 'Unknown')
+                rank = info.get('numeric_tag', 'N/A')
+            elif isinstance(info, str):
+                malware_definition = info
+                rank = 'N/A'
+            else:
+                malware_definition = str(info)
+                rank = 'N/A'
+                
             logging.warning(f"Malicious activity detected in {file_path}. Definition: {malware_definition}, similarity: {similarity}, rank: {rank}")
 
     # If not malicious, check benign
@@ -3678,8 +3689,15 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
         for ml_feats, info in zip(benign_numeric_features, benign_file_names):
             similarity = calculate_vector_similarity(file_numeric_features, ml_feats)
             nearest_benign_similarity = max(nearest_benign_similarity, similarity)
-            benign_definition = info.get('file_name', 'Unknown')
-
+            
+            # Handle both string and dict cases
+            if isinstance(info, dict):
+                benign_definition = info.get('file_name', 'Unknown')
+            elif isinstance(info, str):
+                benign_definition = info
+            else:
+                benign_definition = str(info)
+        
         if nearest_benign_similarity >= 0.93:
             malware_definition = "Benign"
             logging.info(f"File {file_path} is classified as benign ({benign_definition}) with similarity: {nearest_benign_similarity}")
@@ -10483,7 +10501,7 @@ def monitor_hosts_file():
         is_malicious_host = check_hosts_file_for_blocked_antivirus()
 
         if is_malicious_host:
-            logging.info("Malicious hosts file detected and flagged.")
+            logging.warning("Malicious hosts file detected and flagged.")
             break  # Stop monitoring after notifying once
 
 def is_malicious_file(file_path, size_limit_kb):
