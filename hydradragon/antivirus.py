@@ -200,26 +200,8 @@ from ctypes import byref
 logging.info(f"ctypes.byref module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import comtypes
-logging.info(f"comtypes module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from comtypes.automation import VARIANT
-logging.info(f"comtypes.automation.VARIANT module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from comtypes import CoInitialize
-logging.info(f"comtypes.CoInitialize module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from comtypes.client import CreateObject, GetModule
+from comtypes.client import CreateObject
 logging.info(f"comtypes.client.CreateObject and GetModule modules loaded in {time.time() - start_time:.6f} seconds")
-
-# Generate the oleacc module
-start_time = time.time()
-GetModule('oleacc.dll')
-from comtypes.gen import Accessibility  # Usually oleacc maps to this
-logging.info(f"comtypes.gen.Accessibility module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ipaddress
@@ -1454,7 +1436,7 @@ def is_pe_file_from_output(die_output: str, file_path: str) -> bool:
 
         # Cross-validate using pefile
         try:
-            pe = pefile.PE(file_path, fast_load=True)
+            pefile.PE(file_path, fast_load=True)
             logging.info("pefile successfully parsed the file as PE.")
             return True
         except pefile.PEFormatError:
@@ -1463,7 +1445,7 @@ def is_pe_file_from_output(die_output: str, file_path: str) -> bool:
 
     # If DIE doesn't say PE, try pefile directly
     try:
-        pe = pefile.PE(file_path, fast_load=True)
+        pefile.PE(file_path, fast_load=True)
         logging.info("pefile detected a PE file even though DIE did not.")
         return True
     except pefile.PEFormatError:
@@ -5406,7 +5388,6 @@ def check_worm_similarity(file_path: str, features_current: List[float]) -> bool
     """
     Check similarity between the main file, collected files, and the current file for worm detection.
     """
-    global main_file_path, worm_file_paths
     worm_detected = False
 
     try:
@@ -9688,14 +9669,6 @@ def scan_and_warn(file_path,
         # Wrap norm_path in a Path once, up front
         wrap_norm_path = Path(norm_path)
 
-        # Read raw binary data (for scanning, YARA, hashing, etc.)
-        data_content = b""
-        try:
-            with open(norm_path, "rb") as f:
-                data_content = f.read()
-        except Exception as e:
-            logging.error(f"Failed to read binary data from {norm_path}: {e}")
-
         # Read as UTF-8 text lines (for processing code/config/scripts/etc.)
         lines = []
         try:
@@ -10609,27 +10582,27 @@ def run_sandboxie_control():
         logging.error(f"Error running Sandboxie control: {ex.stderr}")
     except Exception as ex:
         logging.error(f"Unexpected error running Sandboxie control: {ex}")
-
 # ----------------------------------------------------
 # Constants for Windows API calls
 # ----------------------------------------------------
 WM_GETTEXT = 0x000D
 WM_GETTEXTLENGTH = 0x000E
+WM_CLOSE = 0x0010
 
 # WinEvent constants to capture live window events
 EVENT_OBJECT_CREATE = 0x8000
-EVENT_OBJECT_SHOW        = 0x8002
+EVENT_OBJECT_SHOW = 0x8002
 EVENT_SYSTEM_DIALOGSTART = 0x0010
-EVENT_OBJECT_HIDE        = 0x8003
-EVENT_OBJECT_NAMECHANGE  = 0x800C
-WINEVENT_OUTOFCONTEXT    = 0x0000
+EVENT_OBJECT_HIDE = 0x8003
+EVENT_OBJECT_NAMECHANGE = 0x800C
+WINEVENT_OUTOFCONTEXT = 0x0000
 
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
 # Load libraries
 kernel32 = ctypes.windll.kernel32
 user32 = ctypes.windll.user32
-ole32  = ctypes.windll.ole32
+ole32 = ctypes.windll.ole32
 
 # ----------------------------------------------------
 # Process helper: get PID and executable path of a window
@@ -10670,20 +10643,23 @@ def get_process_path(hwnd):
 
 def get_window_text(hwnd):
     """Retrieve the text of a window; always returns a string."""
-    # Use GetWindowTextLengthW and GetWindowTextW for window titles
-    length = user32.GetWindowTextLengthW(hwnd) + 1
-    buf = ctypes.create_unicode_buffer(length)
-    user32.GetWindowTextW(hwnd, buf, length)
-    return buf.value or ""
+    try:
+        length = user32.GetWindowTextLengthW(hwnd) + 1
+        buf = ctypes.create_unicode_buffer(length)
+        user32.GetWindowTextW(hwnd, buf, length)
+        return buf.value or ""
+    except Exception:
+        return ""
 
 def get_control_text(hwnd):
     """Retrieve text from a control using SendMessageW."""
-    # Fix: Add missing wParam and lParam parameters (0, 0)
-    length = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) + 1
-    buf = ctypes.create_unicode_buffer(length)
-    # Fix: Pass buffer directly, not ctypes.byref(buf)
-    user32.SendMessageW(hwnd, WM_GETTEXT, length, buf)
-    return buf.value or ""
+    try:
+        length = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) + 1
+        buf = ctypes.create_unicode_buffer(length)
+        user32.SendMessageW(hwnd, WM_GETTEXT, length, buf)
+        return buf.value or ""
+    except Exception:
+        return ""
 
 def find_child_windows(parent_hwnd):
     """Find all child windows of the given parent window."""
@@ -10692,21 +10668,12 @@ def find_child_windows(parent_hwnd):
         child_windows.append(hwnd)
         return True
 
-    EnumChildProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
-    user32.EnumChildWindows(parent_hwnd, EnumChildProc(_enum_proc), None)
+    try:
+        EnumChildProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+        user32.EnumChildWindows(parent_hwnd, EnumChildProc(_enum_proc), None)
+    except Exception:
+        pass
     return child_windows
-
-# Signature for the WinEventProc callback
-WinEventProcType = ctypes.WINFUNCTYPE(
-    None,
-    wintypes.HANDLE,  # hWinEventHook
-    wintypes.DWORD,   # event
-    wintypes.HWND,    # hwnd
-    wintypes.LONG,    # idObject
-    wintypes.LONG,    # idChild
-    wintypes.DWORD,   # dwEventThread
-    wintypes.DWORD    # dwmsEventTime
-)
 
 # --- UI Automation Setup ---
 try:
@@ -10714,11 +10681,8 @@ try:
 except Exception:
     uia = None
 
-
 def get_uia_text(hwnd):
-    """
-    Retrieve control text via UI Automation if available.
-    """
+    """Retrieve control text via UI Automation if available."""
     if not uia:
         return ""
     try:
@@ -10729,21 +10693,22 @@ def get_uia_text(hwnd):
         return ""
 
 def find_descendant_windows(root_hwnd):
-    """
-    Recursively enumerate all descendant windows of a given window.
-    """
+    """Recursively enumerate all descendant windows of a given window."""
     descendants = []
-    stack = [root_hwnd]
-    while stack:
-        parent = stack.pop()
-        children = find_child_windows(parent)
-        for ch in children:
-            descendants.append(ch)
-            stack.append(ch)
+    try:
+        stack = [root_hwnd]
+        while stack:
+            parent = stack.pop()
+            children = find_child_windows(parent)
+            for ch in children:
+                descendants.append(ch)
+                stack.append(ch)
+    except Exception:
+        pass
     return descendants
 
 # ----------------------------------------------------
-# Enumeration-based capture
+# Advanced enumeration-based capture
 # ----------------------------------------------------
 
 def find_windows_with_text():
@@ -10773,33 +10738,42 @@ def find_windows_with_text():
         return ""
     
     def enum_windows_callback(hwnd, lParam):
-        # Check the main window text using all methods
-        window_text = get_any_text(hwnd)
-        if window_text:
-            window_handles.append((hwnd, window_text, get_process_path(hwnd)))
-        
-        # Always check all child windows (no early break)
-        for child in find_child_windows(hwnd):
-            control_text = get_any_text(child)
-            if control_text:
-                window_handles.append((child, control_text, get_process_path(child)))
+        try:
+            # Check the main window text using all methods
+            window_text = get_any_text(hwnd)
+            if window_text:
+                window_handles.append((hwnd, window_text, get_process_path(hwnd)))
+            
+            # Always check all child windows and descendants
+            descendants = find_descendant_windows(hwnd)
+            for child in descendants:
+                control_text = get_any_text(child)
+                if control_text:
+                    window_handles.append((child, control_text, get_process_path(child)))
+        except Exception:
+            pass  # Continue enumeration even if there's an error
         
         return True
 
     # Enumerate ALL windows (no visibility check)
-    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
-    ctypes.windll.user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
+    try:
+        EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+        user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
+    except Exception as e:
+        logging.error(f"Error during window enumeration: {e}")
+    
     return window_handles
 
+# WinEvent callback signature
 WinEventProcType = ctypes.WINFUNCTYPE(
-    None,             # Return type: void
-    wintypes.HANDLE,  # hWinEventHook (HWINEVENTHOOK = HANDLE)
-    wintypes.DWORD,          # event
-    wintypes.HWND,           # hwnd
-    wintypes.LONG,           # idObject
-    wintypes.LONG,           # idChild
-    wintypes.DWORD,          # dwEventThread
-    wintypes.DWORD           # dwmsEventTime
+    None,
+    wintypes.HANDLE,  # hWinEventHook
+    wintypes.DWORD,   # event
+    wintypes.HWND,    # hwnd
+    wintypes.LONG,    # idObject
+    wintypes.LONG,    # idChild
+    wintypes.DWORD,   # dwEventThread
+    wintypes.DWORD    # dwmsEventTime
 )
 
 class MonitorMessageCommandLine:
@@ -10945,39 +10919,50 @@ class MonitorMessageCommandLine:
 
     def process_window_text(self, hwnd, text, path):
         """
-        Process text from a window - this contains the original logic.
+        Process text from a window - saves to files and scans for target messages.
         """
         # If there is no text then return
         if not text:
             return
 
-        # Log the incoming parameters and full text
-        logging.info(f"Processing window - hwnd={hwnd}, path={path}, text={text}")
+        # Log the incoming parameters (truncated for readability)
+        text_preview = text[:200] + "..." if len(text) > 200 else text
+        logging.debug(f"Processing window - hwnd={hwnd}, path={path}, text='{text_preview}'")
 
-        # write original text
-        orig_fn = self.get_unique_filename(f"original_{hwnd}")
-        with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
-            f.write(text[:1_000_000])
-        logging.info(f"Wrote original -> {orig_fn}")
-        threading.Thread(
-            target=scan_and_warn,
-            args=(orig_fn,),
-            kwargs={'command_flag': True}
-        ).start()
-
-        # write preprocessed text
-        pre = self.preprocess_text(text)
-        if pre:
-            pre_fn = self.get_unique_filename(f"preprocessed_{hwnd}")
-            with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
-                f.write(pre[:1_000_000])
-            logging.info(f"Wrote preprocessed -> {pre_fn}")
+        try:
+            # Write original text
+            orig_fn = self.get_unique_filename(f"original_{hwnd}")
+            with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
+                f.write(text[:1_000_000])  # Limit to 1MB
+            logging.debug(f"Wrote original -> {orig_fn}")
+            
+            # Scan original text in separate thread
             threading.Thread(
-                target=scan_and_warn,
-                args=(pre_fn,),
-                kwargs={'command_flag': True}
+                target=self.scan_and_warn,
+                args=(orig_fn,),
+                kwargs={'command_flag': True},
+                daemon=True
             ).start()
 
+            # Write preprocessed text
+            pre = self.preprocess_text(text)
+            if pre and pre != text.lower().strip():  # Only if preprocessing changed something
+                pre_fn = self.get_unique_filename(f"preprocessed_{hwnd}")
+                with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
+                    f.write(pre[:1_000_000])  # Limit to 1MB
+                logging.debug(f"Wrote preprocessed -> {pre_fn}")
+                
+                # Scan preprocessed text in separate thread
+                threading.Thread(
+                    target=self.scan_and_warn,
+                    args=(pre_fn,),
+                    kwargs={'command_flag': True},
+                    daemon=True
+                ).start()
+        
+        except Exception as e:
+            logging.error(f"Error processing window text for hwnd {hwnd}: {e}")
+    
     def handle_event(self,
                      hWinEventHook,
                      event,
@@ -10987,49 +10972,27 @@ class MonitorMessageCommandLine:
                      dwEventThread,
                      dwmsEventTime):
         """
-        WinEvent callback that re-scans *all* windows and controls on every event,
-        *regardless* of whether hwnd is non-zero.  Then falls back to AccessibleObjectFromEvent.
+        WinEvent callback that scans all windows on every event.
+        Simplified version without COM/Accessibility complexity.
         """
         logging.debug(f"WinEvent: event=0x{event:04X} hwnd={hwnd} obj={idObject} child={idChild}")
 
-        # --- 1) Brute-force scan of *all* top-level windows & their text, on every event
+        # Brute-force scan of all top-level windows & their text, on every event
         try:
             all_entries = find_windows_with_text()
+            logging.debug(f"Event scan found {len(all_entries)} windows/controls")
+            
             for h, txt, p in all_entries:
-                self.process_window_text(h, txt, p)
-        except Exception:
-            logging.error("Error during brute-force window enumeration")
-
-        # --- 2) COM fallback for non-HWND UI elements
-        if idObject != Accessibility.OBJID_WINDOW:
-            try:
-                CoInitialize()
-                pacc = ctypes.POINTER(Accessibility.IAccessible)()
-                varChild = VARIANT()
-
-                hr = Accessibility.AccessibleObjectFromEvent(
-                    hwnd, idObject, idChild,
-                    ctypes.byref(pacc), ctypes.byref(varChild)
-                )
-                if hr != 0 or not pacc:
-                    logging.error(f"AccessibleObjectFromEvent failed: HRESULT=0x{hr:08X}")
-                    return
-
-                name = pacc.get_accName(varChild)
-                if name:
-                    context = f"obj={idObject}, child={idChild}"
-                    self.process_window_text(hwnd or 0, name, context)
-
-            except Exception:
-                logging.error(
-                    f"Error retrieving AccessibleObject for hwnd={hwnd}, "
-                    f"idObject={idObject}, idChild={idChild}"
-                )
-
-    # -----------------------------------------------------------------------------
-    # 3) The actual WinEventProc callback.
-    #    It simply forwards into your `handle_event(...)` method.
-    # -----------------------------------------------------------------------------
+                # Process in thread pool to avoid blocking the event handler
+                threading.Thread(
+                    target=self.process_window_text,
+                    args=(h, txt, p),
+                    daemon=True
+                ).start()
+                
+        except Exception as e:
+            logging.error(f"Error during brute-force window enumeration: {e}")
+    
     def _win_event_proc(self,
                         hWinEventHook,
                         event,
@@ -11038,6 +11001,10 @@ class MonitorMessageCommandLine:
                         idChild,
                         dwEventThread,
                         dwmsEventTime):
+        """
+        The actual WinEventProc callback.
+        It simply forwards into the handle_event method.
+        """
         try:
             self.handle_event(
                 hWinEventHook,
@@ -11048,8 +11015,131 @@ class MonitorMessageCommandLine:
                 dwEventThread,
                 dwmsEventTime
             )
-        except Exception:
-            logging.exception("Exception in WinEventProc callback")
+        except Exception as e:
+            logging.error(f"Exception in WinEventProc callback: {e}")
+    
+    def start_event_monitoring(self):
+        """Install WinEvent hooks and spin up the message pump thread."""
+        try:
+            # Initialize COM on this thread
+            ole32.CoInitialize(None)
+            
+            # Hook the events we care about
+            hooks = [
+                (EVENT_SYSTEM_DIALOGSTART, EVENT_SYSTEM_DIALOGSTART),
+                (EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW),
+                (EVENT_OBJECT_HIDE, EVENT_OBJECT_HIDE),
+                (EVENT_OBJECT_NAMECHANGE, EVENT_OBJECT_NAMECHANGE),
+                (EVENT_OBJECT_CREATE, EVENT_OBJECT_CREATE),
+            ]
+            
+            for ev_min, ev_max in hooks:
+                h = user32.SetWinEventHook(
+                    ev_min,
+                    ev_max,
+                    0,
+                    self._event_proc_instance,  # our callable
+                    0, 0,
+                    WINEVENT_OUTOFCONTEXT
+                )
+                if not h:
+                    logging.error(f"Failed to set hook for events 0x{ev_min:04X}-0x{ev_max:04X}")
+                else:
+                    self._hooks.append(h)
+                    logging.debug(f"Installed hook for events 0x{ev_min:04X}-0x{ev_max:04X}")
+            
+            logging.info(f"AntivirusDetector: Installed {len(self._hooks)} WinEvent hooks")
+            
+            # Spin up the message pump in its own daemon thread
+            pump_thread = threading.Thread(target=self._pump_messages, daemon=True)
+            pump_thread.start()
+            logging.info("AntivirusDetector: Message pump started")
+            
+        except Exception as e:
+            logging.error(f"Error starting event monitoring: {e}")
+    
+    def _pump_messages(self):
+        """Standard message pump so WinEvent callbacks get delivered."""
+        logging.info("Starting Windows message pump...")
+        msg = wintypes.MSG()
+        
+        try:
+            while self._running:
+                bRet = user32.GetMessageW(ctypes.byref(msg), 0, 0, 0)
+                if bRet == 0:  # WM_QUIT
+                    break
+                elif bRet == -1:  # Error
+                    logging.error("GetMessage error")
+                    break
+                else:
+                    user32.TranslateMessage(ctypes.byref(msg))
+                    user32.DispatchMessageW(ctypes.byref(msg))
+        except Exception as e:
+            logging.error(f"Message pump error: {e}")
+    
+    def monitoring_window_text(self):
+        """
+        Main monitoring loop.
+        Runs event monitoring and processes windows in parallel.
+        """
+        logging.info("Started window/control monitoring loop")
+        self._running = True
+        
+        # Start event monitoring in its own thread
+        event_thread = threading.Thread(
+            target=self.start_event_monitoring,
+            name="EventMonitor",
+            daemon=True
+        )
+        event_thread.start()
+        
+        # Use a thread pool to process windows concurrently
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            try:
+                while self._running:
+                    try:
+                        # Periodic enumeration of all windows
+                        windows = find_windows_with_text()
+                        logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
+                        
+                        # Submit all window processing tasks to thread pool
+                        futures = []
+                        for hwnd, text, path in windows:
+                            future = executor.submit(
+                                self.process_window_text,
+                                hwnd,
+                                text,
+                                path
+                            )
+                            futures.append(future)
+                        
+                        # Wait for completion with timeout
+                        for future in futures:
+                            try:
+                                future.result(timeout=2.0)  # 2 second timeout per task
+                            except Exception as e:
+                                logging.debug(f"Task execution error: {e}")
+                        
+                        # Clean up detected windows set periodically
+                        if len(self._detected_windows) > 500:
+                            valid_windows = set()
+                            for window_id in list(self._detected_windows):
+                                hwnd, _ = window_id
+                                if user32.IsWindow(hwnd):
+                                    valid_windows.add(window_id)
+                            self._detected_windows = valid_windows
+                            logging.debug("Cleaned up detected windows set")
+                        
+                        time.sleep(3)  # Scan every 3 seconds
+                        
+                    except Exception as e:
+                        logging.error(f"Window/control enumeration error: {e}")
+                        time.sleep(1)
+                        
+            except KeyboardInterrupt:
+                logging.info("Monitoring stopped by user")
+            finally:
+                self.stop()
 
     def capture_command_lines(self):
         command_lines = []
@@ -11236,10 +11326,14 @@ class MonitorMessageCommandLine:
                     details["process_function"](file_content, file_path)
                     logging.warning(f"Detected malware message for '{category}' in {file_path}.")
 
-                # Check command patterns
-                if "command" in details and self.calculate_similarity_text(file_content, details["command"]) > 0.92:
-                    details["process_function"](file_content, file_path)
-                    logging.warning(f"Detected malware command for '{category}' in {file_path}.")
+                # Check command patterns only for files named cmd_*.txt
+                if "command" in details:
+                    if basename.startswith("cmd_") and basename.endswith(".txt"):
+                        if self.calculate_similarity_text(file_content, details["command"]) > 0.92:
+                            details["process_function"](file_content, file_path)
+                            logging.warning(f"Detected malware command for '{category}' in {file_path}.")
+                    else:
+                        logging.info(f"Skipping command checks for {file_path}: filename does not match cmd_*.txt")
 
             # Ransomware keyword distance check
             if self.contains_keywords_within_max_distance(file_content, max_distance=10):
@@ -11257,77 +11351,6 @@ class MonitorMessageCommandLine:
             logging.error(f"Error handling file {file_path}: {ex}")
 
         return None  # Indicate an error occurred
-
-    # -----------------------------------------------------------------------------
-    # 5) Install the hooks and pump messages
-    # -----------------------------------------------------------------------------
-    def start_event_monitoring(self):
-        """Install WinEvent hooks and spin up the message pump thread."""
-        comtypes.CoInitialize()  # must initialize COM on this thread
-
-        # hook just the ranges you care about
-        hooks = [
-            (EVENT_SYSTEM_DIALOGSTART, EVENT_SYSTEM_DIALOGSTART),
-            (EVENT_OBJECT_SHOW,        EVENT_OBJECT_SHOW),
-            (EVENT_OBJECT_HIDE,        EVENT_OBJECT_HIDE),
-            (EVENT_OBJECT_NAMECHANGE,  EVENT_OBJECT_NAMECHANGE),
-        ]
-        for ev_min, ev_max in hooks:
-            h = user32.SetWinEventHook(
-                ev_min,
-                ev_max,
-                0,
-                self._event_proc_instance,  # our callable
-                0, 0,
-                WINEVENT_OUTOFCONTEXT
-            )
-            if not h:
-                logging.error(f"Failed to set hook for events 0x{ev_min:04X}-0x{ev_max:04X}")
-            else:
-                self._hooks.append(h)
-
-        # spin up the pump in its own daemon thread
-        t = threading.Thread(target=self._pump_messages, daemon=True)
-        t.start()
-        logging.info("UIWatcher: WinEvent hooks installed.")
-
-    @staticmethod
-    def _pump_messages():
-        """Standard message pump so WinEvent callbacks get delivered."""
-        msg = wintypes.MSG()
-        while user32.GetMessageW(ctypes.byref(msg), 0, 0, 0) != 0:
-            user32.TranslateMessage(ctypes.byref(msg))
-            user32.DispatchMessageW(ctypes.byref(msg))
-
-    def monitoring_window_text(self):
-        """
-        Window/control monitoring loop.
-        Runs event monitoring and processes windows in parallel.
-        """
-        logging.debug("Started window/control monitoring loop")
-
-        # Start event monitoring in its own thread
-        event_thread = threading.Thread(
-            target=self.start_event_monitoring,
-            name="EventMonitor"
-        )
-        event_thread.start()
-
-        # Use a thread pool to process windows concurrently
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            while True:
-                try:
-                    windows = find_windows_with_text()
-                    logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
-                    for hwnd, text, path in windows:
-                        executor.submit(
-                            self.process_window_text,
-                            hwnd,
-                            text,
-                            path
-                        )
-                except Exception:
-                    logging.error("Window/control enumeration error:")
 
     def monitoring_command_line(self):
         logging.debug("Started command-line monitoring loop")
