@@ -10940,7 +10940,7 @@ class MonitorMessageCommandLine:
 
                 # Scan preprocessed text in separate thread
                 threading.Thread(
-                    target=self.scan_and_warn,
+                    target=scan_and_warn,
                     args=(pre_fn,),
                     kwargs={'command_flag': True}
                 ).start()
