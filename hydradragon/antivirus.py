@@ -10643,23 +10643,17 @@ def get_process_path(hwnd):
 
 def get_window_text(hwnd):
     """Retrieve the text of a window; always returns a string."""
-    try:
-        length = user32.GetWindowTextLengthW(hwnd) + 1
-        buf = ctypes.create_unicode_buffer(length)
-        user32.GetWindowTextW(hwnd, buf, length)
-        return buf.value or ""
-    except Exception:
-        return ""
+    length = user32.GetWindowTextLengthW(hwnd) + 1
+    buf = ctypes.create_unicode_buffer(length)
+    user32.GetWindowTextW(hwnd, buf, length)
+    return buf.value or ""
 
 def get_control_text(hwnd):
     """Retrieve text from a control using SendMessageW."""
-    try:
-        length = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) + 1
-        buf = ctypes.create_unicode_buffer(length)
-        user32.SendMessageW(hwnd, WM_GETTEXT, length, buf)
-        return buf.value or ""
-    except Exception:
-        return ""
+    length = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) + 1
+    buf = ctypes.create_unicode_buffer(length)
+    user32.SendMessageW(hwnd, WM_GETTEXT, length, buf)
+    return buf.value or ""
 
 def find_child_windows(parent_hwnd):
     """Find all child windows of the given parent window."""
@@ -10668,11 +10662,8 @@ def find_child_windows(parent_hwnd):
         child_windows.append(hwnd)
         return True
 
-    try:
-        EnumChildProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
-        user32.EnumChildWindows(parent_hwnd, EnumChildProc(_enum_proc), None)
-    except Exception:
-        pass
+    EnumChildProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+    user32.EnumChildWindows(parent_hwnd, EnumChildProc(_enum_proc), None)
     return child_windows
 
 # --- UI Automation Setup ---
@@ -10695,16 +10686,13 @@ def get_uia_text(hwnd):
 def find_descendant_windows(root_hwnd):
     """Recursively enumerate all descendant windows of a given window."""
     descendants = []
-    try:
-        stack = [root_hwnd]
-        while stack:
-            parent = stack.pop()
-            children = find_child_windows(parent)
-            for ch in children:
-                descendants.append(ch)
-                stack.append(ch)
-    except Exception:
-        pass
+    stack = [root_hwnd]
+    while stack:
+        parent = stack.pop()
+        children = find_child_windows(parent)
+        for ch in children:
+            descendants.append(ch)
+            stack.append(ch)
     return descendants
 
 # ----------------------------------------------------
@@ -10715,6 +10703,7 @@ def find_windows_with_text():
     """
     Find all windows with text - no filtering, checks everything.
     Uses multiple text extraction methods including UI Automation.
+    If target_text is None, returns all windows with any text.
     """
     window_handles = []
 
@@ -10738,30 +10727,29 @@ def find_windows_with_text():
         return ""
 
     def enum_windows_callback(hwnd, lParam):
-        try:
-            # Check the main window text using all methods
-            window_text = get_any_text(hwnd)
-            if window_text:
-                window_handles.append((hwnd, window_text, get_process_path(hwnd)))
+        # Check the main window text using all methods
+        window_text = get_any_text(hwnd)
+        if window_text:
+            process_path = get_process_path(hwnd)
+            window_handles.append((hwnd, window_text, process_path, "main_window"))
 
-            # Always check all child windows and descendants
+        # Always check all child windows and descendants
+        try:
             descendants = find_descendant_windows(hwnd)
             for child in descendants:
                 control_text = get_any_text(child)
                 if control_text:
-                    window_handles.append((child, control_text, get_process_path(child)))
-        except Exception:
-            pass  # Continue enumeration even if there's an error
+                    process_path = get_process_path(child)
+                    window_handles.append((child, control_text, process_path, "child_window"))
+        except Exception as e:
+            # Continue even if there's an error with child enumeration
+            pass
 
         return True
 
-    # Enumerate ALL windows (no visibility check)
-    try:
-        EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
-        user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
-    except Exception as e:
-        logging.error(f"Error during window enumeration: {e}")
-
+    # Enumerate ALL windows (no visibility check - removed IsWindowVisible)
+    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+    user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
     return window_handles
 
 class MonitorMessageCommandLine:
