@@ -10916,11 +10916,12 @@ class MonitorMessageCommandLine:
         # Create a unique identifier for this window
         window_id = (hwnd, text.strip())
 
-        # Check for duplicates
+        # Check for duplicate texts only
+        text_stripped = text.strip()
         with self.lock:
-            if window_id in self.processed_windows:
+            if text_stripped in self.processed_texts:
                 return
-            self.processed_windows.add(window_id)
+            self.processed_texts.add(text_stripped)
 
         if window_id:
             # Get additional window info
