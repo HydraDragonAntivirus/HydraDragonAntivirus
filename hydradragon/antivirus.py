@@ -10958,20 +10958,11 @@ class MonitorMessageCommandLine:
         Continuous 100% scanning with no delays.
         """
         logging.info("Started window/control monitoring loop")
-        self._running = True
-
-        # Start event monitoring in its own thread
-        event_thread = threading.Thread(
-            target=self.start_event_monitoring,
-            name="EventMonitor",
-            daemon=True
-        )
-        event_thread.start()
 
         # Use a thread pool to process windows concurrently
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             try:
-                while self._running:
+                while True:
                     try:
                         # Continuous enumeration of all windows
                         windows = find_windows_with_text()
