@@ -10764,22 +10764,9 @@ def find_windows_with_text():
 
     return window_handles
 
-# WinEvent callback signature
-WinEventProcType = ctypes.WINFUNCTYPE(
-    None,
-    wintypes.HANDLE,  # hWinEventHook
-    wintypes.DWORD,   # event
-    wintypes.HWND,    # hwnd
-    wintypes.LONG,    # idObject
-    wintypes.LONG,    # idChild
-    wintypes.DWORD,   # dwEventThread
-    wintypes.DWORD    # dwmsEventTime
-)
-
 class MonitorMessageCommandLine:
     def __init__(self):
         self._hooks = []
-        self._event_proc_instance = WinEventProcType(self._win_event_proc)
         # Store monitored paths
         self.main_file_path = os.path.abspath(main_file_path)
         self.sandboxie_folder = os.path.abspath(sandboxie_folder)
@@ -10963,124 +10950,12 @@ class MonitorMessageCommandLine:
         except Exception as e:
             logging.error(f"Error processing window text for hwnd {hwnd}: {e}")
 
-    def handle_event(self,
-                     hWinEventHook,
-                     event,
-                     hwnd,
-                     idObject,
-                     idChild,
-                     dwEventThread,
-                     dwmsEventTime):
-        """
-        WinEvent callback that scans all windows on every event.
-        Simplified version without COM/Accessibility complexity.
-        """
-        logging.debug(f"WinEvent: event=0x{event:04X} hwnd={hwnd} obj={idObject} child={idChild}")
-
-        # Brute-force scan of all top-level windows & their text, on every event
-        try:
-            all_entries = find_windows_with_text()
-            logging.debug(f"Event scan found {len(all_entries)} windows/controls")
-
-            for h, txt, p in all_entries:
-                # Process in thread pool to avoid blocking the event handler
-                threading.Thread(
-                    target=self.process_window_text,
-                    args=(h, txt, p),
-                    daemon=True
-                ).start()
-
-        except Exception as e:
-            logging.error(f"Error during brute-force window enumeration: {e}")
-
-    def _win_event_proc(self,
-                        hWinEventHook,
-                        event,
-                        hwnd,
-                        idObject,
-                        idChild,
-                        dwEventThread,
-                        dwmsEventTime):
-        """
-        The actual WinEventProc callback.
-        It simply forwards into the handle_event method.
-        """
-        try:
-            self.handle_event(
-                hWinEventHook,
-                event,
-                hwnd,
-                idObject,
-                idChild,
-                dwEventThread,
-                dwmsEventTime
-            )
-        except Exception as e:
-            logging.error(f"Exception in WinEventProc callback: {e}")
-
-    def start_event_monitoring(self):
-        """Install WinEvent hooks and spin up the message pump thread."""
-        try:
-            # Initialize COM on this thread
-            ole32.CoInitialize(None)
-
-            # Hook the events we care about
-            hooks = [
-                (EVENT_SYSTEM_DIALOGSTART, EVENT_SYSTEM_DIALOGSTART),
-                (EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW),
-                (EVENT_OBJECT_HIDE, EVENT_OBJECT_HIDE),
-                (EVENT_OBJECT_NAMECHANGE, EVENT_OBJECT_NAMECHANGE),
-                (EVENT_OBJECT_CREATE, EVENT_OBJECT_CREATE),
-            ]
-
-            for ev_min, ev_max in hooks:
-                h = user32.SetWinEventHook(
-                    ev_min,
-                    ev_max,
-                    0,
-                    self._event_proc_instance,  # our callable
-                    0, 0,
-                    WINEVENT_OUTOFCONTEXT
-                )
-                if not h:
-                    logging.error(f"Failed to set hook for events 0x{ev_min:04X}-0x{ev_max:04X}")
-                else:
-                    self._hooks.append(h)
-                    logging.debug(f"Installed hook for events 0x{ev_min:04X}-0x{ev_max:04X}")
-
-            logging.info(f"AntivirusDetector: Installed {len(self._hooks)} WinEvent hooks")
-
-            # Spin up the message pump in its own daemon thread
-            pump_thread = threading.Thread(target=self._pump_messages, daemon=True)
-            pump_thread.start()
-            logging.info("AntivirusDetector: Message pump started")
-
-        except Exception as e:
-            logging.error(f"Error starting event monitoring: {e}")
-
-    def _pump_messages(self):
-        """Standard message pump so WinEvent callbacks get delivered."""
-        logging.info("Starting Windows message pump...")
-        msg = wintypes.MSG()
-
-        try:
-            while self._running:
-                bRet = user32.GetMessageW(ctypes.byref(msg), 0, 0, 0)
-                if bRet == 0:  # WM_QUIT
-                    break
-                elif bRet == -1:  # Error
-                    logging.error("GetMessage error")
-                    break
-                else:
-                    user32.TranslateMessage(ctypes.byref(msg))
-                    user32.DispatchMessageW(ctypes.byref(msg))
-        except Exception as e:
-            logging.error(f"Message pump error: {e}")
-
     def monitoring_window_text(self):
         """
         Main monitoring loop.
         Runs event monitoring and processes windows in parallel.
+        Only processes new/changed windows to avoid duplicates.
+        Continuous 100% scanning with no delays.
         """
         logging.info("Started window/control monitoring loop")
         self._running = True
@@ -11098,43 +10973,49 @@ class MonitorMessageCommandLine:
             try:
                 while self._running:
                     try:
-                        # Periodic enumeration of all windows
+                        # Continuous enumeration of all windows
                         windows = find_windows_with_text()
                         logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
 
-                        # Submit all window processing tasks to thread pool
-                        futures = []
+                        # Submit only new/changed window processing tasks to thread pool
                         for hwnd, text, path in windows:
-                            future = executor.submit(
-                                self.process_window_text,
-                                hwnd,
-                                text,
-                                path
-                            )
-                            futures.append(future)
+                            # Create unique identifier for this window state
+                            window_id = (hwnd, hash(text))
 
-                        # Wait for completion with timeout
-                        for future in futures:
-                            try:
-                                future.result(timeout=2.0)  # 2 second timeout per task
-                            except Exception as e:
-                                logging.debug(f"Task execution error: {e}")
+                            # Only process if this window/text combination hasn't been seen
+                            if window_id not in self._detected_windows:
+                                self._detected_windows.add(window_id)
+
+                                executor.submit(
+                                    self.process_window_text,
+                                    hwnd,
+                                    text,
+                                    path
+                                )
+                                logging.debug(f"Queued new/changed window {hwnd} for processing")
 
                         # Clean up detected windows set periodically
                         if len(self._detected_windows) > 500:
                             valid_windows = set()
-                            for window_id in list(self._detected_windows):
-                                hwnd, _ = window_id
-                                if user32.IsWindow(hwnd):
-                                    valid_windows.add(window_id)
-                            self._detected_windows = valid_windows
-                            logging.debug("Cleaned up detected windows set")
+                            current_window_ids = set()
 
-                        time.sleep(3)  # Scan every 3 seconds
+                            # Get current window states
+                            current_windows = find_windows_with_text()
+                            for hwnd, text, path in current_windows:
+                                if user32.IsWindow(hwnd):
+                                    current_window_ids.add((hwnd, hash(text)))
+
+                            # Keep only windows that still exist and match current state
+                            for window_id in self._detected_windows:
+                                hwnd, text_hash = window_id
+                                if user32.IsWindow(hwnd) and window_id in current_window_ids:
+                                    valid_windows.add(window_id)
+
+                            self._detected_windows = valid_windows
+                            logging.debug(f"Cleaned up detected windows set: {len(valid_windows)} remaining")
 
                     except Exception as e:
                         logging.error(f"Window/control enumeration error: {e}")
-                        time.sleep(1)
 
             except KeyboardInterrupt:
                 logging.info("Monitoring stopped by user")
