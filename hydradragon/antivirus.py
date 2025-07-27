@@ -10670,7 +10670,8 @@ def find_child_windows(parent_hwnd):
 # --- UI Automation Setup ---
 try:
     uia = CreateObject('UIAutomationClient.CUIAutomation')
-except Exception:
+except Exception as e:
+    logging.info(f"UI Automation not available: {e}"
     uia = None
 
 def get_uia_text(hwnd):
