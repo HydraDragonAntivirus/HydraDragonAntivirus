@@ -10751,6 +10751,18 @@ def find_windows_with_text():
     user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
     return window_handles
 
+def get_window_class_name(hwnd):
+    """Get the class name of a window."""
+    class_name = ctypes.create_unicode_buffer(256)
+    user32.GetClassNameW(hwnd, class_name, 256)
+    return class_name.value
+
+def get_window_rect(hwnd):
+    """Get the window rectangle (position and size)."""
+    rect = wintypes.RECT()
+    user32.GetWindowRect(hwnd, ctypes.byref(rect))
+    return rect.left, rect.top, rect.right, rect.bottom
+
 class MonitorMessageCommandLine:
     def __init__(self):
         self._hooks = []
@@ -10891,7 +10903,7 @@ class MonitorMessageCommandLine:
     def preprocess_text(self, text):
         return text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "")
 
-    def process_window_text(self, hwnd, text, path):
+    def process_window_text(self, hwnd, text, process_path, window_type):
         """
         Process text from a window - saves to files and scans for target messages.
         """
@@ -10899,9 +10911,40 @@ class MonitorMessageCommandLine:
         if not text:
             return
 
+        # Create a unique identifier for this window
+        window_id = (hwnd, text.strip())
+
+        # Only show new detections or if show_all_matches is True
+        if window_id not in self.detected_windows or self.show_all_matches:
+            self.detected_windows.add(window_id)
+
+            # Get additional window info
+            class_name = get_window_class_name(hwnd)
+            left, top, right, bottom = get_window_rect(hwnd)
+
+            logging.info(f"\n[DETECTION] {window_type.upper()}")
+            logging.info(f"HWND: {hwnd}")
+            logging.info(f"Text: '{text}'")
+            logging.info(f"Class: {class_name}")
+            logging.info(f"Process: {process_path}")
+            logging.info(f"Position: ({left}, {top})")
+            logging.info(f"Size: {right-left}x{bottom-top}")
+            logging.info("-" * 40)
+
+            # Show system alert
+            try:
+                user32.MessageBoxW(
+                    0,
+                    f'Detected target text in {window_type}:\n\n"{text}"\n\nProcess: {process_path}',
+                    'Window Monitor Alert',
+                    0x40  # MB_ICONINFORMATION
+                )
+            except Exception as e:
+                logging.warning(f"Failed to show message box alert: {e}")
+
         # Log the incoming parameters (truncated for readability)
         text_preview = text[:200] + "..." if len(text) > 200 else text
-        logging.debug(f"Processing window - hwnd={hwnd}, path={path}, text='{text_preview}'")
+        logging.debug(f"Processing window - hwnd={hwnd}, path={process_path}, text='{text_preview}'")
 
         try:
             # Write original text
@@ -10938,36 +10981,45 @@ class MonitorMessageCommandLine:
     def monitoring_window_text(self):
         """
         Main monitoring loop.
-        Runs event monitoring and processes windows in parallel.
-        Processes all windows continuously without duplicate tracking.
-        Continuous 100% scanning with no delays.
+        Runs event monitoring and processes windows using the monitor_windows approach.
+        Continuous scanning with configurable intervals.
         """
         logging.info("Started window/control monitoring loop")
 
-        # Use a thread pool to process windows concurrently
-        with ThreadPoolExecutor(max_workers=500) as executor:
-            try:
-                while True:
-                    try:
-                        # Continuous enumeration of all windows
-                        windows = find_windows_with_text()
-                        logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
+        logging.info(f"Starting advanced window monitor for: '{self.target_message}'")
+        logging.info(f"Scan interval: {self.scan_interval} seconds")
+        logging.info("=" * 60)
 
-                        # Submit all window processing tasks to thread pool
-                        for hwnd, text, path, window_type in windows:
-                            executor.submit(
-                                self.process_window_text,
-                                hwnd,
-                                text,
-                                path
-                            )
-                            logging.debug(f"Queued window {hwnd} ({window_type}) for processing")
+        self.running = True
 
-                    except Exception as e:
-                        logging.error(f"Window/control enumeration error: {e}")
+        try:
+            while self.running:
+                try:
+                    # Continuous enumeration of all windows
+                    windows = find_windows_with_text(self.target_message)
+                    logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
 
-            except Exception as e:
-                logging.info(f"Error at monitoring_window_text {e}")
+                    for hwnd, text, process_path, window_type in windows:
+                        # Process each window
+                        self.process_window_text(hwnd, text, process_path, window_type)
+
+                except Exception as e:
+                    logging.error(f"Window/control enumeration error: {e}")
+
+                # Clean up detected_windows set periodically (prevent memory buildup)
+                if len(self.detected_windows) > 1000:
+                    valid_windows = set()
+                    for window_id in self.detected_windows:
+                        hwnd, _ = window_id
+                        if user32.IsWindow(hwnd):  # Check if window still exists
+                            valid_windows.add(window_id)
+                    self.detected_windows = valid_windows
+                    logging.debug(f"Cleaned up detected windows, now tracking {len(self.detected_windows)} windows")
+
+                time.sleep(self.scan_interval)
+
+        except Exception as e:
+            logging.error(f"Error at monitoring_window_text: {e}")
 
     def capture_command_lines(self):
         command_lines = []
