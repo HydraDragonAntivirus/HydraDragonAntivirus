@@ -5697,7 +5697,7 @@ def process_alert_data(priority, src_ip, dest_ip):
 
         # Check IPv4 signatures
         if src_ip in ipv4_addresses_signatures_data:
-            threat_type = "General Threat"
+            threat_type = "General Threat (IPv4)"
         elif src_ip in ipv4_addresses_spam_signatures_data:
             threat_type = "Spam"
         elif src_ip in ipv4_addresses_bruteforce_signatures_data:
@@ -5710,7 +5710,7 @@ def process_alert_data(priority, src_ip, dest_ip):
             threat_type = "DDoS"
         # Check IPv6 signatures
         elif src_ip in ipv6_addresses_signatures_data:
-            threat_type = "General Threat"
+            threat_type = "General Threat (IPv6)"
         elif src_ip in ipv6_addresses_spam_signatures_data:
             threat_type = "Spam"
         elif src_ip in ipv6_addresses_ddos_signatures_data:
