@@ -10952,13 +10952,13 @@ class MonitorMessageCommandLine:
         """
         Main monitoring loop.
         Runs event monitoring and processes windows in parallel.
-        Only processes new/changed windows to avoid duplicates.
+        Processes all windows continuously without duplicate tracking.
         Continuous 100% scanning with no delays.
         """
         logging.info("Started window/control monitoring loop")
 
         # Use a thread pool to process windows concurrently
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        with ThreadPoolExecutor(max_workers=500) as executor:
             try:
                 while True:
                     try:
@@ -10966,42 +10966,15 @@ class MonitorMessageCommandLine:
                         windows = find_windows_with_text()
                         logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
 
-                        # Submit only new/changed window processing tasks to thread pool
+                        # Submit all window processing tasks to thread pool
                         for hwnd, text, path in windows:
-                            # Create unique identifier for this window state
-                            window_id = (hwnd, hash(text))
-
-                            # Only process if this window/text combination hasn't been seen
-                            if window_id not in self._detected_windows:
-                                self._detected_windows.add(window_id)
-
-                                executor.submit(
-                                    self.process_window_text,
-                                    hwnd,
-                                    text,
-                                    path
-                                )
-                                logging.debug(f"Queued new/changed window {hwnd} for processing")
-
-                        # Clean up detected windows set periodically
-                        if len(self._detected_windows) > 500:
-                            valid_windows = set()
-                            current_window_ids = set()
-
-                            # Get current window states
-                            current_windows = find_windows_with_text()
-                            for hwnd, text, path in current_windows:
-                                if user32.IsWindow(hwnd):
-                                    current_window_ids.add((hwnd, hash(text)))
-
-                            # Keep only windows that still exist and match current state
-                            for window_id in self._detected_windows:
-                                hwnd, text_hash = window_id
-                                if user32.IsWindow(hwnd) and window_id in current_window_ids:
-                                    valid_windows.add(window_id)
-
-                            self._detected_windows = valid_windows
-                            logging.debug(f"Cleaned up detected windows set: {len(valid_windows)} remaining")
+                            executor.submit(
+                                self.process_window_text,
+                                hwnd,
+                                text,
+                                path
+                            )
+                            logging.debug(f"Queued window {hwnd} for processing")
 
                     except Exception as e:
                         logging.error(f"Window/control enumeration error: {e}")
