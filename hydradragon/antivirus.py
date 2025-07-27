@@ -11094,7 +11094,7 @@ class MonitorMessageCommandLine:
         event_thread.start()
 
         # Use a thread pool to process windows concurrently
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             try:
                 while self._running:
                     try:
