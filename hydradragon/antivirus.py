@@ -10915,8 +10915,6 @@ class MonitorMessageCommandLine:
         window_id = (hwnd, text.strip())
 
         if window_id:
-            self.detected_windows.add(window_id)
-
             # Get additional window info
             class_name = get_window_class_name(hwnd)
             left, top, right, bottom = get_window_rect(hwnd)
