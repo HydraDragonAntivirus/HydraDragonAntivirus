@@ -10765,6 +10765,8 @@ def get_window_rect(hwnd):
 
 class MonitorMessageCommandLine:
     def __init__(self):
+        self.processed_windows = set()
+        self.lock = threading.Lock()
         self._hooks = []
         # Store monitored paths
         self.main_file_path = os.path.abspath(main_file_path)
@@ -10913,6 +10915,12 @@ class MonitorMessageCommandLine:
 
         # Create a unique identifier for this window
         window_id = (hwnd, text.strip())
+
+        # Check for duplicates
+        with self.lock:
+            if window_id in self.processed_windows:
+                return
+            self.processed_windows.add(window_id)
 
         if window_id:
             # Get additional window info
