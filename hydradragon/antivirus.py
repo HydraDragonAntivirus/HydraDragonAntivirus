@@ -10954,20 +10954,20 @@ class MonitorMessageCommandLine:
                         logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
 
                         # Submit all window processing tasks to thread pool
-                        for hwnd, text, path in windows:
+                        for hwnd, text, path, window_type in windows:
                             executor.submit(
                                 self.process_window_text,
                                 hwnd,
                                 text,
                                 path
                             )
-                            logging.debug(f"Queued window {hwnd} for processing")
+                            logging.debug(f"Queued window {hwnd} ({window_type}) for processing")
 
                     except Exception as e:
                         logging.error(f"Window/control enumeration error: {e}")
 
             except Exception as e:
-                logging.info(f"Error at moniotring_window_text {e}")
+                logging.info(f"Error at monitoring_window_text {e}")
 
     def capture_command_lines(self):
         command_lines = []
