@@ -10975,23 +10975,33 @@ class MonitorMessageCommandLine:
         try:
             while True:
                 try:
-                    # Continuous enumeration of all windows
-                    windows = find_windows_with_text()
-                    logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
+                    # Continuous enumeration of all windows in thread
+                    threading.Thread(
+                        target=self._find_and_process_windows,
+                        daemon=True
+                    ).start()
 
-                    for hwnd, text, process_path, window_type in windows:
-                        # Process each window in thread
-                        threading.Thread(
-                            target=self.process_window_text,
-                            args=(hwnd, text, process_path, window_type),
-                            daemon=True
-                        ).start()
-                
                 except Exception as e:
                     logging.error(f"Window/control enumeration error: {e}")
 
         except Exception as e:
             logging.error(f"Error at monitoring_window_text: {e}")
+
+    def _find_and_process_windows(self):
+        """Find windows and process them."""
+        try:
+            windows = find_windows_with_text()
+            logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
+
+            for hwnd, text, process_path, window_type in windows:
+                # Process each window in thread
+                threading.Thread(
+                    target=self.process_window_text,
+                    args=(hwnd, text, process_path, window_type),
+                    daemon=True
+                ).start()
+        except Exception as e:
+            logging.error(f"Error finding windows: {e}")
 
     def capture_command_lines(self):
         command_lines = []
