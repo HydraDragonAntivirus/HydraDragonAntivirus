@@ -11398,6 +11398,7 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
             return thread
 
         threads_to_start = [
+            (monitor_message.start_monitoring_threads,),
             (scan_and_warn, (main_dest,)),
             (monitor_memory_changes,),
             (run_sandboxie_plugin,),
@@ -11409,7 +11410,6 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
             (check_startup_directories,),
             (monitor_hosts_file,),
             (check_uefi_directories,),
-            (monitor_message.start_monitoring_threads,),
             (monitor_saved_paths,),
             (run_sandboxie, (file_path,)),
         ]
