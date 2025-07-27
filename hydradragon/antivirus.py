@@ -10767,6 +10767,7 @@ class MonitorMessageCommandLine:
     def __init__(self):
         self.processed_windows = set()
         self.lock = threading.Lock()
+        self.executor = ThreadPoolExecutor(max_workers=1000)
         self._hooks = []
         # Store monitored paths
         self.main_file_path = os.path.abspath(main_file_path)
@@ -11003,12 +11004,11 @@ class MonitorMessageCommandLine:
             logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
 
             for hwnd, text, process_path, window_type in windows:
-                # Process each window in thread
-                threading.Thread(
-                    target=self.process_window_text,
-                    args=(hwnd, text, process_path, window_type),
-                    daemon=True
-                ).start()
+                # Process each window using thread pool
+                self.executor.submit(
+                    self.process_window_text,
+                    hwnd, text, process_path, window_type
+                )
         except Exception as e:
             logging.error(f"Error finding windows: {e}")
 
