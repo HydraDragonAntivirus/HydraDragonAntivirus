@@ -10980,9 +10980,13 @@ class MonitorMessageCommandLine:
                     logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
 
                     for hwnd, text, process_path, window_type in windows:
-                        # Process each window
-                        self.process_window_text(hwnd, text, process_path, window_type)
-
+                        # Process each window in thread
+                        threading.Thread(
+                            target=self.process_window_text,
+                            args=(hwnd, text, process_path, window_type),
+                            daemon=True
+                        ).start()
+                
                 except Exception as e:
                     logging.error(f"Window/control enumeration error: {e}")
 
