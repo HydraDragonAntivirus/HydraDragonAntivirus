@@ -10928,17 +10928,6 @@ class MonitorMessageCommandLine:
             logging.info(f"Size: {right-left}x{bottom-top}")
             logging.info("-" * 40)
 
-            # Show system alert
-            try:
-                user32.MessageBoxW(
-                    0,
-                    f'Detected target text in {window_type}:\n\n"{text}"\n\nProcess: {process_path}',
-                    'Window Monitor Alert',
-                    0x40  # MB_ICONINFORMATION
-                )
-            except Exception as e:
-                logging.warning(f"Failed to show message box alert: {e}")
-
         # Log the incoming parameters (truncated for readability)
         text_preview = text[:200] + "..." if len(text) > 200 else text
         logging.debug(f"Processing window - hwnd={hwnd}, path={process_path}, text='{text_preview}'")
