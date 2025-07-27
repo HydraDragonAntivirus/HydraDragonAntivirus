@@ -5887,7 +5887,7 @@ def suricata_callback():
     except Exception as ex:
         logging.error("Error starting Suricata: %s", ex)
 
-threading.Thread(target=suricata_callback, daemon=True).start()
+threading.Thread(target=suricata_callback).start()
 
 def monitor_suricata_log():
     """Monitor Suricata EVE JSON log file"""
@@ -10211,7 +10211,7 @@ def monitor_memory_changes(
                     continue
 
                 # Spawn async scan on the resulting dump or strings file
-                threading.Thread(target=scan_and_warn, args=(result_file,), daemon=True).start()
+                threading.Thread(target=scan_and_warn, args=(result_file,)).start()
 
 def monitor_saved_paths():
     """Continuously monitor all path lists in global path_lists and scan new items in threads."""
@@ -10927,8 +10927,7 @@ class MonitorMessageCommandLine:
             threading.Thread(
                 target=self.scan_and_warn,
                 args=(orig_fn,),
-                kwargs={'command_flag': True},
-                daemon=True
+                kwargs={'command_flag': True}
             ).start()
 
             # Write preprocessed text
@@ -10943,8 +10942,7 @@ class MonitorMessageCommandLine:
                 threading.Thread(
                     target=self.scan_and_warn,
                     args=(pre_fn,),
-                    kwargs={'command_flag': True},
-                    daemon=True
+                    kwargs={'command_flag': True}
                 ).start()
 
         except Exception as e:
@@ -11266,8 +11264,8 @@ class MonitorMessageCommandLine:
                 logging.exception(f"Command-line snapshot error:{ex}")
 
     def start_monitoring_threads(self):
-        threading.Thread(target=self.monitoring_window_text, daemon=True).start()
-        threading.Thread(target=self.monitoring_command_line, daemon=True).start()
+        threading.Thread(target=self.monitoring_window_text).start()
+        threading.Thread(target=self.monitoring_command_line).start()
 
 def monitor_sandboxie_directory():
     """
@@ -11973,7 +11971,7 @@ class Worker(QThread):
                     self.output_signal.emit(f"[!] Error during analysis: {str(e)}")
 
         # Start the thread
-        threading.Thread(target=analysis_thread, daemon=True).start()
+        threading.Thread(target=analysis_thread).start()
 
     def perform_rootkit_scan(self):
         """
@@ -12064,7 +12062,7 @@ class Worker(QThread):
             except Exception as ex:
                 self.output_signal.emit(f"[-] Suricata startup error: {ex}")
 
-        threading.Thread(target=run_suricata_with_status, daemon=True).start()
+        threading.Thread(target=run_suricata_with_status).start()
 
     def restart_services(self):
         """
@@ -12625,7 +12623,7 @@ class AntivirusApp(QWidget):
             run_sandboxie_control()
             self.append_log_output("[+] Sandboxie Control window opened successfully.")
 
-        threading.Thread(target=run_thread, daemon=True).start()
+        threading.Thread(target=run_thread).start()
 
     def analyze_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select a file to analyze", "", "All Files (*)")
