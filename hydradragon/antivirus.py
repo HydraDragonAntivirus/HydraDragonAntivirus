@@ -10915,28 +10915,16 @@ class MonitorMessageCommandLine:
         if not text:
             return
 
-        # Create a unique identifier for this window based on process path and text
-        process_identifier = process_path if process_path else "unknown_process"
-        window_id = (process_identifier, text.strip())
-
-        # Check for duplicate texts only
-        text_stripped = text.strip()
-        with self.lock:
-            if text_stripped in self.processed_texts:
-                return
-            self.processed_texts.add(text_stripped)
+        # Create a unique identifier for this window
+        window_id = (hwnd, text.strip())
 
         if window_id:
-            # Get additional window info (handle empty hwnd)
-            if hwnd:
-                class_name = get_window_class_name(hwnd)
-                left, top, right, bottom = get_window_rect(hwnd)
-            else:
-                class_name = "N/A"
-                left, top, right, bottom = 0, 0, 0, 0
+            # Get additional window info
+            class_name = get_window_class_name(hwnd)
+            left, top, right, bottom = get_window_rect(hwnd)
 
             logging.info(f"\n[DETECTION] {window_type.upper()}")
-            logging.info(f"HWND: {hwnd if hwnd else 'N/A'}")
+            logging.info(f"HWND: {hwnd}")
             logging.info(f"Text: '{text}'")
             logging.info(f"Class: {class_name}")
             logging.info(f"Process: {process_path}")
@@ -10949,12 +10937,8 @@ class MonitorMessageCommandLine:
         logging.debug(f"Processing window - hwnd={hwnd}, path={process_path}, text='{text_preview}'")
 
         try:
-            # Use process-based filename instead of hwnd
-            process_name = process_identifier.split('\\')[-1] if '\\' in process_identifier else process_identifier
-            unique_id = f"{process_name}_{hash(text_stripped) % 100000}"
-
             # Write original text
-            orig_fn = self.get_unique_filename(f"original_{unique_id}")
+            orig_fn = self.get_unique_filename(f"original_{hwnd}")
             with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
                 f.write(text[:1_000_000])  # Limit to 1MB
             logging.debug(f"Wrote original -> {orig_fn}")
@@ -10969,7 +10953,7 @@ class MonitorMessageCommandLine:
             # Write preprocessed text
             pre = self.preprocess_text(text)
             if pre and pre != text.lower().strip():  # Only if preprocessing changed something
-                pre_fn = self.get_unique_filename(f"preprocessed_{unique_id}")
+                pre_fn = self.get_unique_filename(f"preprocessed_{hwnd}")
                 with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
                     f.write(pre[:1_000_000])  # Limit to 1MB
                 logging.debug(f"Wrote preprocessed -> {pre_fn}")
@@ -10982,7 +10966,7 @@ class MonitorMessageCommandLine:
                 ).start()
 
         except Exception as e:
-            logging.error(f"Error processing window text for process {process_path}: {e}")
+            logging.error(f"Error processing window text for hwnd {hwnd}: {e}")
 
     def monitoring_window_text(self):
         """
