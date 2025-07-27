@@ -10925,7 +10925,7 @@ class MonitorMessageCommandLine:
 
             # Scan original text in separate thread
             threading.Thread(
-                target=self.scan_and_warn,
+                target=scan_and_warn,
                 args=(orig_fn,),
                 kwargs={'command_flag': True}
             ).start()
