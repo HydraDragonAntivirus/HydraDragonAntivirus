@@ -10986,10 +10986,6 @@ class MonitorMessageCommandLine:
         """
         logging.info("Started window/control monitoring loop")
 
-        logging.info(f"Starting advanced window monitor for: '{self.target_message}'")
-        logging.info(f"Scan interval: {self.scan_interval} seconds")
-        logging.info("=" * 60)
-
         self.running = True
 
         try:
@@ -11015,8 +11011,6 @@ class MonitorMessageCommandLine:
                             valid_windows.add(window_id)
                     self.detected_windows = valid_windows
                     logging.debug(f"Cleaned up detected windows, now tracking {len(self.detected_windows)} windows")
-
-                time.sleep(self.scan_interval)
 
         except Exception as e:
             logging.error(f"Error at monitoring_window_text: {e}")
