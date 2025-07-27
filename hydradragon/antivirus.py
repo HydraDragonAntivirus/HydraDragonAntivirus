@@ -10979,10 +10979,8 @@ class MonitorMessageCommandLine:
                     except Exception as e:
                         logging.error(f"Window/control enumeration error: {e}")
 
-            except KeyboardInterrupt:
-                logging.info("Monitoring stopped by user")
-            finally:
-                self.stop()
+            except Exception as e:
+                logging.info(f"Error at moniotring_window_text {e}")
 
     def capture_command_lines(self):
         command_lines = []
