@@ -10742,8 +10742,7 @@ def find_windows_with_text():
                     process_path = get_process_path(child)
                     window_handles.append((child, control_text, process_path, "child_window"))
         except Exception as e:
-            # Continue even if there's an error with child enumeration
-            pass
+            logging.error(f"Error at find_windows_with_text: {e}")
 
         return True
 
