@@ -10986,13 +10986,11 @@ class MonitorMessageCommandLine:
         """
         logging.info("Started window/control monitoring loop")
 
-        self.running = True
-
         try:
-            while self.running:
+            while True:
                 try:
                     # Continuous enumeration of all windows
-                    windows = find_windows_with_text(self.target_message)
+                    windows = find_windows_with_text()
                     logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
 
                     for hwnd, text, process_path, window_type in windows:
