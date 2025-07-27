@@ -10914,8 +10914,7 @@ class MonitorMessageCommandLine:
         # Create a unique identifier for this window
         window_id = (hwnd, text.strip())
 
-        # Only show new detections or if show_all_matches is True
-        if window_id not in self.detected_windows or self.show_all_matches:
+        if window_id:
             self.detected_windows.add(window_id)
 
             # Get additional window info
@@ -10999,16 +10998,6 @@ class MonitorMessageCommandLine:
 
                 except Exception as e:
                     logging.error(f"Window/control enumeration error: {e}")
-
-                # Clean up detected_windows set periodically (prevent memory buildup)
-                if len(self.detected_windows) > 1000:
-                    valid_windows = set()
-                    for window_id in self.detected_windows:
-                        hwnd, _ = window_id
-                        if user32.IsWindow(hwnd):  # Check if window still exists
-                            valid_windows.add(window_id)
-                    self.detected_windows = valid_windows
-                    logging.debug(f"Cleaned up detected windows, now tracking {len(self.detected_windows)} windows")
 
         except Exception as e:
             logging.error(f"Error at monitoring_window_text: {e}")
