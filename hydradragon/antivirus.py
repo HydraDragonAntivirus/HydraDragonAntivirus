@@ -10962,28 +10962,28 @@ class MonitorMessageCommandLine:
         """
         Process text from a window - saves to files and scans for target messages.
         """
-        # If there is no text then return
+        # Create a unique identifier for this window
+        window_id = (hwnd, text.strip())
+        # Filter duplicates
+        with self.lock:
+            if window_id in self.processed_windows:
+                return
+            self.processed_windows.add(window_id)
+
         if not text:
             return
 
-        # Create a unique identifier for this window
-        window_id = (hwnd, text.strip())
+        class_name = get_window_class_name(hwnd)
+        left, top, right, bottom = get_window_rect(hwnd)
+        logging.info(f"\n[DETECTION] {window_type.upper()}")
+        logging.info(f"HWND: {hwnd}")
+        logging.info(f"Text: '{text}'")
+        logging.info(f"Class: {class_name}")
+        logging.info(f"Process: {process_path}")
+        logging.info(f"Position: ({left}, {top})")
+        logging.info(f"Size: {right-left}x{bottom-top}")
+        logging.info("-" * 40)
 
-        if window_id:
-            # Get additional window info
-            class_name = get_window_class_name(hwnd)
-            left, top, right, bottom = get_window_rect(hwnd)
-
-            logging.info(f"\n[DETECTION] {window_type.upper()}")
-            logging.info(f"HWND: {hwnd}")
-            logging.info(f"Text: '{text}'")
-            logging.info(f"Class: {class_name}")
-            logging.info(f"Process: {process_path}")
-            logging.info(f"Position: ({left}, {top})")
-            logging.info(f"Size: {right-left}x{bottom-top}")
-            logging.info("-" * 40)
-
-        # Log the incoming parameters (truncated for readability)
         text_preview = text[:200] + "..." if len(text) > 200 else text
         logging.debug(f"Processing window - hwnd={hwnd}, path={process_path}, text='{text_preview}'")
 
@@ -11019,6 +11019,28 @@ class MonitorMessageCommandLine:
         except Exception as e:
             logging.error(f"Error processing window text for hwnd {hwnd}: {e}")
 
+    def _find_and_process_windows(self):
+        try:
+            windows = find_windows_with_text()
+            # Filter duplicates before logging
+            unique_windows = []
+            with self.lock:
+                for hwnd, text, process_path, window_type in windows:
+                    window_id = (hwnd, text.strip())
+                    if window_id in self.processed_windows:
+                        continue
+                    self.processed_windows.add(window_id)
+                    unique_windows.append((hwnd, text, process_path, window_type))
+
+            logging.debug(f"Enumerated {len(unique_windows)} unique window(s)/control(s)")
+            for hwnd, text, process_path, window_type in unique_windows:
+                self.executor.submit(
+                    self.process_window_text,
+                    hwnd, text, process_path, window_type
+                )
+        except Exception as e:
+            logging.error(f"Error finding windows: {e}")
+
     def monitoring_window_text(self):
         """
         Main monitoring loop.
@@ -11041,21 +11063,6 @@ class MonitorMessageCommandLine:
 
         except Exception as e:
             logging.error(f"Error at monitoring_window_text: {e}")
-
-    def _find_and_process_windows(self):
-        """Find windows and process them."""
-        try:
-            windows = find_windows_with_text()
-            logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
-
-            for hwnd, text, process_path, window_type in windows:
-                # Process each window using thread pool
-                self.executor.submit(
-                    self.process_window_text,
-                    hwnd, text, process_path, window_type
-                )
-        except Exception as e:
-            logging.error(f"Error finding windows: {e}")
 
     def capture_command_lines(self):
         command_lines = []
