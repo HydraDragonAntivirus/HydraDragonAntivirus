@@ -185,7 +185,6 @@ logging.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 
-from pywinauto import Application
 from pywinauto.controls.uiawrapper import UIAWrapper
 from pywinauto.uia_element_info import UIAElementInfo
 
@@ -10671,18 +10670,8 @@ def find_child_windows(parent_hwnd):
     user32.EnumChildWindows(parent_hwnd, EnumChildProc(_enum_proc), None)
     return child_windows
 
-# --- UI Automation Setup ---
-try:
-    from pywinauto import uia_defines
-    uia_backend_available = True
-except ImportError as e:
-    logging.info(f"UI Automation not available: {e}")
-    uia_backend_available = False
-
 def get_uia_text(hwnd):
     """Retrieve control text via UI Automation using pywinauto."""
-    if not uia_backend_available:
-        return ""
     try:
         element_info = UIAElementInfo(hwnd)
         wrapper = UIAWrapper(element_info)
