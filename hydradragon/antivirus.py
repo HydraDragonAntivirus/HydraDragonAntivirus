@@ -10828,46 +10828,62 @@ class MonitorMessageCommandLine:
             },
             "xmrig": {
                 "patterns": [
-                    'start xmrig', 'xmrig --help', 'xmrig --version', 'xmrig --config'
+                    "start xmrig", "xmrig --help", "xmrig --version", "xmrig --config"
                 ],
                 "virus_name": "HEUR:Win32.Miner.XMRig.gen"
             },
             "wifi": {
                 "patterns": [
-                    'netsh wlan show profile', 'netsh.exe wlan show profile'
+                    "netsh wlan show profile", "netsh.exe wlan show profile"
                 ],
                 "virus_name": "HEUR:Win32.Trojan.Password.Stealer.Wi-Fi.gen"
             },
             "shadowcopy": {
                 "patterns": [
-                    'get-wmiobject win32_shadowcopy | foreach-object {$_.delete();}',
-                    'Get-WmiObject Win32_Shadowcopy | ForEach-Object {$_.Delete();}'
+                    "get-wmiobject win32_shadowcopy | foreach-object {\$_.delete();}",
+                    "Get-WmiObject Win32_Shadowcopy | ForEach-Object {\$_.Delete();}"
                 ],
                 "virus_name": "HEUR:Win32.Ransom.ShadowCopy.gen"
             },
             "wmic": {
                 "patterns": [
-                    'wmic shadowcopy delete', 'wmic.exe shadowcopy delete'
+                    "wmic shadowcopy delete", "wmic.exe shadowcopy delete"
                 ],
                 "virus_name": "HEUR:Win32.Ransom.ShadowCopy.WMIC.gen"
             },
             "vssadmin": {
                 "patterns": [
-                    'vssadmin delete shadows', 'vssadmin.exe delete shadows'
+                    "vssadmin delete shadows", "vssadmin.exe delete shadows"
                 ],
                 "virus_name": "HEUR:Win32.Ransom.ShadowCopy.VSSAdmin.gen"
             },
+            # Service control: both stop and delete for specific services
             "windefend": {
-                "patterns": [
-                    'sc stop windefend', 'sc.exe stop windefend'
-                ],
+                "patterns": [ r"sc(?:\.exe)?\s+(?:stop|delete)\s+windefend" ],
                 "virus_name": "HEUR:Win32.KillAV.WinDefend.gen"
             },
             "killfirewall": {
-                "patterns": [
-                    'netsh advfirewall set allprofiles state off', 'netsh.exe advfirewall set allprofiles state off'
-                ],
+                "patterns": [ r"sc(?:\.exe)?\s+advfirewall\s+set\s+allprofiles\s+state\s+off" ],
                 "virus_name": "HEUR:Win32.KillFirewall.gen"
+            },
+            "stopeventlog": {
+                "patterns": [ r"sc(?:\.exe)?\s+(?:stop|delete)\s+eventlog" ],
+                "virus_name": "HEUR:Win32.StopEventLog.gen"
+            },
+            "delete_av_services": {
+                # Stop or delete attempts against known AV services
+                "patterns": [
+                    *[
+                        rf"sc(?:\.exe)?\s+(?:stop|delete)\s+{svc}"
+                        for svc in [
+                            "AvastSvc", "AvastWscReporter", "aswVmm", "MBAMService", "WinDefend",
+                            "VSSERV", "McAfee Service Controller", "McAfee Firewall Core Service",
+                            "McAfee Validation Trust Protection", "WRSkyClient", "WRCoreService",
+                            "WRSVC", "aswbIDSAgent", "aswElam"
+                        ]
+                    ],
+                ],
+                "virus_name": "HEUR:Win32.KillAV.ServiceControl.gen"
             },
             "startup": {
                 "patterns": [
@@ -10881,12 +10897,6 @@ class MonitorMessageCommandLine:
                     'schtasks*/create*/xml*\\temp\\*.tmp', 'schtasks.exe*/create*/xml*\\temp\\*.tmp'
                 ],
                 "virus_name": "HEUR:Win32.TaskScheduler.TempFile.gen"
-            },
-            "stopeventlog": {
-                "patterns": [
-                    'sc stop eventlog', 'sc.exe stop eventlog'
-                ],
-                "virus_name": "HEUR:Win32.StopEventLog.gen"
             },
             "koadic": {
                 "patterns": [
@@ -10906,24 +10916,6 @@ class MonitorMessageCommandLine:
                     rf"findstr.*\b({ '|'.join(fr'{re.escape(p)}(?:\.exe)?' for p in antivirus_process_list) })\b"
                 ],
                 "virus_name": "HEUR:Antivirus.Process.Search.Command"
-            },
-            "delete_av_services": {
-                "patterns": [
-                    'sc delete AvastSvc', 'sc.exe delete AvastSvc',
-                    'sc delete AvastWscReporter', 'sc.exe delete AvastWscReporter',
-                    'sc delete aswVmm', 'sc.exe delete aswVmm',
-                    'sc delete MBAMService', 'sc.exe delete MBAMService',
-                    'sc delete WinDefend', 'sc.exe delete WinDefend',
-                    'sc delete VSSERV', 'sc.exe delete VSSERV',
-                    'sc delete "McAfee Service Controller"', 'sc.exe delete "McAfee Service Controller"',
-                    'sc delete "McAfee Firewall Core Service"', 'sc.exe delete "McAfee Firewall Core Service"',
-                    'sc delete "McAfee Validation Trust Protection"', 'sc.exe delete "McAfee Validation Trust Protection"',
-                    'sc delete WRSkyClient', 'sc.exe delete WRSkyClient',
-                    'sc delete WRCoreService', 'sc.exe delete WRCoreService',
-                    'sc delete WRSVC', 'sc.exe delete WRSVC',
-                    'sc delete *elam*', 'sc.exe delete *elam*'
-                ],
-                "virus_name": "HEUR:Win32.KillAV.ServiceDelete.gen"
             },
             "delete_critical_registry_keys": {
                 "patterns": [
