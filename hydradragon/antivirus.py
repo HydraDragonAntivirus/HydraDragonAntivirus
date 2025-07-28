@@ -10913,7 +10913,9 @@ class MonitorMessageCommandLine:
                 "virus_name": "HEUR:Fodhelper.UAC.Bypass.Command"
             },
             "antivirus": {
-                "patterns": [rf"findstr.*\b({ '|'.join(re.escape(p) for p in antivirus_process_list) })\b"],
+                "patterns": [
+                    rf"findstr.*\b({ '|'.join(fr'{re.escape(p)}(?:\.exe)?' for p in antivirus_process_list) })\b"
+                ],  
                 "virus_name": "HEUR:Antivirus.Process.Search.Command"
             }
         }
