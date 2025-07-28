@@ -10777,18 +10777,15 @@ class MonitorMessageCommandLine:
         self.known_malware_messages = {
             "classic": {
                 "message": "this program cannot be run under virtual environment or debugging software",
-                "virus_name": "HEUR:Win32.Trojan.Guloader.C4D9Dd33.gen",
-                "process_function": self.process_detected_text_classic
+                "virus_name": "HEUR:Win32.Trojan.Guloader.C4D9Dd33.gen"
             },
             "av": {
                 "message": "disable your antivirus",
-                "virus_name": "HEUR:Win32.DisableAV.gen",
-                "process_function": self.process_detected_text_av
+                "virus_name": "HEUR:Win32.DisableAV.gen"
             },
             "debugger": {
                 "message": "a debugger has been found running in your system please unload it from memory and restart your program",
-                "virus_name": "HEUR:Win32.Themida.gen",
-                "process_function": self.process_detected_text_debugger
+                "virus_name": "HEUR:Win32.Themida.gen"
             },
             "fanmade": {
                 "patterns": [
@@ -10798,8 +10795,7 @@ class MonitorMessageCommandLine:
                     "contains flashing lights", "run malware", "executed is a malware", "resulting in an unusable machine", "this malware will harm your computer",
                     "this trojan and", "using this malware", "this malware can", "gdi malware", "win32 trojan specifically", "malware will run", "this malware is no joke",
                 ],
-                "virus_name": "HEUR:Win32.GDI.Fanmade.gen",
-                "process_function": self.process_detected_text_fanmade
+                "virus_name": "HEUR:Win32.GDI.Fanmade.gen"
             },
             "rogue": {
                 "patterns": [
@@ -10807,8 +10803,7 @@ class MonitorMessageCommandLine:
                     "has found viruses on computer", "windows security alert", "pc is at risk", "malicious program has been detected",
                     "warning virus detected"
                 ],
-                "virus_name": "HEUR:Win32.Rogue.gen",
-                "process_function": self.process_detected_text_rogue
+                "virus_name": "HEUR:Win32.Rogue.gen"
             },
             "powershell_iex_download": {
                 "patterns": [
@@ -10829,72 +10824,99 @@ class MonitorMessageCommandLine:
                     r'*iex ((new-object net.webclient).downloadstring(*',
                     r'*http*.replace(*iex*'
                 ],
-                "virus_name": "HEUR:Win32.PowerShell.IEX.Downloader.gen",
-                "process_function": self.process_detected_powershell_iex_download
+                "virus_name": "HEUR:Win32.PowerShell.IEX.Downloader.gen"
             },
             "xmrig": {
                 "patterns": [
-                    # 'xmrig', # Due to it's shortness, it's disabled.
-                    # 'xmrig.exe', Due to it's shortness it's disabled.
                     'start xmrig',
                     'xmrig --help',
                     'xmrig --version',
                     'xmrig --config'
                 ],
-                "virus_name": "HEUR:Win32.Miner.XMRig.gen",
-                "process_function": self.process_detected_command_xmrig
+                "virus_name": "HEUR:Win32.Miner.XMRig.gen"
             },
             "wifi": {
-                "command": 'netsh wlan show profile',
-                "virus_name": "HEUR:Win32.Trojan.Password.Stealer.Wi-Fi.gen",
-                "process_function": self.process_detected_command_wifi
+                "patterns": [
+                    'netsh wlan show profile',
+                    'netsh.exe wlan show profile'
+                ],
+                "virus_name": "HEUR:Win32.Trojan.Password.Stealer.Wi-Fi.gen"
             },
             "shadowcopy": {
-                "command": 'get-wmiobject win32_shadowcopy | foreach-object {$_.delete();}',
-                "virus_name": "HEUR:Win32.Ransom.ShadowCopy.gen",
-                "process_function": self.process_detected_command_ransom_shadowcopy
+                "patterns": [
+                    'get-wmiobject win32_shadowcopy | foreach-object {$_.delete();}',
+                    'Get-WmiObject Win32_Shadowcopy | ForEach-Object {$_.Delete();}'
+                ],
+                "virus_name": "HEUR:Win32.Ransom.ShadowCopy.gen"
             },
             "wmic": {
-                "command": 'wmic shadowcopy delete',
-                "virus_name": "HEUR:Win32.Ransom.ShadowCopy.WMIC.gen",
-                "process_function": self.process_detected_command_wmic_shadowcopy
+                "patterns": [
+                    'wmic shadowcopy delete',
+                    'wmic.exe shadowcopy delete'
+                ],
+                "virus_name": "HEUR:Win32.Ransom.ShadowCopy.WMIC.gen"
+            },
+            "vssadmin": {
+                "patterns": [
+                    'vssadmin delete shadows',
+                    'vssadmin.exe delete shadows'
+                ],
+                "virus_name": "HEUR:Win32.Ransom.ShadowCopy.VSSAdmin.gen"
+            },
+            "windefend": {
+                "patterns": [
+                    'sc stop windefend',
+                    'sc.exe stop windefend'
+                ],
+                "virus_name": "HEUR:Win32.KillAV.WinDefend.gen"
+            },
+            "killfirewall": {
+                "patterns": [
+                    'netsh advfirewall set allprofiles state off',
+                    'netsh.exe advfirewall set allprofiles state off'
+                ],
+                "virus_name": "HEUR:Win32.KillFirewall.gen"
             },
             "startup": {
-                "command": 'copy-item \\roaming\\microsoft\\windows\\start menu\\programs\\startup',
-                "virus_name": "HEUR:Win32.Startup.PowerShell.Injection.gen",
-                "process_function": self.process_detected_command_copy_to_startup
-                },
+                "patterns": [
+                    'copy-item \\roaming\\microsoft\\windows\\start menu\\programs\\startup',
+                    'Copy-Item \\roaming\\microsoft\\windows\\start menu\\programs\\startup'
+                ],
+                "virus_name": "HEUR:Win32.Startup.PowerShell.Injection.gen"
+            },
             "schtasks": {
-                "command": 'schtasks*/create*/xml*\\temp\\*.tmp',
-                "virus_name": "HEUR:Win32.TaskScheduler.TempFile.gen",
-                "process_function": self.process_detected_command_schtasks_temp
+                "patterns": [
+                    'schtasks*/create*/xml*\\temp\\*.tmp',
+                    'schtasks.exe*/create*/xml*\\temp\\*.tmp'
+                ],
+                "virus_name": "HEUR:Win32.TaskScheduler.TempFile.gen"
             },
             "stopeventlog": {
-                "command": 'sc.exe stop eventlog',
-                "virus_name": "HEUR:Win32.StopEventLog.gen",
-                "process_function": self.process_detected_command_stop_eventlog
+                "patterns": [
+                    'sc stop eventlog',
+                    'sc.exe stop eventlog'
+                ],
+                "virus_name": "HEUR:Win32.StopEventLog.gen"
             },
             "koadic": {
                 "patterns": [
                 'chcp 437 & schtasks /query /tn k0adic',
                 'chcp 437 & schtasks /create /tn k0adic'
                 ],
-                "virus_name": "HEUR:Win32.Rootkit.Koadic.gen",
-                "process_function": self.process_detected_command_rootkit_koadic
-                },
+                "virus_name": "HEUR:Win32.Rootkit.Koadic.gen"
+            },
             "fodhelper": {
-                "command": [
-                'reg add hkcu\\software\\classes\\ms-settings\\shell\\open\\command'
-            ],
-                "virus_name": "HEUR:Fodhelper.UAC.Bypass.Command",
-                "process_function": self.process_detected_command_fodhelper
-                },
+                "patterns": [
+                    'reg add hkcu\\software\\classes\\ms-settings\\shell\\open\\command',
+                    'reg.exe add hkcu\\software\\classes\\ms-settings\\shell\\open\\command'
+                ],
+                "virus_name": "HEUR:Fodhelper.UAC.Bypass.Command"
+            },
             "antivirus": {
                 "patterns": [rf"findstr.*\b({ '|'.join(re.escape(p) for p in antivirus_process_list) })\b"],
-                "virus_name": "HEUR:Antivirus.Process.Search.Command",
-                "process_function": self.process_detected_command_antivirus_search
-                }
+                "virus_name": "HEUR:Antivirus.Process.Search.Command"
             }
+        }
 
     def get_unique_filename(self, base_name):
         """Generate a unique filename by appending a number if necessary."""
@@ -11013,7 +11035,10 @@ class MonitorMessageCommandLine:
             try:
                 if proc.info['cmdline']:
                     cmdline_str = " ".join(proc.info['cmdline'])
-                    executable_path = proc.exe()  # Capture the executable path
+                    try:
+                        executable_path = proc.exe()  # Capture the executable path
+                    except (psutil.AccessDenied, psutil.NoSuchProcess):
+                        executable_path = proc.info['name']  # Fallback to process name for non-.exe
                     command_lines.append((cmdline_str, executable_path))
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as ex:
                 logging.error(f"Process error: {ex}")
@@ -11047,104 +11072,14 @@ class MonitorMessageCommandLine:
         doc2 = nlp_spacy_lang(text2)
         return doc1.similarity(doc2)
 
-    def process_detected_text_classic(self, text, file_path):
-        virus_name = self.known_malware_messages["classic"]["virus_name"]
-        message = f"Detected potential anti-vm anti-debug malware: {virus_name} in text: {text} from {file_path}"
-        logging.warning(message)
-        notify_user_for_detected_command(message, file_path)
-
-    def process_detected_text_av(self, text, file_path):
-        virus_name = self.known_malware_messages["av"]["virus_name"]
-        message = f"Detected potential anti-AV malware: {virus_name} in text: {text} from {file_path}"
-        logging.warning(message)
-        notify_user_for_detected_command(message, file_path)
-
-    def process_detected_text_debugger(self, text, file_path):
-        virus_name = self.known_malware_messages["debugger"]["virus_name"]
-        message = f"Detected potential anti-debugger malware: {virus_name} in text: {text} from {file_path}"
-        logging.warning(message)
-        notify_user_for_detected_command(message, file_path)
-
-    def process_detected_text_fanmade(self, text, file_path):
-        virus_name = self.known_malware_messages["fanmade"]["virus_name"]
-        message = f"Detected potential fanmade malware: {virus_name} in text: {text} from {file_path}"
-        logging.warning(message)
-        notify_user_for_detected_command(message, file_path)
-
-    def process_detected_text_rogue(self, text, file_path):
-        virus_name = self.known_malware_messages["rogue"]["virus_name"]
-        message = f"Detected potential rogue security software: {virus_name} in text: {text} from {file_path}"
+    # Single unified detection method
+    def process_detected_malware(self, text, file_path, virus_name, category):
+        message = f"Detected malware ({category}): {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
         notify_user_for_detected_command(message, file_path)
 
     def process_detected_text_ransom(self, text, file_path):
         message = f"Potential ransomware detected in text: {text} from {file_path}"
-        logging.warning(message)
-        notify_user_for_detected_command(message, file_path)
-
-    def process_detected_command_wifi(self, text, file_path):
-        virus_name = self.known_malware_messages["wifi"]["virus_name"]
-        message = f"Detected Wi-Fi credentials stealing malware: {virus_name} in text: {text} from {file_path}"
-        logging.warning(message)
-        notify_user_for_detected_command(message, file_path)
-
-    def process_detected_command_ransom_shadowcopy(self, text, file_path):
-        virus_name = self.known_malware_messages["shadowcopy"]["virus_name"]
-        message = f"Detected ransomware shadow copy deletion: {virus_name} in text: {text} from {file_path}"
-        logging.warning(message)
-        notify_user_for_detected_command(message, file_path)
-
-    def process_detected_command_wmic_shadowcopy(self, text, file_path):
-        virus_name = self.known_malware_messages["wmic"]["virus_name"]
-        message = f"Detected WMIC shadow copy deletion: {virus_name} in text: {text} from {file_path}"
-        logging.warning(message)
-        notify_user_for_detected_command(message, file_path)
-
-    def process_detected_command_copy_to_startup(self, text, file_path):
-        virus_name = self.known_malware_messages["startup"]["virus_name"]
-        message = f"Detected startup copy malware: {virus_name} in text: {text} from {file_path}"
-        logging.warning(message)
-        notify_user_for_detected_command(message, file_path)
-
-    def process_detected_command_schtasks_temp(self, text, file_path):
-        virus_name = self.known_malware_messages["schtasks"]["virus_name"]
-        message = f"Detected scheduled task creation using temp file: {virus_name} in text: {text} from {file_path}"
-        logging.warning(message)
-        notify_user_for_detected_command(message, file_path)
-
-    def process_detected_command_stop_eventlog(self, text, file_path):
-        virus_name = self.known_malware_messages["stopeventlog"]["virus_name"]
-        message = f"Detected Stop EventLog command execution: {virus_name} in text: {text} from {file_path}"
-        logging.warning(message)
-        notify_user_for_detected_command(message, file_path)
-
-    def process_detected_command_rootkit_koadic(self, text, file_path):
-        virus_name = self.known_malware_messages["koadic"]["virus_name"]
-        message = f"Detected rootkit behavior associated with Koadic: {virus_name} in text: {text} from {file_path}"
-        logging.warning(message)
-        notify_user_for_detected_command(message, file_path)
-
-    def process_detected_command_fodhelper(self, text, file_path):
-        virus_name = self.known_malware_messages["fodhelper"]["virus_name"]
-        message = f"Detected UAC bypass attempt using Fodhelper: {virus_name} in text: {text} from {file_path}"
-        logging.warning(message)
-        notify_user_for_detected_command(message, file_path)
-
-    def process_detected_command_antivirus_search(self, text, file_path):
-        virus_name = self.known_malware_messages["antivirus"]["virus_name"]
-        message = f"Detected search for antivirus processes: {virus_name} in text: {text} from {file_path}"
-        logging.warning(message)
-        notify_user_for_detected_command(message, file_path)
-
-    def process_detected_powershell_iex_download(self, text, file_path):
-        virus_name = self.known_malware_messages["powershell_iex_download"]["virus_name"]
-        message = f"Detected PowerShell IEX download command: {virus_name} in text: {text} from {file_path}"
-        logging.warning(message)
-        notify_user_for_detected_command(message, file_path)
-
-    def process_detected_command_xmrig(self, text, file_path):
-        virus_name = self.known_malware_messages["xmrig"]["virus_name"]
-        message = f"Detected XMRig mining activity: {virus_name} in text: {text} from {file_path}"
         logging.warning(message)
         notify_user_for_detected_command(message, file_path)
 
@@ -11179,27 +11114,18 @@ class MonitorMessageCommandLine:
 
             basename = os.path.basename(file_path)
 
-            # Process known malware messages
+            # Process known malware messages - single detection loop
             for category, details in self.known_malware_messages.items():
                 # Check text patterns
                 for pattern in details.get("patterns", []):
                     if self.calculate_similarity_text(file_content, pattern) > 0.92:
-                        details["process_function"](file_content, file_path)
+                        self.process_detected_malware(file_content, file_path, details["virus_name"], category)
                         logging.warning(f"Detected malware pattern for '{category}' in {file_path}.")
 
                 # Check fixed message
                 if "message" in details and self.calculate_similarity_text(file_content, details["message"]) > 0.92:
-                    details["process_function"](file_content, file_path)
+                    self.process_detected_malware(file_content, file_path, details["virus_name"], category)
                     logging.warning(f"Detected malware message for '{category}' in {file_path}.")
-
-                # Check command patterns only for files named cmd_*.txt
-                if "command" in details:
-                    if basename.startswith("cmd_") and basename.endswith(".txt"):
-                        if self.calculate_similarity_text(file_content, details["command"]) > 0.92:
-                            details["process_function"](file_content, file_path)
-                            logging.warning(f"Detected malware command for '{category}' in {file_path}.")
-                    else:
-                        logging.info(f"Skipping command checks for {file_path}: filename does not match cmd_*.txt")
 
             # Ransomware keyword distance check
             if self.contains_keywords_within_max_distance(file_content, max_distance=10):
@@ -11225,16 +11151,23 @@ class MonitorMessageCommandLine:
                 cmdlines = self.capture_command_lines()
                 logging.debug(f"Enumerated {len(cmdlines)} commandline(s)")
                 for cmd, exe_path in cmdlines:
-                    # normalize to absolute paths and lowercase for comparison
-                    exe_path = os.path.abspath(exe_path).lower()
-                    main_path = os.path.abspath(self.main_file_path).lower()
+                    # Handle both .exe and non-.exe processes
+                    if exe_path.endswith('.exe'):
+                        # normalize to absolute paths and lowercase for comparison
+                        exe_path_norm = os.path.abspath(exe_path).lower()
+                        main_path = os.path.abspath(self.main_file_path).lower()
+                        
+                        # skip if not from main executable or in the Sandboxie folder
+                        if exe_path_norm != main_path or exe_path_norm.startswith(self.sandboxie_folder.lower()):
+                            continue
+                    else:
+                        # For non-.exe processes, use the process name directly
+                        if exe_path.lower().startswith(self.sandboxie_folder.lower()):
+                            continue
 
-                    # skip if not from main executable or in the Sandboxie folder
-                    if exe_path != main_path or exe_path.startswith(self.sandboxie_folder.lower()):
-                        continue
-
-                    # now exe_path is the main executable and not excluded, so log and scan
-                    orig_fn = self.get_unique_filename(f"cmd_{os.path.basename(exe_path)}")
+                    # Process is valid, log and scan
+                    process_name = os.path.basename(exe_path) if exe_path.endswith('.exe') else exe_path
+                    orig_fn = self.get_unique_filename(f"cmd_{process_name}")
                     with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
                         f.write(cmd[:1_000_000])
                     logging.info(f"Wrote cmd -> {orig_fn}")
@@ -11246,7 +11179,7 @@ class MonitorMessageCommandLine:
 
                     pre_cmd = self.preprocess_text(cmd)
                     if pre_cmd:
-                        pre_fn = self.get_unique_filename(f"cmd_pre_{os.path.basename(exe_path)}")
+                        pre_fn = self.get_unique_filename(f"cmd_pre_{process_name}")
                         with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
                             f.write(pre_cmd[:1_000_000])
                         logging.info(f"Wrote cmd pre -> {pre_fn}")
