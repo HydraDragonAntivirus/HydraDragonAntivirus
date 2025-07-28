@@ -184,6 +184,14 @@ from scapy.sendrecv import sniff
 logging.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+
+from pywinauto import Application
+from pywinauto.controls.uiawrapper import UIAWrapper
+from pywinauto.uia_element_info import UIAElementInfo
+
+logging.info(f"pywinauto modules loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import ast
 logging.info(f"ast module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -198,10 +206,6 @@ logging.info(f"ctypes.wintypes module loaded in {time.time() - start_time:.6f} s
 start_time = time.time()
 from ctypes import byref
 logging.info(f"ctypes.byref module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from comtypes.client import CreateObject
-logging.info(f"comtypes.client.CreateObject and GetModule modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ipaddress
@@ -10669,20 +10673,23 @@ def find_child_windows(parent_hwnd):
 
 # --- UI Automation Setup ---
 try:
-    uia = CreateObject('UIAutomationClient.CUIAutomation')
-except Exception as e:
+    from pywinauto import uia_defines
+    uia_backend_available = True
+except ImportError as e:
     logging.info(f"UI Automation not available: {e}")
-    uia = None
+    uia_backend_available = False
 
 def get_uia_text(hwnd):
-    """Retrieve control text via UI Automation if available."""
-    if not uia:
+    """Retrieve control text via UI Automation using pywinauto."""
+    if not uia_backend_available:
         return ""
     try:
-        element = uia.ElementFromHandle(hwnd)
-        name = element.CurrentName
+        element_info = UIAElementInfo(hwnd)
+        wrapper = UIAWrapper(element_info)
+        name = wrapper.element.CurrentName
         return name or ""
-    except Exception:
+    except Exception as e:
+        logging.info(f"Failed to get UIA text for hwnd {hwnd}: {e}")
         return ""
 
 def find_descendant_windows(root_hwnd):

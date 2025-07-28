@@ -774,6 +774,7 @@ description = "Pure Python COM package"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
+markers = "sys_platform == \"win32\""
 files = [
     {file = "comtypes-1.4.11-py3-none-any.whl", hash = "sha256:1760d5059ca7ca1d61b574c998378d879c271a86c41f88926619ea97497592bb"},
     {file = "comtypes-1.4.11.zip", hash = "sha256:0a4259370ec48b685fe4483b0944ba1df0aa45163922073fe9b7df1d187db09e"},
@@ -3584,6 +3585,22 @@ files = [
 six = ">=1.5"
 
 [[package]]
+name = "python-xlib"
+version = "0.33"
+description = "Python X Library"
+optional = false
+python-versions = "*"
+groups = ["main"]
+markers = "platform_system == \"Linux\""
+files = [
+    {file = "python-xlib-0.33.tar.gz", hash = "sha256:55af7906a2c75ce6cb280a584776080602444f75815a7aff4d287bb2d7018b32"},
+    {file = "python_xlib-0.33-py2.py3-none-any.whl", hash = "sha256:c3534038d42e0df2f1392a1b30a15a4ff5fdc2b86cfa94f072bf11b10a164398"},
+]
+
+[package.dependencies]
+six = ">=1.10.0"
+
+[[package]]
 name = "pytz"
 version = "2025.2"
 description = "World timezone definitions, modern and historical"
@@ -3620,6 +3637,24 @@ files = [
     {file = "pywin32-310-cp39-cp39-win32.whl", hash = "sha256:851c8d927af0d879221e616ae1f66145253537bbdd321a77e8ef701b443a9a1a"},
     {file = "pywin32-310-cp39-cp39-win_amd64.whl", hash = "sha256:96867217335559ac619f00ad70e513c0fcf84b8a3af9fc2bba3b59b97da70475"},
 ]
+
+[[package]]
+name = "pywinauto"
+version = "0.6.9"
+description = "A set of Python modules to automate the Microsoft Windows GUI"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "pywinauto-0.6.9-py2.py3-none-any.whl", hash = "sha256:5924b3072864a1d730c5546bbeb17cf4063ba518b618dbc5e43c18276c7c9356"},
+    {file = "pywinauto-0.6.9.tar.gz", hash = "sha256:94d710bfa796df245250f952ffa65d97233d9807bcd42e052b71b81af469b6de"},
+]
+
+[package.dependencies]
+comtypes = {version = "*", markers = "python_version > \"3.6\" and sys_platform == \"win32\""}
+python-xlib = {version = "*", markers = "platform_system == \"Linux\""}
+pywin32 = {version = "*", markers = "python_version > \"3.6\" and sys_platform == \"win32\""}
+six = "*"
 
 [[package]]
 name = "pyyaml"
@@ -5587,4 +5622,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.13"
-content-hash = "5f365da6d48c2fdd1c83a6ee955c00a31eb507fd6a4c0bb50fbfd1ef962a8e8e"
+content-hash = "68504add32d506d6925454e3de71b01952cd62a2dab97e1e43b0993d24cf060a"
