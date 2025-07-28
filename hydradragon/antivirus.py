@@ -10840,8 +10840,8 @@ class MonitorMessageCommandLine:
             },
             "shadowcopy": {
                 "patterns": [
-                    "get-wmiobject win32_shadowcopy | foreach-object {\$_.delete();}",
-                    "Get-WmiObject Win32_Shadowcopy | ForEach-Object {\$_.Delete();}"
+                    r"get-wmiobject win32_shadowcopy \| foreach-object \{\$\._\.delete\(\);\}",
+                    r"Get-WmiObject Win32_Shadowcopy \| ForEach-Object \{\$\._\.Delete\(\);\}"
                 ],
                 "virus_name": "HEUR:Win32.Ransom.ShadowCopy.gen"
             },
@@ -11139,8 +11139,6 @@ class MonitorMessageCommandLine:
             if not isinstance(file_content, str):
                 logging.error("File content is not a valid string.")
                 return
-
-            basename = os.path.basename(file_path)
 
             # Process known malware messages - single detection loop
             for category, details in self.known_malware_messages.items():
