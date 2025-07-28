@@ -11184,7 +11184,7 @@ class MonitorMessageCommandLine:
                         # normalize to absolute paths and lowercase for comparison
                         exe_path_norm = os.path.abspath(exe_path).lower()
                         main_path = os.path.abspath(self.main_file_path).lower()
-                        
+
                         # skip if not from main executable or in the Sandboxie folder
                         if exe_path_norm != main_path or exe_path_norm.startswith(self.sandboxie_folder.lower()):
                             continue
