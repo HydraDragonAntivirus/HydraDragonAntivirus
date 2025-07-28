@@ -10828,17 +10828,13 @@ class MonitorMessageCommandLine:
             },
             "xmrig": {
                 "patterns": [
-                    'start xmrig',
-                    'xmrig --help',
-                    'xmrig --version',
-                    'xmrig --config'
+                    'start xmrig', 'xmrig --help', 'xmrig --version', 'xmrig --config'
                 ],
                 "virus_name": "HEUR:Win32.Miner.XMRig.gen"
             },
             "wifi": {
                 "patterns": [
-                    'netsh wlan show profile',
-                    'netsh.exe wlan show profile'
+                    'netsh wlan show profile', 'netsh.exe wlan show profile'
                 ],
                 "virus_name": "HEUR:Win32.Trojan.Password.Stealer.Wi-Fi.gen"
             },
@@ -10851,29 +10847,25 @@ class MonitorMessageCommandLine:
             },
             "wmic": {
                 "patterns": [
-                    'wmic shadowcopy delete',
-                    'wmic.exe shadowcopy delete'
+                    'wmic shadowcopy delete', 'wmic.exe shadowcopy delete'
                 ],
                 "virus_name": "HEUR:Win32.Ransom.ShadowCopy.WMIC.gen"
             },
             "vssadmin": {
                 "patterns": [
-                    'vssadmin delete shadows',
-                    'vssadmin.exe delete shadows'
+                    'vssadmin delete shadows', 'vssadmin.exe delete shadows'
                 ],
                 "virus_name": "HEUR:Win32.Ransom.ShadowCopy.VSSAdmin.gen"
             },
             "windefend": {
                 "patterns": [
-                    'sc stop windefend',
-                    'sc.exe stop windefend'
+                    'sc stop windefend', 'sc.exe stop windefend'
                 ],
                 "virus_name": "HEUR:Win32.KillAV.WinDefend.gen"
             },
             "killfirewall": {
                 "patterns": [
-                    'netsh advfirewall set allprofiles state off',
-                    'netsh.exe advfirewall set allprofiles state off'
+                    'netsh advfirewall set allprofiles state off', 'netsh.exe advfirewall set allprofiles state off'
                 ],
                 "virus_name": "HEUR:Win32.KillFirewall.gen"
             },
@@ -10886,22 +10878,19 @@ class MonitorMessageCommandLine:
             },
             "schtasks": {
                 "patterns": [
-                    'schtasks*/create*/xml*\\temp\\*.tmp',
-                    'schtasks.exe*/create*/xml*\\temp\\*.tmp'
+                    'schtasks*/create*/xml*\\temp\\*.tmp', 'schtasks.exe*/create*/xml*\\temp\\*.tmp'
                 ],
                 "virus_name": "HEUR:Win32.TaskScheduler.TempFile.gen"
             },
             "stopeventlog": {
                 "patterns": [
-                    'sc stop eventlog',
-                    'sc.exe stop eventlog'
+                    'sc stop eventlog', 'sc.exe stop eventlog'
                 ],
                 "virus_name": "HEUR:Win32.StopEventLog.gen"
             },
             "koadic": {
                 "patterns": [
-                'chcp 437 & schtasks /query /tn k0adic',
-                'chcp 437 & schtasks /create /tn k0adic'
+                    'chcp 437 & schtasks /query /tn k0adic', 'chcp 437 & schtasks /create /tn k0adic'
                 ],
                 "virus_name": "HEUR:Win32.Rootkit.Koadic.gen"
             },
@@ -10912,11 +10901,56 @@ class MonitorMessageCommandLine:
                 ],
                 "virus_name": "HEUR:Fodhelper.UAC.Bypass.Command"
             },
-            "antivirus": {
+            "antivirus_process_search": {
                 "patterns": [
                     rf"findstr.*\b({ '|'.join(fr'{re.escape(p)}(?:\.exe)?' for p in antivirus_process_list) })\b"
-                ],  
+                ],
                 "virus_name": "HEUR:Antivirus.Process.Search.Command"
+            },
+            "delete_av_services": {
+                "patterns": [
+                    'sc delete AvastSvc', 'sc.exe delete AvastSvc',
+                    'sc delete AvastWscReporter', 'sc.exe delete AvastWscReporter',
+                    'sc delete aswVmm', 'sc.exe delete aswVmm',
+                    'sc delete MBAMService', 'sc.exe delete MBAMService',
+                    'sc delete WinDefend', 'sc.exe delete WinDefend',
+                    'sc delete VSSERV', 'sc.exe delete VSSERV',
+                    'sc delete "McAfee Service Controller"', 'sc.exe delete "McAfee Service Controller"',
+                    'sc delete "McAfee Firewall Core Service"', 'sc.exe delete "McAfee Firewall Core Service"',
+                    'sc delete "McAfee Validation Trust Protection"', 'sc.exe delete "McAfee Validation Trust Protection"',
+                    'sc delete WRSkyClient', 'sc.exe delete WRSkyClient',
+                    'sc delete WRCoreService', 'sc.exe delete WRCoreService',
+                    'sc delete WRSVC', 'sc.exe delete WRSVC',
+                    'sc delete *elam*', 'sc.exe delete *elam*'
+                ],
+                "virus_name": "HEUR:Win32.KillAV.ServiceDelete.gen"
+            },
+            "delete_critical_registry_keys": {
+                "patterns": [
+                    'reg delete HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run', 'reg.exe delete HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run',
+                    'reg delete HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run', 'reg.exe delete HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run',
+                    'reg delete HKLM\\SYSTEM\\ControlSet001\\Services\\aswbIDSAgent', 'reg.exe delete HKLM\\SYSTEM\\ControlSet001\\Services\\aswbIDSAgent',
+                    'reg delete HKLM\\SYSTEM\\ControlSet001\\Services\\aswElam', 'reg.exe delete HKLM\\SYSTEM\\ControlSet001\\Services\\aswElam',
+                    'reg delete HKLM\\SOFTWARE\\WOW6432Node\\Webroot', 'reg.exe delete HKLM\\SOFTWARE\\WOW6432Node\\Webroot',
+                    'reg delete HKLM\\SYSTEM\\CurrentControlSet\\Services\\WinDefend', 'reg.exe delete HKLM\\SYSTEM\\CurrentControlSet\\Services\\WinDefend',
+                    'reg delete HKLM\\SYSTEM\\CurrentControlSet\\Services\\AVP21.3', 'reg.exe delete HKLM\\SYSTEM\\CurrentControlSet\\Services\\AVP21.3',
+                    'reg delete HKLM\\SYSTEM\\CurrentControlSet\\Services\\MBAMService', 'reg.exe delete HKLM\\SYSTEM\\CurrentControlSet\\Services\\MBAMService',
+                    'reg delete HKLM\\SYSTEM\\CurrentControlSet\\Services\\VSSERV', 'reg.exe delete HKLM\\SYSTEM\\CurrentControlSet\\Services\\VSSERV',
+                    'reg delete HKLM\\SYSTEM\\CurrentControlSet\\Services\\eamonm', 'reg.exe delete HKLM\\SYSTEM\\CurrentControlSet\\Services\\eamonm',
+                    'reg delete HKLM\\SOFTWARE\\AVIRA', 'reg.exe delete HKLM\\SOFTWARE\\AVIRA',
+                    'reg delete HKLM\\SOFTWARE\\CheckPoint', 'reg.exe delete HKLM\\SOFTWARE\\CheckPoint',
+                ],
+                "virus_name": "HEUR:Win32.Destructive.AV.RegDelete.gen"
+            },
+            "delete_entire_registry_hives": {
+                "patterns": [
+                    'reg delete HKLM /f', 'reg.exe delete HKLM /f',
+                    'reg delete HKCU /f', 'reg.exe delete HKCU /f',
+                    'reg delete HKCR /f', 'reg.exe delete HKCR /f',
+                    'reg delete HKU /f', 'reg.exe delete HKU /f',
+                    'reg delete HKCC /f', 'reg.exe delete HKCC /f',
+                ],
+                "virus_name": "HEUR:Win32.Destructive.HiveDelete.gen"
             }
         }
 
