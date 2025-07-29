@@ -106,7 +106,7 @@ logging.info(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f
 
 start_time = time.time()
 from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QThread,
-                            Signal, QPoint, QParallelAnimationGroup, Property, QRect)
+                            Signal, QPoint, QParallelAnimationGroup, Property, QRect, QTimer)
 logging.info(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -11778,6 +11778,10 @@ class Worker(QThread):
         self.args = args
         self.stop_requested = False
 
+    def request_stop(self):
+        """Public method to request stopping the worker"""
+        self.stop_requested = True
+
     # --- Task-Specific Methods (Called by run()) ---
 
     def load_meta_llama_1b_model(self):
@@ -11901,35 +11905,41 @@ class Worker(QThread):
             self.output_signal.emit(f"[!] Error updating definitions: {str(e)}")
 
     def analyze_file_worker(self, file_path):
-        """Launches run_analysis in a thread with stop support."""
-
+        """
+        Runs file analysis directly in the Worker thread with proper stop support.
+        No nested threading - everything runs in this QThread.
+        """
         if self.stop_requested:
             self.output_signal.emit("[!] Analysis stopped by user request")
             return
 
         self.output_signal.emit(f"[*] Starting analysis for: {file_path}")
 
-        def check_stop():
-            return self.stop_requested
+        try:
+            # Create a stop callback that checks our flag
+            def check_stop():
+                return self.stop_requested
 
-        def analysis_thread():
-            try:
-                analysis_result = run_analysis(file_path, stop_callback=check_stop)
+            # Run the analysis directly in this thread
+            # Assuming run_analysis is your main analysis function
+            analysis_result = run_analysis(file_path, stop_callback=check_stop)
+            
+            # Check if we were stopped during analysis
+            if self.stop_requested:
+                self.output_signal.emit("[!] Analysis was stopped by user")
+                return
+            
+            # Emit the result
+            self.output_signal.emit(analysis_result)
+            self.output_signal.emit("[+] File analysis completed successfully")
 
-                if self.stop_requested:
-                    self.output_signal.emit("[!] Analysis was stopped by user")
-                    return
-
-                self.output_signal.emit(analysis_result)
-
-            except Exception as e:
-                if self.stop_requested:
-                    self.output_signal.emit("[!] Analysis stopped by user request")
-                else:
-                    self.output_signal.emit(f"[!] Error during analysis: {str(e)}")
-
-        # Start the thread
-        threading.Thread(target=analysis_thread).start()
+        except Exception as e:
+            if self.stop_requested:
+                self.output_signal.emit("[!] Analysis stopped by user request")
+            else:
+                error_msg = f"[!] Error during analysis: {str(e)}"
+                self.output_signal.emit(error_msg)
+                logging.error(f"File analysis error: {str(e)}")
 
     def perform_rootkit_scan(self):
         """
@@ -12006,21 +12016,18 @@ class Worker(QThread):
         # Restart Suricata
         self.output_signal.emit("[*] Starting Suricata...")
 
-        def run_suricata_with_status():
-            try:
-                success = run_suricata()
-                if success:
-                    time.sleep(1)  # Brief wait for startup
-                    if is_suricata_running():
-                        self.output_signal.emit("[+] Suricata started successfully.")
-                    else:
-                        self.output_signal.emit("[!] Suricata startup uncertain - check logs.")
+        try:
+            success = run_suricata()
+            if success:
+                time.sleep(1)  # Brief wait for startup
+                if is_suricata_running():
+                    self.output_signal.emit("[+] Suricata started successfully.")
                 else:
-                    self.output_signal.emit("[-] Failed to start Suricata - check logs.")
-            except Exception as ex:
-                self.output_signal.emit(f"[-] Suricata startup error: {ex}")
-
-        threading.Thread(target=run_suricata_with_status).start()
+                    self.output_signal.emit("[!] Suricata startup uncertain - check logs.")
+            else:
+                self.output_signal.emit("[-] Failed to start Suricata - check logs.")
+        except Exception as ex:
+            self.output_signal.emit(f"[-] Suricata startup error: {ex}")
 
     def restart_services(self):
         """
@@ -12507,7 +12514,6 @@ class Worker(QThread):
             if not self.stop_requested:
                 self.output_signal.emit(f"[!] Worker thread error: {str(e)}")
 
-
 # --- Main Application Window ---
 class AntivirusApp(QWidget):
     def __init__(self):
@@ -12542,56 +12548,127 @@ class AntivirusApp(QWidget):
         self.setStyleSheet(stylesheet)
 
     def append_log_output(self, text):
+        """Append text to the current page's log output widget."""
         current_page_index = self.main_stack.currentIndex()
         if 0 <= current_page_index < len(self.log_outputs):
             log_widget = self.log_outputs[current_page_index]
             if log_widget:
                 log_widget.append(text)
+                # Auto-scroll to bottom
+                log_widget.verticalScrollBar().setValue(
+                    log_widget.verticalScrollBar().maximum()
+                )
 
     def on_worker_finished(self, worker):
+        """Handle worker thread completion."""
         self.append_log_output(f"[+] Task '{worker.task_type}' finished.")
         if worker in self.workers:
             self.workers.remove(worker)
+        
+        # Update UI status when all workers are done
         if not self.workers:
-            self.shield_widget.set_status(True)
-            self.status_text.setText("Ready for analysis!")
+            if hasattr(self, 'shield_widget'):
+                self.shield_widget.set_status(True)
+            if hasattr(self, 'status_text'):
+                self.status_text.setText("Ready for analysis!")
 
     def start_worker(self, task_type, *args):
+        """Start a new worker thread for the given task."""
+        # Create new worker
         worker = Worker(task_type, *args)
         worker.output_signal.connect(self.append_log_output)
         worker.finished.connect(lambda w=worker: self.on_worker_finished(w))
 
+        # Add to active workers list
         self.workers.append(worker)
+        
+        # Start the worker
         worker.start()
+        
+        # Update UI
         self.append_log_output(f"[*] Task '{task_type}' started.")
-        self.shield_widget.set_status(False)
-        self.status_text.setText("System is busy...")
+        if hasattr(self, 'shield_widget'):
+            self.shield_widget.set_status(False)
+        if hasattr(self, 'status_text'):
+            self.status_text.setText("System is busy...")
 
     def stop_analysis(self):
-        for worker in self.workers:
+        """Stop all running analysis tasks."""
+        if not self.workers:
+            self.append_log_output("[!] No running tasks to stop.")
+            return
+        
+        self.append_log_output("[*] Requesting stop for all running tasks...")
+        
+        # Request stop for all workers
+        for worker in self.workers[:]:  # Create a copy of the list
             if worker.isRunning():
-                worker.stop_requested = True
-        self.append_log_output("[!] Stop request sent to all running tasks.")
+                worker.request_stop()
+                self.append_log_output(f"[*] Stop requested for task: {worker.task_type}")
+        
+        # Give threads a moment to stop gracefully
+        QTimer.singleShot(1000, self.force_stop_remaining_workers)
+
+    def force_stop_remaining_workers(self):
+        """Force stop any workers that didn't stop gracefully."""
+        remaining_workers = [w for w in self.workers if w.isRunning()]
+        
+        if remaining_workers:
+            self.append_log_output(f"[*] Force stopping {len(remaining_workers)} remaining tasks...")
+            
+            for worker in remaining_workers:
+                try:
+                    worker.terminate()  # Force termination
+                    worker.wait(2000)  # Wait up to 2 seconds
+                    if worker.isRunning():
+                        self.append_log_output(f"[!] Could not stop task: {worker.task_type}")
+                    else:
+                        self.append_log_output(f"[+] Force stopped task: {worker.task_type}")
+                except Exception as e:
+                    self.append_log_output(f"[!] Error stopping task {worker.task_type}: {str(e)}")
+        
+        # Clear workers list and update UI
+        self.workers.clear()
+        if hasattr(self, 'shield_widget'):
+            self.shield_widget.set_status(True)
+        if hasattr(self, 'status_text'):
+            self.status_text.setText("Ready for analysis!")
 
     def open_sandboxie_control(self):
         """Starts run_sandboxie_control in a thread."""
         self.append_log_output("[*] Opening Sandboxie Control window...")
 
         def run_thread():
-            run_sandboxie_control()
-            self.append_log_output("[+] Sandboxie Control window opened successfully.")
+            try:
+                run_sandboxie_control()
+                self.append_log_output("[+] Sandboxie Control window opened successfully.")
+            except Exception as e:
+                self.append_log_output(f"[!] Error opening Sandboxie Control: {str(e)}")
 
-        threading.Thread(target=run_thread).start()
+        # Use QThread instead of threading.Thread for better Qt integration
+        thread = threading.Thread(target=run_thread, daemon=True)
+        thread.start()
 
     def analyze_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select a file to analyze", "", "All Files (*)")
+        """Open file dialog and start file analysis."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Select a file to analyze", 
+            "", 
+            "All Files (*)"
+        )
         if file_path:
+            self.append_log_output(f"[*] Selected file for analysis: {file_path}")
             self.start_worker("analyze_file", file_path)
+        else:
+            self.append_log_output("[*] File selection cancelled.")
 
     def perform_hayabusa_search(self):
-        """
-        Performs a search using the text from the search input field.
-        """
+        """Performs a search using the text from the search input field."""
+        if not hasattr(self, 'search_input'):
+            self.append_log_output("[!] Search input not available.")
+            return
+            
         keywords = self.search_input.text().strip()
         if keywords:
             self.start_worker("hayabusa_search", keywords, False)  # False for keyword search
@@ -12599,7 +12676,9 @@ class AntivirusApp(QWidget):
             self.append_log_output("[!] Please enter search keywords first.")
 
     def switch_page_with_animation(self, index):
-        if self.animation_group.state() == QParallelAnimationGroup.State.Running or self.main_stack.currentIndex() == index:
+        """Switch between pages with slide animation."""
+        if (self.animation_group.state() == QParallelAnimationGroup.State.Running or 
+            self.main_stack.currentIndex() == index):
             return
 
         current_widget = self.main_stack.currentWidget()
@@ -12626,6 +12705,24 @@ class AntivirusApp(QWidget):
 
         self.animation_group.finished.connect(lambda: self.main_stack.setCurrentIndex(index))
         self.animation_group.start()
+
+    def closeEvent(self, event):
+        """Handle application close event - stop all workers first."""
+        if self.workers:
+            self.append_log_output("[*] Stopping all running tasks before exit...")
+            
+            # Request stop for all workers
+            for worker in self.workers:
+                if worker.isRunning():
+                    worker.request_stop()
+            
+            # Force terminate if needed
+            for worker in self.workers:
+                if worker.isRunning():
+                    worker.terminate()
+                    worker.wait(3000)  # Wait up to 3 seconds
+        
+        event.accept()
 
     def create_status_page(self):
         page = QWidget()
@@ -12668,6 +12765,7 @@ class AntivirusApp(QWidget):
         layout.addWidget(button)
         log_output = QTextEdit(f"{title_text} logs will appear here...")
         log_output.setObjectName("log_output")
+        log_output.setReadOnly(True)  # Make read-only to prevent user input
         layout.addWidget(log_output, 1)
         self.log_outputs.append(log_output)
         layout.addStretch()
@@ -12721,6 +12819,7 @@ class AntivirusApp(QWidget):
         layout.addLayout(control_layout)
         log_output = QTextEdit("Analysis logs will be saved in the logs folder.")
         log_output.setObjectName("log_output")
+        log_output.setReadOnly(True)
         layout.addWidget(log_output, 1)
         self.log_outputs.append(log_output)
         return page
@@ -12777,6 +12876,7 @@ class AntivirusApp(QWidget):
         layout.addLayout(analysis_layout)
         log_output = QTextEdit("Hayabusa analysis results will appear here...")
         log_output.setObjectName("log_output")
+        log_output.setReadOnly(True)
         layout.addWidget(log_output, 1)
         self.log_outputs.append(log_output)
         return page
@@ -12794,6 +12894,7 @@ class AntivirusApp(QWidget):
         layout.addWidget(cleanup_button)
         log_output = QTextEdit("Cleanup process logs will appear here...")
         log_output.setObjectName("log_output")
+        log_output.setReadOnly(True)
         layout.addWidget(log_output, 1)
         self.log_outputs.append(log_output)
         layout.addStretch()
