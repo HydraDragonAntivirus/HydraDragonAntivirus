@@ -184,18 +184,8 @@ from scapy.sendrecv import sniff
 logging.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import warnings
-logging.info(f"pefile module loaded in {time.time() - start_time:.6f} seconds")
-
-warnings.simplefilter("ignore", UserWarning)
-sys.coinit_flags = 2 # https://stackoverflow.com/questions/51284268/windowscontext-oleinitialize-failed-com-error-0x80010106-rpc-e-changed-mode
-
-start_time = time.time()
-
-from pywinauto.controls.uiawrapper import UIAWrapper
-from pywinauto.uia_element_info import UIAElementInfo
-
-logging.info(f"pywinauto modules loaded in {time.time() - start_time:.6f} seconds")
+import uiautomation as auto
+logging.info(f"uiautomation.auto module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ast
@@ -10678,14 +10668,11 @@ def find_child_windows(parent_hwnd):
     return child_windows
 
 def get_uia_text(hwnd):
-    """Retrieve control text via UI Automation using pywinauto."""
     try:
-        element_info = UIAElementInfo(hwnd)
-        wrapper = UIAWrapper(element_info)
-        name = wrapper.element_info.name
-        return name or ""
+        element = auto.ControlFromHandle(hwnd)
+        return element.Name or ""
     except Exception as e:
-        logging.info(f"Failed to get UIA text for hwnd {hwnd}: {e}")
+        print(f"Failed to get UIA text for hwnd {hwnd}: {e}")
         return ""
 
 def find_descendant_windows(root_hwnd):
