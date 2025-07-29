@@ -184,6 +184,13 @@ from scapy.sendrecv import sniff
 logging.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import warnings
+logging.info(f"pefile module loaded in {time.time() - start_time:.6f} seconds")
+
+warnings.simplefilter("ignore", UserWarning)
+sys.coinit_flags = 2 # https://stackoverflow.com/questions/51284268/windowscontext-oleinitialize-failed-com-error-0x80010106-rpc-e-changed-mode
+
+start_time = time.time()
 
 from pywinauto.controls.uiawrapper import UIAWrapper
 from pywinauto.uia_element_info import UIAElementInfo
