@@ -10682,7 +10682,7 @@ def get_uia_text(hwnd):
     try:
         element_info = UIAElementInfo(hwnd)
         wrapper = UIAWrapper(element_info)
-        name = wrapper.element.CurrentName
+        name = wrapper.element_info.name
         return name or ""
     except Exception as e:
         logging.info(f"Failed to get UIA text for hwnd {hwnd}: {e}")
