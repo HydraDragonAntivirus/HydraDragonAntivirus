@@ -989,7 +989,24 @@ def sanitize_filename(filename: str) -> str:
     """
     Sanitize the filename by replacing invalid characters for Windows.
     """
-    return filename.replace(':', '_').replace('\\', '_').replace('/', '_')
+    # Replace all invalid Windows filename characters with underscores
+    filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
+    
+    # Replace control characters with underscores
+    filename = re.sub(r'[\x00-\x1f\x7f-\x9f]', '_', filename)
+    
+    # Remove leading/trailing dots and spaces (Windows doesn't like these)
+    filename = filename.strip('. ')
+    
+    # Handle empty filename
+    if not filename:
+        filename = "file"
+    
+    # Limit length to avoid path issues
+    if len(filename) > 200:
+        filename = filename[:200]
+    
+    return filename
 
 def ublock_detect(url):
     """
@@ -1064,24 +1081,40 @@ except Exception as e:
     logging.error(f"An error occurred: {e}")
 
 def get_unique_output_path(output_dir: Path, base_name) -> Path:
+    """
+    Generate a unique output path by sanitizing the filename and adding timestamp/counter if needed.
+    
+    Args:
+        output_dir: Directory where the file will be created
+        base_name: Base filename (can be string or Path)
+    
+    Returns:
+        Path: Unique file path that doesn't exist yet
+    """
+    # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    base_name = Path(base_name)  # <- convert here
-
+    
+    # Convert to Path object to easily extract stem and suffix
+    base_name = Path(base_name)
     stem = sanitize_filename(base_name.stem)
     suffix = base_name.suffix
-
+    
+    # Generate initial candidate with timestamp
     timestamp = int(time.time())
     candidate = output_dir / f"{stem}_{timestamp}{suffix}"
-
-    if candidate.exists():
-        counter = 1
-        while True:
-            candidate = output_dir / f"{stem}_{timestamp}_{counter}{suffix}"
-            if not candidate.exists():
-                break
-            counter += 1
-
+    
+    # If it doesn't exist, we're done
+    if not candidate.exists():
+        return candidate
+    
+    # If it exists, add a counter
+    counter = 1
+    while True:
+        candidate = output_dir / f"{stem}_{timestamp}_{counter}{suffix}"
+        if not candidate.exists():
+            break
+        counter += 1
+    
     return candidate
 
 #inspired by https://aluigi.altervista.org/bms/advanced_installer.bms
