@@ -991,21 +991,21 @@ def sanitize_filename(filename: str) -> str:
     """
     # Replace all invalid Windows filename characters with underscores
     filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
-    
+
     # Replace control characters with underscores
     filename = re.sub(r'[\x00-\x1f\x7f-\x9f]', '_', filename)
-    
+
     # Remove leading/trailing dots and spaces (Windows doesn't like these)
     filename = filename.strip('. ')
-    
+
     # Handle empty filename
     if not filename:
         filename = "file"
-    
+
     # Limit length to avoid path issues
     if len(filename) > 200:
         filename = filename[:200]
-    
+
     return filename
 
 def ublock_detect(url):
@@ -1083,30 +1083,30 @@ except Exception as e:
 def get_unique_output_path(output_dir: Path, base_name) -> Path:
     """
     Generate a unique output path by sanitizing the filename and adding timestamp/counter if needed.
-    
+
     Args:
         output_dir: Directory where the file will be created
         base_name: Base filename (can be string or Path)
-    
+
     Returns:
         Path: Unique file path that doesn't exist yet
     """
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Convert to Path object to easily extract stem and suffix
     base_name = Path(base_name)
     stem = sanitize_filename(base_name.stem)
     suffix = base_name.suffix
-    
+
     # Generate initial candidate with timestamp
     timestamp = int(time.time())
     candidate = output_dir / f"{stem}_{timestamp}{suffix}"
-    
+
     # If it doesn't exist, we're done
     if not candidate.exists():
         return candidate
-    
+
     # If it exists, add a counter
     counter = 1
     while True:
@@ -1114,7 +1114,7 @@ def get_unique_output_path(output_dir: Path, base_name) -> Path:
         if not candidate.exists():
             break
         counter += 1
-    
+
     return candidate
 
 #inspired by https://aluigi.altervista.org/bms/advanced_installer.bms
@@ -10685,18 +10685,73 @@ def get_process_path(hwnd):
 # ----------------------------------------------------
 
 def get_window_text(hwnd):
-    """Retrieve the text of a window; always returns a string."""
-    length = user32.GetWindowTextLengthW(hwnd) + 1
-    buf = ctypes.create_unicode_buffer(length)
-    user32.GetWindowTextW(hwnd, buf, length)
-    return buf.value or ""
+    """Enhanced window text extraction using multiple WinAPI methods."""
+    texts = []
+
+    # Method 1: Standard GetWindowText
+    try:
+        length = user32.GetWindowTextLengthW(hwnd) + 1
+        if length > 1:
+            buf = ctypes.create_unicode_buffer(length)
+            actual_length = user32.GetWindowTextW(hwnd, buf, length)
+            if actual_length > 0:
+                text = buf.value
+                if text and text.strip():
+                    texts.append(("GetWindowText", text.strip()))
+    except Exception as e:
+        logging.debug(f"GetWindowText failed for {hwnd}: {e}")
+
+    # Method 2: Fallback to original simple method if enhanced fails
+    if not texts:
+        try:
+            length = user32.GetWindowTextLengthW(hwnd) + 1
+            buf = ctypes.create_unicode_buffer(length)
+            user32.GetWindowTextW(hwnd, buf, length)
+            text = buf.value or ""
+            if text and text.strip():
+                texts.append(("GetWindowText_Fallback", text.strip()))
+        except Exception:
+            pass
+
+    # Method 3: Try getting class name as fallback identifier
+    try:
+        class_name = get_window_class_name(hwnd)
+        if class_name and class_name not in ["", "Static", "Button"]:  # Skip generic classes
+            texts.append(("ClassName", class_name))
+    except Exception:
+        pass
+
+    # Return the best text found
+    if texts:
+        method, text = texts[0]
+        logging.debug(f"HWND {hwnd}: text via {method}: {text[:50]}...")
+        return text
+
+    return ""
 
 def get_control_text(hwnd):
-    """Retrieve text from a control using SendMessageW."""
-    length = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) + 1
-    buf = ctypes.create_unicode_buffer(length)
-    user32.SendMessageW(hwnd, WM_GETTEXT, length, buf)
-    return buf.value or ""
+    """Enhanced control text extraction using multiple methods."""
+    # Method 1: WM_GETTEXT message (original approach)
+    try:
+        length = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) + 1
+        if length > 1:
+            buf = ctypes.create_unicode_buffer(length)
+            actual_length = user32.SendMessageW(hwnd, WM_GETTEXT, length, buf)
+            if actual_length > 0:
+                text = buf.value
+                if text and text.strip():
+                    return text.strip()
+    except Exception as e:
+        logging.debug(f"WM_GETTEXT failed for {hwnd}: {e}")
+
+    # Method 2: Fallback to original simple method
+    try:
+        length = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0) + 1
+        buf = ctypes.create_unicode_buffer(length)
+        user32.SendMessageW(hwnd, WM_GETTEXT, length, buf)
+        return buf.value or ""
+    except Exception:
+        return ""
 
 def find_child_windows(parent_hwnd):
     """Find all child windows of the given parent window."""
@@ -10713,45 +10768,120 @@ def is_window_valid(hwnd):
     return bool(user32.IsWindow(hwnd))
 
 def get_uia_text(hwnd):
+    """Enhanced UI Automation text extraction with multiple pattern support."""
     if not is_window_valid(hwnd):
         logging.debug(f"HWND {hwnd} is not a valid window")
         return ""
 
     try:
-        # Use raw CLSID string — not UiaClient.CLSID_CUIAutomation
+        # Use raw CLSID string for UI Automation
         uiauto = CreateObject("{FF48DBA4-60EF-4201-AA87-54103EEF594E}", interface=UiaClient.IUIAutomation)
     except Exception as coe:
-        logging.error(f"Cannot create CUIAutomation instance: {coe!r}")
+        logging.debug(f"Cannot create CUIAutomation instance: {coe!r}")
         return ""
 
     try:
-        # Get the element for the given HWND
         elem = uiauto.ElementFromHandle(hwnd)
     except Exception as e:
-        logging.error(f"ElementFromHandle({hwnd}) failed: {e!r}")
+        logging.debug(f"ElementFromHandle({hwnd}) failed: {e!r}")
         return ""
 
-    # Try CurrentName
+    # Try multiple UI Automation patterns in order of preference
+    text_sources = []
+
+    # 1. Try CurrentName (most common)
     try:
         name = elem.CurrentName
-        if name:
-            logging.info(f"HWND {hwnd}: name via CurrentName: {name!r}")
-            return name
+        if name and name.strip():
+            text_sources.append(("CurrentName", name.strip()))
     except Exception:
-        # Name not supported or empty
         pass
 
-    # Try ValuePattern fallback
+    # 2. Try ValuePattern (for input controls)
     try:
         vp = elem.GetCurrentPattern(UiaClient.ValuePattern.Pattern)
-        value = vp.Current.Value or ""
-        if value:
-            logging.info(f"HWND {hwnd}: name via ValuePattern: {value!r}")
-            return value
+        if vp:
+            value = vp.Current.Value
+            if value and value.strip():
+                text_sources.append(("ValuePattern", value.strip()))
     except Exception:
         pass
 
-    logging.info(f"HWND {hwnd}: no text pattern available")
+    # 3. Try TextPattern (for rich text controls)
+    try:
+        tp = elem.GetCurrentPattern(UiaClient.TextPattern.Pattern)
+        if tp:
+            doc_range = tp.DocumentRange
+            text = doc_range.GetText(-1)  # -1 means get all text
+            if text and text.strip():
+                text_sources.append(("TextPattern", text.strip()))
+    except Exception:
+        pass
+
+    # 4. Try LegacyIAccessiblePattern (for older controls)
+    try:
+        lap = elem.GetCurrentPattern(UiaClient.LegacyIAccessiblePattern.Pattern)
+        if lap:
+            name = lap.Current.Name
+            value = lap.Current.Value
+            if name and name.strip():
+                text_sources.append(("LegacyName", name.strip()))
+            if value and value.strip():
+                text_sources.append(("LegacyValue", value.strip()))
+    except Exception:
+        pass
+
+    # 5. Try RangeValuePattern (for sliders, progress bars)
+    try:
+        rvp = elem.GetCurrentPattern(UiaClient.RangeValuePattern.Pattern)
+        if rvp:
+            value = str(rvp.Current.Value)
+            if value:
+                text_sources.append(("RangeValue", value))
+    except Exception:
+        pass
+
+    # 6. Try SelectionPattern (for lists, combos)
+    try:
+        sp = elem.GetCurrentPattern(UiaClient.SelectionPattern.Pattern)
+        if sp:
+            selection = sp.GetCurrentSelection()
+            if selection:
+                for i in range(selection.Length):
+                    item = selection.GetElement(i)
+                    item_name = item.CurrentName
+                    if item_name:
+                        text_sources.append(("Selection", item_name))
+    except Exception:
+        pass
+
+    # Return the first non-empty text found, with preference order
+    if text_sources:
+        method, text = text_sources[0]
+        logging.debug(f"HWND {hwnd}: text extracted via {method}: {text[:100]}...")
+        return text
+
+    # If no patterns worked, try getting child elements
+    try:
+        condition = uiauto.CreateTrueCondition()
+        child_elements = elem.FindAll(UiaClient.TreeScope_Children, condition)
+
+        child_texts = []
+        for i in range(child_elements.Length):
+            child = child_elements.GetElement(i)
+            child_name = child.CurrentName
+            if child_name and child_name.strip():
+                child_texts.append(child_name.strip())
+
+        if child_texts:
+            combined_text = " | ".join(child_texts[:5])  # Limit to first 5 children
+            logging.debug(f"HWND {hwnd}: text from children: {combined_text[:100]}...")
+            return combined_text
+
+    except Exception:
+        pass
+
+    logging.debug(f"HWND {hwnd}: no text pattern available")
     return ""
 
 def find_descendant_windows(root_hwnd):
@@ -10772,11 +10902,12 @@ def find_descendant_windows(root_hwnd):
 
 def find_windows_with_text():
     """
+    Enhanced window enumeration with better text extraction.
     Find all windows with text - no filtering, checks everything.
     Uses multiple text extraction methods including UI Automation.
-    If target_text is None, returns all windows with any text.
     """
     window_handles = []
+    processed_hwnds = set()  # Avoid duplicate processing
 
     def get_any_text(hwnd):
         # Try all available methods to get window text
@@ -10790,6 +10921,10 @@ def find_windows_with_text():
         return ""
 
     def enum_windows_callback(hwnd, lParam):
+        if hwnd in processed_hwnds:
+            return True
+        processed_hwnds.add(hwnd)
+
         try:
             window_text = get_any_text(hwnd)
             if window_text:
@@ -10798,10 +10933,15 @@ def find_windows_with_text():
 
             descendants = find_descendant_windows(hwnd)
             for child in descendants:
+                if child in processed_hwnds:
+                    continue
+                processed_hwnds.add(child)
+
                 control_text = get_any_text(child)
                 if control_text:
                     process_path = get_process_path(child)
                     window_handles.append((child, control_text, process_path, "child_window"))
+
         except Exception as e:
             logging.error(f"Error at find_windows_with_text: {e}")
 
