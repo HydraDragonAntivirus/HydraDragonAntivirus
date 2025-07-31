@@ -11219,25 +11219,19 @@ class MonitorMessageCommandLine:
         except Exception as e:
             logging.error(f"Error processing window text for hwnd {hwnd}: {e}")
 
-    def _find_and_process_windows(self):
+    def find_and_process_windows(self):
         try:
             windows = find_windows_with_text()
-            # Filter duplicates before logging
-            unique_windows = []
-            with self.lock:
-                for hwnd, text, process_path, window_type in windows:
-                    window_id = (hwnd, text.strip())
-                    if window_id in self.processed_windows:
-                        continue
-                    self.processed_windows.add(window_id)
-                    unique_windows.append((hwnd, text, process_path, window_type))
 
-            logging.debug(f"Enumerated {len(unique_windows)} unique window(s)/control(s)")
-            for hwnd, text, process_path, window_type in unique_windows:
+            logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
+
+            # Process all windows - let process_window_text handle its own deduplication
+            for hwnd, text, process_path, window_type in windows:
                 self.executor.submit(
                     self.process_window_text,
                     hwnd, text, process_path, window_type
                 )
+
         except Exception as e:
             logging.error(f"Error finding windows: {e}")
 
@@ -11254,7 +11248,7 @@ class MonitorMessageCommandLine:
                 try:
                     # Continuous enumeration of all windows in thread
                     threading.Thread(
-                        target=self._find_and_process_windows,
+                        target=self.find_and_process_windows,
                         daemon=True
                     ).start()
 
