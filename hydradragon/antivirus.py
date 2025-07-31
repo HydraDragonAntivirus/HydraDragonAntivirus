@@ -10675,9 +10675,6 @@ def find_child_windows(parent_hwnd):
     user32.EnumChildWindows(parent_hwnd, EnumChildProc(_enum_proc), None)
     return child_windows
 
-# Use CLSID instead of ProgID to avoid "invalid class string" error
-CLSID_CUIAutomation = "{FF48DBA4-60EF-4201-AA87-54103EEF594E}"
-
 def is_window_valid(hwnd):
     return bool(user32.IsWindow(hwnd))
 
@@ -10687,7 +10684,8 @@ def get_uia_text(hwnd):
         return ""
 
     try:
-        uiauto = CreateObject(UiaClient.CLSID_CUIAutomation, interface=UiaClient.IUIAutomation)
+        # Use raw CLSID string — not UiaClient.CLSID_CUIAutomation
+        uiauto = CreateObject("{FF48DBA4-60EF-4201-AA87-54103EEF594E}", interface=UiaClient.IUIAutomation)
     except Exception as coe:
         logging.error(f"Cannot create CUIAutomation instance: {coe!r}")
         return ""
