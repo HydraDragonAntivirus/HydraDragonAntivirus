@@ -10904,57 +10904,73 @@ def find_descendant_windows(root_hwnd):
 # ----------------------------------------------------
 
 def find_windows_with_text():
-    """
-    Enhanced window enumeration with better text extraction.
-    Find all windows with text - no filtering, checks everything.
-    Uses multiple text extraction methods including UI Automation.
-    """
-    window_handles = []
-    processed_hwnds = set()  # Avoid duplicate processing
+   """
+   Enhanced window enumeration with better text extraction.
+   Find all windows with text - no filtering, checks everything.
+   Uses multiple text extraction methods including UI Automation.
+   """
+   window_handles = []
+   processed_hwnds = set()  # Avoid duplicate processing
 
-    def get_any_text(hwnd):
-        # Try all available methods to get window text
-        for method in (get_window_text, get_control_text, get_uia_text):
-            try:
-                text = method(hwnd)
-                if text and text.strip():
-                    return text.strip()
-            except Exception as e:
-                logging.debug(f"Error getting text from hwnd {hwnd} with {method.__name__}: {e!r}")
-        return ""
+   def get_any_text(hwnd):
+       # Try window text first
+       try:
+           text = get_window_text(hwnd)
+           if text and text.strip():
+               return text.strip()
+       except Exception as e:
+           logging.debug(f"get_window_text failed for {hwnd}: {e}")
 
-    def enum_windows_callback(hwnd, lParam):
-        if hwnd in processed_hwnds:
-            return True
-        processed_hwnds.add(hwnd)
+       # Try control text
+       try:
+           text = get_control_text(hwnd)
+           if text and text.strip():
+               return text.strip()
+       except Exception as e:
+           logging.debug(f"get_control_text failed for {hwnd}: {e}")
 
-        try:
-            window_text = get_any_text(hwnd)
-            if window_text:
-                process_path = get_process_path(hwnd)
-                window_handles.append((hwnd, window_text, process_path, "main_window"))
+       # Try UI automation last
+       try:
+           text = get_uia_text(hwnd)
+           if text and text.strip():
+               return text.strip()
+       except Exception as e:
+           logging.debug(f"get_uia_text failed for {hwnd}: {e}")
 
-            descendants = find_descendant_windows(hwnd)
-            for child in descendants:
-                if child in processed_hwnds:
-                    continue
-                processed_hwnds.add(child)
+       return ""
 
-                control_text = get_any_text(child)
-                if control_text:
-                    process_path = get_process_path(child)
-                    window_handles.append((child, control_text, process_path, "child_window"))
+   def enum_windows_callback(hwnd, lParam):
+       if hwnd in processed_hwnds:
+           return True
+       processed_hwnds.add(hwnd)
 
-        except Exception as e:
-            logging.error(f"Error at find_windows_with_text: {e}")
+       try:
+           window_text = get_any_text(hwnd)
+           if window_text:
+               process_path = get_process_path(hwnd)
+               window_handles.append((hwnd, window_text, process_path, "main_window"))
 
-        return True
+           descendants = find_descendant_windows(hwnd)
+           for child in descendants:
+               if child in processed_hwnds:
+                   continue
+               processed_hwnds.add(child)
 
-    # Enumerate ALL windows (no visibility check - removed IsWindowVisible)
-    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
-    user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
+               control_text = get_any_text(child)
+               if control_text:
+                   process_path = get_process_path(child)
+                   window_handles.append((child, control_text, process_path, "child_window"))
 
-    return window_handles
+       except Exception as e:
+           logging.error(f"Error at find_windows_with_text: {e}")
+
+       return True
+
+   # Enumerate ALL windows (no visibility check - removed IsWindowVisible)
+   EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+   user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
+
+   return window_handles
 
 def get_window_class_name(hwnd):
     """Get the class name of a window."""
