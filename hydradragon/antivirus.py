@@ -184,11 +184,11 @@ from scapy.sendrecv import sniff
 logging.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from comtypes.client import CreateObject
-logging.info(f"comtypes.client.CreateObject module loaded in {time.time() - start_time:.6f} seconds")
+from comtypes.client import CreateObject, GetModule
+logging.info(f"comtypes.client.CreateObject, GetModule module loaded in {time.time() - start_time:.6f} seconds")
 
-# CLSID of CUIAutomation
-CUIAutomation_CLSID = "{FF48DBA4-60EF-4201-AA87-54103EEF594E}"
+# Load the UIAutomationCore.dll module
+GetModule("UIAutomationCore.dll")
 
 start_time = time.time()
 # Interface IID
@@ -10675,9 +10675,12 @@ def find_child_windows(parent_hwnd):
     user32.EnumChildWindows(parent_hwnd, EnumChildProc(_enum_proc), None)
     return child_windows
 
+# Use CLSID instead of ProgID to avoid "invalid class string" error
+CLSID_CUIAutomation = "{FF48DBA4-60EF-4201-AA87-54103EEF594E}"
+
 def get_uia_text(hwnd):
     try:
-        uiauto = CreateObject(CUIAutomation_CLSID, interface=UiaClient.IUIAutomation)
+        uiauto = CreateObject(CLSID_CUIAutomation, interface=UiaClient.IUIAutomation)
     except Exception as coe:
         logging.error(f"Cannot create CUIAutomation instance: {coe!r}")
         return ""
