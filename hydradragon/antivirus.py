@@ -10624,6 +10624,7 @@ def run_sandboxie_control():
         logging.error(f"Error running Sandboxie control: {ex.stderr}")
     except Exception as ex:
         logging.error(f"Unexpected error running Sandboxie control: {ex}")
+
 # ----------------------------------------------------
 # Constants for Windows API calls
 # ----------------------------------------------------
