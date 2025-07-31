@@ -11179,16 +11179,6 @@ class MonitorMessageCommandLine:
                 ],
                 "virus_name": "HEUR:Win32.Destructive.AV.RegDelete.gen"
             },
-            "delete_entire_registry_hives": {
-                "patterns": [
-                    'reg delete HKLM /f', 'reg.exe delete HKLM /f',
-                    'reg delete HKCU /f', 'reg.exe delete HKCU /f',
-                    'reg delete HKCR /f', 'reg.exe delete HKCR /f',
-                    'reg delete HKU /f', 'reg.exe delete HKU /f',
-                    'reg delete HKCC /f', 'reg.exe delete HKCC /f',
-                ],
-                "virus_name": "HEUR:Win32.Destructive.HiveDelete.gen"
-            }
         }
 
     def get_unique_filename(self, base_name):
