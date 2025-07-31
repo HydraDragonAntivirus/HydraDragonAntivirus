@@ -183,6 +183,13 @@ from scapy.sendrecv import sniff
 
 logging.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
+from comtypes.client import GetModule
+
+# This will generate the wrapper for UIAutomationCore.dll
+GetModule(r"C:\Windows\System32\UIAutomationCore.dll")
+
+logging.info("UIAutomationCore typelib generated.")
+
 start_time = time.time()
 import uiautomation as auto
 logging.info(f"uiautomation module loaded in {time.time() - start_time:.6f} seconds")
