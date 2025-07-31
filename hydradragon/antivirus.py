@@ -183,16 +183,7 @@ from scapy.sendrecv import sniff
 
 logging.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
-from comtypes.client import GetModule
-
-# This will generate the wrapper for UIAutomationCore.dll
-GetModule(r"C:\Windows\System32\UIAutomationCore.dll")
-
-logging.info("UIAutomationCore typelib generated.")
-
-start_time = time.time()
-import uiautomation as auto
-logging.info(f"uiautomation module loaded in {time.time() - start_time:.6f} seconds")
+import comtypes.client
 
 start_time = time.time()
 import ast
@@ -10676,8 +10667,10 @@ def find_child_windows(parent_hwnd):
 
 def get_uia_text(hwnd):
     try:
-        element = auto.ControlFromHandle(hwnd)
-        return element.Name or ""
+        uiauto = comtypes.client.CreateObject('UIAutomationClient.CUIAutomation')
+        element = uiauto.ElementFromHandle(hwnd)
+        name = element.CurrentName
+        return name or ""
     except Exception as e:
         print(f"Failed to get UIA text for hwnd {hwnd}: {e}")
         return ""

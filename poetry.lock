@@ -4792,21 +4792,6 @@ files = [
 ]
 
 [[package]]
-name = "uiautomation"
-version = "2.0.28"
-description = "Python UIAutomation for Windows"
-optional = false
-python-versions = "*"
-groups = ["main"]
-files = [
-    {file = "uiautomation-2.0.28-py3-none-any.whl", hash = "sha256:89db27f7d472dc247077906b4805cc375b7d6c28caae91ded858c8beae3973a2"},
-    {file = "uiautomation-2.0.28.tar.gz", hash = "sha256:472b8f4297e7b0d77acdcef6cdb499aee68b4e6179331593f98afb5e3fce36f9"},
-]
-
-[package.dependencies]
-comtypes = ">=1.2.1"
-
-[[package]]
 name = "unicorn"
 version = "2.1.3"
 description = "Unicorn CPU emulator engine"
@@ -5602,4 +5587,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.13"
-content-hash = "117b9f8a2a26f756365588b8d8ed98214bddd869ffaf3f4d6d7b2f100a0a8dea"
+content-hash = "8543bf9560b4a807bbe8546bc987a74054725f552db3b373c226f65123d84ced"

@@ -45,7 +45,7 @@ dependencies = [
     "scapy>=2.6.1,<3.0.0",
     "spacy>=3.8.7,<4.0.0",
     "autoit-ripper",
-    "uiautomation", # No need to install "comtypes" separately because this covers it
+    "comtypes",
 
     # Pylingual reverse-engineering dependencies
     "asttokens",
