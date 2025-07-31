@@ -185,7 +185,7 @@ logging.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import uiautomation as auto
-logging.info(f"uiautomation.auto module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"uiautomation module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ast
