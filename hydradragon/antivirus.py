@@ -119,6 +119,10 @@ import pefile
 logging.info(f"pefile module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import traceback
+logging.info(f"traceback module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import pyzipper
 logging.info(f"pyzipper module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -7611,7 +7615,6 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
             logging.error(f"[Pylingual] pylingual_main failed: {pylingual_error}")
             logging.error(f"[Pylingual] Error type: {type(pylingual_error).__name__}")
             # Try to get more details about the error
-            import traceback
             logging.error(f"[Pylingual] Traceback: {traceback.format_exc()}")
             raise
 
@@ -11221,19 +11224,28 @@ class MonitorMessageCommandLine:
 
     def find_and_process_windows(self):
         try:
+            logging.info("Starting window enumeration...")
             windows = find_windows_with_text()
 
-            logging.debug(f"Enumerated {len(windows)} window(s)/control(s)")
+            logging.info(f"Found {len(windows)} windows total")
 
-            # Process all windows - let process_window_text handle its own deduplication
+            if not windows:
+                logging.error("No windows found - enumeration may have failed")
+                return
+
+            # Log first few windows for debugging
+            for i, (hwnd, text, process_path, window_type) in enumerate(windows[:3]):
+                logging.info(f"Window {i+1}: HWND={hwnd}, Type={window_type}, Text='{text[:50]}...'")
+
             for hwnd, text, process_path, window_type in windows:
+                logging.debug(f"Submitting to executor: HWND={hwnd}")
                 self.executor.submit(
                     self.process_window_text,
                     hwnd, text, process_path, window_type
                 )
 
         except Exception as e:
-            logging.error(f"Error finding windows: {e}")
+            logging.error(traceback.format_exc())
 
     def monitoring_window_text(self):
         """
