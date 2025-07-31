@@ -187,6 +187,9 @@ start_time = time.time()
 from comtypes.client import GetModule
 logging.info(f"comtypes.client.GetModule module loaded in {time.time() - start_time:.6f} seconds")
 
+# Must come first to generate the wrapper
+GetModule("UIAutomationCore.dll")
+
 start_time = time.time()
 import comtypes.gen.UIAutomationClient as UiaClient
 logging.info(f"comtypes.gen.UIAutomationClient module loaded in {time.time() - start_time:.6f} seconds")
