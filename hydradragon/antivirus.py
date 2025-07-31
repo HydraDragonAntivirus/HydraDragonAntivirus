@@ -10898,105 +10898,83 @@ def get_uia_text(hwnd):
     logging.debug(f"HWND {hwnd}: no text pattern available")
     return ""
 
-def find_descendant_windows(root_hwnd):
-   """Find descendant windows safely without while loops and no duplicates."""
-   descendants = []
-   seen = set()
-   seen.add(root_hwnd)  # Don't include root itself
-
-   # Get direct children only
-   direct_children = find_child_windows(root_hwnd)
-   for child in direct_children:
-       if child not in seen:
-           seen.add(child)
-           descendants.append(child)
-
-   # Get grandchildren (children of children) - max 2 levels deep
-   for child in direct_children[:20]:  # Limit to first 20 children
-       try:
-           grandchildren = find_child_windows(child)
-           for grandchild in grandchildren[:10]:  # Limit to 10 grandchildren per child
-               if grandchild not in seen:
-                   seen.add(grandchild)
-                   descendants.append(grandchild)
-       except:
-           continue
-
-   return descendants
-
 # ----------------------------------------------------
 # Advanced enumeration-based capture
 # ----------------------------------------------------
 
 def find_windows_with_text():
-   """
-   Enhanced window enumeration with better text extraction.
-   Find all windows with text - no filtering, checks everything.
-   Uses multiple text extraction methods including UI Automation.
-   """
-   window_handles = []
-   processed_hwnds = set()  # Avoid duplicate processing
+    """
+    Enumerate all top-level windows and their direct children.
+    Extract text using multiple methods.
+    """
+    window_handles = []
+    processed_hwnds = set()  # To avoid duplicates
 
-   def get_any_text(hwnd):
-       # Try window text first
-       try:
-           text = get_window_text(hwnd)
-           if text and text.strip():
-               return text.strip()
-       except Exception as e:
-           logging.debug(f"get_window_text failed for {hwnd}: {e}")
+    def get_any_text(hwnd):
+        try:
+            text = get_window_text(hwnd)
+            if text and text.strip():
+                return text.strip()
+        except Exception as e:
+            logging.debug(f"get_window_text failed for {hwnd}: {e}")
 
-       # Try control text
-       try:
-           text = get_control_text(hwnd)
-           if text and text.strip():
-               return text.strip()
-       except Exception as e:
-           logging.debug(f"get_control_text failed for {hwnd}: {e}")
+        try:
+            text = get_control_text(hwnd)
+            if text and text.strip():
+                return text.strip()
+        except Exception as e:
+            logging.debug(f"get_control_text failed for {hwnd}: {e}")
 
-       # Try UI automation last
-       try:
-           text = get_uia_text(hwnd)
-           if text and text.strip():
-               return text.strip()
-       except Exception as e:
-           logging.debug(f"get_uia_text failed for {hwnd}: {e}")
+        try:
+            text = get_uia_text(hwnd)
+            if text and text.strip():
+                return text.strip()
+        except Exception as e:
+            logging.debug(f"get_uia_text failed for {hwnd}: {e}")
 
-       return ""
+        return ""
 
-   def enum_windows_callback(hwnd, lParam):
-       if hwnd in processed_hwnds:
-           return True
-       processed_hwnds.add(hwnd)
+    def find_child_windows(hwnd):
+        children = []
 
-       try:
-           window_text = get_any_text(hwnd)
-           if window_text:
-               process_path = get_process_path(hwnd)
-               window_handles.append((hwnd, window_text, process_path, "main_window"))
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def enum_proc(child_hwnd, lParam):
+            if child_hwnd not in processed_hwnds:
+                children.append(child_hwnd)
+            return True
 
-           # Get all descendants at once without looping through them
-           descendants = find_descendant_windows(hwnd)
+        user32.EnumChildWindows(hwnd, enum_proc, 0)
+        return children
 
-           # Add all descendants with text to the list (let process_window_text handle deduplication)
-           for child in descendants:
-               if child not in processed_hwnds:
-                   processed_hwnds.add(child)
-                   control_text = get_any_text(child)
-                   if control_text:
-                       process_path = get_process_path(child)
-                       window_handles.append((child, control_text, process_path, "child_window"))
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def enum_windows_callback(hwnd, lParam):
+        if hwnd in processed_hwnds:
+            return True
+        processed_hwnds.add(hwnd)
 
-       except Exception as e:
-           logging.error(f"Error at find_windows_with_text: {e}")
+        try:
+            text = get_any_text(hwnd)
+            if text:
+                path = get_process_path(hwnd)
+                window_handles.append((hwnd, text, path, "main_window"))
 
-       return True
+            for child in find_child_windows(hwnd):
+                if child in processed_hwnds:
+                    continue
+                processed_hwnds.add(child)
 
-   # Enumerate ALL windows (no visibility check - removed IsWindowVisible)
-   EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
-   user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
+                child_text = get_any_text(child)
+                if child_text:
+                    child_path = get_process_path(child)
+                    window_handles.append((child, child_text, child_path, "child_window"))
 
-   return window_handles
+        except Exception as e:
+            logging.error(f"Error in enum_windows_callback for HWND={hwnd}: {e}")
+
+        return True
+
+    user32.EnumWindows(enum_windows_callback, 0)
+    return window_handles
 
 def get_window_class_name(hwnd):
     """Get the class name of a window."""
