@@ -10761,7 +10761,7 @@ def find_child_windows(parent_hwnd):
    child_windows = []
    count = 0
    max_children = 200  # Safety limit
-   
+
    def _enum_proc(hwnd, lParam):
        nonlocal count
        count += 1
@@ -10775,9 +10775,9 @@ def find_child_windows(parent_hwnd):
        user32.EnumChildWindows(parent_hwnd, EnumChildProc(_enum_proc), None)
    except Exception as e:
        logging.debug(f"EnumChildWindows failed for {parent_hwnd}: {e}")
-   
+
    return child_windows
-   
+
 def is_window_valid(hwnd):
     return bool(user32.IsWindow(hwnd))
 
@@ -10903,14 +10903,14 @@ def find_descendant_windows(root_hwnd):
    descendants = []
    seen = set()
    seen.add(root_hwnd)  # Don't include root itself
-   
+
    # Get direct children only
    direct_children = find_child_windows(root_hwnd)
    for child in direct_children:
        if child not in seen:
            seen.add(child)
            descendants.append(child)
-   
+
    # Get grandchildren (children of children) - max 2 levels deep
    for child in direct_children[:20]:  # Limit to first 20 children
        try:
@@ -10921,7 +10921,7 @@ def find_descendant_windows(root_hwnd):
                    descendants.append(grandchild)
        except:
            continue
-   
+
    return descendants
 
 # ----------------------------------------------------
@@ -11286,7 +11286,7 @@ class MonitorMessageCommandLine:
                     hwnd, text, process_path, window_type
                 )
 
-        except Exception as e:
+        except Exception:
             logging.error(traceback.format_exc())
 
     def monitoring_window_text(self):
@@ -11448,7 +11448,11 @@ class MonitorMessageCommandLine:
 
                     # Process is valid, log and scan
                     process_name = os.path.basename(exe_path) if exe_path.endswith('.exe') else exe_path
-                    orig_fn = self.get_unique_filename(f"cmd_{process_name}")
+
+                    # Sanitize process name for filename
+                    safe_process_name = sanitize_filename(process_name)
+
+                    orig_fn = self.get_unique_filename(f"cmd_{safe_process_name}")
                     with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
                         f.write(cmd[:1_000_000])
                     logging.info(f"Wrote cmd -> {orig_fn}")
@@ -11460,14 +11464,14 @@ class MonitorMessageCommandLine:
 
                     pre_cmd = self.preprocess_text(cmd)
                     if pre_cmd:
-                        pre_fn = self.get_unique_filename(f"cmd_pre_{process_name}")
+                        pre_fn = self.get_unique_filename(f"cmd_pre_{safe_process_name}")
                         with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
                             f.write(pre_cmd[:1_000_000])
                         logging.info(f"Wrote cmd pre -> {pre_fn}")
                         threading.Thread(
                             target=scan_and_warn,
                             args=(pre_fn,),
-                            kwargs={'command_flag':True}
+                            kwargs={'command_flag': True}
                         ).start()
 
             except Exception as ex:
@@ -12327,11 +12331,6 @@ class Worker(QThread):
             # Get the main script directory
             script_dir = os.getcwd()
             log_directory = os.path.join(script_dir, "log")
-
-            # Define log file paths
-            stdout_console_log_file = os.path.join(log_directory, "antivirusconsolestdout.log")
-            stderr_console_log_file = os.path.join(log_directory, "antivirusconsolestderr.log")
-            application_log_file = os.path.join(log_directory, "antivirus.log")
 
             # Close current stdout/stderr redirections
             if hasattr(sys.stdout, 'close') and sys.stdout != sys.__stdout__:
