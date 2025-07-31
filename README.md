@@ -15,6 +15,11 @@
 
 Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my machine learning AI, Behaviour analysis, NLP-Based detection, website signatures, Ghidra, Suricata, SIGMA etc.
 
+## License
+
+This project is licensed under the **GNU Affero General Public License v3.0** (AGPLv3).  
+See the [LICENSE](./LICENSE) file for more information.
+
 ## MEGA IMPORTANT
 - You have to set (manually of course) this part mega_optimization_with_anti_false_positive=True if you don't care about false positives and optimization. This setting is true because every antivirus on virustotal avoids false positives this way.
 - Pe header removed: https://www.virustotal.com/gui/file/9b7e921e971fe7523ba83a4599b4006ad214854eb043372129e4f5a68c5a427f
