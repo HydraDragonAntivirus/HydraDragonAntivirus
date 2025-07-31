@@ -10887,18 +10887,6 @@ def get_uia_text(hwnd):
     logging.debug(f"HWND {hwnd}: no text pattern available")
     return ""
 
-def find_descendant_windows(root_hwnd):
-    """Recursively enumerate all descendant windows of a given window."""
-    descendants = []
-    stack = [root_hwnd]
-    while stack:
-        parent = stack.pop()
-        children = find_child_windows(parent)
-        for ch in children:
-            descendants.append(ch)
-            stack.append(ch)
-    return descendants
-
 # ----------------------------------------------------
 # Advanced enumeration-based capture
 # ----------------------------------------------------
@@ -10950,16 +10938,17 @@ def find_windows_with_text():
                process_path = get_process_path(hwnd)
                window_handles.append((hwnd, window_text, process_path, "main_window"))
 
+           # Get all descendants at once without looping through them
            descendants = find_descendant_windows(hwnd)
-           for child in descendants:
-               if child in processed_hwnds:
-                   continue
-               processed_hwnds.add(child)
 
-               control_text = get_any_text(child)
-               if control_text:
-                   process_path = get_process_path(child)
-                   window_handles.append((child, control_text, process_path, "child_window"))
+           # Add all descendants with text to the list (let process_window_text handle deduplication)
+           for child in descendants:
+               if child not in processed_hwnds:
+                   processed_hwnds.add(child)
+                   control_text = get_any_text(child)
+                   if control_text:
+                       process_path = get_process_path(child)
+                       window_handles.append((child, control_text, process_path, "child_window"))
 
        except Exception as e:
            logging.error(f"Error at find_windows_with_text: {e}")
