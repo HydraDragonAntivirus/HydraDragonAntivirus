@@ -10757,16 +10757,27 @@ def get_control_text(hwnd):
         return ""
 
 def find_child_windows(parent_hwnd):
-    """Find all child windows of the given parent window."""
-    child_windows = []
-    def _enum_proc(hwnd, lParam):
-        child_windows.append(hwnd)
-        return True
+   """Find all child windows of the given parent window."""
+   child_windows = []
+   count = 0
+   max_children = 200  # Safety limit
+   
+   def _enum_proc(hwnd, lParam):
+       nonlocal count
+       count += 1
+       if count > max_children:
+           return False  # Stop enumeration
+       child_windows.append(hwnd)
+       return True
 
-    EnumChildProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
-    user32.EnumChildWindows(parent_hwnd, EnumChildProc(_enum_proc), None)
-    return child_windows
-
+   try:
+       EnumChildProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
+       user32.EnumChildWindows(parent_hwnd, EnumChildProc(_enum_proc), None)
+   except Exception as e:
+       logging.debug(f"EnumChildWindows failed for {parent_hwnd}: {e}")
+   
+   return child_windows
+   
 def is_window_valid(hwnd):
     return bool(user32.IsWindow(hwnd))
 
