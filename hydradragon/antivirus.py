@@ -183,7 +183,13 @@ from scapy.sendrecv import sniff
 
 logging.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
-import comtypes.client
+start_time = time.time()
+from comtypes.client import GetModule
+logging.info(f"comtypes.client.GetModule module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import comtypes.gen.UIAutomationClient as UiaClient
+logging.info(f"comtypes.gen.UIAutomationClient module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ast
@@ -10665,14 +10671,42 @@ def find_child_windows(parent_hwnd):
     user32.EnumChildWindows(parent_hwnd, EnumChildProc(_enum_proc), None)
     return child_windows
 
+# Ensure the UIAutomation type library is loaded
+GetModule('UIAutomationCore.dll')
+
 def get_uia_text(hwnd):
     try:
-        uiauto = comtypes.client.CreateObject('UIAutomationClient.CUIAutomation')
-        element = uiauto.ElementFromHandle(hwnd)
-        name = element.CurrentName
-        return name or ""
+        # Instantiate the UI Automation client
+        uiauto = UiaClient.CUIAutomation()
+    except Exception as coe:
+        logging.error(f"Cannot create CUIAutomation instance: {coe!r}")
+        return ""
+
+    try:
+        # Get the element for the given HWND
+        elem = uiauto.ElementFromHandle(hwnd)
     except Exception as e:
-        print(f"Failed to get UIA text for hwnd {hwnd}: {e}")
+        logging.error(f"ElementFromHandle({hwnd}) failed: {e!r}")
+        return ""
+
+    # First, try the CurrentName property
+    try:
+        name = elem.CurrentName
+        if name:
+            logging.info(f"HWND {hwnd}: name via CurrentName: {name!r}")
+            return name
+    except Exception:
+        # Name not supported or empty
+        pass
+
+    # Fall back to ValuePattern
+    try:
+        vp = elem.GetCurrentPattern(UiaClient.ValuePattern.Pattern)
+        value = vp.Current.Value or ""
+        logging.info(f"HWND {hwnd}: name via ValuePattern: {value!r}")
+        return value
+    except Exception:
+        logging.info(f"HWND {hwnd}: no text pattern available")
         return ""
 
 def find_descendant_windows(root_hwnd):
@@ -11917,12 +11951,12 @@ class Worker(QThread):
             # Run the analysis directly in this thread
             # Assuming run_analysis is your main analysis function
             analysis_result = run_analysis(file_path, stop_callback=check_stop)
-            
+
             # Check if we were stopped during analysis
             if self.stop_requested:
                 self.output_signal.emit("[!] Analysis was stopped by user")
                 return
-            
+
             # Emit the result
             self.output_signal.emit(analysis_result)
             self.output_signal.emit("[+] File analysis completed successfully")
@@ -12558,7 +12592,7 @@ class AntivirusApp(QWidget):
         self.append_log_output(f"[+] Task '{worker.task_type}' finished.")
         if worker in self.workers:
             self.workers.remove(worker)
-        
+
         # Update UI status when all workers are done
         if not self.workers:
             if hasattr(self, 'shield_widget'):
@@ -12575,10 +12609,10 @@ class AntivirusApp(QWidget):
 
         # Add to active workers list
         self.workers.append(worker)
-        
+
         # Start the worker
         worker.start()
-        
+
         # Update UI
         self.append_log_output(f"[*] Task '{task_type}' started.")
         if hasattr(self, 'shield_widget'):
@@ -12591,25 +12625,25 @@ class AntivirusApp(QWidget):
         if not self.workers:
             self.append_log_output("[!] No running tasks to stop.")
             return
-        
+
         self.append_log_output("[*] Requesting stop for all running tasks...")
-        
+
         # Request stop for all workers
         for worker in self.workers[:]:  # Create a copy of the list
             if worker.isRunning():
                 worker.request_stop()
                 self.append_log_output(f"[*] Stop requested for task: {worker.task_type}")
-        
+
         # Give threads a moment to stop gracefully
         QTimer.singleShot(1000, self.force_stop_remaining_workers)
 
     def force_stop_remaining_workers(self):
         """Force stop any workers that didn't stop gracefully."""
         remaining_workers = [w for w in self.workers if w.isRunning()]
-        
+
         if remaining_workers:
             self.append_log_output(f"[*] Force stopping {len(remaining_workers)} remaining tasks...")
-            
+
             for worker in remaining_workers:
                 try:
                     worker.terminate()  # Force termination
@@ -12620,7 +12654,7 @@ class AntivirusApp(QWidget):
                         self.append_log_output(f"[+] Force stopped task: {worker.task_type}")
                 except Exception as e:
                     self.append_log_output(f"[!] Error stopping task {worker.task_type}: {str(e)}")
-        
+
         # Clear workers list and update UI
         self.workers.clear()
         if hasattr(self, 'shield_widget'):
@@ -12646,9 +12680,9 @@ class AntivirusApp(QWidget):
     def analyze_file(self):
         """Open file dialog and start file analysis."""
         file_path, _ = QFileDialog.getOpenFileName(
-            self, 
-            "Select a file to analyze", 
-            "", 
+            self,
+            "Select a file to analyze",
+            "",
             "All Files (*)"
         )
         if file_path:
@@ -12662,7 +12696,7 @@ class AntivirusApp(QWidget):
         if not hasattr(self, 'search_input'):
             self.append_log_output("[!] Search input not available.")
             return
-            
+
         keywords = self.search_input.text().strip()
         if keywords:
             self.start_worker("hayabusa_search", keywords, False)  # False for keyword search
@@ -12671,7 +12705,7 @@ class AntivirusApp(QWidget):
 
     def switch_page_with_animation(self, index):
         """Switch between pages with slide animation."""
-        if (self.animation_group.state() == QParallelAnimationGroup.State.Running or 
+        if (self.animation_group.state() == QParallelAnimationGroup.State.Running or
             self.main_stack.currentIndex() == index):
             return
 
@@ -12704,18 +12738,18 @@ class AntivirusApp(QWidget):
         """Handle application close event - stop all workers first."""
         if self.workers:
             self.append_log_output("[*] Stopping all running tasks before exit...")
-            
+
             # Request stop for all workers
             for worker in self.workers:
                 if worker.isRunning():
                     worker.request_stop()
-            
+
             # Force terminate if needed
             for worker in self.workers:
                 if worker.isRunning():
                     worker.terminate()
                     worker.wait(3000)  # Wait up to 3 seconds
-        
+
         event.accept()
 
     def create_status_page(self):
