@@ -10678,9 +10678,16 @@ def find_child_windows(parent_hwnd):
 # Use CLSID instead of ProgID to avoid "invalid class string" error
 CLSID_CUIAutomation = "{FF48DBA4-60EF-4201-AA87-54103EEF594E}"
 
+def is_window_valid(hwnd):
+    return bool(user32.IsWindow(hwnd))
+
 def get_uia_text(hwnd):
+    if not is_window_valid(hwnd):
+        logging.debug(f"HWND {hwnd} is not a valid window")
+        return ""
+
     try:
-        uiauto = CreateObject(CLSID_CUIAutomation, interface=UiaClient.IUIAutomation)
+        uiauto = CreateObject(UiaClient.CLSID_CUIAutomation, interface=UiaClient.IUIAutomation)
     except Exception as coe:
         logging.error(f"Cannot create CUIAutomation instance: {coe!r}")
         return ""
@@ -10692,7 +10699,7 @@ def get_uia_text(hwnd):
         logging.error(f"ElementFromHandle({hwnd}) failed: {e!r}")
         return ""
 
-    # First, try the CurrentName property
+    # Try CurrentName
     try:
         name = elem.CurrentName
         if name:
@@ -10702,15 +10709,18 @@ def get_uia_text(hwnd):
         # Name not supported or empty
         pass
 
-    # Fall back to ValuePattern
+    # Try ValuePattern fallback
     try:
         vp = elem.GetCurrentPattern(UiaClient.ValuePattern.Pattern)
         value = vp.Current.Value or ""
-        logging.info(f"HWND {hwnd}: name via ValuePattern: {value!r}")
-        return value
+        if value:
+            logging.info(f"HWND {hwnd}: name via ValuePattern: {value!r}")
+            return value
     except Exception:
-        logging.info(f"HWND {hwnd}: no text pattern available")
-        return ""
+        pass
+
+    logging.info(f"HWND {hwnd}: no text pattern available")
+    return ""
 
 def find_descendant_windows(root_hwnd):
     """Recursively enumerate all descendant windows of a given window."""
@@ -10737,33 +10747,23 @@ def find_windows_with_text():
     window_handles = []
 
     def get_any_text(hwnd):
-        """Try multiple methods to get text from a window handle."""
-        # 1) Standard window text
-        text = get_window_text(hwnd).strip()
-        if text:
-            return text
-
-        # 2) Control text via SendMessage
-        text = get_control_text(hwnd).strip()
-        if text:
-            return text
-
-        # 3) UI Automation fallback
-        text = get_uia_text(hwnd).strip()
-        if text:
-            return text
-
+        # Try all available methods to get window text
+        for method in (get_window_text, get_control_text, get_uia_text):
+            try:
+                text = method(hwnd)
+                if text and text.strip():
+                    return text.strip()
+            except Exception as e:
+                logging.debug(f"Error getting text from hwnd {hwnd} with {method.__name__}: {e!r}")
         return ""
 
     def enum_windows_callback(hwnd, lParam):
-        # Check the main window text using all methods
-        window_text = get_any_text(hwnd)
-        if window_text:
-            process_path = get_process_path(hwnd)
-            window_handles.append((hwnd, window_text, process_path, "main_window"))
-
-        # Always check all child windows and descendants
         try:
+            window_text = get_any_text(hwnd)
+            if window_text:
+                process_path = get_process_path(hwnd)
+                window_handles.append((hwnd, window_text, process_path, "main_window"))
+
             descendants = find_descendant_windows(hwnd)
             for child in descendants:
                 control_text = get_any_text(child)
@@ -10778,6 +10778,7 @@ def find_windows_with_text():
     # Enumerate ALL windows (no visibility check - removed IsWindowVisible)
     EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)
     user32.EnumWindows(EnumWindowsProc(enum_windows_callback), None)
+
     return window_handles
 
 def get_window_class_name(hwnd):
