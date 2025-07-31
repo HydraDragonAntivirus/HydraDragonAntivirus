@@ -10887,6 +10887,32 @@ def get_uia_text(hwnd):
     logging.debug(f"HWND {hwnd}: no text pattern available")
     return ""
 
+def find_descendant_windows(root_hwnd):
+   """Find descendant windows safely without while loops and no duplicates."""
+   descendants = []
+   seen = set()
+   seen.add(root_hwnd)  # Don't include root itself
+   
+   # Get direct children only
+   direct_children = find_child_windows(root_hwnd)
+   for child in direct_children:
+       if child not in seen:
+           seen.add(child)
+           descendants.append(child)
+   
+   # Get grandchildren (children of children) - max 2 levels deep
+   for child in direct_children[:20]:  # Limit to first 20 children
+       try:
+           grandchildren = find_child_windows(child)
+           for grandchild in grandchildren[:10]:  # Limit to 10 grandchildren per child
+               if grandchild not in seen:
+                   seen.add(grandchild)
+                   descendants.append(grandchild)
+       except:
+           continue
+   
+   return descendants
+
 # ----------------------------------------------------
 # Advanced enumeration-based capture
 # ----------------------------------------------------
