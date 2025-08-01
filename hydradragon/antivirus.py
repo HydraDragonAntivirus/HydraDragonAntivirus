@@ -11152,28 +11152,6 @@ class MonitorMessageCommandLine:
             threading.Thread(target=process_ctrl_text).start()
             threading.Thread(target=process_uia_texts).start()
 
-        def start_enum():
-            """The entry point for REAL window enumeration."""
-            logging.info("Starting real window enumeration.")
-            try:
-                # This is the callback function that EnumWindows will call for each window.
-                # It receives the window handle (hwnd) and the lParam we pass ("main_window").
-                def enum_callback(hwnd, win_type):
-                    # Submit the handle_hwnd function to our thread pool to process
-                    # each window concurrently without blocking the enumeration process.
-                    self.thread_pool.submit(handle_hwnd, hwnd, win_type)
-                    return True # Must return True to continue enumeration
-
-                # win32gui.EnumWindows iterates through all top-level windows on the screen.
-                win32gui.EnumWindows(enum_callback, "main_window")
-                logging.info("Finished one round of window enumeration.")
-
-            except Exception as e:
-                logging.error(f"Failed during window enumeration: {e}")
-
-        # Start the enumeration in a separate thread.
-        threading.Thread(target=start_enum).start()
-
     def monitoring_window_text(self):
         logging.info("Started window/control monitoring loop")
         try:
