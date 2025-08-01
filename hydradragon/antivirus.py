@@ -10900,18 +10900,31 @@ def find_windows_with_text():
     window_handles = []
 
     def is_window_safe(hwnd):
-        return user32.IsWindow(hwnd)
+        try:
+            return user32.IsWindow(hwnd)
+        except Exception:
+            return False
 
     def get_any_text(hwnd):
-        texts = []
-        for getter in [get_window_text, get_control_text, get_uia_text]:
-            try:
-                text = getter(hwnd)
-                texts.append(text.strip() if text else "")
-            except Exception as e:
-                logging.debug(f"{getter.__name__} failed for hwnd {hwnd}: {e}")
-                texts.append("")
-        return tuple(texts)
+        try:
+            win_text = get_window_text(hwnd) or ""
+        except Exception as e:
+            logging.debug(f"get_window_text failed for hwnd {hwnd}: {e}")
+            win_text = ""
+
+        try:
+            ctrl_text = get_control_text(hwnd) or ""
+        except Exception as e:
+            logging.debug(f"get_control_text failed for hwnd {hwnd}: {e}")
+            ctrl_text = ""
+
+        try:
+            uia_text = get_uia_text(hwnd) or ""
+        except Exception as e:
+            logging.debug(f"get_uia_text failed for hwnd {hwnd}: {e}")
+            uia_text = ""
+
+        return win_text.strip(), ctrl_text.strip(), uia_text.strip()
 
     def find_child_windows(hwnd):
         children = []
@@ -10921,8 +10934,12 @@ def find_windows_with_text():
                 children.append(child_hwnd)
             return True
 
-        callback_instance = ENUM_WINDOWS_PROC(enum_proc)
-        user32.EnumChildWindows(hwnd, callback_instance, 0)
+        try:
+            callback_instance = ENUM_WINDOWS_PROC(enum_proc)
+            user32.EnumChildWindows(hwnd, callback_instance, 0)
+        except Exception as e:
+            logging.debug(f"EnumChildWindows failed for hwnd {hwnd}: {e}")
+
         return children
 
     def enum_windows_callback(hwnd, lParam):
@@ -10931,7 +10948,7 @@ def find_windows_with_text():
 
         try:
             win_text, ctrl_text, uia_text = get_any_text(hwnd)
-            if any([win_text, ctrl_text, uia_text]):
+            if win_text or ctrl_text or uia_text:
                 try:
                     path = get_process_path(hwnd)
                 except Exception:
@@ -10940,13 +10957,13 @@ def find_windows_with_text():
 
             for child in find_child_windows(hwnd):
                 try:
-                    child_win_text, child_ctrl_text, child_uia_text = get_any_text(child)
-                    if any([child_win_text, child_ctrl_text, child_uia_text]):
+                    c_win_text, c_ctrl_text, c_uia_text = get_any_text(child)
+                    if c_win_text or c_ctrl_text or c_uia_text:
                         try:
                             child_path = get_process_path(child)
                         except Exception:
                             child_path = ""
-                        window_handles.append((child, child_win_text, child_ctrl_text, child_uia_text, child_path, "child_window"))
+                        window_handles.append((child, c_win_text, c_ctrl_text, c_uia_text, child_path, "child_window"))
                 except Exception as e:
                     logging.debug(f"Child get_any_text failed for hwnd {child}: {e}")
 
@@ -10955,8 +10972,11 @@ def find_windows_with_text():
 
         return True
 
-    main_callback_instance = ENUM_WINDOWS_PROC(enum_windows_callback)
-    user32.EnumWindows(main_callback_instance, 0)
+    try:
+        main_callback_instance = ENUM_WINDOWS_PROC(enum_windows_callback)
+        user32.EnumWindows(main_callback_instance, 0)
+    except Exception as e:
+        logging.error(f"EnumWindows failed: {e}")
 
     return window_handles
 
