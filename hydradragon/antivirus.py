@@ -10896,90 +10896,6 @@ def get_uia_text(hwnd):
 # Advanced enumeration-based capture
 # ----------------------------------------------------
 
-def find_windows_with_text():
-    window_handles = []
-
-    def is_window_safe(hwnd):
-        try:
-            return user32.IsWindow(hwnd)
-        except Exception:
-            return False
-
-    def get_any_text(hwnd):
-        try:
-            win_text = get_window_text(hwnd) or ""
-        except Exception as e:
-            logging.debug(f"get_window_text failed for hwnd {hwnd}: {e}")
-            win_text = ""
-
-        try:
-            ctrl_text = get_control_text(hwnd) or ""
-        except Exception as e:
-            logging.debug(f"get_control_text failed for hwnd {hwnd}: {e}")
-            ctrl_text = ""
-
-        try:
-            uia_text = get_uia_text(hwnd) or ""
-        except Exception as e:
-            logging.debug(f"get_uia_text failed for hwnd {hwnd}: {e}")
-            uia_text = ""
-
-        return win_text.strip(), ctrl_text.strip(), uia_text.strip()
-
-    def find_child_windows(hwnd):
-        children = []
-
-        def enum_proc(child_hwnd, lParam):
-            if is_window_safe(child_hwnd):
-                children.append(child_hwnd)
-            return True
-
-        try:
-            callback_instance = ENUM_WINDOWS_PROC(enum_proc)
-            user32.EnumChildWindows(hwnd, callback_instance, 0)
-        except Exception as e:
-            logging.debug(f"EnumChildWindows failed for hwnd {hwnd}: {e}")
-
-        return children
-
-    def enum_windows_callback(hwnd, lParam):
-        if not is_window_safe(hwnd):
-            return True
-
-        try:
-            win_text, ctrl_text, uia_text = get_any_text(hwnd)
-            if win_text or ctrl_text or uia_text:
-                try:
-                    path = get_process_path(hwnd)
-                except Exception:
-                    path = ""
-                window_handles.append((hwnd, win_text, ctrl_text, uia_text, path, "main_window"))
-
-            for child in find_child_windows(hwnd):
-                try:
-                    c_win_text, c_ctrl_text, c_uia_text = get_any_text(child)
-                    if c_win_text or c_ctrl_text or c_uia_text:
-                        try:
-                            child_path = get_process_path(child)
-                        except Exception:
-                            child_path = ""
-                        window_handles.append((child, c_win_text, c_ctrl_text, c_uia_text, child_path, "child_window"))
-                except Exception as e:
-                    logging.debug(f"Child get_any_text failed for hwnd {child}: {e}")
-
-        except Exception as e:
-            logging.error(f"Error processing HWND={hwnd}: {e}")
-
-        return True
-
-    try:
-        main_callback_instance = ENUM_WINDOWS_PROC(enum_windows_callback)
-        user32.EnumWindows(main_callback_instance, 0)
-    except Exception as e:
-        logging.error(f"EnumWindows failed: {e}")
-
-    return window_handles
-
 def get_window_rect(hwnd):
     """Get the window rectangle (position and size)."""
     rect = wintypes.RECT()
@@ -11169,114 +11085,140 @@ class MonitorMessageCommandLine:
     def preprocess_text(self, text):
         return text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "")
 
-    def process_window_text(self, hwnd, win_text, ctrl_text, uia_text, process_path, window_type):
-        """
-        Process each of the three text sources separately,
-        writing files and scanning only for *new* text.
-        """
-        sources = [
-            ("win_text",  win_text),
-            ("ctrl_text", ctrl_text),
-            ("uia_text",  uia_text)
-        ]
+    def process_window_text(self, hwnd, text, source_label, process_path, window_type):
+        if not text.strip():
+            return
 
-        any_processed = False
-        for label, text in sources:
-            if not text:
-                continue
+        stripped = text.strip()
+        with self.lock:
+            if stripped in self.processed_texts:
+                return
+            self.processed_texts.add(stripped)
 
-            stripped = text.strip()
-            with self.lock:
-                if stripped in self.processed_texts:
-                    continue
-                self.processed_texts.add(stripped)
+        class_name = get_window_class_name(hwnd)
+        left, top, right, bottom = get_window_rect(hwnd)
 
-            any_processed = True
-            class_name = get_window_class_name(hwnd)
-            left, top, right, bottom = get_window_rect(hwnd)
+        logging.info(f"\n[DETECTION] {window_type.upper()} - Source: {source_label}")
+        logging.info(f"HWND: {hwnd}")
+        logging.info(f"Text: '{text}'")
+        logging.info(f"Class: {class_name}")
+        logging.info(f"Process: {process_path}")
+        logging.info(f"Position: ({left}, {top})")
+        logging.info(f"Size: {right-left}x{bottom-top}")
+        logging.info("-" * 40)
 
-            logging.info(f"\n[DETECTION] {window_type.upper()} - Source: {label}")
-            logging.info(f"HWND: {hwnd}")
-            logging.info(f"Text: '{text}'")
-            logging.info(f"Class: {class_name}")
-            logging.info(f"Process: {process_path}")
-            logging.info(f"Position: ({left}, {top})")
-            logging.info(f"Size: {right-left}x{bottom-top}")
-            logging.info("-" * 40)
+        preview = (text[:200] + '...') if len(text) > 200 else text
+        logging.debug(f"Processing: hwnd={hwnd}, src={source_label}, preview='{preview}'")
 
-            preview = (text[:200] + '...') if len(text) > 200 else text
-            logging.debug(f"Processing: hwnd={hwnd}, src={label}, preview='{preview}'")
+        try:
+            base = sanitize_filename(process_path) + f"_{source_label}"
+            orig_fn = self.get_unique_filename(f"original_{base}")
+            with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
+                f.write(text[:1_000_000])
+            logging.debug(f"Wrote original -> {orig_fn}")
 
-            try:
-                base = sanitize_filename(process_path) + f"_{label}"
+            threading.Thread(
+                target=scan_and_warn,
+                args=(orig_fn,),
+                kwargs={'command_flag': True}
+            ).start()
 
-                # Write original
-                orig_fn = self.get_unique_filename(f"original_{base}")
-                with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
-                    f.write(text[:1_000_000])
-                logging.debug(f"Wrote original -> {orig_fn}")
+            pre = self.preprocess_text(text)
+            if pre and pre != text.lower().strip():
+                pre_fn = self.get_unique_filename(f"preprocessed_{base}")
+                with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
+                    f.write(pre[:1_000_000])
+                logging.debug(f"Wrote preprocessed -> {pre_fn}")
 
                 threading.Thread(
                     target=scan_and_warn,
-                    args=(orig_fn,),
+                    args=(pre_fn,),
                     kwargs={'command_flag': True}
                 ).start()
 
-                # Write preprocessed if different
-                pre = self.preprocess_text(text)
-                if pre and pre != text.lower().strip():
-                    pre_fn = self.get_unique_filename(f"preprocessed_{base}")
-                    with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
-                        f.write(pre[:1_000_000])
-                    logging.debug(f"Wrote preprocessed -> {pre_fn}")
-
-                    threading.Thread(
-                        target=scan_and_warn,
-                        args=(pre_fn,),
-                        kwargs={'command_flag': True}
-                    ).start()
-
-            except Exception as e:
-                logging.error(f"Error processing '{process_path}' [{label}]: {e}")
-
-        if not any_processed:
-            logging.debug(f"No new unique text to process for HWND={hwnd}")
+        except Exception as e:
+            logging.error(f"Error processing text from '{process_path}' [{source_label}]: {e}")
 
     def find_and_process_windows(self):
-        # 1) Call enumeration in its own try/except
+        def is_window_safe(hwnd):
+            try:
+                return bool(user32.IsWindow(hwnd))
+            except Exception:
+                return False
+
+        def get_any_text(hwnd):
+            texts = {}
+            try:
+                texts['win_text'] = get_window_text(hwnd) or ""
+            except Exception as e:
+                logging.debug(f"get_window_text failed for hwnd {hwnd}: {e}")
+                texts['win_text'] = ""
+
+            try:
+                texts['ctrl_text'] = get_control_text(hwnd) or ""
+            except Exception as e:
+                logging.debug(f"get_control_text failed for hwnd {hwnd}: {e}")
+                texts['ctrl_text'] = ""
+
+            try:
+                texts['uia_text'] = get_uia_text(hwnd) or ""
+            except Exception as e:
+                logging.debug(f"get_uia_text failed for hwnd {hwnd}: {e}")
+                texts['uia_text'] = ""
+
+            return texts
+
+        def find_child_windows(hwnd):
+            children = []
+
+            def enum_proc(child_hwnd, lParam):
+                if is_window_safe(child_hwnd):
+                    children.append(child_hwnd)
+                return True
+
+            try:
+                callback = ENUM_WINDOWS_PROC(enum_proc)
+                user32.EnumChildWindows(hwnd, callback, 0)
+            except Exception as e:
+                logging.debug(f"EnumChildWindows failed for hwnd {hwnd}: {e}")
+
+            return children
+
+        def process_hwnd(hwnd, window_type):
+            if not is_window_safe(hwnd):
+                return
+
+            try:
+                text_data = get_any_text(hwnd)
+                if not any(text_data.values()):
+                    return
+
+                try:
+                    path = get_process_path(hwnd)
+                except Exception:
+                    path = ""
+
+                for label, text in text_data.items():
+                    if text:
+                        self.executor.submit(
+                            self.process_window_text,
+                            hwnd, text, label, path, window_type
+                        )
+
+            except Exception as e:
+                logging.error(f"Error in process_hwnd HWND={hwnd}: {e}")
+
+        def enum_windows_callback(hwnd, lParam):
+            process_hwnd(hwnd, "main_window")
+            for child in find_child_windows(hwnd):
+                process_hwnd(child, "child_window")
+            return True
+
         try:
-            windows = find_windows_with_text()  # should return a list of 6-tuples
-        except Exception:
-            tb = traceback.format_exc()
-            logging.error(f"Exception during window enumeration:\n{tb}")
-            return
-
-        # 2) Validate the return value
-        if windows is None:
-            logging.error("find_windows_with_text() returned None")
-            return
-        if not isinstance(windows, list):
-            logging.error(f"Unexpected return type from find_windows_with_text(): {type(windows)}")
-            return
-
-        # 3) Now we know we got a list
-        logging.info(f"Received {len(windows)} windows from enumeration")
-        if not windows:
-            logging.error("No windows found - enumeration returned an empty list")
-            return
-
-        # 4) Log the first few entries for quick sanity check
-        for i, (hwnd, win_text, ctrl_text, uia_text, process_path, window_type) in enumerate(windows[:3]):
-            combined = f"Win='{win_text}', Ctrl='{ctrl_text}', UIA='{uia_text}'"
-            logging.info(f"Window {i+1}: HWND={hwnd}, Type={window_type}, Texts={combined[:100]}...")
-
-        # 5) Submit them all for processing
-        for hwnd, win_text, ctrl_text, uia_text, process_path, window_type in windows:
-            logging.debug(f"Submitting HWND={hwnd} to executor")
-            self.executor.submit(
-                self.process_window_text,
-                hwnd, win_text, ctrl_text, uia_text, process_path, window_type
-            )
+            callback = ENUM_WINDOWS_PROC(enum_windows_callback)
+            user32.EnumWindows(callback, 0)
+        except Exception as e:
+            logging.error(f"EnumWindows failed: {e}")
 
     def monitoring_window_text(self):
         """
