@@ -10779,7 +10779,7 @@ def get_uia_text(hwnd):
 
     comtypes_logger = logging.getLogger('comtypes')
     original_level = comtypes_logger.level
-    logging.getLogger('comtypes').setLevel(logging.WARNING)
+    comtypes_logger.('comtypes').setLevel(logging.WARNING)
 
     try:
         uiauto = CreateObject(UiaClient.CUIAutomation8)
