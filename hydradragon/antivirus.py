@@ -10779,7 +10779,7 @@ def get_uia_text(hwnd):
 
     comtypes_logger = logging.getLogger('comtypes')
     original_level = comtypes_logger.level
-    comtypes_logger('comtypes').setLevel(logging.WARNING)
+    comtypes_logger.setLevel(logging.WARNING)
 
     try:
         uiauto = CreateObject(UiaClient.CUIAutomation8)
@@ -10863,7 +10863,7 @@ def get_uia_text(hwnd):
                 if child_name and child_name.strip():
                     all_texts.append(child_name.strip())
     except: pass
-    
+
     # Return a list of unique texts found.
     return list(dict.fromkeys(all_texts))
 
@@ -11129,8 +11129,8 @@ class MonitorMessageCommandLine:
                         process_text(hwnd, "win_text", win_text, path, win_type)
                 except Exception as e:
                     logging.debug(f"process_win_text failed for {hwnd}: {e}")
-            
-            # Get ctrl_text directly and process immediately  
+
+            # Get ctrl_text directly and process immediately
             def process_ctrl_text():
                 try:
                     ctrl_text = get_control_text(hwnd) or ""
@@ -11165,7 +11165,7 @@ class MonitorMessageCommandLine:
                     return True
 
                 user32.EnumChildWindows(hwnd, ENUM_WINDOWS_PROC(enum_proc), 0)
-                
+
                 for child in children:
                     self.thread_pool.submit(handle_hwnd, child, "child_window")
             except Exception as e:
