@@ -10769,34 +10769,40 @@ def is_window_valid(hwnd):
     return bool(user32.IsWindow(hwnd))
 
 def get_uia_text(hwnd):
-    """Enhanced UI Automation text extraction with multiple pattern support."""
-
+    """
+    Enhanced UI Automation text extraction with multiple pattern support.
+    This function now returns a list of all unique, non-empty text strings found.
+    """
     if not is_window_valid(hwnd):
         logging.debug(f"HWND {hwnd} is not a valid window")
-        return ""
+        return []
+
+    comtypes_logger = logging.getLogger('comtypes')
+    original_level = comtypes_logger.level
+    comtypes_logger.setLevel(logging.INFO)
 
     try:
-        # Create UI Automation client object
         uiauto = CreateObject(UiaClient.CUIAutomation8)
     except Exception as coe:
         logging.error(f"Failed to create UI Automation object: {coe}")
-        return ""
+        return []
+    finally:
+        comtypes_logger.setLevel(original_level)
 
     try:
         elem = uiauto.ElementFromHandle(hwnd)
     except Exception as e:
         logging.error(f"Failed to get automation element from handle: {e}")
-        return ""
+        return []
 
-    text_sources = []
+    all_texts = []
 
     # 1. CurrentName
     try:
         name = elem.CurrentName
         if name and name.strip():
-            text_sources.append(("CurrentName", name.strip()))
-    except Exception:
-        pass
+            all_texts.append(name.strip())
+    except: pass
 
     # 2. ValuePattern
     try:
@@ -10804,34 +10810,27 @@ def get_uia_text(hwnd):
         if vp:
             value = vp.CurrentValue
             if value and value.strip():
-                text_sources.append(("ValuePattern", value.strip()))
-    except Exception:
-        pass
+                all_texts.append(value.strip())
+    except: pass
 
     # 3. TextPattern
     try:
         tp = elem.GetCurrentPattern(UiaClient.UIA_TextPatternId)
         if tp:
-            doc_range = tp.DocumentRange
-            text = doc_range.GetText(-1)
+            text = tp.DocumentRange.GetText(-1)
             if text and text.strip():
-                text_sources.append(("TextPattern", text.strip()))
-    except Exception:
-        pass
+                all_texts.append(text.strip())
+    except: pass
 
     # 4. LegacyIAccessiblePattern
     try:
         lap = elem.GetCurrentPattern(UiaClient.UIA_LegacyIAccessiblePatternId)
         if lap:
-            lap_curr = lap.Current
-            name = lap_curr.Name
-            value = lap_curr.Value
-            if name and name.strip():
-                text_sources.append(("LegacyName", name.strip()))
-            if value and value.strip():
-                text_sources.append(("LegacyValue", value.strip()))
-    except Exception:
-        pass
+            if lap.CurrentName and lap.CurrentName.strip():
+                all_texts.append(lap.CurrentName.strip())
+            if lap.CurrentValue and lap.CurrentValue.strip():
+                all_texts.append(lap.CurrentValue.strip())
+    except: pass
 
     # 5. RangeValuePattern
     try:
@@ -10839,9 +10838,8 @@ def get_uia_text(hwnd):
         if rvp:
             value = str(rvp.CurrentValue)
             if value:
-                text_sources.append(("RangeValue", value))
-    except Exception:
-        pass
+                all_texts.append(value)
+    except: pass
 
     # 6. SelectionPattern
     try:
@@ -10850,35 +10848,24 @@ def get_uia_text(hwnd):
             selection = sp.GetCurrentSelection()
             if selection and selection.Length > 0:
                 for i in range(selection.Length):
-                    item = selection.GetElement(i)
-                    item_name = item.CurrentName
+                    item_name = selection.GetElement(i).CurrentName
                     if item_name:
-                        text_sources.append(("Selection", item_name.strip()))
-    except Exception:
-        pass
+                        all_texts.append(item_name.strip())
+    except: pass
 
-    # Return the first non-empty text found
-    if text_sources:
-        return text_sources[0][1]
-
-    # If no patterns worked, try child elements
+    # 7. Child elements
     try:
         condition = uiauto.CreateTrueCondition()
         child_elements = elem.FindAll(UiaClient.TreeScope_Children, condition)
-
-        child_texts = []
-        for i in range(child_elements.Length):
-            child = child_elements.GetElement(i)
-            child_name = child.CurrentName
-            if child_name and child_name.strip():
-                child_texts.append(child_name.strip())
-
-        if child_texts:
-            combined_text = " | ".join(child_texts[:5])  # Limit to first 5 children
-            return combined_text
-
-    except Exception:
-        pass
+        if child_elements:
+            for i in range(child_elements.Length):
+                child_name = child_elements.GetElement(i).CurrentName
+                if child_name and child_name.strip():
+                    all_texts.append(child_name.strip())
+    except: pass
+    
+    # Return a list of unique texts found.
+    return list(dict.fromkeys(all_texts))
 
 # ----------------------------------------------------
 # Advanced enumeration-based capture
@@ -11075,6 +11062,10 @@ class MonitorMessageCommandLine:
         return text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "")
 
     def find_and_process_windows(self):
+        """
+        Main method to start enumerating and processing windows.
+        It uses nested functions to handle specific tasks and concurrency.
+        """
         def is_window_safe(hwnd):
             try:
                 return bool(user32.IsWindow(hwnd))
@@ -11082,6 +11073,10 @@ class MonitorMessageCommandLine:
                 return False
 
         def process_text(hwnd, label, text, process_path, win_type):
+            """
+            Processes a single piece of extracted text. It checks for duplicates,
+            logs the information, and saves the original and preprocessed text to files.
+            """
             stripped = text.strip()
             if not stripped:
                 return
@@ -11114,6 +11109,10 @@ class MonitorMessageCommandLine:
                 logging.error(f"Error processing text [{label}] from {process_path}: {e}")
 
         def handle_hwnd(hwnd, win_type):
+            """
+            Handles a single window handle (HWND). It dispatches text extraction
+            tasks to separate threads for concurrency.
+            """
             if not is_window_safe(hwnd):
                 return
 
@@ -11140,57 +11139,43 @@ class MonitorMessageCommandLine:
                 except Exception as e:
                     logging.debug(f"process_ctrl_text failed for {hwnd}: {e}")
 
-            # Get uia_text directly and process immediately
-            def process_uia_text():
+            # Get uia_text and process each found text separately
+            def process_uia_texts():
                 try:
-                    uia_text = get_uia_text(hwnd) or ""
-                    if uia_text.strip():
-                        process_text(hwnd, "uia_text", uia_text, path, win_type)
+                    # get_uia_text now returns a list of strings
+                    uia_texts = get_uia_text(hwnd)
+                    for text in uia_texts:
+                        if text and text.strip():
+                            # Call process_text for each individual text
+                            process_text(hwnd, "uia_text", text, path, win_type)
                 except Exception as e:
-                    logging.debug(f"process_uia_text failed for {hwnd}: {e}")
+                    logging.debug(f"process_uia_texts failed for {hwnd}: {e}")
 
             # Start all three in parallel threads - completely independent
-            try:
-                threading.Thread(target=process_win_text).start()
-            except:
-                pass
-            
-            try:
-                threading.Thread(target=process_ctrl_text).start()
-            except:
-                pass
-            
-            try:
-                threading.Thread(target=process_uia_text).start()
-            except:
-                pass
+            threading.Thread(target=process_win_text).start()
+            threading.Thread(target=process_ctrl_text).start()
+            threading.Thread(target=process_uia_texts).start()
 
             # Enumerate children independently
             try:
                 children = []
                 def enum_proc(child_hwnd, _):
-                    try:
-                        if is_window_safe(child_hwnd):
-                            children.append(child_hwnd)
-                    except:
-                        pass
+                    if is_window_safe(child_hwnd):
+                        children.append(child_hwnd)
                     return True
 
                 user32.EnumChildWindows(hwnd, ENUM_WINDOWS_PROC(enum_proc), 0)
                 
                 for child in children:
-                    try:
-                        self.thread_pool.submit(handle_hwnd, child, "child_window")
-                    except:
-                        pass
+                    self.thread_pool.submit(handle_hwnd, child, "child_window")
             except Exception as e:
                 logging.debug(f"EnumChildWindows failed for {hwnd}: {e}")
 
         def start_enum():
+            """The entry point for window enumeration."""
             def callback(hwnd, _):
                 self.thread_pool.submit(handle_hwnd, hwnd, "main_window")
                 return True
-
             try:
                 user32.EnumWindows(ENUM_WINDOWS_PROC(callback), 0)
             except Exception as e:
