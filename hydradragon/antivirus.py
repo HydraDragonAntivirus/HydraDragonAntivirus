@@ -10704,7 +10704,7 @@ def get_window_text(hwnd):
     except Exception:
         pass
 
-    # Method 2: Fallback to original simple method if enhanced fails
+    # Method 2: Fallback GetWindowText if enhanced fails
     if not texts:
         try:
             length = user32.GetWindowTextLengthW(hwnd) + 1
@@ -10716,7 +10716,7 @@ def get_window_text(hwnd):
         except Exception:
             pass
 
-    # Method 3: Try getting class name as fallback identifier
+    # Method 3: Use window class name as fallback identifier
     try:
         class_name = get_window_class_name(hwnd)
         if class_name and class_name not in ["", "Static", "Button"]:  # Skip generic classes
@@ -10724,11 +10724,7 @@ def get_window_text(hwnd):
     except Exception:
         pass
 
-    # Return the best text found
-    if texts:
-        return texts[0]
-
-    return ""
+    return texts[0] if texts else ""
 
 def get_control_text(hwnd):
     """Enhanced control text extraction using multiple methods."""
