@@ -10694,43 +10694,32 @@ def get_window_class_name(hwnd):
     return class_name.value
 
 def get_window_text(hwnd):
-    """Extract window text using multiple WinAPI methods."""
-    texts = []
-
-    # Method 1: Standard GetWindowText
+    """
+    Extracts window text using GetWindowTextW, falling back to the window's class name.
+    """
+    # Method 1: Standard GetWindowTextW
     try:
         length = user32.GetWindowTextLengthW(hwnd) + 1
-        if length > 1:
+        if length > 1:  # A length of 1 means an empty string
             buf = ctypes.create_unicode_buffer(length)
-            actual_length = user32.GetWindowTextW(hwnd, buf, length)
-            if actual_length > 0:
-                text = buf.value
-                if text and text.strip():
-                    texts.append(text.strip())
-    except Exception:
-        pass
+            # Check the number of characters copied
+            if user32.GetWindowTextW(hwnd, buf, length) > 0:
+                text = buf.value.strip()
+                if text:
+                    return text
+    except Exception as e:
+        logging.debug(f"GetWindowTextW failed for HWND {hwnd}: {e}")
 
-    # Method 2: Fallback GetWindowText if enhanced fails
-    if not texts:
-        try:
-            length = user32.GetWindowTextLengthW(hwnd) + 1
-            buf = ctypes.create_unicode_buffer(length)
-            user32.GetWindowTextW(hwnd, buf, length)
-            text = buf.value or ""
-            if text and text.strip():
-                texts.append(text.strip())
-        except Exception:
-            pass
-
-    # Method 3: Use window class name as fallback identifier
+    # Method 2: Fallback to the window class name as an identifier
     try:
-        class_name = get_window_class_name(hwnd)
-        if class_name and class_name not in ["", "Static", "Button"]:  # Skip generic classes
-            texts.append(class_name)
-    except Exception:
-        pass
+        class_name = get_window_class_name(hwnd).strip()
+        # Avoid returning generic, unhelpful class names
+        if class_name and class_name not in ["Static", "Button"]:
+            return class_name
+    except Exception as e:
+        logging.debug(f"get_window_class_name failed for HWND {hwnd}: {e}")
 
-    return texts[0] if texts else ""
+    return ""
 
 def get_control_text(hwnd):
     """Enhanced control text extraction using multiple methods."""
