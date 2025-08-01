@@ -212,12 +212,8 @@ import ctypes
 logging.info(f"ctypes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from ctypes import wintypes
-logging.info(f"ctypes.wintypes module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
-from ctypes import byref
-logging.info(f"ctypes.byref module loaded in {time.time() - start_time:.6f} seconds")
+from ctypes import wintypes, byref, windll
+logging.info(f"ctypes.wintypes, byref, windll module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ipaddress
@@ -11084,8 +11080,8 @@ class MonitorMessageCommandLine:
     def find_and_process_windows(self):
         def is_window_safe(hwnd):
             try:
-                return bool(user32.IsWindow(hwnd))
-            except:
+                return bool(windll.user32.IsWindow(hwnd))
+            except Exception:
                 return False
 
         def get_texts(hwnd):
@@ -11097,7 +11093,7 @@ class MonitorMessageCommandLine:
             ]:
                 try:
                     texts[label] = getter(hwnd) or ""
-                except:
+                except Exception:
                     texts[label] = ""
             return texts
 
@@ -11144,7 +11140,7 @@ class MonitorMessageCommandLine:
                 try:
                     try:
                         path = get_process_path(hwnd)
-                    except:
+                    except Exception:
                         path = ""
 
                     texts = get_texts(hwnd)
@@ -11156,30 +11152,39 @@ class MonitorMessageCommandLine:
                         children = []
 
                         def enum_proc(child_hwnd, _):
-                            if is_window_safe(child_hwnd):
-                                children.append(child_hwnd)
+                            try:
+                                if is_window_safe(child_hwnd):
+                                    children.append(child_hwnd)
+                            except Exception as e:
+                                logging.error(f"Exception in enum_proc callback: {e}")
                             return True
 
                         try:
-                            user32.EnumChildWindows(hwnd, ENUM_WINDOWS_PROC(enum_proc), 0)
-                        except:
-                            pass
+                            windll.user32.EnumChildWindows(hwnd, ENUM_WINDOWS_PROC(enum_proc), 0)
+                        except Exception as e:
+                            logging.error(f"EnumChildWindows failed: {e}")
 
                         for child in children:
                             threading.Thread(target=handle_hwnd, args=(child, "child_window")).start()
 
-                    threading.Thread(target=enum_children).start()
+                    # Enumerate children in the same thread for efficiency
+                    enum_children()
+
                 except Exception as e:
                     logging.debug(f"handle_hwnd({hwnd}) failed: {e}")
+
             threading.Thread(target=worker).start()
 
         def start_enum():
             def callback(hwnd, _):
-                threading.Thread(target=handle_hwnd, args=(hwnd, "main_window")).start()
+                try:
+                    threading.Thread(target=handle_hwnd, args=(hwnd, "main_window")).start()
+                except Exception as e:
+                    logging.error(f"Exception in EnumWindows callback: {e}")
                 return True
 
             try:
-                user32.EnumWindows(ENUM_WINDOWS_PROC(callback), 0)
+                windll.user32.EnumWindows(ENUM_WINDOWS_PROC(callback), 0)
             except Exception as e:
                 logging.error(f"EnumWindows failed: {e}")
 

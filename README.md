@@ -216,11 +216,7 @@ See the [LICENSE](./LICENSE) file for more information.
 
 **What are the minimum RAM and disk space requirements?**
 
-- Maximum Features (without Meta Llama 3.2-1B):
-- A minimum of 6 GB of RAM is required if Meta Llama 3.2-1B is not used; however, 8 GB is highly recommended.
-
-- Maximum Features (with Meta Llama 3.2-1B):
-- 8 GB of RAM is the minimum requirement because Meta Llama 3.2-1B is running locally. I strongly recommend at least 8 GB of RAM, 10 GB of free disk space, and a minimum of four processor cores.
+- A minimum of 8 GB of RAM is required: 3 GB is used by ClamAV, and the remaining 5 GB is used by other engines.
 
 **Any sponsors or supporters?**
 - Yes, there are supporters for this project. Xcitium (Comodo) has expressed interest in supporting this project by providing malware samples, and Cisco Talos ClamAV community projects. But it's still a one man project.
