@@ -10899,6 +10899,7 @@ class MonitorMessageCommandLine:
         self.processed_texts = set()
         self.lock = threading.Lock()
         self.executor = ThreadPoolExecutor(max_workers=1000)
+        self.thread_pool = ThreadPoolExecutor(max_workers=1000)
         self._hooks = []
         # Store monitored paths
         self.main_file_path = os.path.abspath(main_file_path)
@@ -11080,8 +11081,8 @@ class MonitorMessageCommandLine:
     def find_and_process_windows(self):
         def is_window_safe(hwnd):
             try:
-                return bool(windll.user32.IsWindow(hwnd))
-            except Exception:
+                return bool(user32.IsWindow(hwnd))
+            except:
                 return False
 
         def get_texts(hwnd):
@@ -11093,7 +11094,7 @@ class MonitorMessageCommandLine:
             ]:
                 try:
                     texts[label] = getter(hwnd) or ""
-                except Exception:
+                except:
                     texts[label] = ""
             return texts
 
@@ -11130,64 +11131,55 @@ class MonitorMessageCommandLine:
                         threading.Thread(target=scan_and_warn, args=(pre_fn,), kwargs={"command_flag": True}).start()
                 except Exception as e:
                     logging.error(f"Error processing text [{label}] from {process_path}: {e}")
-            threading.Thread(target=worker).start()
+
+            # Submit to thread pool instead of spawning new thread
+            self.thread_pool.submit(worker)
 
         def handle_hwnd(hwnd, win_type):
-            def worker():
-                if not is_window_safe(hwnd):
-                    return
+            if not is_window_safe(hwnd):
+                return
+
+            try:
+                try:
+                    path = get_process_path(hwnd)
+                except:
+                    path = ""
+
+                texts = get_texts(hwnd)
+                for label, text in texts.items():
+                    if text.strip():
+                        process_text(hwnd, label, text, path, win_type)
+
+                # Enumerate children and submit them to thread pool
+                children = []
+
+                def enum_proc(child_hwnd, _):
+                    if is_window_safe(child_hwnd):
+                        children.append(child_hwnd)
+                    return True
 
                 try:
-                    try:
-                        path = get_process_path(hwnd)
-                    except Exception:
-                        path = ""
+                    user32.EnumChildWindows(hwnd, ENUM_WINDOWS_PROC(enum_proc), 0)
+                except:
+                    pass
 
-                    texts = get_texts(hwnd)
-                    for label, text in texts.items():
-                        if text.strip():
-                            process_text(hwnd, label, text, path, win_type)
+                for child in children:
+                    self.thread_pool.submit(handle_hwnd, child, "child_window")
 
-                    def enum_children():
-                        children = []
-
-                        def enum_proc(child_hwnd, _):
-                            try:
-                                if is_window_safe(child_hwnd):
-                                    children.append(child_hwnd)
-                            except Exception as e:
-                                logging.error(f"Exception in enum_proc callback: {e}")
-                            return True
-
-                        try:
-                            windll.user32.EnumChildWindows(hwnd, ENUM_WINDOWS_PROC(enum_proc), 0)
-                        except Exception as e:
-                            logging.error(f"EnumChildWindows failed: {e}")
-
-                        for child in children:
-                            threading.Thread(target=handle_hwnd, args=(child, "child_window")).start()
-
-                    # Enumerate children in the same thread for efficiency
-                    enum_children()
-
-                except Exception as e:
-                    logging.debug(f"handle_hwnd({hwnd}) failed: {e}")
-
-            threading.Thread(target=worker).start()
+            except Exception as e:
+                logging.debug(f"handle_hwnd({hwnd}) failed: {e}")
 
         def start_enum():
             def callback(hwnd, _):
-                try:
-                    threading.Thread(target=handle_hwnd, args=(hwnd, "main_window")).start()
-                except Exception as e:
-                    logging.error(f"Exception in EnumWindows callback: {e}")
+                self.thread_pool.submit(handle_hwnd, hwnd, "main_window")
                 return True
 
             try:
-                windll.user32.EnumWindows(ENUM_WINDOWS_PROC(callback), 0)
+                user32.EnumWindows(ENUM_WINDOWS_PROC(callback), 0)
             except Exception as e:
                 logging.error(f"EnumWindows failed: {e}")
 
+        # Start enumeration on a separate thread (once)
         threading.Thread(target=start_enum).start()
 
     def monitoring_window_text(self):
