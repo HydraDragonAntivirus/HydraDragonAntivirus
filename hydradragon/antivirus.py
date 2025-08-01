@@ -10688,7 +10688,7 @@ def get_process_path(hwnd):
 # ----------------------------------------------------
 
 def get_window_text(hwnd):
-    """Enhanced window text extraction using multiple WinAPI methods."""
+    """Extract window text using multiple WinAPI methods."""
     texts = []
 
     # Method 1: Standard GetWindowText
@@ -10700,9 +10700,9 @@ def get_window_text(hwnd):
             if actual_length > 0:
                 text = buf.value
                 if text and text.strip():
-                    texts.append(("GetWindowText", text.strip()))
-    except Exception as e:
-        logging.debug(f"GetWindowText failed for {hwnd}: {e}")
+                    texts.append(text.strip())
+    except Exception:
+        pass
 
     # Method 2: Fallback to original simple method if enhanced fails
     if not texts:
@@ -10712,7 +10712,7 @@ def get_window_text(hwnd):
             user32.GetWindowTextW(hwnd, buf, length)
             text = buf.value or ""
             if text and text.strip():
-                texts.append(("GetWindowText_Fallback", text.strip()))
+                texts.append(text.strip())
         except Exception:
             pass
 
@@ -10720,15 +10720,13 @@ def get_window_text(hwnd):
     try:
         class_name = get_window_class_name(hwnd)
         if class_name and class_name not in ["", "Static", "Button"]:  # Skip generic classes
-            texts.append(("ClassName", class_name))
+            texts.append(class_name)
     except Exception:
         pass
 
     # Return the best text found
     if texts:
-        method, text = texts[0]
-        logging.debug(f"HWND {hwnd}: text via {method}: {text[:50]}...")
-        return text
+        return texts[0]
 
     return ""
 
