@@ -10924,15 +10924,18 @@ class MonitorMessageCommandLine:
                     r'*iex (new-object net.webclient).downloadfile(*',
                     r'*powershell*-command*iex(*http*',
                     r'*-command iex (new-object*downloadstring*',
+                    r'*$path*iex(*.web*-replace*',
                     r'*iex ((new-object system.net.webclient).downloadstring(*',
+                    r'*powershell*.webclient)*iex*',
                     r'*iex(new-object net.webclient).downloadstring(*',
                     r'*iex ((new-object net.webclient).downloadstring(*',
+                    r'*http*.replace(*iex*'
                 ],
                 "virus_name": "HEUR:Win32.PowerShell.IEX.Downloader.gen"
             },
             "xmrig": {
                 "patterns": [
-                    "xmrig --help", "xmrig --version", "xmrig --config"
+                    "xmrig", "xmrig.exe", "start xmrig", "xmrig --help", "xmrig --version", "xmrig --config"
                 ],
                 "virus_name": "HEUR:Win32.Miner.XMRig.gen"
             },
