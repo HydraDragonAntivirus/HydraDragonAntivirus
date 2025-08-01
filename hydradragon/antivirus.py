@@ -10933,7 +10933,6 @@ class MonitorMessageCommandLine:
                     r'*powershell*.webclient)*iex*',
                     r'*iex(new-object net.webclient).downloadstring(*',
                     r'*iex ((new-object net.webclient).downloadstring(*',
-                    r'*http*.replace(*iex*'
                 ],
                 "virus_name": "HEUR:Win32.PowerShell.IEX.Downloader.gen"
             },
