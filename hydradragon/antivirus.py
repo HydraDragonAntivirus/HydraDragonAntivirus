@@ -11150,117 +11150,77 @@ class MonitorMessageCommandLine:
             texts = {}
             try:
                 texts['win_text'] = get_window_text(hwnd) or ""
-            except Exception as e:
-                logging.debug(f"get_window_text failed for hwnd {hwnd}: {e}")
+            except:
                 texts['win_text'] = ""
-
             try:
                 texts['ctrl_text'] = get_control_text(hwnd) or ""
-            except Exception as e:
-                logging.debug(f"get_control_text failed for hwnd {hwnd}: {e}")
+            except:
                 texts['ctrl_text'] = ""
-
             try:
                 texts['uia_text'] = get_uia_text(hwnd) or ""
-            except Exception as e:
-                logging.debug(f"get_uia_text failed for hwnd {hwnd}: {e}")
+            except:
                 texts['uia_text'] = ""
-
             return texts
 
         def find_child_windows(hwnd):
             children = []
-
-            def enum_proc(child_hwnd, lParam):
+            def enum_proc(child_hwnd, _):
                 if is_window_safe(child_hwnd):
                     children.append(child_hwnd)
                 return True
-
             try:
-                callback = ENUM_WINDOWS_PROC(enum_proc)
-                user32.EnumChildWindows(hwnd, callback, 0)
-            except Exception as e:
-                logging.debug(f"EnumChildWindows failed for hwnd {hwnd}: {e}")
-
+                user32.EnumChildWindows(hwnd, ENUM_WINDOWS_PROC(enum_proc), 0)
+            except:
+                pass
             return children
 
-        def process_text_in_new_thread(hwnd, text, source_label, process_path, window_type):
-            def thread_target():
+        def process_text_in_thread(hwnd, text, source_label, process_path, window_type):
+            def run():
                 if not text.strip():
                     return
-
                 stripped = text.strip()
                 with self.lock:
                     if stripped in self.processed_texts:
                         return
                     self.processed_texts.add(stripped)
-
-                class_name = get_window_class_name(hwnd)
-                left, top, right, bottom = get_window_rect(hwnd)
-
-                logging.info(f"\n[DETECTION] {window_type.upper()} - Source: {source_label}")
-                logging.info(f"HWND: {hwnd}")
-                logging.info(f"Text: '{text}'")
-                logging.info(f"Class: {class_name}")
-                logging.info(f"Process: {process_path}")
-                logging.info(f"Position: ({left}, {top})")
-                logging.info(f"Size: {right-left}x{bottom-top}")
-                logging.info("-" * 40)
-
-                preview = (text[:200] + '...') if len(text) > 200 else text
-                logging.debug(f"Processing: hwnd={hwnd}, src={source_label}, preview='{preview}'")
-
                 try:
+                    class_name = get_window_class_name(hwnd)
+                    left, top, right, bottom = get_window_rect(hwnd)
+                    logging.info(f"[DETECTION] {window_type.upper()} - {source_label}")
+                    logging.info(f"HWND: {hwnd}, Class: {class_name}, Path: {process_path}")
+                    logging.info(f"Text: '{text}'")
+                    logging.info(f"Position: ({left},{top}) Size: {right-left}x{bottom-top}")
                     base = sanitize_filename(process_path) + f"_{source_label}"
                     orig_fn = self.get_unique_filename(f"original_{base}")
                     with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
                         f.write(text[:1_000_000])
-                    logging.debug(f"Wrote original -> {orig_fn}")
-
-                    threading.Thread(
-                        target=scan_and_warn,
-                        args=(orig_fn,),
-                        kwargs={'command_flag': True}
-                    ).start()
-
+                    threading.Thread(target=scan_and_warn, args=(orig_fn,), kwargs={'command_flag': True}).start()
                     pre = self.preprocess_text(text)
                     if pre and pre != text.lower().strip():
                         pre_fn = self.get_unique_filename(f"preprocessed_{base}")
                         with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
                             f.write(pre[:1_000_000])
-                        logging.debug(f"Wrote preprocessed -> {pre_fn}")
-
-                        threading.Thread(
-                            target=scan_and_warn,
-                            args=(pre_fn,),
-                            kwargs={'command_flag': True}
-                        ).start()
-
+                        threading.Thread(target=scan_and_warn, args=(pre_fn,), kwargs={'command_flag': True}).start()
                 except Exception as e:
-                    logging.error(f"Error processing text from '{process_path}' [{source_label}]: {e}")
-
-            threading.Thread(target=thread_target).start()
+                    logging.error(f"Error processing text: {e}")
+            threading.Thread(target=run).start()
 
         def process_hwnd(hwnd, window_type):
             if not is_window_safe(hwnd):
                 return
-
             try:
-                text_data = get_any_text(hwnd)
-                if not any(text_data.values()):
+                texts = get_any_text(hwnd)
+                if not any(texts.values()):
                     return
-
                 try:
                     path = get_process_path(hwnd)
-                except Exception:
+                except:
                     path = ""
-
-                for label, text in text_data.items():
+                for label, text in texts.items():
                     if text:
-                        process_text_in_new_thread(hwnd, text, label, path, window_type)
-
-            except Exception as e:
-                logging.error(f"Error in process_hwnd HWND={hwnd}: {e}")
+                        process_text_in_thread(hwnd, text, label, path, window_type)
+            except:
+                pass
 
         def enum_windows_callback(hwnd, lParam):
             process_hwnd(hwnd, "main_window")
@@ -11269,8 +11229,7 @@ class MonitorMessageCommandLine:
             return True
 
         try:
-            callback = ENUM_WINDOWS_PROC(enum_windows_callback)
-            user32.EnumWindows(callback, 0)
+            user32.EnumWindows(ENUM_WINDOWS_PROC(enum_windows_callback), 0)
         except Exception as e:
             logging.error(f"EnumWindows failed: {e}")
 
