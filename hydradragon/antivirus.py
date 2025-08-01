@@ -10889,7 +10889,6 @@ def get_uia_text(hwnd):
     except Exception:
         pass
 
-    logging.debug(f"HWND {hwnd}: no text pattern available")
     return ""
 
 # ----------------------------------------------------
