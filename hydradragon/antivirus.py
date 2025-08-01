@@ -10903,13 +10903,6 @@ def find_windows_with_text():
     window_handles = []
     processed_hwnds = set()
 
-    def is_supported_class(hwnd):
-        try:
-            class_name = get_window_class_name(hwnd)
-            return class_name not in ["Static", "Button", "Shell_TrayWnd", "Progman", "WorkerW"]
-        except Exception:
-            return False
-
     def is_window_safe(hwnd):
         return user32.IsWindow(hwnd)
 
@@ -10917,27 +10910,31 @@ def find_windows_with_text():
         if not is_window_safe(hwnd):
             return ""
 
+        # Try get_window_text first (highest priority)
         try:
             text = get_window_text(hwnd)
-            if text and text.strip():
+            if text and text.strip() and len(text.strip()) > 0:
                 return text.strip()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug(f"get_window_text failed for hwnd {hwnd}: {e}")
 
+        # Try get_control_text as fallback
         try:
             text = get_control_text(hwnd)
-            if text and text.strip():
+            if text and text.strip() and len(text.strip()) > 0:
                 return text.strip()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug(f"get_control_text failed for hwnd {hwnd}: {e}")
 
+        # Try get_uia_text as last resort
         try:
             text = get_uia_text(hwnd)
-            if text and text.strip():
+            if text and text.strip() and len(text.strip()) > 0:
                 return text.strip()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug(f"get_uia_text failed for hwnd {hwnd}: {e}")
 
+        logging.debug(f"No text found for hwnd {hwnd} using any method")
         return ""
 
     def find_child_windows(hwnd):
@@ -10954,7 +10951,7 @@ def find_windows_with_text():
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     def enum_windows_callback(hwnd, lParam):
-        if hwnd in processed_hwnds or not is_window_safe(hwnd) or not is_supported_class(hwnd):
+        if hwnd in processed_hwnds or not is_window_safe(hwnd):
             return True
         processed_hwnds.add(hwnd)
 
@@ -10965,7 +10962,7 @@ def find_windows_with_text():
                 window_handles.append((hwnd, text, path, "main_window"))
 
             for child in find_child_windows(hwnd):
-                if child in processed_hwnds or not is_supported_class(child):
+                if child in processed_hwnds:
                     continue
                 processed_hwnds.add(child)
 
