@@ -10221,7 +10221,6 @@ def monitor_memory_changes(
             prev_rss = last_rss.get(pid)
             if prev_rss is None or abs(rss - prev_rss) > change_threshold_bytes:
                 last_rss[pid] = rss
-                logging.info(f"Memory change detected: PID={pid}, RSS={rss}")
 
                 try:
                     exe_path = proc.exe()
@@ -10235,7 +10234,6 @@ def monitor_memory_changes(
 
                 # Only monitor processes within sandboxie_folder or matching main_file_path
                 if not exe_lower.startswith(sandbox_lower) and exe_lower != main_lower:
-                    logging.info(f"Executable {exe_path} is outside monitored dirs. Skipping.")
                     continue
 
                 logging.info(f"Analyzing memory for: {exe_path}")
