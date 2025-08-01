@@ -11060,55 +11060,66 @@ class MonitorMessageCommandLine:
 
     def find_and_process_windows(self):
         """
-        Enumerate and process windows. Only saves original text if preprocessed
-        is meaningfully different.
+        Enumerate all top-level windows and process their text.
+        Saves either the original or preprocessed text to disk,
+        ensuring no duplicates via a thread-safe lock and in-memory set.
         """
         def process_text(hwnd, label, text, process_path, win_type):
-            """
-            Processes a single piece of extracted text. It logs the information, 
-            and saves the original or preprocessed text to files, but only one to avoid duplicates.
-            """
             try:
+                # Metadata for logging
                 class_name = get_window_class_name(hwnd)
                 left, top, right, bottom = get_window_rect(hwnd)
+                logging.info(
+                    f"[{win_type[0].upper()}-{label}] {hwnd} {class_name} "
+                    f"({left},{top}) {right-left}x{bottom-top}"
+                )
 
-                logging.info(f"[{win_type[0].upper()}-{label}] {hwnd} {class_name} ({left},{top}) {right-left}x{bottom-top}")
-
+                # Build sanitized base filename
                 filename = process_path.split("\\")[-1] if process_path else "unknown"
                 base = sanitize_filename(filename) + f"_{label}"
 
+                # Preprocess and normalize text
                 pre = self.preprocess_text(text)
-
-                def normalize(s):
-                    return ' '.join(s.strip().lower().split())
-
+                def normalize(s): return ' '.join(s.strip().lower().split())
                 orig_norm = normalize(text)
-                pre_norm = normalize(pre) if pre else ""
+                pre_norm  = normalize(pre) if pre else ""
 
-                if pre and pre_norm != orig_norm:
-                    # Save only the preprocessed version
-                    pre_fn = self.get_unique_filename(f"preprocessed_{base}")
-                    with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
-                        f.write(pre[:1_000_000])
-                    # Scan preprocessed window text (command_flag=False)
-                    threading.Thread(target=scan_and_warn, args=(pre_fn,), kwargs={"command_flag": False}).start()
+                # In-memory dedupe key
+                key = (win_type, label, orig_norm)
+                with self.lock:
+                    if key in self._seen_texts:
+                        return
+                    self._seen_texts.add(key)
 
-                elif orig_norm:
-                    # Save original only if there is meaningful text
-                    orig_fn = self.get_unique_filename(f"original_{base}")
-                    with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
-                        f.write(text[:1_000_000])
-                    threading.Thread(target=scan_and_warn, args=(orig_fn,), kwargs={"command_flag": False}).start()
+                # Thread-safe file choice and write
+                with self.lock:
+                    if pre and pre_norm != orig_norm:
+                        fn = self.get_unique_filename(f"preprocessed_{base}")
+                        with open(fn, "w", encoding="utf-8", errors="ignore") as f:
+                            f.write(pre[:1_000_000])
+                        threading.Thread(
+                            target=scan_and_warn,
+                            args=(fn,),
+                            kwargs={"command_flag": False}
+                        ).start()
+
+                    elif orig_norm:
+                        fn = self.get_unique_filename(f"original_{base}")
+                        with open(fn, "w", encoding="utf-8", errors="ignore") as f:
+                            f.write(text[:1_000_000])
+                        threading.Thread(
+                            target=scan_and_warn,
+                            args=(fn,),
+                            kwargs={"command_flag": False}
+                        ).start()
 
             except Exception as e:
-                # Catching exceptions from get_window_* functions if hwnd is invalid/closed
-                logging.error(f"Error processing text [{label}] for HWND {hwnd} from {process_path}: {e}")
+                logging.error(
+                    f"Error processing text [{label}] for HWND {hwnd} from {process_path}: {e}"
+                )
 
         def handle_hwnd(hwnd, win_type):
-            """
-            Handles a single window handle (HWND). It dispatches text extraction
-            tasks to separate threads for concurrency.
-            """
+            # Skip invalid handles
             if not is_window_valid(hwnd):
                 return
 
@@ -11117,33 +11128,29 @@ class MonitorMessageCommandLine:
             except Exception:
                 path = ""
 
-            # Get win_text directly and process immediately
+            # Define and start each extraction thread
             def process_win_text():
                 try:
-                    win_text = get_window_text(hwnd) or ""
-                    if win_text.strip():
-                        process_text(hwnd, "win_text", win_text, path, win_type)
+                    wt = get_window_text(hwnd) or ""
+                    if wt.strip():
+                        process_text(hwnd, "win_text", wt, path, win_type)
                 except Exception as e:
                     logging.debug(f"process_win_text failed for {hwnd}: {e}")
 
             # Get ctrl_text directly and process immediately
             def process_ctrl_text():
                 try:
-                    ctrl_text = get_control_text(hwnd) or ""
-                    if ctrl_text.strip():
-                        process_text(hwnd, "ctrl_text", ctrl_text, path, win_type)
+                    ct = get_control_text(hwnd) or ""
+                    if ct.strip():
+                        process_text(hwnd, "ctrl_text", ct, path, win_type)
                 except Exception as e:
                     logging.debug(f"process_ctrl_text failed for {hwnd}: {e}")
 
-            # Get uia_text and process each found text separately
             def process_uia_texts():
                 try:
-                    # get_uia_text now returns a list of strings
-                    uia_texts = get_uia_text(hwnd)
-                    for text in uia_texts:
-                        if text and text.strip():
-                            # Call process_text for each individual text
-                            process_text(hwnd, "uia_text", text, path, win_type)
+                    for t in get_uia_text(hwnd):
+                        if t and t.strip():
+                            process_text(hwnd, "uia_text", t, path, win_type)
                 except Exception as e:
                     logging.debug(f"process_uia_texts failed for {hwnd}: {e}")
 
@@ -11153,23 +11160,20 @@ class MonitorMessageCommandLine:
             threading.Thread(target=process_uia_texts).start()
 
         def start_enum():
-            """The entry point for REAL window enumeration."""
-            logging.info("Starting real window enumeration.")
+            logging.info("Starting window enumeration...")
             try:
-                # This is the callback function that EnumWindows will call for each window.
-                def enum_callback(hwnd, lParam):
-                    # Process each window in a separate thread
-                    threading.Thread(target=handle_hwnd, args=(hwnd, "main_window")).start()
-                    return True # Must return True to continue enumeration
-
-                # win32gui.EnumWindows iterates through all top-level windows on the screen.
+                def enum_callback(hwnd, _):
+                    threading.Thread(
+                        target=handle_hwnd,
+                        args=(hwnd, "main_window")
+                    ).start()
+                    return True
                 win32gui.EnumWindows(enum_callback, None)
-                logging.info("Finished one round of window enumeration.")
-
+                logging.info("Enumeration round complete.")
             except Exception as e:
                 logging.error(f"Failed during window enumeration: {e}")
 
-        # Start the enumeration in a separate thread.
+        # Launch enumeration in background
         threading.Thread(target=start_enum).start()
 
     def monitoring_window_text(self):
