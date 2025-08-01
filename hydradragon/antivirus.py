@@ -10899,8 +10899,11 @@ def find_windows_with_text():
     Enumerate all top-level windows and their direct children.
     Extract text from three methods separately, preserving all.
     """
+    pythoncom.CoInitializeEx(pythoncom.COINIT_APARTMENTTHREADED)
+
     window_handles = []
 
+    # Define the callback function type once to be reused.
     ENUM_PROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
     def is_window_safe(hwnd):
@@ -10924,7 +10927,7 @@ def find_windows_with_text():
         children = []
 
         def enum_proc(child_hwnd, _):
-            pythoncom.PumpWaitingMessages()
+            pythoncom.PumpWaitingMessages()  # ← fix re-entrancy issues
             if is_window_safe(child_hwnd):
                 children.append(child_hwnd)
             return True
@@ -10934,7 +10937,8 @@ def find_windows_with_text():
         return children
 
     def enum_windows_callback(hwnd, _):
-        pythoncom.PumpWaitingMessages()
+        pythoncom.PumpWaitingMessages()  # ← fix re-entrancy issues
+
         if not is_window_safe(hwnd):
             return True
 
@@ -10961,6 +10965,7 @@ def find_windows_with_text():
 
         return True
 
+    # Create an instance of the main callback and pass it to EnumWindows.
     main_callback_instance = ENUM_PROC(enum_windows_callback)
     user32.EnumWindows(main_callback_instance, 0)
 
