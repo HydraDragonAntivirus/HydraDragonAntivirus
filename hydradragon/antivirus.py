@@ -10898,32 +10898,45 @@ def get_uia_text(hwnd):
 def find_windows_with_text():
     """
     Enumerate all top-level windows and their direct children.
-    Extract text using multiple methods.
+    Extract text using multiple methods with safeguards.
     """
     window_handles = []
-    processed_hwnds = set()  # To avoid duplicates
+    processed_hwnds = set()
+
+    def is_supported_class(hwnd):
+        try:
+            class_name = get_window_class_name(hwnd)
+            return class_name not in ["Static", "Button", "Shell_TrayWnd", "Progman", "WorkerW"]
+        except Exception:
+            return False
+
+    def is_window_safe(hwnd):
+        return user32.IsWindow(hwnd)
 
     def get_any_text(hwnd):
+        if not is_window_safe(hwnd):
+            return ""
+
         try:
             text = get_window_text(hwnd)
             if text and text.strip():
                 return text.strip()
-        except Exception as e:
-            logging.debug(f"get_window_text failed for {hwnd}: {e}")
+        except Exception:
+            pass
 
         try:
             text = get_control_text(hwnd)
             if text and text.strip():
                 return text.strip()
-        except Exception as e:
-            logging.debug(f"get_control_text failed for {hwnd}: {e}")
+        except Exception:
+            pass
 
         try:
             text = get_uia_text(hwnd)
             if text and text.strip():
                 return text.strip()
-        except Exception as e:
-            logging.debug(f"get_uia_text failed for {hwnd}: {e}")
+        except Exception:
+            pass
 
         return ""
 
@@ -10932,7 +10945,7 @@ def find_windows_with_text():
 
         @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
         def enum_proc(child_hwnd, lParam):
-            if child_hwnd not in processed_hwnds:
+            if child_hwnd not in processed_hwnds and is_window_safe(child_hwnd):
                 children.append(child_hwnd)
             return True
 
@@ -10941,7 +10954,7 @@ def find_windows_with_text():
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     def enum_windows_callback(hwnd, lParam):
-        if hwnd in processed_hwnds:
+        if hwnd in processed_hwnds or not is_window_safe(hwnd) or not is_supported_class(hwnd):
             return True
         processed_hwnds.add(hwnd)
 
@@ -10952,7 +10965,7 @@ def find_windows_with_text():
                 window_handles.append((hwnd, text, path, "main_window"))
 
             for child in find_child_windows(hwnd):
-                if child in processed_hwnds:
+                if child in processed_hwnds or not is_supported_class(child):
                     continue
                 processed_hwnds.add(child)
 
@@ -10962,7 +10975,7 @@ def find_windows_with_text():
                     window_handles.append((child, child_text, child_path, "child_window"))
 
         except Exception as e:
-            logging.error(f"Error in enum_windows_callback for HWND={hwnd}: {e}")
+            logging.error(f"Error processing HWND={hwnd}: {e}")
 
         return True
 
