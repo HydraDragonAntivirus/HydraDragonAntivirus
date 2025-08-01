@@ -11063,13 +11063,10 @@ class MonitorMessageCommandLine:
         Enumerate and process windows. Only saves original text if preprocessed
         is meaningfully different.
         """
-        def normalize(text):
-            return ' '.join(text.strip().lower().split())
-
         def process_text(hwnd, label, text, process_path, win_type):
             """
             Processes a single piece of extracted text. It logs the information, 
-            and saves the original and preprocessed text to files.
+            and saves the original or preprocessed text to files, but only one to avoid duplicates.
             """
             try:
                 class_name = get_window_class_name(hwnd)
@@ -11082,13 +11079,22 @@ class MonitorMessageCommandLine:
 
                 pre = self.preprocess_text(text)
 
-                if pre and normalize(pre) != normalize(text):
+                def normalize(s):
+                    return ' '.join(s.strip().lower().split())
+
+                orig_norm = normalize(text)
+                pre_norm = normalize(pre) if pre else ""
+
+                if pre and pre_norm != orig_norm:
+                    # Save only the preprocessed version
                     pre_fn = self.get_unique_filename(f"preprocessed_{base}")
                     with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
                         f.write(pre[:1_000_000])
                     # Scan preprocessed window text (command_flag=False)
                     threading.Thread(target=scan_and_warn, args=(pre_fn,), kwargs={"command_flag": False}).start()
 
+                elif orig_norm:
+                    # Save original only if there is meaningful text
                     orig_fn = self.get_unique_filename(f"original_{base}")
                     with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
                         f.write(text[:1_000_000])
