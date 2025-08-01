@@ -10898,7 +10898,7 @@ def get_uia_text(hwnd):
 def find_windows_with_text():
     """
     Enumerate all top-level windows and their direct children.
-    Extract text using multiple methods with safeguards.
+    Extract text from three methods separately, preserving all.
     """
     window_handles = []
 
@@ -10907,17 +10907,17 @@ def find_windows_with_text():
 
     def get_any_text(hwnd):
         if not is_window_safe(hwnd):
-            return ""
+            return ("", "", "")
 
+        texts = []
         for getter in [get_window_text, get_control_text, get_uia_text]:
             try:
                 text = getter(hwnd)
-                if text and text.strip():
-                    return text.strip()
+                texts.append(text.strip() if text else "")
             except Exception as e:
                 logging.debug(f"{getter.__name__} failed for hwnd {hwnd}: {e}")
-
-        return ""
+                texts.append("")
+        return tuple(texts)  # (window_text, control_text, uia_text)
 
     def find_child_windows(hwnd):
         children = []
@@ -10937,22 +10937,22 @@ def find_windows_with_text():
             return True
 
         try:
-            text = get_any_text(hwnd)
-            if text:
+            win_text, ctrl_text, uia_text = get_any_text(hwnd)
+            if any([win_text, ctrl_text, uia_text]):
                 try:
                     path = get_process_path(hwnd)
                 except Exception:
                     path = ""
-                window_handles.append((hwnd, text, path, "main_window"))
+                window_handles.append((hwnd, win_text, ctrl_text, uia_text, path, "main_window"))
 
             for child in find_child_windows(hwnd):
-                child_text = get_any_text(child)
-                if child_text:
+                child_win_text, child_ctrl_text, child_uia_text = get_any_text(child)
+                if any([child_win_text, child_ctrl_text, child_uia_text]):
                     try:
                         child_path = get_process_path(child)
                     except Exception:
                         child_path = ""
-                    window_handles.append((child, child_text, child_path, "child_window"))
+                    window_handles.append((child, child_win_text, child_ctrl_text, child_uia_text, child_path, "child_window"))
 
         except Exception as e:
             logging.error(f"Error processing HWND={hwnd}: {e}")
@@ -11232,18 +11232,21 @@ class MonitorMessageCommandLine:
                 return
 
             # Log first few windows for debugging
-            for i, (hwnd, text, process_path, window_type) in enumerate(windows[:3]):
-                logging.info(f"Window {i+1}: HWND={hwnd}, Type={window_type}, Text='{text[:50]}...'")
+            for i, (hwnd, win_text, ctrl_text, uia_text, process_path, window_type) in enumerate(windows[:3]):
+                combined_text = f"WinText: '{win_text}', CtrlText: '{ctrl_text}', UIAText: '{uia_text}'"
+                logging.info(f"Window {i+1}: HWND={hwnd}, Type={window_type}, Texts={combined_text[:100]}...")
 
-            for hwnd, text, process_path, window_type in windows:
+            for hwnd, win_text, ctrl_text, uia_text, process_path, window_type in windows:
                 logging.debug(f"Submitting to executor: HWND={hwnd}")
                 self.executor.submit(
                     self.process_window_text,
-                    hwnd, text, process_path, window_type
+                    hwnd, win_text, ctrl_text, uia_text, process_path, window_type
                 )
 
         except Exception:
-            logging.error(traceback.format_exc())
+            tb_text = traceback.format_exc()
+            logging.error(f"Exception in find_and_process_windows:\n{tb_text}")
+
 
     def monitoring_window_text(self):
         """
