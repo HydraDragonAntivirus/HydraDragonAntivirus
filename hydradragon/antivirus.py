@@ -188,10 +188,6 @@ from scapy.sendrecv import sniff
 logging.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import pythoncom
-logging.info(f"pythoncom module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 from comtypes.client import CreateObject, GetModule
 logging.info(f"comtypes.client.CreateObject, GetModule module loaded in {time.time() - start_time:.6f} seconds")
 
