@@ -11060,10 +11060,12 @@ class MonitorMessageCommandLine:
 
     def find_and_process_windows(self):
         """
-        Main method to start enumerating and processing windows.
-        It uses nested functions to handle specific tasks and concurrency.
-        This version uses the pywin32 library for REAL window enumeration.
+        Enumerate and process windows. Only saves original text if preprocessed
+        is meaningfully different.
         """
+        def normalize(text):
+            return ' '.join(text.strip().lower().split())
+
         def process_text(hwnd, label, text, process_path, win_type):
             """
             Processes a single piece of extracted text. It logs the information, 
@@ -11077,19 +11079,21 @@ class MonitorMessageCommandLine:
 
                 filename = process_path.split("\\")[-1] if process_path else "unknown"
                 base = sanitize_filename(filename) + f"_{label}"
-                orig_fn = self.get_unique_filename(f"original_{base}")
-                with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
-                    f.write(text[:1_000_000])
-                # Scan window text (command_flag=False)
-                threading.Thread(target=scan_and_warn, args=(orig_fn,), kwargs={"command_flag": False}).start()
 
                 pre = self.preprocess_text(text)
-                if pre and pre != text.lower().strip():
+
+                if pre and normalize(pre) != normalize(text):
                     pre_fn = self.get_unique_filename(f"preprocessed_{base}")
                     with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
                         f.write(pre[:1_000_000])
                     # Scan preprocessed window text (command_flag=False)
                     threading.Thread(target=scan_and_warn, args=(pre_fn,), kwargs={"command_flag": False}).start()
+
+                    orig_fn = self.get_unique_filename(f"original_{base}")
+                    with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
+                        f.write(text[:1_000_000])
+                    threading.Thread(target=scan_and_warn, args=(orig_fn,), kwargs={"command_flag": False}).start()
+
             except Exception as e:
                 # Catching exceptions from get_window_* functions if hwnd is invalid/closed
                 logging.error(f"Error processing text [{label}] for HWND {hwnd} from {process_path}: {e}")
