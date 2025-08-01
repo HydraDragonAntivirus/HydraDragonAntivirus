@@ -10654,6 +10654,8 @@ kernel32 = ctypes.windll.kernel32
 user32 = ctypes.windll.user32
 ole32 = ctypes.windll.ole32
 
+ENUM_WINDOWS_PROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
 # ----------------------------------------------------
 # Process helper: get PID and executable path of a window
 # ----------------------------------------------------
@@ -10895,24 +10897,12 @@ def get_uia_text(hwnd):
 # ----------------------------------------------------
 
 def find_windows_with_text():
-    """
-    Enumerate all top-level windows and their direct children.
-    Extract text from three methods separately, preserving all.
-    """
-    pythoncom.CoInitializeEx(pythoncom.COINIT_APARTMENTTHREADED)
-
     window_handles = []
-
-    # Define the callback function type once to be reused.
-    ENUM_PROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
     def is_window_safe(hwnd):
         return user32.IsWindow(hwnd)
 
     def get_any_text(hwnd):
-        if not is_window_safe(hwnd):
-            return ("", "", "")
-
         texts = []
         for getter in [get_window_text, get_control_text, get_uia_text]:
             try:
@@ -10921,24 +10911,21 @@ def find_windows_with_text():
             except Exception as e:
                 logging.debug(f"{getter.__name__} failed for hwnd {hwnd}: {e}")
                 texts.append("")
-        return tuple(texts)  # (window_text, control_text, uia_text)
+        return tuple(texts)
 
     def find_child_windows(hwnd):
         children = []
 
-        def enum_proc(child_hwnd, _):
-            pythoncom.PumpWaitingMessages()  # ← fix re-entrancy issues
+        def enum_proc(child_hwnd, lParam):
             if is_window_safe(child_hwnd):
                 children.append(child_hwnd)
             return True
 
-        callback_instance = ENUM_PROC(enum_proc)
+        callback_instance = ENUM_WINDOWS_PROC(enum_proc)
         user32.EnumChildWindows(hwnd, callback_instance, 0)
         return children
 
-    def enum_windows_callback(hwnd, _):
-        pythoncom.PumpWaitingMessages()  # ← fix re-entrancy issues
-
+    def enum_windows_callback(hwnd, lParam):
         if not is_window_safe(hwnd):
             return True
 
@@ -10952,21 +10939,23 @@ def find_windows_with_text():
                 window_handles.append((hwnd, win_text, ctrl_text, uia_text, path, "main_window"))
 
             for child in find_child_windows(hwnd):
-                child_win_text, child_ctrl_text, child_uia_text = get_any_text(child)
-                if any([child_win_text, child_ctrl_text, child_uia_text]):
-                    try:
-                        child_path = get_process_path(child)
-                    except Exception:
-                        child_path = ""
-                    window_handles.append((child, child_win_text, child_ctrl_text, child_uia_text, child_path, "child_window"))
+                try:
+                    child_win_text, child_ctrl_text, child_uia_text = get_any_text(child)
+                    if any([child_win_text, child_ctrl_text, child_uia_text]):
+                        try:
+                            child_path = get_process_path(child)
+                        except Exception:
+                            child_path = ""
+                        window_handles.append((child, child_win_text, child_ctrl_text, child_uia_text, child_path, "child_window"))
+                except Exception as e:
+                    logging.debug(f"Child get_any_text failed for hwnd {child}: {e}")
 
         except Exception as e:
             logging.error(f"Error processing HWND={hwnd}: {e}")
 
         return True
 
-    # Create an instance of the main callback and pass it to EnumWindows.
-    main_callback_instance = ENUM_PROC(enum_windows_callback)
+    main_callback_instance = ENUM_WINDOWS_PROC(enum_windows_callback)
     user32.EnumWindows(main_callback_instance, 0)
 
     return window_handles
