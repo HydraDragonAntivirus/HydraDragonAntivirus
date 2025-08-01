@@ -10901,7 +10901,6 @@ def find_windows_with_text():
     Extract text using multiple methods with safeguards.
     """
     window_handles = []
-    processed_hwnds = set()
 
     def is_window_safe(hwnd):
         return user32.IsWindow(hwnd)
@@ -10910,39 +10909,22 @@ def find_windows_with_text():
         if not is_window_safe(hwnd):
             return ""
 
-        # Try get_window_text first (highest priority)
-        try:
-            text = get_window_text(hwnd)
-            if text and text.strip() and len(text.strip()) > 0:
-                return text.strip()
-        except Exception as e:
-            logging.debug(f"get_window_text failed for hwnd {hwnd}: {e}")
+        for getter in [get_window_text, get_control_text, get_uia_text]:
+            try:
+                text = getter(hwnd)
+                if text and text.strip():
+                    return text.strip()
+            except Exception as e:
+                logging.debug(f"{getter.__name__} failed for hwnd {hwnd}: {e}")
 
-        # Try get_control_text as fallback
-        try:
-            text = get_control_text(hwnd)
-            if text and text.strip() and len(text.strip()) > 0:
-                return text.strip()
-        except Exception as e:
-            logging.debug(f"get_control_text failed for hwnd {hwnd}: {e}")
-
-        # Try get_uia_text as last resort
-        try:
-            text = get_uia_text(hwnd)
-            if text and text.strip() and len(text.strip()) > 0:
-                return text.strip()
-        except Exception as e:
-            logging.debug(f"get_uia_text failed for hwnd {hwnd}: {e}")
-
-        logging.debug(f"No text found for hwnd {hwnd} using any method")
         return ""
 
     def find_child_windows(hwnd):
         children = []
 
         @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-        def enum_proc(child_hwnd, lParam):
-            if child_hwnd not in processed_hwnds and is_window_safe(child_hwnd):
+        def enum_proc(child_hwnd, _):
+            if is_window_safe(child_hwnd):
                 children.append(child_hwnd)
             return True
 
@@ -10950,25 +10932,26 @@ def find_windows_with_text():
         return children
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-    def enum_windows_callback(hwnd, lParam):
-        if hwnd in processed_hwnds or not is_window_safe(hwnd):
+    def enum_windows_callback(hwnd, _):
+        if not is_window_safe(hwnd):
             return True
-        processed_hwnds.add(hwnd)
 
         try:
             text = get_any_text(hwnd)
             if text:
-                path = get_process_path(hwnd)
+                try:
+                    path = get_process_path(hwnd)
+                except Exception:
+                    path = ""
                 window_handles.append((hwnd, text, path, "main_window"))
 
             for child in find_child_windows(hwnd):
-                if child in processed_hwnds:
-                    continue
-                processed_hwnds.add(child)
-
                 child_text = get_any_text(child)
                 if child_text:
-                    child_path = get_process_path(child)
+                    try:
+                        child_path = get_process_path(child)
+                    except Exception:
+                        child_path = ""
                     window_handles.append((child, child_text, child_path, "child_window"))
 
         except Exception as e:
