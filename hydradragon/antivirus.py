@@ -11157,15 +11157,13 @@ class MonitorMessageCommandLine:
             logging.info("Starting real window enumeration.")
             try:
                 # This is the callback function that EnumWindows will call for each window.
-                # It receives the window handle (hwnd) and the lParam we pass ("main_window").
-                def enum_callback(hwnd, win_type):
-                    # Submit the handle_hwnd function to our thread pool to process
-                    # each window concurrently without blocking the enumeration process.
-                    self.thread_pool.submit(handle_hwnd, hwnd, win_type)
+                def enum_callback(hwnd, lParam):
+                    # Process each window in a separate thread
+                    threading.Thread(target=handle_hwnd, args=(hwnd, "main_window")).start()
                     return True # Must return True to continue enumeration
 
                 # win32gui.EnumWindows iterates through all top-level windows on the screen.
-                win32gui.EnumWindows(enum_callback, "main_window")
+                win32gui.EnumWindows(enum_callback, None)
                 logging.info("Finished one round of window enumeration.")
 
             except Exception as e:
