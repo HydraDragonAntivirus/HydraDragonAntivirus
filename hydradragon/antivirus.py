@@ -7,6 +7,8 @@ import logging
 from datetime import datetime, timedelta
 import time
 
+logging.getLogger('comtypes').setLevel(logging.WARNING)
+
 main_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(main_dir)
 sys.path.insert(0, main_dir)
@@ -10775,17 +10777,11 @@ def get_uia_text(hwnd):
         logging.debug(f"HWND {hwnd} is not a valid window")
         return []
 
-    comtypes_logger = logging.getLogger('comtypes')
-    original_level = comtypes_logger.level
-    comtypes_logger.setLevel(logging.WARNING)
-
     try:
         uiauto = CreateObject(UiaClient.CUIAutomation8)
     except Exception as coe:
         logging.error(f"Failed to create UI Automation object: {coe}")
         return []
-    finally:
-        comtypes_logger.setLevel(original_level)
 
     try:
         elem = uiauto.ElementFromHandle(hwnd)
