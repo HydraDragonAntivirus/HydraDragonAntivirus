@@ -188,6 +188,10 @@ from scapy.sendrecv import sniff
 logging.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import pythoncom
+logging.info(f"pythoncom module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 from comtypes.client import CreateObject, GetModule
 logging.info(f"comtypes.client.CreateObject, GetModule module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -10897,7 +10901,6 @@ def find_windows_with_text():
     """
     window_handles = []
 
-    # Define the callback function type once to be reused.
     ENUM_PROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
     def is_window_safe(hwnd):
@@ -10921,16 +10924,17 @@ def find_windows_with_text():
         children = []
 
         def enum_proc(child_hwnd, _):
+            pythoncom.PumpWaitingMessages()
             if is_window_safe(child_hwnd):
                 children.append(child_hwnd)
             return True
 
-        # Create an instance of the callback to prevent garbage collection.
         callback_instance = ENUM_PROC(enum_proc)
         user32.EnumChildWindows(hwnd, callback_instance, 0)
         return children
 
     def enum_windows_callback(hwnd, _):
+        pythoncom.PumpWaitingMessages()
         if not is_window_safe(hwnd):
             return True
 
@@ -10938,7 +10942,6 @@ def find_windows_with_text():
             win_text, ctrl_text, uia_text = get_any_text(hwnd)
             if any([win_text, ctrl_text, uia_text]):
                 try:
-                    # Assume get_process_path is defined elsewhere
                     path = get_process_path(hwnd)
                 except Exception:
                     path = ""
@@ -10958,7 +10961,6 @@ def find_windows_with_text():
 
         return True
 
-    # Create an instance of the main callback and pass it to EnumWindows.
     main_callback_instance = ENUM_PROC(enum_windows_callback)
     user32.EnumWindows(main_callback_instance, 0)
 
