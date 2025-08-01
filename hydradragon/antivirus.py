@@ -212,7 +212,7 @@ import ctypes
 logging.info(f"ctypes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from ctypes import wintypes, byref, windll
+from ctypes import wintypes, byref
 logging.info(f"ctypes.wintypes, byref, windll module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
