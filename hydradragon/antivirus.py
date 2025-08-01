@@ -214,6 +214,10 @@ from ctypes import wintypes, byref
 logging.info(f"ctypes.wintypes, byref, windll module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import win32gui
+logging.info(f"win32gui module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 import ipaddress
 logging.info(f"ipaddress module loaded in {time.time() - start_time:.6f} seconds")
 
