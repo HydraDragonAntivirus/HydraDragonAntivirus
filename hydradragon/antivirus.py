@@ -10996,7 +10996,7 @@ def get_window_rect(hwnd):
 
 class MonitorMessageCommandLine:
     def __init__(self):
-        self.processed_windows = set()
+        self.processed_texts = set()
         self.lock = threading.Lock()
         self.executor = ThreadPoolExecutor(max_workers=1000)
         self._hooks = []
@@ -11180,17 +11180,17 @@ class MonitorMessageCommandLine:
     def process_window_text(self, hwnd, text, process_path, window_type):
         """
         Process text from a window - saves to files and scans for target messages.
+        Only filters duplicate text content, not window instances.
         """
-        # Create a unique identifier for this window
-        window_id = (hwnd, text.strip())
-        # Filter duplicates
-        with self.lock:
-            if window_id in self.processed_windows:
-                return
-            self.processed_windows.add(window_id)
-
         if not text:
             return
+
+        # Filter text duplicates only
+        text_stripped = text.strip()
+        with self.lock:
+            if text_stripped in self.processed_texts:
+                return
+            self.processed_texts.add(text_stripped)
 
         class_name = get_window_class_name(hwnd)
         left, top, right, bottom = get_window_rect(hwnd)
