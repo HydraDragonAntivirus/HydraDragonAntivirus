@@ -11095,11 +11095,10 @@ class MonitorMessageCommandLine:
                 class_name = get_window_class_name(hwnd)
                 left, top, right, bottom = get_window_rect(hwnd)
 
-                logging.info(f"[{win_type.upper()} - {label}] HWND={hwnd}, Class={class_name}")
-                logging.info(f"Text: {stripped[:200]}")
-                logging.info(f"Position: ({left},{top}) Size: {right-left}x{bottom-top}")
+                logging.info(f"[{win_type[0].upper()}-{label}] {hwnd} {class_name} ({left},{top}) {right-left}x{bottom-top}")
 
-                base = sanitize_filename(process_path) + f"_{label}"
+                filename = process_path.split("\\")[-1] if process_path else "unknown"
+                base = sanitize_filename(filename) + f"_{label}"
                 orig_fn = self.get_unique_filename(f"original_{base}")
                 with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
                     f.write(text[:1_000_000])
