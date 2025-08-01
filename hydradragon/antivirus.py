@@ -10687,6 +10687,12 @@ def get_process_path(hwnd):
 # Helper functions for enumeration
 # ----------------------------------------------------
 
+def get_window_class_name(hwnd):
+    """Get the class name of a window."""
+    class_name = ctypes.create_unicode_buffer(256)
+    user32.GetClassNameW(hwnd, class_name, 256)
+    return class_name.value
+
 def get_window_text(hwnd):
     """Extract window text using multiple WinAPI methods."""
     texts = []
@@ -10962,12 +10968,6 @@ def find_windows_with_text():
     user32.EnumWindows(enum_windows_callback, 0)
     return window_handles
 
-def get_window_class_name(hwnd):
-    """Get the class name of a window."""
-    class_name = ctypes.create_unicode_buffer(256)
-    user32.GetClassNameW(hwnd, class_name, 256)
-    return class_name.value
-
 def get_window_rect(hwnd):
     """Get the window rectangle (position and size)."""
     rect = wintypes.RECT()
@@ -11159,30 +11159,30 @@ class MonitorMessageCommandLine:
 
     def process_window_text(self, hwnd, win_text, ctrl_text, uia_text, process_path, window_type):
         """
-        Process text from a window - saves to files and scans for target messages.
-        Only filters duplicate text content, not window instances.
-
-        Handles three separate text sources: win_text, ctrl_text, uia_text.
+        Process each of the three text sources separately,
+        writing files and scanning only for *new* text.
         """
-
-        texts_to_process = [
-            ("win_text", win_text),
+        sources = [
+            ("win_text",  win_text),
             ("ctrl_text", ctrl_text),
-            ("uia_text", uia_text)
+            ("uia_text",  uia_text)
         ]
 
-        for label, text in texts_to_process:
+        any_processed = False
+        for label, text in sources:
             if not text:
                 continue
 
-            text_stripped = text.strip()
+            stripped = text.strip()
             with self.lock:
-                if text_stripped in self.processed_texts:
+                if stripped in self.processed_texts:
                     continue
-                self.processed_texts.add(text_stripped)
+                self.processed_texts.add(stripped)
 
+            any_processed = True
             class_name = get_window_class_name(hwnd)
             left, top, right, bottom = get_window_rect(hwnd)
+
             logging.info(f"\n[DETECTION] {window_type.upper()} - Source: {label}")
             logging.info(f"HWND: {hwnd}")
             logging.info(f"Text: '{text}'")
@@ -11192,35 +11192,32 @@ class MonitorMessageCommandLine:
             logging.info(f"Size: {right-left}x{bottom-top}")
             logging.info("-" * 40)
 
-            text_preview = text[:200] + "..." if len(text) > 200 else text
-            logging.debug(f"Processing window - hwnd={hwnd}, path={process_path}, source={label}, text='{text_preview}'")
+            preview = (text[:200] + '...') if len(text) > 200 else text
+            logging.debug(f"Processing: hwnd={hwnd}, src={label}, preview='{preview}'")
 
             try:
-                base_name = sanitize_filename(process_path)
-                base_name = f"{base_name}_{label}"  # distinguish files by text source
+                base = sanitize_filename(process_path) + f"_{label}"
 
-                # Write original text
-                orig_fn = self.get_unique_filename(f"original_{base_name}")
+                # Write original
+                orig_fn = self.get_unique_filename(f"original_{base}")
                 with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
-                    f.write(text[:1_000_000])  # Limit to 1MB
+                    f.write(text[:1_000_000])
                 logging.debug(f"Wrote original -> {orig_fn}")
 
-                # Scan original text in separate thread
                 threading.Thread(
                     target=scan_and_warn,
                     args=(orig_fn,),
                     kwargs={'command_flag': True}
                 ).start()
 
-                # Write preprocessed text
+                # Write preprocessed if different
                 pre = self.preprocess_text(text)
                 if pre and pre != text.lower().strip():
-                    pre_fn = self.get_unique_filename(f"preprocessed_{base_name}")
+                    pre_fn = self.get_unique_filename(f"preprocessed_{base}")
                     with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
-                        f.write(pre[:1_000_000])  # Limit to 1MB
+                        f.write(pre[:1_000_000])
                     logging.debug(f"Wrote preprocessed -> {pre_fn}")
 
-                    # Scan preprocessed text in separate thread
                     threading.Thread(
                         target=scan_and_warn,
                         args=(pre_fn,),
@@ -11228,26 +11225,29 @@ class MonitorMessageCommandLine:
                     ).start()
 
             except Exception as e:
-                logging.error(f"Error processing window text for process '{process_path}' source '{label}': {e}")
+                logging.error(f"Error processing '{process_path}' [{label}]: {e}")
+
+        if not any_processed:
+            logging.debug(f"No new unique text to process for HWND={hwnd}")
 
     def find_and_process_windows(self):
         try:
             logging.info("Starting window enumeration...")
-            windows = find_windows_with_text()
+            windows = find_windows_with_text()  # returns tuples of 6 elements
 
             logging.info(f"Found {len(windows)} windows total")
-
             if not windows:
                 logging.error("No windows found - enumeration may have failed")
                 return
 
-            # Log first few windows for debugging
+            # Log first few for debug
             for i, (hwnd, win_text, ctrl_text, uia_text, process_path, window_type) in enumerate(windows[:3]):
-                combined_text = f"WinText: '{win_text}', CtrlText: '{ctrl_text}', UIAText: '{uia_text}'"
-                logging.info(f"Window {i+1}: HWND={hwnd}, Type={window_type}, Texts={combined_text[:100]}...")
+                combined = f"Win='{win_text}', Ctrl='{ctrl_text}', UIA='{uia_text}'"
+                logging.info(f"Window {i+1}: HWND={hwnd}, Type={window_type}, Texts={combined[:100]}...")
 
+            # Submit all
             for hwnd, win_text, ctrl_text, uia_text, process_path, window_type in windows:
-                logging.debug(f"Submitting to executor: HWND={hwnd}")
+                logging.debug(f"Submitting HWND={hwnd} to executor")
                 self.executor.submit(
                     self.process_window_text,
                     hwnd, win_text, ctrl_text, uia_text, process_path, window_type
@@ -11256,7 +11256,6 @@ class MonitorMessageCommandLine:
         except Exception:
             tb_text = traceback.format_exc()
             logging.error(f"Exception in find_and_process_windows:\n{tb_text}")
-
 
     def monitoring_window_text(self):
         """
