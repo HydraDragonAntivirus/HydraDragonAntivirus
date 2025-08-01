@@ -11123,61 +11123,73 @@ class MonitorMessageCommandLine:
                 return
 
             try:
+                path = get_process_path(hwnd)
+            except:
+                path = ""
+
+            # Get win_text directly and process immediately
+            def process_win_text():
                 try:
-                    path = get_process_path(hwnd)
-                except:
-                    path = ""
+                    win_text = get_window_text(hwnd) or ""
+                    if win_text.strip():
+                        process_text(hwnd, "win_text", win_text, path, win_type)
+                except Exception as e:
+                    logging.debug(f"process_win_text failed for {hwnd}: {e}")
+            
+            # Get ctrl_text directly and process immediately  
+            def process_ctrl_text():
+                try:
+                    ctrl_text = get_control_text(hwnd) or ""
+                    if ctrl_text.strip():
+                        process_text(hwnd, "ctrl_text", ctrl_text, path, win_type)
+                except Exception as e:
+                    logging.debug(f"process_ctrl_text failed for {hwnd}: {e}")
 
-                # Get win_text directly and process immediately
-                def process_win_text():
-                    try:
-                        win_text = get_window_text(hwnd) or ""
-                        if win_text.strip():
-                            process_text(hwnd, "win_text", win_text, path, win_type)
-                    except:
-                        pass
-                
-                # Get ctrl_text directly and process immediately  
-                def process_ctrl_text():
-                    try:
-                        ctrl_text = get_control_text(hwnd) or ""
-                        if ctrl_text.strip():
-                            process_text(hwnd, "ctrl_text", ctrl_text, path, win_type)
-                    except:
-                        pass
+            # Get uia_text directly and process immediately
+            def process_uia_text():
+                try:
+                    uia_text = get_uia_text(hwnd) or ""
+                    if uia_text.strip():
+                        process_text(hwnd, "uia_text", uia_text, path, win_type)
+                except Exception as e:
+                    logging.debug(f"process_uia_text failed for {hwnd}: {e}")
 
-                # Get uia_text directly and process immediately
-                def process_uia_text():
-                    try:
-                        uia_text = get_uia_text(hwnd) or ""
-                        if uia_text.strip():
-                            process_text(hwnd, "uia_text", uia_text, path, win_type)
-                    except:
-                        pass
-
-                # Start all three in parallel threads - no waiting
+            # Start all three in parallel threads - completely independent
+            try:
                 threading.Thread(target=process_win_text).start()
+            except:
+                pass
+            
+            try:
                 threading.Thread(target=process_ctrl_text).start()
+            except:
+                pass
+            
+            try:
                 threading.Thread(target=process_uia_text).start()
+            except:
+                pass
 
-                # Enumerate children and submit them to thread pool
+            # Enumerate children independently
+            try:
                 children = []
-
                 def enum_proc(child_hwnd, _):
-                    if is_window_safe(child_hwnd):
-                        children.append(child_hwnd)
+                    try:
+                        if is_window_safe(child_hwnd):
+                            children.append(child_hwnd)
+                    except:
+                        pass
                     return True
 
-                try:
-                    user32.EnumChildWindows(hwnd, ENUM_WINDOWS_PROC(enum_proc), 0)
-                except:
-                    pass
-
+                user32.EnumChildWindows(hwnd, ENUM_WINDOWS_PROC(enum_proc), 0)
+                
                 for child in children:
-                    self.thread_pool.submit(handle_hwnd, child, "child_window")
-
+                    try:
+                        self.thread_pool.submit(handle_hwnd, child, "child_window")
+                    except:
+                        pass
             except Exception as e:
-                logging.debug(f"handle_hwnd({hwnd}) failed: {e}")
+                logging.debug(f"EnumChildWindows failed for {hwnd}: {e}")
 
         def start_enum():
             def callback(hwnd, _):
