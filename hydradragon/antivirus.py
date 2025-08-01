@@ -10908,6 +10908,9 @@ def find_windows_with_text():
     """
     window_handles = []
 
+    # Define the callback function type once to be reused.
+    ENUM_PROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
     def is_window_safe(hwnd):
         return user32.IsWindow(hwnd)
 
@@ -10928,16 +10931,16 @@ def find_windows_with_text():
     def find_child_windows(hwnd):
         children = []
 
-        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
         def enum_proc(child_hwnd, _):
             if is_window_safe(child_hwnd):
                 children.append(child_hwnd)
             return True
 
-        user32.EnumChildWindows(hwnd, enum_proc, 0)
+        # Create an instance of the callback to prevent garbage collection.
+        callback_instance = ENUM_PROC(enum_proc)
+        user32.EnumChildWindows(hwnd, callback_instance, 0)
         return children
 
-    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     def enum_windows_callback(hwnd, _):
         if not is_window_safe(hwnd):
             return True
@@ -10946,6 +10949,7 @@ def find_windows_with_text():
             win_text, ctrl_text, uia_text = get_any_text(hwnd)
             if any([win_text, ctrl_text, uia_text]):
                 try:
+                    # Assume get_process_path is defined elsewhere
                     path = get_process_path(hwnd)
                 except Exception:
                     path = ""
@@ -10965,7 +10969,10 @@ def find_windows_with_text():
 
         return True
 
-    user32.EnumWindows(enum_windows_callback, 0)
+    # Create an instance of the main callback and pass it to EnumWindows.
+    main_callback_instance = ENUM_PROC(enum_windows_callback)
+    user32.EnumWindows(main_callback_instance, 0)
+
     return window_handles
 
 def get_window_rect(hwnd):
@@ -11253,7 +11260,7 @@ class MonitorMessageCommandLine:
         # 3) Now we know we got a list
         logging.info(f"Received {len(windows)} windows from enumeration")
         if not windows:
-            logging.error("No windows found – enumeration returned an empty list")
+            logging.error("No windows found - enumeration returned an empty list")
             return
 
         # 4) Log the first few entries for quick sanity check
