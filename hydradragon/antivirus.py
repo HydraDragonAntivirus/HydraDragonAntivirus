@@ -10779,7 +10779,7 @@ def get_uia_text(hwnd):
 
     comtypes_logger = logging.getLogger('comtypes')
     original_level = comtypes_logger.level
-    comtypes_logger.('comtypes').setLevel(logging.WARNING)
+    comtypes_logger('comtypes').setLevel(logging.WARNING)
 
     try:
         uiauto = CreateObject(UiaClient.CUIAutomation8)
@@ -10941,7 +10941,7 @@ class MonitorMessageCommandLine:
             },
             "xmrig": {
                 "patterns": [
-                    "start xmrig", "xmrig --help", "xmrig --version", "xmrig --config"
+                    "xmrig --help", "xmrig --version", "xmrig --config"
                 ],
                 "virus_name": "HEUR:Win32.Miner.XMRig.gen"
             },
