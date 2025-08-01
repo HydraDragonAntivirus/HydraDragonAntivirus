@@ -11066,19 +11066,9 @@ class MonitorMessageCommandLine:
         """
         def process_text(hwnd, label, text, process_path, win_type):
             """
-            Processes a single piece of extracted text. It checks for duplicates,
-            logs the information, and saves the original and preprocessed text to files.
+            Processes a single piece of extracted text. It logs the information, 
+            and saves the original and preprocessed text to files.
             """
-            stripped = text.strip()
-            if not stripped:
-                return
-
-            # Use a lock to prevent race conditions when checking/adding to processed_texts
-            with self.lock:
-                if stripped in self.processed_texts:
-                    return
-                self.processed_texts.add(stripped)
-
             try:
                 class_name = get_window_class_name(hwnd)
                 left, top, right, bottom = get_window_rect(hwnd)
