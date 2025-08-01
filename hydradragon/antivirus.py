@@ -11157,68 +11157,78 @@ class MonitorMessageCommandLine:
     def preprocess_text(self, text):
         return text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "")
 
-    def process_window_text(self, hwnd, text, process_path, window_type):
+    def process_window_text(self, hwnd, win_text, ctrl_text, uia_text, process_path, window_type):
         """
         Process text from a window - saves to files and scans for target messages.
         Only filters duplicate text content, not window instances.
+
+        Handles three separate text sources: win_text, ctrl_text, uia_text.
         """
-        if not text:
-            return
 
-        # Filter text duplicates only
-        text_stripped = text.strip()
-        with self.lock:
-            if text_stripped in self.processed_texts:
-                return
-            self.processed_texts.add(text_stripped)
+        texts_to_process = [
+            ("win_text", win_text),
+            ("ctrl_text", ctrl_text),
+            ("uia_text", uia_text)
+        ]
 
-        class_name = get_window_class_name(hwnd)
-        left, top, right, bottom = get_window_rect(hwnd)
-        logging.info(f"\n[DETECTION] {window_type.upper()}")
-        logging.info(f"HWND: {hwnd}")
-        logging.info(f"Text: '{text}'")
-        logging.info(f"Class: {class_name}")
-        logging.info(f"Process: {process_path}")
-        logging.info(f"Position: ({left}, {top})")
-        logging.info(f"Size: {right-left}x{bottom-top}")
-        logging.info("-" * 40)
+        for label, text in texts_to_process:
+            if not text:
+                continue
 
-        text_preview = text[:200] + "..." if len(text) > 200 else text
-        logging.debug(f"Processing window - hwnd={hwnd}, path={process_path}, text='{text_preview}'")
+            text_stripped = text.strip()
+            with self.lock:
+                if text_stripped in self.processed_texts:
+                    continue
+                self.processed_texts.add(text_stripped)
 
-        try:
-            base_name = sanitize_filename(process_path)
+            class_name = get_window_class_name(hwnd)
+            left, top, right, bottom = get_window_rect(hwnd)
+            logging.info(f"\n[DETECTION] {window_type.upper()} - Source: {label}")
+            logging.info(f"HWND: {hwnd}")
+            logging.info(f"Text: '{text}'")
+            logging.info(f"Class: {class_name}")
+            logging.info(f"Process: {process_path}")
+            logging.info(f"Position: ({left}, {top})")
+            logging.info(f"Size: {right-left}x{bottom-top}")
+            logging.info("-" * 40)
 
-            # Write original text
-            orig_fn = self.get_unique_filename(f"original_{base_name}")
-            with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
-                f.write(text[:1_000_000])  # Limit to 1MB
-            logging.debug(f"Wrote original -> {orig_fn}")
+            text_preview = text[:200] + "..." if len(text) > 200 else text
+            logging.debug(f"Processing window - hwnd={hwnd}, path={process_path}, source={label}, text='{text_preview}'")
 
-            # Scan original text in separate thread
-            threading.Thread(
-                target=scan_and_warn,
-                args=(orig_fn,),
-                kwargs={'command_flag': True}
-            ).start()
+            try:
+                base_name = sanitize_filename(process_path)
+                base_name = f"{base_name}_{label}"  # distinguish files by text source
 
-            # Write preprocessed text
-            pre = self.preprocess_text(text)
-            if pre and pre != text.lower().strip():
-                pre_fn = self.get_unique_filename(f"preprocessed_{base_name}")
-                with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
-                    f.write(pre[:1_000_000])  # Limit to 1MB
-                logging.debug(f"Wrote preprocessed -> {pre_fn}")
+                # Write original text
+                orig_fn = self.get_unique_filename(f"original_{base_name}")
+                with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
+                    f.write(text[:1_000_000])  # Limit to 1MB
+                logging.debug(f"Wrote original -> {orig_fn}")
 
-                # Scan preprocessed text in separate thread
+                # Scan original text in separate thread
                 threading.Thread(
                     target=scan_and_warn,
-                    args=(pre_fn,),
+                    args=(orig_fn,),
                     kwargs={'command_flag': True}
                 ).start()
 
-        except Exception as e:
-            logging.error(f"Error processing window text for process '{process_path}': {e}")
+                # Write preprocessed text
+                pre = self.preprocess_text(text)
+                if pre and pre != text.lower().strip():
+                    pre_fn = self.get_unique_filename(f"preprocessed_{base_name}")
+                    with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
+                        f.write(pre[:1_000_000])  # Limit to 1MB
+                    logging.debug(f"Wrote preprocessed -> {pre_fn}")
+
+                    # Scan preprocessed text in separate thread
+                    threading.Thread(
+                        target=scan_and_warn,
+                        args=(pre_fn,),
+                        kwargs={'command_flag': True}
+                    ).start()
+
+            except Exception as e:
+                logging.error(f"Error processing window text for process '{process_path}' source '{label}': {e}")
 
     def find_and_process_windows(self):
         try:
