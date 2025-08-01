@@ -11207,8 +11207,10 @@ class MonitorMessageCommandLine:
         logging.debug(f"Processing window - hwnd={hwnd}, path={process_path}, text='{text_preview}'")
 
         try:
+            base_name = sanitize_filename(process_path)
+
             # Write original text
-            orig_fn = self.get_unique_filename(f"original_{hwnd}")
+            orig_fn = self.get_unique_filename(f"original_{base_name}")
             with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
                 f.write(text[:1_000_000])  # Limit to 1MB
             logging.debug(f"Wrote original -> {orig_fn}")
@@ -11222,8 +11224,8 @@ class MonitorMessageCommandLine:
 
             # Write preprocessed text
             pre = self.preprocess_text(text)
-            if pre and pre != text.lower().strip():  # Only if preprocessing changed something
-                pre_fn = self.get_unique_filename(f"preprocessed_{hwnd}")
+            if pre and pre != text.lower().strip():
+                pre_fn = self.get_unique_filename(f"preprocessed_{base_name}")
                 with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
                     f.write(pre[:1_000_000])  # Limit to 1MB
                 logging.debug(f"Wrote preprocessed -> {pre_fn}")
@@ -11236,7 +11238,7 @@ class MonitorMessageCommandLine:
                 ).start()
 
         except Exception as e:
-            logging.error(f"Error processing window text for hwnd {hwnd}: {e}")
+            logging.error(f"Error processing window text for process '{process_path}': {e}")
 
     def find_and_process_windows(self):
         try:
