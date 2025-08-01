@@ -11059,10 +11059,6 @@ class MonitorMessageCommandLine:
         Main method to start enumerating and processing windows.
         It uses nested functions to handle specific tasks and concurrency.
         """
-        def is_window_safe(hwnd):
-            # This check should be implemented with ctypes for real use
-            return True # Mock implementation
-
         def process_text(hwnd, label, text, process_path, win_type):
             """
             Processes a single piece of extracted text. It checks for duplicates,
@@ -11106,7 +11102,7 @@ class MonitorMessageCommandLine:
             Handles a single window handle (HWND). It dispatches text extraction
             tasks to separate threads for concurrency.
             """
-            if not is_window_safe(hwnd):
+            if not is_window_valid(hwnd):
                 return
 
             try:
