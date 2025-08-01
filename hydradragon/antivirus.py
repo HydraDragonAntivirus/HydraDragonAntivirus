@@ -11231,31 +11231,43 @@ class MonitorMessageCommandLine:
             logging.debug(f"No new unique text to process for HWND={hwnd}")
 
     def find_and_process_windows(self):
+        logging.info("Entered find_and_process_windows()")
+
+        # 1) Call enumeration in its own try/except
         try:
-            logging.info("Starting window enumeration...")
-            windows = find_windows_with_text()  # returns tuples of 6 elements
-
-            logging.info(f"Found {len(windows)} windows total")
-            if not windows:
-                logging.error("No windows found - enumeration may have failed")
-                return
-
-            # Log first few for debug
-            for i, (hwnd, win_text, ctrl_text, uia_text, process_path, window_type) in enumerate(windows[:3]):
-                combined = f"Win='{win_text}', Ctrl='{ctrl_text}', UIA='{uia_text}'"
-                logging.info(f"Window {i+1}: HWND={hwnd}, Type={window_type}, Texts={combined[:100]}...")
-
-            # Submit all
-            for hwnd, win_text, ctrl_text, uia_text, process_path, window_type in windows:
-                logging.debug(f"Submitting HWND={hwnd} to executor")
-                self.executor.submit(
-                    self.process_window_text,
-                    hwnd, win_text, ctrl_text, uia_text, process_path, window_type
-                )
-
+            logging.info("Calling find_windows_with_text()...")
+            windows = find_windows_with_text()  # should return a list of 6-tuples
         except Exception:
-            tb_text = traceback.format_exc()
-            logging.error(f"Exception in find_and_process_windows:\n{tb_text}")
+            tb = traceback.format_exc()
+            logging.error(f"Exception during window enumeration:\n{tb}")
+            return
+
+        # 2) Validate the return value
+        if windows is None:
+            logging.error("find_windows_with_text() returned None")
+            return
+        if not isinstance(windows, list):
+            logging.error(f"Unexpected return type from find_windows_with_text(): {type(windows)}")
+            return
+
+        # 3) Now we know we got a list
+        logging.info(f"Received {len(windows)} windows from enumeration")
+        if not windows:
+            logging.error("No windows found – enumeration returned an empty list")
+            return
+
+        # 4) Log the first few entries for quick sanity check
+        for i, (hwnd, win_text, ctrl_text, uia_text, process_path, window_type) in enumerate(windows[:3]):
+            combined = f"Win='{win_text}', Ctrl='{ctrl_text}', UIA='{uia_text}'"
+            logging.info(f"Window {i+1}: HWND={hwnd}, Type={window_type}, Texts={combined[:100]}...")
+
+        # 5) Submit them all for processing
+        for hwnd, win_text, ctrl_text, uia_text, process_path, window_type in windows:
+            logging.debug(f"Submitting HWND={hwnd} to executor")
+            self.executor.submit(
+                self.process_window_text,
+                hwnd, win_text, ctrl_text, uia_text, process_path, window_type
+            )
 
     def monitoring_window_text(self):
         """
