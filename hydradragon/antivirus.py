@@ -11085,55 +11085,38 @@ class MonitorMessageCommandLine:
             except:
                 return False
 
-        def get_texts(hwnd):
-            texts = {}
-            for label, getter in [
-                ("win_text", get_window_text),
-                ("ctrl_text", get_control_text),
-                ("uia_text", get_uia_text)
-            ]:
-                try:
-                    texts[label] = getter(hwnd) or ""
-                except:
-                    texts[label] = ""
-            return texts
-
         def process_text(hwnd, label, text, process_path, win_type):
-            def worker():
-                stripped = text.strip()
-                if not stripped:
+            stripped = text.strip()
+            if not stripped:
+                return
+
+            with self.lock:
+                if stripped in self.processed_texts:
                     return
+                self.processed_texts.add(stripped)
 
-                with self.lock:
-                    if stripped in self.processed_texts:
-                        return
-                    self.processed_texts.add(stripped)
+            try:
+                class_name = get_window_class_name(hwnd)
+                left, top, right, bottom = get_window_rect(hwnd)
 
-                try:
-                    class_name = get_window_class_name(hwnd)
-                    left, top, right, bottom = get_window_rect(hwnd)
+                logging.info(f"[{win_type.upper()} - {label}] HWND={hwnd}, Class={class_name}")
+                logging.info(f"Text: {stripped[:200]}")
+                logging.info(f"Position: ({left},{top}) Size: {right-left}x{bottom-top}")
 
-                    logging.info(f"[{win_type.upper()} - {label}] HWND={hwnd}, Class={class_name}")
-                    logging.info(f"Text: {stripped[:200]}")
-                    logging.info(f"Position: ({left},{top}) Size: {right-left}x{bottom-top}")
+                base = sanitize_filename(process_path) + f"_{label}"
+                orig_fn = self.get_unique_filename(f"original_{base}")
+                with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
+                    f.write(text[:1_000_000])
+                threading.Thread(target=scan_and_warn, args=(orig_fn,), kwargs={"command_flag": True}).start()
 
-                    base = sanitize_filename(process_path) + f"_{label}"
-                    orig_fn = self.get_unique_filename(f"original_{base}")
-                    with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
-                        f.write(text[:1_000_000])
-                    threading.Thread(target=scan_and_warn, args=(orig_fn,), kwargs={"command_flag": True}).start()
-
-                    pre = self.preprocess_text(text)
-                    if pre and pre != text.lower().strip():
-                        pre_fn = self.get_unique_filename(f"preprocessed_{base}")
-                        with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
-                            f.write(pre[:1_000_000])
-                        threading.Thread(target=scan_and_warn, args=(pre_fn,), kwargs={"command_flag": True}).start()
-                except Exception as e:
-                    logging.error(f"Error processing text [{label}] from {process_path}: {e}")
-
-            # Submit to thread pool instead of spawning new thread
-            self.thread_pool.submit(worker)
+                pre = self.preprocess_text(text)
+                if pre and pre != text.lower().strip():
+                    pre_fn = self.get_unique_filename(f"preprocessed_{base}")
+                    with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
+                        f.write(pre[:1_000_000])
+                    threading.Thread(target=scan_and_warn, args=(pre_fn,), kwargs={"command_flag": True}).start()
+            except Exception as e:
+                logging.error(f"Error processing text [{label}] from {process_path}: {e}")
 
         def handle_hwnd(hwnd, win_type):
             if not is_window_safe(hwnd):
@@ -11145,10 +11128,37 @@ class MonitorMessageCommandLine:
                 except:
                     path = ""
 
-                texts = get_texts(hwnd)
-                for label, text in texts.items():
-                    if text.strip():
-                        process_text(hwnd, label, text, path, win_type)
+                # Get win_text directly and process immediately
+                def process_win_text():
+                    try:
+                        win_text = get_window_text(hwnd) or ""
+                        if win_text.strip():
+                            process_text(hwnd, "win_text", win_text, path, win_type)
+                    except:
+                        pass
+                
+                # Get ctrl_text directly and process immediately  
+                def process_ctrl_text():
+                    try:
+                        ctrl_text = get_control_text(hwnd) or ""
+                        if ctrl_text.strip():
+                            process_text(hwnd, "ctrl_text", ctrl_text, path, win_type)
+                    except:
+                        pass
+
+                # Get uia_text directly and process immediately
+                def process_uia_text():
+                    try:
+                        uia_text = get_uia_text(hwnd) or ""
+                        if uia_text.strip():
+                            process_text(hwnd, "uia_text", uia_text, path, win_type)
+                    except:
+                        pass
+
+                # Start all three in parallel threads - no waiting
+                threading.Thread(target=process_win_text).start()
+                threading.Thread(target=process_ctrl_text).start()
+                threading.Thread(target=process_uia_text).start()
 
                 # Enumerate children and submit them to thread pool
                 children = []
