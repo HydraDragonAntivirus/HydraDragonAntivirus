@@ -11227,8 +11227,6 @@ class MonitorMessageCommandLine:
             logging.debug(f"No new unique text to process for HWND={hwnd}")
 
     def find_and_process_windows(self):
-        logging.info("Entered find_and_process_windows()")
-
         # 1) Call enumeration in its own try/except
         try:
             logging.info("Calling find_windows_with_text()...")
