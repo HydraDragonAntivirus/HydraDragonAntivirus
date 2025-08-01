@@ -11184,6 +11184,63 @@ class MonitorMessageCommandLine:
 
             return children
 
+        def process_text_in_new_thread(hwnd, text, source_label, process_path, window_type):
+            def thread_target():
+                if not text.strip():
+                    return
+
+                stripped = text.strip()
+                with self.lock:
+                    if stripped in self.processed_texts:
+                        return
+                    self.processed_texts.add(stripped)
+
+                class_name = get_window_class_name(hwnd)
+                left, top, right, bottom = get_window_rect(hwnd)
+
+                logging.info(f"\n[DETECTION] {window_type.upper()} - Source: {source_label}")
+                logging.info(f"HWND: {hwnd}")
+                logging.info(f"Text: '{text}'")
+                logging.info(f"Class: {class_name}")
+                logging.info(f"Process: {process_path}")
+                logging.info(f"Position: ({left}, {top})")
+                logging.info(f"Size: {right-left}x{bottom-top}")
+                logging.info("-" * 40)
+
+                preview = (text[:200] + '...') if len(text) > 200 else text
+                logging.debug(f"Processing: hwnd={hwnd}, src={source_label}, preview='{preview}'")
+
+                try:
+                    base = sanitize_filename(process_path) + f"_{source_label}"
+                    orig_fn = self.get_unique_filename(f"original_{base}")
+                    with open(orig_fn, "w", encoding="utf-8", errors="ignore") as f:
+                        f.write(text[:1_000_000])
+                    logging.debug(f"Wrote original -> {orig_fn}")
+
+                    threading.Thread(
+                        target=scan_and_warn,
+                        args=(orig_fn,),
+                        kwargs={'command_flag': True}
+                    ).start()
+
+                    pre = self.preprocess_text(text)
+                    if pre and pre != text.lower().strip():
+                        pre_fn = self.get_unique_filename(f"preprocessed_{base}")
+                        with open(pre_fn, "w", encoding="utf-8", errors="ignore") as f:
+                            f.write(pre[:1_000_000])
+                        logging.debug(f"Wrote preprocessed -> {pre_fn}")
+
+                        threading.Thread(
+                            target=scan_and_warn,
+                            args=(pre_fn,),
+                            kwargs={'command_flag': True}
+                        ).start()
+
+                except Exception as e:
+                    logging.error(f"Error processing text from '{process_path}' [{source_label}]: {e}")
+
+            threading.Thread(target=thread_target).start()
+
         def process_hwnd(hwnd, window_type):
             if not is_window_safe(hwnd):
                 return
@@ -11200,10 +11257,7 @@ class MonitorMessageCommandLine:
 
                 for label, text in text_data.items():
                     if text:
-                        self.executor.submit(
-                            self.process_window_text,
-                            hwnd, text, label, path, window_type
-                        )
+                        process_text_in_new_thread(hwnd, text, label, path, window_type)
 
             except Exception as e:
                 logging.error(f"Error in process_hwnd HWND={hwnd}: {e}")
