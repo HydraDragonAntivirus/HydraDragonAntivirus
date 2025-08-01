@@ -11229,7 +11229,6 @@ class MonitorMessageCommandLine:
     def find_and_process_windows(self):
         # 1) Call enumeration in its own try/except
         try:
-            logging.info("Calling find_windows_with_text()...")
             windows = find_windows_with_text()  # should return a list of 6-tuples
         except Exception:
             tb = traceback.format_exc()
