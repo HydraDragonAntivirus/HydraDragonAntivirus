@@ -1496,7 +1496,6 @@ def is_pe_file_from_output(die_output: str, file_path: str) -> bool:
         logging.info("pefile detected a PE file even though DIE did not.")
         return True
     except pefile.PEFormatError:
-        logging.debug("File is not a valid PE according to both DIE and pefile.")
         return False
 
 def is_cx_freeze_file_from_output(die_output):
@@ -1582,7 +1581,6 @@ def is_elf_file_from_output(die_output: str, file_path: str) -> bool:
             logging.info("pyelftools detected an ELF file even though DIE did not.")
             return True
     except (ELFError, IOError, ValueError):
-        logging.debug("File is not a valid ELF according to both DIE and pyelftools.")
         return False
 
 def is_enigma1_virtual_box(die_output):
@@ -1636,7 +1634,6 @@ def is_macho_file_from_output(die_output: str, file_path: str) -> bool:
             logging.debug("macholib found no valid headers in the file.")
             return False
     except (IOError, ValueError, struct.error, IndexError, Exception):
-        logging.debug("File is not a valid Mach-O according to both DIE and macholib.")
         return False
 
 def is_dotnet_file_from_output(die_output):
