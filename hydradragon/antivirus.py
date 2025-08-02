@@ -11052,10 +11052,6 @@ class MonitorMessageCommandLine:
                 # Metadata for logging
                 class_name = get_window_class_name(hwnd)
                 left, top, right, bottom = get_window_rect(hwnd)
-                logging.info(
-                    f"[{win_type[0].upper()}-{label}] {hwnd} {class_name} "
-                    f"({left},{top}) {right-left}x{bottom-top}"
-                )
 
                 # Build sanitized base filename
                 filename = process_path.split("\\")[-1] if process_path else "unknown"
@@ -11143,7 +11139,6 @@ class MonitorMessageCommandLine:
             threading.Thread(target=process_uia_texts).start()
 
         def start_enum():
-            logging.info("Starting window enumeration...")
             try:
                 def enum_callback(hwnd, _):
                     threading.Thread(
@@ -11152,7 +11147,6 @@ class MonitorMessageCommandLine:
                     ).start()
                     return True
                 win32gui.EnumWindows(enum_callback, None)
-                logging.info("Enumeration round complete.")
             except Exception as e:
                 logging.error(f"Failed during window enumeration: {e}")
 
