@@ -10771,8 +10771,7 @@ def get_uia_text(hwnd):
 
     try:
         elem = uiauto.ElementFromHandle(hwnd)
-    except Exception as e:
-        logging.error(f"Failed to get automation element from handle: {e}")
+    except Exception:
         return []
 
     all_texts = []
