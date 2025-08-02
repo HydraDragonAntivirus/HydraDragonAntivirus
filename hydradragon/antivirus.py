@@ -10878,6 +10878,7 @@ def get_window_rect(hwnd):
 class MonitorMessageCommandLine:
     def __init__(self):
         self.processed_texts = set()
+        self._seen_texts = set()
         self.lock = threading.Lock()
         self.executor = ThreadPoolExecutor(max_workers=1000)
         self.thread_pool = ThreadPoolExecutor(max_workers=1000)
