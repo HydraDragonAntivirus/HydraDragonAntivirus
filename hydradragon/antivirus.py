@@ -10697,7 +10697,8 @@ def get_window_class_name(hwnd):
 
 def get_window_text(hwnd):
     """
-    Attempts to get the window text. If that fails, returns the class name (no filtering).
+    Returns the window text (title/caption) for the given HWND.
+    No visibility check. No fallback. Returns '' if text is missing or inaccessible.
     """
     try:
         length = user32.GetWindowTextLengthW(hwnd)
@@ -10705,20 +10706,9 @@ def get_window_text(hwnd):
             buf = ctypes.create_unicode_buffer(length + 1)
             copied = user32.GetWindowTextW(hwnd, buf, length + 1)
             if copied > 0:
-                text = buf.value.strip()
-                if text:
-                    return text
+                return buf.value.strip()
     except Exception:
         pass
-
-    # Fallback: return class name unconditionally
-    try:
-        class_buf = ctypes.create_unicode_buffer(256)
-        if user32.GetClassNameW(hwnd, class_buf, 256):
-            return class_buf.value.strip()
-    except Exception:
-        pass
-
     return ""
 
 def get_control_text(hwnd):
