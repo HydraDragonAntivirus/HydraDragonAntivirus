@@ -3583,20 +3583,20 @@ def run_pd64_db_gen():
         logging.error(f"Failed to generate clean.hashes: {e}")
         return False
 
-def extract_with_pd64(dump_path: str, output_dir: str) -> bool:
-    """Run pd64.exe to extract files from a memory dump."""
+def extract_with_pd64(pid: str, output_dir: str) -> bool:
+    """Run pd64.exe to dump suspicious modules from a process PID."""
     try:
         subprocess.run([
             pd64_path,
-            "-e",  # extract switch
-            dump_path,
+            "-pid",
+            pid,
             "-o",
             output_dir
         ], check=True)
-        logging.info(f"Extraction complete for {dump_path} into {output_dir}")
+        logging.info(f"pd64 extraction complete for PID {pid} into {output_dir}")
         return True
     except subprocess.CalledProcessError as e:
-        logging.error(f"PD64 extraction failed for {dump_path}: {e}")
+        logging.error(f"pd64 extraction failed for PID {pid}: {e}")
         return False
 
 def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
@@ -10052,7 +10052,7 @@ def scan_and_warn(file_path,
 def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_extracted_dir: str) -> Optional[str]:
     """
     Alternative function to analyze a specific process by name or path with better error handling.
-    Uses pd64 only on the original executable, not on memory dumps.
+    Uses pd64 with process PID to dump suspicious modules.
 
     :param process_name_or_path: Process name (e.g., 'guloader.exe') or full path
     :param memory_dir: Directory where memory dumps and string output are saved.
@@ -10082,45 +10082,46 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
     target_pid, target_exe = matching_processes[0]
     logging.info(f"Found target process: {target_exe} (PID: {target_pid})")
 
+    # Ensure output directories exist
+    os.makedirs(memory_dir, exist_ok=True)
+    os.makedirs(pd64_extracted_dir, exist_ok=True)
+
     extracted_strings = []
     saved_dumps = []
 
-    # Run pd64 on the original executable file (not process memory)
-    if os.path.exists(target_exe):
-        logging.info(f"Running pd64 on executable: {target_exe}")
-        exe_pd64_dir = os.path.join(pd64_extracted_dir, f"exe_{os.path.basename(target_exe)}_{target_pid}")
-        os.makedirs(exe_pd64_dir, exist_ok=True)
+    # Run pd64 on the process PID to dump suspicious modules
+    logging.info(f"Running pd64 on process PID: {target_pid}")
+    pid_pd64_dir = os.path.join(pd64_extracted_dir, f"pid_{target_pid}")
+    os.makedirs(pid_pd64_dir, exist_ok=True)
 
-        try:
-            if extract_with_pd64(target_exe, exe_pd64_dir):
-                logging.info(f"pd64 successfully extracted from executable {target_exe}")
+    try:
+        if extract_with_pd64(str(target_pid), pid_pd64_dir):
+            logging.info(f"pd64 successfully extracted from PID {target_pid}")
 
-                # Scan all extracted files
-                for root, _, files in os.walk(exe_pd64_dir):
-                    for fname in files:
-                        full_path = os.path.join(root, fname)
-                        logging.info(f"Scanning pd64 extracted file: {full_path}")
+            # Scan all extracted files
+            for root, _, files in os.walk(pid_pd64_dir):
+                for fname in files:
+                    full_path = os.path.join(root, fname)
+                    logging.info(f"Scanning pd64 extracted file: {full_path}")
 
-                        # Try to extract strings from pd64 results
-                        try:
-                            with open(full_path, 'rb') as f:
-                                file_data = f.read()
-                                file_strings = extract_ascii_strings(file_data)
-                                if file_strings:
-                                    extracted_strings.append(f"pd64 extracted file {fname} Strings:")
-                                    extracted_strings.extend(file_strings)
-                        except Exception as file_ex:
-                            logging.error(f"Could not read pd64 extracted file {full_path}: {file_ex}")
+                    # Try to extract strings from pd64 results
+                    try:
+                        with open(full_path, 'rb') as f:
+                            file_data = f.read()
+                            file_strings = extract_ascii_strings(file_data)
+                            if file_strings:
+                                extracted_strings.append(f"pd64 extracted file {fname} Strings:")
+                                extracted_strings.extend(file_strings)
+                    except Exception as file_ex:
+                        logging.error(f"Could not read pd64 extracted file {full_path}: {file_ex}")
 
-                        # Scan the extracted file
-                        scan_and_warn(full_path)
-            else:
-                logging.error(f"pd64 extraction failed for executable {target_exe}")
+                    # Scan the extracted file
+                    scan_and_warn(full_path)
+        else:
+            logging.error(f"pd64 extraction failed for PID {target_pid}")
 
-        except Exception as pd64_ex:
-            logging.error(f"Error during pd64 extraction for executable {target_exe}: {pd64_ex}")
-    else:
-        logging.error(f"Executable path does not exist: {target_exe}")
+    except Exception as pd64_ex:
+        logging.error(f"Error during pd64 extraction for PID {target_pid}: {pd64_ex}")
 
     try:
         # Try pymem approach for memory analysis
@@ -10203,7 +10204,7 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
         logging.error(f"No strings extracted from process {target_pid} memory")
 
     # Note: We only save memory dumps for string analysis, not for pd64 extraction
-    # pd64 is only used on the original executable file
+    # pd64 is used on the process PID to dump suspicious modules
     for dump_path in saved_dumps:
         logging.info(f"Memory dump saved: {dump_path} (for strings analysis only)")
 
