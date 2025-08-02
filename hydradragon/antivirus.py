@@ -11074,7 +11074,7 @@ class MonitorMessageCommandLine:
                 pre_norm  = normalize(pre) if pre else ""
 
                 # In-memory dedupe key
-                key = (win_type, label, orig_norm)
+                key = orig_norm
                 with self.lock:
                     if key in self._seen_texts:
                         return
