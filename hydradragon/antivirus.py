@@ -10055,160 +10055,197 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
     :param pd64_extracted_dir: Directory where pd64 will extract embedded files.
     :return: Path to the extracted ASCII strings text file, or None if an error occurred.
     """
-    # Extract process name from path if needed
-    process_name = os.path.basename(process_name_or_path) if os.path.sep in process_name_or_path else process_name_or_path
-
-    # Find all processes matching the name
-    matching_processes = []
-    for proc in psutil.process_iter(['pid', 'name', 'exe']):
-        try:
-            if proc.info['name'].lower() == process_name.lower():
-                matching_processes.append((proc.info['pid'], proc.info['exe']))
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-
-    if not matching_processes:
-        logging.error(f"No running processes found matching: {process_name}")
-        return None
-
-    if len(matching_processes) > 1:
-        logging.info(f"Multiple processes found matching {process_name}: {matching_processes}")
-
-    # Use the first matching process
-    target_pid, target_exe = matching_processes[0]
-    logging.info(f"Found target process: {target_exe} (PID: {target_pid})")
-
-    # Ensure output directories exist
-    os.makedirs(memory_dir, exist_ok=True)
-    os.makedirs(pd64_extracted_dir, exist_ok=True)
-
-    extracted_strings = []
-    saved_dumps = []
-
-    # Run pd64 on the process PID to dump suspicious modules
-    logging.info(f"Running pd64 on process PID: {target_pid}")
-    pid_pd64_dir = os.path.join(pd64_extracted_dir, f"pid_{target_pid}")
-    os.makedirs(pid_pd64_dir, exist_ok=True)
-
     try:
-        if extract_with_pd64(str(target_pid), pid_pd64_dir):
-            logging.info(f"pd64 successfully extracted from PID {target_pid}")
+        # Extract process name from path if needed
+        process_name = os.path.basename(process_name_or_path) if os.path.sep in process_name_or_path else process_name_or_path
 
-            # Scan all extracted files
-            for root, _, files in os.walk(pid_pd64_dir):
-                for fname in files:
-                    full_path = os.path.join(root, fname)
-                    logging.info(f"Scanning pd64 extracted file: {full_path}")
+        # Find all processes matching the name
+        matching_processes = []
+        for proc in psutil.process_iter(['pid', 'name', 'exe']):
+            try:
+                if proc.info['name'].lower() == process_name.lower():
+                    matching_processes.append((proc.info['pid'], proc.info['exe']))
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
 
-                    # Try to extract strings from pd64 results
-                    try:
-                        with open(full_path, 'rb') as f:
-                            file_data = f.read()
-                            file_strings = extract_ascii_strings(file_data)
-                            if file_strings:
-                                extracted_strings.append(f"pd64 extracted file {fname} Strings:")
-                                extracted_strings.extend(file_strings)
-                    except Exception as file_ex:
-                        logging.error(f"Could not read pd64 extracted file {full_path}: {file_ex}")
+        if not matching_processes:
+            logging.error(f"No running processes found matching: {process_name}")
+            return None
 
-                    # Scan the extracted file
-                    scan_and_warn(full_path)
-        else:
-            logging.error(f"pd64 extraction failed for PID {target_pid}")
+        if len(matching_processes) > 1:
+            logging.info(f"Multiple processes found matching {process_name}: {matching_processes}")
 
-    except Exception as pd64_ex:
-        logging.error(f"Error during pd64 extraction for PID {target_pid}: {pd64_ex}")
+        # Use the first matching process
+        target_pid, target_exe = matching_processes[0]
+        logging.info(f"Found target process: {target_exe} (PID: {target_pid})")
 
-    try:
-        # Try pymem approach for memory analysis
-        pm = pymem.Pymem()
+        # Ensure output directories exist
+        os.makedirs(memory_dir, exist_ok=True)
+        os.makedirs(pd64_extracted_dir, exist_ok=True)
+
+        extracted_strings = []
+        saved_dumps = []
+
+        # Run pd64 on the process PID to dump suspicious modules
+        logging.info(f"Running pd64 on process PID: {target_pid}")
+        pid_pd64_dir = os.path.join(pd64_extracted_dir, f"pid_{target_pid}")
+        os.makedirs(pid_pd64_dir, exist_ok=True)
 
         try:
-            pm.open_process_from_id(target_pid)
-            logging.info(f"Attached to process ID {target_pid}")
+            if extract_with_pd64(str(target_pid), pid_pd64_dir):
+                logging.info(f"pd64 successfully extracted from PID {target_pid}")
+
+                # Scan all extracted files with size limit to prevent memory issues
+                for root, _, files in os.walk(pid_pd64_dir):
+                    for fname in files:
+                        full_path = os.path.join(root, fname)
+
+                        try:
+                            # Check file size before processing to prevent memory issues
+                            file_size = os.path.getsize(full_path)
+                            if file_size > 50 * 1024 * 1024:  # Skip files larger than 50MB
+                                logging.error(f"Skipping large file: {full_path} ({file_size} bytes)")
+                                continue
+
+                            logging.info(f"Scanning pd64 extracted file: {full_path}")
+
+                            # Try to extract strings from pd64 results with size limit
+                            try:
+                                with open(full_path, 'rb') as f:
+                                    # Read in chunks to prevent memory issues
+                                    chunk_size = 1024 * 1024  # 1MB chunks
+                                    file_strings = []
+
+                                    while True:
+                                        chunk = f.read(chunk_size)
+                                        if not chunk:
+                                            break
+                                        chunk_strings = extract_ascii_strings(chunk)
+                                        if chunk_strings:
+                                            file_strings.extend(chunk_strings[:100])  # Limit strings per chunk
+
+                                        # Limit total strings to prevent memory overflow
+                                        if len(file_strings) > 1000:
+                                            break
+
+                                    if file_strings:
+                                        extracted_strings.append(f"pd64 extracted file {fname} Strings:")
+                                        extracted_strings.extend(file_strings[:500])  # Limit total strings per file
+
+                            except Exception as file_ex:
+                                logging.error(f"Could not read pd64 extracted file {full_path}: {file_ex}")
+
+                            # Scan the extracted file
+                            scan_and_warn(full_path)
+
+                        except Exception as file_process_ex:
+                            logging.error(f"Error processing file {full_path}: {file_process_ex}")
+                            continue
+
+            else:
+                logging.error(f"pd64 extraction failed for PID {target_pid}")
+
+        except Exception as pd64_ex:
+            logging.error(f"Error during pd64 extraction for PID {target_pid}: {pd64_ex}")
+
+        # Try pymem approach for memory analysis with stricter limits
+        try:
+            pm = pymem.Pymem()
 
             try:
-                # Try to read main executable memory
-                test_addr = 0x400000  # Common base address for executables
-                test_data = pm.read_bytes(test_addr, 4096)  # Read small 4KB chunk
+                pm.open_process_from_id(target_pid)
+                logging.info(f"Attached to process ID {target_pid}")
 
-                if test_data:
-                    logging.info(f"Successfully read test memory from {hex(test_addr)}")
+                try:
+                    # Try to read main executable memory with reduced scope
+                    test_addr = 0x400000  # Common base address for executables
+                    test_data = pm.read_bytes(test_addr, 4096)  # Read small 4KB chunk
 
-                    # Try to read larger chunks incrementally
-                    chunk_size = 0x10000  # 64KB chunks
-                    max_size = 0x100000   # Max 1MB total
+                    if test_data:
+                        logging.info(f"Successfully read test memory from {hex(test_addr)}")
 
-                    for offset in range(0, max_size, chunk_size):
-                        try:
-                            if not psutil.pid_exists(target_pid):
-                                logging.error(f"Process {target_pid} terminated during analysis")
-                                break
+                        # Reduced memory reading to prevent stack overflow
+                        chunk_size = 0x4000   # 16KB chunks (reduced from 64KB)
+                        max_size = 0x40000    # Max 256KB total (reduced from 1MB)
 
-                            addr = test_addr + offset
-                            data = pm.read_bytes(addr, chunk_size)
+                        for offset in range(0, max_size, chunk_size):
+                            try:
+                                if not psutil.pid_exists(target_pid):
+                                    logging.error(f"Process {target_pid} terminated during analysis")
+                                    break
 
-                            if data and len(data) > 0:
-                                dump_filename = os.path.join(memory_dir, f"mem_safe_{hex(addr)}.bin")
-                                with open(dump_filename, 'wb') as f:
-                                    f.write(data)
-                                saved_dumps.append(dump_filename)
+                                addr = test_addr + offset
+                                data = pm.read_bytes(addr, chunk_size)
 
-                                # Extract strings from this chunk
-                                ascii_strings = extract_ascii_strings(data)
-                                if ascii_strings:
-                                    extracted_strings.append(f"Memory chunk {hex(addr)} Strings:")
-                                    extracted_strings.extend(ascii_strings)
+                                if data and len(data) > 0:
+                                    dump_filename = os.path.join(memory_dir, f"mem_safe_{hex(addr)}.bin")
+                                    with open(dump_filename, 'wb') as f:
+                                        f.write(data)
+                                    saved_dumps.append(dump_filename)
 
-                                logging.info(f"Successfully read {len(data)} bytes from {hex(addr)}")
-                            else:
-                                break  # No more readable memory
+                                    # Extract strings from this chunk with limits
+                                    ascii_strings = extract_ascii_strings(data)
+                                    if ascii_strings:
+                                        extracted_strings.append(f"Memory chunk {hex(addr)} Strings:")
+                                        extracted_strings.extend(ascii_strings[:100])  # Limit strings per chunk
 
-                        except Exception as chunk_ex:
-                            logging.error(f"Failed to read chunk at {hex(addr)}: {chunk_ex}")
-                            break  # Stop on first failed chunk
-                else:
-                    logging.error("Could not read any memory from process")
+                                    logging.info(f"Successfully read {len(data)} bytes from {hex(addr)}")
 
-            except Exception as read_ex:
-                logging.error(f"Failed to read process memory: {read_ex}")
+                                    # Limit total extracted strings to prevent memory overflow
+                                    if len(extracted_strings) > 2000:
+                                        logging.error("String extraction limit reached, stopping memory analysis")
+                                        break
+                                else:
+                                    break  # No more readable memory
 
-        except Exception as attach_ex:
-            logging.error(f"Failed to attach to process {target_pid}: {attach_ex}")
+                            except Exception as chunk_ex:
+                                logging.error(f"Failed to read chunk at {hex(addr)}: {chunk_ex}")
+                                break  # Stop on first failed chunk
+                    else:
+                        logging.error("Could not read any memory from process")
 
-    except Exception as ex:
-        logging.error(f"Failed to initialize pymem: {ex}")
-    finally:
-        try:
-            pm.close_process()
-            logging.info("Released process handle")
-        except Exception:
-            pass
+                except Exception as read_ex:
+                    logging.error(f"Failed to read process memory: {read_ex}")
 
-    # Save extracted ASCII strings to file if we got any
-    output_txt = None
-    if extracted_strings:
-        base_filename = f"extracted_strings_pid_{target_pid}"
-        output_txt = os.path.join(memory_dir, f"{base_filename}.txt")
-        counter = 1
-        while os.path.exists(output_txt):
-            output_txt = os.path.join(memory_dir, f"{base_filename}_{counter}.txt")
-            counter += 1
-        save_extracted_strings(output_txt, extracted_strings)
-        logging.info(f"Strings analysis complete. Results saved in {output_txt}")
-    else:
-        logging.error(f"No strings extracted from process {target_pid} memory")
+            except Exception as attach_ex:
+                logging.error(f"Failed to attach to process {target_pid}: {attach_ex}")
 
-    # Note: We only save memory dumps for string analysis, not for pd64 extraction
-    # pd64 is used on the process PID to dump suspicious modules
-    for dump_path in saved_dumps:
-        logging.info(f"Memory dump saved: {dump_path} (for strings analysis only)")
+        except Exception as ex:
+            logging.error(f"Failed to initialize pymem: {ex}")
+        finally:
+            try:
+                pm.close_process()
+                logging.info("Released process handle")
+            except Exception:
+                pass
 
-    return output_txt
+        # Save extracted ASCII strings to file if we got any
+        output_txt = None
+        if extracted_strings:
+            base_filename = f"extracted_strings_pid_{target_pid}"
+            output_txt = os.path.join(memory_dir, f"{base_filename}.txt")
+            counter = 1
+            while os.path.exists(output_txt):
+                output_txt = os.path.join(memory_dir, f"{base_filename}_{counter}.txt")
+                counter += 1
+            save_extracted_strings(output_txt, extracted_strings)
+            logging.info(f"Strings analysis complete. Results saved in {output_txt}")
+        else:
+            logging.error(f"No strings extracted from process {target_pid} memory")
+
+        # Log memory dumps for reference
+        for dump_path in saved_dumps:
+            logging.info(f"Memory dump saved: {dump_path} (for strings analysis only)")
+
+        return output_txt
+
+    except Exception as overall_ex:
+        logging.error(f"Overall error in analyze_specific_process: {overall_ex}")
+        return None
 
 
 def monitor_memory_changes(
-    change_threshold_bytes: int = 0
+    change_threshold_bytes: int = 1024  # Set minimum threshold to avoid too frequent triggers
 ):
     """
     Continuously monitor processes in sandbox and main file for RSS memory changes and trigger analysis.
@@ -10218,13 +10255,17 @@ def monitor_memory_changes(
     """
     last_rss = {}
     current_pid = os.getpid()  # Get our own PID to avoid self-analysis
+    analysis_cooldown = {}  # Track last analysis time per PID to prevent spam
 
     logging.info(f"Starting memory monitor for sandbox: {sandboxie_folder}")
     logging.info(f"Monitoring main file: {main_file_path}")
     logging.info(f"Memory change threshold: {change_threshold_bytes} bytes")
+    logging.info(f"Our PID (excluded from analysis): {current_pid}")
 
     while True:
         try:
+            current_time = time.time()
+
             for proc in psutil.process_iter(['pid', 'memory_info', 'exe', 'name']):
                 pid = proc.info['pid']
 
@@ -10239,6 +10280,8 @@ def monitor_memory_changes(
                     # Clean up stale PID from tracking
                     if pid in last_rss:
                         del last_rss[pid]
+                    if pid in analysis_cooldown:
+                        del analysis_cooldown[pid]
                     continue
 
                 # Check if memory change is significant enough
@@ -10246,6 +10289,11 @@ def monitor_memory_changes(
                 memory_changed = prev_rss is None or abs(rss - prev_rss) > change_threshold_bytes
 
                 if not memory_changed:
+                    continue
+
+                # Check cooldown to prevent analysis spam (minimum 30 seconds between analyses)
+                last_analysis = analysis_cooldown.get(pid, 0)
+                if current_time - last_analysis < 30:
                     continue
 
                 # Update tracked memory
@@ -10269,6 +10317,9 @@ def monitor_memory_changes(
                 if not is_in_sandbox and not is_main_file:
                     continue
 
+                # Update analysis cooldown
+                analysis_cooldown[pid] = current_time
+
                 # Log the memory change detection
                 change_type = "increase" if prev_rss and rss > prev_rss else "change"
                 change_amount = rss - prev_rss if prev_rss else rss
@@ -10286,24 +10337,35 @@ def monitor_memory_changes(
                         # Clean up from tracking
                         if pid in last_rss:
                             del last_rss[pid]
+                        if pid in analysis_cooldown:
+                            del analysis_cooldown[pid]
                         continue
 
                     # Use the enhanced analyze_specific_process method with pd64 fallback
                     logging.info(f"Starting memory analysis for: {exe_path} (PID: {pid})")
-                    result_file = analyze_specific_process(
-                        process_name, memory_dir, pd64_extracted_dir
-                    )
 
-                    if result_file:
-                        logging.info(f"Memory analysis completed for PID {pid}, result: {result_file}")
-                        # Spawn async scan on the resulting strings file
-                        threading.Thread(target=scan_and_warn, args=(result_file,)).start()
-                    else:
-                        logging.error(f"Memory analysis for PID {pid} returned no results")
+                    # Run analysis in a separate thread to prevent blocking the monitor
+                    def run_analysis():
+                        try:
+                            result_file = analyze_specific_process(
+                                process_name, memory_dir, pd64_extracted_dir
+                            )
+
+                            if result_file:
+                                logging.info(f"Memory analysis completed for PID {pid}, result: {result_file}")
+                                # Spawn async scan on the resulting strings file
+                                threading.Thread(target=scan_and_warn, args=(result_file,), daemon=True).start()
+                            else:
+                                logging.error(f"Memory analysis for PID {pid} returned no results")
+                        except Exception as thread_ex:
+                            logging.error(f"Thread analysis failed for PID {pid}: {thread_ex}")
+
+                    # Start analysis thread as daemon to prevent hanging
+                    analysis_thread = threading.Thread(target=run_analysis, daemon=True)
+                    analysis_thread.start()
 
                 except Exception as ex:
-                    logging.error(f"Memory analysis failed for {exe_path} (PID: {pid}): {ex}")
-                    # Don't remove from tracking on analysis failure, might work next time
+                    logging.error(f"Memory analysis setup failed for {exe_path} (PID: {pid}): {ex}")
                     continue
 
         except Exception as monitor_ex:
