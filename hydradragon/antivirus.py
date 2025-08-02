@@ -11038,7 +11038,7 @@ class MonitorMessageCommandLine:
         return unique_name
 
     def preprocess_text(self, text):
-        return text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "").strip()
+        return re.sub(r"[,.!?']", "", text.lower()).strip()
 
     def find_and_process_windows(self):
         """
