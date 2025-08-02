@@ -10152,78 +10152,83 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
     target_pid, target_exe = matching_processes[0]
     logging.info(f"Found target process: {target_exe} (PID: {target_pid})")
     
-    # Perform the actual memory analysis using the found PID
+    # Perform safer memory analysis without dangerous module enumeration
     # Ensure output directories exist
     os.makedirs(memory_dir, exist_ok=True)
     os.makedirs(pd64_extracted_dir, exist_ok=True)
 
+    extracted_strings = []
+    saved_dumps = []
+
     try:
-        # Attach to process using PID
+        # Use a safer approach - try to create memory snapshot using pymem
         pm = pymem.Pymem()
-        pm.open_process_from_id(target_pid)
-        logging.info(f"Attached to process ID {target_pid}")
-
-        saved_dumps = []
-        extracted_strings = []
-
+        
+        # Add timeout and error handling for process attachment
         try:
-            # Add more robust memory reading with validation
-            modules_processed = 0
-            for module in enum_process_modules(pm.process_handle):
-                # Check if process still exists before each module
-                if not psutil.pid_exists(target_pid):
-                    logging.warning(f"Process {target_pid} terminated during analysis")
-                    break
-                
-                try:    
-                    base_addr = ctypes.cast(module, ctypes.POINTER(ctypes.c_void_p)).contents.value
-                    
-                    # Validate memory address
-                    if base_addr == 0 or base_addr < 0x10000:  # Skip null or very low addresses
-                        logging.warning(f"Skipping invalid base address: {hex(base_addr)}")
-                        continue
-                        
-                    module_info = get_module_info(pm.process_handle, base_addr)
-                    
-                    # Validate module size
-                    if module_info.SizeOfImage == 0 or module_info.SizeOfImage > 0x10000000:  # Skip 0 or >256MB modules
-                        logging.warning(f"Skipping module with invalid size: {module_info.SizeOfImage} at {hex(base_addr)}")
-                        continue
-                    
-                    # Try to read memory with size validation
-                    try:
-                        data = read_memory_data(pm, base_addr, module_info.SizeOfImage)
-                        if data and len(data) > 0:
-                            dump_filename = os.path.join(memory_dir, f"mem_{hex(base_addr)}.bin")
-                            save_memory_data(dump_filename, data)
-                            saved_dumps.append(dump_filename)
-
-                            ascii_strings = extract_ascii_strings(data)
-                            extracted_strings.append(f"Module {hex(base_addr)} Strings:")
-                            extracted_strings.extend(ascii_strings)
-                            modules_processed += 1
-                            logging.info(f"Successfully analyzed module {modules_processed} at {hex(base_addr)}")
-                        else:
-                            logging.warning(f"No data read from module at {hex(base_addr)}")
-                    except (OSError, MemoryError, ctypes.WinError) as mem_ex:
-                        logging.warning(f"Memory read failed at {hex(base_addr)}: {mem_ex}")
-                        continue
-                        
-                except (ValueError, ctypes.ArgumentError, OSError) as addr_ex:
-                    logging.warning(f"Address/module error: {addr_ex}")
-                    continue
-                except Exception as mod_ex:
-                    logging.warning(f"Unexpected module error: {mod_ex}")
-                    continue
-                    
-            logging.info(f"Processed {modules_processed} modules successfully")
+            pm.open_process_from_id(target_pid)
+            logging.info(f"Attached to process ID {target_pid}")
+        except Exception as attach_ex:
+            logging.error(f"Failed to attach to process {target_pid}: {attach_ex}")
+            return None
+        
+        try:
+            # Instead of enumerating modules (which crashes), try to read main executable memory
+            # Get process base address from psutil
+            proc = psutil.Process(target_pid)
             
-        except Exception as ex:
-            logging.error(f"Error during module enumeration: {ex}")
-            # Don't return None here, save what we got so far
-
+            # Try to read a small chunk of memory first as a test
+            try:
+                test_addr = 0x400000  # Common base address for executables
+                test_data = pm.read_bytes(test_addr, 4096)  # Read small 4KB chunk
+                
+                if test_data:
+                    logging.info(f"Successfully read test memory from {hex(test_addr)}")
+                    
+                    # Try to read larger chunks incrementally
+                    chunk_size = 0x10000  # 64KB chunks
+                    max_size = 0x100000   # Max 1MB total
+                    
+                    for offset in range(0, max_size, chunk_size):
+                        try:
+                            if not psutil.pid_exists(target_pid):
+                                logging.warning(f"Process {target_pid} terminated during analysis")
+                                break
+                                
+                            addr = test_addr + offset
+                            data = pm.read_bytes(addr, chunk_size)
+                            
+                            if data and len(data) > 0:
+                                dump_filename = os.path.join(memory_dir, f"mem_safe_{hex(addr)}.bin")
+                                with open(dump_filename, 'wb') as f:
+                                    f.write(data)
+                                saved_dumps.append(dump_filename)
+                                
+                                # Extract strings from this chunk
+                                ascii_strings = extract_ascii_strings(data)
+                                if ascii_strings:
+                                    extracted_strings.append(f"Memory chunk {hex(addr)} Strings:")
+                                    extracted_strings.extend(ascii_strings)
+                                    
+                                logging.info(f"Successfully read {len(data)} bytes from {hex(addr)}")
+                            else:
+                                break  # No more readable memory
+                                
+                        except Exception as chunk_ex:
+                            logging.warning(f"Failed to read chunk at {hex(addr)}: {chunk_ex}")
+                            break  # Stop on first failed chunk
+                            
+                else:
+                    logging.warning("Could not read any memory from process")
+                    
+            except Exception as read_ex:
+                logging.error(f"Failed to read process memory: {read_ex}")
+                
+        except Exception as proc_ex:
+            logging.error(f"Error during memory reading: {proc_ex}")
+            
     except Exception as ex:
-        logging.error(f"Failed to attach or enumerate modules: {ex}")
+        logging.error(f"Failed to initialize pymem: {ex}")
         return None
     finally:
         try:
@@ -10232,17 +10237,21 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
         except Exception:
             pass
 
-    # Save extracted ASCII strings to file
-    base_filename = "extracted_strings"
-    output_txt = os.path.join(memory_dir, f"{base_filename}.txt")
-    counter = 1
-    while os.path.exists(output_txt):
-        output_txt = os.path.join(memory_dir, f"{base_filename}_{counter}.txt")
-        counter += 1
-    save_extracted_strings(output_txt, extracted_strings)
-    logging.info(f"Strings analysis complete. Results saved in {output_txt}")
+    # Save extracted ASCII strings to file if we got any
+    if extracted_strings:
+        base_filename = "extracted_strings"
+        output_txt = os.path.join(memory_dir, f"{base_filename}.txt")
+        counter = 1
+        while os.path.exists(output_txt):
+            output_txt = os.path.join(memory_dir, f"{base_filename}_{counter}.txt")
+            counter += 1
+        save_extracted_strings(output_txt, extracted_strings)
+        logging.info(f"Strings analysis complete. Results saved in {output_txt}")
+    else:
+        logging.warning("No strings extracted from process memory")
+        output_txt = None
 
-    # Run pd64 on each dump and scan outputs
+    # Run pd64 on each dump if we got any
     for dump_path in saved_dumps:
         logging.info(f"Running pd64 on dump: {dump_path}")
         subdir = os.path.join(pd64_extracted_dir, os.path.basename(dump_path))
