@@ -10696,20 +10696,14 @@ def get_window_class_name(hwnd):
     return class_name.value
 
 def get_window_text(hwnd):
-    """
-    Returns the window text (title/caption) for the given HWND.
-    No visibility check. No fallback. Returns '' if text is missing or inaccessible.
-    """
-    try:
-        length = user32.GetWindowTextLengthW(hwnd)
-        if length > 0:
-            buf = ctypes.create_unicode_buffer(length + 1)
-            copied = user32.GetWindowTextW(hwnd, buf, length + 1)
-            if copied > 0:
-                return buf.value.strip()
-    except Exception:
-        pass
-    return ""
+    """Retrieve the text of a window; always returns a string."""
+    length = user32.GetWindowTextLengthW(hwnd)
+    if length == 0:
+        return ""
+    buf = ctypes.create_unicode_buffer(length + 1)
+    if user32.GetWindowTextW(hwnd, buf, length + 1) == 0:
+        return ""
+    return buf.value
 
 def get_control_text(hwnd):
     """Enhanced control text extraction using multiple methods."""
