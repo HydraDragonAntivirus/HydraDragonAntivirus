@@ -9372,7 +9372,7 @@ def show_code_with_pylingual_pycdas(
                         if file.suffix == ".py":
                             pylingual_results[file.name] = content
                 except Exception as read_ex:
-                    logging.warning(f"Failed to read Pylingual file {file}: {read_ex}")
+                    logging.error(f"Failed to read Pylingual file {file}: {read_ex}")
 
             logging.info(f"Pylingual decompilation completed. Found {len(pylingual_results)} Python files.")
 
@@ -10052,6 +10052,7 @@ def scan_and_warn(file_path,
 def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_extracted_dir: str) -> Optional[str]:
     """
     Alternative function to analyze a specific process by name or path with better error handling.
+    Uses pd64 only on the original executable, not on memory dumps.
 
     :param process_name_or_path: Process name (e.g., 'guloader.exe') or full path
     :param memory_dir: Directory where memory dumps and string output are saved.
@@ -10075,7 +10076,7 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
         return None
 
     if len(matching_processes) > 1:
-        logging.warning(f"Multiple processes found matching {process_name}: {matching_processes}")
+        logging.info(f"Multiple processes found matching {process_name}: {matching_processes}")
 
     # Use the first matching process
     target_pid, target_exe = matching_processes[0]
@@ -10084,25 +10085,53 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
     extracted_strings = []
     saved_dumps = []
 
+    # Run pd64 on the original executable file (not process memory)
+    if os.path.exists(target_exe):
+        logging.info(f"Running pd64 on executable: {target_exe}")
+        exe_pd64_dir = os.path.join(pd64_extracted_dir, f"exe_{os.path.basename(target_exe)}_{target_pid}")
+        os.makedirs(exe_pd64_dir, exist_ok=True)
+
+        try:
+            if extract_with_pd64(target_exe, exe_pd64_dir):
+                logging.info(f"pd64 successfully extracted from executable {target_exe}")
+
+                # Scan all extracted files
+                for root, _, files in os.walk(exe_pd64_dir):
+                    for fname in files:
+                        full_path = os.path.join(root, fname)
+                        logging.info(f"Scanning pd64 extracted file: {full_path}")
+
+                        # Try to extract strings from pd64 results
+                        try:
+                            with open(full_path, 'rb') as f:
+                                file_data = f.read()
+                                file_strings = extract_ascii_strings(file_data)
+                                if file_strings:
+                                    extracted_strings.append(f"pd64 extracted file {fname} Strings:")
+                                    extracted_strings.extend(file_strings)
+                        except Exception as file_ex:
+                            logging.error(f"Could not read pd64 extracted file {full_path}: {file_ex}")
+
+                        # Scan the extracted file
+                        scan_and_warn(full_path)
+            else:
+                logging.error(f"pd64 extraction failed for executable {target_exe}")
+
+        except Exception as pd64_ex:
+            logging.error(f"Error during pd64 extraction for executable {target_exe}: {pd64_ex}")
+    else:
+        logging.error(f"Executable path does not exist: {target_exe}")
+
     try:
-        # Use a safer approach - try to create memory snapshot using pymem
+        # Try pymem approach for memory analysis
         pm = pymem.Pymem()
 
-        # Add timeout and error handling for process attachment
         try:
             pm.open_process_from_id(target_pid)
             logging.info(f"Attached to process ID {target_pid}")
-        except Exception as attach_ex:
-            logging.error(f"Failed to attach to process {target_pid}: {attach_ex}")
-            return None
 
-        try:
-            # Instead of enumerating modules (which crashes), try to read main executable memory
-            # Get process base address from psutil
-            proc = psutil.Process(target_pid)
-
-            # Try to read a small chunk of memory first as a test
             try:
+                # Try to read main executable memory
                 test_addr = 0x400000  # Common base address for executables
                 test_data = pm.read_bytes(test_addr, 4096)  # Read small 4KB chunk
 
@@ -10116,7 +10145,7 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
                     for offset in range(0, max_size, chunk_size):
                         try:
                             if not psutil.pid_exists(target_pid):
-                                logging.warning(f"Process {target_pid} terminated during analysis")
+                                logging.error(f"Process {target_pid} terminated during analysis")
                                 break
 
                             addr = test_addr + offset
@@ -10139,21 +10168,19 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
                                 break  # No more readable memory
 
                         except Exception as chunk_ex:
-                            logging.warning(f"Failed to read chunk at {hex(addr)}: {chunk_ex}")
+                            logging.error(f"Failed to read chunk at {hex(addr)}: {chunk_ex}")
                             break  # Stop on first failed chunk
-
                 else:
-                    logging.warning("Could not read any memory from process")
+                    logging.error("Could not read any memory from process")
 
             except Exception as read_ex:
                 logging.error(f"Failed to read process memory: {read_ex}")
 
-        except Exception as proc_ex:
-            logging.error(f"Error during memory reading: {proc_ex}")
+        except Exception as attach_ex:
+            logging.error(f"Failed to attach to process {target_pid}: {attach_ex}")
 
     except Exception as ex:
         logging.error(f"Failed to initialize pymem: {ex}")
-        return None
     finally:
         try:
             pm.close_process()
@@ -10162,8 +10189,9 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
             pass
 
     # Save extracted ASCII strings to file if we got any
+    output_txt = None
     if extracted_strings:
-        base_filename = "extracted_strings"
+        base_filename = f"extracted_strings_pid_{target_pid}"
         output_txt = os.path.join(memory_dir, f"{base_filename}.txt")
         counter = 1
         while os.path.exists(output_txt):
@@ -10172,25 +10200,12 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
         save_extracted_strings(output_txt, extracted_strings)
         logging.info(f"Strings analysis complete. Results saved in {output_txt}")
     else:
-        logging.warning("No strings extracted from process memory")
-        output_txt = None
+        logging.error(f"No strings extracted from process {target_pid} memory")
 
-    # Run pd64 on each dump if we got any
+    # Note: We only save memory dumps for string analysis, not for pd64 extraction
+    # pd64 is only used on the original executable file
     for dump_path in saved_dumps:
-        logging.info(f"Running pd64 on dump: {dump_path}")
-        subdir = os.path.join(pd64_extracted_dir, os.path.basename(dump_path))
-        os.makedirs(subdir, exist_ok=True)
-        try:
-            if extract_with_pd64(dump_path, subdir):
-                for root, _, files in os.walk(subdir):
-                    for fname in files:
-                        full_path = os.path.join(root, fname)
-                        logging.info(f"Scanning extracted file: {full_path}")
-                        scan_and_warn(full_path)
-            else:
-                logging.error(f"PD64 extraction failed for {dump_path}, skipping scan.")
-        except Exception as ex:
-            logging.error(f"Error during pd64 extraction or scanning for {dump_path}: {ex}")
+        logging.info(f"Memory dump saved: {dump_path} (for strings analysis only)")
 
     return output_txt
 
@@ -10199,65 +10214,104 @@ def monitor_memory_changes(
     change_threshold_bytes: int = 0
 ):
     """
-    Continuously monitor all processes for RSS memory changes and trigger analysis.
+    Continuously monitor processes in sandbox and main file for RSS memory changes and trigger analysis.
+    Uses both pymem and pd64 extraction methods.
 
     :param change_threshold_bytes: Minimum delta in RSS to trigger analysis.
     """
     last_rss = {}
     current_pid = os.getpid()  # Get our own PID to avoid self-analysis
 
+    logging.info(f"Starting memory monitor for sandbox: {sandboxie_folder}")
+    logging.info(f"Monitoring main file: {main_file_path}")
+    logging.info(f"Memory change threshold: {change_threshold_bytes} bytes")
+
     while True:
-        for proc in psutil.process_iter(['pid', 'memory_info', 'exe', 'name']):
-            pid = proc.info['pid']
+        try:
+            for proc in psutil.process_iter(['pid', 'memory_info', 'exe', 'name']):
+                pid = proc.info['pid']
 
-            # Skip analyzing our own process to prevent self-termination
-            if pid == current_pid:
-                continue
-            try:
-                rss = proc.info['memory_info'].rss
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
+                # Skip analyzing our own process to prevent self-termination
+                if pid == current_pid:
+                    continue
 
-            prev_rss = last_rss.get(pid)
-            if prev_rss is None or abs(rss - prev_rss) > change_threshold_bytes:
+                try:
+                    rss = proc.info['memory_info'].rss
+                    process_name = proc.info['name']
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    # Clean up stale PID from tracking
+                    if pid in last_rss:
+                        del last_rss[pid]
+                    continue
+
+                # Check if memory change is significant enough
+                prev_rss = last_rss.get(pid)
+                memory_changed = prev_rss is None or abs(rss - prev_rss) > change_threshold_bytes
+
+                if not memory_changed:
+                    continue
+
+                # Update tracked memory
                 last_rss[pid] = rss
 
                 try:
                     exe_path = proc.exe()
-                    process_name = proc.info['name']
                 except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-                    logging.info(f"Skipping PID {pid}: cannot retrieve process info ({e})")
+                    logging.debug(f"Skipping PID {pid} ({process_name}): cannot retrieve exe path ({e})")
                     continue
 
+                # Check if process is in our monitoring scope
                 exe_lower = exe_path.lower()
                 sandbox_lower = sandboxie_folder.lower()
                 main_lower = main_file_path.lower()
 
                 # Only monitor processes within sandboxie_folder or matching main_file_path
-                if not exe_lower.startswith(sandbox_lower) and exe_lower != main_lower:
+                is_in_sandbox = exe_lower.startswith(sandbox_lower)
+                is_main_file = exe_lower == main_lower
+
+                if not is_in_sandbox and not is_main_file:
                     continue
 
-                logging.info(f"Analyzing memory for: {exe_path} (PID: {pid})")
+                # Log the memory change detection
+                change_type = "increase" if prev_rss and rss > prev_rss else "change"
+                change_amount = rss - prev_rss if prev_rss else rss
+
+                logging.info(f"Memory {change_type} detected: {exe_path} (PID: {pid})")
+                logging.info(f"  Previous RSS: {prev_rss or 'N/A'} bytes")
+                logging.info(f"  Current RSS: {rss} bytes")
+                logging.info(f"  Change: {change_amount:+} bytes")
+                logging.info(f"  In sandbox: {is_in_sandbox}, Is main file: {is_main_file}")
 
                 try:
                     # Check if process is still running before attempting memory analysis
                     if not psutil.pid_exists(pid):
-                        logging.warning(f"Process {pid} ({process_name}) no longer exists, skipping analysis")
+                        logging.error(f"Process {pid} ({process_name}) no longer exists, skipping analysis")
+                        # Clean up from tracking
+                        if pid in last_rss:
+                            del last_rss[pid]
                         continue
 
-                    # Use the alternative analyze_specific_process method for better reliability
+                    # Use the enhanced analyze_specific_process method with pd64 fallback
+                    logging.info(f"Starting memory analysis for: {exe_path} (PID: {pid})")
                     result_file = analyze_specific_process(
                         process_name, memory_dir, pd64_extracted_dir
                     )
+
+                    if result_file:
+                        logging.info(f"Memory analysis completed for PID {pid}, result: {result_file}")
+                        # Spawn async scan on the resulting strings file
+                        threading.Thread(target=scan_and_warn, args=(result_file,)).start()
+                    else:
+                        logging.error(f"Memory analysis for PID {pid} returned no results")
+
                 except Exception as ex:
-                    logging.error(f"analyze_process_memory failed for {exe_path} (PID: {pid}): {ex}")
+                    logging.error(f"Memory analysis failed for {exe_path} (PID: {pid}): {ex}")
+                    # Don't remove from tracking on analysis failure, might work next time
                     continue
 
-                if not result_file:
-                    continue
-
-                # Spawn async scan on the resulting dump or strings file
-                threading.Thread(target=scan_and_warn, args=(result_file,)).start()
+        except Exception as monitor_ex:
+            logging.error(f"Error in memory monitoring loop: {monitor_ex}")
+            continue
 
 def monitor_saved_paths():
     """Continuously monitor all path lists in global path_lists and scan new items in threads."""
