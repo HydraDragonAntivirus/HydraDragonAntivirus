@@ -10120,35 +10120,48 @@ def scan_and_warn(file_path,
         logging.error(f"Error scanning file {norm_path}: {ex}")
         return False
 
-
-def analyze_process_memory(
-    process_identifier: Union[int, str],
-    memory_dir: str,
-    pd64_extracted_dir: str
-) -> Optional[str]:
+def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_extracted_dir: str) -> Optional[str]:
     """
-    Perform memory analysis on a live process and extract files using pymem and pd64.
-
-    :param process_identifier: Process ID (int) or process name (str) to attach to.
+    Alternative function to analyze a specific process by name or path with better error handling.
+    
+    :param process_name_or_path: Process name (e.g., 'guloader.exe') or full path
     :param memory_dir: Directory where memory dumps and string output are saved.
     :param pd64_extracted_dir: Directory where pd64 will extract embedded files.
     :return: Path to the extracted ASCII strings text file, or None if an error occurred.
     """
+    # Extract process name from path if needed
+    process_name = os.path.basename(process_name_or_path) if os.path.sep in process_name_or_path else process_name_or_path
+    
+    # Find all processes matching the name
+    matching_processes = []
+    for proc in psutil.process_iter(['pid', 'name', 'exe']):
+        try:
+            if proc.info['name'].lower() == process_name.lower():
+                matching_processes.append((proc.info['pid'], proc.info['exe']))
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    
+    if not matching_processes:
+        logging.error(f"No running processes found matching: {process_name}")
+        return None
+    
+    if len(matching_processes) > 1:
+        logging.warning(f"Multiple processes found matching {process_name}: {matching_processes}")
+    
+    # Use the first matching process
+    target_pid, target_exe = matching_processes[0]
+    logging.info(f"Found target process: {target_exe} (PID: {target_pid})")
+    
+    # Perform the actual memory analysis using the found PID
     # Ensure output directories exist
     os.makedirs(memory_dir, exist_ok=True)
     os.makedirs(pd64_extracted_dir, exist_ok=True)
 
     try:
-        # Attach to process
-        if isinstance(process_identifier, int):
-            pm = pymem.Pymem()
-            pm.open_process_from_id(process_identifier)
-            logging.info(f"Attached to process ID {process_identifier}")
-        else:
-            # If it's a string, treat it as process name (not full path)
-            process_name = os.path.basename(process_identifier) if os.path.sep in process_identifier else process_identifier
-            pm = pymem.Pymem(process_name)
-            logging.info(f"Attached to process by name: {process_name}")
+        # Attach to process using PID
+        pm = pymem.Pymem()
+        pm.open_process_from_id(target_pid)
+        logging.info(f"Attached to process ID {target_pid}")
 
         saved_dumps = []
         extracted_strings = []
@@ -10217,10 +10230,15 @@ def monitor_memory_changes(
     :param change_threshold_bytes: Minimum delta in RSS to trigger analysis.
     """
     last_rss = {}
+    current_pid = os.getpid()  # Get our own PID to avoid self-analysis
 
     while True:
         for proc in psutil.process_iter(['pid', 'memory_info', 'exe', 'name']):
             pid = proc.info['pid']
+            
+            # Skip analyzing our own process to prevent self-termination
+            if pid == current_pid:
+                continue
             try:
                 rss = proc.info['memory_info'].rss
             except (psutil.NoSuchProcess, psutil.AccessDenied):
@@ -10253,9 +10271,9 @@ def monitor_memory_changes(
                         logging.warning(f"Process {pid} ({process_name}) no longer exists, skipping analysis")
                         continue
                     
-                    # Use PID instead of exe_path for more reliable attachment
-                    result_file = analyze_process_memory(
-                        pid, memory_dir, pd64_extracted_dir
+                    # Use the alternative analyze_specific_process method for better reliability
+                    result_file = analyze_specific_process(
+                        process_name, memory_dir, pd64_extracted_dir
                     )
                 except Exception as ex:
                     logging.error(f"analyze_process_memory failed for {exe_path} (PID: {pid}): {ex}")
