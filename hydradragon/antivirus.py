@@ -10166,20 +10166,32 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
         saved_dumps = []
         extracted_strings = []
 
-        for module in enum_process_modules(pm.process_handle):
-            base_addr = ctypes.cast(module, ctypes.POINTER(ctypes.c_void_p)).contents.value
-            module_info = get_module_info(pm.process_handle, base_addr)
-            try:
-                data = read_memory_data(pm, base_addr, module_info.SizeOfImage)
-                dump_filename = os.path.join(memory_dir, f"mem_{hex(base_addr)}.bin")
-                save_memory_data(dump_filename, data)
-                saved_dumps.append(dump_filename)
+        try:
+            for module in enum_process_modules(pm.process_handle):
+                # Check if process still exists before each module
+                if not psutil.pid_exists(target_pid):
+                    logging.warning(f"Process {target_pid} terminated during analysis")
+                    break
+                    
+                base_addr = ctypes.cast(module, ctypes.POINTER(ctypes.c_void_p)).contents.value
+                module_info = get_module_info(pm.process_handle, base_addr)
+                try:
+                    data = read_memory_data(pm, base_addr, module_info.SizeOfImage)
+                    dump_filename = os.path.join(memory_dir, f"mem_{hex(base_addr)}.bin")
+                    save_memory_data(dump_filename, data)
+                    saved_dumps.append(dump_filename)
 
-                ascii_strings = extract_ascii_strings(data)
-                extracted_strings.append(f"Module {hex(base_addr)} Strings:")
-                extracted_strings.extend(ascii_strings)
-            except Exception as ex:
-                logging.warning(f"Error reading memory at {hex(base_addr)}: {ex}")
+                    ascii_strings = extract_ascii_strings(data)
+                    extracted_strings.append(f"Module {hex(base_addr)} Strings:")
+                    extracted_strings.extend(ascii_strings)
+                    logging.info(f"Successfully analyzed module at {hex(base_addr)}")
+                except Exception as ex:
+                    logging.warning(f"Error reading memory at {hex(base_addr)}: {ex}")
+                    # Continue with next module instead of crashing
+                    continue
+        except Exception as ex:
+            logging.error(f"Error during module enumeration: {ex}")
+            # Don't return None here, save what we got so far
 
     except Exception as ex:
         logging.error(f"Failed to attach or enumerate modules: {ex}")
