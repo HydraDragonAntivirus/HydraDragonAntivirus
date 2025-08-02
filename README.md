@@ -13,7 +13,7 @@
 <img src="hydradragon/assets/HydraDragonAVGUI.png" width= 1080px>
 </p>
 
-Dynamic and Static Analysis with Sandboxie for Windows with ClamAV, YARA-X, my machine learning AI, Behaviour analysis, NLP-Based detection, website signatures, Ghidra, Suricata, SIGMA etc.
+Dynamic and Static Analysis with Sandboxie for Windows with EDR, ClamAV, YARA-X, my machine learning AI, Behaviour analysis, NLP-Based detection, website signatures, Ghidra, Suricata, SIGMA etc.
 
 ## License
 
@@ -123,6 +123,10 @@ See the [LICENSE](./LICENSE) file for more information.
 
 - I used these projects for AI.
 
+- https://github.com/HydraDragonAntivirus/Owlyshield
+
+- I used these projects for EDR.
+
 **Note 6:**.
 - You will need an internet connection to install. It's not an offline installer.
 
@@ -157,7 +161,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - Inno Setup version 6.4.3
 
 **Note 14:**
-- Surprisingly, when I dump the process using this method (with pymem and psutil), the GuLoader malware fails to detect the virtual machine and proceeds to install the malware as if it's running on a real system. It behaves just like it would on a physical machine. This is likely an unexpected anti–anti-VM side effect.
+- Surprisingly, when I dump the process using this method (with pymem and psutil), the GuLoader malware fails to detect the virtual machine and proceeds to install the malware as if it's running on a real system. It behaves just like it would on a physical machine. This is likely an unexpected anti-anti-VM side effect.
 
 - Tool used: https://github.com/glmcdona/Process-Dump/releases/tag/v2.1.1
 

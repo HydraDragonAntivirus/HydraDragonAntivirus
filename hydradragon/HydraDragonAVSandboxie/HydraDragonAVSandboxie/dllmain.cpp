@@ -1828,8 +1828,8 @@ bool CheckSignature(const std::wstring& filePath, std::wstring& status)
     return (isValid && !issues);
 }
 
-// Helper: Check if signature verification is manipulated using certutil.
-// If certutil output contains "Bypass" or "Manipulated", we treat the check as manipulated.
+// Helper: Check if signature is invalid or manipulated,
+// but allow test-signed binaries (which are signed but not trusted by default).
 bool IsSignatureCheckManipulated(const std::wstring& filePath, std::wstring& certOutput)
 {
     std::wstring command = L"certutil -verify \"" + filePath + L"\"";
@@ -1839,18 +1839,35 @@ bool IsSignatureCheckManipulated(const std::wstring& filePath, std::wstring& cer
         certOutput = L"Failed to execute certutil";
         return false;
     }
+
     wchar_t buffer[256];
     std::wstring output;
-    while (fgetws(buffer, 256, pipe))
+    while (fgetws(buffer, sizeof(buffer) / sizeof(buffer[0]), pipe))
         output += buffer;
+
     _pclose(pipe);
     certOutput = output;
-    if (output.find(L"Bypass") != std::wstring::npos ||
-        output.find(L"Manipulated") != std::wstring::npos)
+
+    // Acceptable errors for test-signed or dev-signed binaries
+    bool isTestSigned =
+        output.find(L"End entity certificate is not trusted") != std::wstring::npos ||
+        output.find(L"Partial certificate chain") != std::wstring::npos ||
+        output.find(L"Root certificate is not trusted") != std::wstring::npos;
+
+    // Unacceptable failures indicating tampering or corruption
+    bool isInvalidSignature =
+        output.find(L"Signature verification failed") != std::wstring::npos ||
+        output.find(L"Cert chain validation failed") != std::wstring::npos ||
+        output.find(L"Cannot find object or property") != std::wstring::npos ||
+        output.find(L"Bad signature") != std::wstring::npos;
+
+    // If signature is invalid (not just test-signed), flag it
+    if (isInvalidSignature && !isTestSigned)
     {
-        return true;
+        return true; // Signature is invalid or manipulated
     }
-    return false;
+
+    return false; // Signature is OK or test-signed
 }
 
 // Updated function to check unsigned driver (for .sys files)
