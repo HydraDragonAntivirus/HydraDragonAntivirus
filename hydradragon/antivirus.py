@@ -10167,28 +10167,57 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
         extracted_strings = []
 
         try:
+            # Add more robust memory reading with validation
+            modules_processed = 0
             for module in enum_process_modules(pm.process_handle):
                 # Check if process still exists before each module
                 if not psutil.pid_exists(target_pid):
                     logging.warning(f"Process {target_pid} terminated during analysis")
                     break
+                
+                try:    
+                    base_addr = ctypes.cast(module, ctypes.POINTER(ctypes.c_void_p)).contents.value
                     
-                base_addr = ctypes.cast(module, ctypes.POINTER(ctypes.c_void_p)).contents.value
-                module_info = get_module_info(pm.process_handle, base_addr)
-                try:
-                    data = read_memory_data(pm, base_addr, module_info.SizeOfImage)
-                    dump_filename = os.path.join(memory_dir, f"mem_{hex(base_addr)}.bin")
-                    save_memory_data(dump_filename, data)
-                    saved_dumps.append(dump_filename)
+                    # Validate memory address
+                    if base_addr == 0 or base_addr < 0x10000:  # Skip null or very low addresses
+                        logging.warning(f"Skipping invalid base address: {hex(base_addr)}")
+                        continue
+                        
+                    module_info = get_module_info(pm.process_handle, base_addr)
+                    
+                    # Validate module size
+                    if module_info.SizeOfImage == 0 or module_info.SizeOfImage > 0x10000000:  # Skip 0 or >256MB modules
+                        logging.warning(f"Skipping module with invalid size: {module_info.SizeOfImage} at {hex(base_addr)}")
+                        continue
+                    
+                    # Try to read memory with size validation
+                    try:
+                        data = read_memory_data(pm, base_addr, module_info.SizeOfImage)
+                        if data and len(data) > 0:
+                            dump_filename = os.path.join(memory_dir, f"mem_{hex(base_addr)}.bin")
+                            save_memory_data(dump_filename, data)
+                            saved_dumps.append(dump_filename)
 
-                    ascii_strings = extract_ascii_strings(data)
-                    extracted_strings.append(f"Module {hex(base_addr)} Strings:")
-                    extracted_strings.extend(ascii_strings)
-                    logging.info(f"Successfully analyzed module at {hex(base_addr)}")
-                except Exception as ex:
-                    logging.warning(f"Error reading memory at {hex(base_addr)}: {ex}")
-                    # Continue with next module instead of crashing
+                            ascii_strings = extract_ascii_strings(data)
+                            extracted_strings.append(f"Module {hex(base_addr)} Strings:")
+                            extracted_strings.extend(ascii_strings)
+                            modules_processed += 1
+                            logging.info(f"Successfully analyzed module {modules_processed} at {hex(base_addr)}")
+                        else:
+                            logging.warning(f"No data read from module at {hex(base_addr)}")
+                    except (OSError, MemoryError, ctypes.WinError) as mem_ex:
+                        logging.warning(f"Memory read failed at {hex(base_addr)}: {mem_ex}")
+                        continue
+                        
+                except (ValueError, ctypes.ArgumentError, OSError) as addr_ex:
+                    logging.warning(f"Address/module error: {addr_ex}")
                     continue
+                except Exception as mod_ex:
+                    logging.warning(f"Unexpected module error: {mod_ex}")
+                    continue
+                    
+            logging.info(f"Processed {modules_processed} modules successfully")
+            
         except Exception as ex:
             logging.error(f"Error during module enumeration: {ex}")
             # Don't return None here, save what we got so far
