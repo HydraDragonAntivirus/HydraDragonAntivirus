@@ -11039,7 +11039,7 @@ class MonitorMessageCommandLine:
         return unique_name
 
     def preprocess_text(self, text):
-        return text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "")
+        return text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").replace("'", "").strip()
 
     def find_and_process_windows(self):
         """
