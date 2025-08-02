@@ -3417,21 +3417,6 @@ files = [
 windows-terminal = ["colorama (>=0.4.6)"]
 
 [[package]]
-name = "pymem"
-version = "1.14.0"
-description = "python memory access made easy"
-optional = false
-python-versions = "<4.0.0,>=3.8"
-groups = ["main"]
-files = [
-    {file = "pymem-1.14.0-py3-none-any.whl", hash = "sha256:2b9cc64b49d0685f73d616ab1f638611f87e8d649869e7a556f050f677c42a7e"},
-    {file = "pymem-1.14.0.tar.gz", hash = "sha256:29f6c32bcad0032888afabadf97d1e4c7757f88873de4d79f7f4c1df9b9e7ef1"},
-]
-
-[package.extras]
-speed = ["regex (==2024.9.11)"]
-
-[[package]]
 name = "pyparsing"
 version = "3.2.3"
 description = "pyparsing module - Classes and methods to define and execute parsing grammars"
@@ -5691,4 +5676,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = "==3.12.*"
-content-hash = "799af9ed764d7758017de4b7ce308939ee45e57d40093216603aaca8f1d4989b"
+content-hash = "ea1835919cb5315ae14e86d9ccfa1be0a0e583ee8c4af9684ac4a668c5476fb9"

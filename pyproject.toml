@@ -27,7 +27,6 @@ dependencies = [
     "accelerate>=1.8.1,<2.0.0",
     "py7zr>=1.0.0,<2.0.0",
     "chardet>=5.2.0,<6.0.0",
-    "pymem>=1.14.0,<2.0.0",
     "pyelftools>=0.32,<0.33",
     "zstandard>=0.23.0,<0.24.0",
     "macholib>=1.16.3,<2.0.0",
