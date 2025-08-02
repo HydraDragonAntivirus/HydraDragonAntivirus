@@ -10697,29 +10697,27 @@ def get_window_class_name(hwnd):
 
 def get_window_text(hwnd):
     """
-    Extracts window text using GetWindowTextW, falling back to the window's class name.
+    Attempts to get the window text. If that fails, returns the class name (no filtering).
     """
-    # Method 1: Standard GetWindowTextW
     try:
-        length = user32.GetWindowTextLengthW(hwnd) + 1
-        if length > 1:  # A length of 1 means an empty string
-            buf = ctypes.create_unicode_buffer(length)
-            # Check the number of characters copied
-            if user32.GetWindowTextW(hwnd, buf, length) > 0:
+        length = user32.GetWindowTextLengthW(hwnd)
+        if length > 0:
+            buf = ctypes.create_unicode_buffer(length + 1)
+            copied = user32.GetWindowTextW(hwnd, buf, length + 1)
+            if copied > 0:
                 text = buf.value.strip()
                 if text:
                     return text
-    except Exception as e:
-        logging.debug(f"GetWindowTextW failed for HWND {hwnd}: {e}")
+    except Exception:
+        pass
 
-    # Method 2: Fallback to the window class name as an identifier
+    # Fallback: return class name unconditionally
     try:
-        class_name = get_window_class_name(hwnd).strip()
-        # Avoid returning generic, unhelpful class names
-        if class_name and class_name not in ["Static", "Button"]:
-            return class_name
-    except Exception as e:
-        logging.debug(f"get_window_class_name failed for HWND {hwnd}: {e}")
+        class_buf = ctypes.create_unicode_buffer(256)
+        if user32.GetClassNameW(hwnd, class_buf, 256):
+            return class_buf.value.strip()
+    except Exception:
+        pass
 
     return ""
 
