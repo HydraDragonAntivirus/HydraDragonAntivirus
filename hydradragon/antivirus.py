@@ -10145,8 +10145,10 @@ def analyze_process_memory(
             pm.open_process_from_id(process_identifier)
             logging.info(f"Attached to process ID {process_identifier}")
         else:
-            pm = pymem.Pymem(process_identifier)
-            logging.info(f"Attached to process by name: {process_identifier}")
+            # If it's a string, treat it as process name (not full path)
+            process_name = os.path.basename(process_identifier) if os.path.sep in process_identifier else process_identifier
+            pm = pymem.Pymem(process_name)
+            logging.info(f"Attached to process by name: {process_name}")
 
         saved_dumps = []
         extracted_strings = []
@@ -10217,7 +10219,7 @@ def monitor_memory_changes(
     last_rss = {}
 
     while True:
-        for proc in psutil.process_iter(['pid', 'memory_info', 'exe']):
+        for proc in psutil.process_iter(['pid', 'memory_info', 'exe', 'name']):
             pid = proc.info['pid']
             try:
                 rss = proc.info['memory_info'].rss
@@ -10230,8 +10232,9 @@ def monitor_memory_changes(
 
                 try:
                     exe_path = proc.exe()
+                    process_name = proc.info['name']
                 except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-                    logging.info(f"Skipping PID {pid}: cannot retrieve executable path ({e})")
+                    logging.info(f"Skipping PID {pid}: cannot retrieve process info ({e})")
                     continue
 
                 exe_lower = exe_path.lower()
@@ -10242,14 +10245,20 @@ def monitor_memory_changes(
                 if not exe_lower.startswith(sandbox_lower) and exe_lower != main_lower:
                     continue
 
-                logging.info(f"Analyzing memory for: {exe_path}")
+                logging.info(f"Analyzing memory for: {exe_path} (PID: {pid})")
 
                 try:
+                    # Check if process is still running before attempting memory analysis
+                    if not psutil.pid_exists(pid):
+                        logging.warning(f"Process {pid} ({process_name}) no longer exists, skipping analysis")
+                        continue
+                    
+                    # Use PID instead of exe_path for more reliable attachment
                     result_file = analyze_process_memory(
-                        exe_path, memory_dir, pd64_extracted_dir
+                        pid, memory_dir, pd64_extracted_dir
                     )
                 except Exception as ex:
-                    logging.error(f"analyze_process_memory failed for {exe_path}: {ex}")
+                    logging.error(f"analyze_process_memory failed for {exe_path} (PID: {pid}): {ex}")
                     continue
 
                 if not result_file:
