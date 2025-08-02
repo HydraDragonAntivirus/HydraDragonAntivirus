@@ -27,6 +27,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - What is the difference and why does YARA still flag it as malware? Because your YARA rule doesn't check for unknown file types and I only removed the pe header and went to detections 0. So this god mode rule will save this antivirus right now!
 - If you want Meta Llama 3.2-1B, you need to download it from the releases. We didn't include the optional feature to reduce size.
 - Meta Llama 3.2-1B Location: Copy the contents of meta-llama.7z to the following directory: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\meta-llama
+- Please allow a minimum of two hours (your local time) for the antivirus to fully decompile the file and complete its analysis.
 
 ## Download Machine Learning Malware And Benign Database
 - **Malware Database:** [Download Link](https://drive.google.com/file/d/1QwdxdwX_nH-oF-5hVTkbTuFkrwUfR0-h)
@@ -75,7 +76,6 @@ See the [LICENSE](./LICENSE) file for more information.
 - Make your username hydradragonav (for example).
 - Don't forget to create the 'DefaultBox' folder if it was deleted, by right-clicking on Sandboxie Control and selecting 'Explore Contents'.
 - The installer also includes daily.cvd, main.cvd, bytecode.cvd due to download issues with the ClamAV database.
-- Please allow a minimum of two hours (your local time) for the antivirus to fully decompile the file and complete its analysis.
 
  ## Discord Community Server
 
@@ -96,7 +96,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - Allow Java on the Windows firewall, as it'll decompile the PE file.
 
 **Note 4:**
-- The update can take up to 5 minutes (10 seconds depending on your internet speed) or more, and will happen if you open this application after 6 hours, as it updates ClamAV definitions. Wait until you receive an update message. You can view freshclam.exe in the Task Manager under Hydra Dragon Antivirus. It will also restart ClamAV after definitions then give you a message. It's not well tested. If you find an issue, please create an issue. Antivirus software might be triggered by website signatures because they are not obfuscated, so exclude the `%ProgramFiles%\aHydraDragonAntivirus\hydradragon` folder. Please only use in a VM as you can only use this for deep analysis of a file. There is no fixed analysis time for a file.
+- If you find an issue, please create an issue. Antivirus software might be triggered by website signatures because they are not obfuscated, so exclude the `%ProgramFiles%\aHydraDragonAntivirus\hydradragon` folder. Please only use in a VM as you can only use this for deep analysis of a file. There is no fixed analysis time for a file.
 
 **Note 5:**
 
