@@ -8817,7 +8817,6 @@ def extract_resources(pe_path, output_dir):
 
     # Check if the PE file has resources
     if not hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-        logging.error("No resources found in this file (extract_resources).")
         return None
 
     os.makedirs(output_dir, exist_ok=True)
