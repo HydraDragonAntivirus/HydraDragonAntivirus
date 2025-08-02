@@ -210,8 +210,8 @@ import ctypes
 logging.info(f"ctypes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from ctypes import wintypes, byref
-logging.info(f"ctypes.wintypes, byref, windll module loaded in {time.time() - start_time:.6f} seconds")
+from ctypes import wintypes
+logging.info(f"ctypes.wintypes module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import win32gui
@@ -310,8 +310,8 @@ import macholib.mach_o
 logging.info(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from typing import Optional, Tuple, BinaryIO, Dict, Any, List, Set, Union
-logging.info(f"typing, Optional, Tuple, BinaryIO, Dict, Any, List, Set and Union module loaded in {time.time() - start_time:.6f} seconds")
+from typing import Optional, Tuple, BinaryIO, Dict, Any, List, Set
+logging.info(f"typing, Optional, Tuple, BinaryIO, Dict, Any, List and Set module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import types
@@ -3565,80 +3565,9 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
         scan_ip_address_general(ip, dotnet_flag, nuitka_flag,
                                 pyc_flag, nsis_flag, homepage_flag)
 
-# Load Psapi.dll and define the filter flag
-_psapi = ctypes.WinDLL('Psapi.dll')
-LIST_MODULES_ALL = 0x03
-
-def enum_process_modules(process_handle):
-    """Enumerate and retrieve loaded modules in a process."""
-    # Prepare an array for up to 1024 HMODULEs
-    hmodules = (ctypes.c_void_p * 1024)()
-    needed = ctypes.c_ulong()
-    cb = ctypes.sizeof(hmodules)
-
-    # BOOL EnumProcessModulesEx(
-    #   HANDLE hProcess,
-    #   HMODULE *lphModule,
-    #   DWORD cb,
-    #   LPDWORD lpcbNeeded,
-    #   DWORD dwFilterFlag
-    # );
-    success = _psapi.EnumProcessModulesEx(
-        process_handle,
-        ctypes.byref(hmodules),
-        cb,
-        ctypes.byref(needed),
-        LIST_MODULES_ALL
-    )
-    if not success:
-        logging.error("Failed to enumerate process modules")
-        return []
-
-    # Calculate how many module handles were actually returned
-    count = needed.value // ctypes.sizeof(ctypes.c_void_p)
-    return list(hmodules)[:count]
-
-
-# Define the MODULEINFO struct
-class MODULEINFO(ctypes.Structure):
-    _fields_ = [
-        ("lpBaseOfDll", ctypes.c_void_p),
-        ("SizeOfImage", ctypes.c_uint32),
-        ("EntryPoint", ctypes.c_void_p),
-    ]
-
-
-def get_module_info(process_handle, base_addr):
-    """Retrieve module information via Psapi.GetModuleInformation."""
-    module_info = MODULEINFO()
-    success = _psapi.GetModuleInformation(
-        process_handle,
-        ctypes.c_void_p(base_addr),
-        byref(module_info),
-        ctypes.sizeof(module_info)
-    )
-    if not success:
-        logging.error("GetModuleInformation failed")
-        return None
-    return module_info
-
-def read_memory_data(pm, base_addr, size):
-    """Read memory data from a specific module using pymem.Pymem."""
-    try:
-        return pm.read_bytes(base_addr, size)
-    except Exception as e:
-        logging.error(f"read_bytes failed: {e}")
-        return None
-
 def extract_ascii_strings(data):
     """Extract readable ASCII strings from binary data."""
     return re.findall(r'[ -~]{4,}', data.decode('ascii', errors='ignore'))
-
-def save_memory_data(base_addr, data):
-    """Save raw memory data to a file."""
-    memory_file = os.path.join(memory_dir, f"module_{hex(base_addr)}.bin")
-    with open(memory_file, 'wb') as mem_file:
-        mem_file.write(data)
 
 def save_extracted_strings(output_filename, extracted_strings):
     """Save extracted ASCII strings to a file."""
@@ -10123,7 +10052,7 @@ def scan_and_warn(file_path,
 def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_extracted_dir: str) -> Optional[str]:
     """
     Alternative function to analyze a specific process by name or path with better error handling.
-    
+
     :param process_name_or_path: Process name (e.g., 'guloader.exe') or full path
     :param memory_dir: Directory where memory dumps and string output are saved.
     :param pd64_extracted_dir: Directory where pd64 will extract embedded files.
@@ -10131,7 +10060,7 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
     """
     # Extract process name from path if needed
     process_name = os.path.basename(process_name_or_path) if os.path.sep in process_name_or_path else process_name_or_path
-    
+
     # Find all processes matching the name
     matching_processes = []
     for proc in psutil.process_iter(['pid', 'name', 'exe']):
@@ -10140,22 +10069,17 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
                 matching_processes.append((proc.info['pid'], proc.info['exe']))
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
-    
+
     if not matching_processes:
         logging.error(f"No running processes found matching: {process_name}")
         return None
-    
+
     if len(matching_processes) > 1:
         logging.warning(f"Multiple processes found matching {process_name}: {matching_processes}")
-    
+
     # Use the first matching process
     target_pid, target_exe = matching_processes[0]
     logging.info(f"Found target process: {target_exe} (PID: {target_pid})")
-    
-    # Perform safer memory analysis without dangerous module enumeration
-    # Ensure output directories exist
-    os.makedirs(memory_dir, exist_ok=True)
-    os.makedirs(pd64_extracted_dir, exist_ok=True)
 
     extracted_strings = []
     saved_dumps = []
@@ -10163,7 +10087,7 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
     try:
         # Use a safer approach - try to create memory snapshot using pymem
         pm = pymem.Pymem()
-        
+
         # Add timeout and error handling for process attachment
         try:
             pm.open_process_from_id(target_pid)
@@ -10171,62 +10095,62 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
         except Exception as attach_ex:
             logging.error(f"Failed to attach to process {target_pid}: {attach_ex}")
             return None
-        
+
         try:
             # Instead of enumerating modules (which crashes), try to read main executable memory
             # Get process base address from psutil
             proc = psutil.Process(target_pid)
-            
+
             # Try to read a small chunk of memory first as a test
             try:
                 test_addr = 0x400000  # Common base address for executables
                 test_data = pm.read_bytes(test_addr, 4096)  # Read small 4KB chunk
-                
+
                 if test_data:
                     logging.info(f"Successfully read test memory from {hex(test_addr)}")
-                    
+
                     # Try to read larger chunks incrementally
                     chunk_size = 0x10000  # 64KB chunks
                     max_size = 0x100000   # Max 1MB total
-                    
+
                     for offset in range(0, max_size, chunk_size):
                         try:
                             if not psutil.pid_exists(target_pid):
                                 logging.warning(f"Process {target_pid} terminated during analysis")
                                 break
-                                
+
                             addr = test_addr + offset
                             data = pm.read_bytes(addr, chunk_size)
-                            
+
                             if data and len(data) > 0:
                                 dump_filename = os.path.join(memory_dir, f"mem_safe_{hex(addr)}.bin")
                                 with open(dump_filename, 'wb') as f:
                                     f.write(data)
                                 saved_dumps.append(dump_filename)
-                                
+
                                 # Extract strings from this chunk
                                 ascii_strings = extract_ascii_strings(data)
                                 if ascii_strings:
                                     extracted_strings.append(f"Memory chunk {hex(addr)} Strings:")
                                     extracted_strings.extend(ascii_strings)
-                                    
+
                                 logging.info(f"Successfully read {len(data)} bytes from {hex(addr)}")
                             else:
                                 break  # No more readable memory
-                                
+
                         except Exception as chunk_ex:
                             logging.warning(f"Failed to read chunk at {hex(addr)}: {chunk_ex}")
                             break  # Stop on first failed chunk
-                            
+
                 else:
                     logging.warning("Could not read any memory from process")
-                    
+
             except Exception as read_ex:
                 logging.error(f"Failed to read process memory: {read_ex}")
-                
+
         except Exception as proc_ex:
             logging.error(f"Error during memory reading: {proc_ex}")
-            
+
     except Exception as ex:
         logging.error(f"Failed to initialize pymem: {ex}")
         return None
@@ -10285,7 +10209,7 @@ def monitor_memory_changes(
     while True:
         for proc in psutil.process_iter(['pid', 'memory_info', 'exe', 'name']):
             pid = proc.info['pid']
-            
+
             # Skip analyzing our own process to prevent self-termination
             if pid == current_pid:
                 continue
@@ -10320,7 +10244,7 @@ def monitor_memory_changes(
                     if not psutil.pid_exists(pid):
                         logging.warning(f"Process {pid} ({process_name}) no longer exists, skipping analysis")
                         continue
-                    
+
                     # Use the alternative analyze_specific_process method for better reliability
                     result_file = analyze_specific_process(
                         process_name, memory_dir, pd64_extracted_dir
@@ -10766,12 +10690,6 @@ def get_process_path(hwnd):
 # Helper functions for enumeration
 # ----------------------------------------------------
 
-def get_window_class_name(hwnd):
-    """Get the class name of a window."""
-    class_name = ctypes.create_unicode_buffer(256)
-    user32.GetClassNameW(hwnd, class_name, 256)
-    return class_name.value
-
 def get_window_text(hwnd):
     """Retrieve the text of a window; always returns a string."""
     length = user32.GetWindowTextLengthW(hwnd)
@@ -10926,13 +10844,6 @@ def get_uia_text(hwnd):
 # ----------------------------------------------------
 # Advanced enumeration-based capture
 # ----------------------------------------------------
-
-def get_window_rect(hwnd):
-    """Get the window rectangle (position and size)."""
-    rect = wintypes.RECT()
-    user32.GetWindowRect(hwnd, ctypes.byref(rect))
-    return rect.left, rect.top, rect.right, rect.bottom
-
 class MonitorMessageCommandLine:
     def __init__(self):
         self.processed_texts = set()
@@ -11125,10 +11036,6 @@ class MonitorMessageCommandLine:
         """
         def process_text(hwnd, label, text, process_path, win_type):
             try:
-                # Metadata for logging
-                class_name = get_window_class_name(hwnd)
-                left, top, right, bottom = get_window_rect(hwnd)
-
                 # Build sanitized base filename
                 filename = process_path.split("\\")[-1] if process_path else "unknown"
                 base = sanitize_filename(filename) + f"_{label}"
