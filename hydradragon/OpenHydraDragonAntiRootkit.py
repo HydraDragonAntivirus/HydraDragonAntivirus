@@ -814,7 +814,7 @@ class BootKitDetection:
                 text=True, encoding="utf-8", errors="ignore",
                 timeout=30
             )
-            suspicious_patterns = ['nointegritychecks', 'loadoptions']
+            suspicious_patterns = ['loadoptions']
             for line in result.stdout.split('\n'):
                 for pattern in suspicious_patterns:
                     if pattern.lower() in line.lower():
