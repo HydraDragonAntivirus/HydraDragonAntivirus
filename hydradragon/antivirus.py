@@ -3662,10 +3662,8 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     else:
         return False, malware_definition, nearest_benign_similarity
 
-def restart_clamd_native():
-    """Restart ClamAV using native Windows service management (no subprocess calls)."""
-    service_name = 'clamd'
-
+def restart_service(service_name):
+    """Restart a Windows service using native service management (no subprocess)."""
     try:
         # Check if service exists
         if not service_exists(service_name):
@@ -3674,42 +3672,61 @@ def restart_clamd_native():
 
         # Stop service if running
         if is_service_running(service_name):
-            logging.info("Stopping ClamAV...")
+            logging.info(f"Stopping service '{service_name}'...")
             try:
                 win32serviceutil.StopService(service_name)
-                logging.info("ClamAV stopped successfully.")
+                logging.info(f"Service '{service_name}' stopped successfully.")
             except Exception as ex:
-                logging.error(f"Failed to stop ClamAV: {ex}")
+                logging.error(f"Failed to stop service '{service_name}': {ex}")
                 return False
         else:
-            logging.info("ClamAV service is not running, skipping stop step.")
+            logging.info(f"Service '{service_name}' is not running, skipping stop step.")
 
         # Start service
-        logging.info("Starting ClamAV...")
+        logging.info(f"Starting service '{service_name}'...")
         try:
             win32serviceutil.StartService(service_name)
 
             # Verify service is running
             if is_service_running(service_name):
-                logging.info("ClamAV started successfully.")
+                logging.info(f"Service '{service_name}' started successfully.")
                 return True
             else:
-                logging.error("Service start command succeeded but service is not running.")
+                logging.error(f"Service start command succeeded but '{service_name}' is not running.")
                 return False
 
         except Exception as ex:
-            logging.error(f"Failed to start ClamAV: {ex}")
+            logging.error(f"Failed to start service '{service_name}': {ex}")
             return False
 
     except Exception as ex:
-        logging.error(f"An error occurred while restarting ClamAV: {ex}")
+        logging.error(f"An error occurred while restarting service '{service_name}': {ex}")
         return False
 
-def restart_clamd_thread():
+def restart_clamd_and_owlyshield_threaded():
+    def restart_both():
+        try:
+            logging.info("Restarting ClamAV service...")
+            if restart_service('clamd'):
+                logging.info("ClamAV service restarted successfully.")
+            else:
+                logging.error("ClamAV service restart failed.")
+        except Exception as ex:
+            logging.error(f"Exception during ClamAV restart: {ex}")
+
+        try:
+            logging.info("Restarting Owlyshield service...")
+            if restart_service('owlyshield'):
+                logging.info("Owlyshield service restarted successfully.")
+            else:
+                logging.error("Owlyshield service restart failed.")
+        except Exception as ex:
+            logging.error(f"Exception during Owlyshield restart: {ex}")
+
     try:
-        threading.Thread(target=restart_clamd_native).start()
+        threading.Thread(target=restart_both).start()
     except Exception as ex:
-        logging.error(f"Error starting clamd restart thread: {ex}")
+        logging.error(f"Error starting restart thread for ClamAV and Owlyshield: {ex}")
 
 def scan_file_with_clamd(file_path):
     """Scan file using clamd."""
@@ -10275,14 +10292,14 @@ def monitor_memory_changes(
                             if result_file:
                                 logging.info(f"Memory analysis completed for PID {pid}, result: {result_file}")
                                 # Spawn async scan on the resulting strings file
-                                threading.Thread(target=scan_and_warn, args=(result_file,), daemon=True).start()
+                                threading.Thread(target=scan_and_warn, args=(result_file,)).start()
                             else:
                                 logging.error(f"Memory analysis for PID {pid} returned no results")
                         except Exception as thread_ex:
                             logging.error(f"Thread analysis failed for PID {pid}: {thread_ex}")
 
                     # Start analysis thread as daemon to prevent hanging
-                    analysis_thread = threading.Thread(target=run_analysis, daemon=True)
+                    analysis_thread = threading.Thread(target=run_analysis)
                     analysis_thread.start()
 
                 except Exception as ex:
@@ -11176,8 +11193,7 @@ class MonitorMessageCommandLine:
             while True:
                 try:
                     threading.Thread(
-                        target=self.find_and_process_windows,
-                        daemon=True
+                        target=self.find_and_process_windows
                     ).start()
                 except Exception as e:
                     logging.error(f"Window/control enumeration error: {e}")
@@ -11324,8 +11340,8 @@ class MonitorMessageCommandLine:
 
     def start_monitoring_threads(self):
         # Start the main monitoring threads
-        threading.Thread(target=self.monitoring_window_text, daemon=True).start()
-        threading.Thread(target=self.monitoring_command_line, daemon=True).start()
+        threading.Thread(target=self.monitoring_window_text).start()
+        threading.Thread(target=self.monitoring_command_line).start()
         logging.info("All monitoring threads have been started.")
 
 def monitor_sandboxie_directory():
@@ -12744,7 +12760,7 @@ class AntivirusApp(QWidget):
                 self.append_log_output(f"[!] Error opening Sandboxie Control: {str(e)}")
 
         # Use QThread instead of threading.Thread for better Qt integration
-        thread = threading.Thread(target=run_thread, daemon=True)
+        thread = threading.Thread(target=run_thread)
         thread.start()
 
     def analyze_file(self):

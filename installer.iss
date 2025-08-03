@@ -155,9 +155,7 @@ Filename: "RUNDLL32.EXE"; Parameters: "SETUPAPI.DLL,InstallHinfSection DefaultIn
 Filename: "xcopy.exe"; Parameters: """C:\Windows\SysWOW64\drivers\{#FsFilter}.sys"" ""C:\Windows\System32\drivers"" /y"; Flags: runhidden; Components: owlyshield
 Filename: "sc.exe"; Parameters: "create ""{#AgentName}"" binPath= ""{app}\{#AgentName}\owlyshield_ransom.exe"""; Flags: runhidden; Components: owlyshield
 Filename: "sc.exe"; Parameters: "config ""{#AgentName}"" depend= {#FsFilter}"; Flags: runhidden; Components: owlyshield
-Filename: "sc.exe"; Parameters: "config ""{#AgentName}"" start= delayed-auto"; Flags: runhidden; Components: owlyshield
-Filename: "sc.exe"; Parameters: "start ""{#FsFilter}"""; Flags: runhidden; Components: owlyshield
-Filename: "sc.exe"; Parameters: "start ""{#AgentName}"""; Flags: runhidden; Components: owlyshield
+Filename: "sc.exe"; Parameters: "config ""{#AgentName}"" start= demand"; Flags: runhidden; Components: owlyshield
 
 [UninstallRun]
 ; Owlyshield cleanup (only if it was installed)
