@@ -5906,7 +5906,7 @@ def monitor_suricata_log():
             except Exception as ex:
                 logging.info(f"Error processing line: {ex}")
 
-restart_clamd_thread()
+restart_clamd_and_owlyshield_threaded()
 activate_uefi_drive() # Call the UEFI function
 load_website_data()
 load_antivirus_list()
@@ -12013,7 +12013,7 @@ class Worker(QThread):
                 # Using subprocess.run for simplicity. For real-time output, Popen is better.
                 result = subprocess.run([freshclam_path], capture_output=True, text=True, encoding="utf-8", errors="ignore")
                 if result.returncode == 0:
-                    restart_clamd_thread()
+                    restart_clamd_and_owlyshield_threaded()
                     self.output_signal.emit("[+] Virus definitions updated successfully and ClamAV restarted.")
                     self.output_signal.emit(f"Output:\n{result.stdout}")
                 else:
@@ -12154,9 +12154,9 @@ class Worker(QThread):
         """
         try:
             # Restart ClamAV
-            self.output_signal.emit("[*] Restarting ClamAV daemon...")
-            restart_clamd_thread()
-            self.output_signal.emit("[+] ClamAV daemon restarted.")
+            self.output_signal.emit("[*] Restarting Owlyshield and ClamAV daemon...")
+            restart_clamd_and_owlyshield_threaded()
+            self.output_signal.emit("[+] Owlyshield and ClamAV daemon restarted.")
 
             # Stop Suricata and cleanup logs
             self.output_signal.emit("[*] Step 1: Stopping Suricata and cleaning logs...")
