@@ -30,7 +30,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - What is the difference and why does YARA still flag it as malware? Because your YARA rule doesn't check for unknown file types and I only removed the pe header and went to detections 0. So this god mode rule will save this antivirus right now!
 - If you want Meta Llama 3.2-1B, you need to download it from the releases. We didn't include the optional feature to reduce size.
 - Meta Llama 3.2-1B Location: Copy the contents of meta-llama.7z to the following directory: %ProgramFiles%\aHydraDragonAntivirus\hydradragon\meta-llama
-- Please allow a minimum of two hours (your local time) for the antivirus to fully decompile the file and complete its analysis.
+- Please allow a minimum of two hours (local time) for the antivirus to fully decompile the file and complete its analysis. Otherwise, it cannot achieve a 90%+ detection rate against fresh samples with fewer false positives.
 
 ## Download Machine Learning Malware And Benign Database
 - **Malware Database:** [Download Link](https://drive.google.com/file/d/1QwdxdwX_nH-oF-5hVTkbTuFkrwUfR0-h)
