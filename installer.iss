@@ -99,6 +99,9 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
+; Enable test signing mode for unsigned drivers
+Filename: "bcdedit.exe"; Parameters: "/set testsigning on"; Flags: runhidden
+
 ; 7-Zip (silent)
 Filename: "{tmp}\7z2500-x64.exe"; Parameters: "/S"; Flags: shellexec waituntilterminated
 
@@ -140,6 +143,9 @@ Filename: "sc.exe"; Parameters: "config ""{#AgentName}"" depend= {#FsFilter}"; F
 Filename: "sc.exe"; Parameters: "config ""{#AgentName}"" start= demand"; Flags: runhidden
 
 [UninstallRun]
+; Disable test signing mode on uninstall
+Filename: "bcdedit.exe"; Parameters: "/set testsigning off"
+
 ; Owlyshield cleanup
 Filename: "sc.exe"; Parameters: "stop ""{#AgentName}"""
 Filename: "sc.exe"; Parameters: "stop ""{#FsFilter}"""
