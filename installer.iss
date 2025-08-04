@@ -56,15 +56,6 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; HydraDragon main files
 Source: "C:\Users\victim\Documents\HydraDragonAntivirus\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "hydradragon\owlyshield\*"
 
-; Owlyshield files
-Source: "C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\hydradragon\Owlyshield\OwlyshieldRansomFilter\*"; DestDir: "{app}\{#FsFilter}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe"; DestDir: "{app}\{#AgentName}"; Flags: ignoreversion
-Source: "C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\hydradragon\Owlyshield\Owlyshield Service\tensorflowlite_c.dll"; DestDir: "{app}\{#AgentName}"; Flags: ignoreversion 64bit
-Source: "C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\hydradragon\Owlyshield\Owlyshield Service\models\*"; DestDir: "{app}\{#AgentName}\models"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\hydradragon\Owlyshield\utils\*"; DestDir: "{app}\utils"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\hydradragon\Owlyshield\OwlyshieldRansomFilter\OwlyshieldRansomFilter.sys"; DestDir: "{sys}\drivers"; Flags: ignoreversion 64bit
-Source: "C:\Users\victim\Documents\GitHub\HydraDragonAntivirus\hydradragon\Owlyshield\config\exclusions.txt"; DestDir: "{app}\config"; Flags: ignoreversion 64bit
-
 ; External dependencies
 Source: "C:\Users\victim\Documents\hydratempinstall\7z2500-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
