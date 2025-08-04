@@ -11,7 +11,6 @@
 #define MyAppAssocKey StringChange(MyAppAssocName, " ", "") + MyAppAssocExt
 
 ; Owlyshield definitions
-#define OwlyshieldName "Owlyshield Ransom Community"
 #define OwlyshieldVersion "1.1.0"
 #define AgentName "Owlyshield Service"
 #define FsFilter "OwlyshieldRansomFilter"
@@ -45,7 +44,7 @@ DiskSpanning=yes
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=admin
-RestartIfNeededByRun=no
+RestartIfNeededByRun=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
