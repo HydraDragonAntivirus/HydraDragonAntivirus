@@ -11,12 +11,13 @@ set "INJECT_DLL=%HYDRADRAGON_PATH%\sandboxie_plugins\SbieHide\SbieHide.x64.dll"
 
 rem 1. Enable test signing mode for driver installation
 echo Enabling test signing mode...
-bcdedit /set testsigning on
+%SystemRoot%\System32\bcdedit.exe /set testsigning on
 if %errorlevel% equ 0 (
     echo Test signing mode enabled successfully.
     echo NOTE: A system reboot will be required for this change to take effect.
 ) else (
-    echo WARNING: Failed to enable test signing mode. You may need to run this script as Administrator.
+    echo WARNING: Failed to enable test signing mode.
+    echo You may need to run this script as Administrator.
 )
 
 rem 2. Copy clamavconfig
