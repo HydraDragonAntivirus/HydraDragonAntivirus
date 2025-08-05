@@ -60,13 +60,13 @@ Source: "C:\Users\victim\Documents\HydraDragonAntivirus\*"; DestDir: "{app}"; Fl
 Source: "C:\Users\victim\Documents\hydratempinstall\7z2500-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\clamav-1.4.3.win.x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\npcap-1.82.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydratempinstall\npcap-1.83.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\Suricata-8.0.0-windivert-1-64bit.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\jre-8u461-windows-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\jdk-21_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-8.0.18-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\python-3.12.10-amd64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "C:\Users\victim\Documents\hydratempinstall\Sandboxie-Classic-x64-v5.70.12.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "C:\Users\victim\Documents\hydratempinstall\Sandboxie-Classic-x64-v5.71.2.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\setup.bat"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Dirs]
@@ -127,10 +127,10 @@ Filename: "{tmp}\clamav-1.4.3.win.x64.msi"; Parameters: "/quiet /norestart"; Fla
 Filename: "{tmp}\Suricata-8.0.0-windivert-1-64bit.msi"; Parameters: "/quiet /norestart"; Flags: shellexec waituntilterminated
 
 ; Npcap
-Filename: "{tmp}\npcap-1.82.exe"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\npcap-1.83.exe"; Flags: shellexec waituntilterminated
 
 ; Sandboxie Classic
-Filename: "{tmp}\Sandboxie-Classic-x64-v5.70.12.exe"; Flags: shellexec waituntilterminated
+Filename: "{tmp}\Sandboxie-Classic-x64-v5.71.2.exe"; Flags: shellexec waituntilterminated
 
 ; Custom setup script
 Filename: "{tmp}\setup.bat"; Flags: shellexec waituntilterminated
