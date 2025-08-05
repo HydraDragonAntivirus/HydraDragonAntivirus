@@ -70,11 +70,11 @@ Source: "C:\Users\victim\Documents\hydratempinstall\Sandboxie-Classic-x64-v5.71.
 Source: "C:\Users\victim\Documents\hydratempinstall\setup.bat"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Dirs]
-Name: "{app}\debug"
-Name: "{app}\utils"
-Name: "{app}\log"; Flags: uninsneveruninstall
-Name: "{app}\config"; Flags: uninsneveruninstall
-Name: "{app}\config\threats"; Flags: uninsneveruninstall
+Name: "{app}\hydradragon\debug"
+Name: "{app}\hydradragon\utils"
+Name: "{app}\hydradragon\log"; Flags: uninsneveruninstall
+Name: "{app}\hydradragon\config"; Flags: uninsneveruninstall
+Name: "{app}\hydradragon\config\threats"; Flags: uninsneveruninstall
 
 [Registry]
 Root: HKA; Subkey: "Software\Classes\{#MyAppAssocExt}\OpenWithProgids"; ValueType: string; ValueName: "{#MyAppAssocKey}"; ValueData: ""; Flags: uninsdeletevalue
