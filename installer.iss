@@ -54,7 +54,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; HydraDragon main files
-Source: "C:\Users\victim\Documents\HydraDragonAntivirus\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "hydradragon\owlyshield\*"
+Source: "C:\Users\victim\Documents\HydraDragonAntivirus\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs;
 
 ; External dependencies
 Source: "C:\Users\victim\Documents\hydratempinstall\7z2500-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
@@ -70,11 +70,11 @@ Source: "C:\Users\victim\Documents\hydratempinstall\Sandboxie-Classic-x64-v5.71.
 Source: "C:\Users\victim\Documents\hydratempinstall\setup.bat"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Dirs]
-Name: "{app}\hydradragon\debug"
-Name: "{app}\hydradragon\utils"
-Name: "{app}\hydradragon\log"; Flags: uninsneveruninstall
-Name: "{app}\hydradragon\config"; Flags: uninsneveruninstall
-Name: "{app}\hydradragon\config\threats"; Flags: uninsneveruninstall
+Name: "{app}\hydradragon\Owlyshield\debug"
+Name: "{app}\hydradragon\Owlysihled\utils"
+Name: "{app}\hydradragon\Owlyshield\log"; Flags: uninsneveruninstall
+Name: "{app}\hydradragon\Owlyshield\config"; Flags: uninsneveruninstall
+Name: "{app}\hydradragon\Owlysihled\config\threats"; Flags: uninsneveruninstall
 
 [Registry]
 Root: HKA; Subkey: "Software\Classes\{#MyAppAssocExt}\OpenWithProgids"; ValueType: string; ValueName: "{#MyAppAssocKey}"; ValueData: ""; Flags: uninsdeletevalue
