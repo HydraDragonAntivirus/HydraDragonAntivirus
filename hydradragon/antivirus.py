@@ -395,6 +395,8 @@ FernFlower_decompiled_dir = os.path.join(script_dir, "FernFlower_decompiled")
 jar_extracted_dir = os.path.join(script_dir, "jar_extracted")
 dotnet_dir = os.path.join(script_dir, "dotnet")
 obfuscar_dir = os.path.join(script_dir, "obfuscar")
+net_reactor_slayer_dir = os.path.join(script_dir, "NETReactorSlayer-windowS")
+net_reactor_slayer_x64_cli_path  = os.path.join(net_reactor_slayer_dir, "NETReactorSlayer-x64.CLI.exe")
 nuitka_dir = os.path.join(script_dir, "nuitka")
 known_extensions_dir = os.path.join(script_dir, "known_extensions")
 FernFlower_path = os.path.join(jar_decompiler_dir, "fernflower.jar")
@@ -411,6 +413,7 @@ pylingual_extracted_dir = os.path.join(python_source_code_dir, "pylingual_extrac
 pycdas_extracted_dir = os.path.join(python_source_code_dir, "pycdas_extracted")
 de4dot_cex_dir = os.path.join(script_dir, "de4dot-cex")
 de4dot_cex_x64_path = os.path.join(de4dot_cex_dir, "de4dot-x64.exe")
+net_reactor_extracted_dir = os.path.join(script_dir, "net_reactor_extracted")
 de4dot_extracted_dir = os.path.join(script_dir, "de4dot_extracted")
 nuitka_source_code_dir = os.path.join(script_dir, "nuitka_source_code")
 commandlineandmessage_dir = os.path.join(script_dir, "commandlineandmessage")
@@ -696,7 +699,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [pd64_extracted_dir, enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir, processed_dir, python_source_code_dir, pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir, upx_extracted_dir, installshield_extracted_dir, autoit_extracted_dir]
+directories_to_scan = [pd64_extracted_dir, enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, net_reactor_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir, processed_dir, python_source_code_dir, pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir, upx_extracted_dir, installshield_extracted_dir, autoit_extracted_dir]
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
@@ -792,7 +795,7 @@ MANAGED_DIRECTORIES = [
     resource_extractor_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
     inno_setup_unpacked_dir, python_source_code_dir, nuitka_source_code_dir,
     commandlineandmessage_dir, processed_dir, memory_dir, dotnet_dir,
-    de4dot_extracted_dir, obfuscar_dir, nuitka_dir, pe_extracted_dir,
+    de4dot_extracted_dir, net_reactor_extracted_dir, obfuscar_dir, nuitka_dir, pe_extracted_dir,
     zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir,
     general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir,
     debloat_dir, jar_extracted_dir, FernFlower_decompiled_dir, deteciteasy_plain_text_dir,
@@ -1639,8 +1642,12 @@ def is_dotnet_file_from_output(die_output):
     Returns:
       - False
         if "C++" appears anywhere in the output.
+      - "Already Deobfuscated"
+        if "Tool: de4dot[deobfuscated]" is found.
       - "Protector: Obfuscar" or "Protector: Obfuscar(<version>)"
         if it's protected with Obfuscar.
+      - "Protector: .NET Reactor" or "Protector: .NET Reactor(<version>)"
+        if it's protected with .NET Reactor.
       - "Protector: <Name>" or "Protector: <Name>(<version>)"
         for any other Protector marker (full line captured).
       - True
@@ -1658,7 +1665,12 @@ def is_dotnet_file_from_output(die_output):
             logging.info("DIE output indicates native C++ with .NET.")
             return False
 
-        # 1) Specific Obfuscar protector
+        # 1) Check if already deobfuscated by de4dot
+        if "Tool: de4dot[deobfuscated]" in die_output:
+            logging.info("DIE output indicates file was already deobfuscated by de4dot.")
+            return "Already Deobfuscated"
+
+        # 2) Specific Obfuscar protector
         obfuscar_match = re.search(r'Protector:\s*Obfuscar(?:\(([^)]+)\))?', die_output)
         if obfuscar_match:
             version = obfuscar_match.group(1)
@@ -1666,19 +1678,28 @@ def is_dotnet_file_from_output(die_output):
             logging.info(f"DIE output indicates a .NET assembly protected with {result}.")
             return result
 
-        # 2) Generic Protector marker - capture the full line
+        # 3) Specific .NET Reactor protector (version 6.X only)
+        reactor_match = re.search(r'Protector:\s*\.NET\s*Reactor\(6\.\d+\)', die_output, re.IGNORECASE)
+        if reactor_match:
+            # Extract the full version from the match
+            version = reactor_match.group(0).split('(')[1].rstrip(')')
+            result = f"Protector: .NET Reactor({version})"
+            logging.info(f"DIE output indicates a .NET assembly protected with {result}.")
+            return result
+
+        # 4) Generic Protector marker - capture the full line
         line_match = re.search(r'^Protector:.*$', die_output, re.MULTILINE)
         if line_match:
             marker = line_match.group(0).strip()
             logging.info(f"DIE output indicates .NET assembly requiring de4dot: {marker}.")
             return marker
 
-        # 3) .NET runtime indication (only if no protector found)
+        # 5) .NET runtime indication (only if no protector found)
         if ".NET" in die_output:
             logging.info("DIE output indicates a .NET executable without protection; we'll still process it with de4dot.")
             return "Probably No Protector"
 
-        # 4) Nothing .NET/protector-related found
+        # 6) Nothing .NET/protector-related found
         return None
 
     except re.error as e:
@@ -6935,6 +6956,8 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: It's a Sandbox environment file, also a .NET file deobfuscated with de4dot.")
         elif file_path.startswith(de4dot_extracted_dir):
             logging.info(f"{file_path}: .NET file deobfuscated with de4dot.")
+        elif file_path.startswith(net_reactor_extracted_dir):
+            logging.info(f"{file_path}: .NET file deobfuscated with .NET Reactor Slayer.")
         elif file_path.startswith(pyinstaller_extracted_dir):
             logging.info(f"{file_path}: PyInstaller onefile extracted.")
         elif file_path.startswith(cx_freeze_extracted_dir):
@@ -7027,6 +7050,7 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
             (lambda fp: fp.startswith(dotnet_dir), ".NET decompiled."),
             (lambda fp: fp.startswith(obfuscar_dir), ".NET file obfuscated with Obfuscar."),
             (lambda fp: fp.startswith(de4dot_extracted_dir), ".NET file deobfuscated with de4dot."),
+            (lambda fp: fp.startswith(net_reactor_extracted_dir), ".NET file deobfuscated with .NET Reactor Slayer."),
             (lambda fp: fp.startswith(de4dot_sandboxie_dir), "It's a Sandbox environment file, also a .NET file deobfuscated with de4dot"),
             (lambda fp: fp.startswith(pyinstaller_extracted_dir), "PyInstaller onefile extracted."),
             (lambda fp: fp.startswith(cx_freeze_extracted_dir), "cx_freeze library.zip extracted."),
@@ -8619,6 +8643,80 @@ def run_pycdas_decompiler(file_path):
         logging.error(f"Error running pycdas: {e}")
         return None
 
+def deobfuscate_with_net_reactor(file_path, file_basename):
+    """
+    Deobfuscate a .NET assembly protected with .NET Reactor using NETReactorSlayer-x64.CLI.exe.
+
+    This function:
+      1. Copies the original file from file_path into the net_reactor_dir directory.
+      2. Calls the NETReactorSlayer-x64.CLI.exe executable with the copied file and --no-pause option.
+      3. Waits for the deobfuscated file (with "_Slayed" suffix) to appear in net_reactor_dir.
+      4. Returns the path of the deobfuscated file.
+
+    Parameters:
+      file_path (str): Path to the file to be deobfuscated.
+      file_basename (str): The name of the file (e.g., from os.path.basename(file_path)).
+
+    Returns:
+      str | None: Path to the deobfuscated file (with "_Slayed" suffix), or None on error.
+    """
+    if not os.path.exists(net_reactor_slayer_x64_cli_path):
+        logging.error(f".NET Reactor Slayer x64 CLI executable not found at {net_reactor_slayer_x64_cli_path}")
+        return None
+
+    # Copy the file to the net_reactor directory
+    copied_file_path = os.path.join(net_reactor_dir, file_basename)
+    try:
+        shutil.copy(file_path, copied_file_path)
+        logging.info(f"Copied file {file_path} to {copied_file_path}")
+    except Exception as e:
+        logging.error(f"Failed to copy file to .NET Reactor directory: {e}")
+        return None
+
+    # Run the deobfuscation tool with --no-pause option
+    try:
+        command = [net_reactor_slayer_x64_cli_path, copied_file_path, "--no-pause", "True"]
+        logging.info(f"Running .NET Reactor deobfuscation: {' '.join(command)}")
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
+        
+        # Log the output for debugging
+        if result.stdout:
+            logging.info(f".NET Reactor Slayer output: {result.stdout}")
+        if result.stderr:
+            logging.warning(f".NET Reactor Slayer errors: {result.stderr}")
+            
+    except Exception as e:
+        logging.error(f"Error during .NET Reactor deobfuscation execution: {e}")
+        return None
+
+    # Monitor directory for the deobfuscated output
+    logging.info("Waiting for deobfuscated file to appear...")
+    deobfuscated_file_path = None
+    
+    # The tool adds "_Slayed" to the end of the filename
+    name_without_ext = os.path.splitext(file_basename)[0]
+    original_ext = os.path.splitext(file_basename)[1]
+    expected_output = f"{name_without_ext}_Slayed{original_ext}"
+    
+    max_wait_time = 300  # 5 minutes timeout
+    start_time = time.time()
+    
+    while time.time() - start_time < max_wait_time:
+        try:
+            # Check for the expected output file with "_Slayed" suffix
+            expected_path = os.path.join(net_reactor_dir, expected_output)
+            if os.path.exists(expected_path):
+                logging.info(f"Deobfuscated file found: {expected_path}")
+                return expected_path
+                
+        except OSError as e:
+            logging.warning(f"Error checking for output file: {e}")
+            
+        time.sleep(1)  # Wait 1 second before checking again
+    
+    logging.error(f"Timeout: No deobfuscated file found after {max_wait_time} seconds")
+    return None
+
 def deobfuscate_with_obfuscar(file_path, file_basename):
     """
     Deobfuscate a .NET assembly protected with Obfuscar.
@@ -9632,7 +9730,7 @@ def scan_and_warn(file_path,
                 de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(input_dir,))
                 de4dot_thread.start()
 
-                if "Probably No Protector" in dotnet_result:
+                if "Probably No Protector" or "Already Deobfuscated" in dotnet_result:
                     dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(input_dir,))
                     dotnet_thread.start()
 
@@ -9870,6 +9968,17 @@ def scan_and_warn(file_path,
                         target=scan_and_warn,
                         args=(deobfuscated_path,),
                         kwargs={'flag_obfuscar': True}
+                    ).start()
+                else:
+                    logging.warning("Deobfuscation failed or unpacked file not found.")
+
+            if isinstance(dotnet_result, str) and "Protector: .NET Reactor" in dotnet_result:
+                logging.info(f"The file is a .NET assembly protected with .NET Reactor: {dotnet_result}")
+                deobfuscated_path = deobfuscate_with_net_reactor(norm_path, file_name)
+                if deobfuscated_path:
+                    threading.Thread(
+                        target=scan_and_warn,
+                        args=(deobfuscated_path,)
                     ).start()
                 else:
                     logging.warning("Deobfuscation failed or unpacked file not found.")
