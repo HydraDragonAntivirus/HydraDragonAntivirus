@@ -93,6 +93,7 @@ Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "APP_
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LANGUAGE"; ValueData: "en-US"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "KILL_POLICY"; ValueData: "DO_NOTHING"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "TELEMETRY"; ValueData: 0; Flags: uninsdeletekey
+Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"; ValueType: string; ValueName: "OwlyshieldPostInstall"; ValueData: """{app}\post_install.bat"""
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -134,13 +135,6 @@ Filename: "{tmp}\Sandboxie-Classic-x64-v5.71.2.exe"; Flags: shellexec waituntilt
 
 ; Custom setup script
 Filename: "{tmp}\setup.bat"; Flags: shellexec waituntilterminated
-
-; Owlyshield specific installation
-Filename: "RUNDLL32.EXE"; Parameters: "SETUPAPI.DLL,InstallHinfSection DefaultInstall 132 {app}\\hydradragon\Owlyshield\{#FsFilter}\{#FsFilter}.inf"; Flags: runhidden
-Filename: "xcopy.exe"; Parameters: """C:\Windows\SysWOW64\drivers\{#FsFilter}.sys"" ""C:\Windows\System32\drivers"" /y"; Flags: runhidden
-Filename: "sc.exe"; Parameters: "create ""{#AgentName}"" binPath= ""{app}\hydradragon\Owlyshield\{#AgentName}\owlyshield_ransom.exe"""; Flags: runhidden
-Filename: "sc.exe"; Parameters: "config ""{#AgentName}"" depend= {#FsFilter}"; Flags: runhidden
-Filename: "sc.exe"; Parameters: "config ""{#AgentName}"" start= demand"; Flags: runhidden
 
 [UninstallRun]
 ; Disable test signing mode on uninstall
