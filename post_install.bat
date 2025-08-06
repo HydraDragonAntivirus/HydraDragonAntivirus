@@ -2,20 +2,29 @@
 :: Check if running as Administrator
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [!] This script must be run as Administrator.
-    echo [!] Restarting as Administrator...
+    rem [!] This script must be run as Administrator.
+    rem [!] Restarting as Administrator...
     powershell -Command "Start-Process '%~f0' -Verb runAs"
     exit /b
 )
-echo [+] Installing driver INF...
+
+rem [+] Installing driver INF...
 RUNDLL32.EXE SETUPAPI.DLL,InstallHinfSection DefaultInstall 132 "%~dp0hydradragon\Owlyshield\OwlyshieldRansomFilter\OwlyshieldRansomFilter.inf"
-echo [+] Creating 'Owlyshield Service'...
+
+rem [+] Creating 'Owlyshield Service'...
 sc create "Owlyshield Service" binPath= "\"%~dp0hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe\""
-echo [+] Setting service dependency: OwlyshieldRansomFilter
+
+rem [+] Setting service dependency: OwlyshieldRansomFilter
 sc config "Owlyshield Service" depend= OwlyshieldRansomFilter
-echo [+] Setting service start mode: demand
+
+rem [+] Setting service start mode: demand
 sc config "Owlyshield Service" start= demand
-echo Done.
+
+rem [+] Starting service...
+sc start "Owlyshield Service"
+
+rem Done.
 pause
+
 :: Delete the script after running
 del "%~f0"
