@@ -12,7 +12,7 @@ rem [+] Installing driver INF...
 RUNDLL32.EXE SETUPAPI.DLL,InstallHinfSection DefaultInstall 132 "%~dp0hydradragon\Owlyshield\OwlyshieldRansomFilter\OwlyshieldRansomFilter.inf"
 
 rem [+] Creating 'Owlyshield Service'...
-sc create "Owlyshield Service" binPath= "\"%~dp0hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe\""
+sc create "Owlyshield Service" binPath= "%~dp0hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe"
 
 rem [+] Setting service dependency: OwlyshieldRansomFilter
 sc config "Owlyshield Service" depend= OwlyshieldRansomFilter
