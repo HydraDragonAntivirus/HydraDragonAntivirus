@@ -3768,7 +3768,7 @@ def restart_service(service_name):
         return False
 
 def restart_clamd_and_owlyshield_threaded():
-    def restart_both():
+    def restart_all():
         try:
             logging.info("Restarting ClamAV service...")
             if restart_service('clamd'):
@@ -3779,16 +3779,25 @@ def restart_clamd_and_owlyshield_threaded():
             logging.error(f"Exception during ClamAV restart: {ex}")
 
         try:
-            logging.info("Restarting Owlyshield service...")
-            if restart_service('owlyshield'):
-                logging.info("Owlyshield service restarted successfully.")
+            logging.info("Restarting Owly service...")
+            if restart_service('OwlyshieldRansomFilter'):
+                logging.info("OwlyshieldRansomFilter service restarted successfully.")
             else:
-                logging.error("Owlyshield service restart failed.")
+                logging.error("OwlyshieldRansomFilter service restart failed.")
         except Exception as ex:
-            logging.error(f"Exception during Owlyshield restart: {ex}")
+            logging.error(f"Exception during OwlyshieldRansomFilter restart: {ex}")
+
+        try:
+            logging.info("Restarting Owlyshield Service...")
+            if restart_service('Owlyshield Service'):
+                logging.info("Owlyshield Service service restarted successfully.")
+            else:
+                logging.error("Owlyshield Service service restart failed.")
+        except Exception as ex:
+            logging.error(f"Exception during Owlyshield Service restart: {ex}")
 
     try:
-        threading.Thread(target=restart_both).start()
+        threading.Thread(target=restart_all).start()
     except Exception as ex:
         logging.error(f"Error starting restart thread for ClamAV and Owlyshield: {ex}")
 
