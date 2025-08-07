@@ -71,10 +71,10 @@ Source: "C:\Users\victim\Documents\hydratempinstall\setup.bat"; DestDir: "{tmp}"
 
 [Dirs]
 Name: "{app}\hydradragon\Owlyshield\debug"
-Name: "{app}\hydradragon\Owlysihled\utils"
+Name: "{app}\hydradragon\Owlyshield\utils"
 Name: "{app}\hydradragon\Owlyshield\log"; Flags: uninsneveruninstall
 Name: "{app}\hydradragon\Owlyshield\config"; Flags: uninsneveruninstall
-Name: "{app}\hydradragon\Owlysihled\config\threats"; Flags: uninsneveruninstall
+Name: "{app}\hydradragon\Owlyshield\config\threats"; Flags: uninsneveruninstall
 
 [Registry]
 Root: HKA; Subkey: "Software\Classes\{#MyAppAssocExt}\OpenWithProgids"; ValueType: string; ValueName: "{#MyAppAssocKey}"; ValueData: ""; Flags: uninsdeletevalue
