@@ -1,30 +1,42 @@
 @echo off
-:: Check if running as Administrator
+setlocal
+
+:: --------------------------------------------------------
+:: 1) Ensure we’re elevated
+:: --------------------------------------------------------
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    rem [!] This script must be run as Administrator.
-    rem [!] Restarting as Administrator...
+    echo [!] This script must be run as Administrator.
+    echo [*] Relaunching elevated...
     powershell -Command "Start-Process '%~f0' -Verb runAs"
     exit /b
 )
 
-rem [+] Installing driver INF...
-RUNDLL32.EXE SETUPAPI.DLL,InstallHinfSection DefaultInstall 132 "%~dp0hydradragon\Owlyshield\OwlyshieldRansomFilter\OwlyshieldRansomFilter.inf"
+:: --------------------------------------------------------
+:: 2) Install the unsigned driver INF
+:: --------------------------------------------------------
+echo Installing driver INF...
+pnputil /add-driver "%~dp0hydradragon\Owlyshield\OwlyshieldRansomFilter\OwlyshieldRansomFilter.inf" /install
+if %errorlevel% neq 0 (
+    echo [!] Driver install failed. Make sure Test-Signing is enabled or the driver is signed.
+    pause
+    exit /b
+)
+echo [+] Driver installed.
 
-rem [+] Creating 'Owlyshield Service'...
+:: --------------------------------------------------------
+:: 3) Create and configure the service
+:: --------------------------------------------------------
+echo Creating 'Owlyshield Service'...
 sc create "Owlyshield Service" binPath= "%~dp0hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe"
-
-rem [+] Setting service dependency: OwlyshieldRansomFilter
 sc config "Owlyshield Service" depend= OwlyshieldRansomFilter
-
-rem [+] Setting service start mode: demand
 sc config "Owlyshield Service" start= demand
+echo [+] Service configured.
 
-rem [+] Starting service...
-sc start "Owlyshield Service"
-
-rem Done.
-pause
-
-:: Delete the script after running
+:: --------------------------------------------------------
+:: 4) Cleanup
+:: --------------------------------------------------------
+echo Cleaning up installer script...
 del "%~f0"
+
+endlocal
