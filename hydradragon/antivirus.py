@@ -306,8 +306,12 @@ import macholib.mach_o
 logging.info(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from typing import Optional, Tuple, BinaryIO, Dict, Any, List, Set
-logging.info(f"typing, Optional, Tuple, BinaryIO, Dict, Any, List and Set module loaded in {time.time() - start_time:.6f} seconds")
+from typing import Optional, Tuple, BinaryIO, Dict, Any, List, Set, Union
+logging.info(f"typing, Optional, Tuple, BinaryIO, Dict, Any, List, Set and Union module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from androguard.core.bytecodes.apk import APK
+logging.info(f"androguard.core.bytecodes.apk, APK module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import types
@@ -395,6 +399,7 @@ FernFlower_decompiled_dir = os.path.join(script_dir, "FernFlower_decompiled")
 jar_extracted_dir = os.path.join(script_dir, "jar_extracted")
 dotnet_dir = os.path.join(script_dir, "dotnet")
 obfuscar_dir = os.path.join(script_dir, "obfuscar")
+androguard_dir = os.path.join(script_dir, "androguard")
 net_reactor_slayer_dir = os.path.join(script_dir, "NETReactorSlayer-windowS")
 net_reactor_slayer_x64_cli_path  = os.path.join(net_reactor_slayer_dir, "NETReactorSlayer-x64.CLI.exe")
 nuitka_dir = os.path.join(script_dir, "nuitka")
@@ -699,7 +704,7 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [pd64_extracted_dir, enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, obfuscar_dir, de4dot_extracted_dir, net_reactor_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir, processed_dir, python_source_code_dir, pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir, upx_extracted_dir, installshield_extracted_dir, autoit_extracted_dir]
+directories_to_scan = [pd64_extracted_dir, enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, androguard_dir, obfuscar_dir, de4dot_extracted_dir, net_reactor_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir, processed_dir, python_source_code_dir, pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir, upx_extracted_dir, installshield_extracted_dir, autoit_extracted_dir]
 
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
@@ -794,7 +799,7 @@ MANAGED_DIRECTORIES = [
     pd64_extracted_dir, enigma_extracted_dir, upx_extracted_dir, ungarbler_dir, ungarbler_string_dir,
     resource_extractor_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
     inno_setup_unpacked_dir, python_source_code_dir, nuitka_source_code_dir,
-    commandlineandmessage_dir, processed_dir, memory_dir, dotnet_dir,
+    commandlineandmessage_dir, processed_dir, memory_dir, dotnet_dir, androguard_dir,
     de4dot_extracted_dir, net_reactor_extracted_dir, obfuscar_dir, nuitka_dir, pe_extracted_dir,
     zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir,
     general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir,
@@ -1477,7 +1482,7 @@ def is_pe_file_from_output(die_output: str, file_path: str) -> bool:
         True if the file appears to be a PE file, False otherwise.
     """
     # Check DIE output first
-    if die_output and ("PE32" in die_output or "PE64" in die_output):
+    if die_output and (die_output.startswith("PE32") or die_output.startswith("PE64")):
         logging.info("DIE output indicates a PE file.")
 
         # Cross-validate using pefile
@@ -1557,7 +1562,7 @@ def is_elf_file_from_output(die_output: str, file_path: str) -> bool:
         False otherwise.
     """
     # Check DIE output first
-    if die_output and ("ELF32" in die_output or "ELF64" in die_output):
+    if die_output and (die_output.startswith("ELF32") or die_output.startswith("ELF64")):
         logging.info("DIE output indicates an ELF file.")
 
         # Cross-validate using pyelftools
@@ -1580,6 +1585,44 @@ def is_elf_file_from_output(die_output: str, file_path: str) -> bool:
             logging.info("pyelftools detected an ELF file even though DIE did not.")
             return True
     except (ELFError, IOError, ValueError):
+        return False
+
+def is_apk_file_from_output(die_output: str, file_path: str) -> Union[bool, str]:
+    """
+    Determines whether the given file is an APK by combining DIE's detection
+    hint with Androguard's APK parser/validator.
+
+    Args:
+        die_output: The raw output string from DIE (Detect It Easy).
+        file_path:  The path to the file under test.
+
+    Returns:
+        True           - if Androguard confirms a valid APK.
+        "Broken APK"   - if DIE claimed "APK" but Androguard failed to parse it.
+        False          - otherwise.
+    """
+    # 1) Log DIE's hint if present
+    if die_output:
+        logging.info(f"DIE output: {die_output.strip()}")
+
+    # 2) Attempt to parse & validate via Androguard
+    try:
+        apk = APK(file_path)
+        if apk.is_valid_APK():
+            logging.info("Androguard confirms this is a valid APK.")
+            return True
+        else:
+            logging.error("Androguard opened the file but it failed APK validity checks.")
+            # If DIE initially said APK, mark it "Broken APK"
+            if die_output.startswith("APK"):
+                return "Broken APK"
+            return False
+
+    except Exception as e:
+        logging.error(f"Androguard failed to parse APK: {e}")
+        # If DIE originally flagged it as APK, return "Broken APK"
+        if die_output.startswith("APK"):
+            return "Broken APK"
         return False
 
 def is_enigma1_virtual_box(die_output):
@@ -1607,7 +1650,7 @@ def is_macho_file_from_output(die_output: str, file_path: str) -> bool:
         False otherwise.
     """
     # Check DIE output first
-    if die_output and "Mach-O" in die_output:
+    if die_output and (die_output.startswith("Mach-O")):
         logging.info("DIE output indicates a Mach-O file.")
 
         # Cross-validate using macholib
@@ -6950,6 +6993,8 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: Nuitka onefile extracted.")
         elif file_path.startswith(dotnet_dir):
             logging.info(f"{file_path}: .NET decompiled.")
+        elif file_path.startswith(androguard_dir):
+            logging.info(f"{file_path}: APK decompiled with androguard.")
         elif file_path.startswith(obfuscar_dir):
             logging.info(f"{file_path}: .NET file obfuscated with Obfuscar.")
         elif file_path.startswith(de4dot_sandboxie_dir):
@@ -7048,6 +7093,7 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
             (lambda fp: fp.startswith(inno_setup_unpacked_dir), "Inno Setup unpacked."),
             (lambda fp: fp.startswith(nuitka_dir), "Nuitka onefile extracted."),
             (lambda fp: fp.startswith(dotnet_dir), ".NET decompiled."),
+            (lambda fp: fp.startswith(androguard_dir), "APK decompiled with Androguard."),
             (lambda fp: fp.startswith(obfuscar_dir), ".NET file obfuscated with Obfuscar."),
             (lambda fp: fp.startswith(de4dot_extracted_dir), ".NET file deobfuscated with de4dot."),
             (lambda fp: fp.startswith(net_reactor_extracted_dir), ".NET file deobfuscated with .NET Reactor Slayer."),
@@ -8172,6 +8218,51 @@ def extract_and_return_pyinstaller(file_path):
 
     return extracted_pyinstaller_file_paths, output_dir
 
+def decompile_apk_file(file_path):
+    """
+    Decompile an Android APK using Androguard (via subprocess) and scan
+    all decompiled files for URLs, IPs, domains, and Discord webhooks.
+    """
+    try:
+        logging.info(f"Detected APK file: {file_path}")
+
+        # Find a free output folder number
+        folder_number = 1
+        while os.path.exists(os.path.join(androguard_dir, str(folder_number))):
+            folder_number += 1
+        output_dir = os.path.join(androguard_dir, str(folder_number))
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Build the command:
+        #   python -m androguard decompile -o <output_dir> <apk>
+        cmd = [
+            sys.executable,
+            "-m", "androguard",
+            "decompile",
+            "-o", output_dir,
+            file_path
+        ]
+        subprocess.run(cmd, check=True)
+        logging.info(f"APK decompiled to {output_dir}")
+
+        # Walk and scan any generated .smali or .java files
+        for root, _, files in os.walk(output_dir):
+            for fname in files:
+                if fname.endswith((".smali", ".java")):
+                    full_path = os.path.join(root, fname)
+                    logging.info(f"Scanning file: {full_path}")
+                    try:
+                        with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+                            content = f.read()
+                        scan_code_for_links(content, androguard_flag=True)
+                    except Exception as ex:
+                        logging.error(f"Error scanning {full_path}: {ex}")
+
+    except subprocess.CalledProcessError as cpe:
+        logging.error(f"Androguard subprocess failed: {cpe}")
+    except Exception as ex:
+        logging.error(f"Error decompiling APK {file_path}: {ex}")
+
 def decompile_dotnet_file(file_path):
     """
     Decompiles a .NET assembly using ILSpy and scans all decompiled .cs files
@@ -8678,13 +8769,13 @@ def deobfuscate_with_net_reactor(file_path, file_basename):
         command = [net_reactor_slayer_x64_cli_path, copied_file_path, "--no-pause", "True"]
         logging.info(f"Running .NET Reactor deobfuscation: {' '.join(command)}")
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
-        
+
         # Log the output for debugging
         if result.stdout:
             logging.info(f".NET Reactor Slayer output: {result.stdout}")
         if result.stderr:
             logging.warning(f".NET Reactor Slayer errors: {result.stderr}")
-            
+
     except Exception as e:
         logging.error(f"Error during .NET Reactor deobfuscation execution: {e}")
         return None
@@ -8692,15 +8783,15 @@ def deobfuscate_with_net_reactor(file_path, file_basename):
     # Monitor directory for the deobfuscated output
     logging.info("Waiting for deobfuscated file to appear...")
     deobfuscated_file_path = None
-    
+
     # The tool adds "_Slayed" to the end of the filename
     name_without_ext = os.path.splitext(file_basename)[0]
     original_ext = os.path.splitext(file_basename)[1]
     expected_output = f"{name_without_ext}_Slayed{original_ext}"
-    
+
     max_wait_time = 300  # 5 minutes timeout
     start_time = time.time()
-    
+
     while time.time() - start_time < max_wait_time:
         try:
             # Check for the expected output file with "_Slayed" suffix
@@ -8708,12 +8799,12 @@ def deobfuscate_with_net_reactor(file_path, file_basename):
             if os.path.exists(expected_path):
                 logging.info(f"Deobfuscated file found: {expected_path}")
                 return expected_path
-                
+
         except OSError as e:
             logging.warning(f"Error checking for output file: {e}")
-            
+
         time.sleep(1)  # Wait 1 second before checking again
-    
+
     logging.error(f"Timeout: No deobfuscated file found after {max_wait_time} seconds")
     return None
 
@@ -9672,6 +9763,20 @@ def scan_and_warn(file_path,
             logging.info(f"The file {norm_path} is a broken PE file. Skipping scan...")
             return False
 
+        apk_result = is_apk_file_from_output(die_output, norm_path)
+
+        if apk_result:
+            logging.info(f"The file {norm_path} is a valid APK file.")
+        elif apk_result == "Broken APK" and mega_optimization_with_anti_false_positive:
+            logging.info(f"The file {norm_path} is a broken APK file. Skipping scan...")
+            return False
+
+        elf_result = is_elf_file_from_output(die_output, norm_path)
+
+        if elf_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
+            logging.info(f"The file {norm_path} is a broken ELF file. Skipping scan...")
+            return False
+
         elf_result = is_elf_file_from_output(die_output, norm_path)
 
         if elf_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
@@ -9701,6 +9806,13 @@ def scan_and_warn(file_path,
             extracted_files = advanced_installer_extractor(norm_path)
             for extracted_file in extracted_files:
                 scan_and_warn(extracted_file)
+
+        if apk_result:
+            logging.info(f"File {norm_path} is a valid APK file.")
+            decompile_apk_files = decompile_apk_file(norm_path)
+            if decompile_apk_files:
+                for decompiled_apk_file in decompile_apk_files:
+                    scan_and_warn(decompiled_apk_file)
 
         # Check if the file is a known rootkit file
         if pe_file and file_name in known_rootkit_files:

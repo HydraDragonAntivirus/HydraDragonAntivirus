@@ -44,6 +44,7 @@ dependencies = [
     "pycryptodome==3.23.0",
     "autoit-ripper",
     "comtypes",
+    "androguard",
 
     # Pylingual reverse-engineering dependencies
     "asttokens",
