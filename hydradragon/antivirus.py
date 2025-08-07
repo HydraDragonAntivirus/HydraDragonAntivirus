@@ -310,8 +310,8 @@ from typing import Optional, Tuple, BinaryIO, Dict, Any, List, Set, Union
 logging.info(f"typing, Optional, Tuple, BinaryIO, Dict, Any, List, Set and Union module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from androguard.core.bytecodes.apk import APK
-logging.info(f"androguard.core.bytecodes.apk, APK module loaded in {time.time() - start_time:.6f} seconds")
+from androguard.misc import AnalyzeAPK
+logging.info(f"androguard.core.misc.AnalyzeAPK module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import types
@@ -1607,8 +1607,8 @@ def is_apk_file_from_output(die_output: str, file_path: str) -> Union[bool, str]
 
     # 2) Attempt to parse & validate via Androguard
     try:
-        apk = APK(file_path)
-        if apk.is_valid_APK():
+        a, d, dx = AnalyzeAPK(file_path)
+        if a.is_valid_APK():
             logging.info("Androguard confirms this is a valid APK.")
             return True
         else:
