@@ -1617,8 +1617,8 @@ def is_elf_file_from_output(die_output: str, file_path: str) -> bool:
 
 def is_apk_file_from_output(die_output: str, file_path: str) -> Union[bool, str]:
     """
-    Determines whether the given file is an APK by combining DIE's detection
-    hint with Androguard's APK parser/validator.
+    Determines whether the given file is an APK by first checking DIE's detection
+    result and, if positive, validating it via Androguard.
 
     Args:
         die_output: The raw output string from DIE (Detect It Easy).
@@ -1629,11 +1629,15 @@ def is_apk_file_from_output(die_output: str, file_path: str) -> Union[bool, str]
         "Broken APK"   - if DIE claimed "APK" but Androguard failed to parse it.
         False          - otherwise.
     """
-    # 1) Log DIE's hint if present
     if die_output:
         logging.info(f"DIE output: {die_output.strip()}")
 
-    # 2) Attempt to parse & validate via Androguard
+    # Only continue if DIE flagged the file as APK
+    if not die_output or not die_output.strip().upper().startswith("APK"):
+        logging.debug("DIE did not detect APK — skipping Androguard check.")
+        return False
+
+    # Try Androguard validation
     try:
         a, d, dx = AnalyzeAPK(file_path)
         if a.is_valid_APK():
@@ -1641,17 +1645,11 @@ def is_apk_file_from_output(die_output: str, file_path: str) -> Union[bool, str]
             return True
         else:
             logging.error("Androguard opened the file but it failed APK validity checks.")
-            # If DIE initially said APK, mark it "Broken APK"
-            if die_output.startswith("APK"):
-                return "Broken APK"
-            return False
+            return "Broken APK"
 
     except Exception as e:
         logging.error(f"Androguard failed to parse APK: {e}")
-        # If DIE originally flagged it as APK, return "Broken APK"
-        if die_output.startswith("APK"):
-            return "Broken APK"
-        return False
+        return "Broken APK"
 
 def is_enigma1_virtual_box(die_output):
     """
