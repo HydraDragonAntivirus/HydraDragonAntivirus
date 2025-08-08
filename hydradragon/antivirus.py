@@ -6269,6 +6269,43 @@ def clean_text(input_text):
     cleaned_text = re.sub(r'[\x00-\x1F\x7F]+', '', input_text)
     return cleaned_text
 
+
+def is_likely_junk(line):
+    """
+    A line is considered JUNK based on specific rules for deletion.
+    Returns True for lines that should be DELETED.
+
+    - Rule 1: Lines WITHOUT 'u' are JUNK (delete).
+    - Rule 2: Lines WITH 'u' that form recognizable English words are JUNK (delete).
+    - Rule 3: Lines WITH 'u' that are meaningless strings are NOT JUNK (keep).
+    """
+    line = line.strip()  # Clean whitespace
+
+    # Rule 1: If a line does NOT contain 'u', it is JUNK.
+    if 'u' not in line.lower():
+        return True  # JUNK, delete.
+
+    # If we are here, the line contains 'u'.
+    # Check if the line forms meaningful English words.
+
+    try:
+        # Tokenize the entire line
+        tokens = word_tokenize(line.lower())
+
+        # Check if ANY token with 'u' is NOT a meaningful English word
+        for token in tokens:
+            if 'u' in token and token.isalpha() and len(token) > 1:
+                if token not in ENGLISH_WORDS:
+                    return False  # NOT JUNK, found one meaningless string with 'u'
+
+        # Rule 2: If all tokens with 'u' are meaningful English words, it's JUNK
+        return True  # JUNK, delete
+
+    except Exception as e:
+        log.warning(f"NLTK processing failed for line: {line[:50]}... Error: {e}")
+        # On error, keep the line to be safe
+        return False  # NOT JUNK, keep
+
 def split_source_by_u_delimiter(source_code):
     """
     Parses a raw source code block by filtering lines based on the new logic
@@ -6322,42 +6359,6 @@ def split_source_by_u_delimiter(source_code):
             current_module_code.append(stripped_line)
 
     save_module_file(current_module_name, current_module_code)
-
-def is_likely_junk(line):
-    """
-    A line is considered JUNK based on specific rules for deletion.
-    Returns True for lines that should be DELETED.
-
-    - Rule 1: Lines WITHOUT 'u' are JUNK (delete).
-    - Rule 2: Lines WITH 'u' that form recognizable English words are JUNK (delete).
-    - Rule 3: Lines WITH 'u' that are meaningless strings are NOT JUNK (keep).
-    """
-    line = line.strip()  # Clean whitespace
-
-    # Rule 1: If a line does NOT contain 'u', it is JUNK.
-    if 'u' not in line.lower():
-        return True  # JUNK, delete.
-
-    # If we are here, the line contains 'u'.
-    # Check if the line forms meaningful English words.
-
-    try:
-        # Tokenize the entire line
-        tokens = word_tokenize(line.lower())
-
-        # Check if ANY token with 'u' is NOT a meaningful English word
-        for token in tokens:
-            if 'u' in token and token.isalpha() and len(token) > 1:
-                if token not in ENGLISH_WORDS:
-                    return False  # NOT JUNK, found one meaningless string with 'u'
-
-        # Rule 2: If all tokens with 'u' are meaningful English words, it's JUNK
-        return True  # JUNK, delete
-
-    except Exception as e:
-        log.warning(f"NLTK processing failed for line: {line[:50]}... Error: {e}")
-        # On error, keep the line to be safe
-        return False  # NOT JUNK, keep
 
 def scan_rsrc_files(file_paths):
     """
