@@ -6302,28 +6302,57 @@ def is_likely_junk(line):
         return True  # JUNK, delete
 
     except Exception as e:
-        log.warning(f"NLTK processing failed for line: {line[:50]}... Error: {e}")
+        logging.error(f"NLTK processing failed for line: {line[:50]}... Error: {e}")
         # On error, keep the line to be safe
         return False  # NOT JUNK, keep
 
 def split_source_by_u_delimiter(source_code):
     """
-    Parses a raw source code block by filtering lines based on the new logic
+    Parses a raw source code block by filtering lines based on junk detection
     and then grouping them into module files.
-    This version is improved to handle raw, concatenated u-prefixed strings.
     """
-    logging.info("Reconstructing source code using custom 'u' delimiter logic (Stage 3)...")
+    logging.info("Reconstructing source code using custom 'u' delimiter logic (Stage 2)...")
 
-    fragments = source_code.split('u')
-    lines = [fragments[0]] + ['u' + frag for frag in fragments[1:] if frag]
+    # Check if entire source is junk once
+    if is_likely_junk(source_code.strip()):
+        return
+    else:
+        # Split by 'u' until no 'u' left
+        lines = [source_code]
+
+        while True:
+            new_lines = []
+            has_u_to_split = False
+
+            for line in lines:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+
+                if 'u' in stripped:
+                    has_u_to_split = True
+                    parts = stripped.split('u')
+                    for part in parts:
+                        if part.strip():
+                            new_lines.append(part.strip())
+                else:
+                    new_lines.append(stripped)
+
+            lines = new_lines
+
+            if not has_u_to_split:
+                break
+
+        # Keep all lines
+        filtered_lines = [line.strip() for line in lines if line.strip()]
+
+    logging.info(f"Kept {len(filtered_lines)} lines after splitting and junk filtering")
 
     current_module_name = "initial_code"
     current_module_code = []
 
     def save_module_file(name, code_lines):
-        """Helper function to save the collected code for a module to a file."""
-        filtered_lines = [line for line in code_lines if line.strip()]
-        if not filtered_lines:
+        if not code_lines:
             return
 
         safe_filename = name.replace('.', '_') + ".py"
@@ -6331,24 +6360,15 @@ def split_source_by_u_delimiter(source_code):
 
         try:
             with open(output_path, "w", encoding="utf-8") as f:
-                f.write("# Reconstructed from Nuitka analysis\n")
-                f.write(f"# Original module name: {name}\n\n")
-                f.write("\n".join(filtered_lines))
+                f.write("\n".join(code_lines))
             logging.info(f"Reconstructed module saved to: {output_path}")
         except IOError as e:
             logging.error(f"Failed to write module file {output_path}: {e}")
 
-    module_start_pattern = re.compile(r"^\s*u<module\s+['\"]?([^>'\"]+)['\"]?>")
+    module_start_pattern = re.compile(r"^\s*<module\s+['\"]?([^>'\"]+)['\"]?>")
 
-    for line in lines:
-        stripped_line = line.strip()
-        if not stripped_line:
-            continue
-
-        if is_likely_junk(stripped_line):
-            continue
-
-        match = module_start_pattern.match(stripped_line)
+    for line in filtered_lines:
+        match = module_start_pattern.match(line)
         if match:
             if current_module_code:
                 save_module_file(current_module_name, current_module_code)
@@ -6356,9 +6376,10 @@ def split_source_by_u_delimiter(source_code):
             current_module_name = match.group(1)
             current_module_code = []
         else:
-            current_module_code.append(stripped_line)
+            current_module_code.append(line)
 
-    save_module_file(current_module_name, current_module_code)
+    if current_module_code:
+        save_module_file(current_module_name, current_module_code)
 
 def scan_rsrc_files(file_paths):
     """
