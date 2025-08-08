@@ -349,6 +349,19 @@ start_time = time.time()
 from xdis.unmarshal import load_code
 logging.info(f"xdis.unmarshal.load_code module loaded in {time.time() - start_time:.6f} seconds")
 
+import time
+start_time = time.time()
+import nltk
+logging.info(f"nltk imported in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from nltk.corpus import words
+logging.info(f"nltk.corpus.words imported in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from nltk.tokenize import word_tokenize
+logging.info(f"nltk.tokenize.word_tokenize imported in {time.time() - start_time:.6f} seconds")
+
 start_time = time.time()
 from GoStringUngarbler.gostringungarbler_lib import process_file_go
 logging.info(f"GoStringUngarbler.gostringungarbler_lib.process_file_go module loaded in {time.time() - start_time:.6f} seconds")
@@ -365,6 +378,21 @@ logging.info(f"Total time for all imports: {total_duration:.6f} seconds")
 # Load the spaCy model globally
 nlp_spacy_lang = spacy.load("en_core_web_md")
 logging.info("spaCy model 'en_core_web_md' loaded successfully")
+
+try:
+    nltk.data.find('tokenizers/punkt')
+except Exception:
+    logging.info("NLTK 'punkt' resource not found. Downloading...")
+    nltk.download('punkt', quiet=True)
+
+try:
+    nltk.data.find('corpora/words')
+except Exception:
+    logging.info("NLTK 'words' resource not found. Downloading...")
+    nltk.download('words', quiet=True)
+
+# Create a set of English words for efficient lookup.
+ENGLISH_WORDS = set(words.words())
 
 # Initialize the accelerator and device
 accelerator = Accelerator()
@@ -6243,20 +6271,112 @@ def clean_text(input_text):
     cleaned_text = re.sub(r'[\x00-\x1F\x7F]+', '', input_text)
     return cleaned_text
 
+def split_source_by_u_delimiter(source_code):
+    """
+    Parses a raw source code block by filtering lines based on the new logic
+    and then grouping them into module files.
+    This version is improved to handle raw, concatenated u-prefixed strings.
+    """
+    logging.info("Reconstructing source code using custom 'u' delimiter logic (Stage 3)...")
+
+    fragments = source_code.split('u')
+    lines = [fragments[0]] + ['u' + frag for frag in fragments[1:] if frag]
+
+    current_module_name = "initial_code"
+    current_module_code = []
+
+    def save_module_file(name, code_lines):
+        """Helper function to save the collected code for a module to a file."""
+        filtered_lines = [line for line in code_lines if line.strip()]
+        if not filtered_lines:
+            return
+
+        safe_filename = name.replace('.', '_') + ".py"
+        output_path = os.path.join(nuitka_source_code_dir, safe_filename)
+
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write("# Reconstructed from Nuitka analysis\n")
+                f.write(f"# Original module name: {name}\n\n")
+                f.write("\n".join(filtered_lines))
+            logging.info(f"Reconstructed module saved to: {output_path}")
+        except IOError as e:
+            logging.error(f"Failed to write module file {output_path}: {e}")
+
+    module_start_pattern = re.compile(r"^\s*u<module\s+['\"]?([^>'\"]+)['\"]?>")
+
+    for line in lines:
+        stripped_line = line.strip()
+        if not stripped_line:
+            continue
+
+        if is_likely_junk(stripped_line):
+            continue
+
+        match = module_start_pattern.match(stripped_line)
+        if match:
+            if current_module_code:
+                save_module_file(current_module_name, current_module_code)
+
+            current_module_name = match.group(1)
+            current_module_code = []
+        else:
+            current_module_code.append(stripped_line)
+
+    save_module_file(current_module_name, current_module_code)
+
+def is_likely_junk(line):
+    """
+    MODIFIED: A line is considered JUNK based on the user's specific (reversed) rules.
+    This function now returns True for lines that should be DELETED.
+    - Rule 1: Lines WITHOUT 'u' are JUNK (delete).
+    - Rule 2: Lines WITH 'u' that are part of a recognizable English word are JUNK (delete).
+    - Rule 3: Lines WITH 'u' that are part of a meaningless string are NOT JUNK (keep).
+    """
+    # Rule 1: If a line does NOT contain 'u', it is JUNK.
+    if 'u' not in line:
+        return True # JUNK, delete.
+
+    # If we are here, the line *does* contain 'u'.
+    # Now we check if it's a meaningful word (JUNK) or a meaningless string (NOT JUNK).
+    try:
+        # We only check the part after the 'u' for English words.
+        word_to_check = line.lstrip('u')
+        tokens = word_tokenize(word_to_check.lower())
+        for word in tokens:
+            # Rule 2: If a word is a real English word, the line is JUNK.
+            # We no longer check for 'u' here since we are checking the fragment after it.
+            if word.isalpha() and word in ENGLISH_WORDS:
+                return True # This is a meaningful word, so it's JUNK.
+    except Exception as e:
+        logging.error(f"NLTK processing failed for line: {line[:50]}... Error: {e}")
+        # On error, keep the line to be safe.
+        return False # NOT JUNK, keep.
+
+    # Rule 3: If the line has 'u' but not in any recognizable English word,
+    # it means it's a meaningless string, which should be KEPT (NOT JUNK).
+    return False # NOT JUNK, keep.
+
 def scan_rsrc_files(file_paths):
     """
-    Given a list of file paths for rsrcdata resources, this function scans each file
-    and processes only the first file that contains the string 'upython.exe'.
-    Once found, it extracts the source code portion starting after 'upython.exe',
-    cleans it, saves it to a uniquely named file, and scans the code for domains,
-    URLs, IP addresses, and Discord webhooks-passing both the code and the file path.
+    Given a list of file paths for rsrcdata resources, this function scans each file.
+
+    If 'upython.exe' is found in a file:
+        - Extract and clean code from that file.
+        - Save to disk.
+        - Do NOT scan for links.
+
+    If 'upython.exe' is not found:
+        - Find the largest file.
+        - Extract and clean its code.
+        - Scan for links with nuitka_flag=True.
     """
     if isinstance(file_paths, str):
         file_paths = [file_paths]
 
     executable_file = None
 
-    # First, find the file containing 'upython.exe'
+    # Check for 'upython.exe'
     for file_path in file_paths:
         if os.path.isfile(file_path):
             try:
@@ -6270,11 +6390,35 @@ def scan_rsrc_files(file_paths):
         else:
             logging.warning(f"Path {file_path} is not a valid file.")
 
+    # Case 1: No upython.exe -> use largest file and scan with nuitka_flag=True
     if executable_file is None:
         logging.info("No file containing 'upython.exe' was found.")
+        largest_file = None
+        largest_size = -1
+        for file_path in file_paths:
+            if os.path.isfile(file_path):
+                try:
+                    size = os.path.getsize(file_path)
+                    if size > largest_size:
+                        largest_size = size
+                        largest_file = file_path
+                except Exception as ex:
+                    logging.error(f"Error checking size for {file_path}: {ex}")
+
+        if largest_file:
+            try:
+                with open(largest_file, "r", encoding="utf-8", errors="ignore") as f:
+                    lines = f.readlines()
+                cleaned_source_code = [clean_text(line.rstrip()) for line in lines]
+                decompiled_code = "\n".join(cleaned_source_code)
+                scan_code_for_links(decompiled_code, largest_file, nuitka_flag=True)
+            except Exception as ex:
+                logging.error(f"Error processing largest file {largest_file}: {ex}")
+        else:
+            logging.info("No valid files found to scan.")
         return
 
-    # Process the matched file
+    # Case 2: upython.exe found -> extract but no scan
     try:
         logging.info(f"Processing file: {executable_file}")
         with open(executable_file, "r", encoding="utf-8", errors="ignore") as f:
@@ -6292,6 +6436,7 @@ def scan_rsrc_files(file_paths):
                 # Build the source code lines
                 source_code_lines = ([remainder] if remainder else []) + lines[source_index + 1:]
                 cleaned_source_code = [clean_text(line.rstrip()) for line in source_code_lines]
+                decompiled_code = "\n".join(cleaned_source_code)
 
                 # Determine unique save path
                 base_name = os.path.splitext(os.path.basename(executable_file))[0]
@@ -6310,13 +6455,10 @@ def scan_rsrc_files(file_paths):
 
                 # Write out the cleaned source
                 with open(save_path, "w", encoding="utf-8") as save_file:
-                    for line in cleaned_source_code:
-                        save_file.write(line + "\n")
+                    save_file.write(decompiled_code)
                 logging.info(f"Saved extracted source code from {executable_file} to {save_path}")
-
-                # Now pass both the code *and* the original file path
-                extracted_source_code = ''.join(source_code_lines)
-                scan_code_for_links(extracted_source_code, executable_file)
+                # Send only the saved file path
+                split_source_by_u_delimiter(decompiled_code)
 
             else:
                 logging.info(f"No line containing 'upython.exe' found in {executable_file}.")
@@ -8263,7 +8405,7 @@ def decompile_apk_file(file_path):
                     try:
                         with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
                             content = f.read()
-                        scan_code_for_links(content, androguard_flag=True)
+                        scan_code_for_links(content, full_path, androguard_flag=True)
                     except Exception as ex:
                         logging.error(f"Error scanning {full_path}: {ex}")
 
@@ -8311,7 +8453,7 @@ def decompile_dotnet_file(file_path):
                             cs_file_content = f.read()
 
                         # Scan for links, IPs, domains, and Discord webhooks
-                        scan_code_for_links(cs_file_content, dotnet_flag=True)
+                        scan_code_for_links(cs_file_content, cs_file_path, dotnet_flag=True)
 
                     except Exception as ex:
                         logging.error(f"Error scanning .cs file {cs_file_path}: {ex}")
@@ -8366,7 +8508,7 @@ def extract_all_files_with_7z(file_path, nsis_flag=False):
                 try:
                     with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                         content = f.read()
-                    links = scan_code_for_links(content, nsis_flag=True)
+                    links = scan_code_for_links(content, path, nsis_flag=True)
                     logging.info(f"Scanned NSIS script {path}, found {len(links)} links.")
                 except Exception as e:
                     logging.error(f"Failed to scan NSIS script {path}: {e}")
@@ -8748,9 +8890,9 @@ def deobfuscate_with_net_reactor(file_path, file_basename):
     Deobfuscate a .NET assembly protected with .NET Reactor using NETReactorSlayer-x64.CLI.exe.
 
     This function:
-      1. Copies the original file from file_path into the net_reactor_dir directory.
+      1. Copies the original file from file_path into the net_reactor_extracted_dir directory.
       2. Calls the NETReactorSlayer-x64.CLI.exe executable with the copied file and --no-pause option.
-      3. Waits for the deobfuscated file (with "_Slayed" suffix) to appear in net_reactor_dir.
+      3. Waits for the deobfuscated file (with "_Slayed" suffix) to appear in net_reactor_extracted_dir.
       4. Returns the path of the deobfuscated file.
 
     Parameters:
@@ -8765,7 +8907,7 @@ def deobfuscate_with_net_reactor(file_path, file_basename):
         return None
 
     # Copy the file to the net_reactor directory
-    copied_file_path = os.path.join(net_reactor_dir, file_basename)
+    copied_file_path = os.path.join(net_reactor_extracted_dir, file_basename)
     try:
         shutil.copy(file_path, copied_file_path)
         logging.info(f"Copied file {file_path} to {copied_file_path}")
@@ -8791,7 +8933,6 @@ def deobfuscate_with_net_reactor(file_path, file_basename):
 
     # Monitor directory for the deobfuscated output
     logging.info("Waiting for deobfuscated file to appear...")
-    deobfuscated_file_path = None
 
     # The tool adds "_Slayed" to the end of the filename
     name_without_ext = os.path.splitext(file_basename)[0]
@@ -8804,7 +8945,7 @@ def deobfuscate_with_net_reactor(file_path, file_basename):
     while time.time() - start_time < max_wait_time:
         try:
             # Check for the expected output file with "_Slayed" suffix
-            expected_path = os.path.join(net_reactor_dir, expected_output)
+            expected_path = os.path.join(net_reactor_extracted_dir, expected_output)
             if os.path.exists(expected_path):
                 logging.info(f"Deobfuscated file found: {expected_path}")
                 return expected_path
@@ -9543,14 +9684,14 @@ def run_in_thread(fn):
 
 def show_code_with_pylingual_pycdas(
     file_path: str,
-) -> Tuple[Optional[Dict[str, str]], Optional[Dict[str, str]]]:
+) -> Tuple[Optional[List[str]], Optional[List[str]]]:
     """
     Decompile a .pyc file using both Pylingual and pycdas decompilers.
 
     Returns:
         Tuple:
-          - pylingual: A dict mapping each decompiled .py filename to its source code string, or None
-          - pycdas: A dict mapping each decompiled .py filename to its source code string, or None
+          - pylingual_files: List of file paths to decompiled .py files by Pylingual, or None
+          - pycdas_files: List of file paths to decompiled files by pycdas, or None
     """
     try:
         logging.info(f"Decompiling with Pylingual and pycdas: {file_path}")
@@ -9559,29 +9700,29 @@ def show_code_with_pylingual_pycdas(
             logging.error(f".pyc file not found: {file_path}")
             return None, None
 
-        pylingual_results: Dict[str, str] = {}
-        pycdas_results: Dict[str, str] = {}
+        pylingual_files: List[str] = []
+        pycdas_files: List[str] = []
 
         # === Pylingual Decompilation ===
         try:
-            # Create an output directory under the base dir for Pylingual
+            # Create output directory for Pylingual
             target_dir = Path(pylingual_extracted_dir) / f"decompiled_{pyc_path.stem}"
             target_dir.mkdir(parents=True, exist_ok=True)
 
-            # Run the unified decompiler; writes files into target_dir
+            # Run Pylingual decompiler (writes files into target_dir)
             decompile_pyc_with_pylingual(str(pyc_path))
 
-            # Read the decompiled files from Pylingual
-            for file in target_dir.iterdir():
-                try:
-                    with open(file, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                        if file.suffix == ".py":
-                            pylingual_results[file.name] = content
-                except Exception as read_ex:
-                    logging.error(f"Failed to read Pylingual file {file}: {read_ex}")
+            # Collect all .py files produced by Pylingual
+            py_files = list(target_dir.rglob("*.py"))
 
-            logging.info(f"Pylingual decompilation completed. Found {len(pylingual_results)} Python files.")
+            if not py_files:
+                # Sometimes Pylingual might output in a subdirectory
+                possible_subdir = target_dir / f"decompiled_{pyc_path.stem}"
+                if possible_subdir.exists():
+                    py_files = list(possible_subdir.rglob("*.py"))
+
+            pylingual_files = [str(p) for p in py_files]
+            logging.info(f"Pylingual decompiled {len(pylingual_files)} .py files")
 
         except Exception as pylingual_ex:
             logging.error(f"Pylingual decompilation failed for {file_path}: {pylingual_ex}")
@@ -9591,12 +9732,7 @@ def show_code_with_pylingual_pycdas(
             pycdas_output_path = run_pycdas_decompiler(file_path)
 
             if pycdas_output_path and os.path.exists(pycdas_output_path):
-                # Read the decompiled file from pycdas
-                with open(pycdas_output_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    file_name = os.path.basename(pycdas_output_path)
-                    pycdas_results[file_name] = content
-
+                pycdas_files.append(str(pycdas_output_path))
                 logging.info(f"pycdas decompilation completed. Output: {pycdas_output_path}")
             else:
                 logging.warning(f"pycdas decompilation failed or produced no output for {file_path}")
@@ -9604,10 +9740,10 @@ def show_code_with_pylingual_pycdas(
         except Exception as pycdas_ex:
             logging.error(f"pycdas decompilation failed for {file_path}: {pycdas_ex}")
 
-        # Return results (None if empty)
+        # Return lists or None if empty
         return (
-            pylingual_results if pylingual_results else None,
-            pycdas_results if pycdas_results else None
+            pylingual_files if pylingual_files else None,
+            pycdas_files if pycdas_files else None,
         )
 
     except Exception as ex:
@@ -9977,39 +10113,43 @@ def scan_and_warn(file_path,
                 except Exception as e:
                     logging.error(f"Error decompiling cx_Freeze stub at {normalized_path}: {e}")
 
-            # Check if it's a .pyc file and decompile via Pylingual
-            if is_pyc_file_from_output(die_output):
-                logging.info(
-                    f"File {norm_path} is a .pyc (Python Compiled Module). Attempting Pylingual decompilation...")
+			# Check if it's a .pyc file and decompile via Pylingual
+        # Check if it's a .pyc file and decompile via Pylingual
+        if is_pyc_file_from_output(die_output):
+            logging.info(
+                f"File {norm_path} is a .pyc (Python Compiled Module). Attempting Pylingual decompilation..."
+            )
 
-                # 1) Decompile
-                pylingual, pycdas = show_code_with_pylingual_pycdas(
-                    file_path=norm_path,
-                )
+            # 1) Decompile
+            pylingual, pycdas = show_code_with_pylingual_pycdas(
+                file_path=norm_path,
+            )
 
-                # 2) Scan .py sources in-memory
-                if pylingual:
-                    logging.info("Scanning all decompiled .py files from Pylingual output.")
-                    for fname, source in pylingual.items():
-                        logging.info(f"Scheduling scan for decompiled file: {fname}")
-                        threading.Thread(
-                            target=scan_and_warn,
-                            kwargs={"file_path": None, "content": source}
-                        ).start()
-                else:
-                    logging.error(f"Pylingual decompilation failed for {norm_path}.")
+            # 2) Scan .py sources in-memory
+            if pylingual:
+                logging.info("Scanning all decompiled .py files from Pylingual output.")
+                for fname in pylingual.keys():
+                    logging.info(f"Scheduling scan for decompiled file: {fname}")
+                    threading.Thread(
+                        target=scan_and_warn,
+                        kwargs={"file_path": fname}
+                    ).start()
+                    # Also process the decompiled code
+                    threading.Thread(target=process_decompiled_code, args=(fname,)).start()
+            else:
+                logging.error(f"Pylingual decompilation failed for {norm_path}.")
 
-                # 3) Scan non-.py resources in-memory
-                if pycdas:
-                    logging.info("Scanning all extracted resources from PyCDAS output.")
-                    for rname, rcontent in pycdas.items():
-                        logging.info(f"Scheduling scan for resource: {rname}")
-                        threading.Thread(
-                            target=scan_and_warn,
-                            kwargs={"file_path": None, "content": rcontent}
-                        ).start()
-                else:
-                    logging.info(f"No extra resources extracted for {norm_path}.")
+            # 3) Scan non-.py resources in-memory
+            if pycdas:
+                logging.info("Scanning all extracted resources from PyCDAS output.")
+                for rname in pycdas.keys():
+                    logging.info(f"Scheduling scan for resource: {rname}")
+                    threading.Thread(
+                        target=scan_and_warn,
+                        kwargs={"file_path": rname}
+                    ).start()
+            else:
+                logging.info(f"No extra resources extracted for {norm_path}.")
 
             # Operation of the PE file
             if pe_file:

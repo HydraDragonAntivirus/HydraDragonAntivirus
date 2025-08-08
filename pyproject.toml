@@ -45,6 +45,7 @@ dependencies = [
     "autoit-ripper",
     "comtypes",
     "androguard",
+    "nltk",
 
     # Pylingual reverse-engineering dependencies
     "asttokens",
