@@ -67,16 +67,7 @@ if %errorlevel% equ 0 (
     echo Failed to install clamd service.
 )
 
-rem 8. Upgrade pip
-echo Upgrading pip...
-py.exe -3.12 -m pip install --upgrade pip
-if %errorlevel% equ 0 (
-    echo pip was upgraded successfully.
-) else (
-    echo Failed to upgrade pip.
-)
-
-rem 9. Create Python virtual environment inside HydraDragonAntivirus folder
+rem 8. Create Python virtual environment inside HydraDragonAntivirus folder
 echo Creating Python virtual environment...
 
 cd /d "%HYDRADRAGON_ROOT_PATH%"
@@ -91,12 +82,21 @@ if %errorlevel% neq 0 (
     goto :end
 )
 
-rem 10. Activate virtual environment
+rem 9. Activate virtual environment
 echo Activating virtual environment...
 call "venv\Scripts\activate.bat"
 if %errorlevel% neq 0 (
     echo Failed to activate virtual environment.
     goto :end
+)
+
+rem 10. Upgrade pip
+echo Upgrading pip...
+py.exe -3.12 -m pip install --upgrade pip
+if %errorlevel% equ 0 (
+    echo pip was upgraded successfully.
+) else (
+    echo Failed to upgrade pip.
 )
 
 rem 11. Install Poetry in the activated virtual environment
