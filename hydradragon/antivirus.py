@@ -10712,7 +10712,7 @@ def monitor_memory_changes(
 
                                 if result_file:
                                     logging.info(f"Memory analysis completed for PID {pid}, result: {result_file}")
-                                    
+
                                     # Only start scan thread if we're not stopping
                                     if not (stop_callback and stop_callback()):
                                         # Spawn async scan on the resulting strings file
@@ -10728,10 +10728,10 @@ def monitor_memory_changes(
                         analysis_thread = threading.Thread(target=run_analysis)
                         analysis_thread.daemon = True  # Daemon threads won't block shutdown
                         analysis_thread.start()
-                        
+
                         # Track the thread but limit concurrent analyses
                         active_threads.append(analysis_thread)
-                        
+
                         # Limit concurrent analysis threads to prevent resource exhaustion
                         if len(active_threads) > 5:
                             logging.warning(f"Too many concurrent analysis threads ({len(active_threads)}), waiting...")
@@ -10764,7 +10764,7 @@ def monitor_memory_changes(
         for thread in active_threads:
             if thread.is_alive():
                 thread.join(timeout=5)  # Max 5 second wait per thread
-        
+
         logging.info("Memory monitor shutdown complete")
 
 def monitor_saved_paths():
