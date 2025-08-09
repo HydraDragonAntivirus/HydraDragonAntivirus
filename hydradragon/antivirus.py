@@ -11906,7 +11906,36 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
         logging.error(error_message)
         return error_message
 
+def run_anti_self_delete_check():
+    # normalize main_file_path (assumes main_file_path variable exists)
+    mp = Path(main_file_path)
+    
+    # report file
+    report_path = Path("main_file_path_report.txt")
+    
+    # Line 1: existence check label
+    line1 = f"Checking existence of: {mp}"
+    
+    # Existence boolean
+    exists = mp.exists()
+    
+    # Line 2: minimal details with timestamp and existence status
+    checked_at = datetime.now().isoformat()
+    line2 = f"Anti-Self-Delete details: Checked at: {checked_at} - Exists: {'Yes' if exists else 'No'}"
+    
+    # Write the two-line report
+    try:
+        with report_path.open("w", encoding="utf-8", errors="ignore") as fh:
+            fh.write(line1 + "\n")
+            fh.write(line2 + "\n")
+        logging.info("Main-file existence report written.")
+    except Exception as e:
+        logging.error(f"Failed to write report file: {e}")
+
 def run_sandboxie_plugin_script():
+    # Anti-self-delete check for plugin
+    run_anti_self_delete_check()
+
     # build the inner python invocation
     python_entry = f'"{Open_Hydra_Dragon_Anti_Rootkit_path}",Run'
     # build the full command line for Start.exe

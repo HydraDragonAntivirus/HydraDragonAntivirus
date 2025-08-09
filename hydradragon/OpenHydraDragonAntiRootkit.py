@@ -78,7 +78,7 @@ CWD              = Path(os.getcwd())
 DETECTIEASY_PATH = CWD / "detectiteasy" / "diec.exe"
 DIE_OUTPUT_DIR   = CWD / "die_outputs"
 REPORTS_DIR      = CWD / "reports"
-ANTIVIRUS_PROCESS_LIST_PATH = CWD / "antivirusprocesslist.txt"
+ANTIVIRUS_PROCESS_LIST_PATH = CWD / "known_extensions" / "antivirusprocesslist.txt"
 
 # Read antivirus process list from antivirusprocesslist.txt with try-except
 antivirus_process_list = []
@@ -545,7 +545,7 @@ def scan_ifeo_antivirus_blocking() -> list[dict]:
                     exe_name = winreg.EnumKey(ifeo_key, i)
                     
                     # Check if this executable name matches any antivirus process
-                    if exe_name.lower() in [av.lower() for av in antivirus_processes]:
+                    if exe_name.lower() in [av.lower() for av in antivirus_process_list]:
                         try:
                             # Open the specific executable's IFEO subkey
                             with winreg.OpenKey(ifeo_key, exe_name) as exe_key:
@@ -888,6 +888,85 @@ def run_enhanced_detection():
 
     return results
 
+def check_file_deleted_from_sandbox() -> dict:
+    """
+    Checks if file was deleted from sandbox using anti-self-delete report.
+    Reads main_file_path_report.txt and checks current file existence.
+    """
+    report_path = Path("main_file_path_report.txt")
+    
+    # Read the report file
+    try:
+        with open(report_path, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+    except Exception as e:
+        logging.error(f"Could not read report file: {e}")
+        return {"error": f"Could not read report file: {e}"}
+    
+    if len(lines) < 2:
+        return {"error": "Invalid report file format"}
+    
+    # Extract file path from line 1
+    file_path_str = None
+    for line in lines:
+        if "Checking existence of:" in line:
+            file_path_str = line.split("Checking existence of:")[1].strip()
+            break
+    
+    if not file_path_str:
+        return {"error": "Could not extract file path from report"}
+    
+    main_file = Path(file_path_str)
+    
+    # Get previous existence status from report
+    previous_exists = None
+    for line in lines:
+        if "Exists:" in line:
+            if "Exists: Yes" in line:
+                previous_exists = True
+            elif "Exists: No" in line:
+                previous_exists = False
+            break
+    
+    # Check current existence
+    current_exists = main_file.exists()
+    
+    # Determine status
+    if previous_exists is True and not current_exists:
+        status = "DELETED"
+        note = f"File {main_file} existed in previous check but now deleted from sandbox! Self-delete behavior detected."
+    elif previous_exists is False and current_exists:
+        status = "CREATED"
+        note = f"File {main_file} did not exist in previous check but now exists in sandbox."
+    elif previous_exists is True and current_exists:
+        status = "EXISTS"
+        note = f"File {main_file} existed in previous check and still exists in sandbox."
+    elif previous_exists is False and not current_exists:
+        status = "NOT_FOUND"
+        note = f"File {main_file} did not exist in previous check and still does not exist."
+    else:
+        status = "UNKNOWN"
+        note = f"Could not determine previous existence status for {main_file}"
+    
+    result = {
+        "file_path": str(main_file),
+        "previous_exists": previous_exists,
+        "current_exists": current_exists,
+        "status": status,
+        "note": note,
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    # Write two-line deletion check report
+    try:
+        with open("deletion_check_report.txt", "w", encoding="utf-8") as f:
+            f.write(f"File deletion check: {main_file} - Status: {status}\n")
+            f.write(f"[{datetime.now()}] {note}\n")
+    except Exception as e:
+        logging.error(f"Could not write deletion report: {e}")
+    
+    return result
+
 def generate_detailed_report(original_report, enhanced_results):
     combined_report = original_report.copy()
     combined_report['enhanced_detection'] = enhanced_results
@@ -899,9 +978,17 @@ def generate_detailed_report(original_report, enhanced_results):
     )
     if suspicious_count > 0:
         risk_factors.append(f"Found {suspicious_count} suspicious files/processes")
+    
+    # Check for self-delete behavior
+    self_delete_check = check_file_deleted_from_sandbox()
+    if self_delete_check.get('status') == 'DELETED':
+        risk_factors.append("HEUR:Win32.Susp.Trojan.SelfDelete - File deleted after execution")
+        combined_report['self_delete_detection'] = self_delete_check
+    
     for category, results in enhanced_results.items():
         if results:
             risk_factors.append(f"Detected {len(results)} {category}")
+    
     if len(risk_factors) > 5:
         risk_level = "HIGH"
     elif len(risk_factors) > 2:
@@ -910,6 +997,7 @@ def generate_detailed_report(original_report, enhanced_results):
         risk_level = "LOW"
     else:
         risk_level = "CLEAN"
+    
     combined_report['risk_assessment'] = {
         'level': risk_level,
         'factors': risk_factors,
