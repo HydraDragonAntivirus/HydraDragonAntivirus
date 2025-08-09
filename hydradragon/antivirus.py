@@ -1634,7 +1634,7 @@ def is_apk_file_from_output(die_output: str, file_path: str) -> Union[bool, str]
 
     # Only continue if DIE flagged the file as APK
     if not die_output or not die_output.strip().upper().startswith("APK"):
-        logging.debug("DIE did not detect APK — skipping Androguard check.")
+        logging.debug("DIE did not detect APK - skipping Androguard check.")
         return False
 
     # Try Androguard validation
