@@ -12697,6 +12697,9 @@ class Worker(QThread):
         Stops logging and removes/cleans up log files.
         """
         try:
+            # Remove main file report if exists
+            os.path.exists(f"{main_file_path}_report.txt") and os.remove(f"{main_file_path}_report.txt")
+
             # Get the main script directory
             script_dir = os.getcwd()
             log_directory = os.path.join(script_dir, "log")
