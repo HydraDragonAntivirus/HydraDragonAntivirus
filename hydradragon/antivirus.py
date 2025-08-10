@@ -10694,7 +10694,7 @@ def monitor_memory_changes(
                         logging.info(f"Starting memory analysis for: {exe_path} (PID: {pid})")
 
                         # Run analysis in a separate thread to prevent blocking the monitor
-                        def run_analysis():
+                        def run_memory_analysis():
                             try:
                                 # Check if we should stop before starting analysis
                                 if stop_callback and stop_callback():
@@ -10725,8 +10725,7 @@ def monitor_memory_changes(
                                 logging.error(f"Thread analysis failed for PID {pid}: {thread_ex}")
 
                         # Start analysis thread as daemon to prevent hanging
-                        analysis_thread = threading.Thread(target=run_analysis)
-                        analysis_thread.daemon = True  # Daemon threads won't block shutdown
+                        analysis_thread = threading.Thread(target=run_memory_analysis)
                         analysis_thread.start()
 
                         # Track the thread but limit concurrent analyses
@@ -12536,7 +12535,6 @@ class Worker(QThread):
                 return self.stop_requested
 
             # Run the analysis directly in this thread
-            # Assuming run_analysis is your main analysis function
             analysis_result = run_analysis(file_path, stop_callback=check_stop)
 
             # Check if we were stopped during analysis
