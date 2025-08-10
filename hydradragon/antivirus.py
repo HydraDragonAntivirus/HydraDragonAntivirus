@@ -13360,7 +13360,7 @@ class AntivirusApp(QWidget):
         title.setObjectName("page_title")
         self.status_text = QLabel("Ready for analysis!")
         self.status_text.setObjectName("page_subtitle")
-        version_label = QLabel("HydraDragon Antivirus v0.1 (Beta 4)")
+        version_label = QLabel("HydraDragon Antivirus v0.1 (Beta 4.1)")
         version_label.setObjectName("version_label")
         defs_label = QLabel(get_latest_clamav_def_time())
         defs_label.setObjectName("version_label")
@@ -13609,7 +13609,7 @@ class AntivirusApp(QWidget):
             self.setWindowIcon(QIcon(icon_path))
         else:
             logging.warning(f"Icon file not found at: {icon_path}")
-        self.setWindowTitle("HydraDragon Antivirus v0.1 (Beta 4)")
+        self.setWindowTitle("HydraDragon Antivirus v0.1 (Beta 4.1)")
         self.setMinimumSize(1024, 768)
         self.resize(1200, 800)
         main_layout = QHBoxLayout(self)
