@@ -11955,6 +11955,10 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
                 logging.info("Stop requested, terminating analysis threads...")
                 terminate_analysis_threads_immediately()
                 return "[!] Analysis stopped by user request"
+
+            # Let Qt process UI events - this prevents the freeze
+            QApplication.processEvents()
+
             time.sleep(0.1)  # Still needed to avoid CPU spinning
 
         return "[+] Sandbox analysis completed successfully"
@@ -12073,8 +12077,14 @@ def run_analysis(file_path: str, stop_callback=None):
         if stop_callback and stop_callback():
             return "[!] Analysis stopped by user request"
 
+        # Let Qt process events before heavy work
+        QApplication.processEvents()
+
         # Perform the sandbox analysis with stop checking
         result = perform_sandbox_analysis(file_path, stop_callback=stop_callback)
+
+        # Let Qt process events after heavy work
+        QApplication.processEvents()
 
         # Check for stop request after analysis
         if stop_callback and stop_callback():
