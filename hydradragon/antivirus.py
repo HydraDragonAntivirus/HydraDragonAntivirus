@@ -11971,14 +11971,14 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
                     terminate_analysis_threads_immediately()
                     return
                 time.sleep(0.1)
-        
+
         # Run monitoring in separate thread
         monitor_thread = threading.Thread(target=monitor_threads, daemon=True)
         monitor_thread.start()
-        
+
         # Wait for monitoring thread to finish
         monitor_thread.join()
-        
+
         return "[+] Sandbox analysis completed successfully"
 
     except Exception as ex:
@@ -13417,12 +13417,6 @@ class AntivirusApp(QWidget):
         button.setObjectName("action_button")
         button.clicked.connect(lambda: self.start_worker(task_name))
         layout.addWidget(button)
-        # Second button only for "Generate Clean DB"
-        if title_text == "Generate Clean DB":
-            second_button = QPushButton("Run Quick Clean DB (Not recommended)")
-            second_button.setObjectName("action_button_secondary")
-            second_button.clicked.connect(lambda: self.start_worker("quick_generate_clean_db_task"))
-            layout.addWidget(second_button)
         log_output = QTextEdit(f"{title_text} logs will appear here...")
         log_output.setObjectName("log_output")
         log_output.setReadOnly(True)  # Make read-only to prevent user input
@@ -13541,6 +13535,36 @@ class AntivirusApp(QWidget):
         self.log_outputs.append(log_output)
         return page
 
+    def create_generate_clean_db_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        title = QLabel("Generate Clean DB")
+        title.setObjectName("page_title")
+        layout.addWidget(title)
+
+        # Main Generate Clean DB button
+        generate_button = QPushButton("Run Generate Clean DB")
+        generate_button.setObjectName("action_button")
+        generate_button.clicked.connect(lambda: self.start_worker("generate_clean_db"))
+        layout.addWidget(generate_button)
+
+        # Quick Clean DB button (secondary option)
+        quick_button = QPushButton("Run Quick Clean DB (Not recommended)")
+        quick_button.setObjectName("action_button_secondary")
+        quick_button.clicked.connect(lambda: self.start_worker("quick_generate_clean_db_task"))
+        layout.addWidget(quick_button)
+
+        log_output = QTextEdit("Generate Clean DB logs will appear here...")
+        log_output.setObjectName("log_output")
+        log_output.setReadOnly(True)
+        layout.addWidget(log_output, 1)
+        self.log_outputs.append(log_output)
+
+        layout.addStretch()
+        return page
+
     def create_cleanup_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -13598,7 +13622,7 @@ class AntivirusApp(QWidget):
         self.main_stack = QStackedWidget()
         self.main_stack.addWidget(self.create_status_page())
         self.main_stack.addWidget(self.create_task_page("Update ClamAV Definitions", "update_defs"))
-        self.main_stack.addWidget(self.create_task_page("Generate Clean DB", "generate_clean_db"))
+        self.main_stack.addWidget(self.create_generate_clean_db_page())
         self.main_stack.addWidget(self.create_analysis_page())
         self.main_stack.addWidget(self.create_task_page("Capture Analysis Logs", "capture_analysis_logs"))
         self.main_stack.addWidget(self.create_task_page("Compare Logs (Llama AI)", "compare_analysis_logs"))
