@@ -11963,17 +11963,22 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
 
         logging.info("Sandbox analysis started. Please check log after you close program. There is no limit to scan time.")
 
-        while any(thread.is_alive() for thread in analysis_threads):
-            if stop_callback and stop_callback():
-                logging.info("Stop requested, terminating analysis threads...")
-                terminate_analysis_threads_immediately()
-                return "[!] Analysis stopped by user request"
-
-            # Let Qt process UI events - this prevents the freeze
-            QApplication.processEvents()
-
-            time.sleep(0.1)  # Still needed to avoid CPU spinning
-
+        # Instead of blocking loop, use a monitoring thread
+        def monitor_threads():
+            while any(thread.is_alive() for thread in analysis_threads):
+                if stop_callback and stop_callback():
+                    logging.info("Stop requested, terminating analysis threads...")
+                    terminate_analysis_threads_immediately()
+                    return
+                time.sleep(0.1)
+        
+        # Run monitoring in separate thread
+        monitor_thread = threading.Thread(target=monitor_threads, daemon=True)
+        monitor_thread.start()
+        
+        # Wait for monitoring thread to finish
+        monitor_thread.join()
+        
         return "[+] Sandbox analysis completed successfully"
 
     except Exception as ex:
