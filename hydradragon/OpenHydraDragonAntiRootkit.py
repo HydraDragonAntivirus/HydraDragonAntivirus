@@ -1046,7 +1046,7 @@ def generate_scan_report():
 
 def save_report(report: dict):
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    out = REPORTS_DIR / f"scan_report.json"
+    out = REPORTS_DIR / "scan_report.json"
     with open(out, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
     logging.info(f"Report -> {out}")

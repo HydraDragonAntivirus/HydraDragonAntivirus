@@ -3657,10 +3657,23 @@ def save_extracted_strings(output_filename, extracted_strings):
     with open(output_filename, 'w', encoding='utf-8') as output_file:
         output_file.writelines(f"{line}\n" for line in extracted_strings)
 
-def run_pd64_db_gen():
-    """Run pd64 -db gen to create/update clean.hashes in script_dir."""
+def run_pd64_db_gen(quick=False):
+    """Run pd64 -db gen or pd64 -db genquick to create/update clean.hashes in script_dir.
+
+    Args:
+        quick (bool): If True, runs 'pd64 -db genquick' instead of 'pd64 -db gen'.
+
+    Returns:
+        bool: True if command succeeded, False otherwise.
+    """
+    cmd = [pd64_path, "-db"]
+    if quick:
+        cmd.append("genquick")
+    else:
+        cmd.append("gen")
+
     try:
-        subprocess.run([pd64_path, "-db", "gen"], check=True)
+        subprocess.run(cmd, check=True)
         return True
     except subprocess.CalledProcessError as e:
         logging.error(f"Failed to generate clean.hashes: {e}")
@@ -12450,6 +12463,11 @@ class Worker(QThread):
         msg = "[+] clean.hashes generated." if success else "[!] Failed to generate clean.hashes."
         self.output_signal.emit(msg)
 
+    def quick_generate_clean_db_task(self):
+        success = run_pd64_db_gen(quick=True)
+        msg = "[+] clean.hashes generated." if success else "[!] Failed to generate clean.hashes."
+        self.output_signal.emit(msg)
+
     def capture_analysis_logs(self):
         global pre_analysis_log_path, post_analysis_log_path, pre_analysis_entries, post_analysis_entries
         if pre_analysis_log_path is None:
@@ -13394,6 +13412,12 @@ class AntivirusApp(QWidget):
         button.setObjectName("action_button")
         button.clicked.connect(lambda: self.start_worker(task_name))
         layout.addWidget(button)
+        # Second button only for "Generate Clean DB"
+        if title_text == "Generate Clean DB":
+            second_button = QPushButton("Run Quick Clean DB (Not recommended)")
+            second_button.setObjectName("action_button_secondary")
+            second_button.clicked.connect(lambda: self.start_worker("quick_generate_clean_db_task"))
+            layout.addWidget(second_button)
         log_output = QTextEdit(f"{title_text} logs will appear here...")
         log_output.setObjectName("log_output")
         log_output.setReadOnly(True)  # Make read-only to prevent user input
