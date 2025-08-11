@@ -13192,6 +13192,8 @@ class AntivirusApp(QWidget):
             #page_subtitle { font-size: 16px; color: #A3BE8C; }
             #version_label { font-size: 13px; color: #81A1C1; }
             #action_button { background-color: #5E81AC; color: #ECEFF4; border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: bold; border: none; max-width: 350px; }
+            #action_button_secondary { background-color: #D08770; color: #ECEFF4; border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: bold; border: none; max-width: 350px; }
+            #action_button_secondary:hover { background-color: #EBCB8B; }
             #action_button:hover { background-color: #81A1C1; }
             #action_button_danger { background-color: #BF616A; color: #ECEFF4; border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: bold; border: none; }
             #action_button_danger:hover { background-color: #d08770; }
