@@ -65,6 +65,8 @@ Source: "C:\Users\victim\Documents\hydratempinstall\Suricata-8.0.0-windivert-1-6
 Source: "C:\Users\victim\Documents\hydratempinstall\jre-8u461-windows-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\jdk-21_windows-x64_bin.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\windowsdesktop-runtime-8.0.18-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+; Node.js 22.18.0 (x64) MSI
+Source: "C:\Users\victim\Documents\hydratempinstall\node-v22.18.0-x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\python-3.12.10-amd64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\Sandboxie-Classic-x64-v5.71.2.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "C:\Users\victim\Documents\hydratempinstall\setup.bat"; DestDir: "{tmp}"; Flags: deleteafterinstall
@@ -126,6 +128,9 @@ Filename: "{tmp}\clamav-1.4.3.win.x64.msi"; Parameters: "/quiet /norestart"; Fla
 
 ; Suricata Installer (MSI - Silent Install)
 Filename: "{tmp}\Suricata-8.0.0-windivert-1-64bit.msi"; Parameters: "/quiet /norestart"; Flags: shellexec waituntilterminated
+
+; Node.js 22.18.0 (silent)
+Filename: "{tmp}\node-v22.18.0-x64.msi"; Parameters: "/quiet /norestart"; Flags: shellexec waituntilterminated
 
 ; Npcap
 Filename: "{tmp}\npcap-1.83.exe"; Flags: shellexec waituntilterminated

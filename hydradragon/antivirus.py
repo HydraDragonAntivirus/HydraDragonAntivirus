@@ -428,6 +428,7 @@ jar_extracted_dir = os.path.join(script_dir, "jar_extracted")
 dotnet_dir = os.path.join(script_dir, "dotnet")
 obfuscar_dir = os.path.join(script_dir, "obfuscar")
 androguard_dir = os.path.join(script_dir, "androguard")
+asar_dir = os.path.join(script_dir, "asar")
 net_reactor_slayer_dir = os.path.join(script_dir, "NETReactorSlayer-windowS")
 net_reactor_slayer_x64_cli_path  = os.path.join(net_reactor_slayer_dir, "NETReactorSlayer-x64.CLI.exe")
 nuitka_dir = os.path.join(script_dir, "nuitka")
@@ -732,8 +733,6 @@ FILE_NOTIFY_CHANGE_STREAM_NAME = 0x00000200
 FILE_NOTIFY_CHANGE_STREAM_SIZE = 0x00000400
 FILE_NOTIFY_CHANGE_STREAM_WRITE = 0x00000800
 
-directories_to_scan = [pd64_extracted_dir, enigma_extracted_dir, sandboxie_folder, copied_sandbox_and_main_files_dir, decompiled_dir, inno_setup_unpacked_dir, FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, androguard_dir, obfuscar_dir, de4dot_extracted_dir, net_reactor_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir, general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir, processed_dir, python_source_code_dir, pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir, resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir, upx_extracted_dir, installshield_extracted_dir, autoit_extracted_dir]
-
 # ClamAV base folder path
 clamav_folder = os.path.join(program_files, "ClamAV")
 
@@ -822,20 +821,31 @@ CHAINED_JOIN = re.compile(
 # Pattern for base64 literals inside b64decode
 B64_LITERAL = re.compile(r"base64\.b64decode\(\s*(['\"])([A-Za-z0-9+/=]+)\1\s*\)")
 
-# Unified list of all directories to manage
-MANAGED_DIRECTORIES = [
-    pd64_extracted_dir, enigma_extracted_dir, upx_extracted_dir, ungarbler_dir, ungarbler_string_dir,
-    resource_extractor_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
-    inno_setup_unpacked_dir, python_source_code_dir, nuitka_source_code_dir,
-    commandlineandmessage_dir, processed_dir, memory_dir, dotnet_dir, androguard_dir,
-    de4dot_extracted_dir, net_reactor_extracted_dir, obfuscar_dir, nuitka_dir, pe_extracted_dir,
-    zip_extracted_dir, tar_extracted_dir, seven_zip_extracted_dir,
-    general_extracted_with_7z_dir, nuitka_extracted_dir, advanced_installer_extracted_dir,
-    debloat_dir, jar_extracted_dir, FernFlower_decompiled_dir, deteciteasy_plain_text_dir,
-    python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, pylingual_extracted_dir,
-    pycdas_extracted_dir, copied_sandbox_and_main_files_dir, HiJackThis_logs_dir,
-    html_extracted_dir, installshield_extracted_dir, autoit_extracted_dir, decompiled_dir
+# Base directories common to both lists
+COMMON_DIRECTORIES = [
+    pd64_extracted_dir, enigma_extracted_dir, inno_setup_unpacked_dir, 
+    FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, 
+    androguard_dir, asar_dir, obfuscar_dir, de4dot_extracted_dir, 
+    net_reactor_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, 
+    commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, 
+    seven_zip_extracted_dir, general_extracted_with_7z_dir, nuitka_extracted_dir, 
+    advanced_installer_extracted_dir, processed_dir, python_source_code_dir, 
+    pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, 
+    pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir, 
+    resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir, 
+    upx_extracted_dir, installshield_extracted_dir, autoit_extracted_dir, 
+    copied_sandbox_and_main_files_dir, decompiled_dir
 ]
+
+# Additional directories only in MANAGED_DIRECTORIES
+MANAGED_ONLY_DIRECTORIES = [
+    deteciteasy_plain_text_dir, 
+    HiJackThis_logs_dir
+]
+
+# Final directory lists
+directories_to_scan = COMMON_DIRECTORIES + [sandboxie_folder]
+MANAGED_DIRECTORIES = COMMON_DIRECTORIES + MANAGED_ONLY_DIRECTORIES
 
 for make_directory in MANAGED_DIRECTORIES:
     if os.path.exists(make_directory):
@@ -1549,6 +1559,28 @@ def is_autoit_file_from_output(die_output):
     if die_output and ("AutoIt" in die_output):
         logging.info("DIE output indicates a AutoIt file.")
         return True
+    return False
+
+def is_asar_archive_from_output(die_output):
+    """
+    Checks if the first two lines of DIE output indicate an Asar Archive (Electron).
+    Ignores all other lines and warnings.
+    """
+    if not die_output:
+        return False
+
+    # Split lines and strip whitespace
+    lines = [line.strip() for line in die_output.splitlines() if line.strip()]
+
+    # Only consider the first two lines
+    first_two = lines[:2]
+
+    expected = ["Binary", "Archive: Asar Archive (Electron)"]
+
+    if first_two == expected:
+        logging.info("DIE output indicates an Asar Archive (Electron).")
+        return True
+
     return False
 
 def is_installshield_file_from_output(die_output):
@@ -3055,111 +3087,76 @@ def load_website_data():
 
 # --------------------------------------------------------------------------
 # Check for Discord webhook URLs (including Canary)
-def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=None, nsis_flag=False,
-                            nuitka_flag=False, pyc_flag=False, dotnet_flag=False):
+def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=None, **flags):
     """
     Scan the decompiled code for Discord webhook URLs, Discord Canary webhook URLs or Telegram bot links.
     For every detection, log a warning and immediately notify the user with an explicit unique heuristic
     signature that depends on the flags provided.
     """
-    # Perform matches (case-insensitive)
-    discord_webhook_matches        = re.findall(discord_webhook_pattern, decompiled_code, flags=re.IGNORECASE)
-    discord_canary_webhook_matches = re.findall(discord_canary_webhook_pattern, decompiled_code, flags=re.IGNORECASE)
-    cdn_attachment_matches         = re.findall(cdn_attachment_pattern, decompiled_code, flags=re.IGNORECASE)
-
-    # Telegram token (case-sensitive): run on original code
+    
+    # Define detection patterns and their corresponding signatures
+    detections = [
+        (re.findall(discord_webhook_pattern, decompiled_code, flags=re.IGNORECASE), 
+         "Discord webhook URL", "Discord.Webhook"),
+        (re.findall(discord_canary_webhook_pattern, decompiled_code, flags=re.IGNORECASE), 
+         "Discord Canary webhook URL", "Discord.Canary.Webhook"),
+        (re.findall(cdn_attachment_pattern, decompiled_code, flags=re.IGNORECASE), 
+         "Discord CDN attachment URL", "Discord.CDNAttachment")
+    ]
+    
+    # Check for Telegram (requires both token and keyword matches)
     telegram_token_matches = re.findall(telegram_token_pattern, decompiled_code)
-
-    # Telegram keyword (case-insensitive)
     telegram_keyword_matches = re.findall(telegram_keyword_pattern, decompiled_code, flags=re.IGNORECASE)
-
-    if discord_webhook_matches:
-        if dotnet_flag:
-            if cs_file_path:
-                logging.warning(f"Discord webhook URL detected in .NET source code file: {cs_file_path} - Matches: {discord_webhook_matches}")
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Src.Discord.Webhook.DotNET')
-            else:
-                logging.warning(f"Discord webhook URL detected in .NET source code file: [cs_file_path not provided] - Matches: {discord_webhook_matches}")
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.DotNET')
-        elif nuitka_flag:
-            logging.warning(f"Discord webhook URL detected in Nuitka compiled file: {file_path} - Matches: {discord_webhook_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.Nuitka')
-        elif nsis_flag:
-            logging.warning(f"Discord webhook URL detected in NSIS script compiled file (.nsi): {file_path} - Matches: {discord_webhook_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.NSIS')
-        elif pyc_flag:
-            logging.warning(f"Discord webhook URL detected in Python Compilled Module file: {file_path} - Matches: {discord_webhook_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook.PYC.Python')
-        else:
-            logging.warning(f"Discord webhook URL detected in decompiled code: {discord_webhook_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Webhook')
-
-    if discord_canary_webhook_matches:
-        if dotnet_flag:
-            if cs_file_path:
-                logging.warning(f"Discord Canary webhook URL detected in .NET source code file: {cs_file_path} - Matches: {discord_canary_webhook_matches}")
-            else:
-                logging.warning(f"Discord Canary webhook URL detected in .NET source code file: [cs_file_path not provided] - Matches: {discord_canary_webhook_matches}")
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.DotNET')
-        elif nuitka_flag:
-            logging.warning(f"Discord Canary webhook URL detected in Nuitka compiled file: {file_path} - Matches: {discord_canary_webhook_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.Nuitka')
-        elif nsis_flag:
-            logging.warning(f"Discord Canary webhook URL detected in NSIS script compiled file (.nsi): {file_path} - Matches: {discord_canary_webhook_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.NSIS')
-        elif pyc_flag:
-            logging.warning(f"Discord Canary webhook URL detected in Python Compilled Module file:{file_path} - Matches: {discord_canary_webhook_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook.PYC.Python')
-        else:
-            logging.warning(f"Discord Canary webhook URL detected in decompiled code: {discord_canary_webhook_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.Canary.Webhook')
-
-    if cdn_attachment_matches:
-        if dotnet_flag:
-            if cs_file_path:
-                logging.warning(
-                    f"Discord CDN attachment URL detected in .NET source code file: {cs_file_path} - Matches: {cdn_attachment_matches}")
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Src.Discord.CDNAttachment.DotNET')
-            else:
-                logging.warning(
-                    f"Discord CDN attachment URL detected in .NET source code file: [cs_file_path not provided] - Matches: {cdn_attachment_matches}")
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.CDNAttachment.DotNET')
-        elif nuitka_flag:
-            logging.warning(
-                f"Discord CDN attachment URL detected in Nuitka compiled file: {file_path} - Matches: {cdn_attachment_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.CDNAttachment.Nuitka')
-        elif nsis_flag:
-            logging.warning(
-                f"Discord CDN attachment URL detected in NSIS script compiled file (.nsi): {file_path} - Matches: {cdn_attachment_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.CDNAttachment.NSIS')
-        elif pyc_flag:
-            logging.warning(
-                f"Discord CDN attachment URL detected in Python Compilled Module file: {file_path} - Matches: {cdn_attachment_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.CDNAttachment.PYC.Python')
-        else:
-            logging.warning(f"Discord CDN attachment URL detected in decompiled code: {cdn_attachment_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Discord.CDNAttachment')
-
+    
     if telegram_token_matches and telegram_keyword_matches:
-        if dotnet_flag:
-            if cs_file_path:
-                logging.warning(f"Telegram bot detected in .NET source code file: {cs_file_path} - Matches: {telegram_token_matches}")
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Src.Telegram.Bot.DotNET')
-            else:
-                logging.warning(f"Telegram bot detected in .NET source code file: [cs_file_path not provided] - Matches: {telegram_token_matches}")
-                notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.DotNET')
-        elif nuitka_flag:
-            logging.warning(f"Telegram bot detected in Nuitka compiled file: {file_path} - Matches: {telegram_token_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.Nuitka')
-        elif nsis_flag:
-            logging.warning(f"Telegram bot detected in NSIS script compiled file (.nsi): {file_path} - Matches: {telegram_token_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.NSIS')
-        elif pyc_flag:
-            logging.warning(f"Telegram bot detected in Python Compilled Module file: {file_path} - Matches: {telegram_token_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot.PYC.Python')
+        detections.append((telegram_token_matches, "Telegram bot", "Telegram.Bot"))
+    
+    # Get platform-specific suffix
+    def get_platform_suffix():
+        if flags.get('dotnet_flag'):
+            return "DotNET"
+        elif flags.get('nuitka_flag'):
+            return "Nuitka"
+        elif flags.get('nsis_flag'):
+            return "NSIS"
+        elif flags.get('pyc_flag'):
+            return "PYC.Python"
+        elif flags.get('androguard_flag'):
+            return "Android"
+        elif flags.get('asar_flag'):
+            return "Electron"
         else:
-            logging.info(f"Telegram bot link detected in decompiled code: {telegram_token_matches}")
-            notify_user_for_malicious_source_code(file_path, 'HEUR:Win32.Telegram.Bot')
+            return ""
+    
+    # Process all detections
+    platform_suffix = get_platform_suffix()
+    
+    for matches, description, signature_base in detections:
+        if matches:
+            # Build signature
+            if flags.get('dotnet_flag') and cs_file_path:
+                signature = f"HEUR:Win32.Src.{signature_base}.{platform_suffix}"
+                log_path = cs_file_path
+            else:
+                signature = f"HEUR:Win32.{signature_base}" + (f".{platform_suffix}" if platform_suffix else "")
+                log_path = file_path if not (flags.get('dotnet_flag') and not cs_file_path) else "[cs_file_path not provided]"
+            
+            # Log appropriate message
+            if signature_base == "Telegram.Bot":
+                logging.info(f"{description} detected in decompiled code: {matches}")
+            else:
+                platform_desc = {
+                    "DotNET": ".NET source code file",
+                    "Nuitka": "Nuitka compiled file", 
+                    "NSIS": "NSIS script compiled file (.nsi)",
+                    "PYC.Python": "Python Compiled Module file",
+                    "Android": "Android APK file",
+                    "Electron": "Electron ASAR file"
+                }.get(platform_suffix, "decompiled code")
+                
+                logging.warning(f"{description} detected in {platform_desc}: {log_path} - Matches: {matches}")
+            
+            notify_user_for_malicious_source_code(file_path, signature)
 
 # --------------------------------------------------------------------------
 # Helper function to check if domain/IP exists in CSV data with reference support
@@ -3171,8 +3168,39 @@ def check_in_csv_data(target, csv_data):
     return False, None
 
 # --------------------------------------------------------------------------
+# Helper function to generate platform-specific signatures
+def get_signature(base_signature, **flags):
+    """Generate platform-specific signature based on flags."""
+    platform_map = {
+        'dotnet_flag': 'DotNET',
+        'nuitka_flag': 'Nuitka', 
+        'nsis_flag': 'NSIS',
+        'pyc_flag': 'PYC.Python',
+        'androguard_flag': 'Android',
+        'asar_flag': 'Electron'
+    }
+    
+    for flag, platform in platform_map.items():
+        if flags.get(flag):
+            return f"HEUR:Win32.{platform}.{base_signature}"
+    
+    return f"HEUR:Win32.{base_signature}"
+
+def notify_with_homepage(target, base_signature, threat_name, **flags):
+    """Helper to handle both main signature and homepage signature notifications."""
+    # Main signature
+    signature = get_signature(base_signature, **flags)
+    notify_user_for_malicious_source_code(target, signature)
+    
+    # Homepage signature if flag exists
+    homepage_flag = flags.get('homepage_flag')
+    if homepage_flag:
+        homepage_sig = f"HEUR:Win32.Adware.{homepage_flag}.{threat_name}.HomePage.gen"
+        notify_user_for_malicious_source_code(target, homepage_sig)
+
+# --------------------------------------------------------------------------
 # Generalized scan for domains (CSV format with reference support)
-def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyc_flag=False, homepage_flag=""):
+def scan_domain_general(url, **flags):
     try:
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
@@ -3181,6 +3209,7 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
             logging.error("Invalid URL or domain format")
         full_domain = parsed_url.netloc.lower()
         domain_parts = full_domain.split('.')
+        
         if len(domain_parts) > 2:
             main_domain = '.'.join(domain_parts[-2:])
             subdomain = '.'.join(domain_parts[:-2])
@@ -3193,9 +3222,6 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
             return
         scanned_domains_general.append(full_domain)
         logging.info(f"Scanning domain: {full_domain}")
-        logging.info(f"Main domain: {main_domain}")
-        if subdomain:
-            logging.info(f"Subdomain: {subdomain}")
 
         # Helper function to check if domain is in CSV data
         def is_domain_in_data_general(domain, data_list):
@@ -3205,84 +3231,57 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
             return False, ""
 
         # Whitelist checks
-        whitelist_checks = [
+        whitelist_data = [
             (whitelist_domains_data, "domain"),
             (whitelist_domains_mail_data, "mail domain"),
             (whitelist_sub_domains_data, "subdomain"),
             (whitelist_mail_sub_domains_data, "mail subdomain")
         ]
 
-        for data_list, whitelist_type in whitelist_checks:
+        for data_list, whitelist_type in whitelist_data:
             is_whitelisted, reference = is_domain_in_data_general(full_domain, data_list)
             if is_whitelisted:
                 logging.info(f"Domain {full_domain} is whitelisted ({whitelist_type}). Reference: {reference}")
                 return
 
-        if subdomain:
-            # Subdomain threat checks
-            threat_checks = [
-                (spam_sub_domains_data, "Spam", "Spam.SubDomain"),
-                (mining_sub_domains_data, "Mining", "Mining.SubDomain"),
-                (abuse_sub_domains_data, "Abuse", "Abuse.SubDomain"),
-                (phishing_sub_domains_data, "Phishing", "Phishing.SubDomain"),
-                (malware_mail_sub_domains_data, "Malware.Mail", "Malware.Mail.SubDomain"),
-                (malware_sub_domains_data, "Malware", "Malware.SubDomain")
-            ]
+        # Threat check configurations
+        subdomain_threats = [
+            (spam_sub_domains_data, "Spam", "Spam.SubDomain", "Spam"),
+            (mining_sub_domains_data, "Mining", "Mining.SubDomain", "Mining"),
+            (abuse_sub_domains_data, "Abuse", "Abuse.SubDomain", "Abuse"),
+            (phishing_sub_domains_data, "Phishing", "Phishing.SubDomain", "Phishing"),
+            (malware_mail_sub_domains_data, "Malware.Mail", "Malware.Mail.SubDomain", "Malware"),
+            (malware_sub_domains_data, "Malware", "Malware.SubDomain", "Malware")
+        ]
 
-            for data_list, threat_name, signature_suffix in threat_checks:
+        main_threats = [
+            (spam_domains_data, "Spam", "Spam.Domain", "Spam"),
+            (mining_domains_data, "Mining", "Mining.Domain", "Mining"),
+            (abuse_domains_data, "Abuse", "Abuse.Domain", "Abuse"),
+            (phishing_domains_data, "Phishing", "Phishing.Domain", "Phishing"),
+            (malware_domains_mail_data, "Malware.Mail", "Malware.Mail.Domain", "Malware"),
+            (malware_domains_data, "Malware", "Malware.Domain", "Malware")
+        ]
+
+        # Check subdomain threats
+        if subdomain:
+            for data_list, threat_name, signature_suffix, homepage_threat in subdomain_threats:
                 is_threat, reference = is_domain_in_data_general(full_domain, data_list)
                 if is_threat:
                     logging.warning(f"{threat_name} subdomain detected: {full_domain} (Reference: {reference})")
-
-                    if dotnet_flag:
-                        notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.DotNET.{signature_suffix}")
-                    elif nuitka_flag:
-                        notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.Nuitka.{signature_suffix}")
-                    elif nsis_flag:
-                        notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.NSIS.{signature_suffix}")
-                    elif pyc_flag:
-                        notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.PYC.Python.{signature_suffix}")
-                    else:
-                        notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.{signature_suffix}")
-
-                    if homepage_flag:
-                        notify_user_for_malicious_source_code(full_domain, f"HEUR:Win32.Adware.{homepage_flag}.{threat_name}.HomePage.gen")
+                    notify_with_homepage(full_domain, signature_suffix, homepage_threat, **flags)
                     return
 
-        # Main domain threat checks
-        main_threat_checks = [
-            (spam_domains_data, "Spam", "Spam.Domain"),
-            (mining_domains_data, "Mining", "Mining.Domain"),
-            (abuse_domains_data, "Abuse", "Abuse.Domain"),
-            (phishing_domains_data, "Phishing", "Phishing.Domain"),
-            (malware_domains_mail_data, "Malware.Mail", "Malware.Mail.Domain"),
-            (malware_domains_data, "Malware", "Malware.Domain")
-        ]
-
-        for data_list, threat_name, signature_suffix in main_threat_checks:
-            # Check both full domain and main domain
+        # Check main domain threats
+        for data_list, threat_name, signature_suffix, homepage_threat in main_threats:
             is_full_threat, full_ref = is_domain_in_data_general(full_domain, data_list)
             is_main_threat, main_ref = is_domain_in_data_general(main_domain, data_list)
 
             if is_full_threat or is_main_threat:
                 reference = full_ref if is_full_threat else main_ref
                 domain_to_report = full_domain if is_full_threat else main_domain
-
                 logging.warning(f"{threat_name} domain detected: {domain_to_report} (Reference: {reference})")
-
-                if dotnet_flag:
-                    notify_user_for_malicious_source_code(domain_to_report, f"HEUR:Win32.DotNET.{signature_suffix}")
-                elif nuitka_flag:
-                    notify_user_for_malicious_source_code(domain_to_report, f"HEUR:Win32.Nuitka.{signature_suffix}")
-                elif nsis_flag:
-                    notify_user_for_malicious_source_code(domain_to_report, f"HEUR:Win32.NSIS.{signature_suffix}")
-                elif pyc_flag:
-                    notify_user_for_malicious_source_code(domain_to_report, f"HEUR:Win32.PYC.Python.{signature_suffix}")
-                else:
-                    notify_user_for_malicious_source_code(domain_to_report, f"HEUR:Win32.{signature_suffix}")
-
-                if homepage_flag:
-                    notify_user_for_malicious_source_code(domain_to_report, f"HEUR:Win32.Adware.{homepage_flag}.{threat_name}.HomePage.gen")
+                notify_with_homepage(domain_to_report, signature_suffix, homepage_threat, **flags)
                 return
 
         logging.info(f"Domain {full_domain} passed all checks.")
@@ -3290,35 +3289,28 @@ def scan_domain_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=Fal
     except Exception as ex:
         logging.error(f"Error scanning domain {url}: {ex}")
 
-
 # --------------------------------------------------------------------------
 # Generalized scan for IP addresses (CSV format with reference support)
-def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyc_flag=False, homepage_flag=""):
+def scan_ip_address_general(ip_address, **flags):
     try:
-        # Check if the IP address is valid
         if is_valid_ip(ip_address):
-            message = f"Skipping non valid IP address: {ip_address}"
-            logging.info(message)
+            logging.info(f"Skipping non valid IP address: {ip_address}")
             return
 
-        # Check if the IP address has already been scanned
         if ip_address in scanned_ipv4_addresses_general or ip_address in scanned_ipv6_addresses_general:
-            message = f"IP address {ip_address} has already been scanned."
-            logging.info(message)
+            logging.info(f"IP address {ip_address} has already been scanned.")
             return
 
-        # Helper function to check if IP is in CSV data
         def is_ip_in_data_general(ip, data_list):
             for entry in data_list:
                 if entry['address'] == ip:
                     return True, entry['reference']
             return False, ""
 
-        # Process IPv6 addresses
+        # IPv6 processing
         if re.match(IPv6_pattern, ip_address):
             scanned_ipv6_addresses_general.append(ip_address)
-            message = f"Scanning IPv6 address: {ip_address}"
-            logging.info(message)
+            logging.info(f"Scanning IPv6 address: {ip_address}")
 
             # IPv6 whitelist check
             is_whitelisted, reference = is_ip_in_data_general(ip_address, ipv6_whitelist_data)
@@ -3327,44 +3319,25 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
                 return
 
             # IPv6 threat checks
-            ipv6_threat_checks = [
-                (ipv6_addresses_ddos_signatures_data, "DDoS", "DDoS.IPv6"),
-                (ipv6_addresses_spam_signatures_data, "Spam", "Spam.IPv6"),
-                (ipv6_addresses_signatures_data, "Malware", "Malware.IPv6")
+            ipv6_threats = [
+                (ipv6_addresses_ddos_signatures_data, "DDoS", "DDoS.IPv6", "DDoS"),
+                (ipv6_addresses_spam_signatures_data, "Spam", "Spam.IPv6", "Spam"),
+                (ipv6_addresses_signatures_data, "Malware", "Malware.IPv6", "Malware")
             ]
 
-            for data_list, threat_name, signature_suffix in ipv6_threat_checks:
+            for data_list, threat_name, signature_suffix, homepage_threat in ipv6_threats:
                 is_threat, reference = is_ip_in_data_general(ip_address, data_list)
                 if is_threat:
                     logging.warning(f"{threat_name} IPv6 address detected: {ip_address} (Reference: {reference})")
-
-                    if dotnet_flag:
-                        notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.DotNET.{signature_suffix}')
-                    elif nuitka_flag:
-                        notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.Nuitka.{signature_suffix}')
-                    elif nsis_flag:
-                        notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.NSIS.{signature_suffix}')
-                    elif pyc_flag:
-                        notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.PYC.Python.{signature_suffix}')
-                    else:
-                        notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.{signature_suffix}')
-
-                    if homepage_flag:
-                        if threat_name == "DDoS":
-                            notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.DDoS.HomePage.gen")
-                        elif threat_name == "Spam":
-                            notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.Spam.HomePage.gen")
-                        else:
-                            notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.Malware.HomePage.gen")
+                    notify_with_homepage(ip_address, signature_suffix, homepage_threat, **flags)
                     return
 
             logging.info(f"Unknown IPv6 address detected: {ip_address}")
 
-        # Process IPv4 addresses
+        # IPv4 processing
         elif re.match(IPv4_pattern, ip_address):
             scanned_ipv4_addresses_general.append(ip_address)
-            message = f"Scanning IPv4 address: {ip_address}"
-            logging.info(message)
+            logging.info(f"Scanning IPv4 address: {ip_address}")
 
             # IPv4 whitelist check
             is_whitelisted, reference = is_ip_in_data_general(ip_address, ipv4_whitelist_data)
@@ -3373,7 +3346,7 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
                 return
 
             # IPv4 threat checks
-            ipv4_threat_checks = [
+            ipv4_threats = [
                 (ipv4_addresses_phishing_active_signatures_data, "PhishingActive", "PhishingActive.IPv4", "Phishing"),
                 (ipv4_addresses_ddos_signatures_data, "DDoS", "DDoS.IPv4", "DDoS"),
                 (ipv4_addresses_phishing_inactive_signatures_data, "PhishingInactive", "PhishingInactive.IPv4", "Phishing"),
@@ -3382,33 +3355,19 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
                 (ipv4_addresses_signatures_data, "Malware", "Malware.IPv4", "Malware")
             ]
 
-            for data_list, threat_name, signature_suffix, homepage_threat in ipv4_threat_checks:
+            for data_list, threat_name, signature_suffix, homepage_threat in ipv4_threats:
                 is_threat, reference = is_ip_in_data_general(ip_address, data_list)
                 if is_threat:
-                    if threat_name == "PhishingActive":
-                        logging.warning(f"IPv4 address {ip_address} detected as an active phishing threat. (Reference: {reference})")
-                    elif threat_name == "PhishingInactive":
-                        logging.warning(f"IPv4 address {ip_address} detected as an inactive phishing threat. (Reference: {reference})")
-                    elif threat_name == "DDoS":
-                        logging.warning(f"IPv4 address {ip_address} detected as a potential DDoS threat. (Reference: {reference})")
-                    elif threat_name == "BruteForce":
-                        logging.warning(f"IPv4 address {ip_address} detected as a potential BruteForce threat. (Reference: {reference})")
+                    # Custom logging messages for different threat types
+                    if threat_name in ["PhishingActive", "PhishingInactive"]:
+                        status = "active" if threat_name == "PhishingActive" else "inactive"
+                        logging.warning(f"IPv4 address {ip_address} detected as an {status} phishing threat. (Reference: {reference})")
+                    elif threat_name in ["DDoS", "BruteForce"]:
+                        logging.warning(f"IPv4 address {ip_address} detected as a potential {threat_name} threat. (Reference: {reference})")
                     else:
                         logging.warning(f"{threat_name} IPv4 address detected: {ip_address} (Reference: {reference})")
-
-                    if dotnet_flag:
-                        notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.DotNET.{signature_suffix}')
-                    elif nuitka_flag:
-                        notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.Nuitka.{signature_suffix}')
-                    elif nsis_flag:
-                        notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.NSIS.{signature_suffix}')
-                    elif pyc_flag:
-                        notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.PYC.Python.{signature_suffix}')
-                    else:
-                        notify_user_for_malicious_source_code(ip_address, f'HEUR:Win32.{signature_suffix}')
-
-                    if homepage_flag:
-                        notify_user_for_malicious_source_code(ip_address, f"HEUR:Win32.Adware.{homepage_flag}.{homepage_threat}.HomePage.gen")
+                    
+                    notify_with_homepage(ip_address, signature_suffix, homepage_threat, **flags)
                     return
 
             logging.info(f"Unknown IPv4 address detected: {ip_address}")
@@ -3418,45 +3377,21 @@ def scan_ip_address_general(ip_address, dotnet_flag=False, nsis_flag=False, nuit
     except Exception as ex:
         logging.error(f"Error scanning IP address {ip_address}: {ex}")
 
-
 # --------------------------------------------------------------------------
 # Spam Email 365 Scanner
-def scan_spam_email_365_general(email_content, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyc_flag=False, homepage_flag=""):
-    """
-    Scans email content for spam keywords from StopForum Spam Database spam database
-    """
+def scan_spam_email_365_general(email_content, **flags):
+    """Scans email content for spam keywords from StopForum Spam Database."""
     try:
         if not email_content:
             logging.info("No email content provided for spam scanning.")
             return False
 
-        # Convert email content to lowercase for case-insensitive matching
         email_content_lower = email_content.lower()
-        detected_spam_words = []
-
-        # Check for spam keywords
-        for spam_word in spam_email_365_data:
-            if spam_word.lower() in email_content_lower:
-                detected_spam_words.append(spam_word)
+        detected_spam_words = [word for word in spam_email_365_data if word.lower() in email_content_lower]
 
         if detected_spam_words:
-            logging.warning(f"Spam email detected! Found {len(detected_spam_words)} spam indicators: {', '.join(detected_spam_words[:5])}")  # Show first 5 words
-
-            # Generate appropriate signature based on context
-            if dotnet_flag:
-                notify_user_for_malicious_source_code("Email Content", "HEUR:Win32.DotNET.Spam.Email.365d")
-            elif nuitka_flag:
-                notify_user_for_malicious_source_code("Email Content", "HEUR:Win32.Nuitka.Spam.Email.365d")
-            elif nsis_flag:
-                notify_user_for_malicious_source_code("Email Content", "HEUR:Win32.NSIS.Spam.Email.365d")
-            elif pyc_flag:
-                notify_user_for_malicious_source_code("Email Content", "HEUR:Win32.PYC.Python.Spam.Email.365d")
-            else:
-                notify_user_for_malicious_source_code("Email Content", "HEUR:Win32.Spam.Email365d")
-
-            if homepage_flag:
-                notify_user_for_malicious_source_code("Email Content", f"HEUR:Win32.Adware.{homepage_flag}.Spam.Email.365d.gen")
-
+            logging.warning(f"Spam email detected! Found {len(detected_spam_words)} spam indicators: {', '.join(detected_spam_words[:5])}")
+            notify_with_homepage("Email Content", "Spam.Email365d", "Spam.Email.365d", **flags)
             return True
         else:
             logging.info("Email content passed spam check - no spam indicators found.")
@@ -3468,7 +3403,7 @@ def scan_spam_email_365_general(email_content, dotnet_flag=False, nsis_flag=Fals
 
 # --------------------------------------------------------------------------
 # Generalized scan for URLs
-def scan_url_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=False, pyc_flag=False, homepage_flag=""):
+def scan_url_general(url, **flags):
     try:
         if url in scanned_urls_general:
             logging.info(f"URL {url} has already been scanned.")
@@ -3477,42 +3412,23 @@ def scan_url_general(url, dotnet_flag=False, nsis_flag=False, nuitka_flag=False,
         scanned_urls_general.append(url)
         logging.info(f"Scanning URL: {url}")
 
-        # First, check against URLhaus signatures.
+        # Check against URLhaus signatures
         for entry in urlhaus_data:
             if entry['url'] in url:
-                message = (
-                    f"URL {url} matches the URLhaus signatures.\n"
-                    f"ID: {entry['id']}\n"
-                    f"Date Added: {entry['dateadded']}\n"
-                    f"URL Status: {entry['url_status']}\n"
-                    f"Last Online: {entry['last_online']}\n"
-                    f"Threat: {entry['threat']}\n"
-                    f"Tags: {entry['tags']}\n"
-                    f"URLhaus Link: {entry['urlhaus_link']}\n"
-                    f"Reporter: {entry['reporter']}"
-                )
+                message = (f"URL {url} matches the URLhaus signatures.\n"
+                          f"ID: {entry['id']}, Date Added: {entry['dateadded']}\n"
+                          f"URL Status: {entry['url_status']}, Last Online: {entry['last_online']}\n"
+                          f"Threat: {entry['threat']}, Tags: {entry['tags']}\n"
+                          f"URLhaus Link: {entry['urlhaus_link']}, Reporter: {entry['reporter']}")
                 logging.warning(message)
-                logging.info(message)
-                if dotnet_flag:
-                    notify_user_for_malicious_source_code(url, 'HEUR:Win32.DotNET.URLhaus.Match')
-                elif nuitka_flag:
-                    notify_user_for_malicious_source_code(url, 'HEUR:Win32.Nuitka.URLhaus.Match')
-                elif nsis_flag:
-                    notify_user_for_malicious_source_code(url, 'HEUR:Win32.NSIS.URLhaus.Match')
-                elif pyc_flag:
-                    logging.warning(f"URL {url} matches the URLhaus signatures.")
-                    notify_user_for_malicious_source_code(url, 'HEUR:Win32.PYC.Python.URLhaus.Match')
-                else:
-                    notify_user_for_malicious_source_code(url, 'HEUR:Win32.URLhaus.Match')
-                # Use the homepage_flag string to append a browser tag to the virus signature.
-                if homepage_flag:
-                    notify_user_for_malicious_source_code(url, f"HEUR:Win32.Adware.{homepage_flag}.URLhaus.HomePage.gen")
+                notify_with_homepage(url, "URLhaus.Match", "URLhaus", **flags)
                 return
 
-        # Heuristic check using uBlock Origin style detection.
+        # Heuristic check using uBlock Origin style detection
         if ublock_detect(url):
             notify_user_for_malicious_source_code(url, 'HEUR:Phish.Steam.Community.gen')
             logging.warning(f"URL {url} flagged by uBlock detection using HEUR:Phish.Steam.Community.gen.")
+            homepage_flag = flags.get('homepage_flag')
             if homepage_flag:
                 notify_user_for_malicious_source_code(url, f"HEUR:Win32.Adware.{homepage_flag}.Phishing.HomePage.gen")
             return
@@ -3569,84 +3485,66 @@ def fetch_html(url, return_file_path=False):
         logging.error(f"Unexpected error fetching HTML content from {url}: {e}")
         return ("", None) if return_file_path else ""
 
-def scan_html_content(html_content, html_content_file_path, dotnet_flag=False, nuitka_flag=False, pyc_flag=False, nsis_flag=False, homepage_flag=""):
+
+def scan_html_content(html_content, html_content_file_path, **flags):
     """Scan extracted HTML content for any potential threats."""
-    contains_discord_or_telegram_code(html_content, html_content_file_path, None,
-                          dotnet_flag, nuitka_flag,
-                          pyc_flag, nsis_flag, homepage_flag)
+    contains_discord_or_telegram_code(html_content, html_content_file_path, None, **flags)
+    
+    # Extract and scan URLs
     urls = set(re.findall(r'https?://[^\s/$.?#]\S*', html_content))
     for url in urls:
-        scan_url_general(url, dotnet_flag, nuitka_flag,
-                          pyc_flag, nsis_flag)
-        scan_domain_general(url, dotnet_flag, nuitka_flag,
-                            pyc_flag, nsis_flag, homepage_flag)
-        scan_spam_email_365_general(url, dotnet_flag, nuitka_flag,
-                            pyc_flag, nsis_flag, homepage_flag)
-    ipv4_addresses = set(re.findall(
-        r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'
-        r'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)',
-        html_content
-    ))
-    for ip in ipv4_addresses:
-        scan_ip_address_general(ip, dotnet_flag, nuitka_flag,
-                                pyc_flag, nsis_flag, homepage_flag)
-    ipv6_addresses = set(re.findall(
-        r'([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}',
-        html_content
-    ))
-    for ip in ipv6_addresses:
-        scan_ip_address_general(ip, dotnet_flag, nuitka_flag,
-                                pyc_flag, nsis_flag, homepage_flag)
+        scan_url_general(url, **flags)
+        scan_domain_general(url, **flags)
+        scan_spam_email_365_general(url, **flags)
+    
+    # Extract and scan IP addresses (IPv4 and IPv6)
+    ip_patterns = [
+        (r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)', 'IPv4'),
+        (r'([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}', 'IPv6')
+    ]
+    
+    for pattern, ip_type in ip_patterns:
+        ip_addresses = set(re.findall(pattern, html_content))
+        for ip in ip_addresses:
+            scan_ip_address_general(ip, **flags)
 
 # --------------------------------------------------------------------------
 # Main scanner: combine all individual scans and pass the flags along
-def scan_code_for_links(decompiled_code, file_path, cs_file_path=None,
-                          dotnet_flag=False, nuitka_flag=False, pyc_flag=False, nsis_flag=False, homepage_flag=""):
+def scan_code_for_links(decompiled_code, file_path, cs_file_path=None, **flags):
     """
     Scan the decompiled code for Discord-related URLs (via contains_discord_or_telegram_code),
     general URLs, domains, and IP addresses. The provided flags are passed along
     to each individual scanning function so that every detection scenario uses its unique
     virus signature.
     """
-
+    
     # Call the Discord/Telegram scanner
-    contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path,
-                            dotnet_flag, nuitka_flag,
-                            pyc_flag, nsis_flag)
+    contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path, **flags)
 
-    # Extract URLs from the decompiled code
+    # Extract and scan URLs from the decompiled code
     urls = set(re.findall(r'https?://[^\s/$.?#]\S*', decompiled_code))
     for url in urls:
         html_content, html_content_file_path = fetch_html(url, return_file_path=True)
-        contains_discord_or_telegram_code(html_content, file_path, cs_file_path,
-                              dotnet_flag, nuitka_flag,
-                              pyc_flag, nsis_flag)
-        # Pass the homepage flag string into the scanning functions
-        scan_url_general(url, dotnet_flag, nuitka_flag,
-                          pyc_flag, nsis_flag, homepage_flag)
-        scan_domain_general(url, dotnet_flag, nuitka_flag,
-                            pyc_flag, nsis_flag, homepage_flag)
-        scan_spam_email_365_general(url, dotnet_flag, nuitka_flag,
-                            pyc_flag, nsis_flag, homepage_flag)
-        scan_html_content(html_content, html_content_file_path, dotnet_flag, nuitka_flag,
-                          pyc_flag, nsis_flag, homepage_flag)
+        
+        # Scan the fetched HTML content
+        contains_discord_or_telegram_code(html_content, file_path, cs_file_path, **flags)
+        scan_html_content(html_content, html_content_file_path, **flags)
+        
+        # Scan the URL itself
+        scan_url_general(url, **flags)
+        scan_domain_general(url, **flags)
+        scan_spam_email_365_general(url, **flags)
 
-    ipv4_addresses = set(re.findall(
-        r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'
-        r'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)',
-        decompiled_code
-    ))
-    for ip in ipv4_addresses:
-        scan_ip_address_general(ip, dotnet_flag, nuitka_flag,
-                                pyc_flag, nsis_flag, homepage_flag)
-
-    ipv6_addresses = set(re.findall(
-        r'([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}',
-        decompiled_code
-    ))
-    for ip in ipv6_addresses:
-        scan_ip_address_general(ip, dotnet_flag, nuitka_flag,
-                                pyc_flag, nsis_flag, homepage_flag)
+    # Extract and scan IP addresses (IPv4 and IPv6)
+    ip_patterns = [
+        (r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)', 'IPv4'),
+        (r'([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}', 'IPv6')
+    ]
+    
+    for pattern, ip_type in ip_patterns:
+        ip_addresses = set(re.findall(pattern, decompiled_code))
+        for ip in ip_addresses:
+            scan_ip_address_general(ip, **flags)
 
 def extract_ascii_strings(data):
     """Extract readable ASCII strings from binary data."""
@@ -7183,6 +7081,8 @@ def log_directory_type(file_path):
             logging.info(f"{file_path}: .NET decompiled.")
         elif file_path.startswith(androguard_dir):
             logging.info(f"{file_path}: APK decompiled with androguard.")
+        elif file_path.startswith(asar_dir):
+            logging.info(f"{file_path}: ASAR archive (Electron) extracted.")
         elif file_path.startswith(obfuscar_dir):
             logging.info(f"{file_path}: .NET file obfuscated with Obfuscar.")
         elif file_path.startswith(de4dot_sandboxie_dir):
@@ -7282,6 +7182,7 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
             (lambda fp: fp.startswith(nuitka_dir), "Nuitka onefile extracted."),
             (lambda fp: fp.startswith(dotnet_dir), ".NET decompiled."),
             (lambda fp: fp.startswith(androguard_dir), "APK decompiled with Androguard."),
+            (lambda fp: fp.startswith(asar_dir), "ASAR archive (Electron) extracted."),
             (lambda fp: fp.startswith(obfuscar_dir), ".NET file obfuscated with Obfuscar."),
             (lambda fp: fp.startswith(de4dot_extracted_dir), ".NET file deobfuscated with de4dot."),
             (lambda fp: fp.startswith(net_reactor_extracted_dir), ".NET file deobfuscated with .NET Reactor Slayer."),
@@ -8497,6 +8398,55 @@ def decompile_dotnet_file(file_path):
 
     except Exception as ex:
         logging.error(f"Error decompiling .NET file {file_path}: {ex}")
+
+def extract_asar_file(file_path):
+    """
+    Extracts an Electron .asar archive using the 'asar' npm CLI
+    and scans all extracted files for URLs, IPs, domains, and Discord webhooks.
+
+    :param file_path: Path to the .asar file
+    """
+    try:
+        logging.info(f"Detected Asar archive: {file_path}")
+
+        # Create a unique numbered subdirectory under asar_dir
+        folder_number = 1
+        while os.path.exists(os.path.join(asar_dir, str(folder_number))):
+            folder_number += 1
+        asar_output_dir = os.path.join(asar_dir, str(folder_number))
+        os.makedirs(asar_output_dir, exist_ok=True)
+
+        # Run asar extraction command
+        asar_command = [
+            "asar",
+            "extract",
+            file_path,
+            asar_output_dir
+        ]
+        subprocess.run(asar_command, check=True)
+        logging.info(f"Asar archive extracted to {asar_output_dir}")
+
+        # Scan all extracted files
+        for root, _, files in os.walk(asar_output_dir):
+            for file in files:
+                file_path_full = os.path.join(root, file)
+                logging.info(f"Scanning file: {file_path_full}")
+
+                try:
+                    # Read the file content (skip binary decoding errors)
+                    with open(file_path_full, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read()
+
+                    # Scan for links, IPs, domains, Discord webhooks
+                    scan_code_for_links(content, file_path_full, asar_flag=True)
+
+                except Exception as ex:
+                    logging.error(f"Error scanning file {file_path_full}: {ex}")
+
+    except subprocess.CalledProcessError as ex:
+        logging.error(f"asar extraction failed for {file_path}: {ex}")
+    except Exception as ex:
+        logging.error(f"Error processing Asar file {file_path}: {ex}")
 
 def extract_all_files_with_7z(file_path, nsis_flag=False):
     """
@@ -9976,6 +9926,12 @@ def scan_and_warn(file_path,
             extracted_autoit_files = extract_autoit(norm_path)
             for extracted_autoit_file in extracted_autoit_files:
                 scan_and_warn(extracted_autoit_file)
+
+        if is_asar_archive_from_output(die_output):
+            logging.info(f"File {norm_path} is a valid Asar Archive (Electron).")
+            extracted_asar_files = extract_asar(norm_path)
+            for extracted_asar_file in extracted_asar_files:
+                scan_and_warn(extracted_asar_file)
 
         if is_installshield_file_from_output(die_output):
             logging.info(f"File {norm_path} is a valid Install Shield file.")
