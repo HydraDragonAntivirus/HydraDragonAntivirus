@@ -306,8 +306,12 @@ import macholib.mach_o
 logging.info(f"macholib.mach_o module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from typing import Optional, Tuple, BinaryIO, Dict, Any, List, Set, Union
-logging.info(f"typing, Optional, Tuple, BinaryIO, Dict, Any, List, Set and Union module loaded in {time.time() - start_time:.6f} seconds")
+from dataclasses import dataclass
+logging.info(f"dataclasses module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from typing import Optional, Tuple, BinaryIO, Dict, Any, List, Set, Union, Callable
+logging.info(f"typing, Optional, Tuple, BinaryIO, Dict, Any, List, Set and Union, Callable module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 from androguard.misc import AnalyzeAPK
@@ -10544,196 +10548,360 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
         logging.error(f"Overall error in analyze_specific_process: {overall_ex}")
         return None
 
+dataclass
+class ProcessInfo:
+    """Safe container for process information"""
+    pid: int
+    name: str
+    exe_path: str
+    rss: int
+    is_in_sandbox: bool
+    is_main_file: bool
+
+
+class SafeProcessMonitor:
+    """Thread-safe process monitor with proper resource management"""
+    
+    def __init__(self, sandboxie_folder: str, main_file_path: str):
+        self.sandboxie_folder = sandboxie_folder.lower()
+        self.main_file_path = main_file_path.lower()
+        self.current_pid = os.getpid()
+        
+        # Thread-safe tracking structures
+        self._lock = threading.RLock()
+        self._last_rss: Dict[int, int] = {}
+        self._analysis_cooldown: Dict[int, float] = {}
+        self._stop_requested = threading.Event()
+        
+        # Thread pool for analysis tasks
+        self._executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="MemAnalysis")
+        self._active_futures: Set = set()
+        
+    def _cleanup_stale_data(self, existing_pids: Set[int]) -> None:
+        """Remove tracking data for processes that no longer exist"""
+        with self._lock:
+            stale_pids = set(self._last_rss.keys()) - existing_pids
+            for pid in stale_pids:
+                self._last_rss.pop(pid, None)
+                self._analysis_cooldown.pop(pid, None)
+                
+    def _get_safe_process_info(self, proc) -> Optional[ProcessInfo]:
+        """Safely extract process information with comprehensive error handling"""
+        try:
+            # Get basic info that was pre-fetched
+            pid = proc.info.get('pid')
+            name = proc.info.get('name', 'Unknown')
+            memory_info = proc.info.get('memory_info')
+            
+            if not all([pid, memory_info]):
+                return None
+                
+            # Skip our own process immediately
+            if pid == self.current_pid:
+                return None
+                
+            # Verify process still exists before getting exe path
+            if not psutil.pid_exists(pid):
+                return None
+                
+            # Get RSS from pre-fetched info
+            rss = memory_info.rss
+            
+            # Try to get executable path with multiple fallback strategies
+            exe_path = None
+            try:
+                # Primary method
+                exe_path = proc.exe()
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                return None
+            except Exception as e:
+                # Fallback: try cmdline for path hints
+                try:
+                    cmdline = proc.cmdline()
+                    if cmdline:
+                        exe_path = cmdline[0]
+                    else:
+                        return None
+                except Exception:
+                    return None
+                    
+            if not exe_path:
+                return None
+                
+            exe_lower = exe_path.lower()
+            is_in_sandbox = exe_lower.startswith(self.sandboxie_folder)
+            is_main_file = exe_lower == self.main_file_path
+            
+            # Only track processes in our scope
+            if not (is_in_sandbox or is_main_file):
+                return None
+                
+            return ProcessInfo(
+                pid=pid,
+                name=name,
+                exe_path=exe_path,
+                rss=rss,
+                is_in_sandbox=is_in_sandbox,
+                is_main_file=is_main_file
+            )
+            
+        except Exception as e:
+            # Log unexpected exceptions for debugging
+            logging.debug(f"Unexpected error getting process info: {e}")
+            return None
+            
+    def _should_analyze_process(self, proc_info: ProcessInfo, change_threshold: int) -> tuple[bool, str]:
+        """Determine if process should be analyzed based on memory change and cooldown"""
+        with self._lock:
+            prev_rss = self._last_rss.get(proc_info.pid)
+            current_time = time.time()
+            
+            # Check memory change threshold
+            if prev_rss is not None:
+                memory_change = abs(proc_info.rss - prev_rss)
+                if memory_change <= change_threshold:
+                    return False, "Below threshold"
+            else:
+                memory_change = proc_info.rss
+                
+            # Check analysis cooldown (30 seconds minimum)
+            last_analysis = self._analysis_cooldown.get(proc_info.pid, 0)
+            if current_time - last_analysis < 30:
+                return False, "In cooldown"
+                
+            # Update tracking data
+            self._last_rss[proc_info.pid] = proc_info.rss
+            self._analysis_cooldown[proc_info.pid] = current_time
+            
+            # Determine change type for logging
+            if prev_rss is None:
+                change_type = "initial"
+            elif proc_info.rss > prev_rss:
+                change_type = "increase"
+            else:
+                change_type = "decrease"
+                
+            change_amount = proc_info.rss - prev_rss if prev_rss else proc_info.rss
+            
+            logging.info(f"Memory {change_type} detected: {proc_info.exe_path} (PID: {proc_info.pid})")
+            logging.info(f"  Previous RSS: {prev_rss or 'N/A'} bytes")
+            logging.info(f"  Current RSS: {proc_info.rss} bytes")
+            logging.info(f"  Change: {change_amount:+} bytes")
+            logging.info(f"  In sandbox: {proc_info.is_in_sandbox}, Is main file: {proc_info.is_main_file}")
+            
+            return True, "Ready for analysis"
+            
+    def _submit_analysis_task(self, proc_info: ProcessInfo, memory_dir: str, pd64_extracted_dir: str) -> None:
+        """Submit memory analysis task to thread pool"""
+        if self._stop_requested.is_set():
+            return
+            
+        def analysis_task():
+            try:
+                if self._stop_requested.is_set():
+                    logging.debug(f"Analysis cancelled for PID {proc_info.pid} (stop requested)")
+                    return None
+                    
+                # Verify process still exists before analysis
+                if not psutil.pid_exists(proc_info.pid):
+                    logging.info(f"Process {proc_info.pid} no longer exists, skipping analysis")
+                    return None
+                    
+                logging.info(f"Starting memory analysis for: {proc_info.exe_path} (PID: {proc_info.pid})")
+                
+                # Call the external analysis function
+                result_file = analyze_specific_process(
+                    proc_info.name, memory_dir, pd64_extracted_dir
+                )
+                
+                if self._stop_requested.is_set():
+                    logging.debug(f"Analysis completed but stop requested for PID {proc_info.pid}")
+                    return result_file
+                    
+                if result_file:
+                    logging.info(f"Memory analysis completed for PID {proc_info.pid}, result: {result_file}")
+                    
+                    # Launch scan in separate thread if not stopping
+                    if not self._stop_requested.is_set():
+                        scan_thread = threading.Thread(
+                            target=self._safe_scan_and_warn,
+                            args=(result_file,),
+                            name=f"Scan-{proc_info.pid}",
+                            daemon=True
+                        )
+                        scan_thread.start()
+                else:
+                    logging.warning(f"Memory analysis for PID {proc_info.pid} returned no results")
+                    
+                return result_file
+                
+            except Exception as e:
+                logging.error(f"Memory analysis failed for PID {proc_info.pid}: {e}")
+                return None
+                
+        # Submit task to thread pool
+        try:
+            future = self._executor.submit(analysis_task)
+            self._active_futures.add(future)
+            
+            # Clean up completed futures
+            completed_futures = {f for f in self._active_futures if f.done()}
+            self._active_futures -= completed_futures
+            
+        except Exception as e:
+            logging.error(f"Failed to submit analysis task for PID {proc_info.pid}: {e}")
+            
+    def _safe_scan_and_warn(self, result_file: str) -> None:
+        """Safely execute scan_and_warn with error handling"""
+        try:
+            if not self._stop_requested.is_set():
+                scan_and_warn(result_file)
+        except Exception as e:
+            logging.error(f"Scan and warn failed for {result_file}: {e}")
+            
+    def request_stop(self) -> None:
+        """Request graceful shutdown of the monitor"""
+        logging.info("Memory monitor stop requested")
+        self._stop_requested.set()
+        
+    def cleanup(self) -> None:
+        """Clean up resources"""
+        logging.info("Memory monitor shutting down...")
+        
+        # Cancel pending futures
+        for future in self._active_futures:
+            future.cancel()
+            
+        # Shutdown thread pool with timeout
+        self._executor.shutdown(wait=True, timeout=10)
+        
+        logging.info("Memory monitor shutdown complete")
+        
+    def monitor_processes(self, change_threshold_bytes: int, memory_dir: str, 
+                         pd64_extracted_dir: str, sleep_interval: float = 0.1) -> None:
+        """Main monitoring loop"""
+        logging.info(f"Starting memory monitor for sandbox: {self.sandboxie_folder}")
+        logging.info(f"Monitoring main file: {self.main_file_path}")
+        logging.info(f"Memory change threshold: {change_threshold_bytes} bytes")
+        logging.info(f"Our PID (excluded from analysis): {self.current_pid}")
+        
+        iteration_count = 0
+        
+        try:
+            while not self._stop_requested.is_set():
+                iteration_count += 1
+                current_pids = set()
+                
+                try:
+                    # Get process list with required info pre-fetched
+                    processes = list(psutil.process_iter(['pid', 'memory_info', 'name']))
+                    
+                    for proc in processes:
+                        if self._stop_requested.is_set():
+                            break
+                            
+                        proc_info = self._get_safe_process_info(proc)
+                        if not proc_info:
+                            continue
+                            
+                        current_pids.add(proc_info.pid)
+                        
+                        should_analyze, reason = self._should_analyze_process(
+                            proc_info, change_threshold_bytes
+                        )
+                        
+                        if should_analyze:
+                            logging.info(f"Analyzing process {proc_info.pid}: {reason}")
+                            self._submit_analysis_task(proc_info, memory_dir, pd64_extracted_dir)
+                            
+                    # Cleanup stale tracking data every 100 iterations
+                    if iteration_count % 100 == 0:
+                        self._cleanup_stale_data(current_pids)
+                        
+                except Exception as e:
+                    logging.error(f"Error in monitoring iteration {iteration_count}: {e}")
+                    # Add longer delay on error to prevent rapid error loops
+                    time.sleep(min(sleep_interval * 10, 5.0))
+                    continue
+                    
+                # Sleep between iterations
+                if not self._stop_requested.wait(timeout=sleep_interval):
+                    continue  # Timeout expired, continue monitoring
+                else:
+                    break  # Stop was requested
+                    
+        except KeyboardInterrupt:
+            logging.info("Memory monitor interrupted by user")
+        except Exception as e:
+            logging.error(f"Fatal error in memory monitor: {e}")
+            raise
+        finally:
+            self.cleanup()
+
 
 def monitor_memory_changes(
-    change_threshold_bytes: int = 1024,  # Set minimum threshold to avoid too frequent triggers
-    stop_callback=None  # Add stop callback to allow graceful shutdown
-):
+    change_threshold_bytes: int = 1024,
+    stop_callback: Optional[Callable[[], bool]] = None,
+) -> None:
     """
     Continuously monitor processes in sandbox and main file for RSS memory changes and trigger analysis.
-    Uses pd64 extraction methods.
+    Uses pd64 extraction methods with robust error handling and resource management.
 
     :param change_threshold_bytes: Minimum delta in RSS to trigger analysis.
     :param stop_callback: Function that returns True when monitoring should stop
+    :param memory_dir: Directory for memory dumps
+    :param pd64_extracted_dir: Directory for pd64 extracted data
     """
-    last_rss = {}
-    current_pid = os.getpid()  # Get our own PID to avoid self-analysis
-    analysis_cooldown = {}  # Track last analysis time per PID to prevent spam
-    active_threads = []  # Track active analysis threads
 
-    logging.info(f"Starting memory monitor for sandbox: {sandboxie_folder}")
-    logging.info(f"Monitoring main file: {main_file_path}")
-    logging.info(f"Memory change threshold: {change_threshold_bytes} bytes")
-    logging.info(f"Our PID (excluded from analysis): {current_pid}")
-
+    monitor = SafeProcessMonitor(sandboxie_folder, main_file_path)
+    
+    # Set up stop callback integration
+    def check_stop():
+        return monitor._stop_requested.is_set() or (stop_callback and stop_callback())
+    
     try:
-        while True:
-            # Check if we should stop
-            if stop_callback and stop_callback():
-                logging.info("Memory monitor stop requested")
-                break
-
-            try:
-                current_time = time.time()
-
-                # Clean up finished threads
-                active_threads = [t for t in active_threads if t.is_alive()]
-
-                for proc in psutil.process_iter(['pid', 'memory_info', 'exe', 'name']):
-                    # Check stop condition frequently during heavy loops
-                    if stop_callback and stop_callback():
-                        logging.info("Memory monitor stop requested during process iteration")
+        # Start monitoring in a separate thread if stop_callback is provided
+        if stop_callback:
+            def monitor_with_callback():
+                while not check_stop():
+                    try:
+                        monitor.monitor_processes(
+                            change_threshold_bytes, 
+                            memory_dir, 
+                            pd64_extracted_dir,
+                            sleep_interval=0.1
+                        )
+                        break  # Normal exit
+                    except Exception as e:
+                        if not check_stop():
+                            logging.error(f"Monitor restarting due to error: {e}")
+                            time.sleep(1)
                         break
-
-                    pid = proc.info['pid']
-
-                    # Skip analyzing our own process to prevent self-termination
-                    if pid == current_pid:
-                        continue
-
-                    try:
-                        rss = proc.info['memory_info'].rss
-                        process_name = proc.info['name']
-                    except (psutil.NoSuchProcess, psutil.AccessDenied):
-                        # Clean up stale PID from tracking
-                        if pid in last_rss:
-                            del last_rss[pid]
-                        if pid in analysis_cooldown:
-                            del analysis_cooldown[pid]
-                        continue
-
-                    # Check if memory change is significant enough
-                    prev_rss = last_rss.get(pid)
-                    memory_changed = prev_rss is None or abs(rss - prev_rss) > change_threshold_bytes
-
-                    if not memory_changed:
-                        continue
-
-                    # Check cooldown to prevent analysis spam (minimum 30 seconds between analyses)
-                    last_analysis = analysis_cooldown.get(pid, 0)
-                    if current_time - last_analysis < 30:
-                        continue
-
-                    # Update tracked memory
-                    last_rss[pid] = rss
-
-                    try:
-                        exe_path = proc.exe()
-                    except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-                        logging.debug(f"Skipping PID {pid} ({process_name}): cannot retrieve exe path ({e})")
-                        continue
-
-                    # Check if process is in our monitoring scope
-                    exe_lower = exe_path.lower()
-                    sandbox_lower = sandboxie_folder.lower()
-                    main_lower = main_file_path.lower()
-
-                    # Only monitor processes within sandboxie_folder or matching main_file_path
-                    is_in_sandbox = exe_lower.startswith(sandbox_lower)
-                    is_main_file = exe_lower == main_lower
-
-                    if not is_in_sandbox and not is_main_file:
-                        continue
-
-                    # Update analysis cooldown
-                    analysis_cooldown[pid] = current_time
-
-                    # Log the memory change detection
-                    change_type = "increase" if prev_rss and rss > prev_rss else "change"
-                    change_amount = rss - prev_rss if prev_rss else rss
-
-                    logging.info(f"Memory {change_type} detected: {exe_path} (PID: {pid})")
-                    logging.info(f"  Previous RSS: {prev_rss or 'N/A'} bytes")
-                    logging.info(f"  Current RSS: {rss} bytes")
-                    logging.info(f"  Change: {change_amount:+} bytes")
-                    logging.info(f"  In sandbox: {is_in_sandbox}, Is main file: {is_main_file}")
-
-                    try:
-                        # Check if process is still running before attempting memory analysis
-                        if not psutil.pid_exists(pid):
-                            logging.error(f"Process {pid} ({process_name}) no longer exists, skipping analysis")
-                            # Clean up from tracking
-                            if pid in last_rss:
-                                del last_rss[pid]
-                            if pid in analysis_cooldown:
-                                del analysis_cooldown[pid]
-                            continue
-
-                        # Use the enhanced analyze_specific_process method with pd64 fallback
-                        logging.info(f"Starting memory analysis for: {exe_path} (PID: {pid})")
-
-                        # Run analysis in a separate thread to prevent blocking the monitor
-                        def run_memory_analysis():
-                            try:
-                                # Check if we should stop before starting analysis
-                                if stop_callback and stop_callback():
-                                    logging.info(f"Analysis thread for PID {pid} stopped before starting")
-                                    return
-
-                                result_file = analyze_specific_process(
-                                    process_name, memory_dir, pd64_extracted_dir
-                                )
-
-                                # Check if we should stop before processing results
-                                if stop_callback and stop_callback():
-                                    logging.info(f"Analysis thread for PID {pid} stopped before processing results")
-                                    return
-
-                                if result_file:
-                                    logging.info(f"Memory analysis completed for PID {pid}, result: {result_file}")
-
-                                    # Only start scan thread if we're not stopping
-                                    if not (stop_callback and stop_callback()):
-                                        # Spawn async scan on the resulting strings file
-                                        scan_thread = threading.Thread(target=scan_and_warn, args=(result_file,))
-                                        scan_thread.daemon = True  # Make daemon to prevent hanging on shutdown
-                                        scan_thread.start()
-                                else:
-                                    logging.error(f"Memory analysis for PID {pid} returned no results")
-                            except Exception as thread_ex:
-                                logging.error(f"Thread analysis failed for PID {pid}: {thread_ex}")
-
-                        # Start analysis thread as daemon to prevent hanging
-                        analysis_thread = threading.Thread(target=run_memory_analysis)
-                        analysis_thread.start()
-
-                        # Track the thread but limit concurrent analyses
-                        active_threads.append(analysis_thread)
-
-                        # Limit concurrent analysis threads to prevent resource exhaustion
-                        if len(active_threads) > 5:
-                            logging.warning(f"Too many concurrent analysis threads ({len(active_threads)}), waiting...")
-                            # Wait for oldest thread to finish
-                            if active_threads[0].is_alive():
-                                active_threads[0].join(timeout=30)  # Max 30 second wait
-                            active_threads = [t for t in active_threads if t.is_alive()]
-
-                    except Exception as ex:
-                        logging.error(f"Memory analysis setup failed for {exe_path} (PID: {pid}): {ex}")
-                        continue
-
-                # Check stop condition after processing all processes
-                if stop_callback and stop_callback():
-                    logging.info("Memory monitor stop requested after process iteration")
-                    break
-
-                # Add a small sleep to prevent excessive CPU usage
-                time.sleep(0.1)  # 100ms sleep between iterations
-
-            except Exception as monitor_ex:
-                logging.error(f"Error in memory monitoring loop: {monitor_ex}")
-                # Add delay on error to prevent rapid error loops
-                time.sleep(1)
-                continue
-
+                        
+            monitor_thread = threading.Thread(target=monitor_with_callback, name="MemoryMonitor")
+            monitor_thread.daemon = True
+            monitor_thread.start()
+            
+            # Wait for stop condition or thread completion
+            while monitor_thread.is_alive() and not check_stop():
+                time.sleep(0.1)
+                
+            if monitor_thread.is_alive():
+                monitor.request_stop()
+                monitor_thread.join(timeout=30)
+        else:
+            # Run directly in current thread
+            monitor.monitor_processes(change_threshold_bytes, memory_dir, pd64_extracted_dir)
+            
+    except KeyboardInterrupt:
+        logging.info("Memory monitoring interrupted")
+        monitor.request_stop()
+    except Exception as e:
+        logging.error(f"Memory monitoring failed: {e}")
+        monitor.request_stop()
+        raise
     finally:
-        # Cleanup: wait for active threads to finish (with timeout)
-        logging.info("Memory monitor shutting down, waiting for analysis threads...")
-        for thread in active_threads:
-            if thread.is_alive():
-                thread.join(timeout=5)  # Max 5 second wait per thread
-
-        logging.info("Memory monitor shutdown complete")
+        monitor.cleanup()
 
 def monitor_saved_paths():
     """Continuously monitor all path lists in global path_lists and scan new items in threads."""
@@ -11888,11 +12056,19 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
             analysis_threads.append(thread)
             thread_function_map[thread] = target_func.__name__
             return thread
-
+    
+        stop_flag = threading.Event()
+    
+        def stop_callback():
+            return stop_flag.is_set()
+    
         threads_to_start = [
             (monitor_message.start_monitoring_threads,),
             (scan_and_warn, (main_dest,)),
-            (monitor_memory_changes,),
+            (monitor_memory_changes(
+                change_threshold_bytes=1024,
+                stop_callback=stop_callback
+            )),
             (run_sandboxie_plugin,),
             (monitor_suricata_log,),
             (web_protection_observer.begin_observing,),
