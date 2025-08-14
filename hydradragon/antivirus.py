@@ -13914,7 +13914,7 @@ class AntivirusApp(QWidget):
             self.setWindowIcon(QIcon(icon_path))
         else:
             logging.warning(f"Icon file not found at: {icon_path}")
-        self.setWindowTitle("HydraDragon Antivirus v0.1 (Beta 4.1)")
+        self.setWindowTitle("HydraDragon Antivirus v0.1 (Beta 5)")
         self.setMinimumSize(1024, 768)
         self.resize(1200, 800)
         main_layout = QHBoxLayout(self)
