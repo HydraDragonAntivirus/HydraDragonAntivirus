@@ -406,6 +406,7 @@ device = accelerator.device
 python_path = sys.executable
 
 # Define the paths
+capa_rules_dir = os.path.join(script_dir, "capa-rules-9.2.1")
 capa_results_dir = os.path.join(script_dir, "capa_results")
 hayabusa_dir = os.path.join(script_dir, "hayabusa")
 hayabusa_path = os.path.join(hayabusa_dir, "hayabusa-3.3.0-win-x64.exe")
@@ -9815,6 +9816,7 @@ def scan_and_warn(file_path,
 
         if pefile_result:
             logging.info(f"The file {norm_path} is a valid PE file.")
+            pe_file = True
         elif pefile_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
             logging.info(f"The file {norm_path} is a broken PE file. Skipping scan...")
             return False
@@ -9877,7 +9879,7 @@ def scan_and_warn(file_path,
                     scan_and_warn(decompiled_apk_file)
 
         # Check if the file is a known rootkit file
-        if pefile_result and file_name in known_rootkit_files:
+        if pe_file and file_name in known_rootkit_files:
             file_directory = os.path.dirname(norm_path)
 
             if file_directory in hosts_sandboxie_path:
