@@ -46,6 +46,7 @@ dependencies = [
     "comtypes",
     "androguard",
     "nltk",
+    "flare-capa",
 
     # Pylingual reverse-engineering dependencies
     "asttokens",

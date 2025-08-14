@@ -406,6 +406,7 @@ device = accelerator.device
 python_path = sys.executable
 
 # Define the paths
+capa_results_dir = os.path.join(script_dir, "capa_results")
 hayabusa_dir = os.path.join(script_dir, "hayabusa")
 hayabusa_path = os.path.join(hayabusa_dir, "hayabusa-3.3.0-win-x64.exe")
 reports_dir = os.path.join(script_dir, "reports")
@@ -839,7 +840,7 @@ COMMON_DIRECTORIES = [
     pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir,
     resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir,
     upx_extracted_dir, installshield_extracted_dir, autoit_extracted_dir,
-    copied_sandbox_and_main_files_dir, decompiled_dir
+    copied_sandbox_and_main_files_dir, decompiled_dir, capa_results_dir
 ]
 
 # Additional directories only in MANAGED_DIRECTORIES
@@ -870,6 +871,55 @@ for make_directory in MANAGED_DIRECTORIES:
 # Sandboxie folders
 os.makedirs(sandboxie_folder, exist_ok=True)
 os.makedirs(sandbox_system_root_directory, exist_ok=True)
+
+# Directory conditions and their corresponding logging messages
+DIRECTORY_MESSAGES = [
+    (lambda fp: fp.startswith(pd64_extracted_dir), "Process Dump x64 output extracted."),
+    (lambda fp: fp.startswith(enigma_extracted_dir), "Enigma extracted."),
+    (lambda fp: fp.startswith(sandboxie_folder), "It's a Sandbox environment file."),
+    (lambda fp: fp.startswith(copied_sandbox_and_main_files_dir), "It's a restored sandbox environment file."),
+    (lambda fp: fp.startswith(decompiled_dir), "Decompiled."),
+    (lambda fp: fp.startswith(capa_results_dir), "CAPA program capabilities extracted."),
+    (lambda fp: fp.startswith(upx_extracted_dir), "UPX extracted."),
+    (lambda fp: fp.startswith(inno_setup_unpacked_dir), "Inno Setup unpacked."),
+    (lambda fp: fp.startswith(nuitka_dir), "Nuitka onefile extracted."),
+    (lambda fp: fp.startswith(dotnet_dir), ".NET decompiled."),
+    (lambda fp: fp.startswith(androguard_dir), "APK decompiled with androguard."),
+    (lambda fp: fp.startswith(asar_dir), "ASAR archive (Electron) extracted."),
+    (lambda fp: fp.startswith(obfuscar_dir), ".NET file obfuscated with Obfuscar."),
+    (lambda fp: fp.startswith(de4dot_sandboxie_dir), "It's a Sandbox environment file, also a .NET file deobfuscated with de4dot."),
+    (lambda fp: fp.startswith(de4dot_extracted_dir), ".NET file deobfuscated with de4dot."),
+    (lambda fp: fp.startswith(net_reactor_extracted_dir), ".NET file deobfuscated with .NET Reactor Slayer."),
+    (lambda fp: fp.startswith(pyinstaller_extracted_dir), "PyInstaller onefile extracted."),
+    (lambda fp: fp.startswith(cx_freeze_extracted_dir), "cx_freeze library.zip extracted."),
+    (lambda fp: fp.startswith(commandlineandmessage_dir), "Command line message extracted."),
+    (lambda fp: fp.startswith(pe_extracted_dir), "PE file extracted."),
+    (lambda fp: fp.startswith(zip_extracted_dir), "ZIP extracted."),
+    (lambda fp: fp.startswith(seven_zip_extracted_dir), "7zip extracted."),
+    (lambda fp: fp.startswith(general_extracted_with_7z_dir), "All files extracted with 7-Zip go here."),
+    (lambda fp: fp.startswith(nuitka_extracted_dir), "The Nuitka binary files can be found here."),
+    (lambda fp: fp.startswith(advanced_installer_extracted_dir), "The extracted files from Advanced Installer can be found here."),
+    (lambda fp: fp.startswith(tar_extracted_dir), "TAR extracted."),
+    (lambda fp: fp.startswith(processed_dir), "Processed - File is base64/base32, signature/magic bytes removed."),
+    (lambda fp: fp == main_file_path, "This is the main file."),
+    (lambda fp: fp.startswith(memory_dir), "It's a dynamic analysis memory dump file."),
+    (lambda fp: fp.startswith(resource_extractor_dir), "It's an RCData resources extracted directory."),
+    (lambda fp: fp.startswith(ungarbler_dir), "It's a deobfuscated Go Garble directory."),
+    (lambda fp: fp.startswith(ungarbler_string_dir), "It's a directory of deobfuscated Go Garble strings."),
+    (lambda fp: fp.startswith(debloat_dir), "It's a debloated file dir."),
+    (lambda fp: fp.startswith(jar_extracted_dir), "It's a directory containing extracted files from a JAR (Java Archive) file."),
+    (lambda fp: fp.startswith(FernFlower_decompiled_dir), "It's a directory containing decompiled files from a JAR (Java Archive) file, decompiled using Fernflower decompiler."),
+    (lambda fp: fp.startswith(pylingual_extracted_dir), "It's a .pyc (Python Compiled Module) reversed-engineered Python source code directory with pylingual."),
+    (lambda fp: fp.startswith(python_deobfuscated_dir), "It's an unobfuscated Python directory."),
+    (lambda fp: fp.startswith(python_deobfuscated_marshal_pyc_dir), "It's a deobfuscated .pyc (Python Compiled Module) from marshal data."),
+    (lambda fp: fp.startswith(python_deobfuscated_sandboxie_dir), "It's an unobfuscated Python directory within Sandboxie."),
+    (lambda fp: fp.startswith(pycdas_extracted_dir), "It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code directory with pycdas.exe."),
+    (lambda fp: fp.startswith(python_source_code_dir), "It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code base directory."),
+    (lambda fp: fp.startswith(nuitka_source_code_dir), "It's a Nuitka reversed-engineered Python source code directory."),
+    (lambda fp: fp.startswith(html_extracted_dir), "This is the directory for HTML files of visited websites."),
+    (lambda fp: fp.startswith(installshield_extracted_dir), "InstallShield extracted with ISx."),
+    (lambda fp: fp.startswith(autoit_extracted_dir), "AutoIt extracted with AutoIt-Ripper.")
+]
 
 # Counter for ransomware detection
 ransomware_detection_count = 0
@@ -7065,96 +7115,12 @@ def ransomware_alert(file_path):
 
 def log_directory_type(file_path):
     try:
-        if file_path.startswith(pd64_extracted_dir):
-            logging.info(f"{file_path}: Process Dump x64 output extracted.")
-        if file_path.startswith(enigma_extracted_dir):
-            logging.info(f"{file_path}: Enigma extracted.")
-        elif file_path.startswith(sandboxie_folder):
-            logging.info(f"{file_path}: It's a Sandbox environment file.")
-        elif file_path.startswith(copied_sandbox_and_main_files_dir):
-            logging.info(f"{file_path}: It's a restored sandbox environment file.")
-        elif file_path.startswith(decompiled_dir):
-            logging.info(f"{file_path}: Decompiled.")
-        elif file_path.startswith(upx_extracted_dir):
-            logging.info(f"{file_path}: UPX extracted.")
-        elif file_path.startswith(inno_setup_unpacked_dir):
-            logging.info(f"{file_path}: Inno Setup unpacked.")
-        elif file_path.startswith(nuitka_dir):
-            logging.info(f"{file_path}: Nuitka onefile extracted.")
-        elif file_path.startswith(dotnet_dir):
-            logging.info(f"{file_path}: .NET decompiled.")
-        elif file_path.startswith(androguard_dir):
-            logging.info(f"{file_path}: APK decompiled with androguard.")
-        elif file_path.startswith(asar_dir):
-            logging.info(f"{file_path}: ASAR archive (Electron) extracted.")
-        elif file_path.startswith(obfuscar_dir):
-            logging.info(f"{file_path}: .NET file obfuscated with Obfuscar.")
-        elif file_path.startswith(de4dot_sandboxie_dir):
-            logging.info(f"{file_path}: It's a Sandbox environment file, also a .NET file deobfuscated with de4dot.")
-        elif file_path.startswith(de4dot_extracted_dir):
-            logging.info(f"{file_path}: .NET file deobfuscated with de4dot.")
-        elif file_path.startswith(net_reactor_extracted_dir):
-            logging.info(f"{file_path}: .NET file deobfuscated with .NET Reactor Slayer.")
-        elif file_path.startswith(pyinstaller_extracted_dir):
-            logging.info(f"{file_path}: PyInstaller onefile extracted.")
-        elif file_path.startswith(cx_freeze_extracted_dir):
-            logging.info(f"{file_path}: cx_freeze library.zip extracted.")
-        elif file_path.startswith(commandlineandmessage_dir):
-            logging.info(f"{file_path}: Command line message extracted.")
-        elif file_path.startswith(pe_extracted_dir):
-            logging.info(f"{file_path}: PE file extracted.")
-        elif file_path.startswith(zip_extracted_dir):
-            logging.info(f"{file_path}: ZIP extracted.")
-        elif file_path.startswith(seven_zip_extracted_dir):
-            logging.info(f"{file_path}: 7zip extracted.")
-        elif file_path.startswith(general_extracted_with_7z_dir):
-            logging.info(f"{file_path}: All files extracted with 7-Zip go here.")
-        elif file_path.startswith(nuitka_extracted_dir):
-            logging.info(f"{file_path}: The Nuitka binary files can be found here.")
-        elif file_path.startswith(advanced_installer_extracted_dir):
-            logging.info(f"{file_path}: The extracted files from Advanced Installer can be found here.")
-        elif file_path.startswith(tar_extracted_dir):
-            logging.info(f"{file_path}: TAR extracted.")
-        elif file_path.startswith(processed_dir):
-            logging.info(f"{file_path}: Processed - File is base64/base32, signature/magic bytes removed.")
-        elif file_path == main_file_path:  # Check for main file path
-            logging.info(f"{file_path}: This is the main file.")
-        elif file_path.startswith(memory_dir):
-            logging.info(f"{file_path}: It's a dynamic analysis memory dump file.")
-        elif file_path.startswith(resource_extractor_dir):
-            logging.info(f"{file_path}: It's an RCData resources extracted directory.")
-        elif file_path.startswith(ungarbler_dir):
-            logging.info(f"{file_path}: It's a deobfuscated Go Garble directory.")
-        elif file_path.startswith(ungarbler_string_dir):
-            logging.info(f"{file_path}: It's a directory of deobfuscated Go Garble strings.")
-        elif file_path.startswith(debloat_dir):
-            logging.info(f"{file_path}: It's a debloated file dir.")
-        elif file_path.startswith(jar_extracted_dir):
-           logging.info(f"{file_path}: It's a directory containing extracted files from a JAR (Java Archive) file.")
-        elif file_path.startswith(FernFlower_decompiled_dir):
-           logging.info(f"{file_path}: It's a directory containing decompiled files from a JAR (Java Archive) file, decompiled using Fernflower decompiler.")
-        elif file_path.startswith(pylingual_extracted_dir):
-            logging.info(f"{file_path}: It's a .pyc (Python Compiled Module) reversed-engineered Python source code directory with pylingaul.")
-        elif file_path.startswith(python_deobfuscated_dir):
-            logging.info(f"{file_path}: It's an unobfuscated Python directory.")
-        elif file_path.startswith(python_deobfuscated_marshal_pyc_dir):
-            logging.info(f"{file_path}: It's a deobfuscated .pyc (Python Compiled Module) from marshal data.")
-        elif file_path.startswith(python_deobfuscated_sandboxie_dir):
-            logging.info(f"{file_path}: It's an unobfuscated Python directory within Sandboxie.")
-        elif file_path.startswith(pycdas_extracted_dir):
-            logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code directory with pycdas.exe.")
-        elif file_path.startswith(python_source_code_dir):
-            logging.info(f"{file_path}: It's a PyInstaller, .pyc (Python Compiled Module) reversed-engineered Python source code base directory.")
-        elif file_path.startswith(nuitka_source_code_dir):
-            logging.info(f"{file_path}: It's a Nuitka reversed-engineered Python source code directory.")
-        elif file_path.startswith(html_extracted_dir):
-            logging.info(f"{file_path}: This is the directory for HTML files of visited websites.")
-        elif file_path.startswith(installshield_extracted_dir):
-            logging.info(f"{file_path}: InstallShield extracted with ISx.")
-        elif file_path.startswith(autoit_extracted_dir):
-            logging.info(f"{file_path}: AutoIt extracted with AutoIt-Ripper.")
-        else:
-            logging.warning(f"{file_path}: File does not match known directories.")
+        for condition, message in DIRECTORY_MESSAGES:
+            if condition(file_path):
+                logging.info(f"{file_path}: {message}")
+                return
+
+        logging.warning(f"{file_path}: File does not match known directories.")
     except Exception as ex:
         logging.error(f"Error logging directory type for {file_path}: {ex}")
 
@@ -7173,55 +7139,10 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
         return "Llama model is not loaded. Cannot perform analysis."
 
     try:
-        # List of directory conditions and their corresponding logging messages.
-        # Note: For conditions that need an exact match (like the main file), a lambda is used accordingly.
-        directory_logging_info = [
-            (lambda fp: fp.startswith(pd64_extracted_dir), "Process Dump x64 output extracted."),
-            (lambda fp: fp.startswith(enigma_extracted_dir), "Enigma extracted."),
-            (lambda fp: fp.startswith(sandboxie_folder), "It's a Sandbox environment file."),
-            (lambda fp: fp.startswith(copied_sandbox_and_main_files_dir), "It's a restored sandbox environment file."),
-            (lambda fp: fp.startswith(decompiled_dir), "Decompiled."),
-            (lambda fp: fp.startswith(upx_extracted_dir), "UPX extracted."),
-            (lambda fp: fp.startswith(inno_setup_unpacked_dir), "Inno Setup unpacked."),
-            (lambda fp: fp.startswith(nuitka_dir), "Nuitka onefile extracted."),
-            (lambda fp: fp.startswith(dotnet_dir), ".NET decompiled."),
-            (lambda fp: fp.startswith(androguard_dir), "APK decompiled with Androguard."),
-            (lambda fp: fp.startswith(asar_dir), "ASAR archive (Electron) extracted."),
-            (lambda fp: fp.startswith(obfuscar_dir), ".NET file obfuscated with Obfuscar."),
-            (lambda fp: fp.startswith(de4dot_extracted_dir), ".NET file deobfuscated with de4dot."),
-            (lambda fp: fp.startswith(net_reactor_extracted_dir), ".NET file deobfuscated with .NET Reactor Slayer."),
-            (lambda fp: fp.startswith(de4dot_sandboxie_dir), "It's a Sandbox environment file, also a .NET file deobfuscated with de4dot"),
-            (lambda fp: fp.startswith(pyinstaller_extracted_dir), "PyInstaller onefile extracted."),
-            (lambda fp: fp.startswith(cx_freeze_extracted_dir), "cx_freeze library.zip extracted."),
-            #(lambda fp: fp.startswith(commandlineandmessage_dir), "Command line message extracted."), # Due to the excessive output generated, we have disabled it.
-            (lambda fp: fp.startswith(pe_extracted_dir), "PE file extracted."),
-            (lambda fp: fp.startswith(zip_extracted_dir), "ZIP extracted."),
-            (lambda fp: fp.startswith(seven_zip_extracted_dir), "7zip extracted."),
-            (lambda fp: fp.startswith(general_extracted_with_7z_dir), "All files extracted with 7-Zip go here."),
-            (lambda fp: fp.startswith(nuitka_extracted_dir), "The Nuitka binary files can be found here."),
-            (lambda fp: fp.startswith(advanced_installer_extracted_dir), "The extracted files from Advanced Installer can be found here."),
-            (lambda fp: fp.startswith(tar_extracted_dir), "TAR extracted."),
-            (lambda fp: fp.startswith(processed_dir), "Processed - File is base64/base32, signature/magic bytes removed."),
-            (lambda fp: fp == main_file_path, "This is the main file."),
-            (lambda fp: fp.startswith(memory_dir), "It's a dynamic analysis memory dump file."),
-            (lambda fp: fp.startswith(debloat_dir), "It's a debloated file dir."),
-            (lambda fp: fp.startswith(jar_extracted_dir), "Directory containing extracted files from a JAR (Java Archive) file."),
-            (lambda fp: fp.startswith(FernFlower_decompiled_dir), "This directory contains source files decompiled from a JAR (Java Archive) using the Fernflower decompiler.."),
-            (lambda fp: fp.startswith(pylingual_extracted_dir), "PyInstaller, .pyc reversed-engineered source code directory with pylingual."),
-            (lambda fp: fp.startswith(python_deobfuscated_dir), "It's an unobfuscated Python directory."),
-            (lambda fp: fp.startswith(python_deobfuscated_marshal_pyc_dir), "It's a deobfuscated .pyc (Python Compiled Module) from marshal data."),
-            (lambda fp: fp.startswith(python_deobfuscated_sandboxie_dir), "It's an unobfuscated Python directory within Sandboxie."),
-            (lambda fp: fp.startswith(pycdas_extracted_dir), "PyInstaller, .pyc reversed-engineered source code directory with pycdas.exe."),
-            (lambda fp: fp.startswith(python_source_code_dir), "PyInstaller, .pyc reversed-engineered source code base directory."),
-            (lambda fp: fp.startswith(nuitka_source_code_dir), "Nuitka reversed-engineered Python source code directory."),
-            (lambda fp: fp.startswith(html_extracted_dir), "This is the directory for HTML files of visited websites."),
-            (lambda fp: fp.startswith(installshield_extracted_dir), "InstallShield extracted with ISx."),
-            (lambda fp: fp.startswith(autoit_extracted_dir), "AutoIt extracted with AutoIt-Ripper.")
-        ]
 
         # 1) Find and log the first matching directory message, also save it for the prompt
         dir_note = None
-        for condition, message in directory_logging_info:
+        for condition, message in DIRECTORY_MESSAGES:
             if condition(file_path):
                 logging.info(f"{file_path}: {message}")
                 dir_note = message
