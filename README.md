@@ -4,16 +4,18 @@
 <img src="hydradragon/assets/HydraDragonAntivirus.png" width=400px>
 </p>
 <p align="center">
-<img src="hydradragon/assets/hayabusa.png" width=1110px>
+<img src="hydradragon/assets/hayabusa.png" width=555px>
 </p>
 <p align="center">
-<img src="hydradragon/assets/Sigma_0.3.png" width=385px>
+<img src="hydradragon/assets/Sigma_0.3.png" width=200px>
 </p>
 <p align="center">
-<img src="hydradragon/assets/Owlyshield.png" width=512px>
+<img src="hydradragon/assets/Owlyshield.png" width=256px>
+</p>
+<img src="hydradragon/assets/capa.png" width=200px>
 </p>
 <p align="center">
-<img src="hydradragon/assets/HydraDragonAVGUI.png" width= 1080px>
+<img src="hydradragon/assets/HydraDragonAVGUI.png" width= 270px>
 </p>
 
 Dynamic and Static Analysis with Sandboxie for Windows with EDR, ClamAV, YARA-X, my machine learning AI, Behaviour analysis, NLP-Based detection, website signatures, Ghidra, Suricata, SIGMA etc.
