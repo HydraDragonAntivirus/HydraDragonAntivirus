@@ -12,10 +12,11 @@
 <p align="center">
 <img src="hydradragon/assets/Owlyshield.png" width=256px>
 </p>
+<p align="center">
 <img src="hydradragon/assets/capa.png" width=200px>
 </p>
 <p align="center">
-<img src="hydradragon/assets/HydraDragonAVGUI.png" width= 270px>
+<img src="hydradragon/assets/HydraDragonAVGUI.png" width= 1080px>
 </p>
 
 Dynamic and Static Analysis with Sandboxie for Windows with EDR, ClamAV, YARA-X, my machine learning AI, Behaviour analysis, NLP-Based detection, website signatures, Ghidra, Suricata, SIGMA etc.
