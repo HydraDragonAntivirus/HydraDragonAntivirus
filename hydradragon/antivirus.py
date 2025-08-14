@@ -409,6 +409,7 @@ python_path = sys.executable
 hayabusa_dir = os.path.join(script_dir, "hayabusa")
 hayabusa_path = os.path.join(hayabusa_dir, "hayabusa-3.3.0-win-x64.exe")
 reports_dir = os.path.join(script_dir, "reports")
+network_indicators_path = os.path.join(reports_dir, "network_indicators_for_av.json")
 scan_report_path = os.path.join(reports_dir, "scan_report.json")
 enigma_extracted_dir = os.path.join(script_dir, "enigma_extracted")
 inno_unpack_dir = os.path.join(script_dir, "innounp-2")
@@ -827,23 +828,23 @@ B64_LITERAL = re.compile(r"base64\.b64decode\(\s*(['\"])([A-Za-z0-9+/=]+)\1\s*\)
 
 # Base directories common to both lists
 COMMON_DIRECTORIES = [
-    pd64_extracted_dir, enigma_extracted_dir, inno_setup_unpacked_dir, 
-    FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir, 
-    androguard_dir, asar_dir, obfuscar_dir, de4dot_extracted_dir, 
-    net_reactor_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir, 
-    commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir, 
-    seven_zip_extracted_dir, general_extracted_with_7z_dir, nuitka_extracted_dir, 
-    advanced_installer_extracted_dir, processed_dir, python_source_code_dir, 
-    pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir, 
-    pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir, 
-    resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir, 
-    upx_extracted_dir, installshield_extracted_dir, autoit_extracted_dir, 
+    pd64_extracted_dir, enigma_extracted_dir, inno_setup_unpacked_dir,
+    FernFlower_decompiled_dir, jar_extracted_dir, nuitka_dir, dotnet_dir,
+    androguard_dir, asar_dir, obfuscar_dir, de4dot_extracted_dir,
+    net_reactor_extracted_dir, pyinstaller_extracted_dir, cx_freeze_extracted_dir,
+    commandlineandmessage_dir, pe_extracted_dir, zip_extracted_dir, tar_extracted_dir,
+    seven_zip_extracted_dir, general_extracted_with_7z_dir, nuitka_extracted_dir,
+    advanced_installer_extracted_dir, processed_dir, python_source_code_dir,
+    pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir,
+    pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir,
+    resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir,
+    upx_extracted_dir, installshield_extracted_dir, autoit_extracted_dir,
     copied_sandbox_and_main_files_dir, decompiled_dir
 ]
 
 # Additional directories only in MANAGED_DIRECTORIES
 MANAGED_ONLY_DIRECTORIES = [
-    deteciteasy_plain_text_dir, 
+    deteciteasy_plain_text_dir,
     HiJackThis_logs_dir
 ]
 
@@ -3091,30 +3092,30 @@ def load_website_data():
 
 # --------------------------------------------------------------------------
 # Check for Discord webhook URLs (including Canary)
-def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=None, **flags):
+def contains_discord_or_telegram_code(decompiled_code, file_path, **flags):
     """
     Scan the decompiled code for Discord webhook URLs, Discord Canary webhook URLs or Telegram bot links.
     For every detection, log a warning and immediately notify the user with an explicit unique heuristic
     signature that depends on the flags provided.
     """
-    
+
     # Define detection patterns and their corresponding signatures
     detections = [
-        (re.findall(discord_webhook_pattern, decompiled_code, flags=re.IGNORECASE), 
+        (re.findall(discord_webhook_pattern, decompiled_code, flags=re.IGNORECASE),
          "Discord webhook URL", "Discord.Webhook"),
-        (re.findall(discord_canary_webhook_pattern, decompiled_code, flags=re.IGNORECASE), 
+        (re.findall(discord_canary_webhook_pattern, decompiled_code, flags=re.IGNORECASE),
          "Discord Canary webhook URL", "Discord.Canary.Webhook"),
-        (re.findall(cdn_attachment_pattern, decompiled_code, flags=re.IGNORECASE), 
+        (re.findall(cdn_attachment_pattern, decompiled_code, flags=re.IGNORECASE),
          "Discord CDN attachment URL", "Discord.CDNAttachment")
     ]
-    
+
     # Check for Telegram (requires both token and keyword matches)
     telegram_token_matches = re.findall(telegram_token_pattern, decompiled_code)
     telegram_keyword_matches = re.findall(telegram_keyword_pattern, decompiled_code, flags=re.IGNORECASE)
-    
+
     if telegram_token_matches and telegram_keyword_matches:
         detections.append((telegram_token_matches, "Telegram bot", "Telegram.Bot"))
-    
+
     # Get platform-specific suffix
     def get_platform_suffix():
         if flags.get('dotnet_flag'):
@@ -3129,37 +3130,35 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path=N
             return "Android"
         elif flags.get('asar_flag'):
             return "Electron"
+        elif flags.get("registry_flag"):
+            return "Registry"
         else:
             return ""
-    
+
     # Process all detections
     platform_suffix = get_platform_suffix()
-    
+
     for matches, description, signature_base in detections:
         if matches:
             # Build signature
-            if flags.get('dotnet_flag') and cs_file_path:
-                signature = f"HEUR:Win32.Src.{signature_base}.{platform_suffix}"
-                log_path = cs_file_path
-            else:
-                signature = f"HEUR:Win32.{signature_base}" + (f".{platform_suffix}" if platform_suffix else "")
-                log_path = file_path if not (flags.get('dotnet_flag') and not cs_file_path) else "[cs_file_path not provided]"
-            
+            signature = f"HEUR:Win32.Src.{signature_base}" + (f".{platform_suffix}" if platform_suffix else "")
+
             # Log appropriate message
             if signature_base == "Telegram.Bot":
                 logging.info(f"{description} detected in decompiled code: {matches}")
             else:
                 platform_desc = {
                     "DotNET": ".NET source code file",
-                    "Nuitka": "Nuitka compiled file", 
+                    "Nuitka": "Nuitka compiled file",
                     "NSIS": "NSIS script compiled file (.nsi)",
                     "PYC.Python": "Python Compiled Module file",
                     "Android": "Android APK file",
-                    "Electron": "Electron ASAR file"
+                    "Electron": "Electron ASAR file",
+                    "Registry": "Registry"
                 }.get(platform_suffix, "decompiled code")
-                
-                logging.warning(f"{description} detected in {platform_desc}: {log_path} - Matches: {matches}")
-            
+
+                logging.warning(f"{description} detected in {platform_desc}: {file_path} - Matches: {matches}")
+
             notify_user_for_malicious_source_code(file_path, signature)
 
 # --------------------------------------------------------------------------
@@ -3177,17 +3176,18 @@ def get_signature(base_signature, **flags):
     """Generate platform-specific signature based on flags."""
     platform_map = {
         'dotnet_flag': 'DotNET',
-        'nuitka_flag': 'Nuitka', 
+        'nuitka_flag': 'Nuitka',
         'nsis_flag': 'NSIS',
         'pyc_flag': 'PYC.Python',
         'androguard_flag': 'Android',
-        'asar_flag': 'Electron'
+        'asar_flag': 'Electron',
+        'registry_flag': 'Registry'
     }
-    
+
     for flag, platform in platform_map.items():
         if flags.get(flag):
             return f"HEUR:Win32.{platform}.{base_signature}"
-    
+
     return f"HEUR:Win32.{base_signature}"
 
 def notify_with_homepage(target, base_signature, threat_name, **flags):
@@ -3195,7 +3195,7 @@ def notify_with_homepage(target, base_signature, threat_name, **flags):
     # Main signature
     signature = get_signature(base_signature, **flags)
     notify_user_for_malicious_source_code(target, signature)
-    
+
     # Homepage signature if flag exists
     homepage_flag = flags.get('homepage_flag')
     if homepage_flag:
@@ -3213,7 +3213,7 @@ def scan_domain_general(url, **flags):
             logging.error("Invalid URL or domain format")
         full_domain = parsed_url.netloc.lower()
         domain_parts = full_domain.split('.')
-        
+
         if len(domain_parts) > 2:
             main_domain = '.'.join(domain_parts[-2:])
             subdomain = '.'.join(domain_parts[:-2])
@@ -3370,7 +3370,7 @@ def scan_ip_address_general(ip_address, **flags):
                         logging.warning(f"IPv4 address {ip_address} detected as a potential {threat_name} threat. (Reference: {reference})")
                     else:
                         logging.warning(f"{threat_name} IPv4 address detected: {ip_address} (Reference: {reference})")
-                    
+
                     notify_with_homepage(ip_address, signature_suffix, homepage_threat, **flags)
                     return
 
@@ -3493,20 +3493,20 @@ def fetch_html(url, return_file_path=False):
 def scan_html_content(html_content, html_content_file_path, **flags):
     """Scan extracted HTML content for any potential threats."""
     contains_discord_or_telegram_code(html_content, html_content_file_path, None, **flags)
-    
+
     # Extract and scan URLs
     urls = set(re.findall(r'https?://[^\s/$.?#]\S*', html_content))
     for url in urls:
         scan_url_general(url, **flags)
         scan_domain_general(url, **flags)
         scan_spam_email_365_general(url, **flags)
-    
+
     # Extract and scan IP addresses (IPv4 and IPv6)
     ip_patterns = [
         (r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)', 'IPv4'),
         (r'([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}', 'IPv6')
     ]
-    
+
     for pattern, ip_type in ip_patterns:
         ip_addresses = set(re.findall(pattern, html_content))
         for ip in ip_addresses:
@@ -3514,26 +3514,26 @@ def scan_html_content(html_content, html_content_file_path, **flags):
 
 # --------------------------------------------------------------------------
 # Main scanner: combine all individual scans and pass the flags along
-def scan_code_for_links(decompiled_code, file_path, cs_file_path=None, **flags):
+def scan_code_for_links(decompiled_code, file_path, **flags):
     """
     Scan the decompiled code for Discord-related URLs (via contains_discord_or_telegram_code),
     general URLs, domains, and IP addresses. The provided flags are passed along
     to each individual scanning function so that every detection scenario uses its unique
     virus signature.
     """
-    
+
     # Call the Discord/Telegram scanner
-    contains_discord_or_telegram_code(decompiled_code, file_path, cs_file_path, **flags)
+    contains_discord_or_telegram_code(decompiled_code, file_path, **flags)
 
     # Extract and scan URLs from the decompiled code
     urls = set(re.findall(r'https?://[^\s/$.?#]\S*', decompiled_code))
     for url in urls:
         html_content, html_content_file_path = fetch_html(url, return_file_path=True)
-        
+
         # Scan the fetched HTML content
-        contains_discord_or_telegram_code(html_content, file_path, cs_file_path, **flags)
+        contains_discord_or_telegram_code(html_content, file_path, **flags)
         scan_html_content(html_content, html_content_file_path, **flags)
-        
+
         # Scan the URL itself
         scan_url_general(url, **flags)
         scan_domain_general(url, **flags)
@@ -3544,7 +3544,7 @@ def scan_code_for_links(decompiled_code, file_path, cs_file_path=None, **flags):
         (r'((?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)', 'IPv4'),
         (r'([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}', 'IPv6')
     ]
-    
+
     for pattern, ip_type in ip_patterns:
         ip_addresses = set(re.findall(pattern, decompiled_code))
         for ip in ip_addresses:
@@ -9933,7 +9933,7 @@ def scan_and_warn(file_path,
 
         if is_asar_archive_from_output(die_output):
             logging.info(f"File {norm_path} is a valid Asar Archive (Electron).")
-            extracted_asar_files = extract_asar(norm_path)
+            extracted_asar_files = extract_asar_file(norm_path)
             for extracted_asar_file in extracted_asar_files:
                 scan_and_warn(extracted_asar_file)
 
@@ -10561,22 +10561,22 @@ class ProcessInfo:
 
 class SafeProcessMonitor:
     """Thread-safe process monitor with proper resource management"""
-    
+
     def __init__(self, sandboxie_folder: str, main_file_path: str):
         self.sandboxie_folder = sandboxie_folder.lower()
         self.main_file_path = main_file_path.lower()
         self.current_pid = os.getpid()
-        
+
         # Thread-safe tracking structures
         self._lock = threading.RLock()
         self._last_rss: Dict[int, int] = {}
         self._analysis_cooldown: Dict[int, float] = {}
         self._stop_requested = threading.Event()
-        
+
         # Thread pool for analysis tasks
         self._executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="MemAnalysis")
         self._active_futures: Set = set()
-        
+
     def _cleanup_stale_data(self, existing_pids: Set[int]) -> None:
         """Remove tracking data for processes that no longer exist"""
         with self._lock:
@@ -10584,7 +10584,7 @@ class SafeProcessMonitor:
             for pid in stale_pids:
                 self._last_rss.pop(pid, None)
                 self._analysis_cooldown.pop(pid, None)
-                
+
     def _get_safe_process_info(self, proc) -> Optional[ProcessInfo]:
         """Safely extract process information with comprehensive error handling"""
         try:
@@ -10592,21 +10592,21 @@ class SafeProcessMonitor:
             pid = proc.info.get('pid')
             name = proc.info.get('name', 'Unknown')
             memory_info = proc.info.get('memory_info')
-            
+
             if not all([pid, memory_info]):
                 return None
-                
+
             # Skip our own process immediately
             if pid == self.current_pid:
                 return None
-                
+
             # Verify process still exists before getting exe path
             if not psutil.pid_exists(pid):
                 return None
-                
+
             # Get RSS from pre-fetched info
             rss = memory_info.rss
-            
+
             # Try to get executable path with multiple fallback strategies
             exe_path = None
             try:
@@ -10614,7 +10614,7 @@ class SafeProcessMonitor:
                 exe_path = proc.exe()
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 return None
-            except Exception as e:
+            except Exception:
                 # Fallback: try cmdline for path hints
                 try:
                     cmdline = proc.cmdline()
@@ -10624,18 +10624,18 @@ class SafeProcessMonitor:
                         return None
                 except Exception:
                     return None
-                    
+
             if not exe_path:
                 return None
-                
+
             exe_lower = exe_path.lower()
             is_in_sandbox = exe_lower.startswith(self.sandboxie_folder)
             is_main_file = exe_lower == self.main_file_path
-            
+
             # Only track processes in our scope
             if not (is_in_sandbox or is_main_file):
                 return None
-                
+
             return ProcessInfo(
                 pid=pid,
                 name=name,
@@ -10644,18 +10644,18 @@ class SafeProcessMonitor:
                 is_in_sandbox=is_in_sandbox,
                 is_main_file=is_main_file
             )
-            
+
         except Exception as e:
             # Log unexpected exceptions for debugging
             logging.debug(f"Unexpected error getting process info: {e}")
             return None
-            
+
     def _should_analyze_process(self, proc_info: ProcessInfo, change_threshold: int) -> tuple[bool, str]:
         """Determine if process should be analyzed based on memory change and cooldown"""
         with self._lock:
             prev_rss = self._last_rss.get(proc_info.pid)
             current_time = time.time()
-            
+
             # Check memory change threshold
             if prev_rss is not None:
                 memory_change = abs(proc_info.rss - prev_rss)
@@ -10663,16 +10663,16 @@ class SafeProcessMonitor:
                     return False, "Below threshold"
             else:
                 memory_change = proc_info.rss
-                
+
             # Check analysis cooldown (30 seconds minimum)
             last_analysis = self._analysis_cooldown.get(proc_info.pid, 0)
             if current_time - last_analysis < 30:
                 return False, "In cooldown"
-                
+
             # Update tracking data
             self._last_rss[proc_info.pid] = proc_info.rss
             self._analysis_cooldown[proc_info.pid] = current_time
-            
+
             # Determine change type for logging
             if prev_rss is None:
                 change_type = "initial"
@@ -10680,47 +10680,47 @@ class SafeProcessMonitor:
                 change_type = "increase"
             else:
                 change_type = "decrease"
-                
+
             change_amount = proc_info.rss - prev_rss if prev_rss else proc_info.rss
-            
+
             logging.info(f"Memory {change_type} detected: {proc_info.exe_path} (PID: {proc_info.pid})")
             logging.info(f"  Previous RSS: {prev_rss or 'N/A'} bytes")
             logging.info(f"  Current RSS: {proc_info.rss} bytes")
             logging.info(f"  Change: {change_amount:+} bytes")
             logging.info(f"  In sandbox: {proc_info.is_in_sandbox}, Is main file: {proc_info.is_main_file}")
-            
+
             return True, "Ready for analysis"
-            
+
     def _submit_analysis_task(self, proc_info: ProcessInfo, memory_dir: str, pd64_extracted_dir: str) -> None:
         """Submit memory analysis task to thread pool"""
         if self._stop_requested.is_set():
             return
-            
+
         def analysis_task():
             try:
                 if self._stop_requested.is_set():
                     logging.debug(f"Analysis cancelled for PID {proc_info.pid} (stop requested)")
                     return None
-                    
+
                 # Verify process still exists before analysis
                 if not psutil.pid_exists(proc_info.pid):
                     logging.info(f"Process {proc_info.pid} no longer exists, skipping analysis")
                     return None
-                    
+
                 logging.info(f"Starting memory analysis for: {proc_info.exe_path} (PID: {proc_info.pid})")
-                
+
                 # Call the external analysis function
                 result_file = analyze_specific_process(
                     proc_info.name, memory_dir, pd64_extracted_dir
                 )
-                
+
                 if self._stop_requested.is_set():
                     logging.debug(f"Analysis completed but stop requested for PID {proc_info.pid}")
                     return result_file
-                    
+
                 if result_file:
                     logging.info(f"Memory analysis completed for PID {proc_info.pid}, result: {result_file}")
-                    
+
                     # Launch scan in separate thread if not stopping
                     if not self._stop_requested.is_set():
                         scan_thread = threading.Thread(
@@ -10732,25 +10732,25 @@ class SafeProcessMonitor:
                         scan_thread.start()
                 else:
                     logging.warning(f"Memory analysis for PID {proc_info.pid} returned no results")
-                    
+
                 return result_file
-                
+
             except Exception as e:
                 logging.error(f"Memory analysis failed for PID {proc_info.pid}: {e}")
                 return None
-                
+
         # Submit task to thread pool
         try:
             future = self._executor.submit(analysis_task)
             self._active_futures.add(future)
-            
+
             # Clean up completed futures
             completed_futures = {f for f in self._active_futures if f.done()}
             self._active_futures -= completed_futures
-            
+
         except Exception as e:
             logging.error(f"Failed to submit analysis task for PID {proc_info.pid}: {e}")
-            
+
     def _safe_scan_and_warn(self, result_file: str) -> None:
         """Safely execute scan_and_warn with error handling"""
         try:
@@ -10758,78 +10758,78 @@ class SafeProcessMonitor:
                 scan_and_warn(result_file)
         except Exception as e:
             logging.error(f"Scan and warn failed for {result_file}: {e}")
-            
+
     def request_stop(self) -> None:
         """Request graceful shutdown of the monitor"""
         logging.info("Memory monitor stop requested")
         self._stop_requested.set()
-        
+
     def cleanup(self) -> None:
         """Clean up resources"""
         logging.info("Memory monitor shutting down...")
-        
+
         # Cancel pending futures
         for future in self._active_futures:
             future.cancel()
-            
+
         # Shutdown thread pool with timeout
         self._executor.shutdown(wait=True, timeout=10)
-        
+
         logging.info("Memory monitor shutdown complete")
-        
-    def monitor_processes(self, change_threshold_bytes: int, memory_dir: str, 
+
+    def monitor_processes(self, change_threshold_bytes: int, memory_dir: str,
                          pd64_extracted_dir: str, sleep_interval: float = 0.1) -> None:
         """Main monitoring loop"""
         logging.info(f"Starting memory monitor for sandbox: {self.sandboxie_folder}")
         logging.info(f"Monitoring main file: {self.main_file_path}")
         logging.info(f"Memory change threshold: {change_threshold_bytes} bytes")
         logging.info(f"Our PID (excluded from analysis): {self.current_pid}")
-        
+
         iteration_count = 0
-        
+
         try:
             while not self._stop_requested.is_set():
                 iteration_count += 1
                 current_pids = set()
-                
+
                 try:
                     # Get process list with required info pre-fetched
                     processes = list(psutil.process_iter(['pid', 'memory_info', 'name']))
-                    
+
                     for proc in processes:
                         if self._stop_requested.is_set():
                             break
-                            
+
                         proc_info = self._get_safe_process_info(proc)
                         if not proc_info:
                             continue
-                            
+
                         current_pids.add(proc_info.pid)
-                        
+
                         should_analyze, reason = self._should_analyze_process(
                             proc_info, change_threshold_bytes
                         )
-                        
+
                         if should_analyze:
                             logging.info(f"Analyzing process {proc_info.pid}: {reason}")
                             self._submit_analysis_task(proc_info, memory_dir, pd64_extracted_dir)
-                            
+
                     # Cleanup stale tracking data every 100 iterations
                     if iteration_count % 100 == 0:
                         self._cleanup_stale_data(current_pids)
-                        
+
                 except Exception as e:
                     logging.error(f"Error in monitoring iteration {iteration_count}: {e}")
                     # Add longer delay on error to prevent rapid error loops
                     time.sleep(min(sleep_interval * 10, 5.0))
                     continue
-                    
+
                 # Sleep between iterations
                 if not self._stop_requested.wait(timeout=sleep_interval):
                     continue  # Timeout expired, continue monitoring
                 else:
                     break  # Stop was requested
-                    
+
         except KeyboardInterrupt:
             logging.info("Memory monitor interrupted by user")
         except Exception as e:
@@ -10854,11 +10854,11 @@ def monitor_memory_changes(
     """
 
     monitor = SafeProcessMonitor(sandboxie_folder, main_file_path)
-    
+
     # Set up stop callback integration
     def check_stop():
         return monitor._stop_requested.is_set() or (stop_callback and stop_callback())
-    
+
     try:
         # Start monitoring in a separate thread if stop_callback is provided
         if stop_callback:
@@ -10866,8 +10866,8 @@ def monitor_memory_changes(
                 while not check_stop():
                     try:
                         monitor.monitor_processes(
-                            change_threshold_bytes, 
-                            memory_dir, 
+                            change_threshold_bytes,
+                            memory_dir,
                             pd64_extracted_dir,
                             sleep_interval=0.1
                         )
@@ -10877,22 +10877,22 @@ def monitor_memory_changes(
                             logging.error(f"Monitor restarting due to error: {e}")
                             time.sleep(1)
                         break
-                        
+
             monitor_thread = threading.Thread(target=monitor_with_callback, name="MemoryMonitor")
             monitor_thread.daemon = True
             monitor_thread.start()
-            
+
             # Wait for stop condition or thread completion
             while monitor_thread.is_alive() and not check_stop():
                 time.sleep(0.1)
-                
+
             if monitor_thread.is_alive():
                 monitor.request_stop()
                 monitor_thread.join(timeout=30)
         else:
             # Run directly in current thread
             monitor.monitor_processes(change_threshold_bytes, memory_dir, pd64_extracted_dir)
-            
+
     except KeyboardInterrupt:
         logging.info("Memory monitoring interrupted")
         monitor.request_stop()
@@ -12056,12 +12056,12 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
             analysis_threads.append(thread)
             thread_function_map[thread] = target_func.__name__
             return thread
-    
+
         stop_flag = threading.Event()
-    
+
         def stop_callback():
             return stop_flag.is_set()
-    
+
         threads_to_start = [
             (monitor_message.start_monitoring_threads,),
             (scan_and_warn, (main_dest,)),
@@ -12729,6 +12729,62 @@ class Worker(QThread):
             else:
                 self.output_signal.emit(f"[DEBUG] Timer usage: {timer_leak} (no leak)")
 
+    def check_and_scan_network_indicators(self, reports_dir=None):
+        """
+        Check for network indicators file and scan the indicators only if file exists.
+        """
+        try:
+            network_indicators_path = os.path.join(reports_dir, "network_indicators_for_av.json")
+
+            # Only proceed if network indicators file exists
+            if os.path.exists(network_indicators_path):
+                self.output_signal.emit(f"[*] Found network indicators file: {network_indicators_path}")
+
+                # Load network indicators from file
+                with open(network_indicators_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+                # Extract indicators from the JSON structure
+                if 'indicators' in data:
+                    file_indicators = data['indicators']
+                    if isinstance(file_indicators, list) and file_indicators:
+                        self.output_signal.emit(f"[+] Loaded {len(file_indicators)} network indicators from file")
+                        self.scan_network_indicators(file_indicators)
+                    else:
+                        self.output_signal.emit("[!] No indicators found in the file")
+                else:
+                    self.output_signal.emit("[!] Invalid network indicators file format")
+            # No message if file doesn't exist - just silently skip
+
+        except Exception as e:
+            logging.error(f"Error checking network indicators: {str(e)}")
+            self.output_signal.emit(f"[!] Error checking network indicators: {str(e)}")
+
+    def scan_network_indicators(self, network_indicators: list):
+        """
+        Scan the already extracted network indicators using the existing scanning functions.
+        """
+        try:
+            self.output_signal.emit(f"\n[*] Scanning {len(network_indicators)} network indicators...")
+
+            for indicator in network_indicators:
+                # Assuming indicator is a string (URL, IP, domain, etc.)
+                self.output_signal.emit(f"[*] Scanning indicator: {indicator}")
+
+                # Create mock decompiled code containing the indicator
+                mock_code = f"Network indicator from rootkit scan: {indicator}"
+
+                # Use the existing scan_code_for_links function with registry_flag=True
+                scan_code_for_links(
+                    mock_code,
+                    "registry_indicator",
+                    registry_flag=True
+                )
+
+        except Exception as e:
+            logging.error(f"Error scanning network indicators: {str(e)}")
+            self.output_signal.emit(f"[!] Error scanning network indicators: {str(e)}")
+
     def perform_rootkit_scan(self):
         """
         Runs the rootkit scan script and displays the report.
@@ -12749,6 +12805,9 @@ class Worker(QThread):
                 self.output_signal.emit("--- End of Report ---")
             else:
                 self.output_signal.emit("[!] Error: Sandboxie report file was not found after the scan.")
+
+            # Check for network indicators file and scan them if file exists
+            self.check_and_scan_network_indicators()
 
         except Exception as e:
             self.output_signal.emit(f"[!] Error during rootkit scan: {str(e)}")

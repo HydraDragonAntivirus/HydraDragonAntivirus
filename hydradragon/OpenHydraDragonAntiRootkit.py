@@ -8,6 +8,7 @@ HydraDragonAntivirus Unified Scanner with Enhanced Detection
 - Enhanced detection: timing, memory (fixed), network, filesystem, registry timestamps, process hollowing (disabled), boot config
 - Outputs suspicious indicators + enhanced results + risk assessment as JSON
 - Includes desktop notifications for detections.
+- Scans registry for network indicators (IPs, Domains, URLs) and saves to a separate report.
 """
 
 import os
@@ -29,6 +30,7 @@ import win32api
 import win32con
 import win32security
 from notifypy import Notify
+import re
 
 
 # Set script directory
@@ -597,6 +599,87 @@ def scan_ifeo_antivirus_blocking() -> list[dict]:
     
     return findings
 
+def scan_registry_for_network_indicators() -> list[dict]:
+    """
+    Scans the entire registry for network indicators like IPs, domains, and URLs.
+    This is a heavy operation and may take time.
+    """
+    findings = []
+    # Regex patterns for network indicators
+    patterns = {
+        "IPv4": r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b',
+        "IPv6": r'(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))',
+        "URL": r'(?:https?|ftp|file)://[^\s"\']+',
+        "Domain": r'\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,24}\b'
+    }
+    
+    compiled_patterns = {name: re.compile(pattern) for name, pattern in patterns.items()}
+
+    # A set to keep track of found indicators to avoid duplicates in the report
+    found_indicators = set()
+
+    def _scan_key(hkey, subkey_path, hkey_name):
+        full_key_path = f"{hkey_name}\\{subkey_path}"
+        try:
+            # Open key with 64-bit view access
+            with winreg.OpenKey(hkey, subkey_path, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as key:
+                # Scan values in the current key
+                i = 0
+                while True:
+                    try:
+                        value_name, value_data, value_type = winreg.EnumValue(key, i)
+                        if value_type == winreg.REG_SZ or value_type == winreg.REG_EXPAND_SZ:
+                            if isinstance(value_data, str):
+                                for name, pattern in compiled_patterns.items():
+                                    for match in pattern.finditer(value_data):
+                                        indicator = match.group(0)
+                                        # Avoid adding duplicate domains found by URL regex
+                                        if name == 'Domain' and any(indicator in url for url in re.findall(compiled_patterns['URL'], value_data)):
+                                            continue
+                                        
+                                        unique_indicator_tuple = (full_key_path, value_name, indicator, name)
+                                        if unique_indicator_tuple not in found_indicators:
+                                            findings.append({
+                                                "detection_name": generate_detection_name("Registry", f"NetworkIndicator-{name}"),
+                                                "key_path": full_key_path,
+                                                "value_name": value_name,
+                                                "indicator": indicator,
+                                                "indicator_type": name
+                                            })
+                                            found_indicators.add(unique_indicator_tuple)
+                        i += 1
+                    except OSError:
+                        break  # No more values
+                
+                # Recursively scan subkeys
+                i = 0
+                while True:
+                    try:
+                        subkey_name = winreg.EnumKey(key, i)
+                        _scan_key(hkey, os.path.join(subkey_path, subkey_name), hkey_name)
+                        i += 1
+                    except OSError:
+                        break # No more subkeys
+        except (PermissionError, FileNotFoundError):
+            pass # Skip keys we can't access
+        except Exception as e:
+            logging.debug(f"Error scanning registry key {full_key_path}: {e}")
+
+    # List of root keys to start scanning from
+    root_keys_to_scan = [
+        (winreg.HKEY_LOCAL_MACHINE, "HKEY_LOCAL_MACHINE"),
+        (winreg.HKEY_CURRENT_USER, "HKEY_CURRENT_USER"),
+        (winreg.HKEY_USERS, "HKEY_USERS"),
+        (winreg.HKEY_CLASSES_ROOT, "HKEY_CLASSES_ROOT"),
+    ]
+
+    logging.info("Starting full registry scan for network indicators...")
+    for hkey, hkey_name in root_keys_to_scan:
+        _scan_key(hkey, "", hkey_name)
+    logging.info(f"Finished full registry scan. Found {len(findings)} indicators.")
+    
+    return findings
+
 # ========== ENHANCED DETECTION CLASSES ==========
 class TimingBasedDetection:
     @staticmethod
@@ -1041,6 +1124,12 @@ def generate_scan_report():
     if ifeo_blocking:
         report["ifeo_antivirus_blocking"] = ifeo_blocking
 
+    # New scan for network indicators in the registry
+    network_indicators = scan_registry_for_network_indicators()
+    if network_indicators:
+        save_network_report(network_indicators)
+
+
     report["scan_time"] = datetime.now().isoformat()
     return report
 
@@ -1050,6 +1139,20 @@ def save_report(report: dict):
     with open(out, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
     logging.info(f"Report -> {out}")
+
+def save_network_report(network_indicators: list):
+    """Saves the network indicators to a separate file."""
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = REPORTS_DIR / "network_indicators_for_av.json"
+    report_data = {
+        "report_generated_at": datetime.now().isoformat(),
+        "indicator_count": len(network_indicators),
+        "indicators": network_indicators
+    }
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(report_data, f, indent=2, ensure_ascii=False)
+    logging.info(f"Network indicators report saved to -> {out_path}")
+
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
