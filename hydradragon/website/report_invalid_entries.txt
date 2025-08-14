@@ -1,4 +1,4 @@
-Invalid Entries Report - 2025-08-13 21:16
+Invalid Entries Report - 2025-08-13 22:44
 ============================================================
 The following entries were ignored due to validation errors.
 
@@ -9,6 +9,230 @@ The following entries were ignored due to validation errors.
 - Source: MalwareDomains.csv
   Entry : 'entry'
   Reason: Domain must have at least a TLD (e.g., 'example.com')
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.64.0.87'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.64.0.184'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.64.0.232'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.64.1.37'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.64.1.68'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.64.1.107'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.64.4.231'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.64.4.232'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.64.4.246'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.65.0.22'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.65.16.174'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.71.254.99'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.72.162.1'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.80.114.4'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.80.130.47'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.82.192.249'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.83.224.159'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.86.76.144'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.87.168.208'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.87.233.250'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.88.96.210'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.89.204.66'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.89.217.108'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.90.31.156'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.90.161.147'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.93.251.244'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.95.210.126'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.98.70.56'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.100.100.100'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.100.101.114'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.101.109.187'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.103.231.31'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.106.40.147'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.106.90.116'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.110.178.168'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.111.192.70'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.113.42.160'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.114.145.122'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.117.209.243'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.118.217.95'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.120.49.13'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.120.100.90'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.120.165.51'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.121.88.207'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.121.245.75'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.121.246.23'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.122.228.58'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.123.140.61'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.124.48.158'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.124.201.35'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.125.39.72'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.126.50.154'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.126.111.14'
+  Reason: Non-public or invalid format
+
+- Source: MalwareSubDomains.csv
+  Entry : '100.127.208.123'
+  Reason: Non-public or invalid format
+
+- Source: SpamSubDomains.csv
+  Entry : '100.64.0.38'
+  Reason: Non-public or invalid format
+
+- Source: SpamSubDomains.csv
+  Entry : '100.64.0.91'
+  Reason: Non-public or invalid format
 
 - Source: WhiteListIPv4.csv
   Entry : 'entry'

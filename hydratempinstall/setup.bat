@@ -141,15 +141,6 @@ echo Modifying Sandboxie settings...
 "%SBIE_INI%" set %SBIE_SANDBOX% InjectDll64 "%INJECT_DLL%"
 "%SBIE_INI%" set %SBIE_SANDBOX% ClosedFilePath ""
 
-rem 15. Install asar globally with npm
-echo Installing 'asar' npm package globally...
-npm install -g asar
-if %errorlevel% equ 0 (
-    echo 'asar' package installed successfully.
-) else (
-    echo Failed to install 'asar' package.
-)
-
 echo Setup completed successfully!
 
 :end

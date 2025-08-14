@@ -3,6 +3,8 @@ dangerous.domains(Malware)
 github.com/T145/black-mirror(WhiteList)
 github.com/T145/black-mirror(Malware)
 gist.github.com/0100110000100011(Malware)
+github.com/maravento/blackweb(Malware)
 
 # Notes:
 gist.github.com/0100110000100011(Malware) = https://gist.github.com/0100110000100011/58cef6d519a51c1d918ff3092278dabb
+Adding reached date might be problematic because it will make file size big
