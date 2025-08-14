@@ -1,0 +1,30 @@
+rule:
+  meta:
+    name: invoke .NET assembly method
+    namespace: load-code/dotnet
+    authors:
+      - anushka.virgaonkar@mandiant.com
+      - mehunhoff@google.com
+    scopes:
+      static: function
+      dynamic: call
+    att&ck:
+      - Defense Evasion::Reflective Code Loading [T1620]
+  features:
+    - and:
+      - format: dotnet
+      - optional:
+        - api: System.Reflection.Module::GetMethod
+        - api: System.Reflection.Module::GetMethodImpl
+        - api: System.Reflection.Module::GetMethods
+        - api: System.Reflection.Module::ResolveMethod
+        - api: System.Type::GetMethod
+        - api: System.Type::GetMethodImpl
+        - api: System.Type::GetMethods
+      - or:
+        - api: System.Delegate::DynamicInvoke
+        - api: System.Delegate::DynamicInvokeImpl
+        - api: System.Type::InvokeMember
+        - api: System.Reflection.MethodInfo::Invoke
+        - api: System.Reflection.MethodBase::Invoke
+        - api: System.Reflection.ConstructorInfo::Invoke

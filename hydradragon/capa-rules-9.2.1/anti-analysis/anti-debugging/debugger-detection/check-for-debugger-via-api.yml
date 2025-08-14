@@ -1,0 +1,28 @@
+rule:
+  meta:
+    name: check for debugger via API
+    namespace: anti-analysis/anti-debugging/debugger-detection
+    authors:
+      - michael.hunhoff@mandiant.com
+      - anushka.virgaonkar@mandiant.com
+    scopes:
+      static: function
+      dynamic: call
+    mbc:
+      - Anti-Behavioral Analysis::Debugger Detection::CheckRemoteDebuggerPresent [B0001.002]
+      - Anti-Behavioral Analysis::Debugger Detection::WudfIsAnyDebuggerPresent [B0001.031]
+    references:
+      - https://github.com/LordNoteworthy/al-khaser/blob/master/al-khaser/AntiDebug/CheckRemoteDebuggerPresent.cpp
+    examples:
+      - al-khaser_x86.exe_:0x420000
+  features:
+    - or:
+      # We're not including kernel32.IsDebuggerPresent here because some exception handlers and other compiler-inserted
+      # code may add calls to it, especially in debug builds. So, likely even with pretty good library code detection
+      # this feature could result in many false positives.
+      - api: kernel32.CheckRemoteDebuggerPresent
+      - api: WUDFPlatform.WudfIsAnyDebuggerPresent
+      - api: WUDFPlatform.WudfIsKernelDebuggerPresent
+      - api: WUDFPlatform.WudfIsUserDebuggerPresent
+      - property/read: System.Diagnostics.Debugger::IsAttached
+      - api: System.Diagnostics.Debugger::IsLogging

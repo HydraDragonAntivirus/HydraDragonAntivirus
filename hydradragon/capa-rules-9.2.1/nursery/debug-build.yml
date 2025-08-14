@@ -1,0 +1,13 @@
+rule:
+  meta:
+    name: debug build
+    namespace: executable/pe/debug
+    authors:
+      - william.ballenthin@mandiant.com
+    scopes:
+      static: file
+      dynamic: file
+  features:
+    - or:
+      - string: "Assertion failed!"
+      - string: "Assertion failed:"

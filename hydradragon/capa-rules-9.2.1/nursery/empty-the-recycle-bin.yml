@@ -1,0 +1,12 @@
+rule:
+  meta:
+    name: empty the recycle bin
+    namespace: host-interaction/recycle-bin
+    authors:
+      - moritz.raabe@mandiant.com
+    scopes:
+      static: function
+      dynamic: call
+  features:
+    - or:
+      - api: SHEmptyRecycleBin

@@ -1,0 +1,14 @@
+rule:
+  meta:
+    name: set web proxy in .NET
+    namespace: communication/http
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: function
+      dynamic: unsupported  # requires property features
+  features:
+    - and:
+      - property/write: System.Net.WebRequest::Proxy
+      - optional:
+        - api: System.Net.WebProxy::ctor

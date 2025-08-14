@@ -1,0 +1,16 @@
+rule:
+  meta:
+    name: create zip archive in .NET
+    namespace: data-manipulation/compression
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: basic block
+      dynamic: unsupported
+  features:
+    - and:
+      - optional:
+        - api: System.IO.Compression.ZipFile::Open
+      - or:
+        - api: System.IO.Compression.ZipFile::CreateFromDirectory
+        - api: System.IO.Compression.ZipFile::CreateEntryFromFile

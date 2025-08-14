@@ -1,0 +1,14 @@
+rule:
+  meta:
+    name: set global application hook
+    namespace: host-interaction/gui
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: basic block
+      dynamic: call
+  features:
+    - and:
+      - api: user32.SetWindowsHookEx
+      - number: 0x3 = WM_GETMESSAGE
+      - number: 0x0 = dwThreadId

@@ -1,0 +1,18 @@
+rule:
+  meta:
+    name: link many functions at runtime
+    namespace: linking/runtime-linking
+    authors:
+      - moritz.raabe@mandiant.com
+      - joakim@intezer.com
+    scopes:
+      static: function
+      dynamic: span of calls
+    att&ck:
+      - Execution::Shared Modules [T1129]
+    examples:
+      - b7b5e1253710d8927cbe07d52d2d2e10:0x401000
+  features:
+    - or:
+      - count(match(link function at runtime on Windows)): 5 or more
+      - count(match(link function at runtime on Linux)): 5 or more

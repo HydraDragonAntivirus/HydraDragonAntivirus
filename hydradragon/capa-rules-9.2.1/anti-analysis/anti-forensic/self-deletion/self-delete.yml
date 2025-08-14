@@ -1,0 +1,30 @@
+rule:
+  meta:
+    name: self delete
+    namespace: anti-analysis/anti-forensic/self-deletion
+    authors:
+      - michael.hunhoff@mandiant.com
+      - "@mr-tz"
+    scopes:
+      static: function
+      dynamic: span of calls
+    att&ck:
+      - Defense Evasion::Indicator Removal::File Deletion [T1070.004]
+    mbc:
+      - Defense Evasion::Self Deletion::COMSPEC Environment Variable [F0007.001]
+    examples:
+      - Practical Malware Analysis Lab 14-02.exe_:0x401880
+  features:
+    - and:
+      - or:
+        - match: get COMSPEC environment variable
+        - string: "cmd.exe"
+        - match: host-interaction/process/create
+      - or:
+        - string: /\/c\s*del\s*/
+          description: "/c del"
+        - string: /(^|[\&;\|]\s*)del(\s.*)?/i
+          description: "echo 1&&del /path/to/file"
+      - optional:
+        - string: /\s*>\s*nul\s*/i
+          description: "> nul"

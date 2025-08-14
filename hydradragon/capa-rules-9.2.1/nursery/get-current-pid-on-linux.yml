@@ -1,0 +1,17 @@
+rule:
+  meta:
+    name: get current PID on Linux
+    namespace: host-interaction/process
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: basic block
+      dynamic: call
+  features:
+    - and:
+      - or:
+        - os: linux
+        - os: android
+      - or:
+        - api: getpid
+        - api: getppid

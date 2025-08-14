@@ -1,0 +1,31 @@
+rule:
+  meta:
+    name: check for process debug object
+    namespace: anti-analysis/anti-debugging/debugger-detection
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: function
+      dynamic: span of calls
+    mbc:
+      - Anti-Behavioral Analysis::Debugger Detection::NtQueryInformationProcess [B0001.012]
+    references:
+      - https://github.com/LordNoteworthy/al-khaser/blob/master/al-khaser/AntiDebug/NtQueryInformationProcess_ProcessDebugObject.cpp
+  features:
+    - and:
+      - or:
+        - api: kernel32.GetCurrentProcess
+        - api: System.Diagnostics.Process::GetCurrentProcess
+      - or:
+        - basic block:
+          - and:
+            - or:
+              - api: NtQueryInformationProcess
+              - api: ZwQueryInformationProcess
+            - number: 0x1E = ProcessDebugObjectHandle
+        - call:
+          - and:
+            - or:
+              - api: NtQueryInformationProcess
+              - api: ZwQueryInformationProcess
+            - number: 0x1E = ProcessDebugObjectHandle

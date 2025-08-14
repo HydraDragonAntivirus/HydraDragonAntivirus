@@ -1,0 +1,18 @@
+rule:
+  meta:
+    name: get OS version in .NET
+    namespace: host-interaction/os/version
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: basic block
+      dynamic: unsupported  # requires property features
+    att&ck:
+      - Discovery::System Information Discovery [T1082]
+  features:
+    - or:
+      - property/read: System.Environment::OSVersion
+      - property/read: System.Environment::Is64BitOperatingSystem
+      - property/read: System.OperatingSystem::Version
+      - property/read: Microsoft.VisualBasic.Devices.ComputerInfo::OSFullName
+      - property/read: System.Runtime.InteropServices.RuntimeInformation::OSDescription

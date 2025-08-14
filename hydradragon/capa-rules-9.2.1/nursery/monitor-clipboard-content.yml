@@ -1,0 +1,15 @@
+# generated using capa explorer for IDA Pro
+rule:
+  meta:
+    name: monitor clipboard content
+    namespace: host-interaction/clipboard
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: basic block
+      dynamic: call
+    att&ck:
+      - Collection::Clipboard Data [T1115]
+  features:
+    - and:
+      - api: user32.AddClipboardFormatListener

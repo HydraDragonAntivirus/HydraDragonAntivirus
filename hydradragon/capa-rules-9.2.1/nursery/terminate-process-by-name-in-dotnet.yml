@@ -1,0 +1,13 @@
+rule:
+  meta:
+    name: terminate process by name in .NET
+    namespace: host-interaction/process/terminate
+    authors:
+      - anushka.virgaonkar@mandiant.com
+    scopes:
+      static: function
+      dynamic: span of calls
+  features:
+    - and:
+      - api: System.Diagnostics.Process::GetProcessesByName
+      - api: System.Diagnostics.Process::Kill

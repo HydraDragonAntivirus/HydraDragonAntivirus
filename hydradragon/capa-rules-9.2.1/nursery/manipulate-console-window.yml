@@ -1,0 +1,16 @@
+rule:
+  meta:
+    name: manipulate console window
+    namespace: host-interaction/console
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: function
+      dynamic: call
+    mbc:
+      - Operating System::Console [C0033]
+  features:
+    - or:
+      - api: System.Console::SetWindowSize
+      - api: System.Console::SetWindowPosition
+      - api: System.Console::SetCursorPosition

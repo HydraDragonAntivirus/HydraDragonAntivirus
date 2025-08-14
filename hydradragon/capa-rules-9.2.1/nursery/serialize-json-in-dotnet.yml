@@ -1,0 +1,18 @@
+rule:
+  meta:
+    name: serialize JSON in .NET
+    namespace: data-manipulation/json
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: function
+      dynamic: call
+  features:
+    - or:
+      - api: System.Web.Script.Serialization.JavaScriptSerializer::Serialize
+      - api: System.Text.Json.JsonSerializer::Serialize
+      - api: System.Text.Json.JsonSerializer::SerializeAsync
+      - api: System.Text.Json.JsonSerializer::SerializeToDocument
+      - api: System.Text.Json.JsonSerializer::SerializeToElement
+      - api: System.Text.Json.JsonSerializer::SerializeToNode
+      - api: System.Text.Json.JsonSerializer::SerializeToUtf8Bytes

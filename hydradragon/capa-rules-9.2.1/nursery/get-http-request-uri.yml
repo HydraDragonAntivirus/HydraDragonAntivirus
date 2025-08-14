@@ -1,0 +1,15 @@
+rule:
+  meta:
+    name: get HTTP request URI
+    namespace: communication/http
+    authors:
+      - william.ballenthin@mandiant.com
+    scopes:
+      static: basic block
+      dynamic: call
+    mbc:
+      - Communication::HTTP Communication [C0002]
+  features:
+    - and:
+      - api: wininet.HttpQueryInfo
+      - number: 0xD = HTTP_QUERY_URI

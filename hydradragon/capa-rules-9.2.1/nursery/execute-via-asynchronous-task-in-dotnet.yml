@@ -1,0 +1,12 @@
+rule:
+  meta:
+    name: execute via asynchronous task in .NET
+    namespace: host-interaction/thread/task
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: function
+      dynamic: call
+  features:
+    - or:
+      - api: System.Threading.Tasks.Task::ctor

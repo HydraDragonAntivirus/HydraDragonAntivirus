@@ -1,0 +1,28 @@
+rule:
+  meta:
+    name: create or open mutex on Windows
+    namespace: host-interaction/mutex
+    authors:
+      - moritz.raabe@mandiant.com
+      - anushka.virgaonkar@mandiant.com
+      - mehunhoff@google.com
+    scopes:
+      static: instruction
+      dynamic: call
+    mbc:
+      - Process::Create Mutex [C0042]
+    examples:
+      - Practical Malware Analysis Lab 01-01.dll_:0x10001010
+  features:
+    - or:
+      - api: kernel32.OpenMutex
+      - api: kernel32.CreateMutex
+      - api: kernel32.CreateMutexEx
+      - api: ntdll.NtCreateMutant
+      - api: ntdll.NtOpenMutant
+      - and:
+        - format: dotnet
+        - or:
+          - api: System.Threading.Mutex::ctor
+          - api: System.Threading.Mutex::OpenExisting
+          - api: System.Threading.Mutex::TryOpenExisting

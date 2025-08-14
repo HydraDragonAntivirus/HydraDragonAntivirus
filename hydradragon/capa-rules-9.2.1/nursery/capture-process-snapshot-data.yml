@@ -1,0 +1,14 @@
+rule:
+  meta:
+    name: capture process snapshot data
+    namespace: host-interaction/process/dump
+    authors:
+      - "@mr-tz"
+    scopes:
+      static: function
+      dynamic: call
+  features:
+    - or:
+      - api: PssCaptureSnapshot
+      - api: PssQuerySnapshot
+      - api: PssWalkSnapshot

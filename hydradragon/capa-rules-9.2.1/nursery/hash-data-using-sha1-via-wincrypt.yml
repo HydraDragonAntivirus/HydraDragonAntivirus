@@ -1,0 +1,15 @@
+rule:
+  meta:
+    name: hash data using SHA1 via WinCrypt
+    namespace: data-manipulation/hashing/sha1
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: function
+      dynamic: span of calls
+  features:
+    - or:
+      - and:
+        - match: initialize hashing via WinCrypt
+        - number: 0x8004 = CALG_SHA1
+        - api: advapi32.CryptHashData

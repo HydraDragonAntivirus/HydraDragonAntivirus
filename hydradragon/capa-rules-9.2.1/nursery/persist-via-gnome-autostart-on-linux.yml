@@ -1,0 +1,14 @@
+rule:
+  meta:
+    name: persist via GNOME autostart on Linux
+    namespace: persistence
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: function
+      dynamic: span of calls
+  features:
+    - and:
+      - os: linux
+      - match: host-interaction/file-system/write
+      - substring: "X-GNOME-Autostart-enabled=true"

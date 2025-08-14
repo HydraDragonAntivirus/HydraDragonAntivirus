@@ -1,0 +1,17 @@
+rule:
+  meta:
+    name: linked against ZLIB
+    namespace: linking/static/zlib
+    authors:
+      - william.ballenthin@mandiant.com
+    scopes:
+      static: file
+      dynamic: file
+    mbc:
+      - Data::Compression Library [C0060]
+    examples:
+      - 6cc148363200798a12091b97a17181a1
+  features:
+    - or:
+      - string: /deflate .* Copyright/
+      - string: /inflate .* Copyright/

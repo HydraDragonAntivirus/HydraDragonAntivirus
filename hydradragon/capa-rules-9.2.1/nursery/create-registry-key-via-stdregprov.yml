@@ -1,0 +1,16 @@
+# generated using capa explorer for IDA Pro
+rule:
+  meta:
+    name: create registry key via StdRegProv
+    namespace: host-interaction/registry
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: function
+      dynamic: span of calls
+    references:
+      - https://docs.microsoft.com/en-us/previous-versions/windows/desktop/regprov/stdregprov#methods
+  features:
+    - and:
+      - string: "StdRegProv"
+      - string: "CreateKey"

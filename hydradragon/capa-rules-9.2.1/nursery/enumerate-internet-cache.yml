@@ -1,0 +1,16 @@
+rule:
+  meta:
+    name: enumerate internet cache
+    namespace: host-interaction/internet/cache
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: function
+      dynamic: span of calls
+  features:
+    - and:
+      - api: wininet.FindFirstUrlCacheEntry
+      - optional:
+        - api: wininet.FindNextUrlCacheEntry
+        - api: wininet.FindCloseUrlCache
+        - match: contain loop

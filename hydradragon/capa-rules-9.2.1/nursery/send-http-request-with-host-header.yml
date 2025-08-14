@@ -1,0 +1,13 @@
+rule:
+  meta:
+    name: send HTTP request with Host header
+    namespace: communication/http
+    authors:
+      - anamaria.martinezgom@mandiant.com
+    scopes:
+      static: function
+      dynamic: span of calls
+  features:
+    - and:
+      - match: send HTTP request
+      - string: /Host:/i

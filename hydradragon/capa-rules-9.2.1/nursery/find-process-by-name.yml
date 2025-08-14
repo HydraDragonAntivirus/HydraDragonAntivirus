@@ -1,0 +1,14 @@
+rule:
+  meta:
+    name: find process by name
+    namespace: host-interaction/process/list
+    authors:
+      - anushka.virgaonkar@mandiant.com
+    scopes:
+      static: function
+      dynamic: call
+    att&ck:
+      - Discovery::Process Discovery [T1057]
+  features:
+    - and:
+      - api: System.Diagnostics.Process::GetProcessesByName

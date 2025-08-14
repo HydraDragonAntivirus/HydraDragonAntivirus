@@ -1,0 +1,24 @@
+# generated using capa explorer for IDA Pro
+rule:
+  meta:
+    name: enumerate devices by category
+    namespace: host-interaction/hardware
+    authors:
+      - "@mr-tz"
+    scopes:
+      static: function
+      dynamic: unsupported  # requires offset, bytes features
+    references:
+      - https://learn.microsoft.com/en-us/windows/win32/api/strmif/nf-strmif-icreatedevenum-createclassenumerator
+    examples:
+      - Practical Malware Analysis Lab 17-02.dll_:0x10003cc0
+  features:
+    - and:
+      - and:
+        - com/class: SystemDeviceEnum  # 10 5D BE 62 EB 60 D0 11 BD 3B 00 A0 C9 11 CE 86 = SystemDeviceEnum
+        - com/interface: ICreateDevEnum  # 22 08 84 29 84 5B D0 11 BD 3B 00 A0 C9 11 CE 86 = ICreateDevEnum
+        - offset: 0xC = ICreateDevEnumVtbl.CreateClassEnumerator
+      - optional:
+        - description: class identifier (CLSID) of the device category
+        - com/class: CVidCapClassManager  # 10 B3 0B 86 01 5D D0 11 BD 3B 00 A0 C9 11 CE 86 = CVidCapClassManager
+        - com/class: CWaveinClassManager  # 62 A7 D9 33 C8 90 D0 11 BD 43 00 A0 C9 11 CE 86 = CWaveinClassManager

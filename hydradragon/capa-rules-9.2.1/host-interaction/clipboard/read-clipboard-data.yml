@@ -1,0 +1,46 @@
+rule:
+  meta:
+    name: read clipboard data
+    namespace: host-interaction/clipboard
+    authors:
+      - michael.hunhoff@mandiant.com
+      - anushka.virgaonkar@mandiant.com
+    scopes:
+      static: function
+      dynamic: span of calls
+    att&ck:
+      - Collection::Clipboard Data [T1115]
+    references:
+      - https://learn.microsoft.com/en-us/windows/win32/dataxchg/using-the-clipboard
+    examples:
+      - C91887D861D9BD4A5872249B641BC9F9:0x40156F
+      - 93dfc146f60bd796eb28d4e4f348f2e4:0x401050
+  features:
+    - and:
+      - optional:
+        - match: open clipboard
+        - match: contain loop
+        - api: kernel32.GlobalAlloc
+        - api: kernel32.GlobalLock
+        - api: kernel32.GlobalUnlock
+      - or:
+        - basic block:
+          - and:
+            - api: user32.GetClipboardData
+            - optional:
+              - number: 0x1 = CF_TEXT
+              - number: 0x7 = CF_OEMTEXT
+              - number: 0xD = CF_UNICODETEXT
+        - call:
+          - and:
+            - api: user32.GetClipboardData
+            - optional:
+              - number: 0x1 = CF_TEXT
+              - number: 0x7 = CF_OEMTEXT
+              - number: 0xD = CF_UNICODETEXT
+        - api: System.Windows.Forms.Clipboard::GetAudioStream
+        - api: System.Windows.Forms.Clipboard::GetData
+        - api: System.Windows.Forms.Clipboard::GetDataObject
+        - api: System.Windows.Forms.Clipboard::GetFileDropList
+        - api: System.Windows.Forms.Clipboard::GetImage
+        - api: System.Windows.Forms.Clipboard::GetText

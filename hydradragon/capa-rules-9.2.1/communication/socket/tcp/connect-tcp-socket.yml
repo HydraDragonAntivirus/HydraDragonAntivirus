@@ -1,0 +1,19 @@
+rule:
+  meta:
+    name: connect TCP socket
+    namespace: communication/socket/tcp
+    authors:
+      - moritz.raabe@mandiant.com
+      - joakim@intezer.com
+      - mrhafizfarhad@gmail.com
+    scopes:
+      static: function
+      dynamic: span of calls
+    mbc:
+      - Communication::Socket Communication::Connect Socket [C0001.004]
+    examples:
+      - Practical Malware Analysis Lab 01-01.dll_:0x10001010
+  features:
+    - and:
+      - match: create TCP socket
+      - match: connect socket

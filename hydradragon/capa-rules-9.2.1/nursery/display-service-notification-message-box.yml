@@ -1,0 +1,13 @@
+rule:
+  meta:
+    name: display service notification message box
+    namespace: host-interaction/gui
+    authors:
+      - anushka.virgaonkar@mandiant.com
+    scopes:
+      static: function
+      dynamic: span of calls
+  features:
+    - and:
+      - number: 0x200000 = service notification
+      - api: System.Windows.Forms.MessageBox::Show

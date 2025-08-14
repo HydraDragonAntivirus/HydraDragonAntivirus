@@ -1,0 +1,17 @@
+rule:
+  meta:
+    name: enumerate processes via procfs
+    namespace: host-interaction/process/list
+    authors:
+      - joakim@intezer.com
+    scopes:
+      static: function
+      dynamic: span of calls
+    att&ck:
+      - Discovery::Process Discovery [T1057]
+      - Discovery::Software Discovery [T1518]
+  features:
+    - and:
+      - os: linux
+      - match: host-interaction/file-system/files/list
+      - string: "/proc"

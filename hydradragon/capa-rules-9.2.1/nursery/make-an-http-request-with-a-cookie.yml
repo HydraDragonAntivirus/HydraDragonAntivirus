@@ -1,0 +1,13 @@
+rule:
+  meta:
+    name: make an HTTP request with a Cookie
+    namespace: communication/http/client
+    authors:
+      - anamaria.martinezgom@mandiant.com
+    scopes:
+      static: function
+      dynamic: span of calls
+  features:
+    - and:
+      - match: send HTTP request
+      - string: /Cookie:/i

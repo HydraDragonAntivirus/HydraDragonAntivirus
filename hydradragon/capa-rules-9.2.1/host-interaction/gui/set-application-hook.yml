@@ -1,0 +1,15 @@
+rule:
+  meta:
+    name: set application hook
+    namespace: host-interaction/gui
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: instruction
+      dynamic: call
+    examples:
+      - Practical Malware Analysis Lab 12-03.exe_:0x401000
+  features:
+    - or:
+      - api: user32.SetWindowsHookEx
+      - api: user32.UnhookWindowsHookEx

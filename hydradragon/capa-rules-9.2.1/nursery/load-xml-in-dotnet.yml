@@ -1,0 +1,13 @@
+rule:
+  meta:
+    name: load XML in .NET
+    namespace: data-manipulation/xml
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: function
+      dynamic: call
+  features:
+    - or:
+      - api: System.Xml.XmlDocument::Load
+      - api: System.Xml.XmlDocument::LoadXml

@@ -1,0 +1,18 @@
+rule:
+  meta:
+    name: execute shell command received from socket on Linux
+    namespace: communication/c2/shell
+    authors:
+      - joakim@intezer.com
+    scopes:
+      static: function
+      dynamic: span of calls
+    att&ck:
+      - Execution::Command and Scripting Interpreter::Unix Shell [T1059.004]
+    examples:
+      - 7351f8a40c5450557b24622417fc478d:0x406549
+  features:
+    - and:
+      - os: linux
+      - match: receive data on socket
+      - api: system

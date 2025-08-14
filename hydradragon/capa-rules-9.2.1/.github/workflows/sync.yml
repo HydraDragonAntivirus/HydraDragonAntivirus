@@ -1,0 +1,79 @@
+name: Update rules number badge and sync rules submodule in capa
+on:
+  push:
+    branches: [ master ]
+jobs:
+  update_num_rules:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout capa-rules
+      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+    - name: Count rules
+      run: |
+        num_rules=$(find . -type f -name '*.yml' -not -path './.github/*' | wc -l)
+        echo "num_rules=$num_rules" >> $GITHUB_ENV
+    - name: Update dynamic badge gist
+      uses: schneegans/dynamic-badges-action@e9a478b16159b4d31420099ba146cdc50f134483 # v1.7.0
+      with:
+        auth: ${{ secrets.CAPA_TOKEN }}
+        gistID: 6d7960e911f48b3b74916df8988cf0f3
+        filename: rules_badge.svg
+        label: rules
+        message: ${{ env.num_rules }}
+        color: blue
+
+  sync_submodule_capa:
+    runs-on: ubuntu-latest
+    needs: update_num_rules
+    steps:
+    # Do not checkout submodules as we don't need capa-testfiles and we need to
+    # update the rules submodule reference
+    - name: Checkout capa
+      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      with:
+        repository: mandiant/capa
+        token: ${{ secrets.CAPA_TOKEN }}
+    - name: Checkout capa-rules
+      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      with:
+        # To include the commit from update_num_rules (the default `ref` is the
+        # one which triggered the action)
+        ref: master
+        path: rules
+        fetch-depth: 100 # needed so that `git diff` finds `github.event.before`
+    - name: Update number of new rules in CHANGELOG
+      run: |
+        new_rules=$(git -C rules diff -M --summary ${{ github.event.before }} | grep create | grep .yml | wc -l)
+        old_rules=$(grep -m 1 "### New Rules.*" CHANGELOG.md | sed -r 's/.*\((.*)\)/\1/')
+        rules=$(($old_rules + $new_rules))
+        sed -ir "0,/### New Rules.*/s//### New Rules \($rules\)/" CHANGELOG.md
+    - name: Get modified files
+      id: files
+      uses: Ana06/get-changed-files@25f79e676e7ea1868813e21465014798211fad8c # v2.3.0
+    - name: Set up Python 3.12
+      uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c # v5.0.0
+      with:
+        python-version: 3.12
+    - name: Install Python dependencies
+      run:
+        pip install pyyaml
+    - name: Add new rules to CHANGELOG
+      run: |
+        for added_file in ${{ steps.files.outputs.added }}; do
+          [[ $added_file != *.yml ]] && continue # Skip files that are not rules
+          [[ $added_file == .git* ]] && continue # Skip git and GitHub Action files
+          author=$(python rules/.github/scripts/changelog_author.py rules/$added_file)
+          rule=$(echo $added_file | sed 's/\//\\\//g' | sed 's/\.yml//')
+          sed -i "0,/- *$/s//- $rule $author\n-/" CHANGELOG.md
+        done
+    - name: Commit changes
+      run: |
+        git config user.email 'capa-dev@mandiant.com'
+        git config user.name 'Capa Bot'
+        git commit -am 'Sync capa rules submodule'
+    - name: Push changes to capa
+      uses: ad-m/github-push-action@master
+      with:
+        repository: mandiant/capa
+        github_token: ${{ secrets.CAPA_TOKEN }}
+

@@ -1,0 +1,20 @@
+rule:
+  meta:
+    name: execute shellcode via CopyFile2
+    namespace: load-code/shellcode
+    authors:
+      - jakub.jozwiak@mandiant.com
+    scopes:
+      static: function
+      dynamic: span of calls
+    references:
+      - https://github.com/S4R1N/AlternativeShellcodeExec/blob/master/CopyFile2/CopyFile2.cpp
+    examples:
+      - c2bb17c12975ea61ff43a71afd9c3ff111d018af161859abae0bdb0b3dae98f9:0x140001010
+  features:
+    - and:
+      - match: allocate or change RWX memory
+      - api: CopyFile2
+      - api: DeleteFileW
+      - number: 0x00000001 = COPY_FILE_FAIL_IF_EXISTS
+      - number: 0x20 = sizeof(COPYFILE2_EXTENDED_PARAMETERS)

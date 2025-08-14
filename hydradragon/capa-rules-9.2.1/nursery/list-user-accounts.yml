@@ -1,0 +1,15 @@
+# generated using capa explorer for IDA Pro
+rule:
+  meta:
+    name: list user accounts
+    namespace: host-interaction/accounts
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: basic block
+      dynamic: call
+    att&ck:
+      - Discovery::Account Discovery [T1087]
+  features:
+    - or:
+      - api: netapi32.NetUserEnum

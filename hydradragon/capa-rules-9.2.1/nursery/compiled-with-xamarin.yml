@@ -1,0 +1,12 @@
+rule:
+  meta:
+    name: compiled with Xamarin
+    namespace: compiler/xamarin
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: file
+      dynamic: file
+  features:
+    - or:
+      - namespace: Xamarin.Essentials

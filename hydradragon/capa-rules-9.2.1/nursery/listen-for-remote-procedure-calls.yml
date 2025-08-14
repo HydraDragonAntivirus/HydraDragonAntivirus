@@ -1,0 +1,13 @@
+# generated using capa explorer for IDA Pro
+rule:
+  meta:
+    name: listen for remote procedure calls
+    namespace: communication/rpc/server
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: basic block
+      dynamic: call
+  features:
+    - or:
+      - api: rpcrt4.RpcServerListen

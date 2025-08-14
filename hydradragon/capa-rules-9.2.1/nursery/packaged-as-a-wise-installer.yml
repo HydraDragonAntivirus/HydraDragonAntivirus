@@ -1,0 +1,13 @@
+rule:
+  meta:
+    name: packaged as a Wise installer
+    namespace: executable/installer/wiseinstall
+    authors:
+      - moritz.raabe@mandiant.com
+    scopes:
+      static: file
+      dynamic: file
+  features:
+    - or:
+      - string: "WiseMain"
+      - substring: "Wise Installation Wizard"

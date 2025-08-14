@@ -1,0 +1,14 @@
+rule:
+  meta:
+    name: clear clipboard data
+    namespace: host-interaction/clipboard
+    authors:
+      - anushka.virgaonkar@mandiant.com
+    scopes:
+      static: function
+      dynamic: call
+    att&ck:
+      - Collection::Clipboard Data [T1115]
+  features:
+    - and:
+      - api: System.Windows.Forms.Clipboard::Clear

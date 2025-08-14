@@ -1,0 +1,51 @@
+rule:
+  meta:
+    name: read file via mapping
+    namespace: host-interaction/file-system/read
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: function
+      dynamic: span of calls
+    mbc:
+      - File System::Read File [C0051]
+    examples:
+      - Practical Malware Analysis Lab 01-01.exe_:0x401440
+  features:
+    - or:
+      - and:
+        # static
+        - basic block:
+          - and:
+            - api: kernel32.MapViewOfFile
+            - or:
+              - number: 4 = FILE_MAP_READ
+              - number: 6 = FILE_MAP_WRITE | FILE_MAP_READ
+        - optional:
+          - api: kernel32.UnmapViewOfFile
+          - and:
+            - match: get file size
+          - basic block:
+            - and:
+              - api: kernel32.CreateFileMapping
+              - or:
+                - number: 2 = PAGE_READONLY
+                - number: 4 = PAGE_READWRITE
+      - and:
+        # dynamic
+        - call:
+          - and:
+            - api: kernel32.MapViewOfFile
+            - or:
+              - number: 4 = FILE_MAP_READ
+              - number: 6 = FILE_MAP_WRITE | FILE_MAP_READ
+        - optional:
+          - api: kernel32.UnmapViewOfFile
+          - and:
+            - match: get file size
+          - call:
+            - and:
+              - api: kernel32.CreateFileMapping
+              - or:
+                - number: 2 = PAGE_READONLY
+                - number: 4 = PAGE_READWRITE

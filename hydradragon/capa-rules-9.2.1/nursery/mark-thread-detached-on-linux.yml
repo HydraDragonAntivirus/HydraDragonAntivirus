@@ -1,0 +1,13 @@
+rule:
+  meta:
+    name: mark thread detached on Linux
+    namespace: host-interaction/thread
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: basic block
+      dynamic: call
+  features:
+    - and:
+      - os: linux
+      - api: pthread_detach

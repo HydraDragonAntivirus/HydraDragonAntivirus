@@ -1,0 +1,19 @@
+rule:
+  meta:
+    name: check for Windows sandbox via mutex
+    namespace: anti-analysis/anti-vm/vm-detection
+    authors:
+      - "@_re_fox"
+    scopes:
+      static: function
+      dynamic: span of calls
+    att&ck:
+      - Defense Evasion::Virtualization/Sandbox Evasion::System Checks [T1497.001]
+    mbc:
+      - Anti-Behavioral Analysis::Virtual Machine Detection [B0009]
+    references:
+      - https://github.com/LloydLabs/wsb-detect
+  features:
+    - and:
+      - match: check mutex on Windows
+      - string: "WindowsSandboxMutex"

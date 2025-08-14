@@ -1,0 +1,33 @@
+rule:
+  meta:
+    name: create UDP socket
+    namespace: communication/socket/udp/send
+    authors:
+      - moritz.raabe@mandiant.com
+      - joakim@intezer.com
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: basic block
+      dynamic: call
+    mbc:
+      - Communication::Socket Communication::Create UDP Socket [C0001.010]
+    references:
+      - https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-socket
+      - https://man7.org/linux/man-pages/man2/socket.2.html
+  features:
+    - or:
+      - and:
+        - number: 2 = AF_INET
+        - number: 2 = SOCK_DGRAM
+        - or:
+          - number: 0 = protocol (default)
+          - number: 17 = IPPROTO_UDP
+        - or:
+          - api: socket
+          - api: ws2_32.socket
+          - api: ws2_32.#23 = socket
+          - api: ws2_32.WSASocket
+          - api: ws2_32.#82 = WSASocketA
+          - api: ws2_32.#83 = WSASocketW
+          - api: System.Net.Sockets.Socket::ctor
+      - api: System.Net.Sockets.UdpClient::ctor

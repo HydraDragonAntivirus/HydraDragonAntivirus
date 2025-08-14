@@ -1,0 +1,39 @@
+rule:
+  meta:
+    name: get disk size
+    namespace: host-interaction/hardware/storage
+    authors:
+      - michael.hunhoff@mandiant.com
+      - anushka.virgaonkar@mandiant.com
+    scopes:
+      static: function
+      dynamic: span of calls
+    att&ck:
+      - Discovery::System Information Discovery [T1082]
+    mbc:
+      - Discovery::System Information Discovery [E1082]
+    references:
+      - https://github.com/LordNoteworthy/al-khaser/blob/master/al-khaser/AntiVM/Generic.cpp#L347
+    examples:
+      - al-khaser_x86.exe_:0x4343D0
+      - al-khaser_x86.exe_:0x434010
+  features:
+    - or:
+      - api: kernel32.GetDiskFreeSpace
+      - api: kernel32.GetDiskFreeSpaceEx
+      - property/read: System.IO.DriveInfo::TotalSize
+      - property/read: System.IO.DriveInfo::TotalFreeSpace
+      - property/read: System.IO.DriveInfo::AvailableFreeSpace
+      - basic block:
+        - and:
+          - match: interact with driver via IOCTL
+          - number: 0x7405C = IOCTL_DISK_GET_LENGTH_INFO
+      - call:
+        - and:
+          - match: interact with driver via IOCTL
+          - number: 0x7405C = IOCTL_DISK_GET_LENGTH_INFO
+      - and:
+        - or:
+          - string: /SELECT\s+\*\s+FROM\s+Win32_LogicalDisk/i
+          - string: /SELECT\s+\*\s+FROM\s+Win32_DiskDrive\s+WHERE\s+\(SerialNumber\s+IS\s+NOT\s+NULL\)\s+AND\s+\(MediaType\s+LIKE\s+\'Fixed\s+hard\s+disk\%\'\)/i
+        - string: "Size"

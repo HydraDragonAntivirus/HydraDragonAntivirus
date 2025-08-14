@@ -1,0 +1,21 @@
+rule:
+  meta:
+    name: get system information on Linux
+    namespace: host-interaction/os/info
+    authors:
+      - joakim@intezer.com
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: function
+      dynamic: span of calls
+    att&ck:
+      - Discovery::System Information Discovery [T1082]
+  features:
+    - and:
+      - os: linux
+      - or:
+        - api: sysconf
+        - and:
+          - api: system
+          - string: "lshw"
+        - api: sysinfo

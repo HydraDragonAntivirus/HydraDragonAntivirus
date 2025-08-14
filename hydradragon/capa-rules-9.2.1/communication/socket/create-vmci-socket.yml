@@ -1,0 +1,29 @@
+rule:
+  meta:
+    name: create VMCI socket
+    namespace: communication/socket
+    authors:
+      - jakub.jozwiak@mandiant.com
+    scopes:
+      static: basic block
+      dynamic: span of calls
+    mbc:
+      - Communication::Socket Communication::Create Socket [C0001.003]
+    references:
+      - https://www.vmware.com/products/beta/ws/VMCIsockets.pdf
+    examples:
+      - 9ed5660c6a442dbba9e2ba795ccc913c1f1517ce89854fe4287c1c8b36b21d52:0x1800011D0
+  features:
+    - or:
+      - and:
+        - os: windows
+        - or:
+          - api: socket
+          - api: DeviceIoControl
+        - number: 0x81032068 = VMCI_SOCKETS_GET_AF_VALUE
+      - and:
+        - os: linux
+        - or:
+          - api: ioctl
+          - api: socket
+        - number: 0x7B8 = VMCI_SOCKETS_GET_AF_VALUE

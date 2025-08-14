@@ -1,0 +1,16 @@
+rule:
+  meta:
+    name: get file system object information
+    namespace: host-interaction/file-system
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: basic block
+      dynamic: call
+    att&ck:
+      - Discovery::File and Directory Discovery [T1083]
+    examples:
+      - 50D5EE1CE2CA5E30C6B1019EE64EEEC2:0x403538
+  features:
+    - or:
+      - api: SHGetFileInfo

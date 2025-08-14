@@ -1,0 +1,27 @@
+rule:
+  meta:
+    name: change file permission on Linux
+    namespace: host-interaction/file-system
+    authors:
+      - joakim@intezer.com
+      - mehunhoff@google.com
+    scopes:
+      static: basic block
+      dynamic: call
+    mbc:
+      - File System::Set File Attributes [C0050]
+    examples:
+      - 7351f8a40c5450557b24622417fc478d:0x407C68
+  features:
+    - and:
+      - or:
+        - os: android
+        - os: linux
+      - or:
+        - api: chown
+        - api: fchown
+        - api: lchown
+        - api: fchownat
+        - api: chmod
+        - api: fchmod
+        - api: fchmodat

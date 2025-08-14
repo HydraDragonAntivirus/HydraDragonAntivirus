@@ -1,0 +1,16 @@
+# generated using capa explorer for IDA Pro
+rule:
+  meta:
+    name: resize volume shadow copy storage
+    namespace: impact/inhibit-system-recovery
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: basic block
+      dynamic: call
+  features:
+    - and:
+      - or:
+        - match: interact with driver via IOCTL
+        - characteristic: indirect call
+      - number: 0x53C028 = IOCTL_VOLSNAP_SET_MAX_DIFF_AREA_SIZE

@@ -1,0 +1,21 @@
+rule:
+  meta:
+    name: check SystemKernelDebuggerInformation
+    namespace: anti-analysis/anti-debugging/debugger-detection
+    authors:
+      - michael.hunhoff@mandiant.com
+    scopes:
+      static: basic block
+      dynamic: call
+    mbc:
+      - Anti-Behavioral Analysis::Debugger Detection [B0001]
+    references:
+      - https://github.com/LordNoteworthy/al-khaser/blob/master/al-khaser/AntiDebug/NtQuerySystemInformation_SystemKernelDebuggerInformation.cpp
+  features:
+    - and:
+      - or:
+        - api: NtQuerySystemInformation
+        - api: NtQuerySystemInformationEx
+        - api: ZwQuerySystemInformation
+        - api: ZwQuerySystemInformationEx
+      - number: 0x23 = SystemKernelDebuggerInformation
