@@ -34,18 +34,7 @@ sc config "Owlyshield Service" start= demand
 echo [+] Service configured.
 
 :: --------------------------------------------------------
-:: 4) Install asar globally with npm
-:: --------------------------------------------------------
-echo Installing 'asar' npm package globally...
-npm install -g asar
-if %errorlevel% equ 0 (
-    echo 'asar' package installed successfully.
-) else (
-    echo Failed to install 'asar' package.
-)
-
-:: --------------------------------------------------------
-:: 5) Cleanup
+:: 4) Cleanup
 :: --------------------------------------------------------
 echo Cleaning up installer script...
 del "%~f0"

@@ -5,6 +5,7 @@ set "HYDRADRAGON_PATH=%ProgramW6432%\HydraDragonAntivirus\hydradragon"
 set "HYDRADRAGON_ROOT_PATH=%ProgramW6432%\HydraDragonAntivirus"
 set "CLAMAV_DIR=%ProgramW6432%\ClamAV"
 set "SURICATA_DIR=%ProgramW6432%\Suricata"
+set "NODEJS_PATH=%ProgramW6432%\nodejs"
 set "SBIE_INI=%ProgramW6432%\Sandboxie\SbieIni.exe"
 set "SBIE_SANDBOX=DefaultBox"
 set "INJECT_DLL=%HYDRADRAGON_PATH%\sandboxie_plugins\SbieHide\SbieHide.x64.dll"
@@ -140,6 +141,15 @@ echo Modifying Sandboxie settings...
 "%SBIE_INI%" set %SBIE_SANDBOX% BlockNetworkFiles n
 "%SBIE_INI%" set %SBIE_SANDBOX% InjectDll64 "%INJECT_DLL%"
 "%SBIE_INI%" set %SBIE_SANDBOX% ClosedFilePath ""
+
+rem 15. Install asar globally with npm
+echo Installing 'asar' npm package globally...
+"%NODEJS_PATH%\npm.cmd" install -g asar
+if %errorlevel% equ 0 (
+    echo 'asar' package installed successfully.
+) else (
+    echo Failed to install 'asar' package.
+)
 
 echo Setup completed successfully!
 
