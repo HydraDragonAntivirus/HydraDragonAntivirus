@@ -569,6 +569,10 @@ scanned_domains_general = []
 scanned_ipv4_addresses_general = []
 scanned_ipv6_addresses_general = []
 
+APP_NAME = "HydraDragon Antivirus"
+APP_VERSION = "v0.1 (Beta 5)"
+WINDOW_TITLE = f"{APP_NAME} {APP_VERSION}"
+
 # Resolve system drive path
 system_drive = os.getenv("SystemDrive", "C:") + os.sep
 # Resolve Program Files directory via environment (fallback to standard path)
@@ -13635,7 +13639,7 @@ class AntivirusApp(QWidget):
         title.setObjectName("page_title")
         self.status_text = QLabel("Ready for analysis!")
         self.status_text.setObjectName("page_subtitle")
-        version_label = QLabel("HydraDragon Antivirus v0.1 (Beta 5)")
+        version_label = QLabel(WINDOW_TITLE)
         version_label.setObjectName("version_label")
         defs_label = QLabel(get_latest_clamav_def_time())
         defs_label.setObjectName("version_label")
@@ -13914,7 +13918,7 @@ class AntivirusApp(QWidget):
             self.setWindowIcon(QIcon(icon_path))
         else:
             logging.warning(f"Icon file not found at: {icon_path}")
-        self.setWindowTitle("HydraDragon Antivirus v0.1 (Beta 5)")
+        self.setWindowTitle(WINDOW_TITLE)
         self.setMinimumSize(1024, 768)
         self.resize(1200, 800)
         main_layout = QHBoxLayout(self)
