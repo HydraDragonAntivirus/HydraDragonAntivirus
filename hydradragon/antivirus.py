@@ -12766,7 +12766,7 @@ class Worker(QThread):
                 self.output_signal.emit(f"[!] Error during analysis: {str(e)}")
                 logging.error(f"File analysis error: {str(e)}")
 
-        # Start analysis in a background thread — fully non-blocking
+        # Start analysis in a background thread - fully non-blocking
         threading.Thread(target=analysis_task).start()
 
     def check_and_scan_network_indicators(self, reports_dir=None):
