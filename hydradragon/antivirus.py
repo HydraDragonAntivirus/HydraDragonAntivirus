@@ -12120,10 +12120,7 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
         threads_to_start = [
             (monitor_message.start_monitoring_threads,),
             (scan_and_warn, (main_dest,)),
-            (monitor_memory_changes(
-                change_threshold_bytes=1024,
-                stop_callback=stop_callback
-            )),
+            (monitor_memory_changes, (), {'change_threshold_bytes': 1024, 'stop_callback': stop_callback}),
             (run_sandboxie_plugin,),
             (monitor_suricata_log,),
             (web_protection_observer.begin_observing,),
