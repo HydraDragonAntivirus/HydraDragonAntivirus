@@ -13790,13 +13790,13 @@ class AntivirusApp(QWidget):
         layout.addWidget(title)
 
         # Main Generate Clean DB button
-        generate_button = QPushButton("Run Generate Clean DB")
+        generate_button = QPushButton("Run Generate Clean DB (Recommended)")
         generate_button.setObjectName("action_button")
         generate_button.clicked.connect(lambda: self.start_worker("generate_clean_db"))
         layout.addWidget(generate_button)
 
         # Quick Clean DB button (secondary option)
-        quick_button = QPushButton("Run Quick Clean DB (Not recommended)")
+        quick_button = QPushButton("Run Quick Clean DB")
         quick_button.setObjectName("action_button_secondary")
         quick_button.clicked.connect(lambda: self.start_worker("quick_generate_clean_db_task"))
         layout.addWidget(quick_button)
