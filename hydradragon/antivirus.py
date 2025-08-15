@@ -13380,6 +13380,7 @@ class Worker(QThread):
                 "capture_analysis_logs": self.capture_analysis_logs,
                 "compare_analysis_logs": self.compare_analysis_logs,
                 "update_defs": self.update_definitions,
+                "quick_generate_clean_db_task": self.quick_generate_clean_db_task,
                 "generate_clean_db": self.generate_clean_db,
                 "rootkit_scan": self.perform_rootkit_scan,
                 "cleanup_environment": self.perform_cleanup,
