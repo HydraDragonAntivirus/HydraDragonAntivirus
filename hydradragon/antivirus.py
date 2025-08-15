@@ -7129,7 +7129,7 @@ def log_directory_type(file_path):
     except Exception as ex:
         logging.error(f"Error logging directory type for {file_path}: {ex}")
 
-def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=False):
+def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=False, capa_flag=False):
     """
     Processes a file and analyzes it using Meta Llama-3.2-1B.
     If decompiled_flag is True, a normal summary is generated with
@@ -7163,6 +7163,19 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
             initial_message = prefix + (
                 "Meta Llama-3.2-1B Report for HiJackThis log analysis:\n"
                 "The following report is produced based on HiJackThis log differences. "
+                "Analyze the file content and determine if there are suspicious changes that may indicate malware. "
+                "Include the following four lines in your response:\n"
+                "- Malware: [Yes/No/Maybe]\n"
+                "- Virus Name:\n"
+                "- Confidence: [percentage]\n"
+                "- Malicious Content: [Explanation]\n"
+                f"File name: {os.path.basename(file_path)}\n"
+                f"File path: {file_path}\n"
+            )
+        if capa_flag:
+            initial_message = prefix + (
+                "Meta Llama-3.2-1B Report for CAPA detects capabilities in executable PE files:\n"
+                "The following report is produced based on CAPA analysis. "
                 "Analyze the file content and determine if there are suspicious changes that may indicate malware. "
                 "Include the following four lines in your response:\n"
                 "- Malware: [Yes/No/Maybe]\n"
@@ -10223,7 +10236,7 @@ def scan_and_warn(file_path,
 
                 if capa_analysis_results:
                     # Run scans in separate threads
-                    llama_scan_thread = threading.Thread(target=scan_file_with_meta_llama, args=(capa_analysis_results,))
+                    llama_scan_thread = threading.Thread(target=scan_file_with_meta_llama, args=(capa_analysis_results,), kwargs={"capa_flag": True})
                     warning_scan_thread = threading.Thread(target=scan_and_warn, args=(capa_analysis_results,))
    
                     llama_scan_thread.start()
