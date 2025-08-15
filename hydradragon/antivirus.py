@@ -12610,13 +12610,6 @@ class Worker(QThread):
     def request_stop(self):
         """Public method to request stopping the worker"""
         self.stop_requested = True
-
-    def count_qtimers(self):
-        """Count active QTimer objects for debugging"""
-        import gc
-        timers = [obj for obj in gc.get_objects() if 'QTimer' in str(type(obj))]
-        return len(timers)
-
     # --- Task-Specific Methods (Called by run()) ---
 
     def load_meta_llama_1b_model(self):
@@ -12754,11 +12747,6 @@ class Worker(QThread):
             return
 
         self.output_signal.emit(f"[*] Starting analysis for: {file_path}")
-
-        # Debug: Count timers before analysis
-        timer_count_before = self.count_qtimers()
-        self.output_signal.emit(f"[DEBUG] QTimer objects before analysis: {timer_count_before}")
-
         try:
             # Create a stop callback that checks our flag
             def check_stop():
@@ -12783,16 +12771,6 @@ class Worker(QThread):
                 error_msg = f"[!] Error during analysis: {str(e)}"
                 self.output_signal.emit(error_msg)
                 logging.error(f"File analysis error: {str(e)}")
-
-        finally:
-            # Debug: Count timers after analysis
-            timer_count_after = self.count_qtimers()
-            timer_leak = timer_count_after - timer_count_before
-            self.output_signal.emit(f"[DEBUG] QTimer objects after analysis: {timer_count_after}")
-            if timer_leak > 0:
-                self.output_signal.emit(f"[WARNING] Timer leak detected: +{timer_leak} timers created")
-            else:
-                self.output_signal.emit(f"[DEBUG] Timer usage: {timer_leak} (no leak)")
 
     def check_and_scan_network_indicators(self, reports_dir=None):
         """
