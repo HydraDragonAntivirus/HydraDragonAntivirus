@@ -13451,7 +13451,7 @@ class AntivirusApp(QWidget):
     def on_worker_finished(self, worker):
         """Handle worker thread completion."""
         self.append_log_output(f"[+] Task '{worker.task_type}' finished.")
-        
+
         with self.worker_lock:
             if worker in self.workers:
                 self.workers.remove(worker)
@@ -13481,12 +13481,12 @@ class AntivirusApp(QWidget):
                 # Start the worker
                 worker.start()
 
-                # Update UI using QTimer to ensure thread safety
-                QTimer.singleShot(0, lambda: self._update_ui_for_worker_start(task_type))
-                
+                # Update UI using separate method
+                self._update_ui_for_worker_start(task_type)
+
             except Exception as e:
                 # Handle any errors during worker creation
-                QTimer.singleShot(0, lambda: self.append_log_output(f"[!] Error starting task '{task_type}': {str(e)}"))
+                self.append_log_output(f"[!] Error starting task '{task_type}': {str(e)}")
 
         # Start the worker creation in a separate thread
         starter_thread = threading.Thread(target=worker_starter, daemon=True)
