@@ -9257,7 +9257,7 @@ def extract_resources(pe_path, output_dir):
 
     return extracted_files
 
-def run_fernflower_decompiler(file_path, flag_fernflower=True):
+def run_fernflower_decompiler(file_path):
     """
     Uses FernFlower to decompile the given JAR file.
     The FernFlower JAR is expected to be located in jar_decompiler_dir.
@@ -12739,55 +12739,35 @@ class Worker(QThread):
 
     def analyze_file_worker(self, file_path):
         """
-        Runs file analysis in a separate thread but waits for it to complete
-        before continuing. No nested QThreads.
+        Runs file analysis in a separate thread without freezing.
+        Results or errors are emitted via output_signal.
         """
+
         if self.stop_requested:
             self.output_signal.emit("[!] Analysis stopped by user request")
             return
 
         self.output_signal.emit(f"[*] Starting analysis for: {file_path}")
 
-        try:
-            # Create a stop callback that checks our flag
-            def check_stop():
-                return self.stop_requested
+        # Stop callback
+        def check_stop():
+            return self.stop_requested
 
-            # Storage for the result
-            result_container = {"result": None, "error": None}
-
-            # Worker function for the analysis
-            def analysis_task():
-                try:
-                    result_container["result"] = run_analysis(file_path, stop_callback=check_stop)
-                except Exception as e:
-                    result_container["error"] = e
-
-            # Run in a separate thread
-            t = threading.Thread(target=analysis_task)
-            t.start()
-
-            # Wait until the thread completes, checking stop flag periodically
-            while t.is_alive():
-                t.join(timeout=0.1)
-                if self.stop_requested:
-                    self.output_signal.emit("[!] Analysis was stopped by user")
-                    return
-
-            # Handle results/errors
-            if result_container["error"]:
-                raise result_container["error"]
-
-            self.output_signal.emit(result_container["result"])
-            self.output_signal.emit("[+] File analysis completed successfully")
-
-        except Exception as e:
-            if self.stop_requested:
-                self.output_signal.emit("[!] Analysis stopped by user request")
-            else:
-                error_msg = f"[!] Error during analysis: {str(e)}"
-                self.output_signal.emit(error_msg)
+        # Analysis task to run in a separate thread
+        def analysis_task():
+            try:
+                result = run_analysis(file_path, stop_callback=check_stop)
+                if not self.stop_requested:
+                    self.output_signal.emit(result)
+                    self.output_signal.emit("[+] File analysis completed successfully")
+                else:
+                    self.output_signal.emit("[!] Analysis stopped by user")
+            except Exception as e:
+                self.output_signal.emit(f"[!] Error during analysis: {str(e)}")
                 logging.error(f"File analysis error: {str(e)}")
+
+        # Start analysis in a background thread — fully non-blocking
+        threading.Thread(target=analysis_task, daemon=True).start()
 
     def check_and_scan_network_indicators(self, reports_dir=None):
         """
