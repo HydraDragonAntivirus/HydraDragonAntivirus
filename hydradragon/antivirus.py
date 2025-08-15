@@ -12739,29 +12739,46 @@ class Worker(QThread):
 
     def analyze_file_worker(self, file_path):
         """
-        Runs file analysis directly in the Worker thread with proper stop support.
-        No nested threading - everything runs in this QThread.
+        Runs file analysis in a separate thread but waits for it to complete
+        before continuing. No nested QThreads.
         """
         if self.stop_requested:
             self.output_signal.emit("[!] Analysis stopped by user request")
             return
 
         self.output_signal.emit(f"[*] Starting analysis for: {file_path}")
+
         try:
             # Create a stop callback that checks our flag
             def check_stop():
                 return self.stop_requested
 
-            # Run the analysis directly in this thread
-            analysis_result = run_analysis(file_path, stop_callback=check_stop)
+            # Storage for the result
+            result_container = {"result": None, "error": None}
 
-            # Check if we were stopped during analysis
-            if self.stop_requested:
-                self.output_signal.emit("[!] Analysis was stopped by user")
-                return
+            # Worker function for the analysis
+            def analysis_task():
+                try:
+                    result_container["result"] = run_analysis(file_path, stop_callback=check_stop)
+                except Exception as e:
+                    result_container["error"] = e
 
-            # Emit the result
-            self.output_signal.emit(analysis_result)
+            # Run in a separate thread
+            t = threading.Thread(target=analysis_task)
+            t.start()
+
+            # Wait until the thread completes, checking stop flag periodically
+            while t.is_alive():
+                t.join(timeout=0.1)
+                if self.stop_requested:
+                    self.output_signal.emit("[!] Analysis was stopped by user")
+                    return
+
+            # Handle results/errors
+            if result_container["error"]:
+                raise result_container["error"]
+
+            self.output_signal.emit(result_container["result"])
             self.output_signal.emit("[+] File analysis completed successfully")
 
         except Exception as e:
