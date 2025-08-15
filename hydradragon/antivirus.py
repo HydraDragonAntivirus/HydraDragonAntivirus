@@ -11560,7 +11560,7 @@ class MonitorMessageCommandLine:
     def __init__(self):
         self.processed_texts = set()
         self._seen_texts = set()
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.executor = ThreadPoolExecutor(max_workers=1000)
         self.thread_pool = ThreadPoolExecutor(max_workers=1000)
         self._hooks = []
@@ -13407,6 +13407,7 @@ class AntivirusApp(QWidget):
         self.workers = []
         self.log_outputs = []
         self.animation_group = QParallelAnimationGroup()
+        self.worker_lock = threading.RLock()  # Safer choice
 
         self.apply_stylesheet()
         self.setup_ui()
@@ -13450,30 +13451,49 @@ class AntivirusApp(QWidget):
     def on_worker_finished(self, worker):
         """Handle worker thread completion."""
         self.append_log_output(f"[+] Task '{worker.task_type}' finished.")
-        if worker in self.workers:
-            self.workers.remove(worker)
+        
+        with self.worker_lock:
+            if worker in self.workers:
+                self.workers.remove(worker)
 
         # Update UI status when all workers are done
-        if not self.workers:
-            if hasattr(self, 'shield_widget'):
-                self.shield_widget.set_status(True)
-            if hasattr(self, 'status_text'):
-                self.status_text.setText("Ready for analysis!")
+        with self.worker_lock:
+            if not self.workers:
+                if hasattr(self, 'shield_widget'):
+                    self.shield_widget.set_status(True)
+                if hasattr(self, 'status_text'):
+                    self.status_text.setText("Ready for analysis!")
 
     def start_worker(self, task_type, *args):
         """Start a new worker thread for the given task."""
-        # Create new worker
-        worker = Worker(task_type, *args)
-        worker.output_signal.connect(self.append_log_output)
-        worker.finished.connect(lambda w=worker: self.on_worker_finished(w))
+        def worker_starter():
+            """Internal function to handle worker creation in separate thread."""
+            try:
+                # Create new worker
+                worker = Worker(task_type, *args)
+                worker.output_signal.connect(self.append_log_output)
+                worker.finished.connect(lambda w=worker: self.on_worker_finished(w))
 
-        # Add to active workers list
-        self.workers.append(worker)
+                # Add to active workers list (thread-safe)
+                with self.worker_lock:
+                    self.workers.append(worker)
 
-        # Start the worker
-        worker.start()
+                # Start the worker
+                worker.start()
 
-        # Update UI
+                # Update UI using QTimer to ensure thread safety
+                QTimer.singleShot(0, lambda: self._update_ui_for_worker_start(task_type))
+                
+            except Exception as e:
+                # Handle any errors during worker creation
+                QTimer.singleShot(0, lambda: self.append_log_output(f"[!] Error starting task '{task_type}': {str(e)}"))
+
+        # Start the worker creation in a separate thread
+        starter_thread = threading.Thread(target=worker_starter, daemon=True)
+        starter_thread.start()
+
+    def _update_ui_for_worker_start(self, task_type):
+        """Update UI elements when worker starts (called from main thread)."""
         self.append_log_output(f"[*] Task '{task_type}' started.")
         if hasattr(self, 'shield_widget'):
             self.shield_widget.set_status(False)
