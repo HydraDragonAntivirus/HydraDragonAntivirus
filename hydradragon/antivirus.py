@@ -108,7 +108,7 @@ logging.info(f"PySide6.QtWidgets modules loaded in {time.time() - start_time:.6f
 
 start_time = time.time()
 from PySide6.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QThread,
-                            Signal, QPoint, QParallelAnimationGroup, Property, QRect, QTimer)
+                            Signal, QPoint, QParallelAnimationGroup, Property, QRect)
 logging.info(f"PySide6.QtCore modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -13496,8 +13496,8 @@ class AntivirusApp(QWidget):
                 worker.request_stop()
                 self.append_log_output(f"[*] Stop requested for task: {worker.task_type}")
 
-        # Give threads a moment to stop gracefully
-        QTimer.singleShot(1000, self.force_stop_remaining_workers)
+        # Run force_stop_remaining_workers in 1 second without QTimer
+        threading.Timer(1.0, self.force_stop_remaining_workers).start()
 
     def force_stop_remaining_workers(self):
         """Force stop any workers that didn't stop gracefully."""
