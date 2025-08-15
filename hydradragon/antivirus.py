@@ -13690,6 +13690,7 @@ class AntivirusApp(QWidget):
         warning_layout = QVBoxLayout(warning_box)
         warning_text = QLabel(
             "<b>IMPORTANT:</b> Only run this application from a Virtual Machine.<br><br>"
+            "<b>NOTICE:</b> Process Dump x64 must be used to create clean hashes before you download malware.<br><br>"
             "<b>Recommended Workflow:</b><br>"
             "1. Update ClamAV and Hayabusa Virus Definitions<br>"
             "2. Generate Clean DB (Process Dump x64)<br>"
