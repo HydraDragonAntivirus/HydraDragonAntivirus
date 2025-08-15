@@ -8345,25 +8345,25 @@ def decompile_dotnet_file(file_path):
 def run_capa_analysis(file_path):
     """
     Runs CAPA analysis on a file using capa.exe and saves results.
-    
+
     :param file_path: Path to the file to analyze
     :return: Path to the JSON results file or None if failed
     """
     try:
         logging.info(f"Running CAPA analysis on: {file_path}")
-        
+
         # Create a unique numbered subdirectory under capa_results_dir
         folder_number = 1
         while os.path.exists(os.path.join(capa_results_dir, str(folder_number))):
             folder_number += 1
         capa_output_dir = os.path.join(capa_results_dir, str(folder_number))
         os.makedirs(capa_output_dir, exist_ok=True)
-        
+
         # Generate output file names
         base_name = os.path.splitext(os.path.basename(file_path))[0]
         json_output_file = os.path.join(capa_output_dir, f"{base_name}_capa_results.json")
         txt_output_file = os.path.join(capa_output_dir, f"{base_name}_capa_results.txt")
-        
+
         # Run CAPA analysis command with JSON output
         capa_command = [
             "capa.exe",
@@ -8371,58 +8371,58 @@ def run_capa_analysis(file_path):
             "-j",  # JSON output format
             file_path
         ]
-        
+
         # Execute CAPA and capture output
         result = subprocess.run(
-            capa_command, 
-            check=True, 
-            capture_output=True, 
+            capa_command,
+            check=True,
+            capture_output=True,
             text=True,
             encoding='utf-8'
         )
-        
+
         # Save JSON results
         with open(json_output_file, "w", encoding="utf-8") as f:
             f.write(result.stdout)
-        
+
         logging.info(f"CAPA JSON results saved to: {json_output_file}")
-        
+
         # Also run CAPA for human-readable text output
         capa_command_txt = [
             "capa.exe",
             "-r", capa_rules_dir,
             file_path
         ]
-        
+
         result_txt = subprocess.run(
-            capa_command_txt, 
-            check=True, 
-            capture_output=True, 
+            capa_command_txt,
+            check=True,
+            capture_output=True,
             text=True,
             encoding='utf-8'
         )
-        
+
         # Save text results
         with open(txt_output_file, "w", encoding="utf-8") as f:
             f.write(result_txt.stdout)
-        
+
         logging.info(f"CAPA text results saved to: {txt_output_file}")
-        
+
         # Parse and return JSON file path
         try:
             json.loads(result.stdout)
             logging.info(f"CAPA analysis completed successfully for {file_path}")
             return json_output_file
-            
+
         except json.JSONDecodeError as json_ex:
             logging.error(f"Failed to parse CAPA JSON output: {json_ex}")
             # Still save the raw output and return the file path
             return json_output_file
-        
+
     except subprocess.CalledProcessError as ex:
         logging.error(f"CAPA analysis failed for {file_path}: {ex}")
         logging.error(f"CAPA stderr: {ex.stderr}")
-        
+
         # Save error information
         if 'capa_output_dir' in locals():
             error_file = os.path.join(capa_output_dir, f"{base_name}_capa_error.txt")
@@ -8432,9 +8432,9 @@ def run_capa_analysis(file_path):
                 f.write(f"STDOUT:\n{ex.stdout}\n")
                 f.write(f"STDERR:\n{ex.stderr}\n")
             logging.info(f"Error details saved to: {error_file}")
-        
+
         return None
-        
+
     except Exception as ex:
         logging.error(f"Error running CAPA analysis on {file_path}: {ex}")
         return None
@@ -8442,21 +8442,21 @@ def run_capa_analysis(file_path):
 def analyze_file_with_capa(file_path):
     """
     Wrapper function that runs CAPA analysis and returns JSON file path.
-    
+
     :param file_path: Path to the file to analyze
     :return: Path to JSON results file or None if failed
     """
     try:
         # Run CAPA analysis
         json_file_path = run_capa_analysis(file_path)
-        
+
         if not json_file_path:
             logging.info(f"No CAPA results obtained for {file_path}")
             return None
-        
+
         logging.info(f"CAPA analysis completed for {file_path}, results: {json_file_path}")
         return json_file_path
-        
+
     except Exception as ex:
         logging.error(f"Error processing CAPA results for {file_path}: {ex}")
         return None
@@ -10238,7 +10238,7 @@ def scan_and_warn(file_path,
                     # Run scans in separate threads
                     llama_scan_thread = threading.Thread(target=scan_file_with_meta_llama, args=(capa_analysis_results,), kwargs={"capa_flag": True})
                     warning_scan_thread = threading.Thread(target=scan_and_warn, args=(capa_analysis_results,))
-   
+
                     llama_scan_thread.start()
                     warning_scan_thread.start()
 
