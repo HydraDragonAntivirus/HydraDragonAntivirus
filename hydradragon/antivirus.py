@@ -10616,7 +10616,7 @@ def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_ex
         logging.error(f"Overall error in analyze_specific_process: {overall_ex}")
         return None
 
-dataclass
+@dataclass
 class ProcessInfo:
     """Safe container for process information"""
     pid: int
