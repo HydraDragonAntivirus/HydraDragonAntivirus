@@ -8363,7 +8363,7 @@ def run_capa_analysis(file_path):
     Runs CAPA analysis on a file using capa.exe and saves results.
 
     :param file_path: Path to the file to analyze
-    :return: Path to the JSON results file or None if failed
+    :return: Path to the text results file or None if failed
     """
     try:
         logging.info(f"Running CAPA analysis on: {file_path}")
@@ -8375,16 +8375,15 @@ def run_capa_analysis(file_path):
         capa_output_dir = os.path.join(capa_results_dir, str(folder_number))
         os.makedirs(capa_output_dir, exist_ok=True)
 
-        # Generate output file names
+        # Generate output file name
         base_name = os.path.splitext(os.path.basename(file_path))[0]
-        json_output_file = os.path.join(capa_output_dir, f"{base_name}_capa_results.json")
         txt_output_file = os.path.join(capa_output_dir, f"{base_name}_capa_results.txt")
 
-        # Run CAPA analysis command with JSON output
+        # Run CAPA analysis command for human-readable text output
         capa_command = [
             "capa.exe",
             "-r", capa_rules_dir,  # Use the rules directory
-            "-j",  # JSON output format
+            "-v",                  # Verbose output for more details
             file_path
         ]
 
@@ -8397,43 +8396,13 @@ def run_capa_analysis(file_path):
             encoding='utf-8'
         )
 
-        # Save JSON results
-        with open(json_output_file, "w", encoding="utf-8") as f:
-            f.write(result.stdout)
-
-        logging.info(f"CAPA JSON results saved to: {json_output_file}")
-
-        # Also run CAPA for human-readable text output
-        capa_command_txt = [
-            "capa.exe",
-            "-r", capa_rules_dir,
-            file_path
-        ]
-
-        result_txt = subprocess.run(
-            capa_command_txt,
-            check=True,
-            capture_output=True,
-            text=True,
-            encoding='utf-8'
-        )
-
         # Save text results
         with open(txt_output_file, "w", encoding="utf-8") as f:
-            f.write(result_txt.stdout)
+            f.write(result.stdout)
 
         logging.info(f"CAPA text results saved to: {txt_output_file}")
-
-        # Parse and return JSON file path
-        try:
-            json.loads(result.stdout)
-            logging.info(f"CAPA analysis completed successfully for {file_path}")
-            return json_output_file
-
-        except json.JSONDecodeError as json_ex:
-            logging.error(f"Failed to parse CAPA JSON output: {json_ex}")
-            # Still save the raw output and return the file path
-            return json_output_file
+        logging.info(f"CAPA analysis completed successfully for {file_path}")
+        return txt_output_file
 
     except subprocess.CalledProcessError as ex:
         logging.error(f"CAPA analysis failed for {file_path}: {ex}")
@@ -8464,14 +8433,14 @@ def analyze_file_with_capa(file_path):
     """
     try:
         # Run CAPA analysis
-        json_file_path = run_capa_analysis(file_path)
+        capa_file_path = run_capa_analysis(file_path)
 
-        if not json_file_path:
+        if not capa_file_path:
             logging.info(f"No CAPA results obtained for {file_path}")
             return None
 
-        logging.info(f"CAPA analysis completed for {file_path}, results: {json_file_path}")
-        return json_file_path
+        logging.info(f"CAPA analysis completed for {file_path}, results: {capa_file_path}")
+        return capa_file_path
 
     except Exception as ex:
         logging.error(f"Error processing CAPA results for {file_path}: {ex}")
