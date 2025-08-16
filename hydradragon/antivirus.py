@@ -12973,7 +12973,7 @@ class Worker(QThread):
         # Analysis task to run in a separate thread
         def analysis_task():
             try:
-                result = run_analysis(file_path, stop_callback=check_stop)
+                result = run_analysis_with_yield(file_path, stop_callback=check_stop)
                 if not self.stop_requested:
                     self.output_signal.emit(result)
                     self.output_signal.emit("[+] File analysis completed successfully")
