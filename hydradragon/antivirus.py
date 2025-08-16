@@ -9999,6 +9999,21 @@ def scan_and_warn(file_path,
             logging.info(f"The file {norm_path} is a broken Mach-0 file. Skipping scan...")
             return False
 
+        def themida_detection():
+            is_themida_protected = is_themida_from_output(die_output)
+            if is_themida_protected == "PE32 Themida":
+                logging.info(f"File '{norm_path}' is protected by Themida 32 bit.")
+                run_themida_unlicense(norm_path)
+                scan_and_warn(norm_path)
+            elif is_themida_protected == "PE64 Themida":
+                logging.info(f"File '{norm_path}' is protected by Themida 64 bit.")
+                run_themida_unlicense(norm_path, x64=True)
+                scan_and_warn(norm_path)
+
+        # Start Themida detection in a separate thread
+        t = threading.Thread(target=themida_detection)
+        t.start()
+
         if is_autoit_file_from_output(die_output):
             logging.info(f"File {norm_path} is a valid AutoIt file.")
             extracted_autoit_files = extract_autoit(norm_path)
@@ -10235,21 +10250,6 @@ def scan_and_warn(file_path,
                 elif signature_check["signature_status_issues"] and not signature_check["no_signature"]:
                     logging.warning(f"File '{norm_path}' has signature issues. Proceeding with further checks.")
                     notify_user_invalid(norm_path, "Win32.Susp.InvalidSignature")
-
-                def themida_detection():
-                    is_themida_protected = is_themida_from_output(die_output)
-                    if is_themida_protected == "PE32 Themida":
-                        logging.info(f"File '{norm_path}' is protected by Themida 32 bit.")
-                        run_themida_unlicense(norm_path)
-                        scan_and_warn(norm_path)
-                    elif is_themida_protected == "PE64 Themida":
-                        logging.info(f"File '{norm_path}' is protected by Themida 64 bit.")
-                        run_themida_unlicense(norm_path, x64=True)
-                        scan_and_warn(norm_path)
-
-                # Start Themida detection in a separate thread
-                t = threading.Thread(target=themida_detection)
-                t.start()
 
                 def capa_analysis():
                     capa_analysis_results = analyze_file_with_capa(norm_path)
