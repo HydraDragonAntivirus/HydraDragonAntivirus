@@ -9940,15 +9940,6 @@ def scan_and_warn(file_path,
             worm_alert(norm_path)  # Direct call, not threaded
             return False  # EARLY EXIT
 
-        # Cache check - CRITICAL PATH
-        if initial_md5_in_cache == md5:
-            logging.info(f"Skipping scan for unchanged file: {norm_path}")
-            return False  # EARLY EXIT
-        else:
-            file_md5_cache[norm_path] = md5
-
-        logging.info(f"Deep scanning file: {norm_path}")
-
         # ========== THREADED OPERATIONS START HERE ==========
         # Now we can safely use threading since no more early returns
 
@@ -10121,6 +10112,15 @@ def scan_and_warn(file_path,
 
         for thread in analysis_threads:
             thread.start()
+
+        # Cache check - CRITICAL PATH
+        if initial_md5_in_cache == md5:
+            logging.info(f"Skipping scan for unchanged file: {norm_path}")
+            return False  # EARLY EXIT
+        else:
+            file_md5_cache[norm_path] = md5
+
+        logging.info(f"Deep scanning file: {norm_path}")
 
         # ========== BINARY vs TEXT FILE PROCESSING ==========
 
