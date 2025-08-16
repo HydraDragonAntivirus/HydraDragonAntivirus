@@ -12470,12 +12470,31 @@ def run_de4dot_in_sandbox(file_path):
     except subprocess.CalledProcessError as ex:
         logging.error(f"Failed to run de4dot on {input_dir} in sandbox DefaultBox: {ex}")
 
-def run_analysis(file_path: str, stop_callback=None):
+def windows_yield_cpu():
+    """Windows-specific CPU yielding using SwitchToThread()"""
+    ctypes.windll.kernel32.SwitchToThread()
+
+def periodic_yield_worker(stop_event, yield_interval=0.1):
+    """Background thread that yields CPU periodically until analysis finishes"""
+    while not stop_event.is_set():
+        windows_yield_cpu()
+        time.sleep(yield_interval)
+
+def run_analysis_with_yield(file_path: str, stop_callback=None):
     """
     This function mirrors the original AnalysisThread.execute_analysis method.
     It logs the file path, performs the sandbox analysis, and handles any exceptions.
-    Now supports a stop_callback to allow graceful interruption.
+    Now supports a stop_callback to allow graceful interruption with Windows CPU yielding.
+    Runs a background thread that periodically yields CPU during analysis.
     """
+    # Create stop event for background yielding thread
+    yield_stop_event = threading.Event()
+
+    # Start background yielding thread
+    yield_thread = threading.Thread(target=periodic_yield_worker, args=(yield_stop_event, 0.1))
+    yield_thread.daemon = True
+    yield_thread.start()
+
     try:
         logging.info(f"Running analysis for: {file_path}")
 
@@ -12485,12 +12504,14 @@ def run_analysis(file_path: str, stop_callback=None):
 
         # Let Qt process events before heavy work
         QApplication.processEvents()
+        windows_yield_cpu()
 
         # Perform the sandbox analysis with stop checking
         result = perform_sandbox_analysis(file_path, stop_callback=stop_callback)
 
         # Let Qt process events after heavy work
         QApplication.processEvents()
+        windows_yield_cpu()
 
         # Check for stop request after analysis
         if stop_callback and stop_callback():
@@ -12506,6 +12527,11 @@ def run_analysis(file_path: str, stop_callback=None):
         error_message = f"An error occurred during sandbox analysis: {ex}"
         logging.error(error_message)
         return error_message
+
+    finally:
+        # Stop the background yielding thread
+        yield_stop_event.set()
+        yield_thread.join(timeout=1.0)  # Wait max 1 second for thread to finish
 
 # ----- Global Variables to hold captured data -----
 pre_analysis_log_path = None
