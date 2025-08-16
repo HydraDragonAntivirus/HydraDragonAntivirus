@@ -10014,56 +10014,77 @@ def scan_and_warn(file_path,
         t = threading.Thread(target=themida_detection)
         t.start()
 
-        if is_autoit_file_from_output(die_output):
-            logging.info(f"File {norm_path} is a valid AutoIt file.")
-            extracted_autoit_files = extract_autoit(norm_path)
-            for extracted_autoit_file in extracted_autoit_files:
-                scan_and_warn(extracted_autoit_file)
+        def autoit_analysis():
+            if is_autoit_file_from_output(die_output):
+                logging.info(f"File {norm_path} is a valid AutoIt file.")
+                extracted_autoit_files = extract_autoit(norm_path)
+                for extracted_autoit_file in extracted_autoit_files:
+                    scan_and_warn(extracted_autoit_file)
 
-        if is_asar_archive_from_output(die_output):
-            logging.info(f"File {norm_path} is a valid Asar Archive (Electron).")
-            extracted_asar_files = extract_asar_file(norm_path)
-            for extracted_asar_file in extracted_asar_files:
-                scan_and_warn(extracted_asar_file)
+        def asar_analysis():
+            if is_asar_archive_from_output(die_output):
+                logging.info(f"File {norm_path} is a valid Asar Archive (Electron).")
+                extracted_asar_files = extract_asar_file(norm_path)
+                for extracted_asar_file in extracted_asar_files:
+                    scan_and_warn(extracted_asar_file)
 
-        if is_installshield_file_from_output(die_output):
-            logging.info(f"File {norm_path} is a valid Install Shield file.")
-            extracted_installshield_files = extract_installshield(norm_path)
-            for extracted_installshield_file in extracted_installshield_files:
-                scan_and_warn(extracted_installshield_file)
+        def installshield_analysis():
+            if is_installshield_file_from_output(die_output):
+                logging.info(f"File {norm_path} is a valid Install Shield file.")
+                extracted_installshield_files = extract_installshield(norm_path)
+                for extracted_installshield_file in extracted_installshield_files:
+                    scan_and_warn(extracted_installshield_file)
 
-        if is_advanced_installer_file_from_output(die_output):
-            logging.info(f"File {norm_path} is a valid Advanced Installer file.")
-            extracted_files = advanced_installer_extractor(norm_path)
-            for extracted_file in extracted_files:
-                scan_and_warn(extracted_file)
+        def advanced_installer_analysis():
+            if is_advanced_installer_file_from_output(die_output):
+                logging.info(f"File {norm_path} is a valid Advanced Installer file.")
+                extracted_files = advanced_installer_extractor(norm_path)
+                for extracted_file in extracted_files:
+                    scan_and_warn(extracted_file)
 
-        if apk_result:
-            logging.info(f"File {norm_path} is a valid APK file.")
-            decompile_apk_files = decompile_apk_file(norm_path)
-            if decompile_apk_files:
-                for decompiled_apk_file in decompile_apk_files:
-                    scan_and_warn(decompiled_apk_file)
+        def apk_analysis():
+            if apk_result:
+                logging.info(f"File {norm_path} is a valid APK file.")
+                decompile_apk_files = decompile_apk_file(norm_path)
+                if decompile_apk_files:
+                    for decompiled_apk_file in decompile_apk_files:
+                        scan_and_warn(decompiled_apk_file)
 
-        # Analyze the DIE output for .NET file information
-        dotnet_result = is_dotnet_file_from_output(die_output)
+        def dotnet_analysis():
+            # Analyze the DIE output for .NET file information
+            dotnet_result = is_dotnet_file_from_output(die_output)
 
-        # Convert file path to directory path
-        if os.path.isfile(norm_path):
-            input_dir = os.path.dirname(norm_path)
-        else:
-            input_dir = norm_path
+            # Convert file path to directory path
+            if os.path.isfile(norm_path):
+                input_dir = os.path.dirname(norm_path)
+            else:
+                input_dir = norm_path
 
-        normalized_input = os.path.abspath(input_dir).lower()
+            normalized_input = os.path.abspath(input_dir).lower()
 
-        if normalized_input.startswith(normalized_sandbox):
-            if dotnet_result is not None and not flag_de4dot and "Protector: Obfuscar" not in dotnet_result:
-                de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(input_dir,))
-                de4dot_thread.start()
+            if normalized_input.startswith(normalized_sandbox):
+                if dotnet_result is not None and not flag_de4dot and "Protector: Obfuscar" not in dotnet_result:
+                    de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(input_dir,))
+                    de4dot_thread.start()
 
-                if "Probably No Protector" or "Already Deobfuscated" in dotnet_result:
-                    dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(input_dir,))
-                    dotnet_thread.start()
+                    if "Probably No Protector" or "Already Deobfuscated" in dotnet_result:
+                        dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(input_dir,))
+                        dotnet_thread.start()
+
+        # Run all analyses with threading
+        autoit_t = threading.Thread(target=autoit_analysis)
+        asar_t = threading.Thread(target=asar_analysis)
+        installshield_t = threading.Thread(target=installshield_analysis)
+        advanced_installer_t = threading.Thread(target=advanced_installer_analysis)
+        apk_t = threading.Thread(target=apk_analysis)
+        dotnet_t = threading.Thread(target=dotnet_analysis)
+
+        autoit_t.start()
+        asar_t.start()
+        installshield_t.start()
+        advanced_installer_t.start()
+        apk_t.start()
+        dotnet_t.start()
 
         if not is_first_pass and perform_special_scan and pe_file:
                 worm_alert(norm_path)
@@ -10187,7 +10208,6 @@ def scan_and_warn(file_path,
                 except Exception as e:
                     logging.error(f"Error decompiling cx_Freeze stub at {normalized_path}: {e}")
 
-			# Check if it's a .pyc file and decompile via Pylingual
         # Check if it's a .pyc file and decompile via Pylingual
         if is_pyc_file_from_output(die_output):
             logging.info(
