@@ -11250,6 +11250,29 @@ def check_uefi_directories():
         for uefi_path in uefi_paths + uefi_100kb_paths:
             if os.path.isfile(uefi_path) and uefi_path.endswith(".efi"):
                 if uefi_path not in alerted_uefi_files:
+                    # --- NEW: perform DIE/PE + signature check and skip if signed/valid ---
+                    try:
+                        die_output = get_die_output_binary(uefi_path)  # assumes this helper exists
+                        pe_file = is_pe_file_from_output(die_output, uefi_path)
+                    except Exception:
+                        pe_file = False
+                        die_output = None
+
+                    if pe_file:
+                        try:
+                            signature_check = check_signature(uefi_path)
+                        except Exception:
+                            signature_check = None
+
+                        if isinstance(signature_check, dict):
+                            # If file has a valid Microsoft/good signature or 'is_valid', skip notifications
+                            if signature_check.get("has_microsoft_signature") \
+                               or signature_check.get("valid_goodsign_signatures") \
+                               or signature_check.get("is_valid"):
+                                # Considered benign; don't alert
+                                continue
+                    # --- END NEW CHECK ---
+
                     if uefi_path in uefi_100kb_paths and is_malicious_file(uefi_path, 100):
                         logging.warning(f"Malicious file detected: {uefi_path}")
                         notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.SecureBootRecovery.gen.Malware")
@@ -11266,12 +11289,39 @@ def check_uefi_directories():
         for root, dirs, files in os.walk(efi_dir):
             for file in files:
                 file_path = os.path.join(root, file)
-                if file_path.endswith(".efi") and file_path not in known_uefi_files and file_path not in alerted_uefi_files:
+                # only consider .efi files
+                if not file_path.endswith(".efi"):
+                    continue
+
+                if file_path not in known_uefi_files and file_path not in alerted_uefi_files:
+                    # --- NEW: perform DIE/PE + signature check and skip if signed/valid ---
+                    try:
+                        die_output = get_die_output_binary(file_path)
+                        pe_file = is_pe_file_from_output(die_output, file_path)
+                    except Exception:
+                        pe_file = False
+                        die_output = None
+
+                    if pe_file:
+                        try:
+                            signature_check = check_signature(file_path)
+                        except Exception:
+                            signature_check = None
+
+                        if isinstance(signature_check, dict):
+                            if signature_check.get("has_microsoft_signature") \
+                               or signature_check.get("valid_goodsign_signatures") \
+                               or signature_check.get("is_valid"):
+                                # Signed/valid PE — do not alert, just record as known
+                                known_uefi_files.append(file_path)
+                                continue
+                    # --- END NEW CHECK ---
+
                     logging.warning(f"Unknown file detected: {file_path}")
                     notify_user_uefi(file_path, "HEUR:Win32.Bootkit.Startup.UEFI.gen.Malware")
                     threading.Thread(target=scan_and_warn, args=(file_path,)).start()
                     alerted_uefi_files.append(file_path)
-
+                    known_uefi_files.append(file_path)
 
 class ScanAndWarnHandler(FileSystemEventHandler):
 
