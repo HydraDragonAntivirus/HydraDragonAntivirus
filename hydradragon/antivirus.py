@@ -11317,7 +11317,7 @@ def check_uefi_directories():
                                 continue
                     # --- END NEW CHECK ---
 
-                    logging.warning(f"Unknown file detected: {file_path}")
+                    logging.warning(f"Unknown malicious UEFI file detected: {file_path}")
                     notify_user_uefi(file_path, "HEUR:Win32.Bootkit.Startup.UEFI.gen.Malware")
                     threading.Thread(target=scan_and_warn, args=(file_path,)).start()
                     alerted_uefi_files.append(file_path)
