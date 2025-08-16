@@ -9635,23 +9635,31 @@ def copy_from_shadow(shadow_root, rel_path, dest_path):
 
 def _copy_to_dest(file_path, dest_root):
     """
-    Copy file_path into dest_root, preserving subpath.
+    Copy file_path into dest_root, preserving the original directory structure.
     Returns the copied-destination path on success, or None on failure.
-    Uses a Volume Shadow Copy on Windows to handle locked files.
+    Uses Volume Shadow Copy on Windows to handle locked files.
     """
     if not os.path.exists(file_path):
         logging.error(f"Source does not exist: {file_path}")
         return None
 
-    src_root = os.path.dirname(file_path)
-    rel_path = os.path.relpath(file_path, src_root)
-    dest_path = os.path.join(dest_root, rel_path)
+    if file_path.startswith(sandboxie_folder):
+        # File is in sandboxie, preserve structure relative to sandboxie folder
+        rel_path = os.path.relpath(file_path, sandboxie_folder)
+        dest_path = os.path.join(dest_root, rel_path)
+    else:
+        # File is not in sandboxie, create under main file folder
+        file_dir = os.path.dirname(file_path)
+        file_name = os.path.basename(file_path)
+        dest_path = os.path.join(dest_root, file_name)
+
+    # Create destination directory structure
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
 
     # Try normal copy first
     try:
         shutil.copy2(file_path, dest_path)
-        logging.info(f"Copied '{file_path}' '{dest_path}'")
+        logging.info(f"Copied '{file_path}' to '{dest_path}'")
         return dest_path
     except Exception as e:
         logging.error(f"Normal copy failed ({e}), attempting shadow copy")
@@ -9659,9 +9667,15 @@ def _copy_to_dest(file_path, dest_root):
     # Fallback: shadow copy
     drive = os.path.splitdrive(file_path)[0]  # e.g. "C:"
     shadow_root = create_shadow_copy(drive)
-    if shadow_root and copy_from_shadow(shadow_root, rel_path, dest_path):
-        logging.info(f"Copied from shadow '{file_path}' '{dest_path}'")
-        return dest_path
+    if shadow_root:
+        if file_path.startswith(sandboxie_folder):
+            shadow_rel_path = os.path.relpath(file_path, sandboxie_folder)
+        else:
+            shadow_rel_path = os.path.basename(file_path)
+
+        if copy_from_shadow(shadow_root, shadow_rel_path, dest_path):
+            logging.info(f"Copied from shadow '{file_path}' to '{dest_path}'")
+            return dest_path
 
     logging.error(f"All copy methods failed for: {file_path}")
     return None
