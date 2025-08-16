@@ -10097,6 +10097,16 @@ def scan_and_warn(file_path,
             except Exception as e:
                 logging.error(f"Error in .NET analysis for {norm_path}: {e}")
 
+        def cx_freeze_thread():
+            try:
+                if is_cx_freeze_file_from_output(die_output):
+                    logging.info(f"Invoking cx_Freeze decompiler on {norm_path}")
+                    cx_main_pyc = decompile_cx_freeze(norm_path)
+                    if cx_main_pyc:
+                        threading.Thread(target=scan_and_warn, args=(cx_main_pyc,)).start()
+            except Exception as e:
+                logging.error(f"Error decompiling cx_Freeze stub at {norm_path}: {e}")
+
         # Start all specialized analysis threads
         analysis_threads = [
             threading.Thread(target=themida_detection),
@@ -10105,7 +10115,8 @@ def scan_and_warn(file_path,
             threading.Thread(target=installshield_analysis),
             threading.Thread(target=advanced_installer_analysis),
             threading.Thread(target=apk_analysis),
-            threading.Thread(target=dotnet_analysis)
+            threading.Thread(target=dotnet_analysis),
+            threading.Thread(target=cx_freeze_thread)
         ]
 
         for thread in analysis_threads:
@@ -10173,16 +10184,6 @@ def scan_and_warn(file_path,
                 except Exception as e:
                     logging.error(f"Error in Go Garble processing for {norm_path}: {e}")
 
-            def cx_freeze_thread():
-                try:
-                    if is_cx_freeze_file_from_output(die_output):
-                        logging.info(f"Invoking cx_Freeze decompiler on {norm_path}")
-                        cx_main_pyc = decompile_cx_freeze(norm_path)
-                        if cx_main_pyc:
-                            threading.Thread(target=scan_and_warn, args=(cx_main_pyc,)).start()
-                except Exception as e:
-                    logging.error(f"Error decompiling cx_Freeze stub at {norm_path}: {e}")
-
             def pyc_thread():
                 try:
                     if is_pyc_file_from_output(die_output):
@@ -10215,7 +10216,6 @@ def scan_and_warn(file_path,
                 threading.Thread(target=upx_thread),
                 threading.Thread(target=inno_setup_thread),
                 threading.Thread(target=go_garble_thread),
-                threading.Thread(target=cx_freeze_thread),
                 threading.Thread(target=pyc_thread),
                 threading.Thread(target=nsis_thread)
             ]
