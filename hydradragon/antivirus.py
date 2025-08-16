@@ -719,12 +719,6 @@ PACKER_FLAGS = {
     "7.80":  ["-pe", "7_80", "--legacy-fs"],
 }
 
-# Define the list of known rootkit filenames
-known_rootkit_files = [
-    'MoriyaStreamWatchmen.sys',
-    # Add more rootkit filenames here if needed
-]
-
 uefi_100kb_paths = [
     rf'{sandboxie_folder}\drive\X\EFI\Microsoft\Boot\SecureBootRecovery.efi'
 ]
@@ -1567,6 +1561,26 @@ def is_pyc_file_from_output(die_output):
         logging.info("DIE output indicates a Python compiled module.")
         return True
     return False
+
+def is_themida_protected(die_output):
+    """
+    Check if the DIE output indicates Themida/WinLicense protection.
+    Matches 'Protector: Themida/Winlicense (2.XX)' or '(3.XX)' in PE32/PE64 binaries.
+    """
+    if not die_output:
+        return None
+
+    if "Protector: Themida/Winlicense (2.XX)" in die_output or \
+       "Protector: Themida/Winlicense (3.XX)" in die_output:
+
+        if die_output.startswith("PE32"):
+            logging.info("DIE output indicates PE32 protected with Themida/WinLicense.")
+            return "PE32 Themida"
+        if die_output.startswith("PE64"):
+            logging.info("DIE output indicates PE64 protected with Themida/WinLicense.")
+            return "PE64 Themida"
+
+    return None
 
 def is_pe_file_from_output(die_output: str, file_path: str) -> bool:
     """
@@ -10013,18 +10027,6 @@ def scan_and_warn(file_path,
             if decompile_apk_files:
                 for decompiled_apk_file in decompile_apk_files:
                     scan_and_warn(decompiled_apk_file)
-
-        # Check if the file is a known rootkit file
-        if pe_file and file_name in known_rootkit_files:
-            file_directory = os.path.dirname(norm_path)
-
-            if file_directory in hosts_sandboxie_path:
-                logging.warning(f"Detected potential rootkit file in sandboxed path: {norm_path}")
-                rootkit_thread = threading.Thread(
-                    target=notify_user_for_detected_rootkit,
-                    args=(norm_path, f"HEUR:Rootkit.{file_name}")
-                )
-                rootkit_thread.start()
 
         # Analyze the DIE output for .NET file information
         dotnet_result = is_dotnet_file_from_output(die_output)
