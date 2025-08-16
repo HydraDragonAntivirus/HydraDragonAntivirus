@@ -406,6 +406,8 @@ device = accelerator.device
 python_path = sys.executable
 
 # Define the paths
+unlicense_path  = os.path.join(script_dir, "unlicense.exe")
+unlicense_x64_path  = os.path.join(script_dir, "unlicense-x64.exe")
 capa_rules_dir = os.path.join(script_dir, "capa-rules-9.2.1")
 capa_results_dir = os.path.join(script_dir, "capa_results")
 hayabusa_dir = os.path.join(script_dir, "hayabusa")
@@ -1562,7 +1564,7 @@ def is_pyc_file_from_output(die_output):
         return True
     return False
 
-def is_themida_protected(die_output):
+def is_themida_from_output(die_output):
     """
     Check if the DIE output indicates Themida/WinLicense protection.
     Matches 'Protector: Themida/Winlicense (2.XX)' or '(3.XX)' in PE32/PE64 binaries.
@@ -10234,20 +10236,45 @@ def scan_and_warn(file_path,
                     logging.warning(f"File '{norm_path}' has signature issues. Proceeding with further checks.")
                     notify_user_invalid(norm_path, "Win32.Susp.InvalidSignature")
 
-                capa_analysis_results = analyze_file_with_capa(norm_path)
+                def themida_detection():
+                    is_themida_protected = is_themida_from_output(die_output)
+                    if is_themida_protected == "PE32 Themida":
+                        logging.info(f"File '{norm_path}' is protected by Themida 32 bit.")
+                        run_themida_unlicense(norm_path)
+                        scan_and_warn(norm_path)
+                    elif is_themida_protected == "PE64 Themida":
+                        logging.info(f"File '{norm_path}' is protected by Themida 64 bit.")
+                        run_themida_unlicense(norm_path, x64=True)
+                        scan_and_warn(norm_path)
 
-                if capa_analysis_results:
-                    # Run scans in separate threads
-                    llama_scan_thread = threading.Thread(target=scan_file_with_meta_llama, args=(capa_analysis_results,), kwargs={"capa_flag": True})
-                    warning_scan_thread = threading.Thread(target=scan_and_warn, args=(capa_analysis_results,))
+                # Start Themida detection in a separate thread
+                t = threading.Thread(target=themida_detection)
+                t.start()
 
-                    llama_scan_thread.start()
-                    warning_scan_thread.start()
+                def capa_analysis():
+                    capa_analysis_results = analyze_file_with_capa(norm_path)
+                    if capa_analysis_results:
+                        # Run scans in separate threads
+                        llama_scan_thread = threading.Thread(target=scan_file_with_meta_llama,
+                                                             args=(capa_analysis_results,), kwargs={"capa_flag": True})
+                        warning_scan_thread = threading.Thread(target=scan_and_warn, args=(capa_analysis_results,))
 
-                # Detect .scr extension and trigger heuristic warning
-                if norm_path.lower().endswith(".scr"):
-                    logging.warning(f"Suspicious .scr file detected: {norm_path}")
-                    notify_user_scr(norm_path, "HEUR:Win32.Susp.PE.SCR.gen")
+                        llama_scan_thread.start()
+                        warning_scan_thread.start()
+
+                # Run with threading
+                t = threading.Thread(target=capa_analysis)
+                t.start()
+
+                def scr_detection():
+                    # Detect .scr extension and trigger heuristic warning
+                    if norm_path.lower().endswith(".scr"):
+                        logging.warning(f"Suspicious .scr file detected: {norm_path}")
+                        notify_user_scr(norm_path, "HEUR:Win32.Susp.PE.SCR.gen")
+
+                # Run with threading
+                t = threading.Thread(target=scr_detection)
+                t.start()
 
                 # Decompile the file in a separate thread
                 decompile_thread = threading.Thread(target=decompile_file, args=(norm_path,))
@@ -12299,6 +12326,53 @@ def run_sandboxie(file_path):
         subprocess.run([sandboxie_path, '/box:DefaultBox', '/elevate', file_path], check=True, encoding="utf-8", errors="ignore")
     except subprocess.CalledProcessError as ex:
         logging.error(f"Failed to run Sandboxie on {file_path}: {ex}")
+
+def run_themida_unlicense(file_path, x64=False):
+    """
+    Runs Themida/WinLicense unpacker inside Sandboxie.
+    Uses unlicense.exe (x86) or unlicense-x64.exe (x64) based on arch.
+    The unpacker creates a new file with 'unpacked_' prefix in the same directory.
+    """
+    if not os.path.isfile(file_path):
+        logging.error(f"Invalid input file: {file_path}")
+        return None
+
+    # choose correct unpacker
+    unpacker = unlicense_x64_path if x64 else unlicense_path
+    if not os.path.isfile(unpacker):
+        logging.error(f"Unpacker not found: {unpacker}")
+        return None
+
+    # build Sandboxie command
+    HydraDragonAntivirus_sandboxie_path = get_sandbox_path(script_dir)
+    cmd = [
+        HydraDragonAntivirus_sandboxie_path,
+        "/box:DefaultBox",
+        "/elevate",
+        unpacker,
+        file_path
+    ]
+
+    try:
+        subprocess.run(cmd, check=True, encoding="utf-8", errors="ignore")
+        logging.info(f"Unlicense unpacking succeeded for {file_path} in sandbox DefaultBox")
+
+        # Construct expected unpacked filename
+        unpacked_path = os.path.join(
+            os.path.dirname(file_path),
+            "unpacked_" + os.path.basename(file_path)
+        )
+
+        if os.path.isfile(unpacked_path):
+            logging.info(f"Unpacked file created: {unpacked_path}")
+            return unpacked_path
+        else:
+            logging.warning(f"Unpacker finished but no unpacked file found for {file_path}")
+            return None
+
+    except subprocess.CalledProcessError as ex:
+        logging.error(f"Failed to run unlicense on {file_path} in sandbox DefaultBox: {ex}")
+        return None
 
 def run_de4dot_in_sandbox(file_path):
     """
