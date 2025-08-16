@@ -9827,7 +9827,7 @@ def scan_and_warn(file_path,
                   nsis_flag=False,
                   ntdll_dropped=False):
     """
-    Scans a file for potential issues.
+    Scans a file for potential issues with comprehensive threading for performance.
     Only does ransomware_alert and worm_alert once per unique file path.
     """
     try:
@@ -9840,6 +9840,8 @@ def scan_and_warn(file_path,
             "is_valid": False,
             "signature_status_issues": False
         }
+        die_output = ""
+        plain_text_flag = False
 
         # Convert WindowsPath to string if necessary
         if isinstance(file_path, WindowsPath):
@@ -9892,15 +9894,10 @@ def scan_and_warn(file_path,
             # Copy from de4dot sandbox to extracted directory and rescan
             dest = _copy_to_dest(norm_path, de4dot_extracted_dir)
             if dest is not None:
-                scan_and_warn(dest,
+                threading.Thread(target=scan_and_warn, args=(dest,
                                 mega_optimization_with_anti_false_positive,
-                                command_flag,
-                                flag_debloat,
-                                flag_obfuscar,
-                                flag_de4dot,
-                                flag_fernflower,
-                                nsis_flag,
-                                ntdll_dropped)
+                                command_flag, flag_debloat, flag_obfuscar,
+                                flag_de4dot, flag_fernflower, nsis_flag, ntdll_dropped)).start()
         elif normalized_path.startswith(normalized_sandbox):
             # Check if this is a dropped ntdll.dll in the sandbox
             if normalized_path == sandboxed_ntdll_path:
@@ -9911,632 +9908,711 @@ def scan_and_warn(file_path,
                 # You may choose a specific dir for ntdll analysis, or reuse existing staging dir
                 dest = _copy_to_dest(norm_path, copied_sandbox_and_main_files_dir)
                 if dest is not None:
-                    scan_and_warn(
-                        dest,
-                        mega_optimization_with_anti_false_positive,
-                        command_flag,
-                        flag_debloat,
-                        flag_obfuscar,
-                        flag_de4dot,
-                        flag_fernflower,
-                        nsis_flag,
-                        ntdll_dropped
-                    )
+                    threading.Thread(target=scan_and_warn, args=(dest,
+                        mega_optimization_with_anti_false_positive, command_flag,
+                        flag_debloat, flag_obfuscar, flag_de4dot, flag_fernflower,
+                        nsis_flag, ntdll_dropped)).start()
 
-            # --- General sandbox routing for other files ---
             perform_special_scan = True
             dest = _copy_to_dest(norm_path, copied_sandbox_and_main_files_dir)
             if dest is not None:
-                scan_and_warn(
-                    dest,
-                    mega_optimization_with_anti_false_positive,
-                    command_flag,
-                    flag_debloat,
-                    flag_obfuscar,
-                    flag_de4dot,
-                    flag_fernflower,
-                    nsis_flag,
-                    ntdll_dropped
-                )
+                threading.Thread(target=scan_and_warn, args=(dest,
+                    mega_optimization_with_anti_false_positive, command_flag,
+                    flag_debloat, flag_obfuscar, flag_de4dot, flag_fernflower,
+                    nsis_flag, ntdll_dropped)).start()
 
         # 1) Is this the first time we've seen this path?
         is_first_pass = norm_path not in file_md5_cache
-
-        # Extract the file name
         file_name = os.path.basename(norm_path)
 
-        # Try cache first
+        # ========== CRITICAL PATH - NO THREADING (affects return behavior) ==========
+
+        # Get DIE output first (needed for early exit decisions)
         if md5 in die_cache:
             die_output, plain_text_flag = die_cache[md5]
         else:
             die_output, plain_text_flag = get_die_output(norm_path)
+            die_cache[md5] = (die_output, plain_text_flag)
 
-        # Store for next time
-        die_cache[md5] = (die_output, plain_text_flag)
-
-        # Perform ransomware alert check
+        # CRITICAL: Ransomware check that can cause early return - NO THREADING
         if is_file_fully_unknown(die_output):
             if perform_special_scan:
-                ransomware_alert(norm_path)
+                ransomware_alert(norm_path)  # Direct call, not threaded
             if mega_optimization_with_anti_false_positive:
-                logging.info(
-                    f"Stopped analysis; unknown data detected in {norm_path}"
-                )
-                return False
+                logging.info(f"Stopped analysis; unknown data detected in {norm_path}")
+                return False  # EARLY EXIT - must not be threaded
 
+        # CRITICAL: File type checks that can cause early return - NO THREADING
         pefile_result = is_pe_file_from_output(die_output, norm_path)
-
         if pefile_result:
             logging.info(f"The file {norm_path} is a valid PE file.")
             pe_file = True
         elif pefile_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
             logging.info(f"The file {norm_path} is a broken PE file. Skipping scan...")
-            return False
+            return False  # EARLY EXIT
 
         apk_result = is_apk_file_from_output(die_output, norm_path)
-
-        if apk_result:
-            logging.info(f"The file {norm_path} is a valid APK file.")
-        elif apk_result == "Broken APK" and mega_optimization_with_anti_false_positive:
+        if apk_result == "Broken APK" and mega_optimization_with_anti_false_positive:
             logging.info(f"The file {norm_path} is a broken APK file. Skipping scan...")
-            return False
+            return False  # EARLY EXIT
 
         elf_result = is_elf_file_from_output(die_output, norm_path)
-
         if elf_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
             logging.info(f"The file {norm_path} is a broken ELF file. Skipping scan...")
-            return False
-
-        elf_result = is_elf_file_from_output(die_output, norm_path)
-
-        if elf_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
-            logging.info(f"The file {norm_path} is a broken ELF file. Skipping scan...")
-            return False
+            return False  # EARLY EXIT
 
         macho_result = is_macho_file_from_output(die_output, norm_path)
-
         if macho_result == "Broken Executable" and mega_optimization_with_anti_false_positive:
             logging.info(f"The file {norm_path} is a broken Mach-0 file. Skipping scan...")
-            return False
+            return False  # EARLY EXIT
 
-        def themida_detection():
-            is_themida_protected = is_themida_from_output(die_output)
-            if is_themida_protected == "PE32 Themida":
-                logging.info(f"File '{norm_path}' is protected by Themida 32 bit.")
-                run_themida_unlicense(norm_path)
-                scan_and_warn(norm_path)
-            elif is_themida_protected == "PE64 Themida":
-                logging.info(f"File '{norm_path}' is protected by Themida 64 bit.")
-                run_themida_unlicense(norm_path, x64=True)
-                scan_and_warn(norm_path)
-
-        # Start Themida detection in a separate thread
-        t = threading.Thread(target=themida_detection)
-        t.start()
-
-        def autoit_analysis():
-            if is_autoit_file_from_output(die_output):
-                logging.info(f"File {norm_path} is a valid AutoIt file.")
-                extracted_autoit_files = extract_autoit(norm_path)
-                for extracted_autoit_file in extracted_autoit_files:
-                    scan_and_warn(extracted_autoit_file)
-
-        def asar_analysis():
-            if is_asar_archive_from_output(die_output):
-                logging.info(f"File {norm_path} is a valid Asar Archive (Electron).")
-                extracted_asar_files = extract_asar_file(norm_path)
-                for extracted_asar_file in extracted_asar_files:
-                    scan_and_warn(extracted_asar_file)
-
-        def installshield_analysis():
-            if is_installshield_file_from_output(die_output):
-                logging.info(f"File {norm_path} is a valid Install Shield file.")
-                extracted_installshield_files = extract_installshield(norm_path)
-                for extracted_installshield_file in extracted_installshield_files:
-                    scan_and_warn(extracted_installshield_file)
-
-        def advanced_installer_analysis():
-            if is_advanced_installer_file_from_output(die_output):
-                logging.info(f"File {norm_path} is a valid Advanced Installer file.")
-                extracted_files = advanced_installer_extractor(norm_path)
-                for extracted_file in extracted_files:
-                    scan_and_warn(extracted_file)
-
-        def apk_analysis():
-            if apk_result:
-                logging.info(f"File {norm_path} is a valid APK file.")
-                decompile_apk_files = decompile_apk_file(norm_path)
-                if decompile_apk_files:
-                    for decompiled_apk_file in decompile_apk_files:
-                        scan_and_warn(decompiled_apk_file)
-
-        def dotnet_analysis():
-            # Analyze the DIE output for .NET file information
-            dotnet_result = is_dotnet_file_from_output(die_output)
-
-            # Convert file path to directory path
-            if os.path.isfile(norm_path):
-                input_dir = os.path.dirname(norm_path)
-            else:
-                input_dir = norm_path
-
-            normalized_input = os.path.abspath(input_dir).lower()
-
-            if normalized_input.startswith(normalized_sandbox):
-                if dotnet_result is not None and not flag_de4dot and "Protector: Obfuscar" not in dotnet_result:
-                    de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(input_dir,))
-                    de4dot_thread.start()
-
-                    if "Probably No Protector" or "Already Deobfuscated" in dotnet_result:
-                        dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(input_dir,))
-                        dotnet_thread.start()
-
-        # Run all analyses with threading
-        autoit_t = threading.Thread(target=autoit_analysis)
-        asar_t = threading.Thread(target=asar_analysis)
-        installshield_t = threading.Thread(target=installshield_analysis)
-        advanced_installer_t = threading.Thread(target=advanced_installer_analysis)
-        apk_t = threading.Thread(target=apk_analysis)
-        dotnet_t = threading.Thread(target=dotnet_analysis)
-
-        autoit_t.start()
-        asar_t.start()
-        installshield_t.start()
-        advanced_installer_t.start()
-        apk_t.start()
-        dotnet_t.start()
-
+        # Handle first pass worm detection - CRITICAL PATH
         if not is_first_pass and perform_special_scan and pe_file:
-                worm_alert(norm_path)
-                return False
+            worm_alert(norm_path)  # Direct call, not threaded
+            return False  # EARLY EXIT
 
-        # On subsequent passes: skip if unchanged (unless forced)
+        # Cache check - CRITICAL PATH
         if initial_md5_in_cache == md5:
             logging.info(f"Skipping scan for unchanged file: {norm_path}")
-            return False
+            return False  # EARLY EXIT
         else:
-            # File changed or forced: update MD5 and deep scan
             file_md5_cache[norm_path] = md5
 
         logging.info(f"Deep scanning file: {norm_path}")
 
-        # Wrap norm_path in a Path once, up front
+        # ========== THREADED OPERATIONS START HERE ==========
+        # Now we can safely use threading since no more early returns
+
+        # Shared data for threads
+        thread_results = {
+            'signature_check': None,
+            'file_lines': [],
+            'dotnet_result': None
+        }
+        thread_lock = threading.Lock()
+
+        def signature_check_thread():
+            """Thread for digital signature verification - can be slow"""
+            try:
+                sig_check = check_signature(norm_path)
+                with thread_lock:
+                    thread_results['signature_check'] = sig_check
+                logging.debug(f"Signature check completed for {norm_path}")
+            except Exception as e:
+                logging.error(f"Error in signature check thread for {norm_path}: {e}")
+                with thread_lock:
+                    thread_results['signature_check'] = {
+                        "has_microsoft_signature": False,
+                        "is_valid": False,
+                        "signature_status_issues": False
+                    }
+
+        def file_reading_thread():
+            """Thread for reading file content as text"""
+            try:
+                lines = []
+                with open(norm_path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                with thread_lock:
+                    thread_results['file_lines'] = lines
+            except Exception as e:
+                logging.error(f"Failed to read text lines from {norm_path}: {e}")
+
+        # Start background threads for I/O operations
+        signature_thread = threading.Thread(target=signature_check_thread)
+        file_read_thread = threading.Thread(target=file_reading_thread)
+
+        signature_thread.start()
+        file_read_thread.start()
+
+        # Path analysis - direct execution (fast)
         wrap_norm_path = Path(norm_path)
 
-        # Read as UTF-8 text lines (for processing code/config/scripts/etc.)
-        lines = []
-        try:
-            with open(norm_path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-        except Exception as e:
-            logging.error(f"Failed to read text lines from {norm_path}: {e}")
-
-        # 1) Obfuscar-dir check
         if Path(obfuscar_dir) in wrap_norm_path.parents and not flag_obfuscar:
             flag_obfuscar = True
-            logging.info(f"Flag set to True because '{norm_path}' is inside the Obfuscar directory '{obfuscar_dir}'.")
+            logging.info(f"Flag set to True because '{norm_path}' is inside the Obfuscar directory.")
 
-        # 2) de4dot directories check
-        match = next(
-            (Path(p) for p in (de4dot_extracted_dir, de4dot_sandboxie_dir)
-            if Path(p) in wrap_norm_path.parents),
-            None
-        )
+        match = next((Path(p) for p in (de4dot_extracted_dir, de4dot_sandboxie_dir)
+                     if Path(p) in wrap_norm_path.parents), None)
         if match and not flag_de4dot:
             flag_de4dot = True
-            logging.info(
-                f"Flag set to True because '{norm_path}' is inside the de4dot directory '{match}'"
-        )
+            logging.info(f"Flag set to True because '{norm_path}' is inside the de4dot directory '{match}'")
 
-        # Check if the file content is valid non plain text data
-        if not plain_text_flag:
-            logging.info(f"File {norm_path} contains valid non plain text data.")
-            # Attempt to extract the file
+        # ========== SPECIALIZED ANALYSIS THREADS ==========
+        def themida_detection():
             try:
-                logging.info(f"Attempting to extract file {norm_path}...")
-                extracted_files = extract_all_files_with_7z(norm_path, nsis_flag)
+                is_themida_protected = is_themida_from_output(die_output)
+                if is_themida_protected == "PE32 Themida":
+                    logging.info(f"File '{norm_path}' is protected by Themida 32 bit.")
+                    run_themida_unlicense(norm_path)
+                    threading.Thread(target=scan_and_warn, args=(norm_path,)).start()
+                elif is_themida_protected == "PE64 Themida":
+                    logging.info(f"File '{norm_path}' is protected by Themida 64 bit.")
+                    run_themida_unlicense(norm_path, x64=True)
+                    threading.Thread(target=scan_and_warn, args=(norm_path,)).start()
+            except Exception as e:
+                logging.error(f"Error in Themida detection for {norm_path}: {e}")
 
-                if extracted_files:
-                    logging.info(f"Extraction successful for {norm_path}. Scanning extracted files...")
-                    # Recursively scan each extracted file
+        def autoit_analysis():
+            try:
+                if is_autoit_file_from_output(die_output):
+                    logging.info(f"File {norm_path} is a valid AutoIt file.")
+                    extracted_autoit_files = extract_autoit(norm_path)
+                    for extracted_autoit_file in extracted_autoit_files:
+                        threading.Thread(target=scan_and_warn, args=(extracted_autoit_file,)).start()
+            except Exception as e:
+                logging.error(f"Error in AutoIt analysis for {norm_path}: {e}")
+
+        def asar_analysis():
+            try:
+                if is_asar_archive_from_output(die_output):
+                    logging.info(f"File {norm_path} is a valid Asar Archive (Electron).")
+                    extracted_asar_files = extract_asar_file(norm_path)
+                    for extracted_asar_file in extracted_asar_files:
+                        threading.Thread(target=scan_and_warn, args=(extracted_asar_file,)).start()
+            except Exception as e:
+                logging.error(f"Error in ASAR analysis for {norm_path}: {e}")
+
+        def installshield_analysis():
+            try:
+                if is_installshield_file_from_output(die_output):
+                    logging.info(f"File {norm_path} is a valid Install Shield file.")
+                    extracted_installshield_files = extract_installshield(norm_path)
+                    for extracted_installshield_file in extracted_installshield_files:
+                        threading.Thread(target=scan_and_warn, args=(extracted_installshield_file,)).start()
+            except Exception as e:
+                logging.error(f"Error in InstallShield analysis for {norm_path}: {e}")
+
+        def advanced_installer_analysis():
+            try:
+                if is_advanced_installer_file_from_output(die_output):
+                    logging.info(f"File {norm_path} is a valid Advanced Installer file.")
+                    extracted_files = advanced_installer_extractor(norm_path)
                     for extracted_file in extracted_files:
-                        logging.info(f"Scanning extracted file: {extracted_file}")
                         threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
+            except Exception as e:
+                logging.error(f"Error in Advanced Installer analysis for {norm_path}: {e}")
 
-                logging.info(f"File {norm_path} is not a valid archive or extraction failed. Proceeding with scanning.")
-            except Exception as extraction_error:
-                logging.error(f"Error during extraction of {norm_path}: {extraction_error}")
+        def apk_analysis():
+            try:
+                if apk_result:
+                    logging.info(f"File {norm_path} is a valid APK file.")
+                    decompile_apk_files = decompile_apk_file(norm_path)
+                    if decompile_apk_files:
+                        for decompiled_apk_file in decompile_apk_files:
+                            threading.Thread(target=scan_and_warn, args=(decompiled_apk_file,)).start()
+            except Exception as e:
+                logging.error(f"Error in APK analysis for {norm_path}: {e}")
 
-            if is_enigma1_virtual_box(die_output):
-                extracted_path = try_unpack_enigma1(norm_path)
-                if extracted_path:
-                    logging.info(f"Unpack succeeded. Files are in: {extracted_path}")
-                    threading.Thread(target=scan_and_warn, args=(extracted_path,)).start()
+        def dotnet_analysis():
+            try:
+                dotnet_result = is_dotnet_file_from_output(die_output)
+                if os.path.isfile(norm_path):
+                    input_dir = os.path.dirname(norm_path)
                 else:
-                    logging.info("Unpack failed for all known Enigma1 Virtual Box protected versions.")
+                    input_dir = norm_path
 
-            if is_packer_upx_output(die_output):
-                upx_unpacked = extract_upx(norm_path)
-                if upx_unpacked:
-                    threading.Thread(target=scan_and_warn, args=(upx_unpacked,)).start()
-                else:
-                    logging.error(f"Failed to unpack {norm_path}")
+                normalized_input = os.path.abspath(input_dir).lower()
 
-            if is_nsis_from_output(die_output):
-                nsis_flag= True
+                if normalized_input.startswith(normalized_sandbox):
+                    if dotnet_result is not None and not flag_de4dot and "Protector: Obfuscar" not in dotnet_result:
+                        de4dot_thread = threading.Thread(target=run_de4dot_in_sandbox, args=(input_dir,))
+                        de4dot_thread.start()
 
-            # Detect Inno Setup installer
-            if is_inno_setup_archive_from_output(die_output):
-                # Extract Inno Setup installer files
-                extracted = extract_inno_setup(norm_path)
-                if extracted is not None:
-                    logging.info(f"Extracted {len(extracted)} files. Scanning...")
-                    for inno_norm_path in extracted:
-                        try:
-                            # send to scan_and_warn for analysis
-                            threading.Thread(target=scan_and_warn, args=(inno_norm_path,)).start()
-                        except Exception as e:
-                            logging.error(f"Error scanning {inno_norm_path}: {e}")
-                else:
-                    logging.error("Extraction failed; nothing to scan.")
+                        if "Probably No Protector" in dotnet_result or "Already Deobfuscated" in dotnet_result:
+                            dotnet_thread = threading.Thread(target=decompile_dotnet_file, args=(input_dir,))
+                            dotnet_thread.start()
 
-            # Deobfuscate binaries obfuscated by Go Garble.
-            if is_go_garble_from_output(die_output):
-                # Generate output paths based on the file name and the specified directories
-                output_path = os.path.join(ungarbler_dir, os.path.basename(norm_path))
-                string_output_path = os.path.join(ungarbler_string_dir, os.path.basename(norm_path) + "_strings.txt")
+                with thread_lock:
+                    thread_results['dotnet_result'] = dotnet_result
+            except Exception as e:
+                logging.error(f"Error in .NET analysis for {norm_path}: {e}")
 
-                # Process the file and get the results
-                results = process_file_go(norm_path, output_path, string_output_path)
+        # Start all specialized analysis threads
+        analysis_threads = [
+            threading.Thread(target=themida_detection),
+            threading.Thread(target=autoit_analysis),
+            threading.Thread(target=asar_analysis),
+            threading.Thread(target=installshield_analysis),
+            threading.Thread(target=advanced_installer_analysis),
+            threading.Thread(target=apk_analysis),
+            threading.Thread(target=dotnet_analysis)
+        ]
 
-                # Send the output files for scanning if they are created
-                if results.get("patched_data"):
-                    # Scan the patched binary file
-                    threading.Thread(target=scan_and_warn, args=(output_path,)).start()
+        for thread in analysis_threads:
+            thread.start()
 
-                if results.get("decrypt_func_list"):
-                    # Scan the extracted strings file
-                    threading.Thread(target=scan_and_warn, args=(string_output_path,)).start()
+        # ========== BINARY vs TEXT FILE PROCESSING ==========
 
-            # ----- cx_Freeze detection -----
-            if is_cx_freeze_file_from_output(die_output):
+        if not plain_text_flag:
+            # Binary file processing with threading
+            logging.info(f"File {norm_path} contains valid non plain text data.")
+
+            # Heavy extraction operations in threads
+            def extraction_thread():
                 try:
-                    logging.info(f"Invoking cx_Freeze decompiler on {normalized_path}")
-                    cx_main_pyc = decompile_cx_freeze(normalized_path)
-                    if cx_main_pyc:
-                        scan_and_warn(cx_main_pyc)
+                    logging.info(f"Attempting to extract file {norm_path}...")
+                    extracted_files = extract_all_files_with_7z(norm_path, nsis_flag)
+                    if extracted_files:
+                        logging.info(f"Extraction successful for {norm_path}. Scanning extracted files...")
+                        for extracted_file in extracted_files:
+                            threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
                 except Exception as e:
-                    logging.error(f"Error decompiling cx_Freeze stub at {normalized_path}: {e}")
+                    logging.error(f"Error during extraction of {norm_path}: {e}")
 
-        # Check if it's a .pyc file and decompile via Pylingual
-        if is_pyc_file_from_output(die_output):
-            logging.info(
-                f"File {norm_path} is a .pyc (Python Compiled Module). Attempting Pylingual decompilation..."
-            )
+            def enigma_thread():
+                try:
+                    if is_enigma1_virtual_box(die_output):
+                        extracted_path = try_unpack_enigma1(norm_path)
+                        if extracted_path:
+                            logging.info(f"Unpack succeeded. Files are in: {extracted_path}")
+                            threading.Thread(target=scan_and_warn, args=(extracted_path,)).start()
+                except Exception as e:
+                    logging.error(f"Error in Enigma1 unpacking for {norm_path}: {e}")
 
-            # 1) Decompile
-            pylingual, pycdas = show_code_with_pylingual_pycdas(
-                file_path=norm_path,
-            )
+            def upx_thread():
+                try:
+                    if is_packer_upx_output(die_output):
+                        upx_unpacked = extract_upx(norm_path)
+                        if upx_unpacked:
+                            threading.Thread(target=scan_and_warn, args=(upx_unpacked,)).start()
+                except Exception as e:
+                    logging.error(f"Error in UPX unpacking for {norm_path}: {e}")
 
-            # 2) Scan .py sources in-memory
-            if pylingual:
-                logging.info("Scanning all decompiled .py files from Pylingual output.")
-                for fname in pylingual.keys():
-                    logging.info(f"Scheduling scan for decompiled file: {fname}")
-                    threading.Thread(
-                        target=scan_and_warn,
-                        kwargs={"file_path": fname}
-                    ).start()
-                    # Also process the decompiled code
-                    threading.Thread(target=process_decompiled_code, args=(fname,)).start()
-            else:
-                logging.error(f"Pylingual decompilation failed for {norm_path}.")
+            def inno_setup_thread():
+                try:
+                    if is_inno_setup_archive_from_output(die_output):
+                        extracted = extract_inno_setup(norm_path)
+                        if extracted is not None:
+                            logging.info(f"Extracted {len(extracted)} files. Scanning...")
+                            for inno_norm_path in extracted:
+                                threading.Thread(target=scan_and_warn, args=(inno_norm_path,)).start()
+                except Exception as e:
+                    logging.error(f"Error in Inno Setup extraction for {norm_path}: {e}")
 
-            # 3) Scan non-.py resources in-memory
-            if pycdas:
-                logging.info("Scanning all extracted resources from PyCDAS output.")
-                for rname in pycdas.keys():
-                    logging.info(f"Scheduling scan for resource: {rname}")
-                    threading.Thread(
-                        target=scan_and_warn,
-                        kwargs={"file_path": rname}
-                    ).start()
-            else:
-                logging.info(f"No extra resources extracted for {norm_path}.")
+            def go_garble_thread():
+                try:
+                    if is_go_garble_from_output(die_output):
+                        output_path = os.path.join(ungarbler_dir, os.path.basename(norm_path))
+                        string_output_path = os.path.join(ungarbler_string_dir, os.path.basename(norm_path) + "_strings.txt")
+                        results = process_file_go(norm_path, output_path, string_output_path)
 
-            # Operation of the PE file
-            if pe_file:
-                logging.info(f"File {norm_path} is identified as a PE file.")
+                        if results.get("patched_data"):
+                            threading.Thread(target=scan_and_warn, args=(output_path,)).start()
+                        if results.get("decrypt_func_list"):
+                            threading.Thread(target=scan_and_warn, args=(string_output_path,)).start()
+                except Exception as e:
+                    logging.error(f"Error in Go Garble processing for {norm_path}: {e}")
 
-                # Perform signature check only if the file is non plain text data
-                signature_check = check_signature(norm_path)
-                logging.info(f"Signature check result for {norm_path}: {signature_check}")
-                if not isinstance(signature_check, dict):
-                    logging.error(f"check_signature did not return a dictionary for file: {norm_path}, received: {signature_check}")
+            def cx_freeze_thread():
+                try:
+                    if is_cx_freeze_file_from_output(die_output):
+                        logging.info(f"Invoking cx_Freeze decompiler on {norm_path}")
+                        cx_main_pyc = decompile_cx_freeze(norm_path)
+                        if cx_main_pyc:
+                            threading.Thread(target=scan_and_warn, args=(cx_main_pyc,)).start()
+                except Exception as e:
+                    logging.error(f"Error decompiling cx_Freeze stub at {norm_path}: {e}")
 
-                # Handle signature results
-                if signature_check["has_microsoft_signature"]:
-                    logging.info(f"Valid Microsoft signature detected for file: {norm_path}")
-                    return False
+            def pyc_thread():
+                try:
+                    if is_pyc_file_from_output(die_output):
+                        logging.info(f"File {norm_path} is a .pyc file. Attempting Pylingual decompilation...")
+                        pylingual, pycdas = show_code_with_pylingual_pycdas(file_path=norm_path)
 
-                # Check for good digital signatures (valid_goodsign_signatures) and return false if they exist and are valid
-                if signature_check.get("valid_goodsign_signatures"):
-                    logging.info(f"Valid good signature(s) detected for file: {norm_path}: {signature_check['valid_goodsign_signatures']}")
-                    return False
+                        if pylingual:
+                            for fname in pylingual.keys():
+                                threading.Thread(target=scan_and_warn, kwargs={"file_path": fname}).start()
+                                threading.Thread(target=process_decompiled_code, args=(fname,)).start()
 
-                if signature_check["is_valid"]:
-                    logging.info(f"File '{norm_path}' has a valid signature. Skipping worm detection.")
-                elif signature_check["signature_status_issues"] and not signature_check["no_signature"]:
-                    logging.warning(f"File '{norm_path}' has signature issues. Proceeding with further checks.")
-                    notify_user_invalid(norm_path, "Win32.Susp.InvalidSignature")
+                        if pycdas:
+                            for rname in pycdas.keys():
+                                threading.Thread(target=scan_and_warn, kwargs={"file_path": rname}).start()
+                except Exception as e:
+                    logging.error(f"Error in PYC processing for {norm_path}: {e}")
 
-                def capa_analysis():
+            def nsis_thread():
+                try:
+                    if is_nsis_from_output(die_output):
+                        nonlocal nsis_flag
+                        nsis_flag = True
+                except Exception as e:
+                    logging.error(f"Error in NSIS detection for {norm_path}: {e}")
+
+            # Start binary processing threads
+            binary_threads = [
+                threading.Thread(target=extraction_thread),
+                threading.Thread(target=enigma_thread),
+                threading.Thread(target=upx_thread),
+                threading.Thread(target=inno_setup_thread),
+                threading.Thread(target=go_garble_thread),
+                threading.Thread(target=cx_freeze_thread),
+                threading.Thread(target=pyc_thread),
+                threading.Thread(target=nsis_thread)
+            ]
+
+            for thread in binary_threads:
+                thread.start()
+
+        # ========== PE FILE SPECIFIC PROCESSING ==========
+        if pe_file:
+            logging.info(f"File {norm_path} is identified as a PE file.")
+
+            # Wait for signature check to complete (needed for PE logic)
+            signature_thread.join()
+            signature_check = thread_results.get('signature_check', {
+                "has_microsoft_signature": False,
+                "is_valid": False,
+                "signature_status_issues": False
+            })
+
+            # CRITICAL: Early returns for valid signatures - NO THREADING
+            if signature_check["has_microsoft_signature"]:
+                logging.info(f"Valid Microsoft signature detected for file: {norm_path}")
+                return False
+
+            if signature_check.get("valid_goodsign_signatures"):
+                logging.info(f"Valid good signature(s) detected for file: {norm_path}")
+                return False
+
+            # Handle signature validation
+            if signature_check["is_valid"]:
+                logging.info(f"File '{norm_path}' has a valid signature. Skipping worm detection.")
+            elif signature_check["signature_status_issues"] and not signature_check.get("no_signature"):
+                logging.warning(f"File '{norm_path}' has signature issues. Proceeding with further checks.")
+                threading.Thread(target=notify_user_invalid, args=(norm_path, "Win32.Susp.InvalidSignature")).start()
+
+            # PE-specific threaded operations
+            def capa_analysis_thread():
+                try:
                     capa_analysis_results = analyze_file_with_capa(norm_path)
                     if capa_analysis_results:
-                        # Run scans in separate threads
-                        llama_scan_thread = threading.Thread(target=scan_file_with_meta_llama,
-                                                             args=(capa_analysis_results,), kwargs={"capa_flag": True})
-                        warning_scan_thread = threading.Thread(target=scan_and_warn, args=(capa_analysis_results,))
+                        threading.Thread(target=scan_file_with_meta_llama,
+                                       args=(capa_analysis_results,),
+                                       kwargs={"capa_flag": True}).start()
+                        threading.Thread(target=scan_and_warn, args=(capa_analysis_results,)).start()
+                except Exception as e:
+                    logging.error(f"Error in CAPA analysis for {norm_path}: {e}")
 
-                        llama_scan_thread.start()
-                        warning_scan_thread.start()
-
-                # Run with threading
-                t = threading.Thread(target=capa_analysis)
-                t.start()
-
-                def scr_detection():
-                    # Detect .scr extension and trigger heuristic warning
+            def scr_detection_thread():
+                try:
                     if norm_path.lower().endswith(".scr"):
                         logging.warning(f"Suspicious .scr file detected: {norm_path}")
-                        notify_user_scr(norm_path, "HEUR:Win32.Susp.PE.SCR.gen")
+                        threading.Thread(target=notify_user_scr, args=(norm_path, "HEUR:Win32.Susp.PE.SCR.gen")).start()
+                except Exception as e:
+                    logging.error(f"Error in SCR detection for {norm_path}: {e}")
 
-                # Run with threading
-                t = threading.Thread(target=scr_detection)
-                t.start()
+            def decompile_thread():
+                try:
+                    decompile_file(norm_path)
+                except Exception as e:
+                    logging.error(f"Error in decompilation for {norm_path}: {e}")
 
-                # Decompile the file in a separate thread
-                decompile_thread = threading.Thread(target=decompile_file, args=(norm_path,))
-                decompile_thread.start()
-
-                # PE section extraction and scanning
-                section_files = extract_pe_sections(norm_path)
-                if section_files:
-                    logging.info(f"Extracted {len(section_files)} PE sections. Scanning...")
-                    for fpath in section_files:
-                        try:
+            def pe_section_thread():
+                try:
+                    section_files = extract_pe_sections(norm_path)
+                    if section_files:
+                        logging.info(f"Extracted {len(section_files)} PE sections. Scanning...")
+                        for fpath in section_files:
                             threading.Thread(target=scan_and_warn, args=(fpath,)).start()
-                        except Exception as e:
-                            logging.error(f"Error scanning PE section {fpath}: {e}")
-                else:
-                    logging.error("PE section extraction failed or no sections found.")
+                except Exception as e:
+                    logging.error(f"Error in PE section extraction for {norm_path}: {e}")
 
-                # Extract resources
-                extracted = extract_resources(norm_path, resource_extractor_dir)
-                if extracted:
-                    for file in extracted:
-                        threading.Thread(target=scan_and_warn, args=(file,)).start()
+            def resource_extraction_thread():
+                try:
+                    extracted = extract_resources(norm_path, resource_extractor_dir)
+                    if extracted:
+                        for file in extracted:
+                            threading.Thread(target=scan_and_warn, args=(file,)).start()
+                except Exception as e:
+                    logging.error(f"Error in resource extraction for {norm_path}: {e}")
 
-                # Use the `debloat` library to optimize PE file for scanning
+            def debloat_thread():
                 try:
                     if not flag_debloat:
                         logging.info(f"Debloating PE file {norm_path} for faster scanning.")
                         optimized_norm_path = debloat_pe_file(norm_path)
                         if optimized_norm_path:
                             logging.info(f"Debloated file saved at: {optimized_norm_path}")
-                            threading.Thread(
-                                target=scan_and_warn,
-                                args=(optimized_norm_path,),
-                                kwargs={'flag_debloat': True}
-                            ).start()
-                        else:
-                             logging.error(f"Debloating failed for {norm_path}, continuing with the original file.")
-                except Exception as ex:
-                    logging.error(f"Error during debloating of {norm_path}: {ex}")
+                            threading.Thread(target=scan_and_warn,
+                                           args=(optimized_norm_path,),
+                                           kwargs={'flag_debloat': True}).start()
+                except Exception as e:
+                    logging.error(f"Error during debloating of {norm_path}: {e}")
 
-            if isinstance(dotnet_result, str) and "Protector: Obfuscar" in dotnet_result and not flag_obfuscar:
-                logging.info(f"The file is a .NET assembly protected with Obfuscar: {dotnet_result}")
-                deobfuscated_path = deobfuscate_with_obfuscar(norm_path, file_name)
-                if deobfuscated_path:
-                    threading.Thread(
-                        target=scan_and_warn,
-                        args=(deobfuscated_path,),
-                        kwargs={'flag_obfuscar': True}
-                    ).start()
-                else:
-                    logging.warning("Deobfuscation failed or unpacked file not found.")
+            # Start PE processing threads
+            pe_threads = [
+                threading.Thread(target=capa_analysis_thread),
+                threading.Thread(target=scr_detection_thread),
+                threading.Thread(target=decompile_thread),
+                threading.Thread(target=pe_section_thread),
+                threading.Thread(target=resource_extraction_thread),
+                threading.Thread(target=debloat_thread)
+            ]
 
-            if isinstance(dotnet_result, str) and "Protector: .NET Reactor" in dotnet_result:
-                logging.info(f"The file is a .NET assembly protected with .NET Reactor: {dotnet_result}")
-                deobfuscated_path = deobfuscate_with_net_reactor(norm_path, file_name)
-                if deobfuscated_path:
-                    threading.Thread(
-                        target=scan_and_warn,
-                        args=(deobfuscated_path,)
-                    ).start()
-                else:
-                    logging.warning("Deobfuscation failed or unpacked file not found.")
+            for thread in pe_threads:
+                thread.start()
 
-            if is_jar_file_from_output(die_output):
-                jar_extractor_paths = run_jar_extractor(norm_path, flag_fernflower)
-                if jar_extractor_paths:
-                    for jar_extractor_path in jar_extractor_paths:
-                        threading.Thread(
-                            target=scan_and_warn,
-                            args=(jar_extractor_path,),
-                            kwargs={'flag_fernflower': True}
-                        ).start()
-                else:
-                    logging.warning("Java Archive Extraction or decompilation failed. Skipping scan.")
+        # ========== POST-ANALYSIS PROCESSING ==========
 
-            if is_java_class_from_output(die_output):
-                threading.Thread(target=run_fernflower_decompiler, args=(norm_path,)).start()
+        # Wait for dotnet analysis to complete (needed for obfuscation logic)
+        for thread in analysis_threads:
+            if thread.target.__name__ == 'dotnet_analysis':
+                thread.join()
+                break
 
-            # Check if the file contains Nuitka executable
-            nuitka_type = is_nuitka_file_from_output(die_output)
+        dotnet_result = thread_results.get('dotnet_result')
 
-            # Only proceed with extraction if Nuitka is detected
-            if nuitka_type:
-                try:
+        # .NET specific processing (threaded)
+        def dotnet_obfuscar_thread():
+            try:
+                if isinstance(dotnet_result, str) and "Protector: Obfuscar" in dotnet_result and not flag_obfuscar:
+                    logging.info(f"The file is a .NET assembly protected with Obfuscar: {dotnet_result}")
+                    deobfuscated_path = deobfuscate_with_obfuscar(norm_path, file_name)
+                    if deobfuscated_path:
+                        threading.Thread(target=scan_and_warn,
+                                       args=(deobfuscated_path,),
+                                       kwargs={'flag_obfuscar': True}).start()
+            except Exception as e:
+                logging.error(f"Error in Obfuscar deobfuscation for {norm_path}: {e}")
+
+        def dotnet_reactor_thread():
+            try:
+                if isinstance(dotnet_result, str) and "Protector: .NET Reactor" in dotnet_result:
+                    logging.info(f"The file is a .NET assembly protected with .NET Reactor: {dotnet_result}")
+                    deobfuscated_path = deobfuscate_with_net_reactor(norm_path, file_name)
+                    if deobfuscated_path:
+                        threading.Thread(target=scan_and_warn, args=(deobfuscated_path,)).start()
+            except Exception as e:
+                logging.error(f"Error in .NET Reactor deobfuscation for {norm_path}: {e}")
+
+        def jar_analysis_thread():
+            try:
+                if is_jar_file_from_output(die_output):
+                    jar_extractor_paths = run_jar_extractor(norm_path, flag_fernflower)
+                    if jar_extractor_paths:
+                        for jar_extractor_path in jar_extractor_paths:
+                            threading.Thread(target=scan_and_warn,
+                                           args=(jar_extractor_path,),
+                                           kwargs={'flag_fernflower': True}).start()
+            except Exception as e:
+                logging.error(f"Error in JAR analysis for {norm_path}: {e}")
+
+        def java_class_thread():
+            try:
+                if is_java_class_from_output(die_output):
+                    threading.Thread(target=run_fernflower_decompiler, args=(norm_path,)).start()
+            except Exception as e:
+                logging.error(f"Error in Java class analysis for {norm_path}: {e}")
+
+        def nuitka_thread():
+            try:
+                nuitka_type = is_nuitka_file_from_output(die_output)
+                if nuitka_type:
                     logging.info(f"Checking if the file {norm_path} contains Nuitka executable of type: {nuitka_type}")
-                    # Pass both the file path and Nuitka type to the check_and_extract_nuitka function
                     nuitka_files = extract_nuitka_file(norm_path, nuitka_type)
                     if nuitka_files:
                         for extracted_file in nuitka_files:
-                            try:
-                                threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
-                            except Exception as e:
-                                logging.error(f"Failed to analyze extracted file {extracted_file}: {e}")
-                    else:
-                        logging.warning("No Nuitka files were extracted for scanning.")
-                except Exception as ex:
-                    logging.error(f"Error checking or extracting Nuitka content from {norm_path}: {ex}")
+                            threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
+            except Exception as e:
+                logging.error(f"Error in Nuitka analysis for {norm_path}: {e}")
 
-            # Check if the file is a PyInstaller archive
-            if is_pyinstaller_archive_from_output(die_output):
-                extracted_files_pyinstaller, main_decompiled_output = extract_and_return_pyinstaller(norm_path)
+        def pyinstaller_thread():
+            try:
+                if is_pyinstaller_archive_from_output(die_output):
+                    extracted_files_pyinstaller, main_decompiled_output = extract_and_return_pyinstaller(norm_path)
 
-                # Scan the main decompiled output (if it exists)
-                if main_decompiled_output:
-                    logging.info(f"Scanning main decompiled output: {main_decompiled_output}")
-                    threading.Thread(target=scan_and_warn, args=(main_decompiled_output,)).start()
-                else:
-                    logging.warning(f"No main decompiled output for: {norm_path}")
+                    if main_decompiled_output:
+                        threading.Thread(target=scan_and_warn, args=(main_decompiled_output,)).start()
 
-                # Scan each extracted file (if any)
-                if extracted_files_pyinstaller:
-                    for extracted_file in extracted_files_pyinstaller:
-                        logging.info(f"Scanning extracted file: {extracted_file}")
-                        threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
-                else:
-                    logging.error(f"No files extracted from PyInstaller archive: {norm_path}")
+                    if extracted_files_pyinstaller:
+                        for extracted_file in extracted_files_pyinstaller:
+                            threading.Thread(target=scan_and_warn, args=(extracted_file,)).start()
+            except Exception as e:
+                logging.error(f"Error in PyInstaller analysis for {norm_path}: {e}")
+
+        # Start additional analysis threads
+        additional_threads = [
+            threading.Thread(target=dotnet_obfuscar_thread),
+            threading.Thread(target=dotnet_reactor_thread),
+            threading.Thread(target=jar_analysis_thread),
+            threading.Thread(target=java_class_thread),
+            threading.Thread(target=nuitka_thread),
+            threading.Thread(target=pyinstaller_thread)
+        ]
+
+        for thread in additional_threads:
+            thread.start()
+
+        # ========== TEXT FILE PROCESSING ==========
         else:
-            # If the file content is plain text, perform scanning with Meta Llama-3.2-1B
+            # Plain text file processing
             logging.info(f"File {norm_path} does contain plain text data.")
-            # Check if the norm_path equals the homepage change path.
+
+            # Wait for file reading to complete
+            file_read_thread.join()
+            lines = thread_results['file_lines']
+
+            # Homepage change processing (direct execution - needs early processing)
             if norm_path == homepage_change_path:
                 try:
                     for line in lines:
                         line = line.strip()
                         if line:
-                            # Expecting a format like "Firefox,google.com"
                             parts = line.split(',')
                             if len(parts) == 2:
                                 browser_tag, homepage_value = parts[0].strip(), parts[1].strip()
-                                logging.info(
-                                    f"Processing homepage change entry: Browser={browser_tag}, Homepage={homepage_value}")
-                                # Call scan_code_for_links, using the homepage value as the code to scan.
-                                # Pass the browser tag as the homepage_flag.
+                                logging.info(f"Processing homepage change entry: Browser={browser_tag}, Homepage={homepage_value}")
                                 scan_code_for_links(homepage_value, norm_path, homepage_flag=browser_tag)
                             else:
                                 logging.error(f"Invalid format in homepage change file: {line}")
                 except Exception as ex:
                     logging.error(f"Error processing homepage change file {norm_path}: {ex}")
 
-            # Log directory type based on file path
+            # Directory type logging
             log_directory_type(norm_path)
 
-            # Check if the file is in decompiled_dir
+            # Check if file is in decompiled directory
             if norm_path.startswith(decompiled_dir):
                 logging.info(f"File {norm_path} is in decompiled_dir.")
                 is_decompiled = True
 
-            source_dirs = [
-                Path(decompiled_dir).resolve(),
-                Path(FernFlower_decompiled_dir).resolve(),
-                Path(dotnet_dir).resolve(),
-                Path(nuitka_source_code_dir).resolve(),
+            # Meta Llama scanning for text files (threaded)
+            def meta_llama_text_thread():
+                try:
+                    source_dirs = [
+                        Path(decompiled_dir).resolve(),
+                        Path(FernFlower_decompiled_dir).resolve(),
+                        Path(dotnet_dir).resolve(),
+                        Path(nuitka_source_code_dir).resolve(),
+                    ]
+
+                    norm_path_resolved = Path(norm_path).resolve()
+                    ext = norm_path_resolved.suffix.lower()
+
+                    if meta_llama_1b_model and meta_llama_1b_tokenizer:
+                        if ext in script_exts:
+                            threading.Thread(target=scan_file_with_meta_llama, args=(norm_path,)).start()
+                        else:
+                            for src in source_dirs:
+                                try:
+                                    norm_path_resolved.relative_to(src)
+                                except ValueError:
+                                    continue
+                                else:
+                                    threading.Thread(target=scan_file_with_meta_llama, args=(norm_path,)).start()
+                                    break
+                except Exception as e:
+                    logging.error(f"Error in Meta Llama text processing for {norm_path}: {e}")
+
+            # Real-time malware detection for command flag (threaded)
+            def command_flag_thread():
+                try:
+                    if command_flag:
+                        logging.info(f"Performing real-time malware detection for plain text file: {norm_path}...")
+                        monitor_message.detect_malware(norm_path)
+                except Exception as e:
+                    logging.error(f"Error in command flag processing for {norm_path}: {e}")
+
+            # Start text processing threads
+            text_threads = [
+                threading.Thread(target=meta_llama_text_thread),
+                threading.Thread(target=command_flag_thread)
             ]
 
-            norm_path_resolved = Path(norm_path).resolve()
-            ext = norm_path_resolved.suffix.lower()
+            for thread in text_threads:
+                thread.start()
 
-            if meta_llama_1b_model and meta_llama_1b_tokenizer:
-                if ext in script_exts:
-                    try:
-                        threading.Thread(
-                            target=scan_file_with_meta_llama,
-                            args=(norm_path,),
-                        ).start()
-                    except Exception as ex:
-                        logging.error(f"Error during scanning with Meta Llama-3.2-1B for file {norm_path}: {ex}")
-                else:
-                    for src in source_dirs:
-                        try:
-                            norm_path_resolved.relative_to(src)
-                        except ValueError:
-                            continue
-                        else:
-                            try:
-                                threading.Thread(
-                                    target=scan_file_with_meta_llama,
-                                    args=(norm_path,),
-                            ).start()
-                            except Exception as ex:
-                                logging.error(
-                                    f"Error during scanning with Meta Llama-3.2-1B for file {norm_path}: {ex}"
-                                )
-                            break
+        # ========== COMMON PROCESSING FOR ALL FILES ==========
 
-            # Scan for malware in real-time only for plain text and command flag
-            if command_flag:
-                logging.info(f"Performing real-time malware detection for plain text file: {norm_path}...")
-                real_time_scan_thread = threading.Thread(target=monitor_message.detect_malware, args=(norm_path,))
-                real_time_scan_thread.start()
+        # File processing thread (heavy I/O)
+        def file_processing_thread():
+            try:
+                if not os.path.commonpath([norm_path, processed_dir]) == processed_dir:
+                    process_file_data(norm_path, die_output)
+            except Exception as e:
+                logging.error(f"Error in file processing for {norm_path}: {e}")
 
-        # Process the file data including magic byte removal
-        if not os.path.commonpath([norm_path, processed_dir]) == processed_dir:
-            process_thread = threading.Thread(target=process_file_data, args=(norm_path, die_output))
-            process_thread.start()
+        # Fake size check thread (heavy I/O for large files)
+        def fake_size_check_thread():
+            try:
+                file_size = os.path.getsize(norm_path)
+                if file_size > 100 * 1024 * 1024:  # File size > 100MB
+                    with open(norm_path, 'rb') as fake_file:
+                        file_content_read = fake_file.read(100 * 1024 * 1024)
+                        if file_content_read == b'\x00' * 100 * 1024 * 1024:
+                            logging.warning(f"File {norm_path} is flagged as HEUR:FakeSize.gen")
+                            fake_size = "HEUR:FakeSize.gen"
+                            if signature_check and signature_check["is_valid"]:
+                                fake_size = "HEUR:SIG.Win32.FakeSize.gen"
+                            threading.Thread(target=notify_user_fake_size, args=(norm_path, fake_size)).start()
+            except Exception as e:
+                logging.error(f"Error in fake size check for {norm_path}: {e}")
 
-        # Check for fake file size
-        if os.path.getsize(norm_path) > 100 * 1024 * 1024:  # File size > 100MB
-            with open(norm_path, 'rb') as fake_file:
-                file_content_read = fake_file.read(100 * 1024 * 1024)
-                if file_content_read == b'\x00' * 100 * 1024 * 1024:  # 100MB of continuous `0x00` bytes
-                    logging.warning(f"File {norm_path} is flagged as HEUR:FakeSize.gen")
-                    fake_size = "HEUR:FakeSize.gen"
-                    if signature_check and signature_check["is_valid"]:
-                        fake_size = "HEUR:SIG.Win32.FakeSize.gen"
-                    notify_user_fake_size_thread = threading.Thread(target=notify_user_fake_size, args=(norm_path, fake_size))
-                    notify_user_fake_size_thread.start()
+        # Real-time malware scan thread (CPU intensive)
+        def realtime_malware_thread():
+            try:
+                is_malicious, virus_names, engine_detected = scan_file_real_time(
+                    norm_path, signature_check, file_name, die_output, pe_file=pe_file)
 
-        # Perform real-time scan
-        is_malicious, virus_names, engine_detected = scan_file_real_time(norm_path, signature_check, file_name, die_output, pe_file=pe_file)
+                if is_malicious:
+                    virus_name = ''.join(virus_names)
+                    logging.warning(f"File {norm_path} is malicious. Virus: {virus_name}")
 
-        # Inside the scan check logic
-        if is_malicious:
-            # Concatenate multiple virus names into a single string without delimiters
-            virus_name = ''.join(virus_names)
-            logging.warning(f"File {norm_path} is malicious. Virus: {virus_name}")
+                    if virus_name.startswith("PUA."):
+                        threading.Thread(target=notify_user_pua, args=(norm_path, virus_name, engine_detected)).start()
+                    else:
+                        threading.Thread(target=notify_user, args=(norm_path, virus_name, engine_detected)).start()
+            except Exception as e:
+                logging.error(f"Error in real-time malware scan for {norm_path}: {e}")
 
-            if virus_name.startswith("PUA."):
-                notify_user_pua_thread = threading.Thread(target=notify_user_pua, args=(norm_path, virus_name, engine_detected))
-                notify_user_pua_thread.start()
-            else:
-                notify_user_thread = threading.Thread(target=notify_user, args=(norm_path, virus_name, engine_detected))
-                notify_user_thread.start()
+        # Suspicious filename detection thread
+        def filename_detection_thread():
+            try:
+                detection_result = detect_suspicious_filename_patterns(file_name, fileTypes)
+                if detection_result['suspicious']:
+                    attack_types = []
+                    if detection_result['rlo_attack']:
+                        attack_types.append("RLO")
+                    if detection_result['excessive_spaces']:
+                        attack_types.append("Spaces")
+                    if detection_result['multiple_extensions']:
+                        attack_types.append("MultiExt")
 
-        # Additional post-decompilation actions based on extracted file path
-        if is_decompiled:
-            logging.info(f"Checking original file path from decompiled data for: {norm_path}")
-            original_norm_path_thread = threading.Thread(target=extract_original_norm_path_from_decompiled, args=(norm_path,))
-            original_norm_path_thread.start()
+                    virus_name = f"HEUR:Susp.Name.{'+'.join(attack_types)}.gen"
+                    threading.Thread(target=notify_user_susp_name, args=(norm_path, virus_name)).start()
+            except Exception as e:
+                logging.error(f"Error in filename detection for {norm_path}: {e}")
 
-        detection_result = detect_suspicious_filename_patterns(file_name, fileTypes)
-        if detection_result['suspicious']:
-            # Handle multiple attack types if present
-            attack_types = []
-            if detection_result['rlo_attack']:
-                attack_types.append("RLO")
-            if detection_result['excessive_spaces']:
-                attack_types.append("Spaces")
-            if detection_result['multiple_extensions']:
-                attack_types.append("MultiExt")
+        # Decompilation post-processing thread
+        def decompilation_postprocess_thread():
+            try:
+                if is_decompiled:
+                    logging.info(f"Checking original file path from decompiled data for: {norm_path}")
+                    extract_original_norm_path_from_decompiled(norm_path)
+            except Exception as e:
+                logging.error(f"Error in decompilation post-processing for {norm_path}: {e}")
 
-            virus_name = f"HEUR:Susp.Name.{'+'.join(attack_types)}.gen"
-            notify_user_susp_name(norm_path, virus_name)
+        # Start common processing threads
+        common_threads = [
+            threading.Thread(target=file_processing_thread),
+            threading.Thread(target=fake_size_check_thread),
+            threading.Thread(target=realtime_malware_thread),
+            threading.Thread(target=filename_detection_thread),
+            threading.Thread(target=decompilation_postprocess_thread)
+        ]
+
+        for thread in common_threads:
+            thread.start()
+
+        # ========== CLEANUP AND RETURN ==========
+
+        # Note: We don't join all threads here because many are fire-and-forget
+        # operations that don't affect the main scan flow. The function can return
+        # while background threads continue processing.
+
+        logging.info(f"Main scan completed for {norm_path}, background processing continues...")
+        return False  # Scan completed successfully
 
     except Exception as ex:
         logging.error(f"Error scanning file {norm_path}: {ex}")
