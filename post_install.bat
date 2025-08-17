@@ -29,9 +29,7 @@ echo [+] Driver installed.
 :: --------------------------------------------------------
 echo Creating 'Owlyshield Service'...
 sc create "Owlyshield Service" binPath= "%~dp0hydradragon\Owlyshield\Owlyshield Service\owlyshield_ransom.exe"
-sc config "Owlyshield Service" depend= OwlyshieldRansomFilter
-sc config "Owlyshield Service" start= demand
-echo [+] Service configured.
+echo [+] Service created.
 
 :: --------------------------------------------------------
 :: 4) Cleanup
