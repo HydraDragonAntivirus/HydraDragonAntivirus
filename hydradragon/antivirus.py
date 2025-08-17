@@ -412,6 +412,7 @@ capa_rules_dir = os.path.join(script_dir, "capa-rules-9.2.1")
 capa_results_dir = os.path.join(script_dir, "capa_results")
 hayabusa_dir = os.path.join(script_dir, "hayabusa")
 hayabusa_path = os.path.join(hayabusa_dir, "hayabusa-3.3.0-win-x64.exe")
+av_events_json_file_path = os.path.join(script_dir, "av_events.json")
 reports_dir = os.path.join(script_dir, "reports")
 network_indicators_path = os.path.join(reports_dir, "network_indicators_for_av.json")
 scan_report_path = os.path.join(reports_dir, "scan_report.json")
@@ -6006,6 +6007,83 @@ def monitor_suricata_log():
 
             except Exception as ex:
                 logging.info(f"Error processing line: {ex}")
+
+def monitor_log_file(json_file_path: str):
+    """
+    Monitors the JSON event log file for new entries in real-time.
+    It reads new lines as they are appended to the file and processes them.
+
+    Args:
+        json_file_path (str): The path to the av_events.json file.
+    """
+    logging.info(f"Starting to monitor log file: {json_file_path}")
+
+    # Ensure the file exists before we start monitoring
+    if not os.path.exists(json_file_path):
+        # Create the file if it doesn't exist to prevent errors on startup
+        with open(json_file_path, 'w') as f:
+            logging.info(f"Log file not found. Created an empty file at: {json_file_path}")
+
+    # We start reading from the end of the file
+    last_position = os.path.getsize(json_file_path)
+
+    while True:
+        try:
+            current_position = os.path.getsize(json_file_path)
+            if current_position < last_position:
+                # This handles cases where the log file is rotated or cleared
+                logging.info("Log file has been reset. Starting from the beginning.")
+                last_position = 0
+
+            if current_position > last_position:
+                with open(json_file_path, 'r') as f:
+                    f.seek(last_position)
+                    new_lines = f.readlines()
+                    last_position = f.tell() # Update position to the new end of the file
+
+                for line in new_lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    try:
+                        event_data = json.loads(line)
+                        file_path_to_scan = event_data.get("file_path")
+
+                        if file_path_to_scan:
+                            logging.info(f"New event detected for process '{event_data.get('process_name')}'")
+                            scan_and_warn(file_path_to_scan)
+                        else:
+                            logging.warning("Found event log line without a 'file_path' key.")
+
+                    except json.JSONDecodeError:
+                        logging.error(f"Could not decode JSON from line: {line}")
+                    except Exception as e:
+                        logging.error(f"An error occurred processing an event: {e}")
+
+        except FileNotFoundError:
+            logging.error(f"Log file '{json_file_path}' not found. Waiting for it to be created...")
+        except Exception as e:
+            logging.critical(f"A critical error occurred in the monitor loop: {e}")
+
+def remove_log_file(json_file_path: str):
+    """
+    Removes the specified log file if it exists.
+
+    Args:
+        json_file_path (str): The path to the av_events.json file to be removed.
+    """
+    logging.info("Owlyshield has stopped. Cleaning up event file.")
+    try:
+        if os.path.exists(json_file_path):
+            os.remove(json_file_path)
+            logging.info(f"Successfully removed log file: {json_file_path}")
+        else:
+            logging.warning(f"Log file not found, nothing to remove: {json_file_path}")
+    except OSError as e:
+        logging.error(f"Error removing file {json_file_path}: {e}")
+    except Exception as e:
+        logging.error(f"An unexpected error occurred during file removal: {e}")
 
 restart_clamd_threaded()
 activate_uefi_drive() # Call the UEFI function
@@ -12315,6 +12393,7 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
             (web_protection_observer.begin_observing,),
             (monitor_directories_with_watchdog,),
             (start_monitoring_sandbox,),
+            (monitor_log_file, (av_events_json_file_path,)),
             (monitor_sandboxie_directory,),
             (check_startup_directories,),
             (monitor_hosts_file,),
@@ -12713,8 +12792,6 @@ class ShieldWidget(QWidget):
 
         # Load the hydra image for the protected state
         self.hydra_pixmap = None
-        script_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in locals() else os.getcwd()
-        assets_dir = os.path.join(script_dir, "assets")
         if os.path.exists(icon_path):
             self.hydra_pixmap = QPixmap(icon_path)
         else:
@@ -13209,11 +13286,7 @@ class Worker(QThread):
         Stops logging and removes/cleans up log files.
         """
         try:
-            # Remove main file report if exists
-            os.path.exists(f"{main_file_path}_report.txt") and os.remove(f"{main_file_path}_report.txt")
-
             # Get the main script directory
-            script_dir = os.getcwd()
             log_directory = os.path.join(script_dir, "log")
 
             # Close current stdout/stderr redirections
@@ -13259,7 +13332,6 @@ class Worker(QThread):
         """
         try:
             # Get the main script directory
-            script_dir = os.getcwd()
             log_directory = os.path.join(script_dir, "log")
 
             # Create log directory if it doesn't exist
@@ -13337,8 +13409,11 @@ class Worker(QThread):
             self.output_signal.emit("[*] Step 6: Restarting services...")
             self.restart_services()
 
-            # Step 7: Recreate directories
-            self.output_signal.emit("[*] Step 7: Recreating clean directories...")
+            # Step 7: Remove Owlyshield av events json file
+            remove_log_file(av_events_json_file_path)
+
+            # Step 8: Recreate directories
+            self.output_signal.emit("[*] Step 8: Recreating clean directories...")
             self.recreate_directories()
 
             self.output_signal.emit("[+] Environment cleanup completed successfully!")
