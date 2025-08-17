@@ -406,6 +406,8 @@ device = accelerator.device
 python_path = sys.executable
 
 # Define the paths
+owlyshield_dir  = os.path.join(script_dir, "Owlyshield")
+novelty_dir  = os.path.join(script_dir, "novelty")
 unlicense_path  = os.path.join(script_dir, "unlicense.exe")
 unlicense_x64_path  = os.path.join(script_dir, "unlicense-x64.exe")
 capa_rules_dir = os.path.join(script_dir, "capa-rules-9.2.1")
@@ -842,7 +844,7 @@ COMMON_DIRECTORIES = [
     pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir,
     resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir,
     upx_extracted_dir, installshield_extracted_dir, autoit_extracted_dir,
-    copied_sandbox_and_main_files_dir, decompiled_dir, capa_results_dir
+    copied_sandbox_and_main_files_dir, decompiled_dir, capa_results_dir, novelty_dir
 ]
 
 # Additional directories only in MANAGED_DIRECTORIES
