@@ -12927,34 +12927,28 @@ class ShieldWidget(QWidget):
         path.lineTo(-80, 0)
         path.cubicTo(-80, -80, 0, -90, 0, -90)
 
-        # Draw the user's PNG inside the shield if protected and available
-        if self.is_protected and self.hydra_pixmap and not self.hydra_pixmap.isNull():
-             # Fill shield with a gradient behind the image
-            shield_gradient = QLinearGradient(0, -90, 0, 100)
-            shield_gradient.setColorAt(0, QColor("#434C5E"))
-            shield_gradient.setColorAt(1, QColor("#3B4252"))
-            painter.fillPath(path, QBrush(shield_gradient))
+        # Fill shield with a gradient
+        shield_gradient = QLinearGradient(0, -90, 0, 100)
+        shield_gradient.setColorAt(0, QColor("#434C5E"))
+        shield_gradient.setColorAt(1, QColor("#3B4252"))
+        painter.fillPath(path, QBrush(shield_gradient))
 
-            painter.setOpacity(self._check_progress)
-            # Define the rectangle to draw the pixmap in
-            pixmap_rect = QRect(-75, -85, 150, 150)
-            painter.drawPixmap(pixmap_rect, self.hydra_pixmap)
-            painter.setOpacity(1.0) # Reset opacity
-        else:
-            # Fallback to old behavior if image is not loaded or not protected
-            shield_gradient = QLinearGradient(0, -90, 0, 100)
-            shield_gradient.setColorAt(0, QColor("#4C566A"))
-            shield_gradient.setColorAt(1, QColor("#3B4252"))
-            painter.fillPath(path, QBrush(shield_gradient))
-
-        painter.setBrush(Qt.BrushStyle.NoBrush)
         progress = self._check_progress
 
-        if not self.is_protected:
-            # Draw the original cross for the 'unprotected' status
+        # Draw the correct icon based on protection status
+        if self.is_protected:
+            # Draw the user's PNG inside the shield if protected and available
+            if self.hydra_pixmap and not self.hydra_pixmap.isNull():
+                painter.setOpacity(progress)
+                # Define the rectangle to draw the pixmap in
+                pixmap_rect = QRect(-75, -85, 150, 150)
+                painter.drawPixmap(pixmap_rect, self.hydra_pixmap)
+                painter.setOpacity(1.0) # Reset opacity
+        else:
+            # Draw the cross for the 'unprotected' status
             painter.setPen(QPen(QColor("white"), 14, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-            painter.drawLine(-35 * progress, -35 * progress, 35 * progress, 35 * progress)
-            painter.drawLine(35 * progress, -35 * progress, -35 * progress, 35 * progress)
+            painter.drawLine(int(-35 * progress), int(-35 * progress), int(35 * progress), int(35 * progress))
+            painter.drawLine(int(35 * progress), int(-35 * progress), int(-35 * progress), int(35 * progress))
 
 
 # --- Worker Thread for Background Tasks ---
@@ -13828,31 +13822,29 @@ class AntivirusApp(QWidget):
 
     def start_worker(self, task_type, *args):
         """Start a new worker thread for the given task."""
-        def worker_starter():
-            """Internal function to handle worker creation in separate thread."""
-            try:
-                # Create new worker
-                worker = Worker(task_type, *args)
-                worker.output_signal.connect(self.append_log_output)
-                worker.finished.connect(lambda w=worker: self.on_worker_finished(w))
+        # This method is called from the main GUI thread (e.g., button clicks),
+        # so it's safe to create workers and update the UI directly.
+        try:
+            # Create a new worker
+            worker = Worker(task_type, *args)
+            worker.output_signal.connect(self.append_log_output)
+            # When the worker finishes, call on_worker_finished
+            worker.finished.connect(lambda: self.on_worker_finished(worker))
 
-                # Add to active workers list (thread-safe)
-                with self.worker_lock:
-                    self.workers.append(worker)
+            # Add to the active workers list (thread-safe)
+            with self.worker_lock:
+                self.workers.append(worker)
 
-                # Start the worker
-                worker.start()
+            # Start the worker's run() method in a new thread.
+            worker.start()
 
-                # Update UI using separate method
-                self._update_ui_for_worker_start(task_type)
+            # Update UI to show the system is busy *after* successfully starting.
+            self._update_ui_for_worker_start(task_type)
 
-            except Exception as e:
-                # Handle any errors during worker creation
-                self.append_log_output(f"[!] Error starting task '{task_type}': {str(e)}")
+        except Exception as e:
+            # Handle any errors during worker creation
+            self.append_log_output(f"[!] Error starting task '{task_type}': {str(e)}")
 
-        # Start the worker creation in a separate thread
-        starter_thread = threading.Thread(target=worker_starter, daemon=True)
-        starter_thread.start()
 
     def _update_ui_for_worker_start(self, task_type):
         """Update UI elements when worker starts (called from main thread)."""
