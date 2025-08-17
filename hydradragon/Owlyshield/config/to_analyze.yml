@@ -1,0 +1,4 @@
+watchlist:
+  - path: "C:\\Sandbox"
+    recursive: true
+    enabled: true
