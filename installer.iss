@@ -87,7 +87,7 @@ Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeName}\SupportedTypes
 
 ; Owlyshield Registry Settings
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "NUM_VERSION"; ValueData: {#OwlyshieldVersion}; Flags: uninsdeletekey
-Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "PROCESS_ACTIVITY_PATH"; ValueData: "{app}\hydraddragon\Owlyshield\debug"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "PROCESS_ACTIVITY_PATH"; ValueData: "{app}\hydradragon\Owlyshield\debug"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "UTILS_PATH"; ValueData: "{app}\hydradragon\Owlyshield\utils"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "CONFIG_PATH"; ValueData: "{app}\hydradragon\Owlyshield\config"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "NOVELTY_PATH"; ValueData: "{app}\hydradragon\Owlyshield\novelty"; Flags: uninsdeletekey
