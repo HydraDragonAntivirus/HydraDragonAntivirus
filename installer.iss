@@ -90,6 +90,7 @@ Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "NUM_
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "PROCESS_ACTIVITY_PATH"; ValueData: "{app}\hydraddragon\Owlyshield\debug"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "UTILS_PATH"; ValueData: "{app}\hydradragon\Owlyshield\utils"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "CONFIG_PATH"; ValueData: "{app}\hydradragon\Owlyshield\config"; Flags: uninsdeletekey
+Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "NOVELTY_PATH"; ValueData: "{app}\hydradragon\Owlyshield\novelty"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LOG_PATH"; ValueData: "{app}\hydradragon\Owlyshield\log"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "APP_ID"; ValueData: "8C19967B-1D27-4E6A-85CD-5059912C2788"; Flags: uninsdeletekey
 Root: HKLM64; Subkey: "Software\Owlyshield"; ValueType: string; ValueName: "LANGUAGE"; ValueData: "en-US"; Flags: uninsdeletekey
