@@ -6008,39 +6008,41 @@ def monitor_suricata_log():
             except Exception as ex:
                 logging.info(f"Error processing line: {ex}")
 
-def monitor_log_file(json_file_path: str):
-    """
-    Monitors the JSON event log file for new entries in real-time.
-    It reads new lines as they are appended to the file and processes them.
-
-    Args:
-        json_file_path (str): The path to the av_events.json file.
-    """
-    logging.info(f"Starting to monitor log file: {json_file_path}")
-
-    # Ensure the file exists before we start monitoring
-    if not os.path.exists(json_file_path):
-        # Create the file if it doesn't exist to prevent errors on startup
-        with open(json_file_path, 'w') as f:
-            logging.info(f"Log file not found. Created an empty file at: {json_file_path}")
-
-    # We start reading from the end of the file
-    last_position = os.path.getsize(json_file_path)
-
-    while True:
+class LogFileEventHandler(FileSystemEventHandler):
+    """Handles file system events for the log file."""
+    def __init__(self, filename):
+        self.filename = os.path.abspath(filename)
+        # Start reading from the end of the file.
         try:
-            current_position = os.path.getsize(json_file_path)
-            if current_position < last_position:
-                # This handles cases where the log file is rotated or cleared
-                logging.info("Log file has been reset. Starting from the beginning.")
-                last_position = 0
+            self.last_position = os.path.getsize(self.filename)
+        except FileNotFoundError:
+            self.last_position = 0
+        logging.info(f"Handler initialized for {self.filename}, starting at position {self.last_position}")
 
-            if current_position > last_position:
-                with open(json_file_path, 'r') as f:
-                    f.seek(last_position)
+    def on_modified(self, event):
+        """
+        Called when a file or directory is modified.
+        """
+        # We only care about modifications to our specific log file.
+        if event.src_path != self.filename:
+            return
+
+        try:
+            current_position = os.path.getsize(self.filename)
+
+            # Handle log rotation or truncation.
+            if current_position < self.last_position:
+                logging.info("Log file has been reset. Reading from the beginning.")
+                self.last_position = 0
+
+            # If the file has grown, read the new lines.
+            if current_position > self.last_position:
+                with open(self.filename, 'r', encoding='utf-8') as f:
+                    f.seek(self.last_position)
                     new_lines = f.readlines()
-                    last_position = f.tell() # Update position to the new end of the file
+                    self.last_position = f.tell()
 
+                # Process new lines after closing the file to release the lock.
                 for line in new_lines:
                     line = line.strip()
                     if not line:
@@ -6051,7 +6053,8 @@ def monitor_log_file(json_file_path: str):
                         file_path_to_scan = event_data.get("file_path")
 
                         if file_path_to_scan:
-                            logging.info(f"New event detected for process '{event_data.get('process_name')}'")
+                            process_name = event_data.get('process_name', 'N/A')
+                            logging.info(f"New event detected for process '{process_name}'")
                             scan_and_warn(file_path_to_scan)
                         else:
                             logging.warning("Found event log line without a 'file_path' key.")
@@ -6059,12 +6062,47 @@ def monitor_log_file(json_file_path: str):
                     except json.JSONDecodeError:
                         logging.error(f"Could not decode JSON from line: {line}")
                     except Exception as e:
-                        logging.error(f"An error occurred processing an event: {e}")
+                        logging.error(f"An error occurred while processing an event: {e}")
 
         except FileNotFoundError:
-            logging.error(f"Log file '{json_file_path}' not found. Waiting for it to be created...")
+             logging.error(f"Log file '{self.filename}' not found during modification check.")
+             self.last_position = 0 # Reset position for when it's recreated.
         except Exception as e:
-            logging.critical(f"A critical error occurred in the monitor loop: {e}")
+            logging.critical(f"A critical error occurred in the event handler: {e}")
+
+
+def monitor_log_file(json_file_path: str):
+    """
+    Monitors a JSON log file for new entries using file system events.
+    """
+    logging.info(f"Starting to monitor log file: {json_file_path}")
+
+    # Ensure the file and its directory exist before starting the observer.
+    log_dir = os.path.dirname(os.path.abspath(json_file_path))
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+        logging.info(f"Created directory: {log_dir}")
+
+    if not os.path.exists(json_file_path):
+        with open(json_file_path, 'w', encoding='utf-8'):
+            logging.info(f"Log file not found. Created an empty file at: {json_file_path}")
+
+    event_handler = LogFileEventHandler(json_file_path)
+    observer = Observer()
+    # We watch the directory containing the file, not the file itself.
+    observer.schedule(event_handler, log_dir, recursive=False)
+
+    logging.info(f"Observer started. Watching directory: '{log_dir}'")
+    observer.start()
+
+    try:
+        while True:
+            # Keep the main thread alive to allow the observer to run.
+            time.sleep(0)
+    except KeyboardInterrupt:
+        observer.stop()
+        logging.info("Observer stopped by user.")
+    observer.join()
 
 def remove_log_file(json_file_path: str):
     """
@@ -9743,7 +9781,6 @@ def _copy_to_dest(file_path, dest_root):
         dest_path = os.path.join(dest_root, rel_path)
     else:
         # File is not in sandboxie, create under main file folder
-        file_dir = os.path.dirname(file_path)
         file_name = os.path.basename(file_path)
         dest_path = os.path.join(dest_root, file_name)
 
