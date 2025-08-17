@@ -3738,8 +3738,8 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     else:
         return False, malware_definition, nearest_benign_similarity
 
-def restart_service(service_name):
-    """Restart a Windows service using native service management (no subprocess)."""
+def restart_service(service_name, stop_only=False):
+    """Restart or stop a Windows service using native service management."""
     try:
         # Check if service exists
         if not service_exists(service_name):
@@ -3757,6 +3757,10 @@ def restart_service(service_name):
                 return False
         else:
             logging.info(f"Service '{service_name}' is not running, skipping stop step.")
+
+        # If only stopping, return now
+        if stop_only:
+            return True
 
         # Start service
         logging.info(f"Starting service '{service_name}'...")
@@ -3776,7 +3780,7 @@ def restart_service(service_name):
             return False
 
     except Exception as ex:
-        logging.error(f"An error occurred while restarting service '{service_name}': {ex}")
+        logging.error(f"An error occurred while managing service '{service_name}': {ex}")
         return False
 
 def restart_clamd_threaded():
@@ -3791,34 +3795,39 @@ def restart_clamd_threaded():
             logging.error(f"Exception during ClamAV restart: {ex}")
 
     try:
-        threading.Thread(target=restart_clamd).start()
+        thread = threading.Thread(target=restart_clamd)
+        thread.start()
+        thread.join() # Wait for the thread to finish
     except Exception as ex:
         logging.error(f"Error starting restart thread for ClamAV: {ex}")
 
-def restart_owlyshield_threaded():
-    def restart_owlyshield():
+def restart_owlyshield_threaded(stop_only=False):
+    """Restart or stop Owlyshield services in a separate thread."""
+    def manage_owlyshield():
         try:
-            logging.info("Restarting Owly service...")
-            if restart_service('OwlyshieldRansomFilter'):
-                logging.info("OwlyshieldRansomFilter service restarted successfully.")
+            logging.info(f"{'Stopping' if stop_only else 'Restarting'} OwlyshieldRansomFilter service...")
+            if restart_service('OwlyshieldRansomFilter', stop_only=stop_only):
+                logging.info(f"OwlyshieldRansomFilter service {'stopped' if stop_only else 'restarted'} successfully.")
             else:
-                logging.error("OwlyshieldRansomFilter service restart failed.")
+                logging.error(f"OwlyshieldRansomFilter service {'stop' if stop_only else 'restart'} failed.")
         except Exception as ex:
-            logging.error(f"Exception during OwlyshieldRansomFilter restart: {ex}")
+            logging.error(f"Exception during OwlyshieldRansomFilter {'stop' if stop_only else 'restart'}: {ex}")
 
         try:
-            logging.info("Restarting Owlyshield Service...")
-            if restart_service('Owlyshield Service'):
-                logging.info("Owlyshield Service service restarted successfully.")
+            logging.info(f"{'Stopping' if stop_only else 'Restarting'} Owlyshield Service...")
+            if restart_service('Owlyshield Service', stop_only=stop_only):
+                logging.info(f"Owlyshield Service {'stopped' if stop_only else 'restarted'} successfully.")
             else:
-                logging.error("Owlyshield Service service restart failed.")
+                logging.error(f"Owlyshield Service {'stop' if stop_only else 'restart'} failed.")
         except Exception as ex:
-            logging.error(f"Exception during Owlyshield Service restart: {ex}")
+            logging.error(f"Exception during Owlyshield Service {'stop' if stop_only else 'restart'}: {ex}")
 
     try:
-        threading.Thread(target=restart_owlyshield).start()
+        thread = threading.Thread(target=manage_owlyshield)
+        thread.start()
+        thread.join()  # Wait for the thread to finish
     except Exception as ex:
-        logging.error(f"Error starting restart thread for Owlyshield: {ex}")
+        logging.error(f"Error starting thread for Owlyshield {'stop' if stop_only else 'restart'}: {ex}")
 
 def scan_file_with_clamd(file_path):
     """Scan file using clamd."""
@@ -12295,6 +12304,8 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
         def stop_callback():
             return stop_flag.is_set()
 
+        restart_owlyshield_threaded()
+
         threads_to_start = [
             (monitor_message.start_monitoring_threads,),
             (scan_and_warn, (main_dest,)),
@@ -13162,8 +13173,8 @@ class Worker(QThread):
             # Restart ClamAV
             self.output_signal.emit("[*] Restarting Owlyshield and ClamAV daemon...")
             restart_clamd_threaded()
-            restart_owlyshield_threaded()
-            self.output_signal.emit("[+] Owlyshield and ClamAV daemon restarted.")
+            restart_owlyshield_threaded(stop_only=True)
+            self.output_signal.emit("[+] Owlyshield stopped and ClamAV daemon restarted.")
 
             # Stop Suricata and cleanup logs
             self.output_signal.emit("[*] Step 1: Stopping Suricata and cleaning logs...")
