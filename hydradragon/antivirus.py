@@ -3779,8 +3779,8 @@ def restart_service(service_name):
         logging.error(f"An error occurred while restarting service '{service_name}': {ex}")
         return False
 
-def restart_clamd_and_owlyshield_threaded():
-    def restart_all():
+def restart_clamd_threaded():
+    def restart_clamd():
         try:
             logging.info("Restarting ClamAV service...")
             if restart_service('clamd'):
@@ -3790,6 +3790,13 @@ def restart_clamd_and_owlyshield_threaded():
         except Exception as ex:
             logging.error(f"Exception during ClamAV restart: {ex}")
 
+    try:
+        threading.Thread(target=restart_clamd).start()
+    except Exception as ex:
+        logging.error(f"Error starting restart thread for ClamAV: {ex}")
+
+def restart_owlyshield_threaded():
+    def restart_owlyshield():
         try:
             logging.info("Restarting Owly service...")
             if restart_service('OwlyshieldRansomFilter'):
@@ -3809,9 +3816,9 @@ def restart_clamd_and_owlyshield_threaded():
             logging.error(f"Exception during Owlyshield Service restart: {ex}")
 
     try:
-        threading.Thread(target=restart_all).start()
+        threading.Thread(target=restart_owlyshield).start()
     except Exception as ex:
-        logging.error(f"Error starting restart thread for ClamAV and Owlyshield: {ex}")
+        logging.error(f"Error starting restart thread for Owlyshield: {ex}")
 
 def scan_file_with_clamd(file_path):
     """Scan file using clamd."""
@@ -5991,7 +5998,7 @@ def monitor_suricata_log():
             except Exception as ex:
                 logging.info(f"Error processing line: {ex}")
 
-restart_clamd_and_owlyshield_threaded()
+restart_clamd_threaded()
 activate_uefi_drive() # Call the UEFI function
 load_website_data()
 load_antivirus_list()
@@ -12958,7 +12965,7 @@ class Worker(QThread):
                 # Using subprocess.run for simplicity. For real-time output, Popen is better.
                 result = subprocess.run([freshclam_path], capture_output=True, text=True, encoding="utf-8", errors="ignore")
                 if result.returncode == 0:
-                    restart_clamd_and_owlyshield_threaded()
+                    restart_clamd_threaded()
                     self.output_signal.emit("[+] Virus definitions updated successfully and ClamAV restarted.")
                     self.output_signal.emit(f"Output:\n{result.stdout}")
                 else:
@@ -13154,7 +13161,8 @@ class Worker(QThread):
         try:
             # Restart ClamAV
             self.output_signal.emit("[*] Restarting Owlyshield and ClamAV daemon...")
-            restart_clamd_and_owlyshield_threaded()
+            restart_clamd_threaded()
+            restart_owlyshield_threaded()
             self.output_signal.emit("[+] Owlyshield and ClamAV daemon restarted.")
 
             # Stop Suricata and cleanup logs
