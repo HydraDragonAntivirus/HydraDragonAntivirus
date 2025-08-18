@@ -10466,7 +10466,7 @@ def scan_and_warn(file_path,
 
         # Wait for dotnet analysis to complete (needed for obfuscation logic)
         for thread in analysis_threads:
-            if thread.target.__name__ == 'dotnet_analysis':
+            if thread.name == 'dotnet_analysis':
                 thread.join()
                 break
 
