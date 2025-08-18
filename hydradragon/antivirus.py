@@ -870,10 +870,6 @@ for make_directory in MANAGED_DIRECTORIES:
     except Exception as e:
         logging.error(f"Failed to create directory '{make_directory}': {e}")
 
-# Sandboxie folders
-os.makedirs(sandboxie_folder, exist_ok=True)
-os.makedirs(sandbox_system_root_directory, exist_ok=True)
-
 # Directory conditions and their corresponding logging messages
 DIRECTORY_MESSAGES = [
     (lambda fp: fp.startswith(pd64_extracted_dir), "Process Dump x64 output extracted."),
