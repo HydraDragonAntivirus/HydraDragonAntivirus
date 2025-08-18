@@ -11751,7 +11751,6 @@ def get_uia_text(hwnd):
     This function now returns a list of all unique, non-empty text strings found.
     """
     if not is_window_valid(hwnd):
-        logging.debug(f"HWND {hwnd} is not a valid window")
         return []
 
     try:
