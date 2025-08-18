@@ -96,16 +96,13 @@ See the [LICENSE](./LICENSE) file for more information.
 **Note 1:** 
 - You need to create a DefaultBox in Sandboxie by running it once with a random application.  Also, please clean the DefaultBox items each time you scan.
 
-**Note 2:** 
-- You must run ghidra before you run Hydra Dragon Antivirus. To run ghidra, simply open this file:  %ProgramFiles%\aHydraDragonAntivirus\hydradragon\ghidra\ghidraRun.bat
-
-**Note 3:**.
+**Note 2:**.
 - Allow Java on the Windows firewall, as it'll decompile the PE file.
 
-**Note 4:**
+**Note 3:**
 - If you find an issue, please create an issue. Antivirus software might be triggered by website signatures because they are not obfuscated, so exclude the `%ProgramFiles%\aHydraDragonAntivirus\hydradragon` folder. Please only use in a VM as you can only use this for deep analysis of a file. There is no fixed analysis time for a file.
 
-**Note 5:**
+**Note 4:**
 
 - https://github.com/icsharpcode/ILSpy
 - https://github.com/extremecoders-re/nuitka-extractor
@@ -135,40 +132,40 @@ See the [LICENSE](./LICENSE) file for more information.
 
 - I used these projects for EDR.
 
-**Note 6:**.
+**Note 5:**.
 - You will need an internet connection to install. It's not an offline installer.
 
-**Note 7:**
+**Note 6:**
 
 - Don't forget to do a clean up, as it takes up too much space while processing files against ransomware, etc. 
 - You need too much storage because it logs everything. 
 
-**Note 8:**
+**Note 7:**
 
 - I have collected every malicious IP, domain from the Internet. So there must be big false positives, but I handle them.
 
-**Note 9:**
+**Note 8:**
 - I added en_core_web_md manually to %ProgramFiles%\aHydraDragonAntivirus\hydradragon you can find the spacy path from codechecker\spacyfind.py but you need to rename en_core_web_md folder name which contains config.cfg for an example if version 3.7.1 then it contains a subfolder en_core_web_md.3.8.0 
 - Also you need run "spacy download en_core_web_md"
 
-**Note 10:**
+**Note 9:**
 
 - If you are testing a rootkit, please do not enable "bcdedit testsigning on" to run the rootkit on your machine for analysis. We will take care of that.
 
-**Note 11:**
+**Note 10:**
 - HiJackThis version: 3.4.0.17 Beta
 - HiJackThis source code: https://github.com/dragokas/hijackthis
 
-**Note 12:**
+**Note 11:**
 - HydraDragonAntivirusSandboxie vcpkg install commandds:
 - vcpkg install detours
 - vcpkg install libarchive
 - vcpkg integrate install
 
-**Note 13:**
+**Note 12:**
 - Inno Setup version 6.4.3
 
-**Note 14:**
+**Note 13:**
 - Surprisingly, when I dump the process using this method (with pymem and psutil), the GuLoader malware fails to detect the virtual machine and proceeds to install the malware as if it's running on a real system. It behaves just like it would on a physical machine. This is likely an unexpected anti-anti-VM side effect.
 
 - Tool used: https://github.com/glmcdona/Process-Dump/releases/tag/v2.1.1
