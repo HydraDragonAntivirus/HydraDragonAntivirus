@@ -19,7 +19,8 @@
 <img src="hydradragon/assets/HydraDragonAVGUI.png" width= 1080px>
 </p>
 
-Dynamic and Static Analysis with Sandboxie for Windows with EDR, ClamAV, YARA-X, my machine learning AI, Behaviour analysis, NLP-Based detection, website signatures, Ghidra, Suricata, SIGMA etc.
+## Description
+Dynamic and static analysis with Sandboxie for Windows, including EDR, ClamAV, YARA-X, custom machine learning AI, behavioral analysis, NLP-based detection, website signatures, Ghidra, Suricata, Sigma, and much more than you can imagine.
 
 ## License
 
