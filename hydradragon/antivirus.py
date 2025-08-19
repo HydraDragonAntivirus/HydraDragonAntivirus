@@ -190,6 +190,10 @@ from scapy.sendrecv import sniff
 logging.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import pythoncom
+logging.info(f"pythoncom module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 from comtypes.client import CreateObject, GetModule
 logging.info(f"comtypes.client.CreateObject, GetModule module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -11747,21 +11751,42 @@ def is_window_valid(hwnd):
 
 def get_uia_text(hwnd):
     """
-    Enhanced UI Automation text extraction with multiple pattern support.
+    Enhanced UI Automation text extraction with multiple pattern support and proper threading.
     This function now returns a list of all unique, non-empty text strings found.
     """
     if not is_window_valid(hwnd):
         return []
 
+    # Initialize COM for this thread
     try:
-        uiauto = CreateObject(UiaClient.CUIAutomation8)
+        pythoncom.CoInitialize()
+    except Exception as e:
+        logging.debug(f"COM already initialized or failed to initialize: {e}")
+
+    try:
+        return _extract_uia_text(hwnd)
+    finally:
+        # Clean up COM for this thread
+        try:
+            pythoncom.CoUninitialize()
+        except Exception as e:
+            logging.debug(f"COM cleanup failed: {e}")
+
+def _extract_uia_text(hwnd):
+    """Internal function to extract UI Automation text."""
+    try:
+        # Use late binding to avoid import issues
+        uiauto = CreateObject("UIAutomationCore.CUIAutomation")
     except Exception as coe:
         logging.error(f"Failed to create UI Automation object: {coe}")
         return []
 
     try:
         elem = uiauto.ElementFromHandle(hwnd)
-    except Exception:
+        if not elem:
+            return []
+    except Exception as e:
+        logging.debug(f"Failed to get element from handle {hwnd}: {e}")
         return []
 
     all_texts = []
@@ -11771,70 +11796,102 @@ def get_uia_text(hwnd):
         name = elem.CurrentName
         if name and name.strip():
             all_texts.append(name.strip())
-    except: pass
+    except Exception as e:
+        logging.debug(f"Failed to get CurrentName: {e}")
 
-    # 2. ValuePattern
+    # 2. ValuePattern (UIA_ValuePatternId = 10002)
     try:
-        vp = elem.GetCurrentPattern(UiaClient.UIA_ValuePatternId)
+        vp = elem.GetCurrentPattern(10002)  # UIA_ValuePatternId
         if vp:
             value = vp.CurrentValue
-            if value and value.strip():
-                all_texts.append(value.strip())
-    except: pass
+            if value and str(value).strip():
+                all_texts.append(str(value).strip())
+    except Exception as e:
+        logging.debug(f"Failed to get ValuePattern: {e}")
 
-    # 3. TextPattern
+    # 3. TextPattern (UIA_TextPatternId = 10014)
     try:
-        tp = elem.GetCurrentPattern(UiaClient.UIA_TextPatternId)
+        tp = elem.GetCurrentPattern(10014)  # UIA_TextPatternId
         if tp:
-            text = tp.DocumentRange.GetText(-1)
-            if text and text.strip():
-                all_texts.append(text.strip())
-    except: pass
+            doc_range = tp.DocumentRange
+            if doc_range:
+                text = doc_range.GetText(-1)
+                if text and text.strip():
+                    all_texts.append(text.strip())
+    except Exception as e:
+        logging.debug(f"Failed to get TextPattern: {e}")
 
-    # 4. LegacyIAccessiblePattern
+    # 4. LegacyIAccessiblePattern (UIA_LegacyIAccessiblePatternId = 10018)
     try:
-        lap = elem.GetCurrentPattern(UiaClient.UIA_LegacyIAccessiblePatternId)
+        lap = elem.GetCurrentPattern(10018)  # UIA_LegacyIAccessiblePatternId
         if lap:
-            if lap.CurrentName and lap.CurrentName.strip():
-                all_texts.append(lap.CurrentName.strip())
-            if lap.CurrentValue and lap.CurrentValue.strip():
-                all_texts.append(lap.CurrentValue.strip())
-    except: pass
+            if hasattr(lap, 'CurrentName') and lap.CurrentName:
+                name_val = lap.CurrentName.strip()
+                if name_val:
+                    all_texts.append(name_val)
+            if hasattr(lap, 'CurrentValue') and lap.CurrentValue:
+                value_val = str(lap.CurrentValue).strip()
+                if value_val:
+                    all_texts.append(value_val)
+    except Exception as e:
+        logging.debug(f"Failed to get LegacyIAccessiblePattern: {e}")
 
-    # 5. RangeValuePattern
+    # 5. RangeValuePattern (UIA_RangeValuePatternId = 10003)
     try:
-        rvp = elem.GetCurrentPattern(UiaClient.UIA_RangeValuePatternId)
-        if rvp:
+        rvp = elem.GetCurrentPattern(10003)  # UIA_RangeValuePatternId
+        if rvp and hasattr(rvp, 'CurrentValue'):
             value = str(rvp.CurrentValue)
-            if value:
+            if value and value != "None":
                 all_texts.append(value)
-    except: pass
+    except Exception as e:
+        logging.debug(f"Failed to get RangeValuePattern: {e}")
 
-    # 6. SelectionPattern
+    # 6. SelectionPattern (UIA_SelectionPatternId = 10001)
     try:
-        sp = elem.GetCurrentPattern(UiaClient.UIA_SelectionPatternId)
+        sp = elem.GetCurrentPattern(10001)  # UIA_SelectionPatternId
         if sp:
             selection = sp.GetCurrentSelection()
-            if selection and selection.Length > 0:
+            if selection and hasattr(selection, 'Length') and selection.Length > 0:
                 for i in range(selection.Length):
-                    item_name = selection.GetElement(i).CurrentName
-                    if item_name:
-                        all_texts.append(item_name.strip())
-    except: pass
+                    try:
+                        item = selection.GetElement(i)
+                        if item and item.CurrentName:
+                            item_name = item.CurrentName.strip()
+                            if item_name:
+                                all_texts.append(item_name)
+                    except Exception as e:
+                        logging.debug(f"Failed to get selection item {i}: {e}")
+    except Exception as e:
+        logging.debug(f"Failed to get SelectionPattern: {e}")
 
-    # 7. Child elements
+    # 7. Child elements (with limit to prevent excessive recursion)
     try:
         condition = uiauto.CreateTrueCondition()
-        child_elements = elem.FindAll(UiaClient.TreeScope_Children, condition)
-        if child_elements:
-            for i in range(child_elements.Length):
-                child_name = child_elements.GetElement(i).CurrentName
-                if child_name and child_name.strip():
-                    all_texts.append(child_name.strip())
-    except: pass
+        child_elements = elem.FindAll(2, condition)  # TreeScope_Children = 2
+        if child_elements and hasattr(child_elements, 'Length'):
+            # Limit to first 50 children to prevent performance issues
+            max_children = min(50, child_elements.Length)
+            for i in range(max_children):
+                try:
+                    child = child_elements.GetElement(i)
+                    if child and child.CurrentName:
+                        child_name = child.CurrentName.strip()
+                        if child_name and len(child_name) > 0:
+                            all_texts.append(child_name)
+                except Exception as e:
+                    logging.debug(f"Failed to get child element {i}: {e}")
+    except Exception as e:
+        logging.debug(f"Failed to get child elements: {e}")
 
-    # Return a list of unique texts found.
-    return list(dict.fromkeys(all_texts))
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_texts = []
+    for text in all_texts:
+        if text and text not in seen and len(text.strip()) > 0:
+            seen.add(text)
+            unique_texts.append(text)
+
+    return unique_texts
 
 # ----------------------------------------------------
 # Advanced enumeration-based capture
@@ -11845,7 +11902,6 @@ class MonitorMessageCommandLine:
         self._seen_texts = set()
         self.lock = threading.RLock()
         self.executor = ThreadPoolExecutor(max_workers=1000)
-        self.thread_pool = ThreadPoolExecutor(max_workers=1000)
         self._hooks = []
 
         # Store monitored paths
@@ -12026,49 +12082,52 @@ class MonitorMessageCommandLine:
     def find_and_process_windows(self):
         """
         Enumerate all top-level windows and process their text.
-        Saves either the original or preprocessed text to disk,
-        ensuring no duplicates via a thread-safe lock and in-memory set.
+        Uses a ThreadPoolExecutor to prevent unbounded thread creation.
         """
+
+        # Make sure executor is available
+        if not hasattr(self, "executor"):
+            self.executor = ThreadPoolExecutor(max_workers=1000)
+
+        def safe_run(fn, *args, **kwargs):
+            """Wrapper to catch & log exceptions inside executor threads."""
+            try:
+                fn(*args, **kwargs)
+            except Exception as e:
+                logging.exception(f"Thread {fn.__name__} failed: {e}")
+
         def process_text(hwnd, label, text, process_path, win_type):
             try:
                 # Build sanitized base filename
                 filename = process_path.split("\\")[-1] if process_path else "unknown"
                 base = sanitize_filename(filename) + f"_{label}"
 
-                # Preprocess and normalize text
+                # Preprocess + normalize
                 pre = self.preprocess_text(text)
                 def normalize(s): return ' '.join(s.strip().lower().split())
                 orig_norm = normalize(text)
                 pre_norm  = normalize(pre) if pre else ""
 
-                # In-memory dedupe key
+                # Dedup
                 key = orig_norm
                 with self.lock:
                     if key in self._seen_texts:
                         return
                     self._seen_texts.add(key)
 
-                # Thread-safe file choice and write
+                # File writing
                 with self.lock:
                     if pre and pre_norm != orig_norm:
                         fn = self.get_unique_filename(f"preprocessed_{base}")
                         with open(fn, "w", encoding="utf-8", errors="ignore") as f:
                             f.write(pre[:1_000_000])
-                        threading.Thread(
-                            target=scan_and_warn,
-                            args=(fn,),
-                            kwargs={"command_flag": False}
-                        ).start()
+                        self.executor.submit(safe_run, scan_and_warn, fn, command_flag=False)
 
                     elif orig_norm:
                         fn = self.get_unique_filename(f"original_{base}")
                         with open(fn, "w", encoding="utf-8", errors="ignore") as f:
                             f.write(text[:1_000_000])
-                        threading.Thread(
-                            target=scan_and_warn,
-                            args=(fn,),
-                            kwargs={"command_flag": False}
-                        ).start()
+                        self.executor.submit(safe_run, scan_and_warn, fn, command_flag=False)
 
             except Exception as e:
                 logging.error(
@@ -12085,51 +12144,37 @@ class MonitorMessageCommandLine:
             except Exception:
                 path = ""
 
-            # Define and start each extraction thread
             def process_win_text():
-                try:
-                    wt = get_window_text(hwnd) or ""
-                    if wt.strip():
-                        process_text(hwnd, "win_text", wt, path, win_type)
-                except Exception as e:
-                    logging.debug(f"process_win_text failed for {hwnd}: {e}")
+                wt = get_window_text(hwnd) or ""
+                if wt.strip():
+                    process_text(hwnd, "win_text", wt, path, win_type)
 
-            # Get ctrl_text directly and process immediately
             def process_ctrl_text():
-                try:
-                    ct = get_control_text(hwnd) or ""
-                    if ct.strip():
-                        process_text(hwnd, "ctrl_text", ct, path, win_type)
-                except Exception as e:
-                    logging.debug(f"process_ctrl_text failed for {hwnd}: {e}")
+                ct = get_control_text(hwnd) or ""
+                if ct.strip():
+                    process_text(hwnd, "ctrl_text", ct, path, win_type)
 
             def process_uia_texts():
-                try:
-                    for t in get_uia_text(hwnd):
-                        if t and t.strip():
-                            process_text(hwnd, "uia_text", t, path, win_type)
-                except Exception as e:
-                    logging.debug(f"process_uia_texts failed for {hwnd}: {e}")
+                for t in get_uia_text(hwnd):
+                    if t and t.strip():
+                        process_text(hwnd, "uia_text", t, path, win_type)
 
-            # Start all three in parallel threads - completely independent
-            threading.Thread(target=process_win_text).start()
-            threading.Thread(target=process_ctrl_text).start()
-            threading.Thread(target=process_uia_texts).start()
+            # Submit tasks to executor (not new raw threads)
+            self.executor.submit(safe_run, process_win_text)
+            self.executor.submit(safe_run, process_ctrl_text)
+            self.executor.submit(safe_run, process_uia_texts)
 
         def start_enum():
             try:
                 def enum_callback(hwnd, _):
-                    threading.Thread(
-                        target=handle_hwnd,
-                        args=(hwnd, "main_window")
-                    ).start()
+                    self.executor.submit(safe_run, handle_hwnd, hwnd, "main_window")
                     return True
                 win32gui.EnumWindows(enum_callback, None)
             except Exception as e:
                 logging.error(f"Failed during window enumeration: {e}")
 
         # Launch enumeration in background
-        threading.Thread(target=start_enum).start()
+        self.executor.submit(safe_run, start_enum)
 
     def monitoring_window_text(self):
         logging.info("Started window/control monitoring loop")
