@@ -121,6 +121,7 @@ See the [LICENSE](./LICENSE) file for more information.
 - https://github.com/lifenjoiner/ISx/releases/tag/v0.3.11
 - https://github.com/nazywam/AutoIt-Ripper
 - https://github.com/SychicBoy/NETReactorSlayer
+- https://github.com/Veysel072/VMPUnpacker
 
 - I used these projects to decompile (with a current custom database of Detect-It-Easy).
 
