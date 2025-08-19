@@ -190,10 +190,6 @@ from scapy.sendrecv import sniff
 logging.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import pythoncom
-logging.info(f"pythoncom module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 from comtypes.client import CreateObject, GetModule
 logging.info(f"comtypes.client.CreateObject, GetModule module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -457,6 +453,7 @@ extensions_path = os.path.join(known_extensions_dir, "extensions.txt")
 antivirus_process_list_path = os.path.join(known_extensions_dir, "antivirusprocesslist.txt")
 magic_bytes_path = os.path.join(known_extensions_dir, "magicbytes.txt")
 meta_llama_dir = os.path.join(script_dir, "meta_llama")
+vmprotect_unpacked_dir = os.path.join(script_dir, "vmprotect_unpacked")
 meta_llama_1b_dir = os.path.join(meta_llama_dir, "Llama-3.2-1B")
 python_source_code_dir = os.path.join(script_dir, "python_sourcecode")
 python_deobfuscated_dir = os.path.join(script_dir, "python_deobfuscated")
@@ -1026,7 +1023,7 @@ COMMON_DIRECTORIES = [
     pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir,
     resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir,
     upx_extracted_dir, installshield_extracted_dir, autoit_extracted_dir,
-    copied_sandbox_and_main_files_dir, decompiled_dir, capa_results_dir
+    copied_sandbox_and_main_files_dir, decompiled_dir, capa_results_dir, vmprotect_unpacked_dir,
 ]
 
 # Additional directories only in MANAGED_DIRECTORIES
@@ -1092,6 +1089,7 @@ DIRECTORY_MESSAGES = [
     (lambda fp: fp.startswith(jar_extracted_dir), "It's a directory containing extracted files from a JAR (Java Archive) file."),
     (lambda fp: fp.startswith(FernFlower_decompiled_dir), "It's a directory containing decompiled files from a JAR (Java Archive) file, decompiled using Fernflower decompiler."),
     (lambda fp: fp.startswith(pylingual_extracted_dir), "It's a .pyc (Python Compiled Module) reversed-engineered Python source code directory with pylingual."),
+    (lambda fp: fp.startswith(vmprotect_unpacked_dir), "It's a VMProtect unpacked directory."),
     (lambda fp: fp.startswith(python_deobfuscated_dir), "It's an unobfuscated Python directory."),
     (lambda fp: fp.startswith(python_deobfuscated_marshal_pyc_dir), "It's a deobfuscated .pyc (Python Compiled Module) from marshal data."),
     (lambda fp: fp.startswith(python_deobfuscated_sandboxie_dir), "It's an unobfuscated Python directory within Sandboxie."),
@@ -4563,27 +4561,32 @@ def scan_yara(file_path):
 
             return match_info
 
-        # compiled_rule (regular YARA)
+        # compiled_rule scanning
         try:
             if compiled_rule:
                 matches = compiled_rule.match(data=data_content)
                 for match in matches or []:
-                    # Append matched rules only if not excluded
                     if match.rule not in excluded_rules:
                         matched_rules.append(match.rule)
                         match_details = extract_match_details(match, 'compiled_rule')
                         matched_results.append(match_details)
-                    else:
-                        logging.info(f"Rule {match.rule} is excluded from compiled_rule.")
 
-                    # Always perform VMProtect unpacking if matched
+                    # VMProtect unpacking
                     if match.rule == "INDICATOR_EXE_Packed_VMProtect":
                         try:
                             with open(file_path, 'rb') as f:
                                 packed_data = f.read()
                             unpacked_data = unpack_pe(packed_data)
                             if unpacked_data:
-                                scan_and_warn(unpacked_data)
+                                base_name, ext = os.path.splitext(os.path.basename(file_path))
+                                unpacked_name = f"{base_name}_vmprotect_unpacked{ext}"
+                                unpacked_path = os.path.join(vmprotect_unpacked_dir, unpacked_name)
+
+                                with open(unpacked_path, 'wb') as f:
+                                    f.write(unpacked_data)
+
+                                vmprotect_unpacked_file = unpacked_path  # save path for return
+                                logging.info(f"VMProtect unpacked successfully: {unpacked_path}")
                         except Exception as e:
                             logging.error(f"Error unpacking after VMProtect indicator: {e}")
             else:
@@ -4659,11 +4662,12 @@ def scan_yara(file_path):
             logging.error(f"Error scanning with yaraxtr_rule: {e}")
 
         return (matched_rules if matched_rules else None,
-                matched_results if matched_results else None)
+                matched_results if matched_results else None,
+                vmprotect_unpacked_file)
 
     except Exception as ex:
         logging.error(f"An error occurred during YARA scan: {ex}")
-        return None, None
+        return None, None, None
 
 def detect_etw_tampering_sandbox(moved_sandboxed_ntdll_path):
     """
@@ -5850,12 +5854,12 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
 
         # Scan with YARA
         try:
-            yara_match, yara_result = scan_yara(file_path)
+            yara_match, yara_result, vmprotect_unpacked_path = scan_yara(file_path)
             if yara_match is not None and yara_match not in ("Clean", ""):
                 if signature_check["is_valid"]:
                     yara_match = yara_match + ".SIG"
                 logging.critical(f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}")
-                return True, yara_match, "YARA"
+                return True, yara_match, "YARA", vmprotect_unpacked_path
             logging.info(f"Scanned file with YARA: {file_path} - No viruses detected")
         except Exception as ex:
             logging.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {ex}")
@@ -5915,7 +5919,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
     except Exception as ex:
         logging.error(f"An error occurred while scanning file: {file_path}. Error: {ex}")
 
-    return False, "Clean", ""  # Default to clean if no malware found
+    return False, "Clean", "", None  # Default to clean if no malware found
 
 # Read the file and store the names in a list (ignoring empty lines)
 with open(system_file_names_path, "r") as f:
@@ -6197,121 +6201,6 @@ def monitor_suricata_log():
 
             except Exception as ex:
                 logging.info(f"Error processing line: {ex}")
-
-class LogFileEventHandler(FileSystemEventHandler):
-    """Handles file system events for the log file."""
-    def __init__(self, filename):
-        self.filename = os.path.abspath(filename)
-        # Start reading from the end of the file.
-        try:
-            self.last_position = os.path.getsize(self.filename)
-        except FileNotFoundError:
-            self.last_position = 0
-        logging.info(f"Handler initialized for {self.filename}, starting at position {self.last_position}")
-
-    def on_modified(self, event):
-        """
-        Called when a file or directory is modified.
-        """
-        # We only care about modifications to our specific log file.
-        if event.src_path != self.filename:
-            return
-
-        try:
-            current_position = os.path.getsize(self.filename)
-
-            # Handle log rotation or truncation.
-            if current_position < self.last_position:
-                logging.info("Log file has been reset. Reading from the beginning.")
-                self.last_position = 0
-
-            # If the file has grown, read the new lines.
-            if current_position > self.last_position:
-                with open(self.filename, 'r', encoding='utf-8') as f:
-                    f.seek(self.last_position)
-                    new_lines = f.readlines()
-                    self.last_position = f.tell()
-
-                # Process new lines after closing the file to release the lock.
-                for line in new_lines:
-                    line = line.strip()
-                    if not line:
-                        continue
-
-                    try:
-                        event_data = json.loads(line)
-                        file_path_to_scan = event_data.get("file_path")
-
-                        if file_path_to_scan:
-                            process_name = event_data.get('process_name', 'N/A')
-                            logging.info(f"New event detected for process '{process_name}'")
-                            scan_and_warn(file_path_to_scan)
-                        else:
-                            logging.error("Found event log line without a 'file_path' key.")
-
-                    except json.JSONDecodeError:
-                        logging.error(f"Could not decode JSON from line: {line}")
-                    except Exception as e:
-                        logging.error(f"An error occurred while processing an event: {e}")
-
-        except FileNotFoundError:
-             logging.error(f"Log file '{self.filename}' not found during modification check.")
-             self.last_position = 0 # Reset position for when it's recreated.
-        except Exception as e:
-            logging.error(f"A critical error occurred in the event handler: {e}")
-
-
-def monitor_log_file(json_file_path: str):
-    """
-    Monitors a JSON log file for new entries using file system events.
-    """
-    logging.info(f"Starting to monitor log file: {json_file_path}")
-
-    # Ensure the file and its directory exist before starting the observer.
-    log_dir = os.path.dirname(os.path.abspath(json_file_path))
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-        logging.info(f"Created directory: {log_dir}")
-
-    if not os.path.exists(json_file_path):
-        with open(json_file_path, 'w', encoding='utf-8'):
-            logging.info(f"Log file not found. Created an empty file at: {json_file_path}")
-
-    event_handler = LogFileEventHandler(json_file_path)
-    observer = Observer()
-    # We watch the directory containing the file, not the file itself.
-    observer.schedule(event_handler, log_dir, recursive=False)
-
-    logging.info(f"Observer started. Watching directory: '{log_dir}'")
-    observer.start()
-
-    try:
-        while True:
-            # Keep the main thread alive to allow the observer to run.
-            time.sleep(0)
-    except KeyboardInterrupt:
-        observer.stop()
-        logging.info("Observer stopped by user.")
-    observer.join()
-
-def remove_log_file(json_file_path: str):
-    """
-    Removes the specified log file if it exists.
-
-    Args:
-        json_file_path (str): The path to the av_events.json file to be removed.
-    """
-    logging.info("Owlyshield has stopped. Cleaning up event file.")
-    try:
-        if os.path.exists(json_file_path):
-            os.remove(json_file_path)
-            logging.info(f"Successfully removed log file: {json_file_path}")
-        else:
-            logging.error(f"Log file not found, nothing to remove: {json_file_path}")
-    except OSError as e:
-        logging.error(f"Error removing file {json_file_path}: {e}")
-    except Exception as e:
-        logging.error(f"An unexpected error occurred during file removal: {e}")
 
 restart_clamd_threaded()
 activate_uefi_drive() # Call the UEFI function
@@ -10119,6 +10008,53 @@ def show_code_with_pylingual_pycdas(
         logging.error(f"Unexpected error in show_code_with_pylingual_pycdas for {file_path}: {ex}")
         return None, None
 
+def run_themida_unlicense(file_path, x64=False):
+    """
+    Runs Themida/WinLicense unpacker inside Sandboxie.
+    Uses unlicense.exe (x86) or unlicense-x64.exe (x64) based on arch.
+    The unpacker creates a new file with 'unpacked_' prefix in the same directory.
+    """
+    if not os.path.isfile(file_path):
+        logging.error(f"Invalid input file: {file_path}")
+        return None
+
+    # choose correct unpacker
+    unpacker = unlicense_x64_path if x64 else unlicense_path
+    if not os.path.isfile(unpacker):
+        logging.error(f"Unpacker not found: {unpacker}")
+        return None
+
+    # build Sandboxie command
+    HydraDragonAntivirus_sandboxie_path = get_sandbox_path(script_dir)
+    cmd = [
+        HydraDragonAntivirus_sandboxie_path,
+        "/box:DefaultBox",
+        "/elevate",
+        unpacker,
+        file_path
+    ]
+
+    try:
+        subprocess.run(cmd, check=True, encoding="utf-8", errors="ignore")
+        logging.info(f"Unlicense unpacking succeeded for {file_path} in sandbox DefaultBox")
+
+        # Construct expected unpacked filename
+        unpacked_path = os.path.join(
+            os.path.dirname(file_path),
+            "unpacked_" + os.path.basename(file_path)
+        )
+
+        if os.path.isfile(unpacked_path):
+            logging.info(f"Unpacked file created: {unpacked_path}")
+            return unpacked_path
+        else:
+            logging.error(f"Unpacker finished but no unpacked file found for {file_path}")
+            return None
+
+    except subprocess.CalledProcessError as ex:
+        logging.error(f"Failed to run unlicense on {file_path} in sandbox DefaultBox: {ex}")
+        return None
+
 # --- Main Scanning Function ---
 @run_in_thread
 def scan_and_warn(file_path,
@@ -10856,7 +10792,7 @@ def scan_and_warn(file_path,
         # Real-time malware scan thread (CPU intensive)
         def realtime_malware_thread():
             try:
-                is_malicious, virus_names, engine_detected = scan_file_real_time(
+                is_malicious, virus_names, engine_detected, vmprotect_unpacked_path = scan_file_real_time(
                     norm_path, signature_check, file_name, die_output, pe_file=pe_file)
 
                 if is_malicious:
@@ -10867,6 +10803,8 @@ def scan_and_warn(file_path,
                         threading.Thread(target=notify_user_pua, args=(norm_path, virus_name, engine_detected)).start()
                     else:
                         threading.Thread(target=notify_user, args=(norm_path, virus_name, engine_detected)).start()
+                if vmprotect_unpacked_path:
+                    threading.Thread(target=scan_and_warn, args=(vmprotect_unpacked_path,)).start()
             except Exception as e:
                 logging.error(f"Error in real-time malware scan for {norm_path}: {e}")
 
@@ -10921,6 +10859,122 @@ def scan_and_warn(file_path,
     except Exception as ex:
         logging.error(f"Error scanning file {norm_path}: {ex}")
         return False
+
+
+class LogFileEventHandler(FileSystemEventHandler):
+    """Handles file system events for the log file."""
+    def __init__(self, filename):
+        self.filename = os.path.abspath(filename)
+        # Start reading from the end of the file.
+        try:
+            self.last_position = os.path.getsize(self.filename)
+        except FileNotFoundError:
+            self.last_position = 0
+        logging.info(f"Handler initialized for {self.filename}, starting at position {self.last_position}")
+
+    def on_modified(self, event):
+        """
+        Called when a file or directory is modified.
+        """
+        # We only care about modifications to our specific log file.
+        if event.src_path != self.filename:
+            return
+
+        try:
+            current_position = os.path.getsize(self.filename)
+
+            # Handle log rotation or truncation.
+            if current_position < self.last_position:
+                logging.info("Log file has been reset. Reading from the beginning.")
+                self.last_position = 0
+
+            # If the file has grown, read the new lines.
+            if current_position > self.last_position:
+                with open(self.filename, 'r', encoding='utf-8') as f:
+                    f.seek(self.last_position)
+                    new_lines = f.readlines()
+                    self.last_position = f.tell()
+
+                # Process new lines after closing the file to release the lock.
+                for line in new_lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    try:
+                        event_data = json.loads(line)
+                        file_path_to_scan = event_data.get("file_path")
+
+                        if file_path_to_scan:
+                            process_name = event_data.get('process_name', 'N/A')
+                            logging.info(f"New event detected for process '{process_name}'")
+                            scan_and_warn(file_path_to_scan)
+                        else:
+                            logging.error("Found event log line without a 'file_path' key.")
+
+                    except json.JSONDecodeError:
+                        logging.error(f"Could not decode JSON from line: {line}")
+                    except Exception as e:
+                        logging.error(f"An error occurred while processing an event: {e}")
+
+        except FileNotFoundError:
+             logging.error(f"Log file '{self.filename}' not found during modification check.")
+             self.last_position = 0 # Reset position for when it's recreated.
+        except Exception as e:
+            logging.error(f"A critical error occurred in the event handler: {e}")
+
+
+def monitor_log_file(json_file_path: str):
+    """
+    Monitors a JSON log file for new entries using file system events.
+    """
+    logging.info(f"Starting to monitor log file: {json_file_path}")
+
+    # Ensure the file and its directory exist before starting the observer.
+    log_dir = os.path.dirname(os.path.abspath(json_file_path))
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+        logging.info(f"Created directory: {log_dir}")
+
+    if not os.path.exists(json_file_path):
+        with open(json_file_path, 'w', encoding='utf-8'):
+            logging.info(f"Log file not found. Created an empty file at: {json_file_path}")
+
+    event_handler = LogFileEventHandler(json_file_path)
+    observer = Observer()
+    # We watch the directory containing the file, not the file itself.
+    observer.schedule(event_handler, log_dir, recursive=False)
+
+    logging.info(f"Observer started. Watching directory: '{log_dir}'")
+    observer.start()
+
+    try:
+        while True:
+            # Keep the main thread alive to allow the observer to run.
+            time.sleep(0)
+    except KeyboardInterrupt:
+        observer.stop()
+        logging.info("Observer stopped by user.")
+    observer.join()
+
+def remove_log_file(json_file_path: str):
+    """
+    Removes the specified log file if it exists.
+
+    Args:
+        json_file_path (str): The path to the av_events.json file to be removed.
+    """
+    logging.info("Owlyshield has stopped. Cleaning up event file.")
+    try:
+        if os.path.exists(json_file_path):
+            os.remove(json_file_path)
+            logging.info(f"Successfully removed log file: {json_file_path}")
+        else:
+            logging.error(f"Log file not found, nothing to remove: {json_file_path}")
+    except OSError as e:
+        logging.error(f"Error removing file {json_file_path}: {e}")
+    except Exception as e:
+        logging.error(f"An unexpected error occurred during file removal: {e}")
 
 def analyze_specific_process(process_name_or_path: str, memory_dir: str, pd64_extracted_dir: str) -> Optional[str]:
     """
@@ -11256,7 +11310,7 @@ class SafeProcessMonitor:
         except Exception as e:
             logging.error(f"Scan and warn failed for {result_file}: {e}")
 
-    def request_stop(self) -> None:
+    def request_monitor_stop(self) -> None:
         """Request graceful shutdown of the monitor"""
         logging.info("Memory monitor stop requested")
         self._stop_requested.set()
@@ -11353,14 +11407,14 @@ def monitor_memory_changes(
     monitor = SafeProcessMonitor(sandboxie_folder, main_file_path)
 
     # Set up stop callback integration
-    def check_stop():
+    def check_stop_callback():
         return monitor._stop_requested.is_set() or (stop_callback and stop_callback())
 
     try:
         # Start monitoring in a separate thread if stop_callback is provided
         if stop_callback:
             def monitor_with_callback():
-                while not check_stop():
+                while not check_stop_callback():
                     try:
                         monitor.monitor_processes(
                             change_threshold_bytes,
@@ -11370,7 +11424,7 @@ def monitor_memory_changes(
                         )
                         break  # Normal exit
                     except Exception as e:
-                        if not check_stop():
+                        if not check_stop_callback():
                             logging.error(f"Monitor restarting due to error: {e}")
                             time.sleep(1)
                         break
@@ -11380,11 +11434,11 @@ def monitor_memory_changes(
             monitor_thread.start()
 
             # Wait for stop condition or thread completion
-            while monitor_thread.is_alive() and not check_stop():
+            while monitor_thread.is_alive() and not check_stop_callback():
                 time.sleep(0.1)
 
             if monitor_thread.is_alive():
-                monitor.request_stop()
+                monitor.request_monitor_stop()
                 monitor_thread.join(timeout=30)
         else:
             # Run directly in current thread
@@ -11392,10 +11446,10 @@ def monitor_memory_changes(
 
     except KeyboardInterrupt:
         logging.info("Memory monitoring interrupted")
-        monitor.request_stop()
+        monitor.request_monitor_stop()
     except Exception as e:
         logging.error(f"Memory monitoring failed: {e}")
-        monitor.request_stop()
+        monitor.request_monitor_stop()
         raise
     finally:
         monitor.cleanup()
@@ -11940,149 +11994,198 @@ def find_child_windows(parent_hwnd):
 def is_window_valid(hwnd):
     return bool(user32.IsWindow(hwnd))
 
-def get_uia_text(hwnd):
-    """
-    Enhanced UI Automation text extraction with multiple pattern support and proper threading.
-    This function now returns a list of all unique, non-empty text strings found.
-    """
-    if not is_window_valid(hwnd):
-        return []
-
-    # Initialize COM for this thread
+# --- UIA loader (ensures type library is generated before import) ---
+def _load_uia_types():
     try:
-        pythoncom.CoInitialize()
+        # Ensures comtypes generates UIA interfaces from the type library
+        comtypes.client.GetModule("UIAutomationCore.dll")
+    except Exception:
+        # If generation failed, we'll still try the import below
+        pass
+    try:
+        from comtypes.gen import UIAutomationClient  # type: ignore
+        return UIAutomationClient
     except Exception as e:
-        logging.debug(f"COM already initialized or failed to initialize: {e}")
+        logging.error("Failed to load UIAutomationClient types: %s", e, exc_info=True)
+        return None
 
+def _extract_uia_text(hwnd: int, uia, UIA):
+    """Internal: Extract UIA text with robust error handling and no pythoncom."""
     try:
-        return _extract_uia_text(hwnd)
-    finally:
-        # Clean up COM for this thread
         try:
-            pythoncom.CoUninitialize()
+            elem = uia.ElementFromHandle(hwnd)
+            if not elem:
+                return []
         except Exception as e:
-            logging.debug(f"COM cleanup failed: {e}")
-
-def _extract_uia_text(hwnd):
-    """Internal function to extract UI Automation text."""
-    try:
-        # Use late binding to avoid import issues
-        uiauto = CreateObject("UIAutomationCore.CUIAutomation")
-    except Exception as coe:
-        logging.error(f"Failed to create UI Automation object: {coe}")
-        return []
-
-    try:
-        elem = uiauto.ElementFromHandle(hwnd)
-        if not elem:
+            logging.debug("Failed to get element from handle %s: %s", hwnd, e)
             return []
+
+        all_texts = []
+
+        # Helper to cast patterns safely
+        def _get_pattern(element, pattern_id, iface):
+            try:
+                unk = element.GetCurrentPattern(pattern_id)
+                if not unk:
+                    return None
+                return cast(unk, POINTER(iface))
+            except Exception:
+                return None
+
+        # 1) CurrentName
+        try:
+            name = elem.CurrentName
+            if name and name.strip():
+                all_texts.append(name.strip())
+        except Exception as e:
+            logging.debug("Failed to get CurrentName: %s", e)
+
+        # 2) ValuePattern
+        try:
+            vp = _get_pattern(elem, UIA.UIA_ValuePatternId, UIA.IUIAutomationValuePattern)
+            if vp:
+                value = vp.CurrentValue
+                if value is not None:
+                    s = str(value).strip()
+                    if s:
+                        all_texts.append(s)
+        except Exception as e:
+            logging.debug("Failed to get ValuePattern: %s", e)
+
+        # 3) TextPattern
+        try:
+            tp = _get_pattern(elem, UIA.UIA_TextPatternId, UIA.IUIAutomationTextPattern)
+            if tp:
+                doc_range = tp.DocumentRange
+                if doc_range:
+                    text = doc_range.GetText(-1)
+                    if text:
+                        s = text.strip()
+                        if s:
+                            all_texts.append(s)
+        except Exception as e:
+            logging.debug("Failed to get TextPattern: %s", e)
+
+        # 4) LegacyIAccessiblePattern
+        try:
+            lap = _get_pattern(elem, UIA.UIA_LegacyIAccessiblePatternId, UIA.IUIAutomationLegacyIAccessiblePattern)
+            if lap:
+                try:
+                    n = lap.CurrentName
+                    if n:
+                        s = n.strip()
+                        if s:
+                            all_texts.append(s)
+                except Exception:
+                    pass
+                try:
+                    v = lap.CurrentValue
+                    if v is not None:
+                        s = str(v).strip()
+                        if s:
+                            all_texts.append(s)
+                except Exception:
+                    pass
+        except Exception as e:
+            logging.debug("Failed to get LegacyIAccessiblePattern: %s", e)
+
+        # 5) RangeValuePattern
+        try:
+            rvp = _get_pattern(elem, UIA.UIA_RangeValuePatternId, UIA.IUIAutomationRangeValuePattern)
+            if rvp:
+                try:
+                    v = rvp.CurrentValue
+                    if v is not None:
+                        s = str(v).strip()
+                        if s and s.lower() != "none":
+                            all_texts.append(s)
+                except Exception:
+                    pass
+        except Exception as e:
+            logging.debug("Failed to get RangeValuePattern: %s", e)
+
+        # 6) SelectionPattern
+        try:
+            sp = _get_pattern(elem, UIA.UIA_SelectionPatternId, UIA.IUIAutomationSelectionPattern)
+            if sp:
+                try:
+                    selection = sp.GetCurrentSelection()
+                    if selection and getattr(selection, "Length", 0) > 0:
+                        for i in range(selection.Length):
+                            try:
+                                item = selection.GetElement(i)
+                                if item:
+                                    nm = item.CurrentName
+                                    if nm:
+                                        s = nm.strip()
+                                        if s:
+                                            all_texts.append(s)
+                            except Exception as e:
+                                logging.debug("Failed to get selection item %s: %s", i, e)
+                except Exception as e:
+                    logging.debug("SelectionPattern GetCurrentSelection failed: %s", e)
+        except Exception as e:
+            logging.debug("Failed to get SelectionPattern: %s", e)
+
+        # 7) Child elements (limit to 50)
+        try:
+            condition = uia.CreateTrueCondition()
+            children = elem.FindAll(UIA.TreeScope_Children, condition)
+            if children and hasattr(children, "Length"):
+                max_children = min(50, children.Length)
+                for i in range(max_children):
+                    try:
+                        child = children.GetElement(i)
+                        if child:
+                            cn = child.CurrentName
+                            if cn:
+                                s = cn.strip()
+                                if s:
+                                    all_texts.append(s)
+                    except Exception as e:
+                        logging.debug("Failed to get child element %s: %s", i, e)
+        except Exception as e:
+            logging.debug("Failed to enumerate child elements: %s", e)
+
+        # Deduplicate while preserving order
+        seen = set()
+        unique = []
+        for t in all_texts:
+            try:
+                if t and t not in seen:
+                    seen.add(t)
+                    unique.append(t)
+            except Exception:
+                continue
+
+        return unique
     except Exception as e:
-        logging.debug(f"Failed to get element from handle {hwnd}: {e}")
+        logging.error("_extract_uia_text failed: %s", e, exc_info=True)
         return []
 
-    all_texts = []
-
-    # 1. CurrentName
+def get_uia_text(hwnd: int):
+    """Public API: returns list of unique, non-empty text strings for a window handle."""
     try:
-        name = elem.CurrentName
-        if name and name.strip():
-            all_texts.append(name.strip())
+        if not is_window_valid(hwnd):
+            return []
+
+        UIA = _load_uia_types()
+        if UIA is None:
+            return []
+
+        try:
+            uia = comtypes.client.CreateObject(
+                "UIAutomationClient.CUIAutomation",
+                interface=UIA.IUIAutomation
+            )
+        except Exception as e:
+            logging.error("Failed to create UI Automation object: %s", e, exc_info=True)
+            return []
+
+        return _extract_uia_text(hwnd, uia, UIA)
     except Exception as e:
-        logging.debug(f"Failed to get CurrentName: {e}")
-
-    # 2. ValuePattern (UIA_ValuePatternId = 10002)
-    try:
-        vp = elem.GetCurrentPattern(10002)  # UIA_ValuePatternId
-        if vp:
-            value = vp.CurrentValue
-            if value and str(value).strip():
-                all_texts.append(str(value).strip())
-    except Exception as e:
-        logging.debug(f"Failed to get ValuePattern: {e}")
-
-    # 3. TextPattern (UIA_TextPatternId = 10014)
-    try:
-        tp = elem.GetCurrentPattern(10014)  # UIA_TextPatternId
-        if tp:
-            doc_range = tp.DocumentRange
-            if doc_range:
-                text = doc_range.GetText(-1)
-                if text and text.strip():
-                    all_texts.append(text.strip())
-    except Exception as e:
-        logging.debug(f"Failed to get TextPattern: {e}")
-
-    # 4. LegacyIAccessiblePattern (UIA_LegacyIAccessiblePatternId = 10018)
-    try:
-        lap = elem.GetCurrentPattern(10018)  # UIA_LegacyIAccessiblePatternId
-        if lap:
-            if hasattr(lap, 'CurrentName') and lap.CurrentName:
-                name_val = lap.CurrentName.strip()
-                if name_val:
-                    all_texts.append(name_val)
-            if hasattr(lap, 'CurrentValue') and lap.CurrentValue:
-                value_val = str(lap.CurrentValue).strip()
-                if value_val:
-                    all_texts.append(value_val)
-    except Exception as e:
-        logging.debug(f"Failed to get LegacyIAccessiblePattern: {e}")
-
-    # 5. RangeValuePattern (UIA_RangeValuePatternId = 10003)
-    try:
-        rvp = elem.GetCurrentPattern(10003)  # UIA_RangeValuePatternId
-        if rvp and hasattr(rvp, 'CurrentValue'):
-            value = str(rvp.CurrentValue)
-            if value and value != "None":
-                all_texts.append(value)
-    except Exception as e:
-        logging.debug(f"Failed to get RangeValuePattern: {e}")
-
-    # 6. SelectionPattern (UIA_SelectionPatternId = 10001)
-    try:
-        sp = elem.GetCurrentPattern(10001)  # UIA_SelectionPatternId
-        if sp:
-            selection = sp.GetCurrentSelection()
-            if selection and hasattr(selection, 'Length') and selection.Length > 0:
-                for i in range(selection.Length):
-                    try:
-                        item = selection.GetElement(i)
-                        if item and item.CurrentName:
-                            item_name = item.CurrentName.strip()
-                            if item_name:
-                                all_texts.append(item_name)
-                    except Exception as e:
-                        logging.debug(f"Failed to get selection item {i}: {e}")
-    except Exception as e:
-        logging.debug(f"Failed to get SelectionPattern: {e}")
-
-    # 7. Child elements (with limit to prevent excessive recursion)
-    try:
-        condition = uiauto.CreateTrueCondition()
-        child_elements = elem.FindAll(2, condition)  # TreeScope_Children = 2
-        if child_elements and hasattr(child_elements, 'Length'):
-            # Limit to first 50 children to prevent performance issues
-            max_children = min(50, child_elements.Length)
-            for i in range(max_children):
-                try:
-                    child = child_elements.GetElement(i)
-                    if child and child.CurrentName:
-                        child_name = child.CurrentName.strip()
-                        if child_name and len(child_name) > 0:
-                            all_texts.append(child_name)
-                except Exception as e:
-                    logging.debug(f"Failed to get child element {i}: {e}")
-    except Exception as e:
-        logging.debug(f"Failed to get child elements: {e}")
-
-    # Remove duplicates while preserving order
-    seen = set()
-    unique_texts = []
-    for text in all_texts:
-        if text and text not in seen and len(text.strip()) > 0:
-            seen.add(text)
-            unique_texts.append(text)
-
-    return unique_texts
+        logging.error("get_uia_text failed: %s", e, exc_info=True)
+        return []
 
 # ----------------------------------------------------
 # Advanced enumeration-based capture
@@ -12594,6 +12697,16 @@ def terminate_analysis_threads_immediately():
     else:
         logging.info("All analysis threads have been terminated.")
 
+def windows_yield_cpu():
+    """Windows-specific CPU yielding using SwitchToThread()"""
+    ctypes.windll.kernel32.SwitchToThread()
+
+def periodic_yield_worker(stop_event, yield_interval=0.1):
+    """Background thread that yields CPU periodically until analysis finishes"""
+    while not stop_event.is_set():
+        windows_yield_cpu()
+        time.sleep(yield_interval)
+
 def perform_sandbox_analysis(file_path, stop_callback=None):
     global main_file_path
     global monitor_message
@@ -12709,6 +12822,59 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
         logging.error(error_message)
         return error_message
 
+def run_analysis_with_yield(file_path: str, stop_callback=None):
+    """
+    This function mirrors the original AnalysisThread.execute_analysis method.
+    It logs the file path, performs the sandbox analysis, and handles any exceptions.
+    Now supports a stop_callback to allow graceful interruption with Windows CPU yielding.
+    Runs a background thread that periodically yields CPU during analysis.
+    """
+    # Create stop event for background yielding thread
+    yield_stop_event = threading.Event()
+
+    # Start background yielding thread
+    yield_thread = threading.Thread(target=periodic_yield_worker, args=(yield_stop_event, 0.1))
+    yield_thread.daemon = True
+    yield_thread.start()
+
+    try:
+        logging.info(f"Running analysis for: {file_path}")
+
+        # Check for stop request before starting
+        if stop_callback and stop_callback():
+            return "[!] Analysis stopped by user request"
+
+        # Let Qt process events before heavy work
+        QApplication.processEvents()
+        windows_yield_cpu()
+
+        # Perform the sandbox analysis with stop checking
+        result = perform_sandbox_analysis(file_path, stop_callback=stop_callback)
+
+        # Let Qt process events after heavy work
+        QApplication.processEvents()
+        windows_yield_cpu()
+
+        # Check for stop request after analysis
+        if stop_callback and stop_callback():
+            return "[!] Analysis stopped by user request"
+
+        return result if result else "[+] Analysis completed successfully"
+
+    except Exception as ex:
+        # Check if the exception was due to a stop request
+        if stop_callback and stop_callback():
+            return "[!] Analysis stopped by user request"
+
+        error_message = f"An error occurred during sandbox analysis: {ex}"
+        logging.error(error_message)
+        return error_message
+
+    finally:
+        # Stop the background yielding thread
+        yield_stop_event.set()
+        yield_thread.join(timeout=1.0)  # Wait max 1 second for thread to finish
+
 def run_anti_self_delete_check():
     # normalize main_file_path (assumes main_file_path variable exists)
     mp = Path(main_file_path)
@@ -12770,53 +12936,6 @@ def run_sandboxie(file_path):
     except subprocess.CalledProcessError as ex:
         logging.error(f"Failed to run Sandboxie on {file_path}: {ex}")
 
-def run_themida_unlicense(file_path, x64=False):
-    """
-    Runs Themida/WinLicense unpacker inside Sandboxie.
-    Uses unlicense.exe (x86) or unlicense-x64.exe (x64) based on arch.
-    The unpacker creates a new file with 'unpacked_' prefix in the same directory.
-    """
-    if not os.path.isfile(file_path):
-        logging.error(f"Invalid input file: {file_path}")
-        return None
-
-    # choose correct unpacker
-    unpacker = unlicense_x64_path if x64 else unlicense_path
-    if not os.path.isfile(unpacker):
-        logging.error(f"Unpacker not found: {unpacker}")
-        return None
-
-    # build Sandboxie command
-    HydraDragonAntivirus_sandboxie_path = get_sandbox_path(script_dir)
-    cmd = [
-        HydraDragonAntivirus_sandboxie_path,
-        "/box:DefaultBox",
-        "/elevate",
-        unpacker,
-        file_path
-    ]
-
-    try:
-        subprocess.run(cmd, check=True, encoding="utf-8", errors="ignore")
-        logging.info(f"Unlicense unpacking succeeded for {file_path} in sandbox DefaultBox")
-
-        # Construct expected unpacked filename
-        unpacked_path = os.path.join(
-            os.path.dirname(file_path),
-            "unpacked_" + os.path.basename(file_path)
-        )
-
-        if os.path.isfile(unpacked_path):
-            logging.info(f"Unpacked file created: {unpacked_path}")
-            return unpacked_path
-        else:
-            logging.error(f"Unpacker finished but no unpacked file found for {file_path}")
-            return None
-
-    except subprocess.CalledProcessError as ex:
-        logging.error(f"Failed to run unlicense on {file_path} in sandbox DefaultBox: {ex}")
-        return None
-
 def run_de4dot_in_sandbox(file_path):
     """
     Runs de4dot inside Sandboxie to avoid contaminating the host.
@@ -12847,69 +12966,6 @@ def run_de4dot_in_sandbox(file_path):
         logging.info(f"de4dot extraction succeeded for {input_dir} in sandbox DefaultBox")
     except subprocess.CalledProcessError as ex:
         logging.error(f"Failed to run de4dot on {input_dir} in sandbox DefaultBox: {ex}")
-
-def windows_yield_cpu():
-    """Windows-specific CPU yielding using SwitchToThread()"""
-    ctypes.windll.kernel32.SwitchToThread()
-
-def periodic_yield_worker(stop_event, yield_interval=0.1):
-    """Background thread that yields CPU periodically until analysis finishes"""
-    while not stop_event.is_set():
-        windows_yield_cpu()
-        time.sleep(yield_interval)
-
-def run_analysis_with_yield(file_path: str, stop_callback=None):
-    """
-    This function mirrors the original AnalysisThread.execute_analysis method.
-    It logs the file path, performs the sandbox analysis, and handles any exceptions.
-    Now supports a stop_callback to allow graceful interruption with Windows CPU yielding.
-    Runs a background thread that periodically yields CPU during analysis.
-    """
-    # Create stop event for background yielding thread
-    yield_stop_event = threading.Event()
-
-    # Start background yielding thread
-    yield_thread = threading.Thread(target=periodic_yield_worker, args=(yield_stop_event, 0.1))
-    yield_thread.daemon = True
-    yield_thread.start()
-
-    try:
-        logging.info(f"Running analysis for: {file_path}")
-
-        # Check for stop request before starting
-        if stop_callback and stop_callback():
-            return "[!] Analysis stopped by user request"
-
-        # Let Qt process events before heavy work
-        QApplication.processEvents()
-        windows_yield_cpu()
-
-        # Perform the sandbox analysis with stop checking
-        result = perform_sandbox_analysis(file_path, stop_callback=stop_callback)
-
-        # Let Qt process events after heavy work
-        QApplication.processEvents()
-        windows_yield_cpu()
-
-        # Check for stop request after analysis
-        if stop_callback and stop_callback():
-            return "[!] Analysis stopped by user request"
-
-        return result if result else "[+] Analysis completed successfully"
-
-    except Exception as ex:
-        # Check if the exception was due to a stop request
-        if stop_callback and stop_callback():
-            return "[!] Analysis stopped by user request"
-
-        error_message = f"An error occurred during sandbox analysis: {ex}"
-        logging.error(error_message)
-        return error_message
-
-    finally:
-        # Stop the background yielding thread
-        yield_stop_event.set()
-        yield_thread.join(timeout=1.0)  # Wait max 1 second for thread to finish
 
 # ----- Global Variables to hold captured data -----
 pre_analysis_log_path = None
@@ -13356,6 +13412,31 @@ class Worker(QThread):
         # Start analysis in a background thread - fully non-blocking
         threading.Thread(target=analysis_task).start()
 
+    def scan_network_indicators(self, network_indicators: list):
+        """
+        Scan the already extracted network indicators using the existing scanning functions.
+        """
+        try:
+            self.output_signal.emit(f"\n[*] Scanning {len(network_indicators)} network indicators...")
+
+            for indicator in network_indicators:
+                # Assuming indicator is a string (URL, IP, domain, etc.)
+                self.output_signal.emit(f"[*] Scanning indicator: {indicator}")
+
+                # Create mock decompiled code containing the indicator
+                mock_code = f"Network indicator from rootkit scan: {indicator}"
+
+                # Use the existing scan_code_for_links function with registry_flag=True
+                scan_code_for_links(
+                    mock_code,
+                    "registry_indicator",
+                    registry_flag=True
+                )
+
+        except Exception as e:
+            logging.error(f"Error scanning network indicators: {str(e)}")
+            self.output_signal.emit(f"[!] Error scanning network indicators: {str(e)}")
+
     def check_and_scan_network_indicators(self, reports_dir=None):
         """
         Check for network indicators file and scan the indicators only if file exists.
@@ -13386,31 +13467,6 @@ class Worker(QThread):
         except Exception as e:
             logging.error(f"Error checking network indicators: {str(e)}")
             self.output_signal.emit(f"[!] Error checking network indicators: {str(e)}")
-
-    def scan_network_indicators(self, network_indicators: list):
-        """
-        Scan the already extracted network indicators using the existing scanning functions.
-        """
-        try:
-            self.output_signal.emit(f"\n[*] Scanning {len(network_indicators)} network indicators...")
-
-            for indicator in network_indicators:
-                # Assuming indicator is a string (URL, IP, domain, etc.)
-                self.output_signal.emit(f"[*] Scanning indicator: {indicator}")
-
-                # Create mock decompiled code containing the indicator
-                mock_code = f"Network indicator from rootkit scan: {indicator}"
-
-                # Use the existing scan_code_for_links function with registry_flag=True
-                scan_code_for_links(
-                    mock_code,
-                    "registry_indicator",
-                    registry_flag=True
-                )
-
-        except Exception as e:
-            logging.error(f"Error scanning network indicators: {str(e)}")
-            self.output_signal.emit(f"[!] Error scanning network indicators: {str(e)}")
 
     def perform_rootkit_scan(self):
         """
@@ -14050,6 +14106,14 @@ class AntivirusApp(QWidget):
                 if hasattr(self, 'status_text'):
                     self.status_text.setText("Ready for analysis!")
 
+    def _update_ui_for_worker_start(self, task_type):
+        """Update UI elements when worker starts (called from main thread)."""
+        self.append_log_output(f"[*] Task '{task_type}' started.")
+        if hasattr(self, 'shield_widget'):
+            self.shield_widget.set_status(False)
+        if hasattr(self, 'status_text'):
+            self.status_text.setText("System is busy...")
+
     def start_worker(self, task_type, *args):
         """Start a new worker thread for the given task."""
         # This method is called from the main GUI thread (e.g., button clicks),
@@ -14074,15 +14138,6 @@ class AntivirusApp(QWidget):
         except Exception as e:
             # Handle any errors during worker creation
             self.append_log_output(f"[!] Error starting task '{task_type}': {str(e)}")
-
-
-    def _update_ui_for_worker_start(self, task_type):
-        """Update UI elements when worker starts (called from main thread)."""
-        self.append_log_output(f"[*] Task '{task_type}' started.")
-        if hasattr(self, 'shield_widget'):
-            self.shield_widget.set_status(False)
-        if hasattr(self, 'status_text'):
-            self.status_text.setText("System is busy...")
 
     def stop_analysis(self):
         """Stop all running analysis tasks."""
