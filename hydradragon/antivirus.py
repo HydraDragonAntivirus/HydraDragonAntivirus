@@ -242,6 +242,10 @@ import struct
 logging.info(f"struct module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import lzma
+logging.info(f"lzma module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 from importlib.util import MAGIC_NUMBER
 logging.info(f"importlib.util.MAGIC_NUMBER module loaded in {time.time() - start_time:.6f} seconds")
 
@@ -591,6 +595,182 @@ system32_dir = os.getenv("System32", os.path.join(system_root, "System32"))
 
 # Windows event logs
 evtx_logs_path = os.path.join(system32_dir, "winevt\\Logs")
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(levelname)s] %(message)s"
+)
+
+# PE file format constants
+IMAGE_DOS_SIGNATURE = 0x5A4D  # MZ
+IMAGE_NT_SIGNATURE = 0x00004550  # PE\0\0
+IMAGE_SIZEOF_SHORT_NAME = 8
+IMAGE_SCN_CNT_UNINITIALIZED_DATA = 0x00000080
+LZMA_PROPERTIES_SIZE = 5  # Standard LZMA properties size
+
+@dataclass
+class PACKER_INFO:
+    """Python implementation corresponding to C++ struct"""
+    Src: int  # uint32
+    Dst: int  # uint32
+
+def to_hex_string(val, prefix=True):
+    """Convert value to hexadecimal string for better error message display"""
+    return f"0x{val:x}" if prefix else f"{val:x}"
+
+def find_pattern(data: bytes, pattern: bytes) -> Optional[int]:
+    """
+    Find pattern in data, supporting 0xFF as wildcard
+    Returns position where found, or None if not found
+    """
+    if not pattern or len(data) < len(pattern):
+        return None
+
+    for i in range(len(data) - len(pattern) + 1):
+        match = True
+        for j in range(len(pattern)):
+            if pattern[j] != 0xFF and data[i + j] != pattern[j]:
+                match = False
+                break
+        if match:
+            return i
+    return None
+
+def unpack_pe(packed_pe_data: bytes) -> bytes:
+    """
+    Unpack a VMProtect protected PE file
+    """
+    if not packed_pe_data:
+        raise RuntimeError("Packed PE data is null or empty.")
+
+    try:
+        pe = pefile.PE(data=packed_pe_data)
+    except pefile.PEFormatError as e:
+        raise RuntimeError(f"Invalid PE file format: {str(e)}")
+
+    size_of_image = pe.OPTIONAL_HEADER.SizeOfImage
+    size_of_headers = pe.OPTIONAL_HEADER.SizeOfHeaders
+
+    unpacked_image = bytearray(size_of_image)
+    unpacked_image[:size_of_headers] = packed_pe_data[:size_of_headers]
+
+    rva_patterns_array = []
+    for section in pe.sections:
+        condition1 = (section.SizeOfRawData == 0)
+        condition2 = (section.PointerToRawData == 0)
+        condition3 = not (section.Characteristics & IMAGE_SCN_CNT_UNINITIALIZED_DATA)
+
+        if condition1 and condition2 and condition3:
+            pattern_value = ((section.VirtualAddress << 32) | 0xFFFFFFFF) & 0xFFFFFFFFFFFFFFFF
+            pattern_bytes = struct.pack("<Q", pattern_value)
+            rva_patterns_array.append(pattern_bytes)
+
+    packer_info_array = []
+    num_packer_entries = 0
+
+    if rva_patterns_array:
+        pattern_bytes = b''.join(rva_patterns_array)
+        pattern_pos = find_pattern(packed_pe_data, pattern_bytes)
+
+        if pattern_pos is not None:
+            if pattern_pos < 8:
+                raise RuntimeError("Located RVA pattern is too close to the beginning of the file to precede PACKER_INFO[0].")
+
+            packer_info_offset = pattern_pos - 8
+            num_packer_entries = len(rva_patterns_array)
+
+            if num_packer_entries > 0:
+                end_of_packer_info_array = packer_info_offset + (num_packer_entries + 1) * 8
+                if end_of_packer_info_array > len(packed_pe_data) or packer_info_offset < 0:
+                    raise RuntimeError("Located PACKER_INFO array extends beyond packed PE buffer or has invalid start.")
+
+            for j in range(num_packer_entries + 1):
+                info_offset = packer_info_offset + j * 8
+                src = struct.unpack("<I", packed_pe_data[info_offset:info_offset+4])[0]
+                dst = struct.unpack("<I", packed_pe_data[info_offset+4:info_offset+8])[0]
+                packer_info_array.append(PACKER_INFO(src, dst))
+        else:
+            raise RuntimeError("RVA pattern sequence for PACKER_INFO not found in packed PE, but patterns were expected.")
+    else:
+        logging.info("RVA pattern array is empty. No PACKER_INFO entries to process for LZMA.")
+
+    for i, section in enumerate(pe.sections):
+        virtual_address = section.VirtualAddress
+        virtual_size = section.Misc_VirtualSize
+        size_of_raw_data = section.SizeOfRawData
+        pointer_to_raw_data = section.PointerToRawData
+        section_name = section.Name.decode('ascii', errors='ignore').strip('\0')
+
+        if pointer_to_raw_data != 0 and size_of_raw_data > 0:
+            if pointer_to_raw_data + size_of_raw_data <= len(packed_pe_data) and virtual_address + size_of_raw_data <= size_of_image:
+                section_data = packed_pe_data[pointer_to_raw_data:pointer_to_raw_data+size_of_raw_data]
+                unpacked_image[virtual_address:virtual_address+len(section_data)] = section_data
+            else:
+                logging.error(f"Section {section_name} data exceeds boundaries. RawOffset={to_hex_string(pointer_to_raw_data)}, "
+                              f"RawSize={to_hex_string(size_of_raw_data)}, VA={to_hex_string(virtual_address)}. Skipping copy.")
+
+        section_offset = pe.OPTIONAL_HEADER.get_file_offset() + pe.FILE_HEADER.SizeOfOptionalHeader + i * 40
+        unpacked_section_offset = section_offset
+
+        struct.pack_into("<I", unpacked_image, unpacked_section_offset+20, virtual_address)
+        if virtual_size > 0:
+            struct.pack_into("<I", unpacked_image, unpacked_section_offset+16, virtual_size)
+
+    if packer_info_array and len(packer_info_array) > 1:
+        props_info = packer_info_array[0]
+        props_raw_offset = pe.get_offset_from_rva(props_info.Src)
+
+        lzma_props_size = props_info.Dst
+        lzma_props_data = packed_pe_data[props_raw_offset:props_raw_offset+lzma_props_size]
+
+        if props_raw_offset + lzma_props_size > len(packed_pe_data):
+            raise RuntimeError("LZMA properties data extends beyond packed PE size.")
+
+        if lzma_props_size != LZMA_PROPERTIES_SIZE:
+            logging.error(f"PACKER_INFO[0].Dst (LZMA properties size) is {lzma_props_size}. Standard is {LZMA_PROPERTIES_SIZE}. Using provided size.")
+
+        try:
+            for block_idx in range(1, len(packer_info_array)):
+                current_block_info = packer_info_array[block_idx]
+                compressed_data_rva = current_block_info.Src
+                uncompressed_target_rva = current_block_info.Dst
+
+                try:
+                    compressed_block_raw_offset = pe.get_offset_from_rva(compressed_data_rva)
+                except Exception as e:
+                    raise RuntimeError(f"Block {block_idx}: Cannot convert RVA to file offset: {str(e)}")
+
+                compressed_data = packed_pe_data[compressed_block_raw_offset:]
+
+                if uncompressed_target_rva >= size_of_image:
+                    raise RuntimeError(f"Block {block_idx}: PACKER_INFO.Dst (decompression target RVA {to_hex_string(uncompressed_target_rva)}) exceeds image boundary.")
+
+                lc = lzma_props_data[0] % 9
+                lp = (lzma_props_data[0] // 9) % 5
+                pb = lzma_props_data[0] // 45
+                dict_size = int.from_bytes(lzma_props_data[1:5], byteorder='little')
+
+                filters = [{"id": lzma.FILTER_LZMA1, "dict_size": dict_size, "lc": lc, "lp": lp, "pb": pb}]
+
+                decompressor = lzma.LZMADecompressor(format=lzma.FORMAT_RAW, filters=filters)
+
+                try:
+                    decompressed_data = decompressor.decompress(compressed_data)
+                    available_space = size_of_image - uncompressed_target_rva
+                    if len(decompressed_data) <= available_space:
+                        unpacked_image[uncompressed_target_rva:uncompressed_target_rva+len(decompressed_data)] = decompressed_data
+                    else:
+                        logging.error(f"Block {block_idx}: Decompressed data size exceeds available space in image")
+                        unpacked_image[uncompressed_target_rva:uncompressed_target_rva+available_space] = decompressed_data[:available_space]
+
+                    logging.info(f"Block {block_idx}: Decompressed. Output size={len(decompressed_data)}")
+                except lzma.LZMAError as e:
+                    raise RuntimeError(f"LZMA decompression error: {str(e)}")
+        except Exception as e:
+            raise RuntimeError(f"Error processing LZMA data: {str(e)}")
+
+    return bytes(unpacked_image)
 
 def service_exists(service_name):
    """Check if a Windows service exists."""
@@ -982,7 +1162,7 @@ def try_unpack_enigma1(input_exe: str) -> str | None:
             logging.info(f"Successfully unpacked with version {version} into {version_dir}")
             return version_dir
 
-        logging.warning(
+        logging.error(
             f"Attempt v{version} failed (exit {proc.returncode}). Output:\n{proc.stdout}"
         )
 
@@ -1493,7 +1673,7 @@ def analyze_file_with_die(file_path):
             logging.info(f"{'='*60}")
             logging.info(f"Result saved to: {txt_output_path}")
         else:
-            logging.warning(f"No DIE output for {Path(file_path).name}")
+            logging.error(f"No DIE output for {Path(file_path).name}")
             if result.stderr:
                 logging.error(f"DIE stderr output: {result.stderr}")
 
@@ -1606,7 +1786,7 @@ def is_pe_file_from_output(die_output: str, file_path: str) -> bool:
             logging.info("pefile successfully parsed the file as PE.")
             return True
         except pefile.PEFormatError:
-            logging.warning("DIE said PE, but pefile couldn't parse it. Possibly corrupted.")
+            logging.error("DIE said PE, but pefile couldn't parse it. Possibly corrupted.")
             return "Broken Executable"
 
     # If DIE doesn't say PE, try pefile directly
@@ -1711,7 +1891,7 @@ def is_elf_file_from_output(die_output: str, file_path: str) -> bool:
                 logging.info(f"ELF file successfully parsed. Architecture: {header['e_machine']}")
                 return True
         except (ELFError, IOError, ValueError) as e:
-            logging.warning(f"DIE said ELF, but pyelftools couldn't parse it: {e}. Possibly corrupted.")
+            logging.error(f"DIE said ELF, but pyelftools couldn't parse it: {e}. Possibly corrupted.")
             return "Broken Executable"
 
     # If DIE doesn't say ELF, try pyelftools directly
@@ -1795,7 +1975,7 @@ def is_macho_file_from_output(die_output: str, file_path: str) -> bool:
                 logging.info(f"Mach-O file successfully parsed. CPU type: {header.header.cputype}")
             return True
         except (IOError, ValueError, struct.error, IndexError, Exception) as e:
-            logging.warning(f"DIE said Mach-O, but macholib couldn't parse it: {e}. Possibly corrupted.")
+            logging.error(f"DIE said Mach-O, but macholib couldn't parse it: {e}. Possibly corrupted.")
             return "Broken Executable"
 
     # If DIE doesn't say Mach-O, try macholib directly
@@ -2708,7 +2888,7 @@ def extract_numeric_features(file_path: str, rank: Optional[int] = None) -> Opti
         return numeric_features
 
     except pefile.PEFormatError:
-        logging.warning(f"File is not a valid PE format: {file_path}")
+        logging.error(f"File is not a valid PE format: {file_path}")
         return None
     except Exception as ex:
         logging.error(f"Error extracting numeric features from {file_path}: {str(ex)}", exc_info=True)
@@ -2743,7 +2923,7 @@ def notify_user(file_path, virus_name, engine_detected):
     notification.message = notification_message
     notification.send()
 
-    logging.warning(notification_message)
+    logging.critical(notification_message)
 
 def notify_user_pua(file_path, virus_name, engine_detected):
     notification = Notify()
@@ -2752,7 +2932,7 @@ def notify_user_pua(file_path, virus_name, engine_detected):
     notification.message = notification_message
     notification.send()
 
-    logging.warning(notification_message)
+    logging.critical(notification_message)
 
 def notify_user_for_malicious_source_code(file_path, virus_name):
     """
@@ -2776,7 +2956,7 @@ def notify_user_for_detected_command(message, file_path):
     )
 
     notification.send()
-    logging.warning(f"Notification: {notification.message}")
+    logging.critical(f"Notification: {notification.message}")
 
 
 def notify_user_for_meta_llama(file_path, virus_name, malware_status, HiJackThis_flag=False):
@@ -2794,7 +2974,7 @@ def notify_user_for_meta_llama(file_path, virus_name, malware_status, HiJackThis
     notification.message = notification_message
     notification.send()
 
-    logging.warning(notification_message)
+    logging.critical(notification_message)
 
 def notify_size_warning(file_path, archive_type, virus_name):
     """Send a notification for size-related warnings."""
@@ -2805,7 +2985,7 @@ def notify_size_warning(file_path, archive_type, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.warning(notification_message)
+    logging.critical(notification_message)
 
 def notify_susp_archive_file_name_warning(file_path, archive_type, virus_name):
     """Send a notification for warnings related to suspicious filenames in archive files."""
@@ -2817,7 +2997,7 @@ def notify_susp_archive_file_name_warning(file_path, archive_type, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.warning(notification_message)
+    logging.critical(notification_message)
 
 def notify_user_susp_name(file_path, virus_name):
     notification = Notify()
@@ -2826,7 +3006,7 @@ def notify_user_susp_name(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.warning(notification_message)
+    logging.critical(notification_message)
 
 def notify_user_scr(file_path, virus_name):
     """
@@ -2838,7 +3018,7 @@ def notify_user_scr(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.warning(f"ALERT: {notification_message}")
+    logging.critical(f"ALERT: {notification_message}")
 
 def notify_user_etw_tampering(file_path, virus_name):
     notification = Notify()
@@ -2847,7 +3027,7 @@ def notify_user_etw_tampering(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.warning(notification_message)
+    logging.critical(notification_message)
 
 def notify_user_for_detected_fake_system_file(file_path, file_name, virus_name):
     notification = Notify()
@@ -2861,7 +3041,7 @@ def notify_user_for_detected_fake_system_file(file_path, file_name, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.warning(notification_message)
+    logging.critical(notification_message)
 
 def notify_user_for_detected_rootkit(file_path, virus_name):
     notification = Notify()
@@ -2874,7 +3054,7 @@ def notify_user_for_detected_rootkit(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.warning(notification_message)
+    logging.critical(notification_message)
 
 def notify_user_invalid(file_path, virus_name):
     notification = Notify()
@@ -2883,7 +3063,7 @@ def notify_user_invalid(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.warning(notification_message)
+    logging.critical(notification_message)
 
 def notify_user_fake_size(file_path, virus_name):
     notification = Notify()
@@ -2892,7 +3072,7 @@ def notify_user_fake_size(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.warning(notification_message)
+    logging.critical(notification_message)
 
 def notify_user_startup(file_path, message):
     """Notify the user about suspicious or malicious startup files."""
@@ -2904,7 +3084,7 @@ def notify_user_startup(file_path, message):
     notification.message = notification_message
     notification.send()
 
-    logging.warning(notification_message)
+    logging.critical(notification_message)
 
 def notify_user_uefi(file_path, virus_name):
     notification = Notify()
@@ -2913,7 +3093,7 @@ def notify_user_uefi(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.warning(notification_message)
+    logging.critical(notification_message)
 
 def notify_user_ransomware(file_path, virus_name):
     notification = Notify()
@@ -2922,7 +3102,7 @@ def notify_user_ransomware(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.warning(notification_message)
+    logging.critical(notification_message)
 
 def notify_user_exela_stealer_v2(file_path, virus_name):
     notification = Notify()
@@ -2931,7 +3111,7 @@ def notify_user_exela_stealer_v2(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.warning(notification_message)
+    logging.critical(notification_message)
 
 def notify_user_hosts(file_path, virus_name):
     notification = Notify()
@@ -2940,7 +3120,7 @@ def notify_user_hosts(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.warning(notification_message)
+    logging.critical(notification_message)
 
 def notify_user_worm(file_path, virus_name):
     notification = Notify()
@@ -2949,7 +3129,7 @@ def notify_user_worm(file_path, virus_name):
     notification.message = notification_message
     notification.send()
 
-    logging.warning(notification_message)
+    logging.critical(notification_message)
 
 def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=None, file_path=None, detection_type=None):
     notification = Notify()
@@ -2978,7 +3158,7 @@ def notify_user_for_web(domain=None, ipv4_address=None, ipv6_address=None, url=N
     notification.message = notification_message
     notification.send()
 
-    logging.warning(notification_message)
+    logging.critical(notification_message)
 
 def notify_user_for_hips(ip_address=None, dst_ip_address=None):
     notification = Notify()
@@ -2996,7 +3176,7 @@ def notify_user_for_hips(ip_address=None, dst_ip_address=None):
     notification.message = notification_message
     notification.send()
 
-    logging.warning(notification_message)
+    logging.critical(notification_message)
 
 def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
     """
@@ -3007,7 +3187,7 @@ def notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status):
     notification_message = f"{status} file detected by Web related Message: {file_path}\nSource IP: {src_ip}\nAlert Line: {alert_line}"
     notification.message = notification_message
     notification.send()
-    logging.warning(notification_message)
+    logging.critical(notification_message)
 
 # Function to load antivirus list
 def load_antivirus_list():
@@ -3228,7 +3408,7 @@ def contains_discord_or_telegram_code(decompiled_code, file_path, **flags):
                     "Registry": "Registry"
                 }.get(platform_suffix, "decompiled code")
 
-                logging.warning(f"{description} detected in {platform_desc}: {file_path} - Matches: {matches}")
+                logging.critical(f"{description} detected in {platform_desc}: {file_path} - Matches: {matches}")
 
             notify_user_for_malicious_source_code(file_path, signature)
 
@@ -3343,7 +3523,7 @@ def scan_domain_general(url, **flags):
             for data_list, threat_name, signature_suffix, homepage_threat in subdomain_threats:
                 is_threat, reference = is_domain_in_data_general(full_domain, data_list)
                 if is_threat:
-                    logging.warning(f"{threat_name} subdomain detected: {full_domain} (Reference: {reference})")
+                    logging.critical(f"{threat_name} subdomain detected: {full_domain} (Reference: {reference})")
                     notify_with_homepage(full_domain, signature_suffix, homepage_threat, **flags)
                     return
 
@@ -3355,7 +3535,7 @@ def scan_domain_general(url, **flags):
             if is_full_threat or is_main_threat:
                 reference = full_ref if is_full_threat else main_ref
                 domain_to_report = full_domain if is_full_threat else main_domain
-                logging.warning(f"{threat_name} domain detected: {domain_to_report} (Reference: {reference})")
+                logging.critical(f"{threat_name} domain detected: {domain_to_report} (Reference: {reference})")
                 notify_with_homepage(domain_to_report, signature_suffix, homepage_threat, **flags)
                 return
 
@@ -3403,7 +3583,7 @@ def scan_ip_address_general(ip_address, **flags):
             for data_list, threat_name, signature_suffix, homepage_threat in ipv6_threats:
                 is_threat, reference = is_ip_in_data_general(ip_address, data_list)
                 if is_threat:
-                    logging.warning(f"{threat_name} IPv6 address detected: {ip_address} (Reference: {reference})")
+                    logging.critical(f"{threat_name} IPv6 address detected: {ip_address} (Reference: {reference})")
                     notify_with_homepage(ip_address, signature_suffix, homepage_threat, **flags)
                     return
 
@@ -3436,11 +3616,11 @@ def scan_ip_address_general(ip_address, **flags):
                     # Custom logging messages for different threat types
                     if threat_name in ["PhishingActive", "PhishingInactive"]:
                         status = "active" if threat_name == "PhishingActive" else "inactive"
-                        logging.warning(f"IPv4 address {ip_address} detected as an {status} phishing threat. (Reference: {reference})")
+                        logging.critical(f"IPv4 address {ip_address} detected as an {status} phishing threat. (Reference: {reference})")
                     elif threat_name in ["DDoS", "BruteForce"]:
-                        logging.warning(f"IPv4 address {ip_address} detected as a potential {threat_name} threat. (Reference: {reference})")
+                        logging.critical(f"IPv4 address {ip_address} detected as a potential {threat_name} threat. (Reference: {reference})")
                     else:
-                        logging.warning(f"{threat_name} IPv4 address detected: {ip_address} (Reference: {reference})")
+                        logging.critical(f"{threat_name} IPv4 address detected: {ip_address} (Reference: {reference})")
 
                     notify_with_homepage(ip_address, signature_suffix, homepage_threat, **flags)
                     return
@@ -3465,7 +3645,7 @@ def scan_spam_email_365_general(email_content, **flags):
         detected_spam_words = [word for word in spam_email_365_data if word.lower() in email_content_lower]
 
         if detected_spam_words:
-            logging.warning(f"Spam email detected! Found {len(detected_spam_words)} spam indicators: {', '.join(detected_spam_words[:5])}")
+            logging.critical(f"Spam email detected! Found {len(detected_spam_words)} spam indicators: {', '.join(detected_spam_words[:5])}")
             notify_with_homepage("Email Content", "Spam.Email365d", "Spam.Email.365d", **flags)
             return True
         else:
@@ -3495,14 +3675,14 @@ def scan_url_general(url, **flags):
                           f"URL Status: {entry['url_status']}, Last Online: {entry['last_online']}\n"
                           f"Threat: {entry['threat']}, Tags: {entry['tags']}\n"
                           f"URLhaus Link: {entry['urlhaus_link']}, Reporter: {entry['reporter']}")
-                logging.warning(message)
+                logging.critical(message)
                 notify_with_homepage(url, "URLhaus.Match", "URLhaus", **flags)
                 return
 
         # Heuristic check using uBlock Origin style detection
         if ublock_detect(url):
             notify_user_for_malicious_source_code(url, 'HEUR:Phish.Steam.Community.gen')
-            logging.warning(f"URL {url} flagged by uBlock detection using HEUR:Phish.Steam.Community.gen.")
+            logging.critical(f"URL {url} flagged by uBlock detection using HEUR:Phish.Steam.Community.gen.")
             homepage_flag = flags.get('homepage_flag')
             if homepage_flag:
                 notify_user_for_malicious_source_code(url, f"HEUR:Win32.Adware.{homepage_flag}.Phishing.HomePage.gen")
@@ -3551,7 +3731,7 @@ def fetch_html(url, return_file_path=False):
             saved_paths.append(out_path)
             return (html, out_path) if return_file_path else html
         else:
-            logging.warning(f"Non-OK status {response.status_code} for URL: {safe_url}")
+            logging.error(f"Non-OK status {response.status_code} for URL: {safe_url}")
             return ("", None) if return_file_path else ""
     except requests.exceptions.RequestException as e:
         logging.error(f"Request error while fetching HTML content from {url}: {e}")
@@ -3677,7 +3857,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
         pe = pefile.PE(file_path)
         pe.close()
     except pefile.PEFormatError:
-        logging.warning(f"File {file_path} is not a valid PE file. Returning default value 'Unknown'.")
+        logging.error(f"File {file_path} is not a valid PE file. Returning default value 'Unknown'.")
         return False, malware_definition, 0
 
     logging.info(f"File {file_path} is a valid PE file, proceeding with feature extraction.")
@@ -3709,7 +3889,7 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
                 malware_definition = str(info)
                 rank = 'N/A'
 
-            logging.warning(f"Malicious activity detected in {file_path}. Definition: {malware_definition}, similarity: {similarity}, rank: {rank}")
+            logging.critical(f"Malicious activity detected in {file_path}. Definition: {malware_definition}, similarity: {similarity}, rank: {rank}")
 
     # If not malicious, check benign
     if not is_malicious_ml:
@@ -3915,8 +4095,7 @@ class RealTimeWebProtectionHandler:
                     message = f"{detection_type} {message}"
                 if reference:
                     message += f" Reference: {reference}"
-                logging.warning(message)
-                logging.info(message)
+                logging.critical(message)
 
                 notify_info[entity_type] = entity_value
                 notify_info['file_path'] = file_path
@@ -4172,14 +4351,14 @@ class RealTimeWebProtectionHandler:
                         f"URLhaus Link: {entry['urlhaus_link']}\n"
                         f"Reporter: {entry['reporter']}"
                     )
-                    logging.warning(message)
+                    logging.critical(message)
                     self.handle_detection('url', url, 'URLhaus Match')
                     return
 
             # Heuristic check using uBlock detection (e.g., Steam Community pattern).
             if ublock_detect(url):
                 self.handle_detection('url', url, 'HEUR:Phish.Steam.Community.gen')
-                logging.warning(
+                logging.critical(
                     f"URL {url} flagged by uBlock detection using HEUR:Phish.Steam.Community.gen."
                 )
                 return
@@ -4389,12 +4568,24 @@ def scan_yara(file_path):
             if compiled_rule:
                 matches = compiled_rule.match(data=data_content)
                 for match in matches or []:
+                    # Append matched rules only if not excluded
                     if match.rule not in excluded_rules:
                         matched_rules.append(match.rule)
                         match_details = extract_match_details(match, 'compiled_rule')
                         matched_results.append(match_details)
                     else:
                         logging.info(f"Rule {match.rule} is excluded from compiled_rule.")
+
+                    # Always perform VMProtect unpacking if matched
+                    if match.rule == "INDICATOR_EXE_Packed_VMProtect":
+                        try:
+                            with open(file_path, 'rb') as f:
+                                packed_data = f.read()
+                            unpacked_data = unpack_pe(packed_data)
+                            if unpacked_data:
+                                scan_and_warn(unpacked_data)
+                        except Exception as e:
+                            logging.error(f"Error unpacking after VMProtect indicator: {e}")
             else:
                 logging.error("compiled_rule is not defined.")
         except Exception as e:
@@ -4566,7 +4757,7 @@ def detect_etw_tampering_sandbox(moved_sandboxed_ntdll_path):
         if sandbox_bytes != orig_bytes:
             orig_hex = orig_bytes[:8].hex()
             sand_hex = sandbox_bytes[:8].hex()
-            logging.warning(
+            logging.critical(
                 f"[ETW Sandbox Detection] Sandboxed ntdll.dll NtTraceEvent seems patched: "
                 f"original bytes={orig_hex}, sandbox bytes={sand_hex}"
             )
@@ -4913,7 +5104,7 @@ def contains_rlo_after_dot_with_extension_check(filename, fileTypes):
         logging.info(f"RLO detected after dot in '{filename}', checking extension '{ext}'")
         has_known_ext = ext in fileTypes
         if has_known_ext:
-            logging.warning(f"POTENTIAL RLO ATTACK: File '{filename}' has RLO after dot with known extension '{ext}'")
+            logging.critical(f"POTENTIAL RLO ATTACK: File '{filename}' has RLO after dot with known extension '{ext}'")
         else:
             logging.info(f"RLO found after dot but extension '{ext}' not in known types")
         return has_known_ext
@@ -4993,7 +5184,7 @@ def detect_suspicious_filename_patterns(filename, fileTypes, max_spaces=10):
         ])
 
         if results['suspicious']:
-            logging.warning(f"SUSPICIOUS FILENAME DETECTED: {filename} - {results['details']}")
+            logging.critical(f"SUSPICIOUS FILENAME DETECTED: {filename} - {results['details']}")
 
         return results
 
@@ -5215,7 +5406,7 @@ class NuitkaExtractor:
                             chunk_size = min(remaining, 8192)
                             data = stream.read(chunk_size)
                             if not data:
-                                logging.warning(f"Incomplete read for {filename}")
+                                logging.error(f"Incomplete read for {filename}")
                                 break
                             f.write(data)
                             remaining -= len(data)
@@ -5419,7 +5610,7 @@ def scan_tar_file(file_path):
                     attack_string = "+".join(attack_types) if attack_types else "Generic"
                     virus_name = f"HEUR:{attack_string}.Susp.Name.TAR.gen"
 
-                    logging.warning(
+                    logging.critical(
                         f"Filename '{member.name}' in archive '{file_path}' contains suspicious pattern(s): {attack_string} - "
                         f"flagged as {virus_name}"
                     )
@@ -5440,7 +5631,7 @@ def scan_tar_file(file_path):
                     extracted_file_size = os.path.getsize(extracted_file_path)
                     if tar_size < 20 * 1024 * 1024 and extracted_file_size > 650 * 1024 * 1024:
                         virus_name = "HEUR:Win32.Susp.Size.Encrypted.TAR"
-                        logging.warning(
+                        logging.critical(
                             f"TAR file {file_path} is smaller than 20MB but contains a large file: {member.name} "
                             f"({extracted_file_size / (1024 * 1024):.2f} MB) - flagged as {virus_name}. "
                             "Potential TARbomb or Fake Size detected to avoid VirusTotal detections."
@@ -5484,7 +5675,7 @@ def check_worm_similarity(file_path: str, features_current: List[float]) -> bool
             if features_main:
                 similarity_main = calculate_vector_similarity(features_current, features_main)
                 if similarity_main > 0.86:
-                    logging.warning(
+                    logging.critical(
                         f"Main file '{main_file_path}' is potentially spreading the worm to '{file_path}' "
                         f"with similarity score: {similarity_main:.2f}"
                     )
@@ -5497,7 +5688,7 @@ def check_worm_similarity(file_path: str, features_current: List[float]) -> bool
                 if features_collected:
                     similarity_collected = calculate_vector_similarity(features_current, features_collected)
                     if similarity_collected > 0.86:
-                        logging.warning(
+                        logging.critical(
                             f"Worm has potentially spread to '{collected_file_path}' "
                             f"from '{file_path}' with similarity score: {similarity_collected:.2f}"
                         )
@@ -5537,13 +5728,13 @@ def worm_alert(file_path):
                 mtime_difference = abs(current_file_mtime - original_file_mtime)
 
                 if size_difference > 0.10:
-                    logging.warning(f"File size difference for '{file_path}' exceeds 10%.")
+                    logging.critical(f"File size difference for '{file_path}' exceeds 10%.")
                     notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Agnostic.gen.Malware")
                     worm_alerted_files.append(file_path)
                     return  # Only flag once if a critical difference is found
 
                 if mtime_difference > 3600:  # 3600 seconds = 1 hour
-                    logging.warning(f"Modification time difference for '{file_path}' exceeds 1 hour.")
+                    logging.critical(f"Modification time difference for '{file_path}' exceeds 1 hour.")
                     notify_user_worm(file_path, "HEUR:Win32.Worm.Critical.Time.Agnostic.gen.Malware")
                     worm_alerted_files.append(file_path)
                     return  # Only flag once if a critical difference is found
@@ -5552,7 +5743,7 @@ def worm_alert(file_path):
             worm_detected = check_worm_similarity(file_path, features_current)
 
             if worm_detected:
-                logging.warning(f"Worm '{file_path}' detected in critical directory. Alerting user.")
+                logging.critical(f"Worm '{file_path}' detected in critical directory. Alerting user.")
                 notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.Critical.gen.Malware")
                 worm_alerted_files.append(file_path)
 
@@ -5563,7 +5754,7 @@ def worm_alert(file_path):
 
             if worm_detected or worm_detected_count[file_path] >= 5:
                 if file_path not in worm_alerted_files:
-                    logging.warning(f"Worm '{file_path}' detected under 5 different names or as potential worm. Alerting user.")
+                    logging.critical(f"Worm '{file_path}' detected under 5 different names or as potential worm. Alerting user.")
                     notify_user_worm(file_path, "HEUR:Win32.Worm.Classic.gen.Malware")
                     worm_alerted_files.append(file_path)
 
@@ -5592,7 +5783,7 @@ def check_pe_file(file_path, signature_check, file_name):
         # Check for fake system files after signature validation
         if file_name in fake_system_files and os.path.abspath(file_path).startswith(main_drive_path):
             if not signature_check["is_valid"]:
-                logging.warning(f"Detected fake system file: {file_path}")
+                logging.critical(f"Detected fake system file: {file_path}")
                 notify_user_for_detected_fake_system_file(file_path, file_name, "HEUR:Win32.FakeSystemFile.Dropper.gen")
 
     except Exception as ex:
@@ -5629,8 +5820,8 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                 if is_malicious_machine_learning:
                     if benign_score < 0.93:
                         if signature_check["is_valid"]:
-                            malware_definition = "SIG." + malware_definition
-                        logging.warning(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
+                            malware_definition = malware_definition + ".SIG"
+                        logging.critical(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
                         return True, malware_definition, "ML"
                     elif benign_score >= 0.93:
                         logging.info(f"File is clean based on ML benign score: {file_path}")
@@ -5650,8 +5841,8 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
             result = scan_file_with_clamd(file_path)
             if result not in ("Clean", ""):
                 if signature_check["is_valid"]:
-                    result = "SIG." + result
-                logging.warning(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
+                    result = result + ".SIG"
+                logging.critical(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
                 return True, result, "ClamAV"
             logging.info(f"No malware detected by ClamAV in file: {file_path}")
         except Exception as ex:
@@ -5662,8 +5853,8 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
             yara_match, yara_result = scan_yara(file_path)
             if yara_match is not None and yara_match not in ("Clean", ""):
                 if signature_check["is_valid"]:
-                    yara_match = "SIG." + yara_match
-                logging.warning(f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}")
+                    yara_match = yara_match + ".SIG"
+                logging.critical(f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}")
                 return True, yara_match, "YARA"
             logging.info(f"Scanned file with YARA: {file_path} - No viruses detected")
         except Exception as ex:
@@ -5676,8 +5867,8 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                 if scan_result and virus_name not in ("Clean", "F", "", [], None):
                     virus_str = str(virus_name) if virus_name else "Unknown"
                     if signature_check["is_valid"]:
-                        virus_name = "SIG." + virus_str
-                    logging.warning(f"Infected file detected (TAR): {file_path} - Virus: {virus_str}")
+                        virus_name = virus_str + ".SIG"
+                    logging.critical(f"Infected file detected (TAR): {file_path} - Virus: {virus_str}")
                     return True, virus_str, "TAR"
                 logging.info(f"No malware detected in TAR file: {file_path}")
         except PermissionError:
@@ -5693,8 +5884,8 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                 scan_result, virus_name = scan_zip_file(file_path)
                 if scan_result and virus_name not in ("Clean", ""):
                     if signature_check["is_valid"]:
-                        virus_name = "SIG." + virus_name
-                    logging.warning(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
+                        virus_name = virus_name + ".SIG"
+                    logging.critical(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
                     return True, virus_name, "ZIP"
                 logging.info(f"No malware detected in ZIP file: {file_path}")
         except PermissionError:
@@ -5710,8 +5901,8 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                 scan_result, virus_name = scan_7z_file(file_path)
                 if scan_result and virus_name not in ("Clean", ""):
                     if signature_check["is_valid"]:
-                        virus_name = "SIG." + virus_name
-                    logging.warning(f"Infected file detected (7z): {file_path} - Virus: {virus_name}")
+                        virus_name = virus_name + ".SIG"
+                    logging.critical(f"Infected file detected (7z): {file_path} - Virus: {virus_name}")
                     return True, virus_name, "7z"
                 logging.info(f"No malware detected in 7z file: {file_path}")
         except PermissionError:
@@ -5757,7 +5948,7 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
                                     logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature. Alert Line: {alert_line}")
                             else:
                                 if not signature_info["is_valid"]:
-                                    logging.warning(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature. Alert Line: {alert_line}")
+                                    logging.critical(f"Detected file {file_path} associated with IP {src_ip} or {dst_ip} has invalid or no signature. Alert Line: {alert_line}")
                                     notify_user_for_detected_hips_file(file_path, src_ip, alert_line, status)
                                 else:
                                     logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has a valid signature and is not flagged as malicious. Alert Line: {alert_line}")
@@ -5807,7 +5998,7 @@ def process_alert_data(priority, src_ip, dest_ip):
         formatted_line = f"[Priority: {priority}] {src_ip} -> {dest_ip} | Threat Type: {threat_type}"
 
         if priority == 1:
-            logging.warning(
+            logging.critical(
                 f"Malicious activity detected: {formatted_line} | Source: {src_ip} -> Destination: {dest_ip} | Priority: {priority} | Threat: {threat_type}")
             try:
                 notify_user_for_hips(ip_address=src_ip, dst_ip_address=dest_ip)
@@ -6056,7 +6247,7 @@ class LogFileEventHandler(FileSystemEventHandler):
                             logging.info(f"New event detected for process '{process_name}'")
                             scan_and_warn(file_path_to_scan)
                         else:
-                            logging.warning("Found event log line without a 'file_path' key.")
+                            logging.error("Found event log line without a 'file_path' key.")
 
                     except json.JSONDecodeError:
                         logging.error(f"Could not decode JSON from line: {line}")
@@ -6067,7 +6258,7 @@ class LogFileEventHandler(FileSystemEventHandler):
              logging.error(f"Log file '{self.filename}' not found during modification check.")
              self.last_position = 0 # Reset position for when it's recreated.
         except Exception as e:
-            logging.critical(f"A critical error occurred in the event handler: {e}")
+            logging.error(f"A critical error occurred in the event handler: {e}")
 
 
 def monitor_log_file(json_file_path: str):
@@ -6116,7 +6307,7 @@ def remove_log_file(json_file_path: str):
             os.remove(json_file_path)
             logging.info(f"Successfully removed log file: {json_file_path}")
         else:
-            logging.warning(f"Log file not found, nothing to remove: {json_file_path}")
+            logging.error(f"Log file not found, nothing to remove: {json_file_path}")
     except OSError as e:
         logging.error(f"Error removing file {json_file_path}: {e}")
     except Exception as e:
@@ -6213,7 +6404,7 @@ def load_ml_definitions(filepath: str) -> bool:
 try:
     success = load_ml_definitions(machine_learning_results_json)
     if not success:
-        logging.warning("ML definitions could not be loaded properly.")
+        logging.error("ML definitions could not be loaded properly.")
 except Exception as ex:
     logging.exception(f"Unexpected error while loading ML definitions: {ex}")
 
@@ -6529,7 +6720,7 @@ def scan_rsrc_files(file_paths):
             except Exception as ex:
                 logging.error(f"Error reading file {file_path}: {ex}")
         else:
-            logging.warning(f"Path {file_path} is not a valid file.")
+            logging.error(f"Path {file_path} is not a valid file.")
 
     # Case 1: No upython.exe -> use largest file and scan with nuitka_flag=True
     if executable_file is None:
@@ -6839,7 +7030,7 @@ class PyInstArchive:
                 name = name.decode("utf-8").rstrip("\0")
             except UnicodeDecodeError:
                 newName = str(uniquename())
-                logging.warning("File name %s contains invalid bytes. Using random name %s", name, newName)
+                logging.error("File name %s contains invalid bytes. Using random name %s", name, newName)
                 name = newName
 
             # Prevent writing outside the extraction directory
@@ -6848,7 +7039,7 @@ class PyInstArchive:
 
             if len(name) == 0:
                 name = str(uniquename())
-                logging.warning("Found an unnamed file in CArchive. Using random name %s", name)
+                logging.error("Found an unnamed file in CArchive. Using random name %s", name)
 
             self.tocList.append(
                 CTOCEntry(
@@ -6956,7 +7147,7 @@ class PyInstArchive:
 
             elif self.pycMagic != pyzPycMagic:
                 self.pycMagic = pyzPycMagic
-                logging.warning(
+                logging.error(
                     "pyc magic of files inside PYZ archive are different from those in CArchive"
                 )
 
@@ -7196,14 +7387,14 @@ def is_ransomware(file_path):
         # Check if the final extension is not in fileTypes
         final_extension = '.' + parts[-1].lower()
         if final_extension not in fileTypes:
-            logging.warning(f"File '{file_path}' has unrecognized final extension '{final_extension}', checking if it might be ransomware sign")
+            logging.critical(f"File '{file_path}' has unrecognized final extension '{final_extension}', checking if it might be ransomware sign")
 
             # Check if the file has a known extension or is readable
             if has_known_extension(file_path) or is_readable(file_path):
                 logging.info(f"File '{file_path}' is not ransomware")
                 return False
             else:
-                logging.warning(f"File '{file_path}' might be a ransomware sign")
+                logging.critical(f"File '{file_path}' might be a ransomware sign")
                 return True
 
         logging.info(f"File '{file_path}' does not meet ransomware conditions")
@@ -7238,13 +7429,13 @@ def ransomware_alert(file_path):
             # If file is from the Sandboxie log folder, trigger Sandboxie-specific alert.
             if file_path.startswith(sandboxie_log_folder):
                 ransomware_detection_count += 1
-                logging.warning(f"File '{file_path}' (Sandboxie log) flagged as potential ransomware. Count: {ransomware_detection_count}")
+                logging.critical(f"File '{file_path}' (Sandboxie log) flagged as potential ransomware. Count: {ransomware_detection_count}")
                 notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.Log.gen")
-                logging.warning(f"User has been notified about potential ransomware in {main_file_path} (Sandboxie log alert)")
+                logging.critical(f"User has been notified about potential ransomware in {main_file_path} (Sandboxie log alert)")
 
             # Normal processing for all flagged files.
             ransomware_detection_count += 1
-            logging.warning(f"File '{file_path}' might be a ransomware sign. Count: {ransomware_detection_count}")
+            logging.critical(f"File '{file_path}' might be a ransomware sign. Count: {ransomware_detection_count}")
 
             # When exactly two alerts occur, search for files with the same extension.
             if ransomware_detection_count == 2:
@@ -7255,12 +7446,12 @@ def ransomware_alert(file_path):
                     for ransom_file in files_with_same_extension:
                         logging.info(f"Checking file '{ransom_file}' with same extension '{ext}'")
                         if is_ransomware(ransom_file):
-                            logging.warning(f"File '{ransom_file}' might also be related to ransomware")
+                            logging.critical(f"File '{ransom_file}' might also be related to ransomware")
 
             # When detections reach a threshold, notify the user with a generic flag.
             if ransomware_detection_count >= 10:
                 notify_user_ransomware(main_file_path, "HEUR:Win32.Ransom.gen")
-                logging.warning(f"User has been notified about potential ransomware in {main_file_path}")
+                logging.critical(f"User has been notified about potential ransomware in {main_file_path}")
 
     except Exception as ex:
         logging.error(f"Error in ransomware_alert: {ex}")
@@ -7272,7 +7463,7 @@ def log_directory_type(file_path):
                 logging.info(f"{file_path}: {message}")
                 return
 
-        logging.warning(f"{file_path}: File does not match known directories.")
+        logging.error(f"{file_path}: File does not match known directories.")
     except Exception as ex:
         logging.error(f"Error logging directory type for {file_path}: {ex}")
 
@@ -7287,7 +7478,7 @@ def scan_file_with_meta_llama(file_path, decompiled_flag=False, HiJackThis_flag=
         decompiled_flag (bool): If True, indicates that the file was decompiled by our tool.
     """
     if not meta_llama_1b_model or not meta_llama_1b_tokenizer:
-        logging.warning("Llama model is not loaded. Cannot perform analysis.")
+        logging.error("Llama model is not loaded. Cannot perform analysis.")
         return "Llama model is not loaded. Cannot perform analysis."
 
     try:
@@ -7577,7 +7768,7 @@ def process_exela_v2_payload(output_file):
         webhooks = webhooks_discord + webhooks_canary
 
         if webhooks:
-            logging.warning(f"[+] Webhook URLs found: {webhooks}")
+            logging.critical(f"[+] Webhook URLs found: {webhooks}")
             if source_code_path:
                 notify_user_exela_stealer_v2(source_code_path, 'HEUR:Win32.Discord.PYC.Python.Exela.Stealer.v2.gen')
             else:
@@ -7788,7 +7979,7 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
                     magic = f.read(4)
                     logging.info(f"[Pylingual] Magic number: {magic.hex()}")
             except Exception as magic_error:
-                logging.warning(f"[Pylingual] Could not read magic number: {magic_error}")
+                logging.error(f"[Pylingual] Could not read magic number: {magic_error}")
 
             pylingual_main(
                 files=[str(pyc_file)],
@@ -7820,7 +8011,7 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
                 logging.info(f"[Pylingual] Found files in subdirectory: {possible_subdir}")
 
         if not py_files:
-            logging.warning(f"[Pylingual] No .py files found in output for: {pyc_path}")
+            logging.error(f"[Pylingual] No .py files found in output for: {pyc_path}")
             # List all files in the output directory for debugging
             all_files = list(output_path.rglob("*"))
             logging.info(f"[Pylingual] All files in output directory: {[str(f) for f in all_files]}")
@@ -7834,11 +8025,11 @@ def decompile_pyc_with_pylingual(pyc_path: str) -> str | None:
                 combined_source += f"# From: {py_file.name}\n"
                 combined_source += source_content.strip() + "\n\n"
             except Exception as read_error:
-                logging.warning(f"[Pylingual] Could not read {py_file}: {read_error}")
+                logging.error(f"[Pylingual] Could not read {py_file}: {read_error}")
                 continue
 
         if not combined_source.strip():
-            logging.warning(f"[Pylingual] All decompiled files were empty for: {pyc_path}")
+            logging.error(f"[Pylingual] All decompiled files were empty for: {pyc_path}")
             return None
 
         logging.info(f"[Pylingual] Successfully decompiled {pyc_path} -> {output_path}")
@@ -9090,7 +9281,7 @@ def deobfuscate_with_net_reactor(file_path, file_basename):
         if result.stdout:
             logging.info(f".NET Reactor Slayer output: {result.stdout}")
         if result.stderr:
-            logging.warning(f".NET Reactor Slayer errors: {result.stderr}")
+            logging.error(f".NET Reactor Slayer errors: {result.stderr}")
 
     except Exception as e:
         logging.error(f"Error during .NET Reactor deobfuscation execution: {e}")
@@ -9116,7 +9307,7 @@ def deobfuscate_with_net_reactor(file_path, file_basename):
                 return expected_path
 
         except OSError as e:
-            logging.warning(f"Error checking for output file: {e}")
+            logging.error(f"Error checking for output file: {e}")
 
         time.sleep(1)  # Wait 1 second before checking again
 
@@ -9913,7 +10104,7 @@ def show_code_with_pylingual_pycdas(
                 pycdas_files.append(str(pycdas_output_path))
                 logging.info(f"pycdas decompilation completed. Output: {pycdas_output_path}")
             else:
-                logging.warning(f"pycdas decompilation failed or produced no output for {file_path}")
+                logging.error(f"pycdas decompilation failed or produced no output for {file_path}")
 
         except Exception as pycdas_ex:
             logging.error(f"pycdas decompilation failed for {file_path}: {pycdas_ex}")
@@ -10015,7 +10206,7 @@ def scan_and_warn(file_path,
             # Check if this is a dropped ntdll.dll in the sandbox
             if normalized_path == sandboxed_ntdll_path:
                 ntdll_dropped = True
-                logging.warning(f"ntdll.dll dropped in sandbox at path: {normalized_path}")
+                logging.critical(f"ntdll.dll dropped in sandbox at path: {normalized_path}")
                 # Optionally force a special scan for this file
                 perform_special_scan = True
                 # You may choose a specific dir for ntdll analysis, or reuse existing staging dir
@@ -10392,7 +10583,7 @@ def scan_and_warn(file_path,
             if signature_check["is_valid"]:
                 logging.info(f"File '{norm_path}' has a valid signature. Skipping worm detection.")
             elif signature_check["signature_status_issues"] and not signature_check.get("no_signature"):
-                logging.warning(f"File '{norm_path}' has signature issues. Proceeding with further checks.")
+                logging.critical(f"File '{norm_path}' has signature issues. Proceeding with further checks.")
                 threading.Thread(target=notify_user_invalid, args=(norm_path, "Win32.Susp.InvalidSignature")).start()
 
             # PE-specific threaded operations
@@ -10410,7 +10601,7 @@ def scan_and_warn(file_path,
             def scr_detection_thread():
                 try:
                     if norm_path.lower().endswith(".scr"):
-                        logging.warning(f"Suspicious .scr file detected: {norm_path}")
+                        logging.critical(f"Suspicious .scr file detected: {norm_path}")
                         threading.Thread(target=notify_user_scr, args=(norm_path, "HEUR:Win32.Susp.PE.SCR.gen")).start()
                 except Exception as e:
                     logging.error(f"Error in SCR detection for {norm_path}: {e}")
@@ -10654,7 +10845,7 @@ def scan_and_warn(file_path,
                     with open(norm_path, 'rb') as fake_file:
                         file_content_read = fake_file.read(100 * 1024 * 1024)
                         if file_content_read == b'\x00' * 100 * 1024 * 1024:
-                            logging.warning(f"File {norm_path} is flagged as HEUR:FakeSize.gen")
+                            logging.critical(f"File {norm_path} is flagged as HEUR:FakeSize.gen")
                             fake_size = "HEUR:FakeSize.gen"
                             if signature_check and signature_check["is_valid"]:
                                 fake_size = "HEUR:SIG.Win32.FakeSize.gen"
@@ -10670,7 +10861,7 @@ def scan_and_warn(file_path,
 
                 if is_malicious:
                     virus_name = ''.join(virus_names)
-                    logging.warning(f"File {norm_path} is malicious. Virus: {virus_name}")
+                    logging.critical(f"File {norm_path} is malicious. Virus: {virus_name}")
 
                     if virus_name.startswith("PUA."):
                         threading.Thread(target=notify_user_pua, args=(norm_path, virus_name, engine_detected)).start()
@@ -11037,7 +11228,7 @@ class SafeProcessMonitor:
                         )
                         scan_thread.start()
                 else:
-                    logging.warning(f"Memory analysis for PID {proc_info.pid} returned no results")
+                    logging.error(f"Memory analysis for PID {proc_info.pid} returned no results")
 
                 return result_file
 
@@ -11326,7 +11517,7 @@ def check_startup_directories():
                                 malware_type = "HEUR:Win32.Startup.Susp.gen.Malware"
                                 message = f"Suspicious startup file detected: {file_path}\nVirus: {malware_type}"
 
-                            logging.warning(f"Suspicious or malicious startup file detected in {directory}: {file}")
+                            logging.critical(f"Suspicious or malicious startup file detected in {directory}: {file}")
                             notify_user_startup(file_path, message)
                             threading.Thread(target=scan_and_warn, args=(file_path,)).start()
                             alerted_files.append(file_path)
@@ -11470,7 +11661,7 @@ def monitor_hosts_file():
         is_malicious_host = check_hosts_file_for_blocked_antivirus()
 
         if is_malicious_host:
-            logging.warning("Malicious hosts file detected and flagged.")
+            logging.critical("Malicious hosts file detected and flagged.")
             break  # Stop monitoring after notifying once
 
 def is_malicious_file(file_path, size_limit_kb):
@@ -11510,12 +11701,12 @@ def check_uefi_directories():
                     # --- END NEW CHECK ---
 
                     if uefi_path in uefi_100kb_paths and is_malicious_file(uefi_path, 100):
-                        logging.warning(f"Malicious file detected: {uefi_path}")
+                        logging.critical(f"Malicious file detected: {uefi_path}")
                         notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.SecureBootRecovery.gen.Malware")
                         threading.Thread(target=scan_and_warn, args=(uefi_path,)).start()
                         alerted_uefi_files.append(uefi_path)
                     elif uefi_path in uefi_paths and is_malicious_file(uefi_path, 1024):
-                        logging.warning(f"Malicious file detected: {uefi_path}")
+                        logging.critical(f"Malicious file detected: {uefi_path}")
                         notify_user_uefi(uefi_path, "HEUR:Win32.UEFI.ScreenLocker.Ransomware.gen.Malware")
                         threading.Thread(target=scan_and_warn, args=(uefi_path,)).start()
                         alerted_uefi_files.append(uefi_path)
@@ -11553,7 +11744,7 @@ def check_uefi_directories():
                                 continue
                     # --- END NEW CHECK ---
 
-                    logging.warning(f"Unknown malicious UEFI file detected: {file_path}")
+                    logging.critical(f"Unknown malicious UEFI file detected: {file_path}")
                     notify_user_uefi(file_path, "HEUR:Win32.Bootkit.Startup.UEFI.gen.Malware")
                     threading.Thread(target=scan_and_warn, args=(file_path,)).start()
                     alerted_uefi_files.append(file_path)
@@ -12234,12 +12425,12 @@ class MonitorMessageCommandLine:
 
     def process_detected_malware(self, text, file_path, virus_name, category):
         message = f"Detected malware ({category}): {virus_name} in text: {text} from {file_path}"
-        logging.warning(message)
+        logging.critical(message)
         notify_user_for_detected_command(message, file_path)
 
     def process_detected_text_ransom(self, text, file_path):
         message = f"Potential ransomware detected in text: {text} from {file_path}"
-        logging.warning(message)
+        logging.critical(message)
         notify_user_for_detected_command(message, file_path)
 
     def detect_malware(self, file_path: str, command_flag: bool = False):
@@ -12262,11 +12453,11 @@ class MonitorMessageCommandLine:
                     for pattern in details.get("patterns", []):
                         if re.search(pattern, file_content, re.IGNORECASE):
                             self.process_detected_malware(file_content, file_path, details["virus_name"], category)
-                            logging.warning(f"Detected command pattern for '{category}' in {file_path}.")
+                            logging.critical(f"Detected command pattern for '{category}' in {file_path}.")
                     if "message" in details:
                          if self.calculate_similarity_text(file_content, details["message"]) > 0.92:
                             self.process_detected_malware(file_content, file_path, details["virus_name"], category)
-                            logging.warning(f"Detected malware message for '{category}' in {file_path}.")
+                            logging.critical(f"Detected malware message for '{category}' in {file_path}.")
             else:
                 # For UI/window text, check ONLY against text patterns, excluding command patterns
                 logging.info(f"Scanning {file_path} as text content against TEXT patterns only.")
@@ -12277,7 +12468,7 @@ class MonitorMessageCommandLine:
                             continue # Skip command-specific patterns
                         if self.calculate_similarity_text(file_content, pattern) > 0.92:
                             self.process_detected_malware(file_content, file_path, details["virus_name"], category)
-                            logging.warning(f"Detected text pattern for '{category}' in {file_path}.")
+                            logging.critical(f"Detected text pattern for '{category}' in {file_path}.")
 
                     # Check fixed messages, but skip if it's a known command pattern
                     if "message" in details:
@@ -12285,12 +12476,12 @@ class MonitorMessageCommandLine:
                             continue # Skip command-specific patterns
                         if self.calculate_similarity_text(file_content, details["message"]) > 0.92:
                             self.process_detected_malware(file_content, file_path, details["virus_name"], category)
-                            logging.warning(f"Detected malware message for '{category}' in {file_path}.")
+                            logging.critical(f"Detected malware message for '{category}' in {file_path}.")
 
                 # Ransomware keyword distance check (only for text content)
                 if self.contains_keywords_within_max_distance(file_content, max_distance=10):
                     self.process_detected_text_ransom(file_content, file_path)
-                    logging.warning(f"Detected ransomware keywords in {file_path}.")
+                    logging.critical(f"Detected ransomware keywords in {file_path}.")
 
         except FileNotFoundError:
             logging.error(f"File not found: {file_path}.")
@@ -12399,7 +12590,7 @@ def terminate_analysis_threads_immediately():
 
     still_alive = [t.name for t in analysis_threads if t.is_alive()]
     if still_alive:
-        logging.warning(f"Some threads are still running: {still_alive}")
+        logging.error(f"Some threads are still running: {still_alive}")
     else:
         logging.info("All analysis threads have been terminated.")
 
@@ -12619,7 +12810,7 @@ def run_themida_unlicense(file_path, x64=False):
             logging.info(f"Unpacked file created: {unpacked_path}")
             return unpacked_path
         else:
-            logging.warning(f"Unpacker finished but no unpacked file found for {file_path}")
+            logging.error(f"Unpacker finished but no unpacked file found for {file_path}")
             return None
 
     except subprocess.CalledProcessError as ex:
@@ -12826,7 +13017,7 @@ class HydraIconWidget(QWidget):
         if os.path.exists(icon_path):
             self.pixmap = QPixmap(icon_path)
         else:
-            logging.warning(f"Sidebar icon not found at {icon_path}. Drawing fallback.")
+            logging.error(f"Sidebar icon not found at {icon_path}. Drawing fallback.")
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -12871,7 +13062,7 @@ class ShieldWidget(QWidget):
         if os.path.exists(icon_path):
             self.hydra_pixmap = QPixmap(icon_path)
         else:
-            logging.warning(f"Shield icon not found at {icon_path}. Will use fallback drawing.")
+            logging.error(f"Shield icon not found at {icon_path}. Will use fallback drawing.")
 
 
         # Animation for the icon appearing/disappearing
@@ -14317,7 +14508,7 @@ class AntivirusApp(QWidget):
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
         else:
-            logging.warning(f"Icon file not found at: {icon_path}")
+            logging.error(f"Icon file not found at: {icon_path}")
         self.setWindowTitle(WINDOW_TITLE)
         self.setMinimumSize(1024, 768)
         self.resize(1200, 800)
