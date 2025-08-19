@@ -11747,8 +11747,8 @@ def is_window_valid(hwnd):
 
 def get_uia_text(hwnd):
     """
-    Enhanced UI Automation text extraction with comprehensive pattern support.
-    Returns a list of all unique, non-empty text strings found, including messagebox text.
+    Enhanced UI Automation text extraction with multiple pattern support.
+    This function now returns a list of all unique, non-empty text strings found.
     """
     if not is_window_valid(hwnd):
         return []
@@ -11766,34 +11766,32 @@ def get_uia_text(hwnd):
 
     all_texts = []
 
-    # 1. Main element properties
+    # 1. CurrentName
     try:
-        if elem.CurrentName and elem.CurrentName.strip():
-            all_texts.append(elem.CurrentName.strip())
-        if elem.CurrentHelpText and elem.CurrentHelpText.strip():
-            all_texts.append(elem.CurrentHelpText.strip())
-    except:
-        pass
+        name = elem.CurrentName
+        if name and name.strip():
+            all_texts.append(name.strip())
+    except: pass
 
-    # 2. ValuePattern on main element
+    # 2. ValuePattern
     try:
         vp = elem.GetCurrentPattern(UiaClient.UIA_ValuePatternId)
-        if vp and vp.CurrentValue and vp.CurrentValue.strip():
-            all_texts.append(vp.CurrentValue.strip())
-    except:
-        pass
+        if vp:
+            value = vp.CurrentValue
+            if value and value.strip():
+                all_texts.append(value.strip())
+    except: pass
 
-    # 3. TextPattern on main element
+    # 3. TextPattern
     try:
         tp = elem.GetCurrentPattern(UiaClient.UIA_TextPatternId)
         if tp:
             text = tp.DocumentRange.GetText(-1)
             if text and text.strip():
                 all_texts.append(text.strip())
-    except:
-        pass
+    except: pass
 
-    # 4. LegacyIAccessiblePattern on main element
+    # 4. LegacyIAccessiblePattern
     try:
         lap = elem.GetCurrentPattern(UiaClient.UIA_LegacyIAccessiblePatternId)
         if lap:
@@ -11801,135 +11799,41 @@ def get_uia_text(hwnd):
                 all_texts.append(lap.CurrentName.strip())
             if lap.CurrentValue and lap.CurrentValue.strip():
                 all_texts.append(lap.CurrentValue.strip())
-    except:
-        pass
+    except: pass
 
-    # 5. RangeValuePattern on main element
+    # 5. RangeValuePattern
     try:
         rvp = elem.GetCurrentPattern(UiaClient.UIA_RangeValuePatternId)
         if rvp:
             value = str(rvp.CurrentValue)
             if value:
                 all_texts.append(value)
-    except:
-        pass
+    except: pass
 
-    # 6. All descendant elements (comprehensive search for messagebox text)
-    try:
-        condition = uiauto.CreateTrueCondition()
-        all_elements = elem.FindAll(UiaClient.TreeScope_Descendants, condition)
-        
-        if all_elements:
-            for i in range(all_elements.Length):
-                element = all_elements.GetElement(i)
-                
-                # Get basic properties
-                try:
-                    if element.CurrentName and element.CurrentName.strip():
-                        all_texts.append(element.CurrentName.strip())
-                    if element.CurrentHelpText and element.CurrentHelpText.strip():
-                        all_texts.append(element.CurrentHelpText.strip())
-                except:
-                    pass
-                
-                # ValuePattern for each element
-                try:
-                    vp = element.GetCurrentPattern(UiaClient.UIA_ValuePatternId)
-                    if vp and vp.CurrentValue and vp.CurrentValue.strip():
-                        all_texts.append(vp.CurrentValue.strip())
-                except:
-                    pass
-                
-                # TextPattern for each element
-                try:
-                    tp = element.GetCurrentPattern(UiaClient.UIA_TextPatternId)
-                    if tp:
-                        text = tp.DocumentRange.GetText(-1)
-                        if text and text.strip():
-                            all_texts.append(text.strip())
-                except:
-                    pass
-                
-                # LegacyIAccessiblePattern for each element
-                try:
-                    lap = element.GetCurrentPattern(UiaClient.UIA_LegacyIAccessiblePatternId)
-                    if lap:
-                        if lap.CurrentName and lap.CurrentName.strip():
-                            all_texts.append(lap.CurrentName.strip())
-                        if lap.CurrentValue and lap.CurrentValue.strip():
-                            all_texts.append(lap.CurrentValue.strip())
-                except:
-                    pass
-    except:
-        pass
-
-    # 7. Specific search for Text controls (common in messageboxes)
-    try:
-        text_condition = uiauto.CreatePropertyCondition(
-            UiaClient.UIA_ControlTypePropertyId, 
-            UiaClient.UIA_TextControlTypeId
-        )
-        text_elements = elem.FindAll(UiaClient.TreeScope_Descendants, text_condition)
-        
-        if text_elements:
-            for i in range(text_elements.Length):
-                text_elem = text_elements.GetElement(i)
-                try:
-                    if text_elem.CurrentName and text_elem.CurrentName.strip():
-                        all_texts.append(text_elem.CurrentName.strip())
-                    
-                    # Try ValuePattern on text elements
-                    vp = text_elem.GetCurrentPattern(UiaClient.UIA_ValuePatternId)
-                    if vp and vp.CurrentValue and vp.CurrentValue.strip():
-                        all_texts.append(vp.CurrentValue.strip())
-                except:
-                    pass
-    except:
-        pass
-
-    # 8. Specific search for Document controls (static text)
-    try:
-        doc_condition = uiauto.CreatePropertyCondition(
-            UiaClient.UIA_ControlTypePropertyId, 
-            UiaClient.UIA_DocumentControlTypeId
-        )
-        doc_elements = elem.FindAll(UiaClient.TreeScope_Descendants, doc_condition)
-        
-        if doc_elements:
-            for i in range(doc_elements.Length):
-                doc_elem = doc_elements.GetElement(i)
-                try:
-                    if doc_elem.CurrentName and doc_elem.CurrentName.strip():
-                        all_texts.append(doc_elem.CurrentName.strip())
-                    
-                    # Try TextPattern on document elements
-                    tp = doc_elem.GetCurrentPattern(UiaClient.UIA_TextPatternId)
-                    if tp:
-                        text = tp.DocumentRange.GetText(-1)
-                        if text and text.strip():
-                            all_texts.append(text.strip())
-                except:
-                    pass
-    except:
-        pass
-
-    # 9. Selection Pattern (for selected items)
+    # 6. SelectionPattern
     try:
         sp = elem.GetCurrentPattern(UiaClient.UIA_SelectionPatternId)
         if sp:
             selection = sp.GetCurrentSelection()
             if selection and selection.Length > 0:
                 for i in range(selection.Length):
-                    try:
-                        item = selection.GetElement(i)
-                        if item.CurrentName and item.CurrentName.strip():
-                            all_texts.append(item.CurrentName.strip())
-                    except:
-                        pass
-    except:
-        pass
+                    item_name = selection.GetElement(i).CurrentName
+                    if item_name:
+                        all_texts.append(item_name.strip())
+    except: pass
 
-    # Return unique texts, preserving order
+    # 7. Child elements
+    try:
+        condition = uiauto.CreateTrueCondition()
+        child_elements = elem.FindAll(UiaClient.TreeScope_Children, condition)
+        if child_elements:
+            for i in range(child_elements.Length):
+                child_name = child_elements.GetElement(i).CurrentName
+                if child_name and child_name.strip():
+                    all_texts.append(child_name.strip())
+    except: pass
+
+    # Return a list of unique texts found.
     return list(dict.fromkeys(all_texts))
 
 # ----------------------------------------------------
