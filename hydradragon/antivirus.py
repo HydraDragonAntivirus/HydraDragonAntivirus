@@ -4472,13 +4472,23 @@ class RealTimeWebProtectionObserver:
 web_protection_observer = RealTimeWebProtectionObserver()
 
 def scan_yara(file_path):
-    matched_rules = []
-    matched_results = []
-
+    """Scan file with multiple YARA rule sets in parallel using threads."""
+    
+    # Shared variables for results
+    results = {
+        'matched_rules': [],
+        'matched_results': [],
+        'vmprotect_unpacked_file': None
+    }
+    
+    # Lock for thread-safe access to shared variables
+    results_lock = threading.Lock()
+    threads = []
+    
     try:
         if not os.path.exists(file_path):
             logging.error(f"File not found during YARA scan: {file_path}")
-            return None, None
+            return None, None, None
 
         with open(file_path, 'rb') as yara_file:
             data_content = yara_file.read()
@@ -4561,109 +4571,175 @@ def scan_yara(file_path):
 
             return match_info
 
-        # compiled_rule scanning
-        try:
-            if compiled_rule:
-                matches = compiled_rule.match(data=data_content)
-                for match in matches or []:
-                    if match.rule not in excluded_rules:
-                        matched_rules.append(match.rule)
-                        match_details = extract_match_details(match, 'compiled_rule')
-                        matched_results.append(match_details)
+        # Thread worker for compiled_rule scanning
+        def compiled_rule_worker():
+            try:
+                if compiled_rule:
+                    matches = compiled_rule.match(data=data_content)
+                    local_matched_rules = []
+                    local_matched_results = []
+                    local_vmprotect_file = None
+                    
+                    for match in matches or []:
+                        if match.rule not in excluded_rules:
+                            local_matched_rules.append(match.rule)
+                            match_details = extract_match_details(match, 'compiled_rule')
+                            local_matched_results.append(match_details)
 
-                    # VMProtect unpacking
-                    if match.rule == "INDICATOR_EXE_Packed_VMProtect":
-                        try:
-                            with open(file_path, 'rb') as f:
-                                packed_data = f.read()
-                            unpacked_data = unpack_pe(packed_data)
-                            if unpacked_data:
-                                base_name, ext = os.path.splitext(os.path.basename(file_path))
-                                unpacked_name = f"{base_name}_vmprotect_unpacked{ext}"
-                                unpacked_path = os.path.join(vmprotect_unpacked_dir, unpacked_name)
+                        # VMProtect unpacking
+                        if match.rule == "INDICATOR_EXE_Packed_VMProtect":
+                            try:
+                                with open(file_path, 'rb') as f:
+                                    packed_data = f.read()
+                                unpacked_data = unpack_pe(packed_data)
+                                if unpacked_data:
+                                    base_name, ext = os.path.splitext(os.path.basename(file_path))
+                                    unpacked_name = f"{base_name}_vmprotect_unpacked{ext}"
+                                    unpacked_path = os.path.join(vmprotect_unpacked_dir, unpacked_name)
 
-                                with open(unpacked_path, 'wb') as f:
-                                    f.write(unpacked_data)
+                                    with open(unpacked_path, 'wb') as f:
+                                        f.write(unpacked_data)
 
-                                vmprotect_unpacked_file = unpacked_path  # save path for return
-                                logging.info(f"VMProtect unpacked successfully: {unpacked_path}")
-                        except Exception as e:
-                            logging.error(f"Error unpacking after VMProtect indicator: {e}")
-            else:
-                logging.error("compiled_rule is not defined.")
-        except Exception as e:
-            logging.error(f"Error scanning with compiled_rule: {e}")
+                                    local_vmprotect_file = unpacked_path
+                                    logging.info(f"VMProtect unpacked successfully: {unpacked_path}")
+                            except Exception as e:
+                                logging.error(f"Error unpacking after VMProtect indicator: {e}")
+                    
+                    # Update shared results
+                    with results_lock:
+                        results['matched_rules'].extend(local_matched_rules)
+                        results['matched_results'].extend(local_matched_results)
+                        if local_vmprotect_file:
+                            results['vmprotect_unpacked_file'] = local_vmprotect_file
+                else:
+                    logging.error("compiled_rule is not defined.")
+            except Exception as e:
+                logging.error(f"Error scanning with compiled_rule: {e}")
 
-        # yarGen_rule (regular YARA)
-        try:
-            if yarGen_rule:
-                matches = yarGen_rule.match(data=data_content)
-                for match in matches or []:
-                    if match.rule not in excluded_rules:
-                        matched_rules.append(match.rule)
-                        match_details = extract_match_details(match, 'yarGen_rule')
-                        matched_results.append(match_details)
-                    else:
-                        logging.info(f"Rule {match.rule} is excluded from yarGen_rule.")
-            else:
-                logging.error("yarGen_rule is not defined.")
-        except Exception as e:
-            logging.error(f"Error scanning with yarGen_rule: {e}")
+        # Thread worker for yarGen_rule scanning
+        def yargen_rule_worker():
+            try:
+                if yarGen_rule:
+                    matches = yarGen_rule.match(data=data_content)
+                    local_matched_rules = []
+                    local_matched_results = []
+                    
+                    for match in matches or []:
+                        if match.rule not in excluded_rules:
+                            local_matched_rules.append(match.rule)
+                            match_details = extract_match_details(match, 'yarGen_rule')
+                            local_matched_results.append(match_details)
+                        else:
+                            logging.info(f"Rule {match.rule} is excluded from yarGen_rule.")
+                    
+                    # Update shared results
+                    with results_lock:
+                        results['matched_rules'].extend(local_matched_rules)
+                        results['matched_results'].extend(local_matched_results)
+                else:
+                    logging.error("yarGen_rule is not defined.")
+            except Exception as e:
+                logging.error(f"Error scanning with yarGen_rule: {e}")
 
-        # icewater_rule (regular YARA)
-        try:
-            if icewater_rule:
-                matches = icewater_rule.match(data=data_content)
-                for match in matches or []:
-                    if match.rule not in excluded_rules:
-                        matched_rules.append(match.rule)
-                        match_details = extract_match_details(match, 'icewater_rule')
-                        matched_results.append(match_details)
-                    else:
-                        logging.info(f"Rule {match.rule} is excluded from icewater_rule.")
-            else:
-                logging.error("icewater_rule is not defined.")
-        except Exception as e:
-            logging.error(f"Error scanning with icewater_rule: {e}")
+        # Thread worker for icewater_rule scanning
+        def icewater_rule_worker():
+            try:
+                if icewater_rule:
+                    matches = icewater_rule.match(data=data_content)
+                    local_matched_rules = []
+                    local_matched_results = []
+                    
+                    for match in matches or []:
+                        if match.rule not in excluded_rules:
+                            local_matched_rules.append(match.rule)
+                            match_details = extract_match_details(match, 'icewater_rule')
+                            local_matched_results.append(match_details)
+                        else:
+                            logging.info(f"Rule {match.rule} is excluded from icewater_rule.")
+                    
+                    # Update shared results
+                    with results_lock:
+                        results['matched_rules'].extend(local_matched_rules)
+                        results['matched_results'].extend(local_matched_results)
+                else:
+                    logging.error("icewater_rule is not defined.")
+            except Exception as e:
+                logging.error(f"Error scanning with icewater_rule: {e}")
 
-        # valhalla_rule (regular YARA)
-        try:
-            if valhalla_rule:
-                matches = valhalla_rule.match(data=data_content)
-                for match in matches or []:
-                    if match.rule not in excluded_rules:
-                        matched_rules.append(match.rule)
-                        match_details = extract_match_details(match, 'valhalla_rule')
-                        matched_results.append(match_details)
-                    else:
-                        logging.info(f"Rule {match.rule} is excluded from valhalla_rule.")
-            else:
-                logging.error("valhalla_rule is not defined.")
-        except Exception as e:
-            logging.error(f"Error scanning with valhalla_rule: {e}")
+        # Thread worker for valhalla_rule scanning
+        def valhalla_rule_worker():
+            try:
+                if valhalla_rule:
+                    matches = valhalla_rule.match(data=data_content)
+                    local_matched_rules = []
+                    local_matched_results = []
+                    
+                    for match in matches or []:
+                        if match.rule not in excluded_rules:
+                            local_matched_rules.append(match.rule)
+                            match_details = extract_match_details(match, 'valhalla_rule')
+                            local_matched_results.append(match_details)
+                        else:
+                            logging.info(f"Rule {match.rule} is excluded from valhalla_rule.")
+                    
+                    # Update shared results
+                    with results_lock:
+                        results['matched_rules'].extend(local_matched_rules)
+                        results['matched_results'].extend(local_matched_results)
+                else:
+                    logging.error("valhalla_rule is not defined.")
+            except Exception as e:
+                logging.error(f"Error scanning with valhalla_rule: {e}")
 
-        # yaraxtr_rule (YARA-X)
-        try:
-            if yaraxtr_rule:
-                scanner = yara_x.Scanner(rules=yaraxtr_rule)
-                scan_results = scanner.scan(data_content)
+        # Thread worker for yaraxtr_rule scanning (YARA-X)
+        def yaraxtr_rule_worker():
+            try:
+                if yaraxtr_rule:
+                    scanner = yara_x.Scanner(rules=yaraxtr_rule)
+                    scan_results = scanner.scan(data_content)
+                    local_matched_rules = []
+                    local_matched_results = []
 
-                # Iterate through matching rules
-                for rule in scan_results.matching_rules:
-                    if rule.identifier not in excluded_rules:
-                        matched_rules.append(rule.identifier)
-                        match_details = extract_yarax_match_details(rule, 'yaraxtr_rule')
-                        matched_results.append(match_details)
-                    else:
-                        logging.info(f"Rule {rule.identifier} is excluded from yaraxtr_rule.")
-            else:
-                logging.error("yaraxtr_rule is not defined.")
-        except Exception as e:
-            logging.error(f"Error scanning with yaraxtr_rule: {e}")
+                    # Iterate through matching rules
+                    for rule in scan_results.matching_rules:
+                        if rule.identifier not in excluded_rules:
+                            local_matched_rules.append(rule.identifier)
+                            match_details = extract_yarax_match_details(rule, 'yaraxtr_rule')
+                            local_matched_results.append(match_details)
+                        else:
+                            logging.info(f"Rule {rule.identifier} is excluded from yaraxtr_rule.")
+                    
+                    # Update shared results
+                    with results_lock:
+                        results['matched_rules'].extend(local_matched_rules)
+                        results['matched_results'].extend(local_matched_results)
+                else:
+                    logging.error("yaraxtr_rule is not defined.")
+            except Exception as e:
+                logging.error(f"Error scanning with yaraxtr_rule: {e}")
 
-        return (matched_rules if matched_rules else None,
-                matched_results if matched_results else None,
-                vmprotect_unpacked_file)
+        # Create and start all threads
+        workers = [
+            compiled_rule_worker,
+            yargen_rule_worker,
+            icewater_rule_worker,
+            valhalla_rule_worker,
+            yaraxtr_rule_worker
+        ]
+        
+        for worker in workers:
+            thread = threading.Thread(target=worker)
+            thread.start()
+            threads.append(thread)
+        
+        # Wait for all threads to complete
+        for thread in threads:
+            thread.join()
+        
+        # Return results
+        return (results['matched_rules'] if results['matched_rules'] else None,
+                results['matched_results'] if results['matched_results'] else None,
+                results['vmprotect_unpacked_file'])
 
     except Exception as ex:
         logging.error(f"An error occurred during YARA scan: {ex}")
@@ -5813,58 +5889,93 @@ def is_zip_file(file_path):
         return False
 
 def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_file=False):
-    """Scan file in real-time using multiple engines."""
+    """Scan file in real-time using multiple engines in parallel."""
     logging.info(f"Started scanning file: {file_path}")
-
-    try:
-        # Scan with Machine Learning AI for PE files
+    
+    # Shared variables for results
+    results = {
+        'malware_found': False,
+        'virus_name': 'Clean',
+        'engine': '',
+        'vmprotect_path': None
+    }
+    
+    # Lock for thread-safe access to shared variables
+    results_lock = threading.Lock()
+    threads = []
+    
+    def ml_scan_worker():
+        """Worker function for Machine Learning scan"""
         try:
             if pe_file:
-                is_malicious_machine_learning , malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
+                is_malicious_machine_learning, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
                 if is_malicious_machine_learning:
                     if benign_score < 0.93:
                         if signature_check["is_valid"]:
                             malware_definition = malware_definition + ".SIG"
                         logging.critical(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
-                        return True, malware_definition, "ML"
+                        
+                        with results_lock:
+                            if not results['malware_found']:  # First detection wins
+                                results['malware_found'] = True
+                                results['virus_name'] = malware_definition
+                                results['engine'] = "ML"
+                        return
                     elif benign_score >= 0.93:
                         logging.info(f"File is clean based on ML benign score: {file_path}")
                 logging.info(f"No malware detected by Machine Learning in file: {file_path}")
         except Exception as ex:
             logging.error(f"An error occurred while scanning file with Machine Learning AI: {file_path}. Error: {ex}")
-
-        # Worm analysis and fake file analysis
+    
+    def pe_scan_worker():
+        """Worker function for PE file analysis"""
         try:
             if pe_file:
                 check_pe_file(file_path, signature_check, file_name)
         except Exception as ex:
             logging.error(f"An error occurred while scanning the file for fake system files and worm analysis: {file_path}. Error: {ex}")
-
-        # Scan with ClamAV
+    
+    def clamav_scan_worker():
+        """Worker function for ClamAV scan"""
         try:
             result = scan_file_with_clamd(file_path)
             if result not in ("Clean", ""):
                 if signature_check["is_valid"]:
                     result = result + ".SIG"
                 logging.critical(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
-                return True, result, "ClamAV"
+                
+                with results_lock:
+                    if not results['malware_found']:  # First detection wins
+                        results['malware_found'] = True
+                        results['virus_name'] = result
+                        results['engine'] = "ClamAV"
+                return
             logging.info(f"No malware detected by ClamAV in file: {file_path}")
         except Exception as ex:
             logging.error(f"An error occurred while scanning file with ClamAV: {file_path}. Error: {ex}")
-
-        # Scan with YARA
+    
+    def yara_scan_worker():
+        """Worker function for YARA scan"""
         try:
             yara_match, yara_result, vmprotect_unpacked_path = scan_yara(file_path)
             if yara_match is not None and yara_match not in ("Clean", ""):
                 if signature_check["is_valid"]:
                     yara_match = yara_match + ".SIG"
                 logging.critical(f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}")
-                return True, yara_match, "YARA", vmprotect_unpacked_path
+                
+                with results_lock:
+                    if not results['malware_found']:  # First detection wins
+                        results['malware_found'] = True
+                        results['virus_name'] = yara_match
+                        results['engine'] = "YARA"
+                        results['vmprotect_path'] = vmprotect_unpacked_path
+                return
             logging.info(f"Scanned file with YARA: {file_path} - No viruses detected")
         except Exception as ex:
             logging.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {ex}")
-
-        # Scan TAR files
+    
+    def tar_scan_worker():
+        """Worker function for TAR scan"""
         try:
             if tarfile.is_tarfile(file_path):
                 scan_result, virus_name = scan_tar_file(file_path)
@@ -5873,7 +5984,13 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                     if signature_check["is_valid"]:
                         virus_name = virus_str + ".SIG"
                     logging.critical(f"Infected file detected (TAR): {file_path} - Virus: {virus_str}")
-                    return True, virus_str, "TAR"
+                    
+                    with results_lock:
+                        if not results['malware_found']:  # First detection wins
+                            results['malware_found'] = True
+                            results['virus_name'] = virus_str
+                            results['engine'] = "TAR"
+                    return
                 logging.info(f"No malware detected in TAR file: {file_path}")
         except PermissionError:
             logging.error(f"Permission error occurred while scanning TAR file: {file_path}")
@@ -5881,8 +5998,9 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
             logging.error(f"TAR file not found error occurred while scanning TAR file: {file_path}")
         except Exception as ex:
             logging.error(f"An error occurred while scanning TAR file: {file_path}. Error: {ex}")
-
-        # Scan ZIP files
+    
+    def zip_scan_worker():
+        """Worker function for ZIP scan"""
         try:
             if is_zip_file(file_path):
                 scan_result, virus_name = scan_zip_file(file_path)
@@ -5890,7 +6008,13 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                     if signature_check["is_valid"]:
                         virus_name = virus_name + ".SIG"
                     logging.critical(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
-                    return True, virus_name, "ZIP"
+                    
+                    with results_lock:
+                        if not results['malware_found']:  # First detection wins
+                            results['malware_found'] = True
+                            results['virus_name'] = virus_name
+                            results['engine'] = "ZIP"
+                    return
                 logging.info(f"No malware detected in ZIP file: {file_path}")
         except PermissionError:
             logging.error(f"Permission error occurred while scanning ZIP file: {file_path}")
@@ -5898,8 +6022,9 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
             logging.error(f"ZIP file not found error occurred while scanning ZIP file: {file_path}")
         except Exception as ex:
             logging.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {ex}")
-
-        # Scan 7z files
+    
+    def sevenz_scan_worker():
+        """Worker function for 7z scan"""
         try:
             if is_7z_file_from_output(die_output):
                 scan_result, virus_name = scan_7z_file(file_path)
@@ -5907,7 +6032,13 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                     if signature_check["is_valid"]:
                         virus_name = virus_name + ".SIG"
                     logging.critical(f"Infected file detected (7z): {file_path} - Virus: {virus_name}")
-                    return True, virus_name, "7z"
+                    
+                    with results_lock:
+                        if not results['malware_found']:  # First detection wins
+                            results['malware_found'] = True
+                            results['virus_name'] = virus_name
+                            results['engine'] = "7z"
+                    return
                 logging.info(f"No malware detected in 7z file: {file_path}")
         except PermissionError:
             logging.error(f"Permission error occurred while scanning 7Z file: {file_path}")
@@ -5915,10 +6046,41 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
             logging.error(f"7Z file not found error occurred while scanning 7Z file: {file_path}")
         except Exception as ex:
             logging.error(f"An error occurred while scanning 7Z file: {file_path}. Error: {ex}")
-
+    
+    try:
+        # Create and start all threads
+        workers = [
+            ml_scan_worker,
+            pe_scan_worker,
+            clamav_scan_worker,
+            yara_scan_worker,
+            tar_scan_worker,
+            zip_scan_worker,
+            sevenz_scan_worker
+        ]
+        
+        for worker in workers:
+            thread = threading.Thread(target=worker)
+            thread.start()
+            threads.append(thread)
+        
+        # Wait for all threads to complete
+        for thread in threads:
+            thread.join()
+        
+        # Return results based on what was found
+        if results['malware_found']:
+            if results['vmprotect_path']:
+                return results['malware_found'], results['virus_name'], results['engine'], results['vmprotect_path']
+            else:
+                return results['malware_found'], results['virus_name'], results['engine']
+        else:
+            logging.info(f"File is clean - no malware detected by any engine: {file_path}")
+            return False, "Clean", "", None
+        
     except Exception as ex:
         logging.error(f"An error occurred while scanning file: {file_path}. Error: {ex}")
-
+    
     return False, "Clean", "", None  # Default to clean if no malware found
 
 # Read the file and store the names in a list (ignoring empty lines)
