@@ -4473,18 +4473,18 @@ web_protection_observer = RealTimeWebProtectionObserver()
 
 def scan_yara(file_path):
     """Scan file with multiple YARA rule sets in parallel using threads."""
-    
+
     # Shared variables for results
     results = {
         'matched_rules': [],
         'matched_results': [],
         'vmprotect_unpacked_file': None
     }
-    
+
     # Lock for thread-safe access to shared variables
     results_lock = threading.Lock()
     threads = []
-    
+
     try:
         if not os.path.exists(file_path):
             logging.error(f"File not found during YARA scan: {file_path}")
@@ -4579,7 +4579,7 @@ def scan_yara(file_path):
                     local_matched_rules = []
                     local_matched_results = []
                     local_vmprotect_file = None
-                    
+
                     for match in matches or []:
                         if match.rule not in excluded_rules:
                             local_matched_rules.append(match.rule)
@@ -4604,7 +4604,7 @@ def scan_yara(file_path):
                                     logging.info(f"VMProtect unpacked successfully: {unpacked_path}")
                             except Exception as e:
                                 logging.error(f"Error unpacking after VMProtect indicator: {e}")
-                    
+
                     # Update shared results
                     with results_lock:
                         results['matched_rules'].extend(local_matched_rules)
@@ -4623,7 +4623,7 @@ def scan_yara(file_path):
                     matches = yarGen_rule.match(data=data_content)
                     local_matched_rules = []
                     local_matched_results = []
-                    
+
                     for match in matches or []:
                         if match.rule not in excluded_rules:
                             local_matched_rules.append(match.rule)
@@ -4631,7 +4631,7 @@ def scan_yara(file_path):
                             local_matched_results.append(match_details)
                         else:
                             logging.info(f"Rule {match.rule} is excluded from yarGen_rule.")
-                    
+
                     # Update shared results
                     with results_lock:
                         results['matched_rules'].extend(local_matched_rules)
@@ -4648,7 +4648,7 @@ def scan_yara(file_path):
                     matches = icewater_rule.match(data=data_content)
                     local_matched_rules = []
                     local_matched_results = []
-                    
+
                     for match in matches or []:
                         if match.rule not in excluded_rules:
                             local_matched_rules.append(match.rule)
@@ -4656,7 +4656,7 @@ def scan_yara(file_path):
                             local_matched_results.append(match_details)
                         else:
                             logging.info(f"Rule {match.rule} is excluded from icewater_rule.")
-                    
+
                     # Update shared results
                     with results_lock:
                         results['matched_rules'].extend(local_matched_rules)
@@ -4673,7 +4673,7 @@ def scan_yara(file_path):
                     matches = valhalla_rule.match(data=data_content)
                     local_matched_rules = []
                     local_matched_results = []
-                    
+
                     for match in matches or []:
                         if match.rule not in excluded_rules:
                             local_matched_rules.append(match.rule)
@@ -4681,7 +4681,7 @@ def scan_yara(file_path):
                             local_matched_results.append(match_details)
                         else:
                             logging.info(f"Rule {match.rule} is excluded from valhalla_rule.")
-                    
+
                     # Update shared results
                     with results_lock:
                         results['matched_rules'].extend(local_matched_rules)
@@ -4708,7 +4708,7 @@ def scan_yara(file_path):
                             local_matched_results.append(match_details)
                         else:
                             logging.info(f"Rule {rule.identifier} is excluded from yaraxtr_rule.")
-                    
+
                     # Update shared results
                     with results_lock:
                         results['matched_rules'].extend(local_matched_rules)
@@ -4726,16 +4726,16 @@ def scan_yara(file_path):
             valhalla_rule_worker,
             yaraxtr_rule_worker
         ]
-        
+
         for worker in workers:
             thread = threading.Thread(target=worker)
             thread.start()
             threads.append(thread)
-        
+
         # Wait for all threads to complete
         for thread in threads:
             thread.join()
-        
+
         # Return results
         return (results['matched_rules'] if results['matched_rules'] else None,
                 results['matched_results'] if results['matched_results'] else None,
@@ -5891,7 +5891,7 @@ def is_zip_file(file_path):
 def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_file=False):
     """Scan file in real-time using multiple engines in parallel."""
     logging.info(f"Started scanning file: {file_path}")
-    
+
     # Shared variables for results
     results = {
         'malware_found': False,
@@ -5899,11 +5899,11 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
         'engine': '',
         'vmprotect_path': None
     }
-    
+
     # Lock for thread-safe access to shared variables
     results_lock = threading.Lock()
     threads = []
-    
+
     def ml_scan_worker():
         """Worker function for Machine Learning scan"""
         try:
@@ -5914,7 +5914,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                         if signature_check["is_valid"]:
                             malware_definition = malware_definition + ".SIG"
                         logging.critical(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
-                        
+
                         with results_lock:
                             if not results['malware_found']:  # First detection wins
                                 results['malware_found'] = True
@@ -5926,7 +5926,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                 logging.info(f"No malware detected by Machine Learning in file: {file_path}")
         except Exception as ex:
             logging.error(f"An error occurred while scanning file with Machine Learning AI: {file_path}. Error: {ex}")
-    
+
     def pe_scan_worker():
         """Worker function for PE file analysis"""
         try:
@@ -5934,7 +5934,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                 check_pe_file(file_path, signature_check, file_name)
         except Exception as ex:
             logging.error(f"An error occurred while scanning the file for fake system files and worm analysis: {file_path}. Error: {ex}")
-    
+
     def clamav_scan_worker():
         """Worker function for ClamAV scan"""
         try:
@@ -5943,7 +5943,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                 if signature_check["is_valid"]:
                     result = result + ".SIG"
                 logging.critical(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
-                
+
                 with results_lock:
                     if not results['malware_found']:  # First detection wins
                         results['malware_found'] = True
@@ -5953,7 +5953,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
             logging.info(f"No malware detected by ClamAV in file: {file_path}")
         except Exception as ex:
             logging.error(f"An error occurred while scanning file with ClamAV: {file_path}. Error: {ex}")
-    
+
     def yara_scan_worker():
         """Worker function for YARA scan"""
         try:
@@ -5962,7 +5962,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                 if signature_check["is_valid"]:
                     yara_match = yara_match + ".SIG"
                 logging.critical(f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}")
-                
+
                 with results_lock:
                     if not results['malware_found']:  # First detection wins
                         results['malware_found'] = True
@@ -5973,7 +5973,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
             logging.info(f"Scanned file with YARA: {file_path} - No viruses detected")
         except Exception as ex:
             logging.error(f"An error occurred while scanning file with YARA: {file_path}. Error: {ex}")
-    
+
     def tar_scan_worker():
         """Worker function for TAR scan"""
         try:
@@ -5984,7 +5984,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                     if signature_check["is_valid"]:
                         virus_name = virus_str + ".SIG"
                     logging.critical(f"Infected file detected (TAR): {file_path} - Virus: {virus_str}")
-                    
+
                     with results_lock:
                         if not results['malware_found']:  # First detection wins
                             results['malware_found'] = True
@@ -5998,7 +5998,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
             logging.error(f"TAR file not found error occurred while scanning TAR file: {file_path}")
         except Exception as ex:
             logging.error(f"An error occurred while scanning TAR file: {file_path}. Error: {ex}")
-    
+
     def zip_scan_worker():
         """Worker function for ZIP scan"""
         try:
@@ -6008,7 +6008,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                     if signature_check["is_valid"]:
                         virus_name = virus_name + ".SIG"
                     logging.critical(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
-                    
+
                     with results_lock:
                         if not results['malware_found']:  # First detection wins
                             results['malware_found'] = True
@@ -6022,7 +6022,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
             logging.error(f"ZIP file not found error occurred while scanning ZIP file: {file_path}")
         except Exception as ex:
             logging.error(f"An error occurred while scanning ZIP file: {file_path}. Error: {ex}")
-    
+
     def sevenz_scan_worker():
         """Worker function for 7z scan"""
         try:
@@ -6032,7 +6032,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                     if signature_check["is_valid"]:
                         virus_name = virus_name + ".SIG"
                     logging.critical(f"Infected file detected (7z): {file_path} - Virus: {virus_name}")
-                    
+
                     with results_lock:
                         if not results['malware_found']:  # First detection wins
                             results['malware_found'] = True
@@ -6046,7 +6046,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
             logging.error(f"7Z file not found error occurred while scanning 7Z file: {file_path}")
         except Exception as ex:
             logging.error(f"An error occurred while scanning 7Z file: {file_path}. Error: {ex}")
-    
+
     try:
         # Create and start all threads
         workers = [
@@ -6058,16 +6058,16 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
             zip_scan_worker,
             sevenz_scan_worker
         ]
-        
+
         for worker in workers:
             thread = threading.Thread(target=worker)
             thread.start()
             threads.append(thread)
-        
+
         # Wait for all threads to complete
         for thread in threads:
             thread.join()
-        
+
         # Return results based on what was found
         if results['malware_found']:
             if results['vmprotect_path']:
@@ -6077,10 +6077,10 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
         else:
             logging.info(f"File is clean - no malware detected by any engine: {file_path}")
             return False, "Clean", "", None
-        
+
     except Exception as ex:
         logging.error(f"An error occurred while scanning file: {file_path}. Error: {ex}")
-    
+
     return False, "Clean", "", None  # Default to clean if no malware found
 
 # Read the file and store the names in a list (ignoring empty lines)
