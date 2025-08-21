@@ -190,15 +190,26 @@ from scapy.sendrecv import sniff
 logging.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from comtypes.client import CreateObject, GetModule
-logging.info(f"comtypes.client.CreateObject, GetModule module loaded in {time.time() - start_time:.6f} seconds")
+import comtypes.client
+logging.info(f"comtypes.client module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from comtypes import cast
+logging.info(f"comtypes.cast module loaded in {time.time() - start_time:.6f} seconds")
+
+from comtypes.automation import VARIANT, POINTER
+logging.info(f"comtypes.automation.VARIANT, POINTER modules loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+from comtypes.client import GetModule
+logging.info(f"comtypes.client.CreateObject, GetModule modules loaded in {time.time() - start_time:.6f} seconds")
 
 # Load the UIAutomationCore.dll module
 GetModule("UIAutomationCore.dll")
 
 start_time = time.time()
 # Interface IID
-import comtypes.gen.UIAutomationClient as UiaClient
+import comtypes.gen.UIAutomationClient
 logging.info(f"comtypes.gen.UIAutomationClient module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -12165,8 +12176,7 @@ def _load_uia_types():
         # If generation failed, we'll still try the import below
         pass
     try:
-        from comtypes.gen import UIAutomationClient  # type: ignore
-        return UIAutomationClient
+        return comtypes.gen.UIAutomationClient
     except Exception as e:
         logging.error("Failed to load UIAutomationClient types: %s", e, exc_info=True)
         return None
