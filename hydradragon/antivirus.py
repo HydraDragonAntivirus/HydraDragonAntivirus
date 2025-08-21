@@ -194,10 +194,10 @@ import comtypes.client
 logging.info(f"comtypes.client module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from comtypes import cast
-logging.info(f"comtypes.cast module loaded in {time.time() - start_time:.6f} seconds")
+from comtypes import cast, GUID
+logging.info(f"comtypes.cast, GUID modules loaded in {time.time() - start_time:.6f} seconds")
 
-from comtypes.automation import VARIANT, POINTER
+from comtypes.automation import POINTER
 logging.info(f"comtypes.automation.VARIANT, POINTER modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
@@ -12346,15 +12346,15 @@ def get_uia_text(hwnd: int):
             return []
 
         try:
-            uia = comtypes.client.CreateObject(
-                "UIAutomationClient.CUIAutomation",
-                interface=UIA.IUIAutomation
-            )
+            # CLSID of CUIAutomation (works on all Windows versions)
+            CLSID_CUIAutomation = GUID("{FF48DBA4-60EF-4201-AA87-54103EEF594E}")
+            uia = comtypes.client.CreateObject(CLSID_CUIAutomation, interface=UIA.IUIAutomation)
         except Exception as e:
             logging.error("Failed to create UI Automation object: %s", e, exc_info=True)
             return []
 
         return _extract_uia_text(hwnd, uia, UIA)
+
     except Exception as e:
         logging.error("get_uia_text failed: %s", e, exc_info=True)
         return []
