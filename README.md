@@ -246,5 +246,8 @@ See the [LICENSE](./LICENSE) file for more information.
 **Other related repositories?**
 - I used https://github.com/HydraDragonAntivirus/yarGen to create machinelearning.yar.
 
+**How many repositories did you look at for this project?**
+- For YARA and website signatures, I looked at many projects—possibly more than 1,000.
+
 ### Credits:
 - All credits goes to Emirhan Uçan
