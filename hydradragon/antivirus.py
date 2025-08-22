@@ -454,7 +454,10 @@ dotnet_dir = os.path.join(script_dir, "dotnet")
 obfuscar_dir = os.path.join(script_dir, "obfuscar")
 androguard_dir = os.path.join(script_dir, "androguard")
 asar_dir = os.path.join(script_dir, "asar")
-net_reactor_slayer_dir = os.path.join(script_dir, "NETReactorSlayer-windowS")
+un_confuser_ex_dir = os.path.join(script_dir, "UnConfuserEx")
+un_confuser_ex_path = os.path.join(un_confuser_ex_dir, "UnConfuserEx.exe")
+un_confuser_ex_extracted_dir = os.path.join(script_dir, "UnConfuserEx_extracted")
+net_reactor_slayer_dir = os.path.join(script_dir, "NETReactorSlayer-windows")
 net_reactor_slayer_x64_cli_path  = os.path.join(net_reactor_slayer_dir, "NETReactorSlayer-x64.CLI.exe")
 nuitka_dir = os.path.join(script_dir, "nuitka")
 known_extensions_dir = os.path.join(script_dir, "known_extensions")
@@ -1033,7 +1036,7 @@ COMMON_DIRECTORIES = [
     pylingual_extracted_dir, python_deobfuscated_dir, python_deobfuscated_marshal_pyc_dir,
     pycdas_extracted_dir, nuitka_source_code_dir, memory_dir, debloat_dir,
     resource_extractor_dir, ungarbler_dir, ungarbler_string_dir, html_extracted_dir,
-    upx_extracted_dir, installshield_extracted_dir, autoit_extracted_dir,
+    upx_extracted_dir, installshield_extracted_dir, autoit_extracted_dir, un_confuser_ex_extracted_dir,
     copied_sandbox_and_main_files_dir, decompiled_dir, capa_results_dir, vmprotect_unpacked_dir,
 ]
 
@@ -1080,6 +1083,7 @@ DIRECTORY_MESSAGES = [
     (lambda fp: fp.startswith(de4dot_sandboxie_dir), "It's a Sandbox environment file, also a .NET file deobfuscated with de4dot."),
     (lambda fp: fp.startswith(de4dot_extracted_dir), ".NET file deobfuscated with de4dot."),
     (lambda fp: fp.startswith(net_reactor_extracted_dir), ".NET file deobfuscated with .NET Reactor Slayer."),
+    (lambda fp: fp.startswith(un_confuser_ex_extracted_dir), ".NET file deobfuscated with UnConfuserEx."),
     (lambda fp: fp.startswith(pyinstaller_extracted_dir), "PyInstaller onefile extracted."),
     (lambda fp: fp.startswith(cx_freeze_extracted_dir), "cx_freeze library.zip extracted."),
     (lambda fp: fp.startswith(commandlineandmessage_dir), "Command line message extracted."),
@@ -2012,11 +2016,13 @@ def is_dotnet_file_from_output(die_output):
         if "Tool: de4dot[deobfuscated]" is found.
       - "Protector: Obfuscar" or "Protector: Obfuscar(<version>)"
         if it's protected with Obfuscar.
+      - "Protector: ConfuserEx" or "Protector: ConfuserEx(<version>)"
+        if it's protected with ConfuserEx.
       - "Protector: .NET Reactor" or "Protector: .NET Reactor(<version>)"
         if it's protected with .NET Reactor.
       - "Protector: <Name>" or "Protector: <Name>(<version>)"
         for any other Protector marker (full line captured).
-      - True
+      - "Probably No Protector"
         if it's a .NET file and no protector is detected.
       - None
         if none of these markers are found.
@@ -2044,28 +2050,35 @@ def is_dotnet_file_from_output(die_output):
             logging.info(f"DIE output indicates a .NET assembly protected with {result}.")
             return result
 
-        # 3) Specific .NET Reactor protector (version 6.X only)
+        # 3) Specific ConfuserEx protector
+        confuser_match = re.search(r'Protector:\s*ConfuserEx(?:\(([^)]+)\))?', die_output, re.IGNORECASE)
+        if confuser_match:
+            version = confuser_match.group(1)
+            result = f"Protector: ConfuserEx({version})" if version else "Protector: ConfuserEx"
+            logging.info(f"DIE output indicates a .NET assembly protected with {result}.")
+            return result
+
+        # 4) Specific .NET Reactor protector (version 6.X only)
         reactor_match = re.search(r'Protector:\s*\.NET\s*Reactor\(6\.\d+\)', die_output, re.IGNORECASE)
         if reactor_match:
-            # Extract the full version from the match
             version = reactor_match.group(0).split('(')[1].rstrip(')')
             result = f"Protector: .NET Reactor({version})"
             logging.info(f"DIE output indicates a .NET assembly protected with {result}.")
             return result
 
-        # 4) Generic Protector marker - capture the full line
+        # 5) Generic Protector marker - capture the full line
         line_match = re.search(r'^Protector:.*$', die_output, re.MULTILINE)
         if line_match:
             marker = line_match.group(0).strip()
             logging.info(f"DIE output indicates .NET assembly requiring de4dot: {marker}.")
             return marker
 
-        # 5) .NET runtime indication (only if no protector found)
+        # 6) .NET runtime indication (only if no protector found)
         if ".NET" in die_output:
             logging.info("DIE output indicates a .NET executable without protection; we'll still process it with de4dot.")
             return "Probably No Protector"
 
-        # 6) Nothing .NET/protector-related found
+        # 7) Nothing .NET/protector-related found
         return None
 
     except re.error as e:
@@ -9376,6 +9389,62 @@ def deobfuscate_with_net_reactor(file_path, file_basename):
     logging.error(f"Timeout: No deobfuscated file found after {max_wait_time} seconds")
     return None
 
+def deobfuscate_with_confuserex(file_path, file_basename, max_wait_time=1200):
+    """
+    Deobfuscate a .NET assembly protected with ConfuserEx using UnConfuserEx.exe.
+
+    - Copies the original file into un_confuser_ex_extracted_dir
+    - Runs UnConfuserEx.exe <input> <output>
+    - Waits for the output file to appear and returns its path
+    """
+    if not os.path.exists(un_confuser_ex_path):
+        logging.error(f"UnConfuserEx executable not found at {un_confuser_ex_path}")
+        return None
+
+    # Prepare copied input and output paths
+    copied_file_path = os.path.join(un_confuser_ex_extracted_dir, file_basename)
+    name_without_ext, original_ext = os.path.splitext(file_basename)
+    expected_output_name = f"{name_without_ext}_UnConfuserEx{original_ext}"
+    expected_output_path = os.path.join(un_confuser_ex_extracted_dir, expected_output_name)
+
+    try:
+        shutil.copy(file_path, copied_file_path)
+        logging.info(f"Copied file {file_path} to {copied_file_path} for UnConfuserEx processing")
+    except Exception as e:
+        logging.error(f"Failed to copy file to UnConfuserEx directory: {e}")
+        return None
+
+    # Build and run command: UnConfuserEx.exe <input> <output>
+    try:
+        command = [un_confuser_ex_path, copied_file_path, expected_output_path]
+        logging.info(f"Running UnConfuserEx: {' '.join(command)}")
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
+
+        if result.stdout:
+            logging.info(f"UnConfuserEx stdout: {result.stdout.strip()}")
+        if result.stderr:
+            logging.error(f"UnConfuserEx stderr: {result.stderr.strip()}")
+
+    except Exception as e:
+        logging.error(f"Error during UnConfuserEx execution: {e}")
+        return None
+
+    # Wait for the expected output file to appear
+    logging.info("Waiting for UnConfuserEx output file to appear...")
+    start_time = time.time()
+    while time.time() - start_time < max_wait_time:
+        try:
+            if os.path.exists(expected_output_path):
+                logging.info(f"UnConfuserEx produced deobfuscated file: {expected_output_path}")
+                return expected_output_path
+        except OSError as e:
+            logging.error(f"Error checking for UnConfuserEx output: {e}")
+
+        time.sleep(1)
+
+    logging.error(f"Timeout: No UnConfuserEx output found after {max_wait_time} seconds")
+    return None
+
 def deobfuscate_with_obfuscar(file_path, file_basename):
     """
     Deobfuscate a .NET assembly protected with Obfuscar.
@@ -10238,7 +10307,8 @@ def scan_and_warn(file_path,
                   flag_de4dot=False,
                   flag_fernflower=False,
                   nsis_flag=False,
-                  ntdll_dropped=False):
+                  ntdll_dropped=False,
+                  flag_confuserex=False):
     """
     Scans a file for potential issues with comprehensive threading for performance.
     Only does ransomware_alert and worm_alert once per unique file path.
@@ -10799,6 +10869,32 @@ def scan_and_warn(file_path,
             except Exception as e:
                 logging.error(f"Error in .NET Reactor deobfuscation for {norm_path}: {e}")
 
+        def dotnet_confuserex_thread():
+            """
+            Thread handler for ConfuserEx-protected .NET assemblies.
+
+            Behavior:
+            - If `dotnet_result` indicates "Protector: ConfuserEx" and `flag_confuserex` is not set,
+                it will attempt to deobfuscate using `deobfuscate_with_confuserex`.
+            - If deobfuscation succeeds, it starts a new thread that calls `scan_and_warn`
+                with the deobfuscated file and sets `flag_confuserex=True` in kwargs.
+            """
+            try:
+                # NOTE: dotnet_result, norm_path, file_name, flag_confuserex and scan_and_warn
+                # are expected to be available in the surrounding scope / caller.
+                if isinstance(dotnet_result, str) and "Protector: ConfuserEx" in dotnet_result and not flag_confuserex:
+                    logging.info(f"The file is a .NET assembly protected with ConfuserEx: {dotnet_result}")
+                    deobfuscated_path = deobfuscate_with_confuserex(norm_path, file_name)
+                    if deobfuscated_path:
+                        threading.Thread(
+                            target=scan_and_warn,
+                            args=(deobfuscated_path,),
+                            kwargs={'flag_confuserex': True}
+                        ).start()
+
+            except Exception as e:
+                logging.error(f"Error in ConfuserEx deobfuscation for {norm_path}: {e}")
+
         def jar_analysis_thread():
             try:
                 if is_jar_file_from_output(die_output):
@@ -10848,6 +10944,7 @@ def scan_and_warn(file_path,
         additional_threads = [
             threading.Thread(target=dotnet_obfuscar_thread),
             threading.Thread(target=dotnet_reactor_thread),
+            threading.Thread(target=dotnet_confuserex_thread),
             threading.Thread(target=jar_analysis_thread),
             threading.Thread(target=java_class_thread),
             threading.Thread(target=nuitka_thread),

@@ -1,0 +1,262 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v9.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v9.0": {
+      "UnConfuserEx/1.0.0": {
+        "dependencies": {
+          "AutomaticGraphLayout.GraphViewerGDI": "1.1.12",
+          "LZMA-SDK": "22.1.1",
+          "MSILEmulator": "1.0.0",
+          "X86Emulator": "1.0.0",
+          "dnlib": "4.4.0",
+          "log4net": "3.0.3",
+          "runtimepack.Microsoft.Windows.SDK.NET.Ref": "10.0.17763.57"
+        },
+        "runtime": {
+          "UnConfuserEx.dll": {}
+        }
+      },
+      "runtimepack.Microsoft.Windows.SDK.NET.Ref/10.0.17763.57": {
+        "runtime": {
+          "Microsoft.Windows.SDK.NET.dll": {
+            "assemblyVersion": "10.0.17763.38",
+            "fileVersion": "10.0.17763.55"
+          },
+          "WinRT.Runtime.dll": {
+            "assemblyVersion": "2.2.0.0",
+            "fileVersion": "2.2.0.48161"
+          }
+        }
+      },
+      "AutomaticGraphLayout/1.1.12": {
+        "runtime": {
+          "lib/netstandard2.0/AutomaticGraphLayout.dll": {
+            "assemblyVersion": "0.0.0.0",
+            "fileVersion": "0.0.0.0"
+          }
+        }
+      },
+      "AutomaticGraphLayout.Drawing/1.1.12": {
+        "dependencies": {
+          "AutomaticGraphLayout": "1.1.12"
+        },
+        "runtime": {
+          "lib/netstandard2.0/AutomaticGraphLayout.Drawing.dll": {
+            "assemblyVersion": "0.0.0.0",
+            "fileVersion": "0.0.0.0"
+          }
+        }
+      },
+      "AutomaticGraphLayout.GraphViewerGDI/1.1.12": {
+        "dependencies": {
+          "AutomaticGraphLayout.Drawing": "1.1.12"
+        },
+        "runtime": {
+          "lib/net61/Microsoft.Msagl.GraphViewerGdi.dll": {
+            "assemblyVersion": "0.0.0.0",
+            "fileVersion": "0.0.0.0"
+          }
+        }
+      },
+      "dnlib/4.4.0": {
+        "runtime": {
+          "lib/net6.0/dnlib.dll": {
+            "assemblyVersion": "4.4.0.0",
+            "fileVersion": "4.4.0.0"
+          }
+        }
+      },
+      "log4net/3.0.3": {
+        "dependencies": {
+          "System.Configuration.ConfigurationManager": "4.5.0"
+        },
+        "runtime": {
+          "lib/netstandard2.0/log4net.dll": {
+            "assemblyVersion": "3.0.3.0",
+            "fileVersion": "3.0.3.0"
+          }
+        }
+      },
+      "LZMA-SDK/22.1.1": {
+        "runtime": {
+          "lib/netstandard2.0/SevenZip.dll": {
+            "assemblyVersion": "22.1.1.0",
+            "fileVersion": "22.1.1.0"
+          }
+        }
+      },
+      "Microsoft.NETCore.Platforms/2.0.0": {},
+      "SharpDisasm/1.1.11": {
+        "runtime": {
+          "lib/netstandard2.0/SharpDisasm.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
+      "System.Configuration.ConfigurationManager/4.5.0": {
+        "dependencies": {
+          "System.Security.Cryptography.ProtectedData": "4.5.0",
+          "System.Security.Permissions": "4.5.0"
+        }
+      },
+      "System.Security.AccessControl/4.5.0": {
+        "dependencies": {
+          "Microsoft.NETCore.Platforms": "2.0.0",
+          "System.Security.Principal.Windows": "4.5.0"
+        }
+      },
+      "System.Security.Cryptography.ProtectedData/4.5.0": {},
+      "System.Security.Permissions/4.5.0": {
+        "dependencies": {
+          "System.Security.AccessControl": "4.5.0"
+        }
+      },
+      "System.Security.Principal.Windows/4.5.0": {
+        "dependencies": {
+          "Microsoft.NETCore.Platforms": "2.0.0"
+        }
+      },
+      "MSILEmulator/1.0.0": {
+        "dependencies": {
+          "dnlib": "4.4.0"
+        },
+        "runtime": {
+          "MSILEmulator.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
+      "X86Emulator/1.0.0": {
+        "dependencies": {
+          "SharpDisasm": "1.1.11",
+          "dnlib": "4.4.0"
+        },
+        "runtime": {
+          "X86Emulator.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "UnConfuserEx/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "runtimepack.Microsoft.Windows.SDK.NET.Ref/10.0.17763.57": {
+      "type": "runtimepack",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "AutomaticGraphLayout/1.1.12": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-Txc1uVLwnKemnPWmGSAVSZaBR95VTxU7/LfarvSOuJC6KuwPW4xrLpIGTOUbCXYZiSnkxN2jiC3FwX/2051+9g==",
+      "path": "automaticgraphlayout/1.1.12",
+      "hashPath": "automaticgraphlayout.1.1.12.nupkg.sha512"
+    },
+    "AutomaticGraphLayout.Drawing/1.1.12": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-LYDrw069a2TGFJkALLyKLXISdMlWNiPiyXetVbzRlEpxhmBUt7BmbIy5pBSvaVdSXD9xkNe4yj/M3cT4mwH65w==",
+      "path": "automaticgraphlayout.drawing/1.1.12",
+      "hashPath": "automaticgraphlayout.drawing.1.1.12.nupkg.sha512"
+    },
+    "AutomaticGraphLayout.GraphViewerGDI/1.1.12": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-HqK/oDFK2eQmbhIqqwSXOpODqLKfev1+P0Dj1LdNr60vWhwWUMvIrsTeI9LO92YoplmhlQjz8UA7375ChHFHGA==",
+      "path": "automaticgraphlayout.graphviewergdi/1.1.12",
+      "hashPath": "automaticgraphlayout.graphviewergdi.1.1.12.nupkg.sha512"
+    },
+    "dnlib/4.4.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-cKHI720q+zfEEvzklWVGt6B0TH3AibAyJbpUJl4U6KvTP13tycfnqJpkGHRZ/oQ45BTIoIxIwltHIJVDN+iCqQ==",
+      "path": "dnlib/4.4.0",
+      "hashPath": "dnlib.4.4.0.nupkg.sha512"
+    },
+    "log4net/3.0.3": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-LAZBO0rHo4DM56GIt124NaXKo6LVZcfiuWVgODdUnhPNMzTOlRJWOEIXo8zVNLm426B+coDc4ocfTsTw7R7Zeg==",
+      "path": "log4net/3.0.3",
+      "hashPath": "log4net.3.0.3.nupkg.sha512"
+    },
+    "LZMA-SDK/22.1.1": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-lxG8/H53OCqebnDFlTStwzbgtmUN/DqnXN8kffa/ctHcSEHhIPDyEa3jLzpZxVX5F8bmJgvb1mna6gnhetykIw==",
+      "path": "lzma-sdk/22.1.1",
+      "hashPath": "lzma-sdk.22.1.1.nupkg.sha512"
+    },
+    "Microsoft.NETCore.Platforms/2.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-VdLJOCXhZaEMY7Hm2GKiULmn7IEPFE4XC5LPSfBVCUIA8YLZVh846gtfBJalsPQF2PlzdD7ecX7DZEulJ402ZQ==",
+      "path": "microsoft.netcore.platforms/2.0.0",
+      "hashPath": "microsoft.netcore.platforms.2.0.0.nupkg.sha512"
+    },
+    "SharpDisasm/1.1.11": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-3y+5A2RZHlHHj3d8SssTKvAr3624xXu3RoWjqkCQ6TE8frYbyj8kxJxjqXh6noLX2mHRbAoPpd1O0Duzv2u+qA==",
+      "path": "sharpdisasm/1.1.11",
+      "hashPath": "sharpdisasm.1.1.11.nupkg.sha512"
+    },
+    "System.Configuration.ConfigurationManager/4.5.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-UIFvaFfuKhLr9u5tWMxmVoDPkFeD+Qv8gUuap4aZgVGYSYMdERck4OhLN/2gulAc0nYTEigWXSJNNWshrmxnng==",
+      "path": "system.configuration.configurationmanager/4.5.0",
+      "hashPath": "system.configuration.configurationmanager.4.5.0.nupkg.sha512"
+    },
+    "System.Security.AccessControl/4.5.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-vW8Eoq0TMyz5vAG/6ce483x/CP83fgm4SJe5P8Tb1tZaobcvPrbMEL7rhH1DRdrYbbb6F0vq3OlzmK0Pkwks5A==",
+      "path": "system.security.accesscontrol/4.5.0",
+      "hashPath": "system.security.accesscontrol.4.5.0.nupkg.sha512"
+    },
+    "System.Security.Cryptography.ProtectedData/4.5.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-wLBKzFnDCxP12VL9ANydSYhk59fC4cvOr9ypYQLPnAj48NQIhqnjdD2yhP8yEKyBJEjERWS9DisKL7rX5eU25Q==",
+      "path": "system.security.cryptography.protecteddata/4.5.0",
+      "hashPath": "system.security.cryptography.protecteddata.4.5.0.nupkg.sha512"
+    },
+    "System.Security.Permissions/4.5.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-9gdyuARhUR7H+p5CjyUB/zPk7/Xut3wUSP8NJQB6iZr8L3XUXTMdoLeVAg9N4rqF8oIpE7MpdqHdDHQ7XgJe0g==",
+      "path": "system.security.permissions/4.5.0",
+      "hashPath": "system.security.permissions.4.5.0.nupkg.sha512"
+    },
+    "System.Security.Principal.Windows/4.5.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-U77HfRXlZlOeIXd//Yoj6Jnk8AXlbeisf1oq1os+hxOGVnuG+lGSfGqTwTZBoORFF6j/0q7HXIl8cqwQ9aUGqQ==",
+      "path": "system.security.principal.windows/4.5.0",
+      "hashPath": "system.security.principal.windows.4.5.0.nupkg.sha512"
+    },
+    "MSILEmulator/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "X86Emulator/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}
