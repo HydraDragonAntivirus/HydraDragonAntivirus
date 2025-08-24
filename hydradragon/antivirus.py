@@ -5921,10 +5921,15 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
         """Worker function for Machine Learning scan"""
         try:
             if pe_file:
-                is_malicious_machine_learning, malware_definition, benign_score = scan_file_with_machine_learning_ai(file_path)
+                # Scan the file
+                is_malicious_machine_learning, malware_definition, benign_score, matched_rules = scan_file_with_machine_learning_ai(file_path)
+                
                 if is_malicious_machine_learning:
+                    # Log all matched rules
+                    logging.critical(f"Matched ML rules for {file_path}: {matched_rules}")
+                    
                     if benign_score < 0.93:
-                        if signature_check["is_valid"]:
+                        if signature_check.get("is_valid"):
                             malware_definition = malware_definition + ".SIG"
                         logging.critical(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
 
@@ -5936,7 +5941,9 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                         return
                     elif benign_score >= 0.93:
                         logging.info(f"File is clean based on ML benign score: {file_path}")
-                logging.info(f"No malware detected by Machine Learning in file: {file_path}")
+                else:
+                    logging.info(f"No malware detected by Machine Learning in file: {file_path}")
+
         except Exception as ex:
             logging.error(f"An error occurred while scanning file with Machine Learning AI: {file_path}. Error: {ex}")
 
