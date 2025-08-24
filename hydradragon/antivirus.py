@@ -4030,27 +4030,17 @@ def restart_owlyshield_threaded(stop_only=False):
     except Exception as ex:
         logging.error(f"Error starting thread for Owlyshield {'stop' if stop_only else 'restart'}: {ex}")
 
-def scan_file_with_clamd(file_path):
-    """Scan file using clamd."""
+def scan_file_with_clamav(file_path):
+    """Scan file using the in-process ClamAV wrapper (scanner)."""
     try:
         file_path = os.path.abspath(file_path)  # Get absolute path
-        result = subprocess.run([clamdscan_path, file_path], capture_output=True, text=True, encoding="utf-8", errors="ignore")
-        clamd_output = result.stdout
-        logging.info(f"Clamdscan output: {clamd_output}")
+        result = scanner.scan_file(file_path)
 
-        if "ERROR" in clamd_output:
-            logging.info(f"Clamdscan reported an error: {clamd_output}")
-            return "Clean"
-        elif "FOUND" in clamd_output:
-            match = re.search(r": (.+) FOUND", clamd_output)
-            if match:
-                virus_name = match.group(1).strip()
-                return virus_name
-        elif "OK" in clamd_output or "Infected files: 0" in clamd_output:
+        # result is expected to be either None (clean) or a virus name
+        if not result:
             return "Clean"
         else:
-            logging.info(f"Unexpected clamdscan output: {clamd_output}")
-            return "Clean"
+            return result
     except Exception as ex:
         logging.error(f"Error scanning file {file_path}: {ex}")
         return "Clean"
@@ -5961,7 +5951,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
     def clamav_scan_worker():
         """Worker function for ClamAV scan"""
         try:
-            result = scan_file_with_clamd(file_path)
+            result = scan_file_with_clamav(file_path)
             if result not in ("Clean", ""):
                 if signature_check["is_valid"]:
                     result = result + ".SIG"
