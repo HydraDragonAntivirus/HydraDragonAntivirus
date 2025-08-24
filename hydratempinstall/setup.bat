@@ -59,16 +59,7 @@ if %errorlevel% equ 0 (
     echo Failed to update ClamAV virus definitions.
 )
 
-rem 7. Install clamd service
-echo Installing clamd service...
-"%CLAMAV_DIR%\clamd.exe" --install
-if %errorlevel% equ 0 (
-    echo clamd service installed successfully.
-) else (
-    echo Failed to install clamd service.
-)
-
-rem 8. Create Python virtual environment inside HydraDragonAntivirus folder
+rem 7. Create Python virtual environment inside HydraDragonAntivirus folder
 echo Creating Python virtual environment...
 
 cd /d "%HYDRADRAGON_ROOT_PATH%"
@@ -83,7 +74,7 @@ if %errorlevel% neq 0 (
     goto :end
 )
 
-rem 9. Activate virtual environment
+rem 8. Activate virtual environment
 echo Activating virtual environment...
 call "venv\Scripts\activate.bat"
 if %errorlevel% neq 0 (
@@ -91,7 +82,7 @@ if %errorlevel% neq 0 (
     goto :end
 )
 
-rem 10. Upgrade pip
+rem 9. Upgrade pip
 echo Upgrading pip...
 py.exe -3.12 -m pip install --upgrade pip
 if %errorlevel% equ 0 (
@@ -100,7 +91,7 @@ if %errorlevel% equ 0 (
     echo Failed to upgrade pip.
 )
 
-rem 11. Install Poetry in the activated virtual environment
+rem 10. Install Poetry in the activated virtual environment
 echo Installing Poetry in virtual environment...
 pip install poetry
 if %errorlevel% neq 0 (
@@ -109,7 +100,7 @@ if %errorlevel% neq 0 (
 )
 echo Poetry installed successfully.
 
-rem 12. Install dependencies with Poetry (if pyproject.toml exists)
+rem 11. Install dependencies with Poetry (if pyproject.toml exists)
 if exist "pyproject.toml" (
     echo Installing project dependencies with Poetry...
     poetry install
@@ -122,7 +113,7 @@ if exist "pyproject.toml" (
     echo No pyproject.toml found, skipping Poetry dependency installation.
 )
 
-rem 13. Install spaCy English medium model
+rem 12. Install spaCy English medium model
 echo Installing spaCy 'en_core_web_md' model...
 python -m spacy download en_core_web_md
 if %errorlevel% equ 0 (
@@ -131,7 +122,7 @@ if %errorlevel% equ 0 (
     echo Failed to install spaCy model 'en_core_web_md'.
 )
 
-rem 14. Configure Sandboxie if available
+rem 13. Configure Sandboxie if available
 if not exist "%SBIE_INI%" (
     echo WARNING: %SBIE_INI% not found. Skipping Sandboxie configuration.
     goto :end
@@ -142,7 +133,7 @@ echo Modifying Sandboxie settings...
 "%SBIE_INI%" set %SBIE_SANDBOX% InjectDll64 "%INJECT_DLL%"
 "%SBIE_INI%" set %SBIE_SANDBOX% ClosedFilePath ""
 
-rem 15. Install asar globally with npm
+rem 14. Install asar globally with npm
 echo Installing 'asar' npm package globally...
 "%NODEJS_PATH%\npm.cmd" install -g asar
 if %errorlevel% equ 0 (

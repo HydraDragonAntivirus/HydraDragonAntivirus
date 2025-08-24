@@ -387,7 +387,11 @@ logging.info(f"GoStringUngarbler.gostringungarbler_lib.process_file_go module lo
 
 start_time = time.time()
 from pylingual.main import main as pylingual_main
-logging.info(f"pylingual.main module loaded in {time.time() - start_time:.6f} seconds")
+logging.info(f"pylingual.main.main module loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
+import clamav
+logging.info(f"clamav module loaded in {time.time() - start_time:.6f} seconds")
 
 # Calculate and logging.info total time
 total_end_time = time.time()
@@ -548,7 +552,7 @@ whitelist_mail_sub_domains_path = os.path.join(website_rules_dir, "BenignMailSub
 urlhaus_path = os.path.join(website_rules_dir, "urlhaus.txt")
 antivirus_list_path = os.path.join(script_dir, "hosts", "antivirus_list.txt")
 yaraxtr_yrc_path = os.path.join(yara_dir, "yaraxtr.yrc")
-compiled_rule_path = os.path.join(yara_dir, "compiled_rule.yrc")
+clean_rules_path = os.path.join(yara_dir, "clean_rules.yrc")
 yarGen_rule_path = os.path.join(yara_dir, "machinelearning.yrc")
 icewater_rule_path = os.path.join(yara_dir, "icewater.yrc")
 valhalla_rule_path = os.path.join(yara_dir, "valhalla-rules.yrc")
@@ -943,7 +947,6 @@ clamav_folder = os.path.join(program_files, "ClamAV")
 seven_zip_folder = os.path.join(program_files, "7-Zip")
 
 # ClamAV file paths and configurations
-clamdscan_path = os.path.join(clamav_folder, "clamdscan.exe")
 freshclam_path = os.path.join(clamav_folder, "freshclam.exe")
 clamav_database_directory_path = os.path.join(clamav_folder, "database")
 clamav_file_paths = [
@@ -3985,23 +3988,19 @@ def restart_service(service_name, stop_only=False):
         logging.error(f"An error occurred while managing service '{service_name}': {ex}")
         return False
 
-def restart_clamd_threaded():
-    def restart_clamd():
-        try:
-            logging.info("Restarting ClamAV service...")
-            if restart_service('clamd'):
-                logging.info("ClamAV service restarted successfully.")
-            else:
-                logging.error("ClamAV service restart failed.")
-        except Exception as ex:
-            logging.error(f"Exception during ClamAV restart: {ex}")
+scanner = clamav.Scanner(dbpath=clamav_database_directory_path)
 
+def reload_clamav_database():
+    """
+    Reloads the ClamAV engine with the updated database.
+    Required after updating signatures.
+    """
     try:
-        thread = threading.Thread(target=restart_clamd)
-        thread.start()
-        thread.join() # Wait for the thread to finish
+        logging.info("Reloading ClamAV database...")
+        scanner.loadDB()
+        logging.info("ClamAV database reloaded successfully.")
     except Exception as ex:
-        logging.error(f"Error starting restart thread for ClamAV: {ex}")
+        logging.error(f"Failed to reload ClamAV database: {ex}")
 
 def restart_owlyshield_threaded(stop_only=False):
     """Restart or stop Owlyshield services in a separate thread."""
@@ -4596,10 +4595,10 @@ def scan_yara(file_path):
             return match_info
 
         # Thread worker for compiled_rule scanning
-        def compiled_rule_worker():
+        def clean_rules_worker():
             try:
-                if compiled_rule:
-                    matches = compiled_rule.match(data=data_content)
+                if clean_rules:
+                    matches = clean_rules.match(data=data_content)
                     local_matched_rules = []
                     local_matched_results = []
                     local_vmprotect_file = None
@@ -4607,7 +4606,7 @@ def scan_yara(file_path):
                     for match in matches or []:
                         if match.rule not in excluded_rules:
                             local_matched_rules.append(match.rule)
-                            match_details = extract_match_details(match, 'compiled_rule')
+                            match_details = extract_match_details(match, 'clean_rules')
                             local_matched_results.append(match_details)
 
                         # VMProtect unpacking
@@ -4636,9 +4635,9 @@ def scan_yara(file_path):
                         if local_vmprotect_file:
                             results['vmprotect_unpacked_file'] = local_vmprotect_file
                 else:
-                    logging.error("compiled_rule is not defined.")
+                    logging.error("clean_rules is not defined.")
             except Exception as e:
-                logging.error(f"Error scanning with compiled_rule: {e}")
+                logging.error(f"Error scanning with clean_rules: {e}")
 
         # Thread worker for yarGen_rule scanning
         def yargen_rule_worker():
@@ -4744,7 +4743,7 @@ def scan_yara(file_path):
 
         # Create and start all threads
         workers = [
-            compiled_rule_worker,
+            clean_rules_worker,
             yargen_rule_worker,
             icewater_rule_worker,
             valhalla_rule_worker,
@@ -6388,7 +6387,7 @@ def monitor_suricata_log():
             except Exception as ex:
                 logging.info(f"Error processing line: {ex}")
 
-restart_clamd_threaded()
+reload_clamav_database()
 activate_uefi_drive() # Call the UEFI function
 load_website_data()
 load_antivirus_list()
@@ -6518,10 +6517,10 @@ except yara.Error as ex:
 
 try:
     # Load the precompiled rules from the .yrc file
-    compiled_rule = yara.load(compiled_rule_path)
-    logging.info("YARA Rules Definitions loaded!")
+    clean_rules = yara.load(clean_rules_path)
+    logging.info("(good) YARA Rules Definitions loaded!")
 except yara.Error as ex:
-    logging.error(f"Error loading precompiled YARA rule: {ex}")
+    logging.error(f"Error loading precompiled (good) YARA rule: {ex}")
 
 try:
     # Load the precompiled yaraxtr rule from the .yrc file using yara_x
@@ -11548,7 +11547,6 @@ class SafeProcessMonitor:
                             target=self._safe_scan_and_warn,
                             args=(result_file,),
                             name=f"Scan-{proc_info.pid}",
-                            daemon=True
                         )
                         scan_thread.start()
                 else:
@@ -11700,7 +11698,6 @@ def monitor_memory_changes(
                         break
 
             monitor_thread = threading.Thread(target=monitor_with_callback, name="MemoryMonitor")
-            monitor_thread.daemon = True
             monitor_thread.start()
 
             # Wait for stop condition or thread completion
@@ -13079,7 +13076,7 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
                 time.sleep(0.1)
 
         # Run monitoring in separate thread
-        monitor_thread = threading.Thread(target=monitor_threads, daemon=True)
+        monitor_thread = threading.Thread(target=monitor_threads)
         monitor_thread.start()
 
         # Wait for monitoring thread to finish
@@ -13108,7 +13105,6 @@ def run_analysis_with_yield(file_path: str, stop_callback=None):
 
     # Start background yielding thread
     yield_thread = threading.Thread(target=periodic_yield_worker, args=(yield_stop_event, 0.1))
-    yield_thread.daemon = True
     yield_thread.start()
 
     try:
@@ -13644,7 +13640,7 @@ class Worker(QThread):
                 # Using subprocess.run for simplicity. For real-time output, Popen is better.
                 result = subprocess.run([freshclam_path], capture_output=True, text=True, encoding="utf-8", errors="ignore")
                 if result.returncode == 0:
-                    restart_clamd_threaded()
+                    reload_clamav_database()
                     self.output_signal.emit("[+] Virus definitions updated successfully and ClamAV restarted.")
                     self.output_signal.emit(f"Output:\n{result.stdout}")
                 else:
@@ -13839,10 +13835,10 @@ class Worker(QThread):
         """
         try:
             # Restart ClamAV
-            self.output_signal.emit("[*] Restarting Owlyshield and ClamAV daemon...")
-            restart_clamd_threaded()
+            self.output_signal.emit("[*] Restarting Owlyshield and ClamAV wrapper...")
+            reload_clamav_database()
             restart_owlyshield_threaded(stop_only=True)
-            self.output_signal.emit("[+] Owlyshield stopped and ClamAV daemon restarted.")
+            self.output_signal.emit("[+] Owlyshield stopped and ClamAV wrapper restarted.")
 
             # Stop Suricata and cleanup logs
             self.output_signal.emit("[*] Step 1: Stopping Suricata and cleaning logs...")

@@ -61,7 +61,7 @@ hydradragon/website/MalwareDomains.csv
 # Website cleaned
 hydradragon/website/cleaned
 # Big Yara Rule files
-hydradragon/yara/compiled_rule.yar
+hydradragon/yara/clean_rules.yar
 hydradragon/yara/veryoldcompiled_rule.yar
 hydradragon/yara/nocomments.yar
 # Yara Rule Executables

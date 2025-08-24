@@ -1,0 +1,1 @@
+python YARA_Util_performance.py --input compiled_rule.yar --clean clean_rules.yar --slow slow_rules.yar --save-warnings warnings.txt --verbose --yarac yarac64.exe --compiled compiled_rule.yrc
