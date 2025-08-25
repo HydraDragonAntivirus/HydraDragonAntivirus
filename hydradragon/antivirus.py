@@ -4028,19 +4028,21 @@ def restart_owlyshield_threaded(stop_only=False):
         logging.error(f"Error starting thread for Owlyshield {'stop' if stop_only else 'restart'}: {ex}")
 
 def scan_file_with_clamav(file_path):
-    """Scan file using the in-process ClamAV wrapper (scanner)."""
+    """Scan file using the in-process ClamAV wrapper (scanner) and return virus name or 'Clean'."""
     try:
-        file_path = os.path.abspath(file_path)  # Get absolute path
-        result = clamav_scanner.scan_file(file_path)
+        file_path = os.path.abspath(file_path)
+        ret, virus_name = clamav_scanner.scanFile(file_path)
 
-        # result is expected to be either None (clean) or a virus name
-        if not result:
+        if ret == clamav.CL_CLEAN:
             return "Clean"
+        elif ret == clamav.CL_VIRUS:
+            return virus_name or "Infected"
         else:
-            return result
+            logging.error(f"Unexpected ClamAV scan result for {file_path}: {ret}")
+            return "Error"
     except Exception as ex:
         logging.error(f"Error scanning file {file_path}: {ex}")
-        return "Clean"
+        return "Error"
 
 def is_related_to_critical_paths(file_path):
     return file_path.startswith(sandboxie_folder) or file_path == main_file_path
@@ -5956,7 +5958,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
         """Worker function for ClamAV scan"""
         try:
             result = scan_file_with_clamav(file_path)
-            if result not in ("Clean", ""):
+            if result not in ("Clean", "Error"):
                 if signature_check["is_valid"]:
                     result = result + ".SIG"
                 logging.critical(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
