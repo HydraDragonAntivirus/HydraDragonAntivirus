@@ -948,6 +948,7 @@ seven_zip_folder = os.path.join(program_files, "7-Zip")
 
 # ClamAV file paths and configurations
 freshclam_path = os.path.join(clamav_folder, "freshclam.exe")
+libclamav_path = os.path.join(clamav_folder, "libclamav.dll")
 clamav_database_directory_path = os.path.join(clamav_folder, "database")
 clamav_file_paths = [
     os.path.join(clamav_database_directory_path, "daily.cvd"),
@@ -3988,7 +3989,7 @@ def restart_service(service_name, stop_only=False):
         logging.error(f"An error occurred while managing service '{service_name}': {ex}")
         return False
 
-scanner = clamav.Scanner(dbpath=clamav_database_directory_path)
+clamav_scanner = clamav.Scanner(libclamav_path=libclamav_path, dbpath=clamav_database_directory_path)
 
 def reload_clamav_database():
     """
@@ -3997,7 +3998,7 @@ def reload_clamav_database():
     """
     try:
         logging.info("Reloading ClamAV database...")
-        scanner.loadDB()
+        clamav_scanner.loadDB()
         logging.info("ClamAV database reloaded successfully.")
     except Exception as ex:
         logging.error(f"Failed to reload ClamAV database: {ex}")
@@ -4034,7 +4035,7 @@ def scan_file_with_clamav(file_path):
     """Scan file using the in-process ClamAV wrapper (scanner)."""
     try:
         file_path = os.path.abspath(file_path)  # Get absolute path
-        result = scanner.scan_file(file_path)
+        result = clamav_scanner.scan_file(file_path)
 
         # result is expected to be either None (clean) or a virus name
         if not result:
