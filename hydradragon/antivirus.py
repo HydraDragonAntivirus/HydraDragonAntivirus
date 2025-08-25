@@ -190,10 +190,6 @@ from scapy.sendrecv import sniff
 logging.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-import comtypes.client
-logging.info(f"comtypes.client module loaded in {time.time() - start_time:.6f} seconds")
-
-start_time = time.time()
 from comtypes import cast, GUID
 logging.info(f"comtypes.cast, GUID modules loaded in {time.time() - start_time:.6f} seconds")
 
@@ -201,7 +197,7 @@ from comtypes.automation import POINTER
 logging.info(f"comtypes.automation.POINTER module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
-from comtypes.client import GetModule
+from comtypes.client import CreateObject, GetModule
 logging.info(f"comtypes.client.CreateObject, GetModule modules loaded in {time.time() - start_time:.6f} seconds")
 
 # Load the UIAutomationCore.dll module
@@ -4986,7 +4982,7 @@ NO_SIGNATURE_CODES = {
 }
 
 # Constants for WinVerifyTrust
-class GUID(ctypes.Structure):
+class WinVerifyTrust_GUID(ctypes.Structure):
     _fields_ = [
         ("Data1", wintypes.DWORD),
         ("Data2", wintypes.WORD),
@@ -4994,7 +4990,7 @@ class GUID(ctypes.Structure):
         ("Data4", ctypes.c_ubyte * 8),
     ]
 
-WINTRUST_ACTION_GENERIC_VERIFY_V2 = GUID(
+WINTRUST_ACTION_GENERIC_VERIFY_V2 = WinVerifyTrust_GUID(
     0x00AAC56B, 0xCD44, 0x11D0,
     (ctypes.c_ubyte * 8)(0x8C, 0xC2, 0x00, 0xC0, 0x4F, 0xC2, 0x95, 0xEE)
 )
@@ -5004,7 +5000,7 @@ class WINTRUST_FILE_INFO(ctypes.Structure):
         ("cbStruct", wintypes.DWORD),
         ("pcwszFilePath", wintypes.LPCWSTR),
         ("hFile", wintypes.HANDLE),
-        ("pgKnownSubject", ctypes.POINTER(GUID)),
+        ("pgKnownSubject", ctypes.POINTER(WinVerifyTrust_GUID)),
     ]
 
 class WINTRUST_DATA(ctypes.Structure):
@@ -5924,11 +5920,11 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
             if pe_file:
                 # Scan the file
                 is_malicious_machine_learning, malware_definition, benign_score, matched_rules = scan_file_with_machine_learning_ai(file_path)
-                
+
                 if is_malicious_machine_learning:
                     # Log all matched rules
                     logging.critical(f"Matched ML rules for {file_path}: {matched_rules}")
-                    
+
                     if benign_score < 0.93:
                         if signature_check.get("is_valid"):
                             malware_definition = malware_definition + ".SIG"
@@ -12263,7 +12259,7 @@ def is_window_valid(hwnd):
 def _load_uia_types():
     try:
         # Ensures comtypes generates UIA interfaces from the type library
-        comtypes.client.GetModule("UIAutomationCore.dll")
+        GetModule("UIAutomationCore.dll")
     except Exception:
         # If generation failed, we'll still try the import below
         pass
@@ -12428,33 +12424,33 @@ def _extract_uia_text(hwnd: int, uia, UIA):
         return []
 
 def get_uia_text(hwnd: int):
-    """Public API: returns list of unique, non-empty text strings for a window handle."""
-    try:
-        if not is_window_valid(hwnd):
-            return []
+   """Public API: returns list of unique, non-empty text strings for a window handle."""
+   try:
+       if not is_window_valid(hwnd):
+           return []
 
-        UIA = _load_uia_types()
-        if UIA is None:
-            return []
+       UIA = _load_uia_types()
+       if UIA is None:
+           return []
 
-        try:
-            # Use ProgID first, fallback to CLSID if needed
-            try:
-                uia = comtypes.client.CreateObject("UIAutomation.CUIAutomation", interface=UIA.IUIAutomation)
-            except Exception:
-                # CLSID form (safe fallback)
-                CLSID_CUIAutomation = GUID.from_string("{FF48DBA4-60EF-4201-AA87-54103EEF594E}")
-                uia = comtypes.client.CreateObject(CLSID_CUIAutomation, interface=UIA.IUIAutomation)
+       try:
+           # Use ProgID first, fallback to CLSID if needed
+           try:
+               uia = CreateObject("UIAutomation.CUIAutomation", interface=UIA.IUIAutomation)
+           except Exception:
+               # CLSID form (safe fallback)
+               CLSID_CUIAutomation = GUID("{FF48DBA4-60EF-4201-AA87-54103EEF594E}")
+               uia = CreateObject(CLSID_CUIAutomation, interface=UIA.IUIAutomation)
 
-        except Exception as e:
-            logging.error("Failed to create UI Automation object: %s", e, exc_info=True)
-            return []
+       except Exception as e:
+           logging.error("Failed to create UI Automation object: %s", e, exc_info=True)
+           return []
 
-        return _extract_uia_text(hwnd, uia, UIA)
+       return _extract_uia_text(hwnd, uia, UIA)
 
-    except Exception as e:
-        logging.error("get_uia_text failed: %s", e, exc_info=True)
-        return []
+   except Exception as e:
+       logging.error("get_uia_text failed: %s", e, exc_info=True)
+       return []
 
 # ----------------------------------------------------
 # Advanced enumeration-based capture
