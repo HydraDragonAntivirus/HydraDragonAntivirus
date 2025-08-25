@@ -135,6 +135,10 @@ See the [LICENSE](./LICENSE) file for more information.
 
 - I used these projects for EDR.
 
+- https://github.com/clamwin/python-clamav
+
+- I used these projects to optimize the antivirus.
+
 **Note 5:**.
 - You will need an internet connection to install. It's not an offline installer.
 
