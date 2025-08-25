@@ -158,12 +158,23 @@ class Scanner:
         fname_b = _to_bytes_or_none(filepath)
         virname = c_char_p()
         bytes_scanned = c_ulong(0)
-        options = cl_scan_options(0,0,0,0,0)
-        ret = self.libclamav.cl_scanfile(fname_b, byref(virname), byref(bytes_scanned), self.engine, pointer(options))
+        scan_opts = c_uint(0)  # flags for scanning
+
+        try:
+            ret = self.libclamav.cl_scanfile(
+                fname_b, byref(virname), byref(bytes_scanned),
+                self.engine, scan_opts
+            )
+        except Exception as e:
+            logging.error(f"cl_scanfile call failed: {e}")
+            return None, None
+
         if ret not in (CL_CLEAN, CL_VIRUS):
             logging.error(f"Scan failed with code {ret}")
             return None, None
-        return ret, virname.value.decode("utf-8", errors="ignore") if virname.value else None
+
+        virus_name = virname.value.decode("utf-8", errors="ignore") if virname.value else None
+        return ret, virus_name
 
     def getVersions(self):
         if not self.libclamav:
