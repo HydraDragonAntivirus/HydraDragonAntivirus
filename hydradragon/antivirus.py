@@ -9827,6 +9827,7 @@ def extract_inno_setup(file_path):
             "-b",               # batch mode (non-interactive)
             "-u",               # use UTF-8 output (for filenames with unicode)
             "-a",               # extract all copies of duplicate files
+            "-m",               # extract internal embedded files (such as license and uninstall.exe)
             "-d", output_dir,   # output directory
             file_path           # the installer to unpack
         ]
