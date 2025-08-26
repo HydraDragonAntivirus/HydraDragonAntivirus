@@ -1778,6 +1778,29 @@ def is_themida_from_output(die_output):
 
     return None
 
+def is_vm_protect_from_output(die_output):
+    """
+    Check if the DIE output indicates VMProtect protection for PE32 or PE64.
+    Returns True only if a PE32 or PE64 binary is protected.
+    Returns False otherwise.
+    """
+    if not die_output:
+        return False
+
+    if die_output.startswith("PE32") or die_output.startswith("PE64"):
+        if "Protector: VMProtect (2.XX)" in die_output or \
+           "Protector: VMProtect (3.XX)" in die_output:
+
+            if die_output.startswith("PE32"):
+                logging.info("DIE output indicates PE32 protected with VMProtect.")
+            else:
+                logging.info("DIE output indicates PE64 protected with VMProtect.")
+            
+            return True
+
+    # Either not a PE file or not VMProtect
+    return False
+
 def is_pe_file_from_output(die_output: str, file_path: str) -> bool:
     """
     Checks if DIE output or pefile validation indicates a PE (Portable Executable) file.
@@ -10509,6 +10532,38 @@ def scan_and_warn(file_path,
             logging.info(f"Flag set to True because '{norm_path}' is inside the de4dot directory '{match}'")
 
         # ========== SPECIALIZED ANALYSIS THREADS ==========
+        def vmprotect_detection(die_output, file_path, vmprotect_unpacked_dir):
+            """
+            Detects VMProtect in a PE file using is_vm_protect_from_output.
+            Attempts to unpack if detected and logs PE32/PE64 type.
+            """
+            try:
+                if is_vm_protect_from_output(die_output):  # Use the VMProtect checker
+                    # Attempt to unpack
+                    try:
+                        with open(file_path, 'rb') as f:
+                            packed_data = f.read()
+
+                        unpacked_data = unpack_pe(packed_data)  # unpacking function
+                        if unpacked_data:
+                            base_name, ext = os.path.splitext(os.path.basename(file_path))
+                            unpacked_name = f"{base_name}_vmprotect_unpacked{ext}"
+                            unpacked_path = os.path.join(vmprotect_unpacked_dir, unpacked_name)
+
+                            with open(unpacked_path, 'wb') as f:
+                                f.write(unpacked_data)
+
+                            logging.info(f"VMProtect unpacked successfully: {unpacked_path}")
+
+                            # Optional: further scanning/warning in a thread
+                            threading.Thread(target=scan_and_warn, args=(unpacked_path,)).start()
+
+                    except Exception as e:
+                        logging.error(f"Error unpacking VMProtect file '{file_path}': {e}")
+
+            except Exception as e:
+                logging.error(f"Error in VMProtect detection for '{file_path}': {e}")
+
         def themida_detection():
             try:
                 is_themida_protected = is_themida_from_output(die_output)
@@ -10610,6 +10665,7 @@ def scan_and_warn(file_path,
 
         # Start all specialized analysis threads
         analysis_threads = [
+            threading.Thread(target=vmprotect_detection),
             threading.Thread(target=themida_detection),
             threading.Thread(target=autoit_analysis),
             threading.Thread(target=asar_analysis),
