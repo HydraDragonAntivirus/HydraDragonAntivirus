@@ -200,6 +200,9 @@ start_time = time.time()
 from comtypes.client import CreateObject, GetModule
 logging.info(f"comtypes.client.CreateObject, GetModule modules loaded in {time.time() - start_time:.6f} seconds")
 
+# Load the UIAutomationCore.dll module
+GetModule("UIAutomationCore.dll")
+
 start_time = time.time()
 # Interface IID
 import comtypes.gen.UIAutomationClient
@@ -12257,12 +12260,6 @@ def is_window_valid(hwnd):
 
 # --- UIA loader (ensures type library is generated before import) ---
 def _load_uia_types():
-    try:
-        # Ensures comtypes generates UIA interfaces from the type library
-        GetModule("UIAutomationCore.dll")
-    except Exception:
-        # If generation failed, we'll still try the import below
-        pass
     try:
         return comtypes.gen.UIAutomationClient
     except Exception as e:
