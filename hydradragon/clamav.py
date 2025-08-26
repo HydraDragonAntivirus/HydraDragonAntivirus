@@ -82,9 +82,13 @@ def load_clamav(libpath):
         lib.cl_engine_set_num.argtypes = (cl_engine_p, c_uint, c_ulong)
         lib.cl_engine_set_num.restype = c_int
 
-        # Fixed scanfile prototype
+        # *** FIXED ***: Changed the last argument from c_uint to POINTER(cl_scan_options)
         lib.cl_scanfile.argtypes = [
-            c_char_p, POINTER(c_char_p), POINTER(c_ulong), cl_engine_p, c_uint
+            c_char_p, 
+            POINTER(c_char_p), 
+            c_ulong_p, 
+            cl_engine_p, 
+            POINTER(cl_scan_options)
         ]
         lib.cl_scanfile.restype = c_int
 
@@ -128,7 +132,7 @@ class Scanner:
         # database path validation
         if dbpath is None:
             pf = os.environ.get("ProgramFiles", r"C:\\Program Files")
-            dbpath = os.path.join(pf, "ClamAV", "db")
+            dbpath = os.path.join(pf, "ClamAV", "database") # Corrected db path
 
         if not os.path.isdir(dbpath):
             logging.error(f"Invalid database path: {dbpath}")
@@ -252,7 +256,11 @@ class Scanner:
             # Initialize variables properly
             virname = c_char_p()
             bytes_scanned = c_ulong(0)
-            scan_opts = c_uint(0)  # Use c_uint instead of creating cl_scan_options
+            
+            # *** FIXED ***: Create an instance of the cl_scan_options struct
+            scan_opts = cl_scan_options()
+            # You can customize options here, e.g., scan_opts.general = (1 << 2) for CL_SCAN_GENERAL_HEURISTICS
+            # For now, we'll use the default (all zeros).
 
             # Call cl_scanfile
             ret = self.libclamav.cl_scanfile(
@@ -260,7 +268,7 @@ class Scanner:
                 byref(virname),
                 byref(bytes_scanned),
                 self.engine,
-                scan_opts  # Pass c_uint directly
+                byref(scan_opts)  # *** FIXED ***: Pass the struct by reference
             )
 
             # Process results
