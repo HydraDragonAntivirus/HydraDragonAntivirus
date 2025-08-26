@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Fixed 64-bit ClamAV Python wrapper with improved error handling
+# Fixed and optimized 64-bit ClamAV Python wrapper
 # Author: Emirhan Ucan
 # Inspired by: https://github.com/clamwin/python-clamav/blob/master/clamav.py
 
@@ -78,7 +78,11 @@ def load_clamav(libpath):
         lib.cl_engine_compile.argtypes = (cl_engine_p,)
         lib.cl_engine_compile.restype = c_int
 
-        # Fixed scanfile prototype - removed POINTER from cl_scan_options
+        # Apply engine options
+        lib.cl_engine_set_num.argtypes = (cl_engine_p, c_uint, c_ulong)
+        lib.cl_engine_set_num.restype = c_int
+
+        # Fixed scanfile prototype
         lib.cl_scanfile.argtypes = [
             c_char_p, POINTER(c_char_p), POINTER(c_ulong), cl_engine_p, c_uint
         ]
@@ -94,7 +98,7 @@ def load_clamav(libpath):
 
         logging.info(f"Loaded libclamav: {libpath}")
         return lib
-    
+
     except Exception as e:
         logging.error(f"Failed to setup function prototypes: {e}")
         return None
@@ -105,7 +109,7 @@ class Scanner:
         self.libclamav = None
         self.engine = None
         self.dbpath = None
-        
+
         self.libclamav = load_clamav(libclamav_path)
         if not self.libclamav:
             logging.error("Scanner could not initialize because libclamav failed to load.")
@@ -123,9 +127,9 @@ class Scanner:
 
         # database path validation
         if dbpath is None:
-            pf = os.environ.get("ProgramFiles", r"C:\Program Files")
+            pf = os.environ.get("ProgramFiles", r"C:\\Program Files")
             dbpath = os.path.join(pf, "ClamAV", "db")
-        
+
         if not os.path.isdir(dbpath):
             logging.error(f"Invalid database path: {dbpath}")
             return
@@ -134,43 +138,34 @@ class Scanner:
         self.autoreload = autoreload
         self.dboptions = dboptions
         self.engine_options = engine_options or self.def_engine_options()
-        
+
         # Load database
         if not self.loadDB():
             logging.error("Failed to load ClamAV database")
             return
-            
-        logging.info("Scanner initialized successfully")
 
-    def __del__(self):
-        """Cleanup resources"""
-        if self.engine and self.libclamav:
-            try:
-                self.libclamav.cl_engine_free(self.engine)
-            except Exception:
-                pass
+        logging.info("Scanner initialized successfully")
 
     @staticmethod
     def def_engine_options():
         return {
-            0: 50*1024*1024,  # CL_ENGINE_MAX_SCANSIZE
-            1: 50*1024*1024,  # CL_ENGINE_MAX_FILESIZE
-            2: 20,            # CL_ENGINE_MAX_RECURSION
-            3: 500            # CL_ENGINE_MAX_FILES
+            0: 512*1024*1024,  # CL_ENGINE_MAX_SCANSIZE
+            1: 512*1024*1024,  # CL_ENGINE_MAX_FILESIZE
+            2: 50,             # CL_ENGINE_MAX_RECURSION
+            3: 2000            # CL_ENGINE_MAX_FILES
         }
 
     def get_error_message(self, error_code):
-        """Get human readable error message"""
         if not self.libclamav or not hasattr(self.libclamav, 'cl_strerror'):
             return f"Error code: {error_code}"
-        
+
         try:
             err_msg = self.libclamav.cl_strerror(error_code)
             if err_msg:
                 return err_msg.decode('utf-8', errors='ignore')
         except Exception:
             pass
-        
+
         return f"Error code: {error_code}"
 
     def loadDB(self):
@@ -205,15 +200,21 @@ class Scanner:
             if not dbpath_b:
                 logging.error("Invalid database path")
                 return False
-                
+
             signo = c_uint()
             res = self.libclamav.cl_load(dbpath_b, self.engine, byref(signo), c_uint(self.dboptions))
-            
+
             if res != CL_SUCCESS:
                 error_msg = self.get_error_message(res)
                 logging.error(f"cl_load failed: {error_msg}")
                 return False
-                
+
+            # Apply custom engine options here
+            for opt, val in self.engine_options.items():
+                res = self.libclamav.cl_engine_set_num(self.engine, opt, c_ulong(val))
+                if res != CL_SUCCESS:
+                    logging.warning(f"Failed to set engine option {opt}={val}: {self.get_error_message(res)}")
+
         except Exception as e:
             logging.error(f"Exception during cl_load: {e}")
             return False
@@ -255,10 +256,10 @@ class Scanner:
 
             # Call cl_scanfile
             ret = self.libclamav.cl_scanfile(
-                fname_b, 
-                byref(virname), 
+                fname_b,
+                byref(virname),
                 byref(bytes_scanned),
-                self.engine, 
+                self.engine,
                 scan_opts  # Pass c_uint directly
             )
 
@@ -272,39 +273,9 @@ class Scanner:
                 return CL_VIRUS, virus_name
             else:
                 error_msg = self.get_error_message(ret)
-                logging.error(f"Scan failed for {filepath}: {error_msg}")
+                logging.error(f"Unexpected ClamAV scan result ({ret}): {error_msg}")
                 return ret, None
 
         except Exception as e:
             logging.error(f"Exception during file scan: {e}")
             return None, None
-
-    def getVersions(self):
-        """Get ClamAV version with error handling"""
-        if not self.libclamav:
-            return None
-        try:
-            ver = self.libclamav.cl_retver()
-            return ver.decode("utf-8", errors="ignore") if ver else None
-        except Exception as e:
-            logging.error(f"Error getting version: {e}")
-            return None
-
-    def updateDB(self, dbpath=None):
-        """Update/reload database"""
-        if dbpath:
-            if not os.path.isdir(dbpath):
-                logging.error(f"Invalid new database path: {dbpath}")
-                return False
-            self.dbpath = dbpath
-        
-        success = self.loadDB()
-        if success:
-            logging.info("Database updated/reloaded successfully.")
-        else:
-            logging.error("Failed to update/reload database.")
-        return success
-
-    def is_initialized(self):
-        """Check if scanner is properly initialized"""
-        return self.libclamav is not None and self.engine is not None
