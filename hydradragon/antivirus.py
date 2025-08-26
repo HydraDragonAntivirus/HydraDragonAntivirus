@@ -200,9 +200,6 @@ start_time = time.time()
 from comtypes.client import CreateObject, GetModule
 logging.info(f"comtypes.client.CreateObject, GetModule modules loaded in {time.time() - start_time:.6f} seconds")
 
-# Load the UIAutomationCore.dll module
-GetModule("UIAutomationCore.dll")
-
 start_time = time.time()
 # Interface IID
 import comtypes.gen.UIAutomationClient
