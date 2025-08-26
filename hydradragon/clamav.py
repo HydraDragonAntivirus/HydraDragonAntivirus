@@ -43,6 +43,9 @@ CL_VIRUS = 1
 CL_SUCCESS = 0
 CL_DB_STDOPT = 0
 
+# Scan Options
+CL_SCAN_GENERAL_HEURISTICS = (1 << 2)
+
 # Error codes
 CL_EMEM = 2
 CL_EOPEN = 3
@@ -257,10 +260,10 @@ class Scanner:
             virname = c_char_p()
             bytes_scanned = c_ulong(0)
             
-            # *** FIXED ***: Create an instance of the cl_scan_options struct
+            # Create an instance of the cl_scan_options struct
             scan_opts = cl_scan_options()
-            # You can customize options here, e.g., scan_opts.general = (1 << 2) for CL_SCAN_GENERAL_HEURISTICS
-            # For now, we'll use the default (all zeros).
+            # *** ENABLED HEURISTICS ***: Enable all heuristic scanning functions.
+            scan_opts.general = CL_SCAN_GENERAL_HEURISTICS
 
             # Call cl_scanfile
             ret = self.libclamav.cl_scanfile(
@@ -268,7 +271,7 @@ class Scanner:
                 byref(virname),
                 byref(bytes_scanned),
                 self.engine,
-                byref(scan_opts)  # *** FIXED ***: Pass the struct by reference
+                byref(scan_opts)  # Pass the struct by reference
             )
 
             # Process results
