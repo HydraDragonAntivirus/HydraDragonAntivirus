@@ -1788,9 +1788,7 @@ def is_vm_protect_from_output(die_output):
         return False
 
     if die_output.startswith("PE32") or die_output.startswith("PE64"):
-        if "Protector: VMProtect (2.XX)" in die_output or \
-           "Protector: VMProtect (3.XX)" in die_output:
-
+        if "Protector: VMProtect" in die_output
             if die_output.startswith("PE32"):
                 logging.info("DIE output indicates PE32 protected with VMProtect.")
             else:
