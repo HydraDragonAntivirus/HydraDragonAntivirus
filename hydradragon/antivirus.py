@@ -6788,12 +6788,12 @@ def scan_rsrc_files(file_paths):
     """
     Given a list of file paths for rsrcdata resources, this function scans each file.
 
-    If 'upython.exe' is found in a file:
+    If 'upython.exe' or '\python.exe' is found in a file:
         - Extract and clean code from that file.
         - Save to disk.
         - Do NOT scan for links.
 
-    If 'upython.exe' is not found:
+    If neither marker is found:
         - Find the largest file.
         - Extract and clean its code.
         - Scan for links with nuitka_flag=True.
@@ -6802,24 +6802,32 @@ def scan_rsrc_files(file_paths):
         file_paths = [file_paths]
 
     executable_file = None
+    found_marker = None
 
-    # Check for 'upython.exe'
+    # Check for python exe markers
+    markers = ["upython.exe", "\\python.exe"]
+
     for file_path in file_paths:
         if os.path.isfile(file_path):
             try:
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                    if "upython.exe" in f.read():
-                        executable_file = file_path
-                        logging.info(f"Found executable in: {file_path}")
+                    content = f.read()
+                    for marker in markers:
+                        if marker in content:
+                            executable_file = file_path
+                            found_marker = marker
+                            logging.info(f"Found {marker} in: {file_path}")
+                            break
+                    if executable_file:
                         break
             except Exception as ex:
                 logging.error(f"Error reading file {file_path}: {ex}")
         else:
             logging.error(f"Path {file_path} is not a valid file.")
 
-    # Case 1: No upython.exe -> use largest file and scan with nuitka_flag=True
+    # Case 1: No markers found -> use largest file and scan with nuitka_flag=True
     if executable_file is None:
-        logging.info("No file containing 'upython.exe' was found.")
+        logging.info("No file containing python exe markers was found.")
         largest_file = None
         largest_size = -1
         for file_path in file_paths:
@@ -6845,7 +6853,7 @@ def scan_rsrc_files(file_paths):
             logging.info("No valid files found to scan.")
         return
 
-    # Case 2: upython.exe found -> extract but no scan
+    # Case 2: Marker found -> extract but no scan
     try:
         logging.info(f"Processing file: {executable_file}")
         with open(executable_file, "r", encoding="utf-8", errors="ignore") as f:
@@ -6853,12 +6861,12 @@ def scan_rsrc_files(file_paths):
 
         if lines:
             # Locate the marker line
-            source_index = next((i for i, line in enumerate(lines) if "upython.exe" in line), None)
+            source_index = next((i for i, line in enumerate(lines) if found_marker in line), None)
 
             if source_index is not None:
                 line_with_marker = lines[source_index]
-                marker_index = line_with_marker.find("upython.exe")
-                remainder = line_with_marker[marker_index + len("upython.exe"):].lstrip()
+                marker_index = line_with_marker.find(found_marker)
+                remainder = line_with_marker[marker_index + len(found_marker):].lstrip()
 
                 # Build the source code lines
                 source_code_lines = ([remainder] if remainder else []) + lines[source_index + 1:]
@@ -6888,7 +6896,7 @@ def scan_rsrc_files(file_paths):
                 split_source_by_u_delimiter(decompiled_code)
 
             else:
-                logging.info(f"No line containing 'upython.exe' found in {executable_file}.")
+                logging.info(f"No line containing '{found_marker}' found in {executable_file}.")
         else:
             logging.info(f"File {executable_file} is empty.")
     except Exception as ex:
@@ -12335,13 +12343,13 @@ def _load_uia_types():
                 init_file = os.path.join(gen_dir, '__init__.py')
                 with open(init_file, 'w') as f:
                     f.write('# comtypes generated packages\n')
-            
+
             # Regenerate the type library
             from comtypes.client import GetModule
             GetModule("UIAutomationCore.dll")
             import comtypes.gen.UIAutomationClient
             return comtypes.gen.UIAutomationClient
-            
+
         except Exception as e:
             logging.error("Failed to load UIAutomationClient types: %s", e)
             return None
