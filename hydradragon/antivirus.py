@@ -10532,7 +10532,7 @@ def scan_and_warn(file_path,
             logging.info(f"Flag set to True because '{norm_path}' is inside the de4dot directory '{match}'")
 
         # ========== SPECIALIZED ANALYSIS THREADS ==========
-        def vmprotect_detection(die_output, file_path, vmprotect_unpacked_dir):
+        def vmprotect_detection():
             """
             Detects VMProtect in a PE file using is_vm_protect_from_output.
             Attempts to unpack if detected and logs PE32/PE64 type.
