@@ -12314,14 +12314,35 @@ def is_window_valid(hwnd):
 
 # --- UIA loader (ensures type library is generated before import) ---
 def _load_uia_types():
-    """Safely load UIAutomationCore types when needed."""
+    """Safely load UIAutomation types when needed."""
     try:
-        # Generate wrapper if not already built
-        GetModule("UIAutomationCore.dll")
+        # Try to import existing generated module first
         import comtypes.gen.UIAutomationClient
         return comtypes.gen.UIAutomationClient
+    except (ImportError, SyntaxError):
+        # Clear corrupted cache and regenerate
+        try:
+            # Clear the comtypes cache
+            gen_dir = comtypes.client._code_cache._find_gen_dir()
+            if gen_dir and os.path.exists(gen_dir):
+                shutil.rmtree(gen_dir)
+                os.makedirs(gen_dir)
+                # Recreate __init__.py
+                init_file = os.path.join(gen_dir, '__init__.py')
+                with open(init_file, 'w') as f:
+                    f.write('# comtypes generated packages\n')
+            
+            # Regenerate the type library
+            from comtypes.client import GetModule
+            GetModule("UIAutomationCore.dll")
+            import comtypes.gen.UIAutomationClient
+            return comtypes.gen.UIAutomationClient
+            
+        except Exception as e:
+            logging.error("Failed to load UIAutomationClient types: %s", e)
+            return None
     except Exception as e:
-        logging.error("Failed to load UIAutomationClient types: %s", e, exc_info=True)
+        logging.error("Failed to load UIAutomationClient types: %s", e)
         return None
 
 @atexit.register
