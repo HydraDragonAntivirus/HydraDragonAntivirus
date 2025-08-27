@@ -6804,22 +6804,25 @@ def scan_rsrc_files(file_paths):
     executable_file = None
     found_marker = None
 
-    # Check for python exe markers
-    markers = ["upython.exe", "\\python.exe"]
-
+    # Check for python exe markers - prefer upython.exe over \python.exe
     for file_path in file_paths:
         if os.path.isfile(file_path):
             try:
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
-                    for marker in markers:
-                        if marker in content:
-                            executable_file = file_path
-                            found_marker = marker
-                            logging.info(f"Found {marker} in: {file_path}")
-                            break
-                    if executable_file:
+                    # Check for upython.exe first (preferred)
+                    if "upython.exe" in content:
+                        executable_file = file_path
+                        found_marker = "upython.exe"
+                        logging.info(f"Found upython.exe in: {file_path}")
                         break
+                    # If no upython.exe, check for \python.exe
+                    elif "\\python.exe" in content:
+                        # Only set if we haven't found upython.exe yet
+                        if executable_file is None:
+                            executable_file = file_path
+                            found_marker = "\\python.exe"
+                            logging.info(f"Found \\python.exe in: {file_path}")
             except Exception as ex:
                 logging.error(f"Error reading file {file_path}: {ex}")
         else:
