@@ -190,6 +190,10 @@ from scapy.sendrecv import sniff
 logging.info(f"scapy modules loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
+import comtypes.client
+logging.info(f"comtypes.client modules loaded in {time.time() - start_time:.6f} seconds")
+
+start_time = time.time()
 from comtypes import cast, GUID
 logging.info(f"comtypes.cast, GUID modules loaded in {time.time() - start_time:.6f} seconds")
 
@@ -200,13 +204,9 @@ start_time = time.time()
 from comtypes.client import CreateObject, GetModule
 logging.info(f"comtypes.client.CreateObject, GetModule modules loaded in {time.time() - start_time:.6f} seconds")
 
-# Load the UIAutomationCore.dll module
-GetModule("UIAutomationCore.dll")
-
 start_time = time.time()
-# Interface IID
-import comtypes.gen.UIAutomationClient
-logging.info(f"comtypes.gen.UIAutomationClient module loaded in {time.time() - start_time:.6f} seconds")
+import atexit
+logging.info(f"atexit module loaded in {time.time() - start_time:.6f} seconds")
 
 start_time = time.time()
 import ast
@@ -12316,11 +12316,22 @@ def is_window_valid(hwnd):
 
 # --- UIA loader (ensures type library is generated before import) ---
 def _load_uia_types():
+    """Safely load UIAutomationCore types when needed."""
     try:
+        # Generate wrapper if not already built
+        GetModule("UIAutomationCore.dll")
+        import comtypes.gen.UIAutomationClient
         return comtypes.gen.UIAutomationClient
     except Exception as e:
         logging.error("Failed to load UIAutomationClient types: %s", e, exc_info=True)
         return None
+
+@atexit.register
+def cleanup_com():
+    try:
+        comtypes.client._shutdown()
+    except Exception:
+        pass
 
 def _extract_uia_text(hwnd: int, uia, UIA):
     """Internal: Extract UIA text with robust error handling and no pythoncom."""
