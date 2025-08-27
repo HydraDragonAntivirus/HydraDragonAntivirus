@@ -6788,7 +6788,7 @@ def scan_rsrc_files(file_paths):
     """
     Given a list of file paths for rsrcdata resources, this function scans each file.
 
-    If 'upython.exe' or '\python.exe' is found in a file:
+    If 'upython.exe' or '\\python.exe' is found in a file:
         - Extract and clean code from that file.
         - Save to disk.
         - Do NOT scan for links.
@@ -6816,7 +6816,7 @@ def scan_rsrc_files(file_paths):
                         found_marker = "upython.exe"
                         logging.info(f"Found upython.exe in: {file_path}")
                         break
-                    # If no upython.exe, check for \python.exe
+                    # If no upython.exe, check for \\python.exe
                     elif "\\python.exe" in content:
                         # Only set if we haven't found upython.exe yet
                         if executable_file is None:
