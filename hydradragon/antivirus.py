@@ -1795,7 +1795,7 @@ def is_vm_protect_from_output(die_output):
                 logging.info("DIE output indicates PE32 protected with VMProtect.")
             else:
                 logging.info("DIE output indicates PE64 protected with VMProtect.")
-            
+
             return True
 
     # Either not a PE file or not VMProtect
@@ -12850,9 +12850,21 @@ class MonitorMessageCommandLine:
         if isinstance(text2, list):
             text2 = "".join(text2)
 
+        # Ensure inputs are non-empty strings
+        text1 = text1.strip() if text1 else ""
+        text2 = text2.strip() if text2 else ""
+
+        if not text1 or not text2:
+            return 0.0  # nothing to compare
+
         # Now both are plain strings, safe to feed into spaCy
         doc1 = nlp_spacy_lang(text1)
         doc2 = nlp_spacy_lang(text2)
+
+        # Guard against empty vector norms
+        if doc1.vector_norm == 0 or doc2.vector_norm == 0:
+            return 0.0
+
         return doc1.similarity(doc2)
 
     def process_detected_malware(self, text, file_path, virus_name, category):
