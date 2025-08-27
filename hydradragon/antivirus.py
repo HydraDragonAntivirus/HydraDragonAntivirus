@@ -8810,6 +8810,7 @@ def run_capa_analysis(file_path):
         # Run CAPA analysis command for human-readable text output
         capa_command = [
             "capa.exe",
+            "-s", capa_rules_dir,  # Use the signatures (rules) directory
             "-r", capa_rules_dir,  # Use the rules directory
             "-v",                  # Verbose output for more details
             file_path
