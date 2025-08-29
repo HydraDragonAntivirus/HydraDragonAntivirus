@@ -1,4 +1,4 @@
-joblib
-tqdm
-numpy
 pefile
+numpy
+tqdm
+capstone

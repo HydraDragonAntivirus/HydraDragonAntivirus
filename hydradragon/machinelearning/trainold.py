@@ -5,14 +5,13 @@ import pefile
 import logging
 import shutil
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import argparse
 from tqdm import tqdm
 import mmap
-import capstone
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,92 +32,18 @@ class PEFeatureExtractor:
             return 0.0
 
         entropy = 0
-        # Use a more efficient way to get byte counts
-        counts = np.bincount(np.frombuffer(data, dtype=np.uint8), minlength=256)
-        total_bytes = len(data)
-        
-        for count in counts:
-            if count > 0:
-                p_x = float(count) / total_bytes
-                entropy -= p_x * np.log2(p_x)
+        for x in range(256):
+            p_x = float(data.count(x)) / len(data)
+            if p_x > 0:
+                entropy += - p_x * np.log2(p_x)
         return entropy
 
     def _calculate_md5(self, file_path: str) -> str:
         """Calculate MD5 hash of file."""
         hasher = hashlib.md5()
         with open(file_path, 'rb') as f:
-            # Read in chunks to handle large files
-            for chunk in iter(lambda: f.read(4096), b""):
-                hasher.update(chunk)
+            hasher.update(f.read())
         return hasher.hexdigest()
-
-    def analyze_code_with_capstone(self, pe) -> Dict[str, Any]:
-        """
-        Analyzes all executable code sections using Capstone to determine packing characteristics.
-        A high frequency of 'add' instructions can sometimes indicate unpacking stubs,
-        while a high frequency of 'mov' is common in regular compiled code.
-        This is a heuristic and not a definitive method for packer detection.
-        """
-        analysis = {
-            'instruction_counts': {},
-            'total_instructions': 0,
-            'is_likely_packed': None,
-            'error': None
-        }
-
-        try:
-            # Determine architecture for Capstone
-            if pe.FILE_HEADER.Machine == pefile.MACHINE_TYPE['IMAGE_FILE_MACHINE_I386']:
-                md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
-            elif pe.FILE_HEADER.Machine == pefile.MACHINE_TYPE['IMAGE_FILE_MACHINE_AMD64']:
-                md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
-            else:
-                analysis['error'] = "Unsupported architecture."
-                return analysis
-
-            # Find all executable sections
-            executable_sections = [s for s in pe.sections if s.Characteristics & 0x20] # IMAGE_SCN_CNT_CODE
-            
-            if not executable_sections:
-                analysis['error'] = "No executable sections found."
-                return analysis
-
-            # Aggregate instruction counts from all executable sections
-            aggregated_instruction_counts = {}
-            total_instructions = 0
-
-            for section in executable_sections:
-                # Disassemble the code in the current section
-                code = section.get_data()
-                base_address = pe.OPTIONAL_HEADER.ImageBase + section.VirtualAddress
-                instructions = md.disasm(code, base_address)
-
-                # Count instruction mnemonics
-                for i in instructions:
-                    mnemonic = i.mnemonic
-                    aggregated_instruction_counts[mnemonic] = aggregated_instruction_counts.get(mnemonic, 0) + 1
-                    total_instructions += 1
-
-            analysis['instruction_counts'] = aggregated_instruction_counts
-            analysis['total_instructions'] = total_instructions
-
-            # Apply the packing detection logic based on aggregated counts
-            add_count = aggregated_instruction_counts.get('add', 0)
-            mov_count = aggregated_instruction_counts.get('mov', 0)
-
-            if total_instructions > 0:
-                # Simple heuristic: if 'add' is significantly more frequent than 'mov',
-                # it might be part of a decryption/unpacking loop.
-                if add_count > mov_count:
-                    analysis['is_likely_packed'] = True
-                else:
-                    analysis['is_likely_packed'] = False
-
-        except Exception as e:
-            logging.error(f"Capstone analysis failed: {e}")
-            analysis['error'] = str(e)
-
-        return analysis
 
     def extract_section_data(self, section) -> Dict[str, Any]:
         """Extract comprehensive section data including entropy."""
@@ -419,7 +344,7 @@ class PEFeatureExtractor:
 
                 characteristics[section_name] = {
                     'flags': section_flags,
-                    'entropy': self._calculate_entropy(section.get_data()),
+                    'entropy': self._calculate_entropy(list(section.get_data())),
                     'size_ratio': section.SizeOfRawData / pe.OPTIONAL_HEADER.SizeOfImage if pe.OPTIONAL_HEADER.SizeOfImage else 0,
                     'pointer_to_raw_data': section.PointerToRawData,
                     'pointer_to_relocations': section.PointerToRelocations,
@@ -495,17 +420,16 @@ class PEFeatureExtractor:
 
                 # Decode CompID and build number information
                 compid_info = []
-                if rich_header['values']:
-                    for i in range(0, len(rich_header['values']), 2):
-                        if i + 1 < len(rich_header['values']):
-                            comp_id = rich_header['values'][i] >> 16
-                            build_number = rich_header['values'][i] & 0xFFFF
-                            count = rich_header['values'][i + 1]
-                            compid_info.append({
-                                'comp_id': comp_id,
-                                'build_number': build_number,
-                                'count': count
-                            })
+                for i in range(0, len(pe.RICH_HEADER.values), 2):
+                    if i + 1 < len(pe.RICH_HEADER.values):
+                        comp_id = pe.RICH_HEADER.values[i] >> 16
+                        build_number = pe.RICH_HEADER.values[i] & 0xFFFF
+                        count = pe.RICH_HEADER.values[i + 1]
+                        compid_info.append({
+                            'comp_id': comp_id,
+                            'build_number': build_number,
+                            'count': count
+                        })
                 rich_header['comp_id_info'] = compid_info
 
             return rich_header
@@ -524,9 +448,6 @@ class PEFeatureExtractor:
             }
 
             # Calculate the end of the PE structure
-            if not pe.sections:
-                 return overlay_info
-                 
             last_section = max(pe.sections, key=lambda s: s.PointerToRawData + s.SizeOfRawData)
             end_of_pe = last_section.PointerToRawData + last_section.SizeOfRawData
 
@@ -555,14 +476,10 @@ class PEFeatureExtractor:
         """
         try:
             # Load the PE file
-            pe = pefile.PE(file_path, fast_load=True)
-            pe.parse_data_directories()
+            pe = pefile.PE(file_path)
 
             # Extract features
             numeric_features = {
-                # Capstone analysis for packing
-                'capstone_analysis': self.analyze_code_with_capstone(pe),
-
                 # Optional Header Features
                 'SizeOfOptionalHeader': pe.FILE_HEADER.SizeOfOptionalHeader,
                 'MajorLinkerVersion': pe.OPTIONAL_HEADER.MajorLinkerVersion,
@@ -630,7 +547,7 @@ class PEFeatureExtractor:
                         'codepage': getattr(getattr(resource_lang, 'data', None), 'CodePage', None),
                     }
                     for resource_type in
-                    (pe.DIRECTORY_ENTRY_RESOURCE.entries if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE') and hasattr(pe.DIRECTORY_ENTRY_RESOURCE, 'entries') else [])
+                    (pe.DIRECTORY_ENTRY_RESOURCE.entries if hasattr(pe.DIRECTORY_ENTRY_RESOURCE, 'entries') else [])
                     for resource_id in (resource_type.directory.entries if hasattr(resource_type, 'directory') else [])
                     for resource_lang in (resource_id.directory.entries if hasattr(resource_id, 'directory') else [])
                     if hasattr(resource_lang, 'data')
@@ -707,11 +624,7 @@ class DataProcessor:
     def _move(self, file_path: Path, dest_root: Path):
         dest = dest_root / file_path.name
         dest.parent.mkdir(exist_ok=True, parents=True)
-        try:
-            shutil.move(str(file_path), str(dest))
-        except FileNotFoundError:
-            logging.warning(f"File not found for move: {file_path}")
-
+        shutil.move(str(file_path), str(dest))
 
     def _process_one(self, args: tuple) -> Optional[Dict[str, Any]]:
         file_path, rank, is_malicious = args
@@ -720,33 +633,34 @@ class DataProcessor:
             with open(file_path, 'rb') as f:
                 mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
                 md5 = hashlib.md5(mm).hexdigest()
-                
-                # Pass the memory-mapped data directly to the feature extractor
-                features = self.pe_extractor.extract_numeric_features(str(file_path), rank)
+                pe = pefile.PE(data=mm, fast_load=True)
+                pe.parse_data_directories()
+
+                features = self.pe_extractor.extract_numeric_features(file_path, rank)
                 if features:
                     features['file_info'] = {
                         'filename': file_path.name,
                         'path': str(file_path),
                         'md5': md5,
-                        'size': len(mm),
+                        'size': file_path.stat().st_size,
                         'is_malicious': is_malicious
                     }
                 mm.close()
                 return features
         except Exception as e:
             logging.error(f"Error processing {file_path}: {e}")
-            self._move(Path(file_path), self.problematic_dir)
+            self._move(file_path, self.problematic_dir)
             return None
 
     def process_dir(self, directory: Path, is_malicious: bool):
         # collect all files regardless of extension
-        files = [f for f in directory.rglob('*') if f.is_file()]
-        tasks = [(f, i, is_malicious) for i, f in enumerate(files, 1)]
+        files = list(directory.rglob('*'))
+        tasks = [(f, i, is_malicious) for i, f in enumerate(files, 1) if f.is_file()]
 
         results = []
         seen = set()
         with ProcessPoolExecutor() as exe:
-            for feats in tqdm(exe.map(self._process_one, tasks), total=len(tasks), desc=f"Processing {'malicious' if is_malicious else 'benign'}"):
+            for feats in tqdm(exe.map(self._process_one, tasks), total=len(tasks), desc=f"Processing {'mal' if is_malicious else 'benign'}"):
                 if feats:
                     md5 = feats['file_info']['md5']
                     if md5 in seen:
@@ -765,15 +679,11 @@ class DataProcessor:
 
         results = {
             'timestamp': datetime.now().isoformat(),
-            'malicious_count': len(malicious_features),
-            'benign_count': len(benign_features),
             'malicious': malicious_features,
             'benign': benign_features
         }
-        output_file = self.output_dir / 'results.json'
-        with open(output_file, 'w') as f:
-            json.dump(results, f, indent=2)
-        logging.info(f"Saved output to {output_file}")
+        (self.output_dir / 'results.json').write_text(json.dumps(results, indent=2))
+        logging.info(f"Saved output to {self.output_dir}")
 
 def main():
     parser = argparse.ArgumentParser(description='PE File Feature Extractor')
