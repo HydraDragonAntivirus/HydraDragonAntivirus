@@ -1,4 +1,4 @@
-python yarGen.py -g E:\datas\data2 -c -i benign_db --opcodes
+python yarGen.py -g D:\datas2\data2 -c -i benign_db --opcodes
 // Don't use AI --ai at yargen because it cause too many false positive rules
 yarGen.py --update
-yarGen.py -m E:\data\datamaliciousorder -u -o C:\Users\gunel\Documents\machinelearning.yar --opcodes --excludegood -r "VirusShare, VirusSign, ClamAV, Dr.Web, Emsisoft, Avast, VirusTotal" -a "Emirhan Ucan & Hacimurad" --nofilesize --meaningful-words-only --nosimple
+yarGen.py -m D:\datas2\datamaliciousorder -u -o D:\datas2\machinelearning.yar --opcodes --excludegood -r "VirusShare, VirusSign, ClamAV, Dr.Web, Emsisoft, Avast, VirusTotal" -a "Emirhan Ucan & Hacimurad" --nofilesize --meaningful-words-only --nosimple
