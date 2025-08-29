@@ -556,8 +556,16 @@ class PEFeatureExtractor:
         """
         pe = None
         try:
-            # Load the PE file
-            pe = pefile.PE(file_path, fast_load=True)
+
+            try:
+                # Attempt to load PE file directly
+                pe = pefile.PE(file_path, fast_load=True)
+            except pefile.PEFormatError:
+                logging.error(f"{file_path} is not a valid PE file.")
+                return None
+            except Exception as ex:
+                logging.error(f"Error loading {file_path} as PE: {str(ex)}", exc_info=True)
+                return None
             try:
                 pe.parse_data_directories()
             except Exception:
@@ -682,7 +690,7 @@ class PEFeatureExtractor:
 
                 # Overlay
                 'overlay': self.analyze_overlay(pe, file_path),  # Overlay analysis here
-                
+
                 #Relocations
                 'relocations': self.analyze_relocations(pe) #Relocations analysis here
             }
