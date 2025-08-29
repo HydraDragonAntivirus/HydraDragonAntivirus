@@ -276,7 +276,7 @@ class Scanner:
 
             # Process results
             if ret == CL_CLEAN:
-                logging.info(f"File clean: {filepath}")
+                logging.info(f"File clean (ClamAV): {filepath}")
                 return CL_CLEAN, None
             elif ret == CL_VIRUS:
                 virus_name = virname.value.decode("utf-8", errors="ignore") if virname.value else "Unknown"
