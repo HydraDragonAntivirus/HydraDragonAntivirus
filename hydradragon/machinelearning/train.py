@@ -5,7 +5,7 @@ import pefile
 import logging
 import shutil
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np
@@ -13,6 +13,7 @@ import argparse
 from tqdm import tqdm
 import mmap
 import capstone
+import time
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,7 +41,7 @@ class PEFeatureExtractor:
         probs = counts[counts > 0] / total_bytes
         entropy = -np.sum(probs * np.log2(probs))
         
-        return entropy
+        return float(entropy)
 
     def _calculate_md5(self, file_path: str) -> str:
         """Calculate MD5 hash of file."""
@@ -551,11 +552,16 @@ class PEFeatureExtractor:
     def extract_numeric_features(self, file_path: str, rank: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """
         Extract numeric features of a file using pefile.
+        Ensures pefile.PE is closed even on exceptions to avoid leaking file handles on Windows.
         """
+        pe = None
         try:
             # Load the PE file
             pe = pefile.PE(file_path, fast_load=True)
-            pe.parse_data_directories()
+            try:
+                pe.parse_data_directories()
+            except Exception:
+                logging.debug(f"pe.parse_data_directories() failed for {file_path}", exc_info=True)
 
             # Extract features
             numeric_features = {
@@ -690,6 +696,13 @@ class PEFeatureExtractor:
         except Exception as ex:
             logging.error(f"Error extracting numeric features from {file_path}: {str(ex)}", exc_info=True)
             return None
+        finally:
+            # ensure PE handle is closed to release underlying file descriptor
+            try:
+                if pe is not None:
+                    pe.close()
+            except Exception:
+                logging.debug(f"Failed to close pe for {file_path}", exc_info=True)
 
 class DataProcessor:
     def __init__(self, malicious_dir: str = 'datamaliciousorder', benign_dir: str = 'data2'):
@@ -703,39 +716,88 @@ class DataProcessor:
         for directory in [self.problematic_dir, self.duplicates_dir, self.output_dir]:
             directory.mkdir(exist_ok=True, parents=True)
 
-    def _move(self, file_path: Path, dest_root: Path):
+    def _move(self, file_path: Path, dest_root: Path) -> None:
+        """
+        Move a file to dest_root robustly on Windows:
+        - Try shutil.move first (fast).
+        - On PermissionError (file locked), attempt copy2 + remove with retries/backoff.
+        """
+        dest_root = Path(dest_root)
+        dest_root.mkdir(parents=True, exist_ok=True)
         dest = dest_root / file_path.name
-        dest.parent.mkdir(exist_ok=True, parents=True)
+
         try:
             shutil.move(str(file_path), str(dest))
+            logging.info(f"Moved {file_path} -> {dest}")
+            return
         except FileNotFoundError:
             logging.warning(f"File not found for move: {file_path}")
+            return
+        except PermissionError:
+            # File might be locked by another process (common on Windows). Try copy+delete with retries.
+            max_retries = 6
+            for attempt in range(1, max_retries + 1):
+                try:
+                    shutil.copy2(str(file_path), str(dest))
+                    os.remove(str(file_path))
+                    logging.info(f"Copied and removed locked file {file_path} -> {dest} on attempt {attempt}")
+                    return
+                except FileNotFoundError:
+                    logging.warning(f"File disappeared during move attempt: {file_path}")
+                    return
+                except PermissionError:
+                    logging.warning(f"PermissionError moving {file_path}, attempt {attempt}/{max_retries}")
+                    time.sleep(0.5 * attempt)  # backoff
+                    continue
+                except Exception as e:
+                    logging.error(f"Unexpected error moving {file_path} on attempt {attempt}: {e}", exc_info=True)
+                    break
 
+            logging.error(f"Failed to move {file_path} after {max_retries} retries due to persistent lock.")
+            return
+        except Exception as ex:
+            logging.error(f"Unhandled error moving {file_path} -> {dest}: {ex}", exc_info=True)
+            return
 
-    def _process_one(self, args: tuple) -> Optional[Dict[str, Any]]:
+    def _process_one(self, args: Tuple) -> Optional[Dict[str, Any]]:
+        """
+        Worker function to process a single file. `args` expected to be (file_path, rank, is_malicious).
+        Ensures mmap is closed and problematic files moved best-effort.
+        """
         file_path, rank, is_malicious = args
+        mm = None
         try:
             # memory-map once
             with open(file_path, 'rb') as f:
                 mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
                 md5 = hashlib.md5(mm).hexdigest()
-                
-                # Pass the memory-mapped data directly to the feature extractor
+
+                # Call the extractor (which now closes its pefile handle in a finally block)
                 features = self.pe_extractor.extract_numeric_features(str(file_path), rank)
                 if features:
                     features['file_info'] = {
-                        'filename': file_path.name,
+                        'filename': Path(file_path).name,
                         'path': str(file_path),
                         'md5': md5,
                         'size': len(mm),
-                        'is_malicious': is_malicious
+                        'is_malicious': bool(is_malicious)
                     }
-                mm.close()
+
                 return features
         except Exception as e:
-            logging.error(f"Error processing {file_path}: {e}")
-            self._move(Path(file_path), self.problematic_dir)
+            logging.error(f"Error processing {file_path}: {e}", exc_info=True)
+            try:
+                self._move(Path(file_path), self.problematic_dir)
+            except Exception as ex_move:
+                logging.error(f"Error moving problematic file {file_path}: {ex_move}", exc_info=True)
             return None
+        finally:
+            # always close the mmap if created
+            try:
+                if mm is not None:
+                    mm.close()
+            except Exception:
+                logging.debug(f"Failed to close mmap for {file_path}", exc_info=True)
 
     def process_dir(self, directory: Path, is_malicious: bool):
         # collect all files regardless of extension
@@ -749,7 +811,10 @@ class DataProcessor:
                 if feats:
                     md5 = feats['file_info']['md5']
                     if md5 in seen:
-                        self._move(Path(feats['file_info']['path']), self.duplicates_dir)
+                        try:
+                            self._move(Path(feats['file_info']['path']), self.duplicates_dir)
+                        except Exception as e:
+                            logging.error(f"Error moving duplicate file {feats['file_info']['path']}: {e}", exc_info=True)
                     else:
                         seen.add(md5)
                         results.append(feats)
