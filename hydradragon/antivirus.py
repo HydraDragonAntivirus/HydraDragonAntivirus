@@ -3118,41 +3118,26 @@ class PEFeatureExtractor:
 pe_extractor = PEFeatureExtractor()
 
 def calculate_vector_similarity(vec1: List[float], vec2: List[float]) -> float:
-    """
-    Compute cosine similarity robustly.
-
-    - Returns value in [-1, 1] (no artificial rescaling to [0,1])
-    - Handles NaN/Inf safely
-    - Treats zero vectors carefully:
-        * Both zero -> similarity = 1
-        * One zero -> similarity = 0
-    """
-    if vec1 is None or vec2 is None:
+    """Calculates similarity between two numeric vectors using cosine similarity."""
+    if not vec1 or not vec2 or len(vec1) != len(vec2):
         return 0.0
 
-    a = np.asarray(vec1, dtype=np.float64)
-    b = np.asarray(vec2, dtype=np.float64)
+    # Convert to numpy arrays for vector operations
+    vec1 = np.array(vec1, dtype=np.float64)
+    vec2 = np.array(vec2, dtype=np.float64)
 
-    if a.size != b.size or a.size == 0:
-        return 0.0
+    # Calculate cosine similarity
+    dot_product = np.dot(vec1, vec2)
+    norm_vec1 = np.linalg.norm(vec1)
+    norm_vec2 = np.linalg.norm(vec2)
 
-    # Replace NaN/Inf with zeros
-    a = np.nan_to_num(a, nan=0.0, posinf=0.0, neginf=0.0)
-    b = np.nan_to_num(b, nan=0.0, posinf=0.0, neginf=0.0)
+    if norm_vec1 == 0 or norm_vec2 == 0:
+        return 1.0 if norm_vec1 == norm_vec2 else 0.0
 
-    norm_a = np.linalg.norm(a)
-    norm_b = np.linalg.norm(b)
-
-    # Handle zero vectors
-    if norm_a == 0.0 and norm_b == 0.0:
-        return 1.0  # Both empty -> identical
-    if norm_a == 0.0 or norm_b == 0.0:
-        return 0.0  # One empty -> completely dissimilar
-
-    cos_sim = np.dot(a, b) / (norm_a * norm_b)
-    # Numerical safety
-    cos_sim = float(np.clip(cos_sim, -1.0, 1.0))
-    return cos_sim
+    # The result of dot_product / (norm_vec1 * norm_vec2) is between -1 and 1.
+    # We scale it to be in the [0, 1] range for easier interpretation.
+    cosine_similarity = dot_product / (norm_vec1 * norm_vec2)
+    return (cosine_similarity + 1) / 2
 
 def notify_user(file_path, virus_name, engine_detected):
     notification = Notify()
