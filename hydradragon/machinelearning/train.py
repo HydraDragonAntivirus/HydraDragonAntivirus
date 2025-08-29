@@ -32,15 +32,14 @@ class PEFeatureExtractor:
         if not data:
             return 0.0
 
-        entropy = 0
         # Use a more efficient way to get byte counts
         counts = np.bincount(np.frombuffer(data, dtype=np.uint8), minlength=256)
         total_bytes = len(data)
         
-        for count in counts:
-            if count > 0:
-                p_x = float(count) / total_bytes
-                entropy -= p_x * np.log2(p_x)
+        # Filter out zero counts to avoid log(0)
+        probs = counts[counts > 0] / total_bytes
+        entropy = -np.sum(probs * np.log2(probs))
+        
         return entropy
 
     def _calculate_md5(self, file_path: str) -> str:
@@ -52,17 +51,19 @@ class PEFeatureExtractor:
                 hasher.update(chunk)
         return hasher.hexdigest()
 
-    def analyze_code_with_capstone(self, pe) -> Dict[str, Any]:
+    def disassemble_all_sections(self, pe) -> Dict[str, Any]:
         """
-        Analyzes all executable code sections using Capstone to determine packing characteristics.
-        A high frequency of 'add' instructions can sometimes indicate unpacking stubs,
-        while a high frequency of 'mov' is common in regular compiled code.
-        This is a heuristic and not a definitive method for packer detection.
+        Disassembles all sections of the PE file using Capstone and returns
+        instruction counts and a packing heuristic for each section and the file overall.
         """
         analysis = {
-            'instruction_counts': {},
-            'total_instructions': 0,
-            'is_likely_packed': None,
+            'overall_analysis': {
+                'total_instructions': 0,
+                'add_count': 0,
+                'mov_count': 0,
+                'is_likely_packed': None
+            },
+            'sections': {},
             'error': None
         }
 
@@ -76,46 +77,61 @@ class PEFeatureExtractor:
                 analysis['error'] = "Unsupported architecture."
                 return analysis
 
-            # Find all executable sections
-            executable_sections = [s for s in pe.sections if s.Characteristics & 0x20] # IMAGE_SCN_CNT_CODE
-            
-            if not executable_sections:
-                analysis['error'] = "No executable sections found."
-                return analysis
+            total_add_count = 0
+            total_mov_count = 0
+            grand_total_instructions = 0
 
-            # Aggregate instruction counts from all executable sections
-            aggregated_instruction_counts = {}
-            total_instructions = 0
-
-            for section in executable_sections:
-                # Disassemble the code in the current section
+            # Disassemble each section individually
+            for section in pe.sections:
+                section_name = section.Name.decode(errors='ignore').strip('\x00')
                 code = section.get_data()
                 base_address = pe.OPTIONAL_HEADER.ImageBase + section.VirtualAddress
-                instructions = md.disasm(code, base_address)
+                
+                instruction_counts = {}
+                total_instructions_in_section = 0
+                
+                if not code:
+                    analysis['sections'][section_name] = {
+                        'instruction_counts': {},
+                        'total_instructions': 0,
+                        'add_count': 0,
+                        'mov_count': 0,
+                        'is_likely_packed': False
+                    }
+                    continue
 
-                # Count instruction mnemonics
+                instructions = md.disasm(code, base_address)
+                
                 for i in instructions:
                     mnemonic = i.mnemonic
-                    aggregated_instruction_counts[mnemonic] = aggregated_instruction_counts.get(mnemonic, 0) + 1
-                    total_instructions += 1
+                    instruction_counts[mnemonic] = instruction_counts.get(mnemonic, 0) + 1
+                    total_instructions_in_section += 1
+                
+                add_count = instruction_counts.get('add', 0)
+                mov_count = instruction_counts.get('mov', 0)
+                
+                # Aggregate counts for overall file analysis
+                total_add_count += add_count
+                total_mov_count += mov_count
+                grand_total_instructions += total_instructions_in_section
 
-            analysis['instruction_counts'] = aggregated_instruction_counts
-            analysis['total_instructions'] = total_instructions
-
-            # Apply the packing detection logic based on aggregated counts
-            add_count = aggregated_instruction_counts.get('add', 0)
-            mov_count = aggregated_instruction_counts.get('mov', 0)
-
-            if total_instructions > 0:
-                # Simple heuristic: if 'add' is significantly more frequent than 'mov',
-                # it might be part of a decryption/unpacking loop.
-                if add_count > mov_count:
-                    analysis['is_likely_packed'] = True
-                else:
-                    analysis['is_likely_packed'] = False
+                # Per-section packing analysis
+                analysis['sections'][section_name] = {
+                    'instruction_counts': instruction_counts,
+                    'total_instructions': total_instructions_in_section,
+                    'add_count': add_count,
+                    'mov_count': mov_count,
+                    'is_likely_packed': add_count > mov_count if total_instructions_in_section > 0 else False
+                }
+            
+            # Populate the overall, file-wide analysis
+            analysis['overall_analysis']['total_instructions'] = grand_total_instructions
+            analysis['overall_analysis']['add_count'] = total_add_count
+            analysis['overall_analysis']['mov_count'] = total_mov_count
+            analysis['overall_analysis']['is_likely_packed'] = total_add_count > total_mov_count if grand_total_instructions > 0 else False
 
         except Exception as e:
-            logging.error(f"Capstone analysis failed: {e}")
+            logging.error(f"Capstone disassembly failed: {e}")
             analysis['error'] = str(e)
 
         return analysis
@@ -225,29 +241,12 @@ class PEFeatureExtractor:
                     if dos_stub_data:
                         dos_stub['exists'] = True
                         dos_stub['size'] = len(dos_stub_data)
-                        dos_stub['entropy'] = self.calculate_entropy(list(dos_stub_data))
+                        dos_stub['entropy'] = self._calculate_entropy(dos_stub_data)
 
             return dos_stub
         except Exception as e:
             logging.error(f"Error analyzing DOS stub: {e}")
             return {}
-
-    def calculate_entropy(self, data: list) -> float:
-        """Calculate Shannon entropy of data (provided as a list of integers)."""
-        if not data:
-            return 0.0
-
-        total_items = len(data)
-        value_counts = [data.count(i) for i in range(256)]  # Count occurrences of each byte (0-255)
-
-        entropy = 0.0
-        for count in value_counts:
-            if count > 0:
-                # Calculate probability of each value and its contribution to entropy
-                p_x = count / total_items
-                entropy -= p_x * np.log2(p_x)
-
-        return entropy
 
     def analyze_certificates(self, pe) -> Dict[str, Any]:
         """Analyze security certificates."""
@@ -561,7 +560,7 @@ class PEFeatureExtractor:
             # Extract features
             numeric_features = {
                 # Capstone analysis for packing
-                'capstone_analysis': self.analyze_code_with_capstone(pe),
+                'section_disassembly': self.disassemble_all_sections(pe),
 
                 # Optional Header Features
                 'SizeOfOptionalHeader': pe.FILE_HEADER.SizeOfOptionalHeader,
