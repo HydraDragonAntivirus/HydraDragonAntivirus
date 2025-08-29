@@ -3118,34 +3118,41 @@ class PEFeatureExtractor:
 pe_extractor = PEFeatureExtractor()
 
 def calculate_vector_similarity(vec1: List[float], vec2: List[float]) -> float:
-    """Cosine similarity scaled to [0,1]. Robust to NaN/Inf and zero-norm vectors."""
+    """
+    Compute cosine similarity robustly.
+    
+    - Returns value in [-1, 1] (no artificial rescaling to [0,1])
+    - Handles NaN/Inf safely
+    - Treats zero vectors carefully:
+        * Both zero -> similarity = 1
+        * One zero -> similarity = 0
+    """
     if vec1 is None or vec2 is None:
         return 0.0
 
-    # Convert to numpy arrays
     a = np.asarray(vec1, dtype=np.float64)
     b = np.asarray(vec2, dtype=np.float64)
 
-    # If lengths differ, caller should slice to same length. Here fail fast.
     if a.size != b.size or a.size == 0:
         return 0.0
 
-    # Replace NaN/Inf with finite numbers
-    a = np.nan_to_num(a, nan=0.0, posinf=1e12, neginf=-1e12)
-    b = np.nan_to_num(b, nan=0.0, posinf=1e12, neginf=-1e12)
+    # Replace NaN/Inf with zeros
+    a = np.nan_to_num(a, nan=0.0, posinf=0.0, neginf=0.0)
+    b = np.nan_to_num(b, nan=0.0, posinf=0.0, neginf=0.0)
 
     norm_a = np.linalg.norm(a)
     norm_b = np.linalg.norm(b)
 
-    # If both zero vectors, define similarity as 1.0 (identical empties); else if one zero, 0.0
+    # Handle zero vectors
+    if norm_a == 0.0 and norm_b == 0.0:
+        return 1.0  # Both empty -> identical
     if norm_a == 0.0 or norm_b == 0.0:
-        return 1.0 if norm_a == 0.0 and norm_b == 0.0 else 0.0
+        return 0.0  # One empty -> completely dissimilar
 
-    cos = np.dot(a, b) / (norm_a * norm_b)
-    # numerical safety
-    cos = float(np.clip(cos, -1.0, 1.0))
-    # scale to [0,1]
-    return (cos + 1.0) / 2.0
+    cos_sim = np.dot(a, b) / (norm_a * norm_b)
+    # Numerical safety
+    cos_sim = float(np.clip(cos_sim, -1.0, 1.0))
+    return cos_sim
 
 def notify_user(file_path, virus_name, engine_detected):
     notification = Notify()
@@ -7037,7 +7044,7 @@ def load_ml_definitions(filepath: str) -> bool:
         # relocations count already computed above
         # bound imports count above
 
-        # Build the numeric vector (order matters — keep consistent)
+        # Build the numeric vector (order matters - keep consistent)
         numeric = [
             # original fields (keep these in same order for backwards compatibility)
             size_of_optional_header,
@@ -12753,7 +12760,7 @@ def check_uefi_directories():
                             if signature_check.get("has_microsoft_signature") \
                                or signature_check.get("valid_goodsign_signatures") \
                                or signature_check.get("is_valid"):
-                                # Signed/valid PE — do not alert, just record as known
+                                # Signed/valid PE - do not alert, just record as known
                                 known_uefi_files.append(file_path)
                                 continue
                     # --- END NEW CHECK ---
