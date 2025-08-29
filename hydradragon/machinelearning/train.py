@@ -43,15 +43,6 @@ class PEFeatureExtractor:
         
         return float(entropy)
 
-    def _calculate_md5(self, file_path: str) -> str:
-        """Calculate MD5 hash of file."""
-        hasher = hashlib.md5()
-        with open(file_path, 'rb') as f:
-            # Read in chunks to handle large files
-            for chunk in iter(lambda: f.read(4096), b""):
-                hasher.update(chunk)
-        return hasher.hexdigest()
-
     def disassemble_all_sections(self, pe) -> Dict[str, Any]:
         """
         Disassembles all sections of the PE file using Capstone and returns
