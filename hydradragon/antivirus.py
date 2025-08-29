@@ -396,6 +396,10 @@ start_time = time.time()
 import clamav
 logging.info(f"clamav module loaded in {time.time() - start_time:.6f} seconds")
 
+start_time = time.time()
+from unipacker.core import Sample, UnpackerEngine, SimpleClient
+logging.info(f"unipacker.core.Sample , UnpackerEngine, SimpleClient modules loaded in {time.time() - start_time:.6f} seconds")
+
 # Calculate and logging.info total time
 total_end_time = time.time()
 total_duration = total_end_time - total_start_time
@@ -2157,6 +2161,75 @@ def is_file_fully_unknown(die_output: str) -> bool:
         return True
     else:
         return False
+
+
+def is_packed_from_output(die_output):
+    """
+    Check if the DIE output indicates a packed/protected binary.
+    Based on YARA rules for: UPX, ASPack, FSG, PECompact, Upack, PEtite, MEW, YZPack, MPRESS
+    Also detects generic "Packer:" indicator.
+    """
+    if not die_output:
+        return None
+
+    # Specific packer signatures based on your YARA rules only
+    packer_signatures = {
+        # UPX variants
+        'UPX': ['UPX', 'UPX0', 'UPX1', 'UPX2', 'UPX!', 'upX'],
+
+        # ASPack
+        'ASPACK': ['.aspack', '.adata'],
+
+        # FSG (Fast Small Good)
+        'FSG': ['FSG'],
+
+        # PECompact
+        'PECOMPACT': ['PECompact', 'PECompact2'],
+
+        # Upack
+        'UPACK': ['Upack'],
+
+        # PEtite
+        'PETITE': ['.petite', 'petite'],
+
+        # MEW (Magic Executable Wizard)
+        'MEW': ['MEW'],
+
+        # YZPack
+        'YZPACK': ['.yzpack', '.yzpack2'],
+
+        # MPRESS
+        'MPRESS': ['.MPRESS1', '.MPRESS2']
+    }
+
+    detected_packer = None
+
+    # Check for "Packer:" indicator first
+    if 'Packer:' in die_output:
+        detected_packer = "GENERIC"
+    else:
+        # Check for specific packer signatures from your YARA rules
+        for packer_name, signatures in packer_signatures.items():
+            for signature in signatures:
+                if signature in die_output:
+                    detected_packer = packer_name
+                    break
+            if detected_packer:
+                break
+
+    # Return result based on architecture
+    if detected_packer:
+        if die_output.startswith("PE64"):
+            logging.info(f"DIE output indicates PE64 packed/protected binary: {detected_packer}")
+            return f"PE64 Packed ({detected_packer})"
+        elif die_output.startswith("PE32"):
+            logging.info(f"DIE output indicates PE32 packed/protected binary: {detected_packer}")
+            return f"PE32 Packed ({detected_packer})"
+        else:
+            logging.info(f"DIE output indicates packed/protected binary: {detected_packer}")
+            return f"Packed ({detected_packer})"
+
+    return None
 
 def is_packer_upx_output(die_output):
     """
@@ -4061,6 +4134,65 @@ def run_pd64_db_gen(quick=False):
     except subprocess.CalledProcessError as e:
         logging.error(f"Failed to generate clean.hashes: {e}")
         return False
+
+def extract_with_unipacker(file_path):
+    """
+    Extract packed binary using Unipacker library.
+
+    Args:
+        file_path (str): Path to the packed executable
+
+    Returns:
+        str: Path to unpacked file if successful, None otherwise
+    """
+    try:
+        # Create output path for unpacked file
+        base_name = os.path.splitext(file_path)[0]
+        unpack_path = f"{base_name}.unpacked.exe"
+
+        logging.info(f"Starting Unipacker extraction for {file_path}")
+
+        # Initialize sample
+        sample = Sample(file_path, auto_default_unpacker=True)
+
+        if sample.unpacker is None:
+            logging.warning(f"No suitable unpacker found for {file_path}")
+            return None
+
+        logging.info(f"Detected packer: {sample.unpacker.name}")
+
+        # Create unpacker engine
+        engine = UnpackerEngine(sample, unpack_path)
+
+        # Create a simple client to handle emulation events
+        event = threading.Event()
+        client = SimpleClient(event)
+        engine.register_client(client)
+
+        # Start emulation in a separate thread
+        emu_thread = threading.Thread(target=engine.emu)
+        emu_thread.daemon = True
+        emu_thread.start()
+
+        # Wait for emulation to complete or timeout
+        emu_thread.join(timeout=1200)  # 20 minute timeout
+
+        if emu_thread.is_alive():
+            logging.warning(f"Unipacker timeout for {file_path}")
+            engine.stop()
+            return None
+
+        # Check if unpacked file was created
+        if os.path.exists(unpack_path) and os.path.getsize(unpack_path) > 0:
+            logging.info(f"Successfully unpacked {file_path} to {unpack_path}")
+            return unpack_path
+        else:
+            logging.warning(f"Unpacking failed or produced empty file for {file_path}")
+            return None
+
+    except Exception as e:
+        logging.error(f"Unipacker extraction failed for {file_path}: {e}")
+        return None
 
 def extract_with_pd64(pid: str, output_dir: str) -> bool:
     """Run pd64.exe to dump suspicious modules from a process PID."""
@@ -11103,6 +11235,15 @@ def scan_and_warn(file_path,
                 except Exception as e:
                     logging.error(f"Error in UPX unpacking for {norm_path}: {e}")
 
+            def unipacker_thread():
+                try:
+                    if is_packed_from_output(die_output):
+                        unpacked_file = extract_with_unipacker(norm_path)
+                        if unpacked_file:
+                            threading.Thread(target=scan_and_warn, args=(unpacked_file,)).start()
+                except Exception as e:
+                    logging.error(f"Error in Unipacker unpacking for {norm_path}: {e}")
+
             def inno_setup_thread():
                 try:
                     if is_inno_setup_archive_from_output(die_output):
@@ -11157,6 +11298,7 @@ def scan_and_warn(file_path,
             binary_threads = [
                 threading.Thread(target=extraction_thread),
                 threading.Thread(target=enigma_thread),
+                threading.Thread(target=unipacker_thread),
                 threading.Thread(target=upx_thread),
                 threading.Thread(target=inno_setup_thread),
                 threading.Thread(target=go_garble_thread),
