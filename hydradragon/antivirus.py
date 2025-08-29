@@ -6690,7 +6690,7 @@ def load_ml_definitions(filepath: str) -> bool:
         except Exception:
             return 0, 0
 
-    def entry_to_numeric(entry: dict) -> (List[float], str):
+    def entry_to_numeric(entry: dict) -> Tuple[List[float], str]:
         if not isinstance(entry, dict):
             entry = {}
 
