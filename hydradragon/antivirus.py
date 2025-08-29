@@ -3120,7 +3120,7 @@ pe_extractor = PEFeatureExtractor()
 def calculate_vector_similarity(vec1: List[float], vec2: List[float]) -> float:
     """
     Compute cosine similarity robustly.
-    
+
     - Returns value in [-1, 1] (no artificial rescaling to [0,1])
     - Handles NaN/Inf safely
     - Treats zero vectors carefully:
