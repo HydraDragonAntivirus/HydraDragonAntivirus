@@ -1126,22 +1126,38 @@ DIRECTORY_MESSAGES = [
 # Counter for ransomware detection
 ransomware_detection_count = 0
 
-def reset_flags():
-    global main_file_path, pyinstaller_archive, full_python_version, pyz_version_match
-    main_file_path = None
-    pyinstaller_archive = None
-    full_python_version = None
-    pyz_version_match = False
-reset_flags()
+# Global flags and caches
+main_file_path: str | None = None
+pyinstaller_archive: str | None = None
+full_python_version: str | None = None
+pyz_version_match: bool = False
 
 # Cache of { file_path: last_md5 }
 file_md5_cache: dict[str, str] = {}
 
 # Global cache: md5 -> (die_output, plain_text_flag)
-die_cache: Dict[str, Tuple[str, bool]] = {}
+die_cache: dict[str, tuple[str, bool]] = {}
 
 # Separate cache for "binary-only" DIE results
-binary_die_cache: Dict[str, str] = {}
+binary_die_cache: dict[str, str] = {}
+
+def reset_flags():
+    """
+    Reset all global flags and caches to their initial state.
+    """
+    global main_file_path, pyinstaller_archive, full_python_version, pyz_version_match
+    global ransomware_detection_count
+
+    main_file_path = None
+    pyinstaller_archive = None
+    full_python_version = None
+    pyz_version_match = False
+
+    file_md5_cache.clear()
+    die_cache.clear()
+    binary_die_cache.clear()
+
+    ransomware_detection_count = 0
 
 def compute_md5_via_text(text: str) -> str:
     return hashlib.md5(text.encode("utf-8")).hexdigest()
@@ -2445,15 +2461,6 @@ class PEFeatureExtractor:
         entropy = -np.sum(probs * np.log2(probs))
 
         return float(entropy)
-
-    def _calculate_md5(self, file_path: str) -> str:
-        """Calculate MD5 hash of file."""
-        hasher = hashlib.md5()
-        with open(file_path, 'rb') as f:
-            # Read in chunks to handle large files
-            for chunk in iter(lambda: f.read(4096), b""):
-                hasher.update(chunk)
-        return hasher.hexdigest()
 
     def disassemble_all_sections(self, pe) -> Dict[str, Any]:
         """
@@ -4071,260 +4078,75 @@ def extract_with_pd64(pid: str, output_dir: str) -> bool:
         logging.error(f"pd64 extraction failed for PID {pid}: {e}")
         return False
 
-def features_dict_to_numeric(entry: dict) -> List[float]:
-    """
-    Convert the feature-dict returned by extract_numeric_features(...) into a numeric vector.
-    The ordering matches the loader's entry_to_numeric() so comparisons are consistent.
-    """
-    def to_float(x, default=0.0):
-        try:
-            if x is None:
-                return float(default)
-            return float(x)
-        except Exception:
-            return float(default)
-
-    def safe_len(x):
-        try:
-            return len(x) if x is not None else 0
-        except Exception:
-            return 0
-
-    def section_entropy_stats(section_characteristics):
-        entropies = []
-        try:
-            if isinstance(section_characteristics, dict):
-                for v in section_characteristics.values():
-                    if isinstance(v, dict):
-                        e = v.get('entropy')
-                        if e is not None:
-                            try:
-                                entropies.append(float(e))
-                            except Exception:
-                                continue
-        except Exception:
-            pass
-        if not entropies:
-            return 0.0, 0.0, 0.0
-        return float(sum(entropies) / len(entropies)), float(min(entropies)), float(max(entropies))
-
-    def reloc_summary(relocs):
-        try:
-            total = 0
-            blocks = 0
-            if isinstance(relocs, list):
-                for r in relocs:
-                    blocks += 1
-                    try:
-                        total += int(r.get('summary', {}).get('total_entries', 0))
-                    except Exception:
-                        continue
-            return total, blocks
-        except Exception:
-            return 0, 0
-
-    if not isinstance(entry, dict):
-        entry = {}
-
-    # Core header values (keep original order)
-    size_of_optional_header = to_float(entry.get("SizeOfOptionalHeader", 0))
-    major_linker = to_float(entry.get("MajorLinkerVersion", 0))
-    minor_linker = to_float(entry.get("MinorLinkerVersion", 0))
-    size_of_code = to_float(entry.get("SizeOfCode", 0))
-    size_of_init_data = to_float(entry.get("SizeOfInitializedData", 0))
-    size_of_uninit_data = to_float(entry.get("SizeOfUninitializedData", 0))
-    address_of_entry = to_float(entry.get("AddressOfEntryPoint", 0))
-    image_base = to_float(entry.get("ImageBase", 0))
-    subsystem = to_float(entry.get("Subsystem", 0))
-    dll_characteristics = to_float(entry.get("DllCharacteristics", 0))
-    size_of_stack_reserve = to_float(entry.get("SizeOfStackReserve", 0))
-    size_of_heap_reserve = to_float(entry.get("SizeOfHeapReserve", 0))
-    checksum = to_float(entry.get("CheckSum", 0))
-    num_rva_and_sizes = to_float(entry.get("NumberOfRvaAndSizes", 0))
-    size_of_image = to_float(entry.get("SizeOfImage", 0))
-
-    # Counts
-    imports_count = safe_len(entry.get("imports", []))
-    exports_count = safe_len(entry.get("exports", []))
-    resources_count = safe_len(entry.get("resources", []))
-    sections_count = safe_len(entry.get("sections", []))
-
-    # Overlay info
-    overlay = entry.get("overlay", {}) or {}
-    overlay_exists = int(bool(overlay.get("exists")))
-    overlay_size = to_float(overlay.get("size", 0))
-
-    # Section entropy stats
-    sec_char = entry.get("section_characteristics", {}) or {}
-    sec_entropy_mean, sec_entropy_min, sec_entropy_max = section_entropy_stats(sec_char)
-
-    # Capstone disassembly overall numbers
-    sec_disasm = entry.get("section_disassembly", {}) or {}
-    overall = sec_disasm.get("overall_analysis", {}) or {}
-    total_instructions = to_float(overall.get("total_instructions", 0))
-    total_adds = to_float(overall.get("add_count", 0))
-    total_movs = to_float(overall.get("mov_count", 0))
-    is_likely_packed = int(bool(overall.get("is_likely_packed")))
-
-    # Derived metrics
-    add_mov_ratio = (total_adds / (total_movs + 1.0)) if total_movs is not None else 0.0
-    instrs_per_kb = 0.0
-    try:
-        instrs_per_kb = total_instructions / ((size_of_image / 1024.0) + 1e-6)
-    except Exception:
-        instrs_per_kb = 0.0
-
-    # TLS callbacks
-    tls = entry.get("tls_callbacks", {}) or {}
-    tls_callbacks_list = tls.get("callbacks", []) if isinstance(tls, dict) else []
-    num_tls_callbacks = safe_len(tls_callbacks_list)
-
-    # Delay imports
-    delay_imports_list = entry.get("delay_imports", []) or []
-    num_delay_imports = safe_len(delay_imports_list)
-
-    # Relocations
-    relocs = entry.get("relocations", []) or []
-    num_reloc_entries, num_reloc_blocks = reloc_summary(relocs)
-
-    # Bound imports
-    bound_imports = entry.get("bound_imports", []) or []
-    num_bound_imports = safe_len(bound_imports)
-
-    # Debug / certs
-    debug_entries = entry.get("debug", []) or []
-    num_debug_entries = safe_len(debug_entries)
-    cert_info = entry.get("certificates", {}) or {}
-    cert_size = to_float(cert_info.get("size", 0))
-
-    # Rich header presence
-    rich_header = entry.get("rich_header", {}) or {}
-    has_rich = int(bool(rich_header))
-
-    numeric = [
-        size_of_optional_header,
-        major_linker,
-        minor_linker,
-        size_of_code,
-        size_of_init_data,
-        size_of_uninit_data,
-        address_of_entry,
-        image_base,
-        subsystem,
-        dll_characteristics,
-        size_of_stack_reserve,
-        size_of_heap_reserve,
-        checksum,
-        num_rva_and_sizes,
-        size_of_image,
-
-        float(imports_count),
-        float(exports_count),
-        float(resources_count),
-        float(overlay_exists),
-
-        float(sections_count),
-        float(sec_entropy_mean),
-        float(sec_entropy_min),
-        float(sec_entropy_max),
-        float(total_instructions),
-        float(total_adds),
-        float(total_movs),
-        float(is_likely_packed),
-        float(add_mov_ratio),
-        float(instrs_per_kb),
-
-        float(overlay_size),
-        float(num_tls_callbacks),
-        float(num_delay_imports),
-        float(num_reloc_entries),
-        float(num_reloc_blocks),
-        float(num_bound_imports),
-        float(num_debug_entries),
-        float(cert_size),
-        float(has_rich)
-    ]
-
-    return numeric
-
-
-def scan_file_with_machine_learning_ai(file_path: str, threshold: float = 0.86, benign_threshold: float = 0.93):
-    """
-    Scan a file using loaded ML definitions with improved decision logic.
-    Returns: (is_malicious: bool, label: str, similarity: float)
-    """
-    if not os.path.exists(file_path):
-        logging.error(f"File not found: {file_path}")
-        return False, "File-Not-Found", 0.0
-
+def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
+    """Scan a file for malicious activity using machine learning definitions loaded from JSON."""
+    malware_definition = "Unknown"
     logging.info(f"Starting machine learning scan for file: {file_path}")
 
-    # 1. Extract features from the target file
     try:
-        feats = pe_extractor.extract_numeric_features(file_path)
-    except Exception as e:
-        logging.error(f"Feature extraction failed for {file_path}: {e}", exc_info=True)
-        return False, "Feature-Extraction-Failed", 0.0
+        pe = pefile.PE(file_path)
+        pe.close()
+    except pefile.PEFormatError:
+        logging.error(f"File {file_path} is not a valid PE file. Returning default value 'Unknown'.")
+        return False, malware_definition, 0
 
-    if not feats or not isinstance(feats, dict):
-        return False, "Feature-Extraction-Failed", 0.0
+    logging.info(f"File {file_path} is a valid PE file, proceeding with feature extraction.")
 
-    file_vec = features_dict_to_numeric(feats)
-    if not file_vec:
-        return False, "Feature-Vector-Empty", 0.0
+    file_numeric_features = pe_extractor.extract_numeric_features(file_path)
+    if not file_numeric_features:
+        return False, "Feature-Extraction-Failed", 0
 
-    # 2. Ensure ML definitions are loaded
-    if 'malicious_numeric_features' not in globals() or 'benign_numeric_features' not in globals():
-        logging.warning("ML definitions not loaded. Skipping ML scan.")
-        return False, "ML-Defs-Missing", 0.0
+    is_malicious_ml = False
+    nearest_malicious_similarity = 0
+    nearest_benign_similarity = 0
 
-    # Helper to compute similarity robustly
-    def sim_align(a_list, b_list):
-        a = np.asarray(a_list, dtype=np.float64)
-        b = np.asarray(b_list, dtype=np.float64)
-        min_len = min(a.size, b.size)
-        if min_len == 0:
-            return 0.0
-        return calculate_vector_similarity(a[:min_len].tolist(), b[:min_len].tolist())
+    # Check malicious definitions
+    for ml_feats, info in zip(malicious_numeric_features, malicious_file_names):
+        similarity = calculate_vector_similarity(file_numeric_features, ml_feats)
+        nearest_malicious_similarity = max(nearest_malicious_similarity, similarity)
 
-    # 3. Find the BEST similarity score against all malicious samples
-    nearest_malicious_similarity = 0.0
-    malware_definition = "Unknown"
-    for ml_vec, info in zip(malicious_numeric_features, malicious_file_names):
-        if not ml_vec:
-            continue
-        similarity = sim_align(file_vec, ml_vec)
-        if similarity > nearest_malicious_similarity:
-            nearest_malicious_similarity = similarity
-            malware_definition = info if isinstance(info, str) else str(info)
+        if similarity >= threshold:
+            is_malicious_ml = True
 
-    # 4. Find the BEST similarity score against all benign samples
-    nearest_benign_similarity = 0.0
-    benign_definition = "Unknown"
-    for ml_vec, info in zip(benign_numeric_features, benign_file_names):
-        if not ml_vec:
-            continue
-        similarity = sim_align(file_vec, ml_vec)
-        if similarity > nearest_benign_similarity:
-            nearest_benign_similarity = similarity
-            benign_definition = info if isinstance(info, str) else str(info)
-            
-    # 5. --- NEW DECISION LOGIC ---
-    # Compare the best malicious score vs. the best benign score.
-    
-    # Condition 1: Malicious score is higher AND meets the malicious threshold
-    if nearest_malicious_similarity > nearest_benign_similarity and nearest_malicious_similarity >= threshold:
-        logging.critical(f"Malicious activity detected in {file_path}. Best Match: {malware_definition}, similarity: {nearest_malicious_similarity:.4f} (Benign sim: {nearest_benign_similarity:.4f})")
+            # Handle both string and dict cases
+            if isinstance(info, dict):
+                malware_definition = info.get('file_name', 'Unknown')
+                rank = info.get('numeric_tag', 'N/A')
+            elif isinstance(info, str):
+                malware_definition = info
+                rank = 'N/A'
+            else:
+                malware_definition = str(info)
+                rank = 'N/A'
+
+            logging.critical(f"Malicious activity detected in {file_path}. Definition: {malware_definition}, similarity: {similarity}, rank: {rank}")
+
+    # If not malicious, check benign
+    if not is_malicious_ml:
+        for ml_feats, info in zip(benign_numeric_features, benign_file_names):
+            similarity = calculate_vector_similarity(file_numeric_features, ml_feats)
+            nearest_benign_similarity = max(nearest_benign_similarity, similarity)
+
+            # Handle both string and dict cases
+            if isinstance(info, dict):
+                benign_definition = info.get('file_name', 'Unknown')
+            elif isinstance(info, str):
+                benign_definition = info
+            else:
+                benign_definition = str(info)
+
+        if nearest_benign_similarity >= 0.93:
+            malware_definition = "Benign"
+            logging.info(f"File {file_path} is classified as benign ({benign_definition}) with similarity: {nearest_benign_similarity}")
+        else:
+            malware_definition = "Unknown"
+            logging.info(f"File {file_path} is classified as unknown with similarity: {nearest_benign_similarity}")
+
+    # Return result
+    if is_malicious_ml:
         return True, malware_definition, nearest_malicious_similarity
-
-    # Condition 2: Benign score is higher OR equal AND meets the benign threshold
-    if nearest_benign_similarity >= nearest_malicious_similarity and nearest_benign_similarity >= benign_threshold:
-        logging.info(f"File {file_path} classified as benign. Best Match: {benign_definition}, similarity: {nearest_benign_similarity:.4f} (Malicious sim: {nearest_malicious_similarity:.4f})")
-        return False, "Benign", nearest_benign_similarity
-
-    # Otherwise, the file is unknown
-    logging.warning(f"File {file_path} is indeterminate. Malicious sim: {nearest_malicious_similarity:.4f}, Benign sim: {nearest_benign_similarity:.4f}")
-    return False, "Unknown", max(nearest_malicious_similarity, nearest_benign_similarity)
+    else:
+        return False, malware_definition, nearest_benign_similarity
 
 def restart_service(service_name, stop_only=False):
     """Restart or stop a Windows service using native service management."""
@@ -6121,154 +5943,92 @@ def scan_tar_file(file_path):
         logging.error(f"Error scanning tar file: {file_path} - {ex}")
         return False, ""
 
-# --- Worm detection globals (memory-only cache) ---
-worm_alerted_files: List[str] = []
-worm_detected_count: Dict[str, int] = {}
-worm_file_paths: List[str] = []
 
-# In-memory only cache: key -> numeric vector (list of floats) or None if extraction failed
-_worm_feature_cache: Dict[str, Optional[List[float]]] = {}
+# Global variables for worm detection
+worm_alerted_files = []
+worm_detected_count = {}
+worm_file_paths = []
 
+# Cache for storing scan results by MD5
+worm_scan_cache = {}
 
-def _make_file_cache_key(file_path: str) -> str:
-    """Cache key = resolved path + mtime + size (so cache auto-invalidates when file changes)."""
-    try:
-        p = Path(file_path)
-        stat = p.stat()
-        return f"{str(p.resolve())}|{int(stat.st_mtime)}|{int(stat.st_size)}"
-    except Exception:
-        try:
-            return str(Path(file_path).resolve())
-        except Exception:
-            return file_path
+def clear_worm_cache():
+    """Clear the worm scan cache."""
+    worm_scan_cache.clear()
+    logging.info("Worm scan cache cleared")
 
-
-def extract_numeric_worm_features(file_path: str, use_cache: bool = True) -> Optional[List[float]]:
+def extract_numeric_worm_features(file_path: str) -> Optional[Dict[str, Any]]:
     """
-    Extract numeric features for worm detection and return a numeric vector.
-    Uses an in-memory cache only (no disk persistence).
-    Returns:
-      - list[float] on success
-      - None on failure
+    Extract numeric features of a file using pefile for worm detection.
+    Uses MD5 caching to avoid redundant processing.
     """
-    key = _make_file_cache_key(file_path)
-    if use_cache and key in _worm_feature_cache:
-        return _worm_feature_cache[key]
-
-    try:
-        feat_dict = pe_extractor.extract_numeric_features(file_path)
-        if not feat_dict or not isinstance(feat_dict, dict):
-            _worm_feature_cache[key] = None
-            return None
-
-        numeric_vec = features_dict_to_numeric(feat_dict)
-        _worm_feature_cache[key] = numeric_vec if numeric_vec else None
-        return _worm_feature_cache[key]
-
-    except Exception as ex:
-        logging.error(f"Error extracting worm features for '{file_path}': {ex}", exc_info=True)
-        _worm_feature_cache[key] = None
+    # Calculate MD5 hash for caching
+    file_md5 = compute_md5(file_path)
+    if not file_md5:
         return None
 
+    # Check if we already have features for this MD5
+    if file_md5 in worm_scan_cache:
+        logging.debug(f"Using cached features for {file_path} (MD5: {file_md5})")
+        return worm_scan_cache[file_md5]
 
-def _sim_sliced(vec_a: List[float], vec_b: List[float]) -> float:
-    """Compute similarity by truncating to the smaller length (conservative)."""
-    if vec_a is None or vec_b is None:
-        return 0.0
+    res = {}
     try:
-        a = np.asarray(vec_a, dtype=np.float64)
-        b = np.asarray(vec_b, dtype=np.float64)
-        min_len = min(a.size, b.size)
-        if min_len == 0:
-            return 0.0
-        return calculate_vector_similarity(a[:min_len].tolist(), b[:min_len].tolist())
-    except Exception as e:
-        logging.debug(f"_sim_sliced error: {e}", exc_info=True)
-        return 0.0
+        # Reuse the numeric features extraction function for base data
+        features = pe_extractor.extract_numeric_features(file_path)
+        if features:
+            res.update(features)
+            # Cache the result with MD5 as key
+            worm_scan_cache[file_md5] = res
+            logging.debug(f"Cached features for {file_path} (MD5: {file_md5})")
+        else:
+            # Cache negative result too to avoid re-processing failed files
+            worm_scan_cache[file_md5] = None
 
+    except Exception as ex:
+        logging.error(f"An error occurred while processing {file_path}: {ex}", exc_info=True)
+        # Cache the failure to avoid repeated attempts
+        worm_scan_cache[file_md5] = None
 
-def check_worm_similarity(
-    file_path: str,
-    features_current: Optional[Union[List[float], Dict[str, Any]]] = None,
-    threshold: float = 0.86,
-    use_cache: bool = True
-) -> bool:
+    return res
+
+def check_worm_similarity(file_path: str, features_current: List[float]) -> bool:
     """
-    Memory-only worm similarity check.
-
-    - features_current may be:
-        * None -> function will extract features (cached)
-        * dict -> feature-dict from extractor (converted to numeric)
-        * list -> numeric vector (used directly)
-    - Returns True if worm-like similarity detected, else False.
+    Check similarity between the main file, collected files, and the current file for worm detection.
+    Uses cached features when available.
     """
-    global worm_alerted_files
-
-    # Normalize current features to numeric vector
-    current_vec: Optional[List[float]] = None
-    if features_current is None:
-        current_vec = extract_numeric_worm_features(file_path, use_cache=use_cache)
-    elif isinstance(features_current, dict):
-        current_vec = features_dict_to_numeric(features_current)
-    elif isinstance(features_current, list):
-        current_vec = features_current
-    else:
-        try:
-            current_vec = list(features_current)
-        except Exception:
-            current_vec = None
-
-    if not current_vec:
-        logging.debug(f"check_worm_similarity: no feature vector for {file_path}; skipping.")
-        return False
-
     worm_detected = False
 
     try:
-        # Compare with main_file_path if set and different
-        main_fp = globals().get("main_file_path", None)
-        if main_fp and str(main_fp) != str(file_path):
-            main_vec = extract_numeric_worm_features(main_fp, use_cache=use_cache)
-            if main_vec:
-                sim_main = _sim_sliced(current_vec, main_vec)
-                if sim_main >= threshold:
+        # Compare with the main file if available and distinct from the current file
+        if main_file_path and main_file_path != file_path:
+            features_main = extract_numeric_worm_features(main_file_path)
+            if features_main:
+                similarity_main = calculate_vector_similarity(features_current, features_main)
+                if similarity_main > 0.86:
                     logging.critical(
-                        f"Main file '{main_fp}' potentially spreading to '{file_path}' (similarity={sim_main:.3f})"
+                        f"Main file '{main_file_path}' is potentially spreading the worm to '{file_path}' "
+                        f"with similarity score: {similarity_main:.2f}"
                     )
                     worm_detected = True
-                    worm_alerted_files.append(str(file_path))
-                    worm_detected_count[file_path] = worm_detected_count.get(file_path, 0) + 1
 
-        # Compare with collected worm_file_paths
-        for collected in list(worm_file_paths):
-            if str(collected) == str(file_path):
-                continue
-            collected_vec = extract_numeric_worm_features(collected, use_cache=use_cache)
-            if not collected_vec:
-                continue
-            sim_col = _sim_sliced(current_vec, collected_vec)
-            if sim_col >= threshold:
-                logging.critical(
-                    f"Worm-like similarity detected between '{file_path}' and '{collected}' (similarity={sim_col:.3f})"
-                )
-                worm_detected = True
-                worm_alerted_files.append(str(collected))
-                worm_detected_count[collected] = worm_detected_count.get(collected, 0) + 1
+        # Compare with each collected file in the file paths
+        for collected_file_path in worm_file_paths:
+            if collected_file_path != file_path:
+                features_collected = extract_numeric_worm_features(collected_file_path)
+                if features_collected:
+                    similarity_collected = calculate_vector_similarity(features_current, features_collected)
+                    if similarity_collected > 0.86:
+                        logging.critical(
+                            f"Worm has potentially spread to '{collected_file_path}' "
+                            f"from '{file_path}' with similarity score: {similarity_collected:.2f}"
+                        )
+                        worm_detected = True
 
-    except FileNotFoundError as fnf:
-        logging.error(f"File not found during worm similarity check: {fnf}")
+    except FileNotFoundError as fnf_error:
+        logging.error(f"File not found: {fnf_error}")
     except Exception as ex:
-        logging.error(f"Unexpected error while checking worm similarity for '{file_path}': {ex}", exc_info=True)
-
-    # Deduplicate alerted files while preserving order
-    if worm_alerted_files:
-        seen = set()
-        deduped = []
-        for p in worm_alerted_files:
-            if p not in seen:
-                seen.add(p)
-                deduped.append(p)
-        worm_alerted_files = deduped
+        logging.error(f"An unexpected error occurred while checking worm similarity for '{file_path}': {ex}")
 
     return worm_detected
 
@@ -13607,6 +13367,8 @@ class MonitorMessageCommandLine:
         threading.Thread(target=self.monitoring_command_line).start()
         logging.info("All monitoring threads have been started.")
 
+monitor_message = MonitorMessageCommandLine()
+
 def monitor_sandboxie_directory():
     """
     Monitor sandboxie folder for new or modified files and scan/copy them.
@@ -13689,7 +13451,6 @@ def periodic_yield_worker(stop_event, yield_interval=0.1):
 
 def perform_sandbox_analysis(file_path, stop_callback=None):
     global main_file_path
-    global monitor_message
     global analysis_threads
     global thread_function_map  # Track thread -> function
 
@@ -13711,8 +13472,6 @@ def perform_sandbox_analysis(file_path, stop_callback=None):
         main_file_path = file_path
         analysis_threads = []
         thread_function_map = {}
-
-        monitor_message = MonitorMessageCommandLine()
 
         main_dest = _copy_to_dest(file_path, copied_sandbox_and_main_files_dir)
 
@@ -14700,6 +14459,7 @@ class Worker(QThread):
             pre_analysis_entries = None
             post_analysis_entries = None
             reset_flags()
+            clear_worm_cache()
 
             # Step 6: Restart services
             self.output_signal.emit("[*] Step 6: Restarting services...")
