@@ -3107,6 +3107,8 @@ class PEFeatureExtractor:
             except Exception:
                 logging.debug(f"Failed to close pe for {file_path}", exc_info=True)
 
+pe_extractor = PEFeatureExtractor()
+
 def calculate_vector_similarity(vec1: List[float], vec2: List[float]) -> float:
     """Cosine similarity scaled to [0,1]. Robust to NaN/Inf and zero-norm vectors."""
     if vec1 is None or vec2 is None:
@@ -3136,8 +3138,6 @@ def calculate_vector_similarity(vec1: List[float], vec2: List[float]) -> float:
     cos = float(np.clip(cos, -1.0, 1.0))
     # scale to [0,1]
     return (cos + 1.0) / 2.0
-
-pe_extractor = PEFeatureExtractor()
 
 def notify_user(file_path, virus_name, engine_detected):
     notification = Notify()
