@@ -4250,7 +4250,7 @@ def features_dict_to_numeric(entry: dict) -> List[float]:
 
 def scan_file_with_machine_learning_ai(file_path: str, threshold: float = 0.86, benign_threshold: float = 0.93):
     """
-    Scan a file using loaded ML definitions.
+    Scan a file using loaded ML definitions with improved decision logic.
     Returns: (is_malicious: bool, label: str, similarity: float)
     """
     if not os.path.exists(file_path):
@@ -4259,8 +4259,7 @@ def scan_file_with_machine_learning_ai(file_path: str, threshold: float = 0.86, 
 
     logging.info(f"Starting machine learning scan for file: {file_path}")
 
-    # get features (extract_numeric_features returns a dict)
-    feats = None
+    # 1. Extract features from the target file
     try:
         feats = pe_extractor.extract_numeric_features(file_path)
     except Exception as e:
@@ -4274,17 +4273,12 @@ def scan_file_with_machine_learning_ai(file_path: str, threshold: float = 0.86, 
     if not file_vec:
         return False, "Feature-Vector-Empty", 0.0
 
-    # Prepare globals (must be loaded by load_ml_definitions earlier)
+    # 2. Ensure ML definitions are loaded
     if 'malicious_numeric_features' not in globals() or 'benign_numeric_features' not in globals():
         logging.warning("ML definitions not loaded. Skipping ML scan.")
         return False, "ML-Defs-Missing", 0.0
 
-    is_malicious_ml = False
-    nearest_malicious_similarity = 0.0
-    nearest_benign_similarity = 0.0
-    malware_definition = "Unknown"
-
-    # Helper to compute similarity robustly even if vectors lengths differ
+    # Helper to compute similarity robustly
     def sim_align(a_list, b_list):
         a = np.asarray(a_list, dtype=np.float64)
         b = np.asarray(b_list, dtype=np.float64)
@@ -4293,52 +4287,44 @@ def scan_file_with_machine_learning_ai(file_path: str, threshold: float = 0.86, 
             return 0.0
         return calculate_vector_similarity(a[:min_len].tolist(), b[:min_len].tolist())
 
-    # Compare to malicious definitions
+    # 3. Find the BEST similarity score against all malicious samples
+    nearest_malicious_similarity = 0.0
+    malware_definition = "Unknown"
     for ml_vec, info in zip(malicious_numeric_features, malicious_file_names):
         if not ml_vec:
             continue
         similarity = sim_align(file_vec, ml_vec)
         if similarity > nearest_malicious_similarity:
             nearest_malicious_similarity = similarity
+            malware_definition = info if isinstance(info, str) else str(info)
 
-        if similarity >= threshold:
-            is_malicious_ml = True
-            # info may be string or dict
-            if isinstance(info, dict):
-                malware_definition = info.get('file_name', 'Unknown')
-            elif isinstance(info, str):
-                malware_definition = info
-            else:
-                malware_definition = str(info)
-            logging.critical(f"Malicious activity detected in {file_path}. Definition: {malware_definition}, similarity: {similarity}")
-            # continue scanning to get nearest match; do not early-return
-
-    # If not flagged malicious, check benign similarity
-    if not is_malicious_ml:
-        benign_definition = "Unknown"
-        for ml_vec, info in zip(benign_numeric_features, benign_file_names):
-            if not ml_vec:
-                continue
-            similarity = sim_align(file_vec, ml_vec)
-            if similarity > nearest_benign_similarity:
-                nearest_benign_similarity = similarity
-                if isinstance(info, dict):
-                    benign_definition = info.get('file_name', 'Unknown')
-                elif isinstance(info, str):
-                    benign_definition = info
-                else:
-                    benign_definition = str(info)
-
-        if nearest_benign_similarity >= benign_threshold:
-            logging.info(f"File {file_path} is classified as benign ({benign_definition}) with similarity: {nearest_benign_similarity}")
-            return False, "Benign", nearest_benign_similarity
-        else:
-            logging.info(f"File {file_path} is classified as unknown with nearest benign similarity: {nearest_benign_similarity}")
-
-    if is_malicious_ml:
+    # 4. Find the BEST similarity score against all benign samples
+    nearest_benign_similarity = 0.0
+    benign_definition = "Unknown"
+    for ml_vec, info in zip(benign_numeric_features, benign_file_names):
+        if not ml_vec:
+            continue
+        similarity = sim_align(file_vec, ml_vec)
+        if similarity > nearest_benign_similarity:
+            nearest_benign_similarity = similarity
+            benign_definition = info if isinstance(info, str) else str(info)
+            
+    # 5. --- NEW DECISION LOGIC ---
+    # Compare the best malicious score vs. the best benign score.
+    
+    # Condition 1: Malicious score is higher AND meets the malicious threshold
+    if nearest_malicious_similarity > nearest_benign_similarity and nearest_malicious_similarity >= threshold:
+        logging.critical(f"Malicious activity detected in {file_path}. Best Match: {malware_definition}, similarity: {nearest_malicious_similarity:.4f} (Benign sim: {nearest_benign_similarity:.4f})")
         return True, malware_definition, nearest_malicious_similarity
-    else:
-        return False, "Unknown", nearest_benign_similarity
+
+    # Condition 2: Benign score is higher OR equal AND meets the benign threshold
+    if nearest_benign_similarity >= nearest_malicious_similarity and nearest_benign_similarity >= benign_threshold:
+        logging.info(f"File {file_path} classified as benign. Best Match: {benign_definition}, similarity: {nearest_benign_similarity:.4f} (Malicious sim: {nearest_malicious_similarity:.4f})")
+        return False, "Benign", nearest_benign_similarity
+
+    # Otherwise, the file is unknown
+    logging.warning(f"File {file_path} is indeterminate. Malicious sim: {nearest_malicious_similarity:.4f}, Benign sim: {nearest_benign_similarity:.4f}")
+    return False, "Unknown", max(nearest_malicious_similarity, nearest_benign_similarity)
 
 def restart_service(service_name, stop_only=False):
     """Restart or stop a Windows service using native service management."""
