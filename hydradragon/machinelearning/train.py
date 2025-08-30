@@ -36,11 +36,11 @@ class PEFeatureExtractor:
         # Use a more efficient way to get byte counts
         counts = np.bincount(np.frombuffer(data, dtype=np.uint8), minlength=256)
         total_bytes = len(data)
-        
+
         # Filter out zero counts to avoid log(0)
         probs = counts[counts > 0] / total_bytes
         entropy = -np.sum(probs * np.log2(probs))
-        
+
         return float(entropy)
 
     def disassemble_all_sections(self, pe) -> Dict[str, Any]:
@@ -78,10 +78,10 @@ class PEFeatureExtractor:
                 section_name = section.Name.decode(errors='ignore').strip('\x00')
                 code = section.get_data()
                 base_address = pe.OPTIONAL_HEADER.ImageBase + section.VirtualAddress
-                
+
                 instruction_counts = {}
                 total_instructions_in_section = 0
-                
+
                 if not code:
                     analysis['sections'][section_name] = {
                         'instruction_counts': {},
@@ -93,15 +93,15 @@ class PEFeatureExtractor:
                     continue
 
                 instructions = md.disasm(code, base_address)
-                
+
                 for i in instructions:
                     mnemonic = i.mnemonic
                     instruction_counts[mnemonic] = instruction_counts.get(mnemonic, 0) + 1
                     total_instructions_in_section += 1
-                
+
                 add_count = instruction_counts.get('add', 0)
                 mov_count = instruction_counts.get('mov', 0)
-                
+
                 # Aggregate counts for overall file analysis
                 total_add_count += add_count
                 total_mov_count += mov_count
@@ -115,7 +115,7 @@ class PEFeatureExtractor:
                     'mov_count': mov_count,
                     'is_likely_packed': add_count > mov_count if total_instructions_in_section > 0 else False
                 }
-            
+
             # Populate the overall, file-wide analysis
             analysis['overall_analysis']['total_instructions'] = grand_total_instructions
             analysis['overall_analysis']['add_count'] = total_add_count
@@ -172,6 +172,23 @@ class PEFeatureExtractor:
                 exports.append(export_info)
         return exports
 
+    def _get_callback_addresses(self, pe, address_of_callbacks) -> List[int]:
+        """Retrieve callback addresses from the TLS directory."""
+        try:
+            callback_addresses = []
+            # Read callback addresses from the memory-mapped file
+            while True:
+                callback_address = pe.get_dword_at_rva(address_of_callbacks - pe.OPTIONAL_HEADER.ImageBase)
+                if callback_address == 0:
+                    break  # End of callback list
+                callback_addresses.append(callback_address)
+                address_of_callbacks += 4  # Move to the next address (4 bytes for DWORD)
+
+            return callback_addresses
+        except Exception as e:
+            logging.error(f"Error retrieving TLS callback addresses: {e}")
+            return []
+
     def analyze_tls_callbacks(self, pe) -> Dict[str, Any]:
         """Analyze TLS (Thread Local Storage) callbacks and extract relevant details."""
         try:
@@ -199,23 +216,6 @@ class PEFeatureExtractor:
         except Exception as e:
             logging.error(f"Error analyzing TLS callbacks: {e}")
             return {}
-
-    def _get_callback_addresses(self, pe, address_of_callbacks) -> List[int]:
-        """Retrieve callback addresses from the TLS directory."""
-        try:
-            callback_addresses = []
-            # Read callback addresses from the memory-mapped file
-            while True:
-                callback_address = pe.get_dword_at_rva(address_of_callbacks - pe.OPTIONAL_HEADER.ImageBase)
-                if callback_address == 0:
-                    break  # End of callback list
-                callback_addresses.append(callback_address)
-                address_of_callbacks += 4  # Move to the next address (4 bytes for DWORD)
-
-            return callback_addresses
-        except Exception as e:
-            logging.error(f"Error retrieving TLS callback addresses: {e}")
-            return []
 
     def analyze_dos_stub(self, pe) -> Dict[str, Any]:
         """Analyze DOS stub program."""
@@ -517,7 +517,7 @@ class PEFeatureExtractor:
             # Calculate the end of the PE structure
             if not pe.sections:
                  return overlay_info
-                 
+
             last_section = max(pe.sections, key=lambda s: s.PointerToRawData + s.SizeOfRawData)
             end_of_pe = last_section.PointerToRawData + last_section.SizeOfRawData
 

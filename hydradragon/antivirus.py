@@ -2664,6 +2664,23 @@ class PEFeatureExtractor:
                 exports.append(export_info)
         return exports
 
+    def _get_callback_addresses(self, pe, address_of_callbacks) -> List[int]:
+        """Retrieve callback addresses from the TLS directory."""
+        try:
+            callback_addresses = []
+            # Read callback addresses from the memory-mapped file
+            while True:
+                callback_address = pe.get_dword_at_rva(address_of_callbacks - pe.OPTIONAL_HEADER.ImageBase)
+                if callback_address == 0:
+                    break  # End of callback list
+                callback_addresses.append(callback_address)
+                address_of_callbacks += 4  # Move to the next address (4 bytes for DWORD)
+
+            return callback_addresses
+        except Exception as e:
+            logging.error(f"Error retrieving TLS callback addresses: {e}")
+            return []
+
     def analyze_tls_callbacks(self, pe) -> Dict[str, Any]:
         """Analyze TLS (Thread Local Storage) callbacks and extract relevant details."""
         try:
@@ -2691,23 +2708,6 @@ class PEFeatureExtractor:
         except Exception as e:
             logging.error(f"Error analyzing TLS callbacks: {e}")
             return {}
-
-    def _get_callback_addresses(self, pe, address_of_callbacks) -> List[int]:
-        """Retrieve callback addresses from the TLS directory."""
-        try:
-            callback_addresses = []
-            # Read callback addresses from the memory-mapped file
-            while True:
-                callback_address = pe.get_dword_at_rva(address_of_callbacks - pe.OPTIONAL_HEADER.ImageBase)
-                if callback_address == 0:
-                    break  # End of callback list
-                callback_addresses.append(callback_address)
-                address_of_callbacks += 4  # Move to the next address (4 bytes for DWORD)
-
-            return callback_addresses
-        except Exception as e:
-            logging.error(f"Error retrieving TLS callback addresses: {e}")
-            return []
 
     def analyze_dos_stub(self, pe) -> Dict[str, Any]:
         """Analyze DOS stub program."""
@@ -4210,6 +4210,54 @@ def extract_with_pd64(pid: str, output_dir: str) -> bool:
         logging.error(f"pd64 extraction failed for PID {pid}: {e}")
         return False
 
+# Global variables for worm detection
+worm_alerted_files = []
+worm_detected_count = {}
+worm_file_paths = []
+
+# Unified cache for all PE feature extractions (replaces both worm_scan_cache and any ML cache)
+unified_pe_cache = {}
+
+def clear_pe_cache():
+    """Clear the unified PE feature cache."""
+    unified_pe_cache.clear()
+    logging.info("Unified PE feature cache cleared")
+
+def get_cached_pe_features(file_path: str) -> Optional[Dict[str, Any]]:
+    """
+    Extract and cache PE file numeric features with unified caching.
+    Returns cached features if available, otherwise extracts and caches them.
+    Used by both ML scanning and worm detection.
+    """
+    # Calculate MD5 hash for caching
+    file_md5 = compute_md5(file_path)
+    if not file_md5:
+        return None
+
+    # Check if we already have features for this MD5
+    if file_md5 in unified_pe_cache:
+        logging.debug(f"Using cached features for {file_path} (MD5: {file_md5})")
+        return unified_pe_cache[file_md5]
+
+    try:
+        # Extract numeric features
+        features = pe_extractor.extract_numeric_features(file_path)
+        if features:
+            # Cache the result with MD5 as key
+            unified_pe_cache[file_md5] = features
+            logging.debug(f"Cached features for {file_path} (MD5: {file_md5})")
+            return features
+        else:
+            # Cache negative result too to avoid re-processing failed files
+            unified_pe_cache[file_md5] = None
+            return None
+
+    except Exception as ex:
+        logging.error(f"An error occurred while processing {file_path}: {ex}", exc_info=True)
+        # Cache the failure to avoid repeated attempts
+        unified_pe_cache[file_md5] = None
+        return None
+
 def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
     """Scan a file for malicious activity using machine learning definitions loaded from JSON."""
     malware_definition = "Unknown"
@@ -4224,7 +4272,8 @@ def scan_file_with_machine_learning_ai(file_path, threshold=0.86):
 
     logging.info(f"File {file_path} is a valid PE file, proceeding with feature extraction.")
 
-    file_numeric_features = pe_extractor.extract_numeric_features(file_path)
+    # Use unified cache for feature extraction
+    file_numeric_features = get_cached_pe_features(file_path)
     if not file_numeric_features:
         return False, "Feature-Extraction-Failed", 0
 
@@ -6079,54 +6128,15 @@ def scan_tar_file(file_path):
         logging.error(f"Error scanning tar file: {file_path} - {ex}")
         return False, ""
 
-
-# Global variables for worm detection
-worm_alerted_files = []
-worm_detected_count = {}
-worm_file_paths = []
-
-# Cache for storing scan results by MD5
-worm_scan_cache = {}
-
-def clear_worm_cache():
-    """Clear the worm scan cache."""
-    worm_scan_cache.clear()
-    logging.info("Worm scan cache cleared")
-
 def extract_numeric_worm_features(file_path: str) -> Optional[Dict[str, Any]]:
     """
     Extract numeric features of a file using pefile for worm detection.
-    Uses MD5 caching to avoid redundant processing.
+    Uses unified caching system shared with ML scanning.
+
+    Returns:
+        Dict containing numeric features if successful, None if failed
     """
-    # Calculate MD5 hash for caching
-    file_md5 = compute_md5(file_path)
-    if not file_md5:
-        return None
-
-    # Check if we already have features for this MD5
-    if file_md5 in worm_scan_cache:
-        logging.debug(f"Using cached features for {file_path} (MD5: {file_md5})")
-        return worm_scan_cache[file_md5]
-
-    res = {}
-    try:
-        # Reuse the numeric features extraction function for base data
-        features = pe_extractor.extract_numeric_features(file_path)
-        if features:
-            res.update(features)
-            # Cache the result with MD5 as key
-            worm_scan_cache[file_md5] = res
-            logging.debug(f"Cached features for {file_path} (MD5: {file_md5})")
-        else:
-            # Cache negative result too to avoid re-processing failed files
-            worm_scan_cache[file_md5] = None
-
-    except Exception as ex:
-        logging.error(f"An error occurred while processing {file_path}: {ex}", exc_info=True)
-        # Cache the failure to avoid repeated attempts
-        worm_scan_cache[file_md5] = None
-
-    return res
+    return get_cached_pe_features(file_path)
 
 def check_worm_similarity(file_path: str, features_current: List[float]) -> bool:
     """
@@ -14605,7 +14615,7 @@ class Worker(QThread):
             pre_analysis_entries = None
             post_analysis_entries = None
             reset_flags()
-            clear_worm_cache()
+            clear_pe_cache()
 
             # Step 6: Restart services
             self.output_signal.emit("[*] Step 6: Restarting services...")
