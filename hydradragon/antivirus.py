@@ -5446,6 +5446,7 @@ def verify_authenticode_signature(file_path: str) -> int:
         ctypes.byref(wtd)
     )
 
+
 def check_signature(file_path: str) -> dict:
     # --- 1) Try to open the signature store --- #
     hStore = wintypes.HANDLE()
@@ -5495,6 +5496,8 @@ def check_signature(file_path: str) -> dict:
 
         # --- 3) We found a cert, so let's verify the signature chain --- #
         hresult = verify_authenticode_signature(file_path)
+        hresult = hresult & 0xFFFFFFFF  # force unsigned 32-bit (win32 normalization)
+        
         is_valid = (hresult == 0)
         status = (
             "Valid" if is_valid
