@@ -5492,21 +5492,25 @@ def check_signature(file_path: str) -> dict:
 def check_valid_signature(file_path: str) -> dict:
     """
     Returns {"is_valid": bool, "status": str}.
+    Properly distinguishes between No signature, Invalid signature, and Valid.
     """
     try:
         result = verify_authenticode_signature(file_path)
+        hresult = result & 0xFFFFFFFF  # force unsigned 32-bit
 
-        if result == 0:
+        if hresult == 0:
             is_valid = True
             status = "Valid"
-        elif result in NO_SIGNATURE_CODES:
+        elif hresult in NO_SIGNATURE_CODES:
             is_valid = False
             status = "No signature"
         else:
             is_valid = False
-            status = "Invalid signature"
+            status = f"Invalid signature (HRESULT=0x{hresult:08X})"
+            logging.critical(f"[Signature] {file_path}: {status}")
 
         return {"is_valid": is_valid, "status": status}
+
     except Exception as ex:
         logging.error(f"[Signature] {file_path}: {ex}")
         return {"is_valid": False, "status": str(ex)}
