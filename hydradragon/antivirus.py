@@ -5506,8 +5506,8 @@ def check_valid_signature(file_path: str) -> dict:
             status = "No signature"
         else:
             is_valid = False
-            status = f"Invalid signature (HRESULT=0x{hresult:08X})"
-            logging.critical(f"[Signature] {file_path}: {status}")
+            status = "Invalid signature"
+            logging.critical(f"[Invalid signature] {file_path}: {status}")
 
         return {"is_valid": is_valid, "status": status}
 
