@@ -1,1 +1,1 @@
-Link: https://github.com/VeroFess/SbieHide/releases/tag/v1.2.2
+Link: https://github.com/VeroFess/SbieHide/releases/tag/v2.0.1

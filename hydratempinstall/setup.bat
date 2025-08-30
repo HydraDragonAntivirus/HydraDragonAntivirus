@@ -8,7 +8,7 @@ set "SURICATA_DIR=%ProgramW6432%\Suricata"
 set "NODEJS_PATH=%ProgramW6432%\nodejs"
 set "SBIE_INI=%ProgramW6432%\Sandboxie\SbieIni.exe"
 set "SBIE_SANDBOX=DefaultBox"
-set "INJECT_DLL=%HYDRADRAGON_PATH%\sandboxie_plugins\SbieHide\SbieHide.x64.dll"
+set "INJECT_DLL=%HYDRADRAGON_PATH%\sandboxie_plugins\SbieHide\SbieHide.dll"
 
 rem 1. Copy clamavconfig
 if exist "%HYDRADRAGON_PATH%\clamavconfig" (
