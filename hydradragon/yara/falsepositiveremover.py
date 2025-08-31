@@ -35,7 +35,6 @@ def build_cli_parser():
                       help="Folder path to directory containing YARA files")
     parser.add_option("-c", "--consolidate", action="store", default=None, dest="YARA_File_Path",
                       help="File path for consolidated YARA file")
-    parser.add_option("-m", "--modify", help="Modify the file to rename duplicate rules", action="store_true")
     parser.add_option("-i", "--index", action="store", default=None, dest="YARA_Index_Path",
                       help="Create an index of YARA files") 
     parser.add_option("-t", "--type", action="store", default=None, dest="YARA_Index_Type",
@@ -327,7 +326,6 @@ def fast_scandir(dirname): #https://stackoverflow.com/questions/973473/getting-a
 # --------------------------
 boolRemoveDuplicate = False    # kept for compatibility but not used to delete duplicates
 boolRemoveFalsePositives = False
-boolRename = False
 boolRecurse = False
 boolLogging = False
 folderMatch = ""
@@ -359,8 +357,6 @@ if opts.YARA_Directory_Path:
 else:
   print ("Missing required parameter argument")
   exit()
-if opts.modify:
-  boolRename = True
 if opts.YARA_File_Path:
   outputPath = opts.YARA_File_Path
 dictRuleName = dict()
