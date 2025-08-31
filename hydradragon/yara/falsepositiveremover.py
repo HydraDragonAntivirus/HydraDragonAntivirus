@@ -27,7 +27,12 @@ from optparse import OptionParser
 import sys
 import datetime
 import re
+import subprocess
+import shutil
 
+# ---------------------------
+# CLI parser (no rename flag)
+# ---------------------------
 def build_cli_parser():
     parser = OptionParser(usage="%prog [options]", description="Find duplicate YARA rules in a directory")
     parser.add_option("-r", "--remove", help="Remove rules flagged as false positives", action="store_true")
@@ -36,29 +41,118 @@ def build_cli_parser():
     parser.add_option("-c", "--consolidate", action="store", default=None, dest="YARA_File_Path",
                       help="File path for consolidated YARA file")
     parser.add_option("-i", "--index", action="store", default=None, dest="YARA_Index_Path",
-                      help="Create an index of YARA files") 
+                      help="Create an index of YARA files")
     parser.add_option("-t", "--type", action="store", default=None, dest="YARA_Index_Type",
-                      help="Index YARA files based on parent folder match.") 
+                      help="Index YARA files based on parent folder match.")
     parser.add_option("-b", "--BaseDirectory", action="store", default=None, dest="Base_Folder_Path",
-                      help="Base folder to mark as current directory ./") 
+                      help="Base folder to mark as current directory ./")
     parser.add_option("-s", "--subdirectories", help="Recurse into subdirectories", action="store_true")
     parser.add_option("-v", "--verboselog", help="log all rules and the associated file", action="store_true")
+    # False-positive scanning options
+    parser.add_option("--fp-scan-folder", action="store", default=None, dest="FP_Scan_Folder",
+                      help="Folder path containing sample files to scan for false positives")
+    parser.add_option("--fp-match-threshold", action="store", default=5, type="int", dest="FP_MATCH_THRESHOLD",
+                      help="Mark rule as FP if it matches >= N files in the FP folder (default 5)")
+    parser.add_option("--fp-match-ratio", action="store", default=None, dest="FP_MATCH_RATIO",
+                      help="Mark rule as FP if it matches >= fraction (0<ratio<=1) of files in FP folder (overrides threshold)")
     return parser
 
-def logToFile(strfilePathOut, strDataToLog, boolDeleteFile, strWriteMode):
+# ---------------------------
+# Utilities
+# ---------------------------
+def logToFile(strfilePathOut, strDataToLog, boolDeleteFile=False, strWriteMode="a"):
+    parent = os.path.dirname(strfilePathOut)
+    if parent and not os.path.isdir(parent):
+        try:
+            os.makedirs(parent, exist_ok=True)
+        except Exception:
+            pass
     with open(strfilePathOut, strWriteMode, encoding='utf-8', errors='ignore') as target:
-      if boolDeleteFile == True:
-        target.truncate()
-      target.write(strDataToLog)
+        if boolDeleteFile:
+            target.truncate()
+        target.write(strDataToLog)
 
+def which(exe):
+    return shutil.which(exe)
 
-def ProcessRule(lstRuleFile, strYARApath, strOutPath, remove_false_positives=False):
+# ---------------------------
+# YARA scanning helpers
+# ---------------------------
+def yara_available_python():
+    try:
+        import yara
+        return True
+    except Exception:
+        return False
+
+def yara_compile_rules_from_file(filepath):
+    import yara
+    return yara.compile(filepath=filepath)
+
+def yara_scan_file_with_rules_py(compiled_rules, target_path):
+    # returns set of matching rule names (may be empty)
+    matches = set()
+    try:
+        # `matches = compiled_rules.match(target_path)` returns list of Match objects or names
+        res = compiled_rules.match(target_path)
+        # res items may be yara.Match objects or simple strings depending on yara version
+        for r in res:
+            # try to extract rule name
+            try:
+                # if Match object
+                if hasattr(r, 'rule'):
+                    matches.add(r.rule)
+                else:
+                    matches.add(str(r))
+            except Exception:
+                matches.add(str(r))
+    except Exception:
+        # some yara-python versions use scan(..., callback) or different return; tolerate failure
+        return set()
+    return matches
+
+def yara_scan_file_with_cli(rules_file, target_path):
+    # Use yara CLI: `yara -n rules_file target_path` -> outputs lines like '<rule> <file>'
+    # We'll parse stdout lines for rule names. Return set of rule names.
+    matches = set()
+    yara_exec = which('yara') or which('yara64') or which('yara.exe') or which('yara64.exe')
+    if not yara_exec:
+        return set()
+    try:
+        # -r not needed because rules_file is a rules file; simply run: yara rules_file target_path
+        cmd = [yara_exec, rules_file, target_path]
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding='utf-8', errors='ignore', timeout=30)
+        out = proc.stdout.strip()
+        for line in out.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            # yara CLI prints: RULE_NAME  path — split on whitespace
+            parts = line.split()
+            if len(parts) >= 1:
+                matches.add(parts[0])
+    except Exception:
+        return set()
+    return matches
+
+# ---------------------------
+# ProcessRule (core) — preserves comments, no renaming
+# ---------------------------
+def ProcessRule(lstRuleFile, strYARApath, strOutPath,
+                remove_false_positives=False,
+                fp_scan_folder=None,
+                fp_match_threshold=5,
+                fp_match_ratio=None,
+                yara_py_available=False,
+                yara_cli_available=False):
     """
     Processes a single YARA file's lines:
       - Detects duplicate rules (based on strings + condition key). DOES NOT remove duplicates.
       - Merges hashN meta entries from duplicates into the first occurrence, preserving comments and other meta lines.
-      - Detects false-positive rules with conservative heuristics and, if remove_false_positives==True, removes them.
-      - Writes a .bak before overwriting any file.
+      - Detects false-positive rules using:
+           * meta/condition heuristics OR
+           * (if provided) scanning a folder of sample files to count rule matches.
+        If remove_false_positives==True, removes rules detected as FP (backs up with .bak).
     """
     strYARAout = ""
     strLogOut = ""
@@ -77,47 +171,133 @@ def ProcessRule(lstRuleFile, strYARApath, strOutPath, remove_false_positives=Fal
     pre_rule_lines = []
     first_rule_found = False
 
-    # Dictionary to store unique rules based on strings + condition
     dictRuleKey = {}
     processed_rules = []
 
-    # small helpers for false-positive detection (conservative)
-    def fp_from_meta(meta_lines):
-        # Accept meta like: false_positive = "true"  or false_positive = true  or false_positive = "1"
+    # conservative meta/condition heuristics
+    def fp_from_meta(meta_lines, fp_meta_key="false_positive"):
         for line in meta_lines:
-            m = re.search(r'^\s*false_positive\s*=\s*("?)(true|yes|1)("?)(\s*#.*)?$', line.strip(), re.IGNORECASE)
+            m = re.search(r'^\s*' + re.escape(fp_meta_key) + r'\s*=\s*("?)(true|yes|1)("?)(\s*#.*)?$', line.strip(), re.IGNORECASE)
             if m:
                 return True
         return False
 
     def fp_from_condition(cond_lines):
         joined = " ".join([l.strip().lower() for l in cond_lines])
-        # trivial always-true conditions
         if re.search(r'\btrue\b', joined):
             return True
         if re.search(r'1\s*==\s*1', joined):
             return True
         return False
 
+    # if folder scanning enabled, prepare compiled rules object (if possible) to speed up repeated scans
+    compiled_rules = None
+    temp_rules_path = None
+    compiled_ready = False
+    if fp_scan_folder:
+        # if yara_py_available, compile the entire YARA file once and use it to get per-rule matches
+        if yara_py_available:
+            try:
+                compiled_rules = yara_compile_rules_from_file(strYARApath)
+                compiled_ready = True
+            except Exception:
+                compiled_ready = False
+        else:
+            # if CLI available, use the file itself (no compile needed)
+            compiled_ready = yara_cli_available
+
+    # helper to decide FP by scanning folder for a given rule name
+    def fp_by_scanning_folder(rule_name):
+        # if user provided a ratio, compute threshold from folder size
+        try:
+            files = []
+            for root, _, filenames in os.walk(fp_scan_folder):
+                for fn in filenames:
+                    fp = os.path.join(root, fn)
+                    # skip directories, only regular files
+                    if os.path.isfile(fp):
+                        files.append(fp)
+            if len(files) == 0:
+                return False, 0, 0
+        except Exception:
+            return False, 0, 0
+
+        match_count = 0
+        total = len(files)
+        # if compiled_rules ready, use python API and check which rules matched per file
+        if compiled_ready and compiled_rules is not None:
+            for f in files:
+                try:
+                    matches = yara_scan_file_with_rules_py(compiled_rules, f)
+                except Exception:
+                    matches = set()
+                if rule_name in matches:
+                    match_count += 1
+        elif yara_cli_available:
+            # fallback to CLI: run yara file f and parse its output
+            # to reduce CLI calls, run yara once on the whole folder with rules file and parse all outputs:
+            # but simpler: call per-file (safer)
+            for f in files:
+                try:
+                    matches = yara_scan_file_with_cli(strYARApath, f)
+                except Exception:
+                    matches = set()
+                if rule_name in matches:
+                    match_count += 1
+        else:
+            # cannot scan — fallback to False
+            return False, 0, total
+
+        # decide threshold
+        if fp_match_ratio is not None:
+            try:
+                ratio = float(fp_match_ratio)
+                if ratio <= 0 or ratio > 1:
+                    ratio = None
+                else:
+                    required = max(1, int(total * ratio))
+                    is_fp = (match_count >= required)
+                    return is_fp, match_count, total
+            except Exception:
+                pass
+
+        # absolute threshold fallback
+        is_fp = (match_count >= fp_match_threshold)
+        return is_fp, match_count, total
+
+    # --- parse yara file into rules (preserve everything) ---
     for strRuleLine in lstRuleFile + ["\nENDRULE\n"]:
         stripped = strRuleLine.strip()
         if stripped.startswith("rule ") or stripped.startswith("private rule ") or stripped == "ENDRULE":
             if current_rule_name:
-                # Build a key using strings + condition (canonical)
                 key = "\n".join([s.strip() for s in current_strings]) + "\n" + "\n".join([c.strip() for c in current_condition])
 
-                # check false-positive heuristics
-                is_fp = fp_from_meta(current_metadata) or fp_from_condition(current_condition)
+                # meta/cond heuristics
+                is_fp_meta = fp_from_meta(current_metadata)
+                is_fp_cond = fp_from_condition(current_condition)
+                is_fp_scan = False
+                scan_match_count = 0
+                scan_total = 0
+
+                # If folder scanning requested, check by scanning folder for this rule name
+                if fp_scan_folder:
+                    # NOTE: compiled_rules (entire file) may include many rules; the rule names will be the same
+                    # We'll try to detect by scanning the sample folder for occurrences of this rule name
+                    is_fp_scan, scan_match_count, scan_total = fp_by_scanning_folder(current_rule_name)
+
+                # final FP decision: folder-scan (if provided) has priority; else heuristics
+                is_fp = False
+                if fp_scan_folder:
+                    is_fp = is_fp_scan
+                else:
+                    is_fp = is_fp_meta or is_fp_cond
 
                 if key in dictRuleKey:
-                    # Duplicate detected: merge only hash values but DO NOT remove duplicate rules.
+                    # Duplicate: merge hashes only; preserve comments
                     idx = dictRuleKey[key]["index"]
                     existing_rule = processed_rules[idx]
-
-                    # We'll operate on existing_rule["lines"] preserving all non-hash meta lines and comments
                     existing_lines = existing_rule["lines"]
 
-                    # Find meta: section indices (if present)
                     meta_start = None
                     meta_end = None
                     for j, line in enumerate(existing_lines):
@@ -125,16 +305,13 @@ def ProcessRule(lstRuleFile, strYARApath, strOutPath, remove_false_positives=Fal
                             meta_start = j
                             break
                     if meta_start is not None:
-                        # find end of meta section (next top-level section like 'strings:' or 'condition:')
                         meta_end = meta_start + 1
                         while meta_end < len(existing_lines):
                             s = existing_lines[meta_end].strip()
-                            # stop if another section header encountered (e.g., strings:, condition:)
                             if re.match(r'^[A-Za-z_][A-Za-z0-9_]*\s*:', s) and not s.lower().startswith("meta"):
                                 break
                             meta_end += 1
 
-                        # Collect existing hash values and preserve all other meta lines and comments
                         existing_hashes = []
                         meta_segment = existing_lines[meta_start+1:meta_end]
                         preserved_meta_lines = []
@@ -143,12 +320,10 @@ def ProcessRule(lstRuleFile, strYARApath, strOutPath, remove_false_positives=Fal
                                 match = re.match(r'^\s*hash\d*\s*=\s*"([^"]+)"', mline)
                                 if match:
                                     existing_hashes.append(match.group(1))
-                                # skip original hash lines (we'll rebuild hashes in canonical order)
                                 continue
                             else:
                                 preserved_meta_lines.append(mline)
 
-                        # Extract new hash values from current rule metadata without touching comments
                         for line in current_metadata:
                             if line.strip().startswith("hash"):
                                 match = re.match(r'hash\d*\s*=\s*"([^"]+)"', line.strip())
@@ -157,13 +332,10 @@ def ProcessRule(lstRuleFile, strYARApath, strOutPath, remove_false_positives=Fal
                                     if val not in existing_hashes:
                                         existing_hashes.append(val)
 
-                        # Build canonical hash lines using indentation style from preserved_meta_lines or default
                         if preserved_meta_lines:
-                            # infer indent from first preserved meta line
                             indent_match = re.match(r'^(\s*)', preserved_meta_lines[0])
                             indent = indent_match.group(1) if indent_match else "      "
                         else:
-                            # infer indent from the 'meta:' line itself if possible
                             indent_match = re.match(r'^(\s*)', existing_lines[meta_start+1]) if (meta_start+1 < len(existing_lines)) else None
                             indent = indent_match.group(1) if indent_match else "      "
 
@@ -171,25 +343,17 @@ def ProcessRule(lstRuleFile, strYARApath, strOutPath, remove_false_positives=Fal
                         for i, hval in enumerate(existing_hashes, 1):
                             rebuilt_hash_lines.append(f'{indent}hash{i} = "{hval}"\n')
 
-                        # Reconstruct the meta section: meta: + preserved_meta_lines + rebuilt_hash_lines
                         new_meta_section = [existing_lines[meta_start]] + preserved_meta_lines + rebuilt_hash_lines
-
-                        # Rebuild existing_lines replacing the old meta segment
                         existing_lines = existing_lines[:meta_start] + new_meta_section + existing_lines[meta_end:]
-                        # Assign back
                         existing_rule["lines"] = existing_lines
                         strLogOut += f"Detected duplicate rule {current_rule_name} in {strYARApath}, merged hashes into {existing_rule['name']}\n"
                         boolOverwrite = True
                     else:
-                        # No meta: section in existing rule; append a meta: block before strings: or condition:
-                        # We'll try to find insertion point (before 'strings:' or 'condition:'), otherwise append to end of rule lines
                         insertion_idx = len(existing_lines)
                         for j, line in enumerate(existing_lines):
                             if line.strip().startswith("strings:") or line.strip().startswith("condition:"):
                                 insertion_idx = j
                                 break
-
-                        # collect existing hashes (none) and new ones from current_metadata
                         existing_hashes = []
                         for line in current_metadata:
                             if line.strip().startswith("hash"):
@@ -198,7 +362,6 @@ def ProcessRule(lstRuleFile, strYARApath, strOutPath, remove_false_positives=Fal
                                     val = match.group(1)
                                     if val not in existing_hashes:
                                         existing_hashes.append(val)
-
                         if existing_hashes:
                             indent = "      "
                             new_meta_section = ["\n", "meta:\n"]
@@ -210,11 +373,20 @@ def ProcessRule(lstRuleFile, strYARApath, strOutPath, remove_false_positives=Fal
                             boolOverwrite = True
 
                 else:
-                    # First occurrence: decide whether to keep or (optionally) remove because it's a false positive
+                    # First occurrence: remove only if FP detected and user requested removal
                     if is_fp and remove_false_positives:
-                        # skip adding this rule (effectively remove it)
-                        strLogOut += f"Removed false-positive rule {current_rule_name} from {strYARApath}\n"
+                        # log removal reason
+                        if fp_scan_folder:
+                            strLogOut += f"Removed false-positive rule {current_rule_name} from {strYARApath} (matched {scan_match_count}/{scan_total} files in {fp_scan_folder})\n"
+                        else:
+                            why = []
+                            if is_fp_meta:
+                                why.append("meta flag")
+                            if is_fp_cond:
+                                why.append("condition heuristic")
+                            strLogOut += f"Removed false-positive rule {current_rule_name} from {strYARApath} ({', '.join(why)})\n"
                         boolOverwrite = True
+                        # do not append this rule to processed_rules -> effectively removed
                     else:
                         rule_data = {
                             "name": current_rule_name,
@@ -266,12 +438,11 @@ def ProcessRule(lstRuleFile, strYARApath, strOutPath, remove_false_positives=Fal
     for rule in processed_rules:
         strYARAout += "".join(rule["lines"])
 
-    # Write consolidated file
+    # Write consolidated file (backup first)
     if strOutPath != strYARApath:
         strYARAout += "\n"
         logToFile(strOutPath, strYARAout, False, "a")
     elif boolOverwrite:
-        # backup original
         try:
             backup_path = strYARApath + ".bak"
             if not os.path.exists(backup_path):
@@ -285,22 +456,25 @@ def ProcessRule(lstRuleFile, strYARApath, strOutPath, remove_false_positives=Fal
 
     if strLogOut:
         strLogOut = "-------------\n" + strLogOut
-        logToFile(strCurrentDirectory + "/duplicate.log", strLogOut, False, "a")
+        logToFile(os.path.join(strCurrentDirectory, "duplicate.log"), strLogOut, False, "a")
 
 
-def createIndexFile(boolNew, strFilePath, yaraPath, baseDir): # if index creation is not working on Windows check that you are escaping backslashes
+# --------------------------
+# createIndexFile / fast_scandir
+# --------------------------
+def createIndexFile(boolNew, strFilePath, yaraPath, baseDir):
   includePath = ""
   if boolNew == True:
     logToFile(strFilePath, "/*\n", False, "a")
     logToFile(strFilePath, "Generated by YARA_Rules_Util\n", False, "a")
     logToFile(strFilePath, "On " + str(datetime.date.today()) + "\n", False, "a")
     logToFile(strFilePath, "*/\n", False, "a")
-  if "\\" in yaraPath or "/" in yaraPath: #windows or nix directory
+  if "\\" in yaraPath or "/" in yaraPath:
     if "\\" in yaraPath:
       splitChar = "\\"
     else:
       splitChar = "/"
-    arrayPath = yaraPath.split(splitChar) #need to determine the relative path between strFilePath and yaraPath. If different then use full file path. If same then truncate appropriatly
+    arrayPath = yaraPath.split(splitChar)
     for i in range(len(arrayPath),0, -1):
       if includePath == "":
         includePath = arrayPath[i -1]
@@ -315,7 +489,7 @@ def createIndexFile(boolNew, strFilePath, yaraPath, baseDir): # if index creatio
     includeStatement = "include \"" + includePath + "\""
     logToFile(strFilePath, includeStatement + "\n", False, "a")
 
-def fast_scandir(dirname): #https://stackoverflow.com/questions/973473/getting-a-list-of-all-subdirectories-in-the-current-directory/38245063
+def fast_scandir(dirname):
     subfolders= [f.path for f in os.scandir(dirname) if f.is_dir()]
     for dirname in list(subfolders):
         subfolders.extend(fast_scandir(dirname))
@@ -324,7 +498,6 @@ def fast_scandir(dirname): #https://stackoverflow.com/questions/973473/getting-a
 # --------------------------
 # Main CLI handling & loop
 # --------------------------
-boolRemoveDuplicate = False    # kept for compatibility but not used to delete duplicates
 boolRemoveFalsePositives = False
 boolRecurse = False
 boolLogging = False
@@ -337,9 +510,8 @@ strYARADirectory = os.getcwd()
 parser = build_cli_parser()
 opts, args = parser.parse_args(sys.argv[1:])
 if opts.remove:
-  # interpret -r/--remove as "remove false positives"
   boolRemoveFalsePositives = True
-if opts.subdirectories:  
+if opts.subdirectories:
   boolRecurse = True
   print("recusing subdirectories")
 if opts.verboselog:
@@ -359,11 +531,27 @@ else:
   exit()
 if opts.YARA_File_Path:
   outputPath = opts.YARA_File_Path
-dictRuleName = dict()
-dictRuleKey = dict()
+
+# FP scan folder & thresholds
+fp_scan_folder = getattr(opts, "FP_Scan_Folder", None)
+fp_match_threshold = int(getattr(opts, "FP_MATCH_THRESHOLD", 5))
+fp_match_ratio = None
+if getattr(opts, "FP_MATCH_RATIO", None) is not None:
+    try:
+        fp_match_ratio = float(opts.FP_MATCH_RATIO)
+    except Exception:
+        fp_match_ratio = None
+
+# detect yara availability
+yara_py_available = yara_available_python()
+yara_cli_available = bool(which('yara') or which('yara64') or which('yara.exe') or which('yara64.exe'))
+
+if fp_scan_folder and not (yara_py_available or yara_cli_available):
+    print("Warning: FP scanning folder requested but neither yara-python nor yara CLI found. FP-by-scan will be skipped.")
+    logToFile(os.path.join(strCurrentDirectory, "duplicate.log"), "Warning: FP scanning skipped (no yara available)\n", False, "a")
 
 print (strYARADirectory)
-logToFile(strCurrentDirectory + "\\duplicate.log","Started " + str(datetime.datetime.now()) + "\n", False, "a")
+logToFile(os.path.join(strCurrentDirectory, "duplicate.log"), "Started " + str(datetime.datetime.now()) + "\n", False, "a")
 
 if boolRecurse == True:
   parentDir = fast_scandir(strYARADirectory)
@@ -375,22 +563,33 @@ else:
 print(parentDir)
 for scanDirs in parentDir:
   for i in os.listdir(scanDirs):
-    if i.endswith(".yar") or i.endswith(".yara"): 
-      if opts.YARA_File_Path != '' and folderMatch != '': #File path for consolidated YARA file and folderMatch file type both provided  
-        if not scanDirs.endswith(folderMatch): # Not the file type specified so move to next file
+    if i.endswith(".yar") or i.endswith(".yara"):
+      if opts.YARA_File_Path != '' and folderMatch != '':
+        if not scanDirs.endswith(folderMatch):
           continue
       if indexPath == "":
         print (i)
-        with open(scanDirs + '/' + i, encoding='utf-8', errors='ignore') as f:
-          lines = f.readlines()
-          ProcessRule(lines, scanDirs + '/' + i, outputPath, remove_false_positives=boolRemoveFalsePositives)
-      else: #create index
-        # dictExclude checks removed — index every matching file (still respect folderMatch)
+        file_path = os.path.join(scanDirs, i)
+        try:
+            with open(file_path, encoding='utf-8', errors='ignore') as f:
+                lines = f.readlines()
+                ProcessRule(lines,
+                            file_path,
+                            outputPath,
+                            remove_false_positives=boolRemoveFalsePositives,
+                            fp_scan_folder=fp_scan_folder,
+                            fp_match_threshold=fp_match_threshold,
+                            fp_match_ratio=fp_match_ratio,
+                            yara_py_available=yara_py_available,
+                            yara_cli_available=yara_cli_available)
+        except Exception as e:
+            logToFile(os.path.join(strCurrentDirectory, "duplicate.log"), f"ERROR reading {file_path}: {e}\n", False, "a")
+      else:
+        # index every matching file (still respect folderMatch)
         if folderMatch != "" and not scanDirs.endswith(folderMatch):
           continue
-        createIndexFile(boolNewIndex, indexPath,  scanDirs + '/' + i, baseDirectory)
+        createIndexFile(boolNewIndex, indexPath,  os.path.join(scanDirs, i), baseDirectory)
         boolNewIndex = False
-        #print("indexing file: " +  scanDirs + '/' + i)
     else:
         continue
-logToFile(strCurrentDirectory + "/duplicate.log","Completed " + str(datetime.datetime.now()) + "\n", False, "a")        
+logToFile(os.path.join(strCurrentDirectory, "duplicate.log"), "Completed " + str(datetime.datetime.now()) + "\n", False, "a")
