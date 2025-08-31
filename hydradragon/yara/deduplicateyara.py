@@ -230,7 +230,6 @@ folderMatch = ""
 indexPath = ""
 outputPath = ""
 baseDirectory = ""
-dictExclude = {"deprecated", "index.yar", "_index", "index_"}
 strCurrentDirectory = os.getcwd()
 strYARADirectory = os.getcwd()
 parser = build_cli_parser()
@@ -275,7 +274,7 @@ print(parentDir)
 for scanDirs in parentDir:
   for i in os.listdir(scanDirs):
     if i.endswith(".yar") or i.endswith(".yara"): 
-      if opts.YARA_File_Path != '' and folderMatch != '': #File path for consolidated YARA file and folderMatch file type both provided  
+      if opts.YARA_File_Path != '' and folderMatch != '': # File path for consolidated YARA file and folderMatch both provided
         if not scanDirs.endswith(folderMatch): # Not the file type specified so move to next file
           continue
       if indexPath == "":
@@ -283,19 +282,13 @@ for scanDirs in parentDir:
         with open(scanDirs + '/' + i, encoding='utf-8', errors='ignore') as f:
           lines = f.readlines()
           ProcessRule(lines, scanDirs + '/' + i, outputPath)
-      else: #create index
-        boolIndexExclude = False
-        for excludeItem in dictExclude:
-          if excludeItem in scanDirs + '/' + i:
-            boolIndexExclude = True
+      else: # create index
+        # dictExclude check removed — index every matching file (still respect folderMatch)
         if folderMatch != "" and not scanDirs.endswith(folderMatch):
-          boolIndexExclude = True
-        if boolIndexExclude == False:
-          createIndexFile(boolNewIndex, indexPath,  scanDirs + '/' + i, baseDirectory)
-          boolNewIndex = False
-          #print("indexing file: " +  scanDirs + '/' + i)
+          continue
+        createIndexFile(boolNewIndex, indexPath,  scanDirs + '/' + i, baseDirectory)
+        boolNewIndex = False
+        #print("indexing file: " +  scanDirs + '/' + i)
     else:
         continue
-logToFile(strCurrentDirectory + "/duplicate.log","Completed " + str(datetime.datetime.now()) + "\n", False, "a")        
-        
-
+logToFile(strCurrentDirectory + "/duplicate.log","Completed " + str(datetime.datetime.now()) + "\n", False, "a")
