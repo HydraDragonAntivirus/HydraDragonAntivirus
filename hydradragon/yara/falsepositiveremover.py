@@ -30,7 +30,7 @@ import re
 
 def build_cli_parser():
     parser = OptionParser(usage="%prog [options]", description="Find duplicate YARA rules in a directory")
-    parser.add_option("-r", "--remove", help="Remove duplicate rules", action="store_true")
+    parser.add_option("-r", "--remove", help="Remove rules flagged as false positives", action="store_true")
     parser.add_option("-d", "--directory", action="store", default=None, dest="YARA_Directory_Path",
                       help="Folder path to directory containing YARA files")
     parser.add_option("-c", "--consolidate", action="store", default=None, dest="YARA_File_Path",
@@ -46,7 +46,21 @@ def build_cli_parser():
     parser.add_option("-v", "--verboselog", help="log all rules and the associated file", action="store_true")
     return parser
 
-def ProcessRule(lstRuleFile, strYARApath, strOutPath):
+def logToFile(strfilePathOut, strDataToLog, boolDeleteFile, strWriteMode):
+    with open(strfilePathOut, strWriteMode, encoding='utf-8', errors='ignore') as target:
+      if boolDeleteFile == True:
+        target.truncate()
+      target.write(strDataToLog)
+
+
+def ProcessRule(lstRuleFile, strYARApath, strOutPath, remove_false_positives=False):
+    """
+    Processes a single YARA file's lines:
+      - Detects duplicate rules (based on strings + condition key). DOES NOT remove duplicates.
+      - Merges hashN meta entries from duplicates into the first occurrence, preserving comments and other meta lines.
+      - Detects false-positive rules with conservative heuristics and, if remove_false_positives==True, removes them.
+      - Writes a .bak before overwriting any file.
+    """
     strYARAout = ""
     strLogOut = ""
     boolOverwrite = False
@@ -68,15 +82,36 @@ def ProcessRule(lstRuleFile, strYARApath, strOutPath):
     dictRuleKey = {}
     processed_rules = []
 
+    # small helpers for false-positive detection (conservative)
+    def fp_from_meta(meta_lines):
+        # Accept meta like: false_positive = "true"  or false_positive = true  or false_positive = "1"
+        for line in meta_lines:
+            m = re.search(r'^\s*false_positive\s*=\s*("?)(true|yes|1)("?)(\s*#.*)?$', line.strip(), re.IGNORECASE)
+            if m:
+                return True
+        return False
+
+    def fp_from_condition(cond_lines):
+        joined = " ".join([l.strip().lower() for l in cond_lines])
+        # trivial always-true conditions
+        if re.search(r'\btrue\b', joined):
+            return True
+        if re.search(r'1\s*==\s*1', joined):
+            return True
+        return False
+
     for strRuleLine in lstRuleFile + ["\nENDRULE\n"]:
         stripped = strRuleLine.strip()
         if stripped.startswith("rule ") or stripped.startswith("private rule ") or stripped == "ENDRULE":
             if current_rule_name:
-                # Build a key using strings + condition
+                # Build a key using strings + condition (canonical)
                 key = "\n".join([s.strip() for s in current_strings]) + "\n" + "\n".join([c.strip() for c in current_condition])
 
+                # check false-positive heuristics
+                is_fp = fp_from_meta(current_metadata) or fp_from_condition(current_condition)
+
                 if key in dictRuleKey:
-                    # Duplicate detected: merge only hash values but DO NOT alter comments
+                    # Duplicate detected: merge only hash values but DO NOT remove duplicate rules.
                     idx = dictRuleKey[key]["index"]
                     existing_rule = processed_rules[idx]
 
@@ -176,16 +211,21 @@ def ProcessRule(lstRuleFile, strYARApath, strOutPath):
                             boolOverwrite = True
 
                 else:
-                    # First occurrence: store rule
-                    rule_data = {
-                        "name": current_rule_name,
-                        "metadata": current_metadata.copy(),
-                        "strings": current_strings.copy(),
-                        "condition": current_condition.copy(),
-                        "lines": current_rule_lines.copy()
-                    }
-                    dictRuleKey[key] = {"index": len(processed_rules)}
-                    processed_rules.append(rule_data)
+                    # First occurrence: decide whether to keep or (optionally) remove because it's a false positive
+                    if is_fp and remove_false_positives:
+                        # skip adding this rule (effectively remove it)
+                        strLogOut += f"Removed false-positive rule {current_rule_name} from {strYARApath}\n"
+                        boolOverwrite = True
+                    else:
+                        rule_data = {
+                            "name": current_rule_name,
+                            "metadata": current_metadata.copy(),
+                            "strings": current_strings.copy(),
+                            "condition": current_condition.copy(),
+                            "lines": current_rule_lines.copy()
+                        }
+                        dictRuleKey[key] = {"index": len(processed_rules)}
+                        processed_rules.append(rule_data)
 
             # Reset for next rule
             if stripped != "ENDRULE":
@@ -232,17 +272,21 @@ def ProcessRule(lstRuleFile, strYARApath, strOutPath):
         strYARAout += "\n"
         logToFile(strOutPath, strYARAout, False, "a")
     elif boolOverwrite:
+        # backup original
+        try:
+            backup_path = strYARApath + ".bak"
+            if not os.path.exists(backup_path):
+                with open(strYARApath, 'r', encoding='utf-8', errors='ignore') as orig:
+                    content = orig.read()
+                with open(backup_path, 'w', encoding='utf-8', errors='ignore') as bak:
+                    bak.write(content)
+        except Exception:
+            pass
         logToFile(strYARApath, strYARAout, True, "w")
 
     if strLogOut:
         strLogOut = "-------------\n" + strLogOut
         logToFile(strCurrentDirectory + "/duplicate.log", strLogOut, False, "a")
-
-def logToFile(strfilePathOut, strDataToLog, boolDeleteFile, strWriteMode):
-    with open(strfilePathOut, strWriteMode, encoding='utf-8', errors='ignore') as target:
-      if boolDeleteFile == True:
-        target.truncate()
-      target.write(strDataToLog)
 
 
 def createIndexFile(boolNew, strFilePath, yaraPath, baseDir): # if index creation is not working on Windows check that you are escaping backslashes
@@ -278,7 +322,11 @@ def fast_scandir(dirname): #https://stackoverflow.com/questions/973473/getting-a
         subfolders.extend(fast_scandir(dirname))
     return subfolders
 
-boolRemoveDuplicate = False
+# --------------------------
+# Main CLI handling & loop
+# --------------------------
+boolRemoveDuplicate = False    # kept for compatibility but not used to delete duplicates
+boolRemoveFalsePositives = False
 boolRename = False
 boolRecurse = False
 boolLogging = False
@@ -286,13 +334,13 @@ folderMatch = ""
 indexPath = ""
 outputPath = ""
 baseDirectory = ""
-dictExclude = {"deprecated", "index.yar", "_index", "index_"}
 strCurrentDirectory = os.getcwd()
 strYARADirectory = os.getcwd()
 parser = build_cli_parser()
 opts, args = parser.parse_args(sys.argv[1:])
 if opts.remove:
-  boolRemoveDuplicate = True
+  # interpret -r/--remove as "remove false positives"
+  boolRemoveFalsePositives = True
 if opts.subdirectories:  
   boolRecurse = True
   print("recusing subdirectories")
@@ -326,7 +374,8 @@ if boolRecurse == True:
   parentDir.append(strYARADirectory)
   parentDir.sort()
 else:
-  parentDir = {strYARADirectory}
+  parentDir = [strYARADirectory]
+
 print(parentDir)
 for scanDirs in parentDir:
   for i in os.listdir(scanDirs):
@@ -338,15 +387,14 @@ for scanDirs in parentDir:
         print (i)
         with open(scanDirs + '/' + i, encoding='utf-8', errors='ignore') as f:
           lines = f.readlines()
-          ProcessRule(lines, scanDirs + '/' + i, outputPath)
+          ProcessRule(lines, scanDirs + '/' + i, outputPath, remove_false_positives=boolRemoveFalsePositives)
       else: #create index
-        # previously we excluded certain files via dictExclude; that filter has been removed
+        # dictExclude checks removed — index every matching file (still respect folderMatch)
         if folderMatch != "" and not scanDirs.endswith(folderMatch):
-          # still respect folderMatch for indexing
           continue
         createIndexFile(boolNewIndex, indexPath,  scanDirs + '/' + i, baseDirectory)
         boolNewIndex = False
         #print("indexing file: " +  scanDirs + '/' + i)
     else:
         continue
-logToFile(strCurrentDirectory + "/duplicate.log","Completed " + str(datetime.datetime.now()) + "\n", False, "a")
+logToFile(strCurrentDirectory + "/duplicate.log","Completed " + str(datetime.datetime.now()) + "\n", False, "a")        
