@@ -882,6 +882,7 @@ SHGFP_TYPE_CURRENT = 0
 # Convenient shorthand for this function
 SHGetFolderPathW = ctypes.windll.shell32.SHGetFolderPathW
 
+thread_lock = threading.Lock()
 
 def _get_folder_path(csidl):
     """Get the path of a folder identified by a CSIDL value."""
@@ -4889,7 +4890,6 @@ def scan_yara(file_path):
     }
 
     # Lock for thread-safe access to shared variables
-    results_lock = threading.Lock()
     threads = []
 
     try:
@@ -5013,7 +5013,7 @@ def scan_yara(file_path):
                                 logging.error(f"Error unpacking after VMProtect indicator: {e}")
 
                     # Update shared results
-                    with results_lock:
+                    with thread_lock:
                         results['matched_rules'].extend(local_matched_rules)
                         results['matched_results'].extend(local_matched_results)
                         if local_vmprotect_file:
@@ -5040,7 +5040,7 @@ def scan_yara(file_path):
                             logging.info(f"Rule {match.rule} is excluded from yarGen_rule.")
 
                     # Update shared results
-                    with results_lock:
+                    with thread_lock:
                         results['matched_rules'].extend(local_matched_rules)
                         results['matched_results'].extend(local_matched_results)
                 else:
@@ -5065,7 +5065,7 @@ def scan_yara(file_path):
                             logging.info(f"Rule {match.rule} is excluded from icewater_rule.")
 
                     # Update shared results
-                    with results_lock:
+                    with thread_lock:
                         results['matched_rules'].extend(local_matched_rules)
                         results['matched_results'].extend(local_matched_results)
                 else:
@@ -5090,7 +5090,7 @@ def scan_yara(file_path):
                             logging.info(f"Rule {match.rule} is excluded from valhalla_rule.")
 
                     # Update shared results
-                    with results_lock:
+                    with thread_lock:
                         results['matched_rules'].extend(local_matched_rules)
                         results['matched_results'].extend(local_matched_results)
                 else:
@@ -5117,7 +5117,7 @@ def scan_yara(file_path):
                             logging.info(f"Rule {rule.identifier} is excluded from yaraxtr_rule.")
 
                     # Update shared results
-                    with results_lock:
+                    with thread_lock:
                         results['matched_rules'].extend(local_matched_rules)
                         results['matched_results'].extend(local_matched_results)
                 else:
@@ -6317,7 +6317,6 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
     }
 
     # Lock for thread-safe access to shared variables
-    results_lock = threading.Lock()
     threads = []
 
     def ml_scan_worker():
@@ -6336,7 +6335,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                             malware_definition = malware_definition + ".SIG"
                         logging.critical(f"Infected file detected (ML): {file_path} - Virus: {malware_definition}")
 
-                        with results_lock:
+                        with thread_lock:
                             if not results['malware_found']:  # First detection wins
                                 results['malware_found'] = True
                                 results['virus_name'] = malware_definition
@@ -6367,7 +6366,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                     result = result + ".SIG"
                 logging.critical(f"Infected file detected (ClamAV): {file_path} - Virus: {result}")
 
-                with results_lock:
+                with thread_lock:
                     if not results['malware_found']:  # First detection wins
                         results['malware_found'] = True
                         results['virus_name'] = result
@@ -6386,7 +6385,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                     yara_match = yara_match + ".SIG"
                 logging.critical(f"Infected file detected (YARA): {file_path} - Virus: {yara_match} - Result: {yara_result}")
 
-                with results_lock:
+                with thread_lock:
                     if not results['malware_found']:  # First detection wins
                         results['malware_found'] = True
                         results['virus_name'] = yara_match
@@ -6408,7 +6407,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                         virus_name = virus_str + ".SIG"
                     logging.critical(f"Infected file detected (TAR): {file_path} - Virus: {virus_str}")
 
-                    with results_lock:
+                    with thread_lock:
                         if not results['malware_found']:  # First detection wins
                             results['malware_found'] = True
                             results['virus_name'] = virus_str
@@ -6432,7 +6431,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                         virus_name = virus_name + ".SIG"
                     logging.critical(f"Infected file detected (ZIP): {file_path} - Virus: {virus_name}")
 
-                    with results_lock:
+                    with thread_lock:
                         if not results['malware_found']:  # First detection wins
                             results['malware_found'] = True
                             results['virus_name'] = virus_name
@@ -6456,7 +6455,7 @@ def scan_file_real_time(file_path, signature_check, file_name, die_output, pe_fi
                         virus_name = virus_name + ".SIG"
                     logging.critical(f"Infected file detected (7z): {file_path} - Virus: {virus_name}")
 
-                    with results_lock:
+                    with thread_lock:
                         if not results['malware_found']:  # First detection wins
                             results['malware_found'] = True
                             results['virus_name'] = virus_name
@@ -11025,7 +11024,6 @@ def scan_and_warn(file_path,
             'file_lines': [],
             'dotnet_result': None
         }
-        thread_lock = threading.Lock()
 
         def signature_check_thread():
             """Thread for digital signature verification - can be slow"""
