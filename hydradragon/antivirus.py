@@ -13,17 +13,17 @@ main_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(main_dir)
 sys.path.insert(0, main_dir)
 
-# Set script directory
-script_dir = os.getcwd()
-
 import clamav
+from clamav import log_directory
+from clamav import script_dir
+from clamav import application_log_file
 
 # Separate log files for different purposes
 stdout_console_log_file = os.path.join(
-    clamav.log_directory, "antivirusconsolestdout.log"
+    log_directory, "antivirusconsolestdout.log"
 )
 stderr_console_log_file = os.path.join(
-    clamav.log_directory, "antivirusconsolestderr.log"
+    log_directory, "antivirusconsolestderr.log"
 )
 
 # Redirect stdout to stdout console log
@@ -14222,7 +14222,7 @@ class Worker(QThread):
             diff = difflib.ndiff(pre_lines, post_lines)
             filtered_diff = [line for line in diff if line.startswith(('+', '-'))]
 
-            diff_file_path = os.path.join(clamav.log_directory, 'HiJackThis_diff.log')
+            diff_file_path = os.path.join(log_directory, 'HiJackThis_diff.log')
             with open(diff_file_path, 'w', encoding='utf-8') as df:
                 df.writelines(filtered_diff)
             self.output_signal.emit(f"[+] Diff log created at: {diff_file_path}")
@@ -14475,8 +14475,8 @@ class Worker(QThread):
         created_count = 0
         for directory in MANAGED_DIRECTORIES:
             try:
-                # Skip clamav.log_directory as it shouldn't be recreated in the normal workflow
-                if directory == clamav.log_directory:
+                # Skip log_directory as it shouldn't be recreated in the normal workflow
+                if directory == log_directory:
                     continue
 
                 os.makedirs(directory, exist_ok=True)
@@ -14492,7 +14492,7 @@ class Worker(QThread):
         """
         try:
             # Get the main script directory
-            clamav.log_directory = os.path.join(script_dir, "log")
+            log_directory = os.path.join(script_dir, "log")
 
             # Close current stdout/stderr redirections
             if hasattr(sys.stdout, 'close') and sys.stdout != sys.__stdout__:
@@ -14508,7 +14508,8 @@ class Worker(QThread):
             logging.shutdown()
 
             # Remove log files if they exist
-            log_files = [stdout_console_log_file, stderr_console_log_file, clamav.application_log_file]
+            log_files = [stdout_console_log_file, stderr_console_log_file, 
+                         application_log_file]
 
             for log_file in log_files:
                 if os.path.exists(log_file):
@@ -14519,10 +14520,10 @@ class Worker(QThread):
                         self.output_signal.emit(f"[!] Could not remove {log_file}: {str(e)}")
 
             # Optionally remove the entire log directory if empty
-            if os.path.exists(clamav.log_directory) and not os.listdir(clamav.log_directory):
+            if os.path.exists(log_directory) and not os.listdir(log_directory):
                 try:
-                    os.rmdir(clamav.log_directory)
-                    self.output_signal.emit(f"[+] Removed empty log directory: {clamav.log_directory}")
+                    os.rmdir(log_directory)
+                    self.output_signal.emit(f"[+] Removed empty log directory: {log_directory}")
                 except (OSError, PermissionError) as e:
                     self.output_signal.emit(f"[!] Could not remove log directory: {str(e)}")
 
@@ -14537,16 +14538,16 @@ class Worker(QThread):
         """
         try:
             # Get the main script directory
-            clamav.log_directory = os.path.join(script_dir, "log")
+            log_directory = os.path.join(script_dir, "log")
 
             # Create log directory if it doesn't exist
-            if not os.path.exists(clamav.log_directory):
-                os.makedirs(clamav.log_directory)
+            if not os.path.exists(log_directory):
+                os.makedirs(log_directory)
 
             # Define log file paths
-            stdout_console_log_file = os.path.join(clamav.log_directory, "antivirusconsolestdout.log")
-            stderr_console_log_file = os.path.join(clamav.log_directory, "antivirusconsolestderr.log")
-            application_log_file = os.path.join(clamav.log_directory, "antivirus.log")
+            stdout_console_log_file = os.path.join(log_directory, "antivirusconsolestdout.log")
+            stderr_console_log_file = os.path.join(log_directory, "antivirusconsolestderr.log")
+            application_log_file = os.path.join(log_directory, "antivirus.log")
 
             # Configure logging for application log
             logging.basicConfig(
@@ -14675,7 +14676,7 @@ class Worker(QThread):
 
             # Create output directory
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_dir = os.path.join(clamav.log_directory, f"hayabusa_analysis_{timestamp}")
+            output_dir = os.path.join(log_directory, f"hayabusa_analysis_{timestamp}")
             os.makedirs(output_dir, exist_ok=True)
 
             # Set output file based on format
@@ -14738,7 +14739,7 @@ class Worker(QThread):
 
             # Create output directory
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_dir = os.path.join(clamav.log_directory, f"hayabusa_search_{timestamp}")
+            output_dir = os.path.join(log_directory, f"hayabusa_search_{timestamp}")
             os.makedirs(output_dir, exist_ok=True)
             output_file = os.path.join(output_dir, f"hayabusa_search_{timestamp}.csv")
 
@@ -14803,7 +14804,7 @@ class Worker(QThread):
 
             # Create output directory
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_dir = os.path.join(clamav.log_directory, f"hayabusa_logon_{timestamp}")
+            output_dir = os.path.join(log_directory, f"hayabusa_logon_{timestamp}")
             os.makedirs(output_dir, exist_ok=True)
             output_file = os.path.join(output_dir, f"logon_summary_{timestamp}.csv")
 
@@ -14855,7 +14856,7 @@ class Worker(QThread):
 
             # Create output directory
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_dir = os.path.join(clamav.log_directory, f"hayabusa_metrics_{timestamp}")
+            output_dir = os.path.join(log_directory, f"hayabusa_metrics_{timestamp}")
             os.makedirs(output_dir, exist_ok=True)
 
             # Run different metrics commands
