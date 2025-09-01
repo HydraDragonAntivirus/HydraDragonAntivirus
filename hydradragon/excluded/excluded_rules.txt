@@ -1766,3 +1766,4 @@ SUSP_DLL_All_LowerCase_Exports
 File_Deletion
 Privilege_Escalation
 Command_Control
+Qemu_Detection_ren
