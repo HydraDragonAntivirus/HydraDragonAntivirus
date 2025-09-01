@@ -1,0 +1,4 @@
+pefile
+numpy
+tqdm
+capstone

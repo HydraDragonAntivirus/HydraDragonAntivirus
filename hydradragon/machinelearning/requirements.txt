@@ -1,4 +1,0 @@
-pefile
-numpy
-tqdm
-capstone
