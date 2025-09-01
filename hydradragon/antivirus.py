@@ -7043,41 +7043,35 @@ except Exception as ex:
     logging.error(f"Error loading excluded rules: {ex}")
     excluded_rules = []
 
-try:
-    # Load the precompiled yarGen rules from the .yrc file
-    yarGen_rule = yara.load(yarGen_rule_path)
-    logging.info("yarGen Rules Definitions loaded!")
-except yara.Error as ex:
-    logging.error(f"Error loading precompiled YARA rule: {ex}")
+def load_yara_rule(path: str, display_name: str = None, is_yara_x: bool = False):
+    """
+    Load a YARA or YARA-X rule from a precompiled .yrc file.
 
-try:
-    # Load the precompiled icewater rules from the .yrc file
-    icewater_rule = yara.load(icewater_rule_path)
-    logging.info("Icewater Rules Definitions loaded!")
-except yara.Error as ex:
-    logging.error(f"Error loading precompiled YARA rule: {ex}")
+    :param path: Path to the precompiled rule file.
+    :param display_name: Optional friendly name for logging.
+    :param is_yara_x: If True, use YARA-X deserialization.
+    :return: Loaded rule object or None if failed.
+    """
+    try:
+        if is_yara_x:
+            with open(path, 'rb') as f:
+                rule = yara_x.Rules.deserialize_from(f)
+        else:
+            rule = yara.load(path)
 
-try:
-    # Load the precompiled valhalla rules from the .yrc file
-    valhalla_rule = yara.load(valhalla_rule_path)
-    logging.info("Vallhalla Demo Rules Definitions loaded!")
-except yara.Error as ex:
-    logging.error(f"Error loading precompiled YARA rule: {ex}")
+        name = display_name or path
+        logging.info(f"{name} loaded successfully!")
+        return rule
+    except Exception as ex:
+        name = display_name or path
+        logging.error(f"Error loading {name}: {ex}")
+        return None
 
-try:
-    # Load the precompiled rules from the .yrc file
-    clean_rules = yara.load(clean_rules_path)
-    logging.info("(good) YARA Rules Definitions loaded!")
-except yara.Error as ex:
-    logging.error(f"Error loading precompiled (good) YARA rule: {ex}")
-
-try:
-    # Load the precompiled yaraxtr rule from the .yrc file using yara_x
-    with open(yaraxtr_yrc_path, 'rb') as yara_x_f:
-        yaraxtr_rule = yara_x.Rules.deserialize_from(yara_x_f)
-    logging.info("YARA-X yaraxtr Rules Definitions loaded!")
-except Exception as ex:
-    logging.error(f"Error loading YARA-X rules: {ex}")
+yarGen_rule   = load_yara_rule(yarGen_rule_path, display_name="yarGen Rules")
+icewater_rule = load_yara_rule(icewater_rule_path, display_name="Icewater Rules")
+valhalla_rule = load_yara_rule(valhalla_rule_path, display_name="Vallhalla Demo Rules")
+clean_rules   = load_yara_rule(clean_rules_path, display_name="(clean) YARA Rules")
+yaraxtr_rule  = load_yara_rule(yaraxtr_yrc_path, display_name="YARA-X yaraxtr Rules", is_yara_x=True)
 
 # Initialize variables as None (empty)
 meta_llama_1b_model = None
