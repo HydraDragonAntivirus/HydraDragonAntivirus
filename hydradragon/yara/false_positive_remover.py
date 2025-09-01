@@ -5,7 +5,7 @@
 # triggers a match from the source YARA file or directory.
 #
 # Copyright (c) 2020 Ryan Boyle randomrhythm@rhythmengineering.com.
-# Modified in 2024 for simplicity, performance, and correctness.
+# Modified in 2025 for simplicity, performance, and correctness.
 # All rights reserved.
 #
 # This program is free software under the GNU General Public License v3.
