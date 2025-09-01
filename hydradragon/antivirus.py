@@ -3361,8 +3361,8 @@ def notify_user_for_detected_rootkit(file_path, virus_name):
 
 def notify_user_invalid(file_path, virus_name):
     notification = Notify()
-    notification.title = "Invalid signature Alert"
-    notification_message = f"Invalid signature file detected: {file_path}\nVirus: {virus_name}"
+    notification.title = "Fully Invalid signature Alert"
+    notification_message = f"Fully Invalid signature file detected: {file_path}\nVirus: {virus_name}"
     notification.message = notification_message
     notification.send()
 
@@ -5366,6 +5366,10 @@ def get_signer_cert_details(file_path: str) -> tuple[dict, bytes] | None:
 TRUST_E_NOSIGNATURE = 0x800B0100
 TRUST_E_SUBJECT_FORM_UNKNOWN = 0x800B0008
 TRUST_E_PROVIDER_UNKNOWN     = 0x800B0001
+CERT_E_UNTRUSTEDROOT         = 0x800B0109
+TRUST_E_BAD_DIGEST           = 0x80096010
+TRUST_E_CERT_SIGNATURE       = 0x80096004
+
 NO_SIGNATURE_CODES = {
     TRUST_E_NOSIGNATURE,
     TRUST_E_SUBJECT_FORM_UNKNOWN,
@@ -5446,9 +5450,27 @@ def verify_authenticode_signature(file_path: str) -> int:
         ctypes.byref(wtd)
     )
 
-
 def check_signature(file_path: str) -> dict:
-    # --- 1) Try to open the signature store --- #
+    # --- cache check first --- #
+    try:
+        md5 = compute_md5(file_path)
+    except FileNotFoundError:
+        return {
+            "is_valid": False,
+            "status": "File not found",
+            "signature_status_issues": False,
+            "no_signature": True,
+            "has_microsoft_signature": False,
+            "has_valid_goodsign_signature": False,
+            "matches_antivirus_signature": False
+        }
+
+    if file_path in file_md5_cache:
+        last_md5, cached_result = file_md5_cache[file_path]
+        if last_md5 == md5:
+            return cached_result  # return from cache
+
+    # --- run full signature verification --- #
     hStore = wintypes.HANDLE()
     hMsg   = wintypes.HANDLE()
     encoding = wintypes.DWORD()
@@ -5469,7 +5491,7 @@ def check_signature(file_path: str) -> dict:
         None
     )
     if not ok:
-        return {
+        result = {
             "is_valid": False,
             "status": "No signature",
             "signature_status_issues": False,
@@ -5478,13 +5500,13 @@ def check_signature(file_path: str) -> dict:
             "has_valid_goodsign_signature": False,
             "matches_antivirus_signature": False
         }
+        file_md5_cache[file_path] = (md5, result)
+        return result
 
     try:
-        # --- 2) Do we actually have any signer certs? --- #
         pCertCtx = crypt32.CertEnumCertificatesInStore(hStore, None)
         if not pCertCtx:
-            # no certs in store -> unsigned
-            return {
+            result = {
                 "is_valid": False,
                 "status": "No signature",
                 "signature_status_issues": False,
@@ -5493,20 +5515,30 @@ def check_signature(file_path: str) -> dict:
                 "has_valid_goodsign_signature": False,
                 "matches_antivirus_signature": False
             }
+            file_md5_cache[file_path] = (md5, result)
+            return result
 
-        # --- 3) We found a cert, so let's verify the signature chain --- #
         hresult = verify_authenticode_signature(file_path)
-        hresult = hresult & 0xFFFFFFFF  # force unsigned 32-bit (win32 normalization)
-        
-        is_valid = (hresult == 0)
-        status = (
-            "Valid" if is_valid
-            else "No signature" if hresult in NO_SIGNATURE_CODES
-            else "Invalid signature"
-        )
-        signature_status_issues = not (is_valid or (hresult in NO_SIGNATURE_CODES))
+        hresult = hresult & 0xFFFFFFFF
 
-        # --- 4) (optional) inspect the cert if valid, as before --- #
+        is_valid = (hresult == 0)
+        no_sig   = (hresult in NO_SIGNATURE_CODES)
+
+        if is_valid:
+            status = "Valid"
+        elif no_sig:
+            status = "No signature"
+        elif hresult == CERT_E_UNTRUSTEDROOT:
+            status = "Untrusted root"
+        elif hresult == TRUST_E_BAD_DIGEST:
+            status = f"Fully invalid (bad digest) (HRESULT=0x{hresult:08X})"
+        elif hresult == TRUST_E_CERT_SIGNATURE:
+            status = f"Fully invalid (cert signature verify failed) (HRESULT=0x{hresult:08X})"
+        else:
+            status = f"Invalid signature (HRESULT=0x{hresult:08X})"
+
+        signature_status_issues = (not is_valid) and (not no_sig)
+
         has_ms_sig = False
         has_goodsign = False
         matches_av = False
@@ -5522,15 +5554,19 @@ def check_signature(file_path: str) -> dict:
                         matches_av = True
                         break
 
-        return {
+        result = {
             "is_valid": is_valid,
             "status": status,
             "signature_status_issues": signature_status_issues,
-            "no_signature": (hresult in NO_SIGNATURE_CODES),
+            "no_signature": no_sig,
             "has_microsoft_signature": has_ms_sig,
             "has_valid_goodsign_signature": has_goodsign,
             "matches_antivirus_signature": matches_av
         }
+
+        # save to cache
+        file_md5_cache[file_path] = (md5, result)
+        return result
 
     finally:
         # always clean up
@@ -5540,32 +5576,6 @@ def check_signature(file_path: str) -> dict:
             crypt32.CertCloseStore(hStore, 0)
         if hMsg:
             crypt32.CryptMsgClose(hMsg)
-
-def check_valid_signature(file_path: str) -> dict:
-    """
-    Returns {"is_valid": bool, "status": str}.
-    Properly distinguishes between No signature, Invalid signature, and Valid.
-    """
-    try:
-        result = verify_authenticode_signature(file_path)
-        hresult = result & 0xFFFFFFFF  # force unsigned 32-bit
-
-        if hresult == 0:
-            is_valid = True
-            status = "Valid"
-        elif hresult in NO_SIGNATURE_CODES:
-            is_valid = False
-            status = "No signature"
-        else:
-            is_valid = False
-            status = "Invalid signature"
-            logging.critical(f"[Invalid signature] {file_path}: {status}")
-
-        return {"is_valid": is_valid, "status": status}
-
-    except Exception as ex:
-        logging.error(f"[Signature] {file_path}: {ex}")
-        return {"is_valid": False, "status": str(ex)}
 
 def is_encrypted(zip_info):
     """Check if a ZIP entry is encrypted."""
@@ -6513,7 +6523,7 @@ def convert_ip_to_file(src_ip, dst_ip, alert_line, status):
                             if sandboxie_folder.lower() not in file_path.lower() and file_path.lower() != main_file_path.lower():
                                 continue
 
-                            signature_info = check_valid_signature(file_path)
+                            signature_info = check_signature(file_path)
                             if status == "Info":
                                 if not signature_info["is_valid"]:
                                     logging.info(f"File {file_path} associated with IP {src_ip} or {dst_ip} has an invalid or no signature. Alert Line: {alert_line}")
