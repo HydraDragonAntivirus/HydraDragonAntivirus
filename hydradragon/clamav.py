@@ -11,7 +11,24 @@ from ctypes import (
     c_void_p, byref
 )
 
-logging.basicConfig(level=logging.INFO, format='[clamav-wrapper] %(levelname)s: %(message)s')
+# Set script directory
+script_dir = os.getcwd()
+
+# Define log directories and files
+log_directory = os.path.join(script_dir, "log")
+if not os.path.exists(log_directory):
+    os.makedirs(log_directory)
+
+clamav_log_file = os.path.join(
+    log_directory, "clamav.log"
+)
+
+# Configure logging for clamav log
+logging.basicConfig(
+    filename=clamav_log_file,
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+)
 
 # --- helpers ---
 def _to_bytes_or_none(value):

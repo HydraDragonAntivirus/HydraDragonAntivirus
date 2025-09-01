@@ -28,6 +28,9 @@ stdout_console_log_file = os.path.join(
 stderr_console_log_file = os.path.join(
     log_directory, "antivirusconsolestderr.log"
 )
+clamav_log_file = os.path.join(
+    log_directory, "clamav.log"
+)
 application_log_file = os.path.join(
     log_directory, "antivirus.log"
 )
@@ -14525,7 +14528,7 @@ class Worker(QThread):
             logging.shutdown()
 
             # Remove log files if they exist
-            log_files = [stdout_console_log_file, stderr_console_log_file, application_log_file]
+            log_files = [stdout_console_log_file, stderr_console_log_file, application_log_file, clamav_log_file]
 
             for log_file in log_files:
                 if os.path.exists(log_file):
