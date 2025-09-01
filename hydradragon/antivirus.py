@@ -1731,20 +1731,26 @@ def analyze_file_with_die(file_path):
 def get_die_output(path: str) -> Tuple[str, bool]:
     """
     Returns (die_output, plain_text_flag), caching results by content MD5.
+    Uses get_die_output_binary() if the file is not plain text.
     """
+    # --- Special rule: force plain text for files in commandlineandmessage_dir --- #
+    if os.path.commonpath([path, commandlineandmessage_dir]) == commandlineandmessage_dir:
+        return "Binary\n    Format: plain text", True
+
     file_md5 = compute_md5(path)
     if file_md5 in die_cache:
         return die_cache[file_md5]
 
-    # first time for this content:
+    # First time for this content
     with open(path, "rb") as f:
         peek = f.read(8192)
+
     if is_plain_text(peek):
         die_output = "Binary\n    Format: plain text"
         plain_text_flag = True
     else:
-        die_output = analyze_file_with_die(path)
-        plain_text_flag = is_plain_text_data(die_output)
+        die_output = get_die_output_binary(path)  # delegate to binary cache
+        plain_text_flag = False  # skip text detection here
 
     die_cache[file_md5] = (die_output, plain_text_flag)
     return die_output, plain_text_flag
