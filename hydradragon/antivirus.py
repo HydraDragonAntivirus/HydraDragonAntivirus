@@ -1729,6 +1729,21 @@ def analyze_file_with_die(file_path):
         logging.error(error_msg)
         return None
 
+def get_die_output_binary(path: str) -> str:
+    """
+    Returns die_output for a non plain text file, caching by content MD5.
+    (Assumes the file isn't plain text, so always calls analyze_file_with_die()
+     on cache miss.)
+    """
+    file_md5 = compute_md5(path)
+    if file_md5 in binary_die_cache:
+        return binary_die_cache[file_md5]
+
+    # First time for this content: run DIE and cache
+    die_output = analyze_file_with_die(path)
+    binary_die_cache[file_md5] = die_output
+    return die_output
+
 def get_die_output(path: str) -> Tuple[str, bool]:
     """
     Returns (die_output, plain_text_flag), caching results by content MD5.
@@ -1755,21 +1770,6 @@ def get_die_output(path: str) -> Tuple[str, bool]:
 
     die_cache[file_md5] = (die_output, plain_text_flag)
     return die_output, plain_text_flag
-
-def get_die_output_binary(path: str) -> str:
-    """
-    Returns die_output for a non plain text file, caching by content MD5.
-    (Assumes the file isn't plain text, so always calls analyze_file_with_die()
-     on cache miss.)
-    """
-    file_md5 = compute_md5(path)
-    if file_md5 in binary_die_cache:
-        return binary_die_cache[file_md5]
-
-    # First time for this content: run DIE and cache
-    die_output = analyze_file_with_die(path)
-    binary_die_cache[file_md5] = die_output
-    return die_output
 
 def is_go_garble_from_output(die_output):
     """
